@@ -18,7 +18,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -432,7 +432,6 @@ type SuppressionRemoval = {
 type SuppressionEntry = {
   action: SuppressionAction;
   removed?: SuppressionRemoval;
-  observedViews: Set<string>;
 };
 
 // Keyed by thread, then by entry id: two mutations can hide the same thread at
@@ -464,7 +463,7 @@ export function suppressThread(
 ): number {
   const id = nextSuppressionId++;
   const entries = suppressedThreads.get(threadId) ?? new Map();
-  entries.set(id, { action, removed, observedViews: new Set() });
+  entries.set(id, { action, removed });
   suppressedThreads.set(threadId, entries);
   notifySuppressionListeners();
   return id;
@@ -489,11 +488,10 @@ export function releaseSuppressionClaims(
   threadId: string,
   ids: readonly number[],
 ): boolean {
-  let isClear = false;
-  for (const id of ids) {
-    if (releaseSuppression(threadId, id)) isClear = true;
-  }
-  return isClear;
+  for (const id of ids) releaseSuppression(threadId, id);
+  // Keep token ids stable after provider evidence retires a claim: an Undo
+  // toast can outlive that evidence and still needs to send its inverse.
+  return !suppressedThreads.has(threadId);
 }
 
 export type SuppressionClaimToken = {
@@ -537,9 +535,7 @@ function useSuppressionClaims() {
       inboxMutationIds: new Map(),
     }),
     getSuppressionIds: (token: SuppressionClaimToken, threadId: string) =>
-      (token.ids.get(threadId) ?? []).filter((id) =>
-        suppressedThreads.get(threadId)?.has(id),
-      ),
+      token.ids.get(threadId) ?? [],
   };
 }
 
@@ -573,10 +569,6 @@ function isSuppressedInView(
   return removed.views?.includes(view) ?? false;
 }
 
-function suppressionViewKey(view: string, label?: string): string {
-  return `${view}\u0000${label ?? ""}`;
-}
-
 function suppressionAffectsView(
   removed: SuppressionRemoval | undefined,
   view: string,
@@ -592,20 +584,37 @@ function suppressionAffectsView(
 
 /** Release a claim only after the same list has observed the provider state. */
 function reconcileSuppressionEvidence(
-  emails: EmailMessage[],
+  pages: readonly EmailsPage[],
   view: string,
   label?: string,
+  search?: string,
 ) {
-  const key = suppressionViewKey(view, label);
-  const present = new Set(emails.map((email) => email.threadId || email.id));
+  // Search indexes have different consistency and pagination semantics from
+  // the canonical list. They must not retire a claim for that list.
+  if (search) return;
+  const present = new Set(
+    pages.flatMap((page) =>
+      page.emails.map((email) => email.threadId || email.id),
+    ),
+  );
   const releases: Array<[string, number]> = [];
 
   for (const [threadId, entries] of suppressedThreads) {
     const isPresent = present.has(threadId);
     for (const [id, entry] of entries) {
-      const wasObserved = entry.observedViews.has(key);
-      if (isPresent) entry.observedViews.add(key);
-      if (!wasObserved) continue;
+      // Every loaded page must come from a request that started after this
+      // claim. This excludes placeholder/local cache data and out-of-order
+      // responses while still allowing the first fresh response to settle a
+      // mutation that Gmail has already reflected.
+      if (
+        pages.some(
+          (page) =>
+            typeof page.suppressionFence !== "number" ||
+            page.suppressionFence < id,
+        )
+      ) {
+        continue;
+      }
 
       const observedFinalLocation = entry.removed?.onlyIn === view && isPresent;
       const observedRemoval =
@@ -1015,7 +1024,13 @@ interface EmailsPage {
   totalEstimate?: number;
   /** Present when some (not all) connected accounts failed this fetch. */
   accountErrors?: AccountError[];
+  /** Client-only evidence that this page came from a provider request. */
+  providerSnapshotId?: number;
+  /** Highest suppression claim id that existed when the request started. */
+  suppressionFence?: number;
 }
+
+let nextEmailProviderSnapshotId = 0;
 
 // Retryable: transient upstream trouble (gateway) and network errors with no
 // status at all. Never an auth failure — retrying a 401/403 just burns time
@@ -1046,6 +1061,8 @@ function emailQueryOptions(
       pageParam: string | undefined;
       signal: AbortSignal;
     }) => {
+      const providerSnapshotId = ++nextEmailProviderSnapshotId;
+      const suppressionFence = nextSuppressionId - 1;
       const params = new URLSearchParams({ view });
       params.set("limit", String(EMAIL_PAGE_SIZE));
       if (search) params.set("q", search);
@@ -1071,7 +1088,11 @@ function emailQueryOptions(
           );
         },
       });
-      return accountErrors ? { ...page, accountErrors } : page;
+      return {
+        ...(accountErrors ? { ...page, accountErrors } : page),
+        providerSnapshotId,
+        suppressionFence,
+      };
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
@@ -1156,13 +1177,29 @@ export function useEmails(
     () => optimisticOverrideVersion,
     () => optimisticOverrideVersion,
   );
+  const lastProviderSnapshotId = useRef(0);
+  const providerSnapshotId =
+    q.data?.pages.reduce(
+      (latest, page: EmailsPage) =>
+        Math.max(latest, page.providerSnapshotId ?? 0),
+      0,
+    ) ?? 0;
 
   useEffect(() => {
-    if (!q.data) return;
-    const emails = q.data.pages.flatMap((page: EmailsPage) => page.emails);
-    reconcileSuppressionEvidence(emails, view, label);
-    if (!q.isPlaceholderData) reconcileOptimisticOverrides(emails);
-  }, [q.data, q.isPlaceholderData, view, label]);
+    if (
+      !q.data ||
+      q.isPlaceholderData ||
+      providerSnapshotId === 0 ||
+      providerSnapshotId === lastProviderSnapshotId.current
+    )
+      return;
+    lastProviderSnapshotId.current = providerSnapshotId;
+    reconcileSuppressionEvidence(q.data.pages, view, label, search);
+    if (!search) {
+      const emails = q.data.pages.flatMap((page: EmailsPage) => page.emails);
+      reconcileOptimisticOverrides(emails);
+    }
+  }, [q.data, q.isPlaceholderData, view, search, label, providerSnapshotId]);
 
   const data = useMemo(() => {
     if (!q.data) return undefined;

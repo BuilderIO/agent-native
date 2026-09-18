@@ -176,6 +176,30 @@ describe("optimistic property overrides", () => {
   });
 });
 
+describe("suppression evidence", () => {
+  it("does not use placeholder or search data to retire canonical claims", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain("providerSnapshotId");
+    expect(source).toContain("suppressionFence");
+    expect(source).toContain("if (search) return;");
+    expect(source).toContain("q.isPlaceholderData");
+    expect(source).toContain("page.suppressionFence < id");
+  });
+
+  it("keeps an Undo claim addressable after evidence retires it", () => {
+    const threadId = "thread-evidence-settled";
+    const id = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+
+    // Provider evidence can retire the active suppression before the toast's
+    // Undo callback runs.
+    expect(releaseSuppression(threadId, id)).toBe(true);
+    expect(releaseSuppressionClaims(threadId, [id])).toBe(true);
+  });
+});
+
 describe("consumeExternalEmailRefresh", () => {
   afterEach(() => {
     consumeExternalEmailRefresh();
