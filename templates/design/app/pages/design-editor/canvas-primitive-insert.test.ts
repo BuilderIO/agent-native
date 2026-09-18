@@ -5,6 +5,7 @@ import { createCornerNode, type PenPath } from "@shared/pen-path";
 import {
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
+  vectorEndpointMarkerId,
 } from "@shared/vector-endpoints";
 import { describe, expect, it } from "vitest";
 
@@ -949,9 +950,19 @@ describe("arrow paint target", () => {
     ).toBe("auto-start-reverse");
     expect(
       svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("refX"),
+    ).toBe("8");
+    expect(
+      svg
         ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
         ?.getAttribute("orient"),
     ).toBe("auto");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("refX"),
+    ).toBe("8");
   });
 
   it.each([
@@ -1012,6 +1023,12 @@ describe("arrow paint target", () => {
     expect(copied).not.toContain('id="line-1-vector-marker-end"');
     expect(copied).toContain(`id="${nextId}-vector-marker-end"`);
     expect(copied).toContain(`url(#${nextId}-vector-marker-end)`);
+  });
+
+  it("keeps marker IDs distinct when node IDs sanitize to the same value", () => {
+    expect(vectorEndpointMarkerId("a.b", "end")).not.toBe(
+      vectorEndpointMarkerId("a-b", "end"),
+    );
   });
 });
 

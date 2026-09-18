@@ -12374,7 +12374,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     side: "start" | "end",
   ): string {
     var safeNodeId = nodeId.replace(/[^A-Za-z0-9_-]/g, "-") || "vector";
-    return safeNodeId + "-vector-marker-" + side;
+    var safePrefix = /^[A-Za-z_]/.test(safeNodeId)
+      ? safeNodeId
+      : "vector-" + safeNodeId;
+    var encodedNodeId = nodeId
+      .split("")
+      .map(function (character) {
+        return character.charCodeAt(0).toString(16).padStart(4, "0");
+      })
+      .join("");
+    var markerNodeId =
+      safePrefix === safeNodeId && safeNodeId === nodeId
+        ? safeNodeId
+        : safePrefix + "." + (encodedNodeId || "0");
+    return markerNodeId + "-vector-marker-" + side;
   }
 
   function vectorEndpointShapeForRuntime(
@@ -12506,7 +12519,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       marker.setAttribute("id", markerId);
       marker.setAttribute("markerWidth", "10");
       marker.setAttribute("markerHeight", "10");
-      marker.setAttribute("refX", side === "start" ? "2" : "8");
+      marker.setAttribute("refX", "8");
       marker.setAttribute("refY", "5");
       marker.setAttribute(
         "orient",
@@ -12527,7 +12540,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (endpoint === "none") {
       shape.removeAttribute(side === "start" ? "marker-start" : "marker-end");
-      wrapperStyle.removeProperty(cssProperty);
+      wrapperStyle.setProperty(cssProperty, "none");
     } else {
       shape.setAttribute(
         side === "start" ? "marker-start" : "marker-end",

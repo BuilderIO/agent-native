@@ -58,14 +58,15 @@ describe("live vector endpoint style changes", () => {
           document
             .querySelector('[data-agent-native-node-id="line.1"] line')
             ?.getAttribute("marker-start") ===
-          "url(#line-1-vector-marker-start)",
+          "url(#line-1.006c0069006e0065002e0031-vector-marker-start)",
       );
       await sendStyleChange(page, "--an-vector-end-point", "circle");
       await page.waitForFunction(
         () =>
           document
             .querySelector('[data-agent-native-node-id="line.1"] line')
-            ?.getAttribute("marker-end") === "url(#line-1-vector-marker-end)",
+            ?.getAttribute("marker-end") ===
+          "url(#line-1.006c0069006e0065002e0031-vector-marker-end)",
       );
 
       const rendered = await page.evaluate(() => {
@@ -79,6 +80,12 @@ describe("live vector endpoint style changes", () => {
           startOrient: svg
             ?.querySelector('[data-an-vector-endpoint-marker="start"]')
             ?.getAttribute("orient"),
+          startRefX: svg
+            ?.querySelector('[data-an-vector-endpoint-marker="start"]')
+            ?.getAttribute("refX"),
+          endRefX: svg
+            ?.querySelector('[data-an-vector-endpoint-marker="end"]')
+            ?.getAttribute("refX"),
           endShape: svg
             ?.querySelector('[data-an-vector-endpoint-marker="end"] > circle')
             ?.tagName.toLowerCase(),
@@ -90,9 +97,12 @@ describe("live vector endpoint style changes", () => {
         startStyle: "triangle",
         endStyle: "circle",
         startOrient: "auto-start-reverse",
+        startRefX: "8",
+        endRefX: "8",
         endShape: "circle",
-        startReference: "url(#line-1-vector-marker-start)",
-        endReference: "url(#line-1-vector-marker-end)",
+        startReference:
+          "url(#line-1.006c0069006e0065002e0031-vector-marker-start)",
+        endReference: "url(#line-1.006c0069006e0065002e0031-vector-marker-end)",
       });
 
       await sendStyleChange(page, "--an-vector-start-point", "none");
@@ -116,8 +126,8 @@ describe("live vector endpoint style changes", () => {
         })),
       ).toEqual({
         startMarker: null,
-        endReference: "url(#line-1-vector-marker-end)",
-        startStyle: "",
+        endReference: "url(#line-1.006c0069006e0065002e0031-vector-marker-end)",
+        startStyle: "none",
       });
       expect(pageErrors).toEqual([]);
     } finally {

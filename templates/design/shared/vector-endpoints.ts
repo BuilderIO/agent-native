@@ -103,7 +103,23 @@ export function vectorEndpointMarkerId(
   side: VectorEndpointSide,
 ): string {
   const safeNodeId = nodeId.replace(/[^A-Za-z0-9_-]/g, "-") || "vector";
-  return `${safeNodeId}-vector-marker-${side}`;
+  const safePrefix = /^[A-Za-z_]/.test(safeNodeId)
+    ? safeNodeId
+    : `vector-${safeNodeId}`;
+  // Keep readable ids for the common case, but include a lossless encoding
+  // whenever sanitisation changed the id so `a.b` and `a-b` cannot collide.
+  const markerNodeId =
+    safePrefix === safeNodeId && safeNodeId === nodeId
+      ? safeNodeId
+      : `${safePrefix}.${
+          nodeId
+            .split("")
+            .map((character) =>
+              character.charCodeAt(0).toString(16).padStart(4, "0"),
+            )
+            .join("") || "0"
+        }`;
+  return `${markerNodeId}-vector-marker-${side}`;
 }
 
 export function vectorEndpointShape(
@@ -201,7 +217,7 @@ function markerMarkup(
   const attributes = Object.entries(shape.attributes)
     .map(([name, value]) => `${name}="${escapeMarkup(value)}"`)
     .join(" ");
-  const refX = side === "start" ? "2" : "8";
+  const refX = "8";
   return `<marker data-an-vector-endpoint-marker="${side}" id="${escapeMarkup(vectorEndpointMarkerId(nodeId, side))}" markerWidth="10" markerHeight="10" refX="${refX}" refY="5" orient="${vectorEndpointMarkerOrientation(side)}" markerUnits="strokeWidth"><${shape.tag} ${attributes}/></marker>`;
 }
 

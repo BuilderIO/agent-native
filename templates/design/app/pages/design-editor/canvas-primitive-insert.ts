@@ -122,11 +122,22 @@ export function reassignDuplicatedNodeIds(content: string): string {
   );
   if (nodeIdMap.size === 0) return withNewNodeIds;
 
+  const legacyVectorEndpointMarkerId = (
+    nodeId: string,
+    side: "start" | "end",
+  ): string => {
+    const safeNodeId = nodeId.replace(/[^A-Za-z0-9_-]/g, "-") || "vector";
+    return `${safeNodeId}-vector-marker-${side}`;
+  };
+
   const rewriteReference = (id: string): string => {
     for (const [oldNodeId, nextNodeId] of nodeIdMap) {
       if (id === `${oldNodeId}-arrow`) return `${nextNodeId}-arrow`;
       for (const side of ["start", "end"] as const) {
-        if (id === vectorEndpointMarkerId(oldNodeId, side)) {
+        if (
+          id === vectorEndpointMarkerId(oldNodeId, side) ||
+          id === legacyVectorEndpointMarkerId(oldNodeId, side)
+        ) {
           return vectorEndpointMarkerId(nextNodeId, side);
         }
       }
