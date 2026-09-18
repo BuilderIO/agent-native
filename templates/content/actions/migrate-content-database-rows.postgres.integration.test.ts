@@ -680,7 +680,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     60_000,
   );
 
-  it("retries permanent deletion when a new external membership expands the lock set", async () => {
+  it("rejects a stale permanent-delete plan when a new external membership expands the lock set", async () => {
     const seed = await fixture();
     const stamp = "2026-01-01T00:00:00.000Z";
     const externalDatabaseId = `aaa_external_${seed.databaseId}`;
@@ -750,20 +750,22 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       });
       releaseHolder();
       await holder;
-      await deletion;
+      await expect(deletion).rejects.toThrow(
+        "Trash changed after review; create and inspect a new plan",
+      );
 
       expect(
         await getDb()
           .select()
           .from(schema.documents)
           .where(eq(schema.documents.id, seed.documentId)),
-      ).toHaveLength(0);
+      ).toHaveLength(1);
       expect(
         await getDb()
           .select()
           .from(schema.contentDatabaseItems)
           .where(eq(schema.contentDatabaseItems.id, externalItemId)),
-      ).toHaveLength(0);
+      ).toHaveLength(1);
       expect(
         await getDb()
           .select()
