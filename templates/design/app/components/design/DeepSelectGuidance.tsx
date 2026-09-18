@@ -12,6 +12,7 @@ export function DeepSelectGuidance({ onDismiss }: { onDismiss: () => void }) {
     <div
       data-design-deep-select-guidance
       className="pointer-events-none absolute inset-x-0 top-4 z-[70] flex justify-center px-4"
+      onClick={(event) => event.stopPropagation()}
     >
       <div
         role="status"
