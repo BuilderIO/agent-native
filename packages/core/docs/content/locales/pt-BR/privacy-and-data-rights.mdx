@@ -1,0 +1,63 @@
+---
+title: "Privacidade e direitos sobre dados"
+description: "Padrões do framework e responsabilidades do operador para solicitações de dados do GDPR e da CCPA."
+---
+
+# Privacidade e direitos sobre dados
+
+O Agent-Native inclui uma área de solicitações de privacidade nas configurações padrão da conta. Uma pessoa conectada pode solicitar uma cópia dos seus dados pessoais ou pedir sua exclusão.
+
+Isto é uma base de implementação, não aconselhamento jurídico nem certificação de conformidade. A organização que opera o aplicativo deve definir seu papel legal e publicar os avisos e processos adequados ao seu deployment.
+
+## O que os usuários podem fazer
+
+Abra **Configurações > Conta > Privacidade e dados** para:
+
+- solicitar uma cópia de dados pessoais para análise de acesso ou portabilidade;
+- solicitar a exclusão de dados pessoais para análise de eliminação;
+- corrigir dados da conta pelos controles existentes de perfil e e-mail.
+
+As solicitações são persistentes, idempotentes e auditadas. A action armazena apenas tipo, status e horário. Ela não retorna um dump de dados, não aceita e-mail ou ID de outra pessoa e não exclui dados imediatamente.
+
+## O que os agentes não podem fazer
+
+As solicitações são enviadas pelas configurações da conta. A action `request-privacy-right` é autenticada, fica oculta das ferramentas do agente e da descoberta MCP/A2A, é bloqueada pela ponte de ferramentas e só autoriza o chamador frontend.
+
+A action principal `offboard-member` tem o mesmo limite UI-only. Desativar um membro é uma operação da organização que transfere linhas próprias e revoga acesso; não é a eliminação da conta. A exclusão da organização também continua atrás da confirmação do proprietário na UI.
+
+Prompts de aprovação humana não são um limite de segurança. Para uma action personalizada que apague dados, revogue identidade, altere membros ou autenticação, use um limite UI-only explícito e derive a identidade do contexto de requisição verificado.
+
+## Cumprimento pelo operador
+
+O framework registra a solicitação. O operador deve:
+
+1. verificar a identidade e determinar a organização e o escopo legal;
+2. coletar os dados sob controle do deployment e entregá-los por canal privado e protegido;
+3. excluir ou anonimizar linhas e arquivos privados, revogar sessões e credenciais quando necessário e coordenar provedores e processadores conectados;
+4. aplicar a política de retenção a backups, logs de segurança e auditoria, prevenção de fraude e exceções documentadas;
+5. registrar conclusão, atendimento parcial ou motivo do bloqueio e comunicar o resultado ao solicitante.
+
+Não considere a solicitação concluída porque uma linha da organização ou uma configuração foi removida. Provedores hospedados, uploads, serviços conectados, caches, backups e registros de auditoria imutáveis podem ter caminhos próprios de retenção e exclusão.
+
+## Postura de privacidade padrão
+
+Novos recursos compartilháveis são privados por padrão. A análise no navegador mantém a captura automática de DOM e rede desligada, e a reprodução de sessão é opcional e apenas para usuários conectados quando configurada. Esses padrões não substituem aviso de privacidade, análise de base legal, política de retenção ou controles de consentimento e opt-out.
+
+Se o deployment vender ou compartilhar informações pessoais, deverá oferecer o opt-out aplicável da CCPA e tratar o Global Privacy Control. O framework não cria um programa de venda ou compartilhamento.
+
+## Checklist de deployment
+
+- Publicar aviso de privacidade com categorias, finalidades, destinatários, retenção, direitos e contato.
+- Definir e documentar bases legais, consentimento, dados sensíveis e requisitos de idade.
+- Designar responsável e fluxo para solicitações de acesso, correção, exclusão, portabilidade, oposição e opt-out.
+- Mapear tabelas, arquivos privados, analytics, serviços conectados, e-mail, caches, logs, backups e subprocessadores.
+- Definir verificação, prazos, exceções de retenção, evidências de exclusão e recursos.
+- Manter actions de alto impacto como UI-only e testar chamadas de agente, MCP, A2A, CLI, HTTP e ponte de ferramentas.
+
+## Referências
+
+- [Texto do GDPR](https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng/)
+- [Comissão Europeia: solicitações individuais](https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/dealing-requests-individuals_en)
+- [California Attorney General: CCPA](https://www.oag.ca.gov/privacy/ccpa)
+- [Regulamentos da CCPA](https://www.oag.ca.gov/privacy/ccpa/regs)
+- [Política de privacidade do Hosted Agent-Native](/privacy)

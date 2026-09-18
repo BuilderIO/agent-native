@@ -1010,6 +1010,28 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
     );
   });
 
+  it("guards UI-only actions in generated workers", () => {
+    const source = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [
+        {
+          name: "delete-data",
+          absPath: "/tmp/delete-data.ts",
+          method: "post",
+          uiOnly: true,
+        },
+      ],
+    );
+
+    expect(source).toContain(
+      "hasUiActionCapability as hasGeneratedUiActionCapability",
+    );
+    expect(source).toContain("if (!hasGeneratedUiActionCapability(event))");
+    expect(source).toContain('errorCode: "ui_capability_required"');
+  });
+
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
     const agentChatPlugin = path.join(

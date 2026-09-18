@@ -1200,6 +1200,7 @@ export function generateWorkerEntry(
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
   );
+  const hasUiOnlyActions = actions.some((action) => action.uiOnly === true);
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -1243,7 +1244,20 @@ export function generateWorkerEntry(
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  const ${handlerName} = defineEventHandler(async (event) => {
-    const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
+${
+  a.uiOnly
+    ? `    if (!hasGeneratedUiActionCapability(event)) {
+      return new Response(
+        JSON.stringify({
+          error: "This action can only be called from the signed-in app UI.",
+          errorCode: "ui_capability_required",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
+`
+    : ""
+}    const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
     const requestMethod = event.req.method;
     const isFrontendMutation =
       event.req.headers.get("x-agent-native-frontend") === "1" &&
@@ -1292,6 +1306,7 @@ ${["post", "put", "delete"]
   getAppConfig as getAgentNativeAppConfig,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
+${hasUiOnlyActions ? "  hasUiActionCapability as hasGeneratedUiActionCapability,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 

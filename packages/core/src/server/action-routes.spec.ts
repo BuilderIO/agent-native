@@ -251,6 +251,44 @@ describe("mountActionRoutes", () => {
     },
   );
 
+  it("does not trust the frontend header for UI-only actions", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        "delete-account-data": {
+          run,
+          uiOnly: true,
+          agentTool: false,
+          mcpTool: false,
+          toolCallable: false,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "owner@example.com" },
+    );
+
+    const event = {
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    };
+
+    await expect(mounted[0]!.handler(event)).resolves.toEqual({
+      error: "This action can only be called from the signed-in app UI.",
+      errorCode: "ui_capability_required",
+    });
+    expect(event._status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it.each(["GET", "HEAD", "OPTIONS"] as const)(
     "does not treat a frontend POST as a %s action call",
     async (method) => {

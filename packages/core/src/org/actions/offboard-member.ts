@@ -13,6 +13,7 @@ export default defineAction({
     email: z.string().email(),
     transferTo: z.string().email(),
   }),
+  uiOnly: true,
   agentTool: false,
   mcpTool: false,
   toolCallable: false,

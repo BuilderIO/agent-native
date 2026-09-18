@@ -61,6 +61,7 @@ import {
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
 import { getForwardedRequestOrigin } from "./request-origin.js";
+import { hasUiActionCapability } from "./ui-action-capability.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -712,6 +713,20 @@ function mountActionRoutesInternal(
             orgId = await storedActiveOrgId(userEmail);
           }
         }
+        const frontendCaller =
+          !options?.caller && !resolvedCaller && isFrontendActionRequest(event);
+        if (
+          entry.uiOnly === true &&
+          (!frontendCaller ||
+            !userEmail ||
+            !hasUiActionCapability(event, userEmail))
+        ) {
+          setResponseStatus(event, 403);
+          return {
+            error: "This action can only be called from the signed-in app UI.",
+            errorCode: "ui_capability_required",
+          };
+        }
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
@@ -1118,7 +1133,8 @@ export function mountWebMcpActionRoutes(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
         isActionExposedToExternalAgents(entry) &&
-        entry.agentTool !== false,
+        entry.agentTool !== false &&
+        entry.uiOnly !== true,
     ),
   );
   const publicEligible = Object.fromEntries(

@@ -208,13 +208,16 @@ describe("user profile actions", () => {
     expect(requestPrivacyRight.agentTool).toBe(false);
     expect(requestPrivacyRight.mcpTool).toBe(false);
     expect(requestPrivacyRight.toolCallable).toBe(false);
+    expect(requestPrivacyRight.uiOnly).toBe(true);
 
     await expect(
       requestPrivacyRight.run(
         { requestType: "access" },
         { caller: "tool", userEmail: "alice@example.com" },
       ),
-    ).rejects.toThrow("Not authorized");
+    ).rejects.toThrow(
+      "This action can only be called from the signed-in app UI.",
+    );
     expect(mutateUserSettingMock).toHaveBeenCalledTimes(2);
   });
 

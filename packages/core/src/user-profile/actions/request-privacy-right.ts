@@ -25,6 +25,7 @@ export default defineAction({
       "The privacy right to request: access for a copy of personal data, or deletion for erasure review.",
     ),
   }),
+  uiOnly: true,
   agentTool: false,
   mcpTool: false,
   toolCallable: false,

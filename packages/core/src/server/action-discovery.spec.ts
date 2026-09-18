@@ -449,7 +449,9 @@ describe("action discovery", () => {
           { email: "alice@example.com", transferTo: "bob@example.com" },
           { caller: "tool", userEmail: "alice@example.com" },
         ),
-      ).rejects.toThrow("Not authorized");
+      ).rejects.toThrow(
+        "This action can only be called from the signed-in app UI.",
+      );
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
