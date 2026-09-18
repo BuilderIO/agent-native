@@ -399,8 +399,10 @@ async function addUrlBackedDropTarget(
         op: "set",
         path: ["screenMetadata", screenId],
         value: {
-          sourceType: "url",
+          sourceType: "localhost",
+          previewState: "live",
           url: URL_BACKED_TARGET_URL,
+          previewUrl: URL_BACKED_TARGET_URL,
           title: "URL-backed target",
           width: 800,
           height: 600,
@@ -724,6 +726,11 @@ test.describe("authenticated beta Design interactions", () => {
       );
       await expect(source).toBeVisible({ timeout: 30_000 });
       await expect(urlTarget).toBeVisible({ timeout: 30_000 });
+      await expect(
+        urlTarget
+          .contentFrame()
+          .locator('[data-agent-native-node-id="external-target"]'),
+      ).toBeVisible({ timeout: 30_000 });
       const sourceBox = (await source.boundingBox())!;
       const targetBox = (await urlTarget.boundingBox())!;
       const beforeBoard = await readSource(page, designId, "__board__.html");

@@ -279,6 +279,18 @@ async function selectLayer(page: Page, name: string): Promise<void> {
   await expect.poll(() => chromeBounds(page)).not.toBeNull();
 }
 
+async function layerNameForNode(
+  page: Page,
+  screenId: string,
+  nodeId: string,
+): Promise<string> {
+  const name = await designFrame(page, screenId)
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .getAttribute("data-agent-native-layer-name");
+  if (!name) throw new Error(`missing layer name for ${nodeId}`);
+  return name;
+}
+
 async function boxFor(page: Page, screenId: string, nodeId: string) {
   const box = await designFrame(page, screenId)
     .locator(`[data-agent-native-node-id="${nodeId}"]`)
@@ -471,11 +483,7 @@ async function dragRootHeldWithOracle(
 }> {
   await selectLayer(
     page,
-    sourceLayerName ??
-      sourceId
-        .split("-")
-        .join(" ")
-        .replace(/\b\w/g, (c: string) => c.toUpperCase()),
+    sourceLayerName ?? (await layerNameForNode(page, screenId, sourceId)),
   );
   const source = await boxFor(page, screenId, sourceId);
   const target = await boxFor(page, screenId, targetId);
@@ -593,33 +601,41 @@ async function dragHeld(
             x: target.x + target.width / 2,
             y: target.y + target.height / 2,
           };
-  if (options.modifier) await page.keyboard.down(options.modifier);
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  await page.mouse.move(start.x + 12, start.y + 8, { steps: 5 });
-  if (options.modifier && options.releaseModifierBeforeMouse) {
-    await page.keyboard.up(options.modifier);
+  let mouseHeld = false;
+  let modifierHeld = false;
+  try {
+    if (options.modifier) {
+      modifierHeld = true;
+      await page.keyboard.down(options.modifier);
+    }
+    await page.mouse.move(start.x, start.y);
+    mouseHeld = true;
+    await page.mouse.down();
+    await page.mouse.move(start.x + 12, start.y + 8, { steps: 5 });
+    if (options.modifier && options.releaseModifierBeforeMouse) {
+      await page.keyboard.up(options.modifier);
+      modifierHeld = false;
+    }
+    await page.mouse.move(end.x, end.y, { steps: 24 });
+    await page.waitForTimeout(250);
+    const guide = designFrame(page, screenId).locator(
+      "[data-agent-native-insertion-guide]",
+    );
+    const during = await guide.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return {
+        display: style.display,
+        width: rect.width,
+        height: rect.height,
+        border: style.border,
+      };
+    });
+    return { source, target, during };
+  } finally {
+    if (mouseHeld) await page.mouse.up();
+    if (modifierHeld) await page.keyboard.up(options.modifier!);
   }
-  await page.mouse.move(end.x, end.y, { steps: 24 });
-  await page.waitForTimeout(250);
-  const guide = designFrame(page, screenId).locator(
-    "[data-agent-native-insertion-guide]",
-  );
-  const during = await guide.evaluate((element) => {
-    const style = getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    return {
-      display: style.display,
-      width: rect.width,
-      height: rect.height,
-      border: style.border,
-    };
-  });
-  await page.mouse.up();
-  if (options.modifier && !options.releaseModifierBeforeMouse) {
-    await page.keyboard.up(options.modifier);
-  }
-  return { source, target, during };
 }
 
 async function directChildren(page: Page, screenId: string, parentId: string) {
