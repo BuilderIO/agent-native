@@ -1198,16 +1198,18 @@ describe("mountActionRoutes", () => {
     await expect(
       mounted[0]!.handler({
         _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
         req: {
           url: "http://app.test/_agent-native/actions/list-files?designId=design_2",
         },
       }),
-    ).rejects.toMatchObject({ statusCode: 401 });
+    ).resolves.toEqual({ error: "Unauthorized" });
     expect(run).not.toHaveBeenCalled();
 
     await expect(
       mounted[0]!.handler({
         _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
         req: {
           url: "http://app.test/_agent-native/actions/list-files?designId=design%2F1",
         },
