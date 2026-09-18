@@ -2835,8 +2835,63 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
+    function portableStyleMutationAffectsCache(record) {
+      if (record.type === "attributes") {
+        return !(record.target instanceof Element && (record.attributeName === "data-an-pending-node-id" || isOverlayElement(record.target)));
+      }
+      if (record.type !== "childList") {
+        return !(record.target instanceof Node && record.target.parentElement && isOverlayElement(record.target.parentElement));
+      }
+      if (record.target instanceof Element && isOverlayElement(record.target)) {
+        return false;
+      }
+      var nodes = Array.prototype.slice.call(record.addedNodes).concat(Array.prototype.slice.call(record.removedNodes));
+      return nodes.length === 0 || nodes.some(function(node) {
+        return !(node instanceof Element && isOverlayElement(node) || node.parentElement && isOverlayElement(node.parentElement));
+      });
+    }
+    function portableStyleMutationGeneration(cache) {
+      try {
+        var records = cache.mutationObserver.takeRecords();
+        if (records.some(portableStyleMutationAffectsCache)) {
+          cache.mutationGeneration += 1;
+        }
+      } catch (_error) {
+        cache.mutationGeneration += 1;
+        dndLog("style:mutation-state-unreadable");
+      }
+      return cache.mutationGeneration;
+    }
+    function createPortableStyleComputedStylesCache() {
+      if (typeof MutationObserver === "undefined") return void 0;
+      var cache = {
+        entries: /* @__PURE__ */ new Map(),
+        mutationObserver: null,
+        mutationGeneration: 0
+      };
+      try {
+        var observer = new MutationObserver(function(records) {
+          if (records.some(portableStyleMutationAffectsCache)) {
+            cache.mutationGeneration += 1;
+          }
+        });
+        observer.observe(document, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          characterData: true
+        });
+        cache.mutationObserver = observer;
+        return cache;
+      } catch (_error) {
+        dndLog("style:mutation-observer-unavailable");
+        return void 0;
+      }
+    }
     function portableStyleAnimationParent(el) {
       try {
+        var assignedSlot = el.assignedSlot;
+        if (assignedSlot instanceof Element) return assignedSlot;
         if (el.parentElement) return el.parentElement;
         var getRootNode = el.getRootNode;
         if (typeof getRootNode !== "function") return null;
@@ -2850,12 +2905,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function canReadPortableAnimationState(el) {
       var animatedElement = el;
-      if (typeof animatedElement.getAnimations !== "function") {
-        dndLog("style:animation-state-unreadable", { tag: el.tagName });
-        return false;
-      }
       try {
-        var animations = animatedElement.getAnimations();
+        var getAnimations = animatedElement.getAnimations;
+        if (typeof getAnimations !== "function") {
+          dndLog("style:animation-state-unreadable", { tag: el.tagName });
+          return false;
+        }
+        var animations = getAnimations.call(animatedElement);
         if (!Array.isArray(animations)) {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
           return false;
@@ -2887,9 +2943,16 @@ export const editorChromeBridgeScript: string = `"use strict";
     function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
       var cacheSafe = !cache || canReusePortableComputedStyles(el);
-      if (cacheSafe && cache?.has(el)) return cache.get(el) || null;
+      var cacheGeneration = cache ? portableStyleMutationGeneration(cache) : void 0;
+      var cached = cache?.entries.get(el);
+      if (cacheSafe && cached && cached.generation === cacheGeneration) {
+        return cached.styles;
+      }
       var cacheFailure = function() {
-        if (cacheSafe) cache?.set(el, null);
+        var failureGeneration = cache ? portableStyleMutationGeneration(cache) : void 0;
+        if (cache && cacheSafe && failureGeneration === cacheGeneration) {
+          cache.entries.set(el, { generation: failureGeneration, styles: null });
+        }
         return null;
       };
       var cs = computedStyle || window.getComputedStyle(el);
@@ -2936,7 +2999,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
       }
-      if (cacheSafe) cache?.set(el, styles);
+      var finalGeneration = cache ? portableStyleMutationGeneration(cache) : void 0;
+      if (cache && cacheSafe && finalGeneration === cacheGeneration) {
+        cache.entries.set(el, { generation: finalGeneration, styles });
+      }
       return styles;
     }
     function collectPortableStyleSnapshot(root, cache, rootComputedStyle) {
@@ -3701,10 +3767,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           return documentSpaceBoundsContainPoint(el, atPoint);
         });
       }
-      var portableComputedStylesCache = /* @__PURE__ */ new Map();
-      return targets.map(function(target) {
-        return getElementInfo(target, portableComputedStylesCache);
-      });
+      portableStyleProbeDocument();
+      var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+      try {
+        return targets.map(function(target) {
+          return getElementInfo(target, portableComputedStylesCache);
+        });
+      } finally {
+        portableComputedStylesCache?.mutationObserver.disconnect();
+      }
     }
     function documentSpaceBoundsContainPoint(el, point) {
       var bounds = selectableBounds(el);

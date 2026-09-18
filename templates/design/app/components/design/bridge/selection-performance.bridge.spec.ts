@@ -736,6 +736,166 @@ describe("large concurrent selectable-rects requests", () => {
     expect(result.portableLeaf).toBe(result.leaf);
   }, 60_000);
 
+  it("invalidates cached styles after a mid-request DOM/style mutation", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
+          <div id="child" data-agent-native-node-id="child" style="position:absolute;left:20px;top:20px;width:180px;height:80px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px;color:rgb(255, 0, 0)"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const leaf = document.querySelector<HTMLElement>("#leaf");
+        if (!leaf) throw new Error("style mutation fixture did not attach");
+        const nativeGetAnimations = leaf.getAnimations.bind(leaf);
+        let reads = 0;
+        leaf.getAnimations = () => {
+          reads += 1;
+          // The parent snapshot has already cached the leaf by the time the
+          // overlapping child snapshot reaches this second animation check.
+          if (reads === 2) leaf.style.color = "rgb(0, 0, 255)";
+          return nativeGetAnimations();
+        };
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const liveLeaf = await page.evaluate(
+        () =>
+          getComputedStyle(document.querySelector<HTMLElement>("#leaf")!).color,
+      );
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
+        (node) => node.sourceId === "leaf",
+      )?.styles?.color;
+      expect(liveLeaf).toBe("rgb(0, 0, 255)");
+      expect(portableLeaf).toBe(liveLeaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  it("follows assigned slots when checking inherited animated styles", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="host" data-agent-native-node-id="host">
+          <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>("#host");
+        const leaf = document.querySelector<HTMLElement>("#leaf");
+        if (!host || !leaf) throw new Error("slot fixture did not attach");
+        const shadow = host.attachShadow({ mode: "open" });
+        shadow.innerHTML = `<style>
+          @keyframes tint { from { color: rgb(255, 0, 0); } to { color: rgb(0, 0, 255); } }
+          slot { color: rgb(255, 0, 0); animation: tint 1s linear paused; animation-fill-mode: both; }
+        </style><slot></slot>`;
+        const slot = shadow.querySelector("slot");
+        const animation = slot?.getAnimations()[0];
+        if (!slot || !animation)
+          throw new Error("slot animation did not attach");
+        animation.currentTime = 0;
+        const nativeGetAnimations = leaf.getAnimations.bind(leaf);
+        let reads = 0;
+        leaf.getAnimations = () => {
+          reads += 1;
+          // The slot is the composed style parent of this light-DOM leaf.
+          // Start its inherited animation only after the first snapshot cached
+          // the leaf, so the overlapping snapshot must invalidate that entry.
+          if (reads === 2) {
+            animation.play();
+            animation.currentTime = 500;
+            animation.playbackRate = 0;
+          }
+          return nativeGetAnimations();
+        };
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const live = await page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>("#host")!;
+        const leaf = document.querySelector<HTMLElement>("#leaf")!;
+        const slot = host.shadowRoot?.querySelector("slot")!;
+        return {
+          leaf: getComputedStyle(leaf).color,
+          slot: getComputedStyle(slot).color,
+          state: slot.getAnimations()[0]?.playState,
+        };
+      });
+      const parentInfo = payload.find((info) => info.sourceId === "parent");
+      const portableLeaf = parentInfo?.portableStyleSnapshot?.nodes?.find(
+        (node) => node.sourceId === "leaf",
+      )?.styles?.color;
+      expect(live.leaf).toBe("rgb(128, 0, 128)");
+      expect(live.slot).toBe(live.leaf);
+      expect(live.state).toBe("running");
+      expect(portableLeaf).toBe(live.leaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  it("fails closed when getAnimations cannot be read", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
+          <div id="child" data-agent-native-node-id="child" style="position:absolute;left:20px;top:20px;width:180px;height:80px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const leaf = document.querySelector<HTMLElement>("#leaf");
+        if (!leaf)
+          throw new Error("unreadable animation fixture did not attach");
+        Object.defineProperty(leaf, "getAnimations", {
+          configurable: true,
+          get() {
+            throw new Error("animation state blocked");
+          },
+        });
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const outcome = await Promise.race([
+        collectSelectableRects(page, { deep: true }).then((payload) => ({
+          posted: true as const,
+          payload,
+        })),
+        new Promise<{ posted: false; payload: CollectedInfo[] }>((resolve) =>
+          setTimeout(() => resolve({ posted: false, payload: [] }), 1_000),
+        ),
+      ]);
+      expect(errors, errors.join("\n")).toEqual([]);
+      expect(outcome.posted).toBe(true);
+      expect(outcome.payload.length).toBeGreaterThan(0);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   it("preserves payload shape while caching portable styles per request", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
