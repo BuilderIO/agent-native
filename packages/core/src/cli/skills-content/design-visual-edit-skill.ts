@@ -86,8 +86,8 @@ The same action is available from Design's empty-canvas context menu.
 - The \`open-visual-edit\` action is owned by Design. From another app, use the
   hosted MCP server at \`https://design.agent-native.com/mcp\` or the page's
   WebMCP helper, not \`pnpm action\` in the target app. The page path works
-  signed out only for loopback apps in public mode, using a stable workspace
-  principal; hosted MCP uses its normal OAuth identity.
+  signed out only for loopback apps in public mode, using a short-lived
+  capability-scoped principal; hosted MCP uses its normal OAuth identity.
 - Public links are always read-only, including on loopback. Loopback peer
   identity is not an authentication boundary because a tunnel or reverse proxy
   can make a remote request appear local. A bare \`/visual-edit/:designId\` or
@@ -257,10 +257,11 @@ Postgres before using the CLI action.
 
 ## Action Flow
 
-When a browser is available, start or reuse the local bridge and call the
-hosted page's \`open-visual-edit\` WebMCP tool. Pass the locally held token once
-for a fresh signed-out connection; omit it for an existing one. The page cannot
-start processes or return credentials. Without page WebMCP, use hosted MCP.
+When a browser is available, reuse the local bridge and call the hosted page's
+\`open-visual-edit\` WebMCP tool. For a fresh signed-out connection, pass the
+locally held \`bridgeToken\`; the page reads its preview manifest locally and
+sends it for server validation. Hosted Design never fetches \`127.0.0.1\`.
+Without page WebMCP, use hosted MCP.
 
 From another app, call the connected Design MCP tool
 \`mcp__agent-native-design__open-visual-edit\` with the JSON arguments below. It

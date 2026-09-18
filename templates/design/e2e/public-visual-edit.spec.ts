@@ -3,6 +3,11 @@ import path from "node:path";
 
 import { decodeContinuation } from "@agent-native/core/shared";
 import {
+  prepareDesignConnectManifest,
+  startDesignConnectBridge,
+  type DesignConnectBridge,
+} from "@agent-native/core/testing";
+import {
   expect,
   test,
   type Browser,
@@ -28,7 +33,9 @@ const SHORTCUT = process.platform === "darwin" ? "Meta+k" : "Control+k";
 let designId: string;
 let linkedScreenId: string;
 let visualEditTargetServer: Server | null = null;
+let visualEditBridge: DesignConnectBridge | null = null;
 let visualEditTargetUrl = "";
+const VISUAL_EDIT_BRIDGE_TOKEN = "signed-out-visual-edit-e2e-bridge-token";
 
 type PageRuntimeErrors = {
   consoleErrors: string[];
@@ -60,6 +67,18 @@ test.describe.serial("public visual edit", () => {
     });
     const address = await listen(visualEditTargetServer);
     visualEditTargetUrl = `http://${address.host}:${address.port}`;
+    const bridgePortServer = http.createServer();
+    const bridgeAddress = await listen(bridgePortServer);
+    await closeServer(bridgePortServer);
+    const manifest = await prepareDesignConnectManifest({
+      root: path.resolve(import.meta.dirname, "fixtures"),
+      url: visualEditTargetUrl,
+      port: bridgeAddress.port,
+    });
+    visualEditBridge = await startDesignConnectBridge(manifest, {
+      bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
+      allowedOrigins: [new URL(BASE_URL).origin],
+    });
     designId = await readSeedDesignId();
     linkedScreenId = await createLinkedScreen(browser, designId);
     await setDesignVisibility(browser, designId, "public");
@@ -70,6 +89,8 @@ test.describe.serial("public visual edit", () => {
       if (linkedScreenId) await deleteLinkedScreen(browser, linkedScreenId);
       await setDesignVisibility(browser, designId, "private");
     }
+    await closeServer(visualEditBridge?.server ?? null);
+    visualEditBridge = null;
     await closeServer(visualEditTargetServer);
     visualEditTargetServer = null;
   });
@@ -109,33 +130,55 @@ test.describe.serial("public visual edit", () => {
   }) => {
     const signedOut = await openSignedOutPage(browser, "/visual-edit");
     try {
-      await signedOut.page.waitForFunction(() => {
-        const status = (
-          window as Window & {
-            __agentNativeWebMcpStatus?: { state?: string };
-          }
-        ).__agentNativeWebMcpStatus;
-        return status?.state === "ready";
-      });
+      if (!visualEditBridge)
+        throw new Error("visual-edit bridge is not running");
+      const bridgeInput = {
+        bridgeUrl: visualEditBridge.manifest.bridgeUrl,
+        bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
+        rootPath: visualEditBridge.manifest.rootPath,
+      };
+      await expect
+        .poll(
+          () =>
+            signedOut.page.evaluate(() => {
+              const status = (
+                window as Window & {
+                  __agentNativeWebMcpStatus?: {
+                    state?: string;
+                    registered?: number;
+                    total?: number;
+                    error?: string;
+                  };
+                }
+              ).__agentNativeWebMcpStatus;
+              return status ?? null;
+            }),
+          { timeout: 15_000 },
+        )
+        .toMatchObject({ state: "ready" });
 
-      const preflightPromise = signedOut.page.evaluate((devServerUrl) => {
-        const helper = (
-          window as typeof window & {
-            __agentNativeWebMcp?: {
-              call(
-                name: string,
-                args?: Record<string, unknown>,
-              ): Promise<unknown>;
-            };
-          }
-        ).__agentNativeWebMcp;
-        if (!helper) throw new Error("WebMCP page helper missing");
-        return helper.call("open-visual-edit", {
-          devServerUrl,
-          paths: ["/"],
-          navigate: false,
-        });
-      }, visualEditTargetUrl);
+      const preflightPromise = signedOut.page.evaluate(
+        ({ devServerUrl, bridgeInput }) => {
+          const helper = (
+            window as typeof window & {
+              __agentNativeWebMcp?: {
+                call(
+                  name: string,
+                  args?: Record<string, unknown>,
+                ): Promise<unknown>;
+              };
+            }
+          ).__agentNativeWebMcp;
+          if (!helper) throw new Error("WebMCP page helper missing");
+          return helper.call("open-visual-edit", {
+            devServerUrl,
+            paths: ["/"],
+            navigate: false,
+            ...bridgeInput,
+          });
+        },
+        { devServerUrl: visualEditTargetUrl, bridgeInput },
+      );
 
       const dialog = signedOut.page.getByRole("alertdialog");
       await expect(dialog).toBeVisible();
@@ -161,7 +204,7 @@ test.describe.serial("public visual edit", () => {
       expect(preflightResult?.designId).toEqual(expect.any(String));
 
       await signedOut.page.evaluate(
-        ({ designId, devServerUrl }) => {
+        ({ designId, devServerUrl, bridgeInput }) => {
           const helper = (
             window as typeof window & {
               __agentNativeWebMcp?: {
@@ -178,6 +221,7 @@ test.describe.serial("public visual edit", () => {
               designId,
               devServerUrl,
               paths: ["/"],
+              ...bridgeInput,
             })
             .catch(() => {
               // A successful call replaces this page while its evaluator is
@@ -187,6 +231,7 @@ test.describe.serial("public visual edit", () => {
         {
           designId: preflightResult?.designId,
           devServerUrl: visualEditTargetUrl,
+          bridgeInput,
         },
       );
 
@@ -228,6 +273,7 @@ test.describe.serial("public visual edit", () => {
           expect.arrayContaining([
             "get-visual-edit-prompt",
             "list-localhost-connections",
+            "request-localhost-write-consent",
             "update-screen-source",
           ]),
         );
@@ -283,6 +329,40 @@ test.describe.serial("public visual edit", () => {
           tool: "list-localhost-connections",
           result: { count: 1 },
         });
+      const consentRequest = await signedOut.page.evaluate(
+        async ({ designId, connectionId }) => {
+          const helper = (
+            window as typeof window & {
+              __agentNativeWebMcp?: {
+                call(
+                  name: string,
+                  args?: Record<string, unknown>,
+                ): Promise<unknown>;
+              };
+            }
+          ).__agentNativeWebMcp;
+          if (!helper) throw new Error("WebMCP page helper missing");
+          return helper.call("request-localhost-write-consent", {
+            designId,
+            connectionId,
+            files: ["src/App.tsx"],
+          });
+        },
+        {
+          designId: preflightResult?.designId,
+          connectionId: preflightResult?.connectionId,
+        },
+      );
+      expect(consentRequest).toMatchObject({
+        state: "done",
+        ok: true,
+        tool: "request-localhost-write-consent",
+        result: {
+          designId: preflightResult?.designId,
+          connectionId: preflightResult?.connectionId,
+        },
+      });
+
       await assertNoRuntimeErrors(signedOut);
     } finally {
       await signedOut.close();
@@ -328,6 +408,7 @@ test.describe.serial("public visual edit", () => {
                 }
               : null,
             toolCount: tools.length,
+            toolNames: tools.map((tool) => tool.name),
           };
         })()`,
         awaitPromise: true,
@@ -342,6 +423,7 @@ test.describe.serial("public visual edit", () => {
           total: number;
         } | null;
         toolCount: number;
+        toolNames: string[];
       };
     };
 
@@ -349,6 +431,7 @@ test.describe.serial("public visual edit", () => {
       helper: true,
       modelContext: true,
       status: { state: "ready" },
+      toolNames: expect.arrayContaining(["get-visual-edit-prompt"]),
     });
     expect((await readWebMcpState()).toolCount).toBeGreaterThan(0);
     const promptCall = await page.evaluate(async () => {

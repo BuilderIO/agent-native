@@ -58,7 +58,7 @@ function isLoopbackHostname(hostname: string): boolean {
   );
 }
 
-function normalizeBridgeUrl(value: string): string {
+export function normalizeBridgeUrl(value: string): string {
   const normalized = normalizeUrl(value, "bridgeUrl");
   const parsed = new URL(normalized);
   if (parsed.username || parsed.password) {
@@ -91,7 +91,7 @@ function stableConnectionId(
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
-const DEFAULT_BRIDGE_URL = "http://127.0.0.1:7331";
+export const DEFAULT_BRIDGE_URL = "http://127.0.0.1:7331";
 
 /** One-way compatibility derivation shared with the core design-connect CLI. */
 export function derivePreviewToken(bridgeToken: string): string {

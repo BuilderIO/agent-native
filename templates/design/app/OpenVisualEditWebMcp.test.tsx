@@ -111,22 +111,40 @@ describe("OpenVisualEditWebMcp", () => {
         runtime: unknown,
       ) => Promise<unknown>;
     }>;
-    mocks.callAction.mockResolvedValue({
-      designId: "design-1",
-      connectionId: "connection-1",
-      createdDesign: true,
-      publicReadOnly: true,
-      devServerUrl: "http://localhost:5173",
-      bridgeUrl: "http://127.0.0.1:7331",
-      screenCount: 1,
-      overview: true,
-      urlPath: "/visual-edit/design-1?editorView=overview&embedChrome=1",
-      openUrl:
-        "agent-native://open/visual-edit/design-1?editorView=overview&embedChrome=1",
-      bridgeToken: "bridge-secret",
-      previewToken: "preview-secret",
-      embedStartUrl: "/_agent-native/embed/start?ticket=one-time-ticket",
-    });
+    mocks.callAction
+      .mockResolvedValueOnce({ token: "bootstrap-capability" })
+      .mockResolvedValue({
+        designId: "design-1",
+        connectionId: "connection-1",
+        createdDesign: true,
+        publicReadOnly: true,
+        devServerUrl: "http://localhost:5173",
+        bridgeUrl: "http://127.0.0.1:7331",
+        screenCount: 1,
+        overview: true,
+        urlPath: "/visual-edit/design-1?editorView=overview&embedChrome=1",
+        openUrl:
+          "agent-native://open/visual-edit/design-1?editorView=overview&embedChrome=1",
+        bridgeToken: "bridge-secret",
+        previewToken: "preview-secret",
+        embedStartUrl: "/_agent-native/embed/start?ticket=one-time-ticket",
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            source: "agent-native-design-connect",
+            sourceType: "localhost",
+            localOnly: true,
+            devServerUrl: "http://localhost:5173",
+            bridgeUrl: "http://127.0.0.1:7331",
+            rootPath: "/tmp/app",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
     const replace = vi
       .spyOn(window.location, "replace")
       .mockImplementation(() => {});
@@ -141,11 +159,23 @@ describe("OpenVisualEditWebMcp", () => {
 
     expect(mocks.callAction).toHaveBeenCalledWith(
       "open-visual-edit",
-      {
+      expect.objectContaining({
         devServerUrl: "http://localhost:5173",
         bridgeToken: "locally-generated-bridge-token",
+        bridgeAttestation: expect.objectContaining({
+          previewToken: expect.stringMatching(/^[a-f0-9]{64}$/),
+          manifest: expect.objectContaining({
+            bridgeUrl: "http://127.0.0.1:7331",
+          }),
+        }),
+      }),
+      {
+        signal: undefined,
+        headers: {
+          Authorization: "Bearer bootstrap-capability",
+          "X-Agent-Native-Embed-Target": "/visual-edit",
+        },
       },
-      { signal: undefined },
     );
     const safeResult = await action.run(
       { devServerUrl: "http://localhost:5173", navigate: false },

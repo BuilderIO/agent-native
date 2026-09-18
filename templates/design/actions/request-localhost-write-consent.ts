@@ -35,10 +35,13 @@ export default defineAction({
       .optional()
       .describe("File paths about to be written, shown in the dialog."),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async ({ designId, connectionId, files }) => {
     await assertAccess("design", designId, "editor");
 
-    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
+      designId,
+    });
 
     const db = getDb();
     const [connection] = await db

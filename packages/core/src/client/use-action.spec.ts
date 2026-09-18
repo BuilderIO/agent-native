@@ -307,6 +307,27 @@ describe("callAction", () => {
     });
   });
 
+  it("passes scoped capability headers through imperative action calls", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAction(
+      "open-visual-edit",
+      { devServerUrl: "http://localhost:5173" },
+      {
+        headers: {
+          Authorization: "Bearer capability-token",
+          "X-Agent-Native-Embed-Target": "/visual-edit",
+        },
+      },
+    );
+
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer capability-token",
+      "X-Agent-Native-Embed-Target": "/visual-edit",
+    });
+  });
+
   it("sends the browser session id so actions share the agent run's session", async () => {
     const store = new Map<string, string>([
       ["agent-native.session_id_pin", "run-42"],

@@ -4,7 +4,8 @@
  * The session ID determines which user's application state is read/written.
  * Resolution order:
  *   1. Per-request context (AsyncLocalStorage) — set by the HTTP handler
- *   2. AGENT_USER_EMAIL env var — CLI scripts only
+ *   2. Verified request capability — scoped public/embed sessions
+ *   3. AGENT_USER_EMAIL env var — CLI scripts only
  *
  * The per-request context is critical in multi-user deployments: the env var
  * is process-global and gets overwritten by concurrent requests, so it cannot
@@ -14,6 +15,7 @@
 
 import {
   getAmbientUserEmail,
+  getRequestAuthCapability,
   getRequestRunContext,
 } from "../server/request-context.js";
 import {
@@ -32,8 +34,9 @@ import {
  *
  * In an HTTP/action context, uses the per-request user email from
  * AsyncLocalStorage so concurrent users don't collide. In a CLI context
- * (no request), falls back to AGENT_USER_EMAIL. Throws when neither is
- * present — application state must be scoped to a real identity.
+ * (no request), falls back to AGENT_USER_EMAIL. Capability-only requests use
+ * the verified capability as their isolated session key. Throws when neither
+ * is present — application state must be scoped to a real identity or grant.
  */
 async function resolveSessionId(): Promise<string> {
   try {
@@ -44,6 +47,9 @@ async function resolveSessionId(): Promise<string> {
   } catch {
     // request-context not available — fall through to env var
   }
+
+  const capability = getRequestAuthCapability();
+  if (capability) return `capability:${capability}`;
 
   const email = getAmbientUserEmail();
   if (email) return email;

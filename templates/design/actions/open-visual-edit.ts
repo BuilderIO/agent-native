@@ -9,6 +9,7 @@ import {
   createEmbedSessionTicket,
 } from "@agent-native/core/server";
 import {
+  getRequestAuthCapability,
   getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
@@ -27,7 +28,11 @@ import addLocalhostScreensAction, {
   pathFromUrl,
   routeUrl,
 } from "./add-localhost-screens.js";
-import connectLocalhostAction from "./connect-localhost.js";
+import connectLocalhostAction, {
+  DEFAULT_BRIDGE_URL,
+  derivePreviewToken,
+  normalizeBridgeUrl,
+} from "./connect-localhost.js";
 import createDesignAction from "./create-design.js";
 import navigateAction from "./navigate.js";
 
@@ -185,6 +190,8 @@ function isLoopbackUrl(value: string): boolean {
 const LOCAL_VISUAL_EDIT_TICKET_TTL_SECONDS = 5 * 60;
 const LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN =
   "local.visual-edit.agent-native.invalid";
+const VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX =
+  "capability:visual-edit:bootstrap:";
 
 /**
  * Stable owner partition for local visual-edit calls when no account session
@@ -201,6 +208,106 @@ export function localVisualEditWorkspacePrincipal(
     .digest("hex")
     .slice(0, 24);
   return `workspace+${workspaceId}@${LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN}`;
+}
+
+export function localVisualEditCapabilityPrincipal(capability: string): string {
+  const capabilityId = crypto
+    .createHash("sha256")
+    .update(capability)
+    .digest("hex")
+    .slice(0, 24);
+  return `capability+${capabilityId}@${LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN}`;
+}
+
+function isVisualEditBootstrapCapability(
+  capability: string | undefined,
+): capability is string {
+  return Boolean(
+    capability &&
+    new RegExp(
+      `^${VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX}[A-Za-z0-9_-]{32}$`,
+    ).test(capability),
+  );
+}
+
+async function attestAnonymousBridge(args: {
+  bridgeToken?: string;
+  bridgeAttestation?: {
+    previewToken: string;
+    manifest: {
+      source: unknown;
+      sourceType: unknown;
+      localOnly: unknown;
+      devServerUrl: unknown;
+      bridgeUrl: unknown;
+      rootPath: unknown;
+    };
+  };
+  devServerUrl: string;
+  bridgeUrl?: string;
+  rootPath?: string;
+}): Promise<void> {
+  const bridgeToken = args.bridgeToken?.trim();
+  if (!bridgeToken) {
+    fail(
+      "Signed-out visual-edit needs the token from the local bridge. Start `agent-native design connect` with AGENT_NATIVE_BRIDGE_TOKEN, then pass that token to the page tool.",
+      { errorCode: "signed_out_visual_edit_bridge_token_required" },
+    );
+  }
+
+  let bridgeUrl: string;
+  try {
+    bridgeUrl = normalizeBridgeUrl(args.bridgeUrl ?? DEFAULT_BRIDGE_URL);
+  } catch {
+    fail(
+      "The signed-out visual-edit bridge URL is invalid. Use the loopback URL printed by `agent-native design connect` and retry.",
+      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
+    );
+  }
+  const expectedPreviewToken = derivePreviewToken(bridgeToken);
+  const attestation = args.bridgeAttestation;
+  if (!attestation || attestation.previewToken !== expectedPreviewToken) {
+    fail(
+      "The signed-out visual-edit page could not prove the local bridge. Keep the bridge running, then retry from the Design page so it can read the bridge manifest.",
+      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
+    );
+  }
+  const manifest = attestation.manifest;
+  if (
+    manifest.source !== "agent-native-design-connect" ||
+    manifest.sourceType !== "localhost" ||
+    manifest.localOnly !== true ||
+    typeof manifest.devServerUrl !== "string" ||
+    typeof manifest.bridgeUrl !== "string" ||
+    typeof manifest.rootPath !== "string"
+  ) {
+    fail(
+      "The local bridge manifest does not match the visual-edit target. Restart `agent-native design connect` from the target app and retry.",
+      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
+    );
+  }
+  let manifestDevServerUrl: string;
+  let manifestBridgeUrl: string;
+  try {
+    manifestDevServerUrl = normalizeBaseUrl(manifest.devServerUrl);
+    manifestBridgeUrl = normalizeBridgeUrl(manifest.bridgeUrl);
+  } catch {
+    fail(
+      "The local bridge manifest does not contain valid app or bridge URLs. Restart `agent-native design connect` from the target app and retry.",
+      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
+    );
+  }
+  if (
+    manifestDevServerUrl !== args.devServerUrl ||
+    manifestBridgeUrl !== bridgeUrl ||
+    (args.rootPath &&
+      path.resolve(manifest.rootPath) !== path.resolve(args.rootPath))
+  ) {
+    fail(
+      "The local bridge manifest does not match the visual-edit target. Restart `agent-native design connect` from the target app and retry.",
+      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
+    );
+  }
 }
 
 function localVisualEditPath(designId: string): string {
@@ -287,6 +394,7 @@ export default defineAction({
   // The public /visual-edit page calls this through the frontend transport.
   // Its run() guard still limits anonymous callers to loopback + public mode.
   requiresAuth: false,
+  capabilityScopes: ["visual-edit:bootstrap"],
   schema: z.object({
     designId: z
       .string()
@@ -329,6 +437,19 @@ export default defineAction({
           "returns it as `bridgeToken` so the caller can start the local bridge " +
           "with `design connect --bridge-token <token>`.",
       ),
+    bridgeAttestation: z
+      .object({
+        previewToken: z.string().min(1),
+        manifest: z.object({
+          source: z.unknown(),
+          sourceType: z.unknown(),
+          localOnly: z.unknown(),
+          devServerUrl: z.unknown(),
+          bridgeUrl: z.unknown(),
+          rootPath: z.unknown(),
+        }),
+      })
+      .optional(),
     previewToken: z
       .string()
       .optional()
@@ -559,8 +680,11 @@ export default defineAction({
     };
 
     if (getRequestUserEmail()) return runForPrincipal();
+    const authCapability = getRequestAuthCapability();
+    const isPageBootstrap = isVisualEditBootstrapCapability(authCapability);
     if (
-      (ctx?.caller !== "cli" &&
+      (!isPageBootstrap && ctx?.caller !== "cli") ||
+      (isPageBootstrap &&
         ctx?.caller !== "webmcp" &&
         ctx?.caller !== "frontend") ||
       !isLoopbackUrl(devServerUrl)
@@ -577,12 +701,22 @@ export default defineAction({
       );
     }
 
+    if (isPageBootstrap) {
+      await attestAnonymousBridge({
+        bridgeToken: args.bridgeToken,
+        bridgeAttestation: args.bridgeAttestation,
+        devServerUrl,
+        bridgeUrl: args.bridgeUrl,
+        rootPath: args.rootPath,
+      });
+    }
+
     return runWithRequestContext(
       {
         ...(getRequestContext() ?? {}),
-        userEmail: localVisualEditWorkspacePrincipal(
-          args.rootPath ?? devServerUrl,
-        ),
+        userEmail: isPageBootstrap
+          ? localVisualEditCapabilityPrincipal(authCapability)
+          : localVisualEditWorkspacePrincipal(args.rootPath ?? devServerUrl),
         orgId: undefined,
       },
       runForPrincipal,

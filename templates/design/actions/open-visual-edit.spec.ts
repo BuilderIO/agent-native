@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   connectLocalhostRun: vi.fn(),
   createDesignRun: vi.fn(),
   getRequestContext: vi.fn(),
+  getRequestAuthCapability: vi.fn(),
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
   navigateRun: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: mocks.getRequestContext,
+  getRequestAuthCapability: mocks.getRequestAuthCapability,
   getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
   runWithRequestContext: mocks.runWithRequestContext,
@@ -50,6 +52,9 @@ vi.mock("./connect-localhost.js", () => ({
   default: {
     run: mocks.connectLocalhostRun,
   },
+  DEFAULT_BRIDGE_URL: "http://127.0.0.1:7331",
+  derivePreviewToken: (token: string) => `preview:${token}`,
+  normalizeBridgeUrl: (value: string) => value,
 }));
 
 vi.mock("./add-localhost-screens.js", () => ({
@@ -75,6 +80,7 @@ vi.mock("./navigate.js", () => ({
 }));
 
 import action, {
+  localVisualEditCapabilityPrincipal,
   localVisualEditWorkspacePrincipal,
 } from "./open-visual-edit.js";
 
@@ -103,6 +109,8 @@ describe("open-visual-edit", () => {
     mocks.getRequestOrgId.mockReturnValue("org_1");
     mocks.getRequestUserEmail.mockReset();
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getRequestAuthCapability.mockReset();
+    mocks.getRequestAuthCapability.mockReturnValue(undefined);
     mocks.navigateRun.mockReset();
     mocks.runWithRequestContext.mockReset();
     mocks.runWithRequestContext.mockImplementation(
@@ -583,7 +591,7 @@ describe("open-visual-edit", () => {
         },
         {
           actionName: "open-visual-edit",
-          caller: "http",
+          caller: "frontend",
           userEmail: undefined,
           orgId: null,
         },
@@ -597,16 +605,31 @@ describe("open-visual-edit", () => {
 
   it("allows signed-out page WebMCP bootstrap for loopback apps", async () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
-
+    const capability = `capability:visual-edit:bootstrap:${"b".repeat(32)}`;
+    mocks.getRequestAuthCapability.mockReturnValue(capability);
     const result = await action.run(
       {
         devServerUrl: "http://localhost:5173",
+        bridgeUrl: "http://127.0.0.1:7331",
+        rootPath: "/tmp/app",
+        bridgeToken: "bridge-token",
+        bridgeAttestation: {
+          previewToken: "preview:bridge-token",
+          manifest: {
+            source: "agent-native-design-connect",
+            sourceType: "localhost",
+            localOnly: true,
+            devServerUrl: "http://localhost:5173",
+            bridgeUrl: "http://127.0.0.1:7331",
+            rootPath: "/tmp/app",
+          },
+        },
         paths: ["/"],
         navigate: false,
       },
       {
         actionName: "open-visual-edit",
-        caller: "webmcp",
+        caller: "frontend",
         userEmail: undefined,
         orgId: null,
       },
@@ -614,13 +637,49 @@ describe("open-visual-edit", () => {
 
     expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        userEmail: expect.stringMatching(
-          /^workspace\+[a-f0-9]{24}@local\.visual-edit\.agent-native\.invalid$/,
-        ),
+        userEmail: localVisualEditCapabilityPrincipal(capability),
       }),
       expect.any(Function),
     );
     expect(result.designId).toBe("design_created");
+  });
+
+  it("rejects a page bootstrap when the browser-observed bridge does not match", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+    mocks.getRequestAuthCapability.mockReturnValue(
+      `capability:visual-edit:bootstrap:${"c".repeat(32)}`,
+    );
+
+    await expect(
+      action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          bridgeUrl: "http://127.0.0.1:7331",
+          bridgeToken: "bridge-token",
+          bridgeAttestation: {
+            previewToken: "preview:bridge-token",
+            manifest: {
+              source: "agent-native-design-connect",
+              sourceType: "localhost",
+              localOnly: true,
+              devServerUrl: "http://localhost:4173",
+              bridgeUrl: "http://127.0.0.1:7331",
+              rootPath: "/tmp/app",
+            },
+          },
+          paths: ["/"],
+          navigate: false,
+        },
+        {
+          actionName: "open-visual-edit",
+          caller: "webmcp",
+          userEmail: undefined,
+          orgId: null,
+        },
+      ),
+    ).rejects.toThrow(/does not match the visual-edit target/);
+
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
   });
 
   it("rejects a signed-out CLI caller for a non-loopback target", async () => {

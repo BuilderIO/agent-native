@@ -48,6 +48,7 @@ export interface OpenVisualEditWebMcpInput {
   description?: string;
   devServerUrl: string;
   bridgeUrl?: string;
+  bridgeToken?: string;
   rootPath?: string;
   name?: string;
   routeManifest?: unknown;
@@ -64,7 +65,109 @@ export interface OpenVisualEditWebMcpInput {
   publicReadOnly?: boolean;
 }
 
+interface VisualEditBridgeAttestation {
+  previewToken: string;
+  manifest: {
+    source: unknown;
+    sourceType: unknown;
+    localOnly: unknown;
+    devServerUrl: unknown;
+    bridgeUrl: unknown;
+    rootPath: unknown;
+  };
+}
+
+const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+
+async function derivePreviewToken(bridgeToken: string): Promise<string> {
+  const bytes = new TextEncoder().encode(
+    `${PREVIEW_TOKEN_DOMAIN}${bridgeToken}`,
+  );
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+async function readVisualEditBridgeAttestation(
+  input: OpenVisualEditWebMcpInput,
+  signal?: AbortSignal,
+): Promise<VisualEditBridgeAttestation | undefined> {
+  const bridgeToken = input.bridgeToken?.trim();
+  if (!bridgeToken) return undefined;
+
+  const bridgeUrl = input.bridgeUrl ?? "http://127.0.0.1:7331";
+  let manifestUrl: URL;
+  try {
+    manifestUrl = new URL("/manifest.json", bridgeUrl);
+    manifestUrl.searchParams.set(
+      "previewToken",
+      await derivePreviewToken(bridgeToken),
+    );
+  } catch {
+    throw new Error(
+      `The local visual-edit bridge URL "${bridgeUrl}" is invalid. Use the loopback URL printed by \`agent-native design connect\` and retry.`,
+    );
+  }
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  const timeout = window.setTimeout(() => controller.abort(), 1_500);
+  try {
+    const response = await fetch(manifestUrl, {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `The local visual-edit bridge rejected its preview credential (${response.status}). Restart the bridge with the supplied token and retry.`,
+      );
+    }
+    const manifest = (await response.json()) as unknown;
+    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+      throw new Error(
+        "The local visual-edit bridge returned an invalid preview manifest. Restart `agent-native design connect` and retry.",
+      );
+    }
+    return {
+      previewToken: manifestUrl.searchParams.get("previewToken") ?? "",
+      manifest: manifest as VisualEditBridgeAttestation["manifest"],
+    };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (error instanceof Error && error.message.includes("rejected its")) {
+      throw error;
+    }
+    throw new Error(
+      `The local visual-edit bridge at ${bridgeUrl} is not reachable. Start \`agent-native design connect\` and retry.`,
+    );
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
 export function createOpenVisualEditWebMcpActions() {
+  let bootstrapTokenPromise: Promise<string> | undefined;
+  const getBootstrapToken = async (signal?: AbortSignal): Promise<string> => {
+    if (!bootstrapTokenPromise) {
+      bootstrapTokenPromise = callAction<{ token?: string }>(
+        "issue-visual-edit-bootstrap",
+        {},
+        { signal },
+      ).then((result) => {
+        if (!result?.token) {
+          throw new Error("Visual-edit bootstrap did not return a capability.");
+        }
+        return result.token;
+      });
+      bootstrapTokenPromise.catch(() => {
+        bootstrapTokenPromise = undefined;
+      });
+    }
+    return bootstrapTokenPromise;
+  };
+
   return [
     defineClientAction<OpenVisualEditWebMcpInput, OpenVisualEditWebMcpResult>({
       name: "open-visual-edit",
@@ -161,8 +264,20 @@ export function createOpenVisualEditWebMcpActions() {
         additionalProperties: false,
       },
       run: async (input, runtime) => {
-        const result = (await callAction("open-visual-edit", input, {
+        const bootstrapToken = await getBootstrapToken(runtime.signal);
+        const bridgeAttestation = await readVisualEditBridgeAttestation(
+          input,
+          runtime.signal,
+        );
+        const actionInput = bridgeAttestation
+          ? { ...input, bridgeAttestation }
+          : input;
+        const result = (await callAction("open-visual-edit", actionInput, {
           signal: runtime.signal,
+          headers: {
+            Authorization: `Bearer ${bootstrapToken}`,
+            "X-Agent-Native-Embed-Target": "/visual-edit",
+          },
         })) as OpenVisualEditActionResult;
         // The same-origin page transport invokes this call, but cannot start a
         // local process. A host may pass a token it used to start that process;
