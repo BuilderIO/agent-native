@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   discoverDesignRoutes,
   designConnectManifestsTargetSameApp,
+  deriveDesignPreviewAttestationSignature,
   parseDesignConnectArgs,
   prepareDesignConnectManifest,
   registerConnectionWithServer,
@@ -1896,6 +1897,35 @@ describe("design connect bridge endpoints", () => {
       expect(typeof bridge.previewToken).toBe("string");
       expect(bridge.previewToken).toHaveLength(64);
       expect(bridge.previewToken).not.toBe(bridge.bridgeToken);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("proves possession of the bridge token for a page bootstrap challenge", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const challenge = "a".repeat(32);
+      const result = await getJson(
+        `http://127.0.0.1:${port}/manifest.json?previewToken=${bridge.previewToken}&attestationChallenge=${challenge}`,
+      );
+      expect(result.status).toBe(200);
+      expect(result.body.attestation).toEqual({
+        challenge,
+        signature: deriveDesignPreviewAttestationSignature(
+          bridge.bridgeToken,
+          challenge,
+        ),
+      });
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),

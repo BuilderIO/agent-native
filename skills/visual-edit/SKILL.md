@@ -16,6 +16,9 @@ visually instead of generating standalone Alpine HTML. The source of truth is
 the running localhost app plus its route URLs. Design shows those routes as
 iframe-backed screens on the infinite canvas.
 
+The editor is hosted at `https://design.agent-native.com`. Never start local
+Design; only the target app and bridge run locally.
+
 ## Installation
 
 `npx @agent-native/core@latest skills add visual-edit` installs the skill and
@@ -36,9 +39,12 @@ show in model text or retain in logs. Do not claim that fallback is editable:
 the edit capability is intentionally available only to the host-managed MCP App
 launcher, where it is hidden from the model and redeemed once.
 
-- In Codex Desktop, Claude Desktop, and other hosts with an inline browser,
-  prefer that surface. In VS Code use its Design webview/deep link. If no
-  inline surface exists, return the normal **Open design** link.
+- Inline-browser hosts should open `https://design.agent-native.com/visual-edit`
+  and call its `open-visual-edit` WebMCP tool. It works signed in or out; the
+  one-time capability is not a Design account session.
+- VS Code uses its Design webview/deep link. Without page WebMCP, use the hosted
+  Design MCP connector and its normal OAuth/device authorization. Never replace
+  either path with a local Design server.
 
 Prefer the MCP App surface for a connected Design plugin, then the host's
 browser/preview tool as the universal fallback. Keep the canvas beside chat
@@ -77,13 +83,11 @@ The same action is available from Design's empty-canvas context menu.
   session ended with unapplied edits, it returns `status: "session-ended"`
   with the pending count; `status: "unknown"` means the session marker
   could not be read and must not be treated as an empty result.
-- The `open-visual-edit` action is owned by Design. From another app such as
-  Clips, invoke it through the connected Design MCP server at
-  `https://design.agent-native.com/mcp` (or the editor page's WebMCP helper),
-  not `pnpm action` in the target app: that local action registry does not
-  contain Design actions. Without an account session, it uses a
-  workspace-scoped principal only inside the CLI call; HTTP, MCP, and tunneled
-  callers cannot select it.
+- The `open-visual-edit` action is owned by Design. From another app, use the
+  hosted MCP server at `https://design.agent-native.com/mcp` or the page's
+  WebMCP helper, not `pnpm action` in the target app. The page path works
+  signed out only for loopback apps in public mode, using a short-lived
+  capability-scoped principal; hosted MCP uses its normal OAuth identity.
 - Public links are always read-only, including on loopback. Loopback peer
   identity is not an authentication boundary because a tunnel or reverse proxy
   can make a remote request appear local. A bare `/visual-edit/:designId` or
@@ -171,9 +175,21 @@ must match on two sides: the local bridge process, and the user's connection row
 in Design (which the browser reads to authorize `/live-edit-bridge`,
 `/read-file`, `/write-file`). Get them to match by letting the
 `open-visual-edit` action mint the token, then starting the
-bridge with it. This is the only ordering that works for the remote-MCP flow —
+bridge with it. This is the only ordering that works for the remote-MCP flow -
 the bridge cannot push its own token to the server without a CLI auth token, so
 the server mints instead and the bridge adopts.
+
+For a fresh signed-out browser flow, generate the token locally, keep it in the
+host process, and pass it once as the page tool's optional `bridgeToken`; the
+page never returns it:
+
+```bash
+BRIDGE_TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+AGENT_NATIVE_BRIDGE_TOKEN="$BRIDGE_TOKEN" npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
+```
+
+Reuse an existing matching connection without `bridgeToken`; hosted MCP can
+mint the token when page WebMCP is unavailable.
 
 From the target app repo, make sure its dev server is running, then:
 
@@ -195,7 +211,8 @@ contain local changes and costs a slow install on every call:
 pnpm dev:cli design connect --url http://localhost:5173 --root templates/<app> --json
 ```
 
-**2. Call `open-visual-edit`** (see Action Flow below) with NO `bridgeToken`.
+**2. For the hosted MCP path, call `open-visual-edit`** (see Action Flow below)
+with NO `bridgeToken`.
 The server mints one, stores it on the user's connection row, copies it into the
 placed screens' metadata, and returns it to you as `bridgeToken`. Capture it.
 
@@ -240,14 +257,11 @@ Postgres before using the CLI action.
 
 ## Action Flow
 
-When a real Chrome browser is available, start the target app's local Design
-bridge first, then call the Design page's own `open-visual-edit` WebMCP tool
-directly in the signed-in Design tab. It uses that tab's session, so no hosted
-MCP connector, OAuth flow, or synthetic CLI user is needed. The page action
-reuses the running bridge and intentionally omits bridge credentials; it cannot
-spawn or retoken a local process. If no matching bridge is running, use the
-headless ordering in **Required Local Bridge** once, then retry the page tool.
-Use the connected Design MCP path below for headless hosts or older builds.
+When a browser is available, reuse the local bridge and call the hosted page's
+`open-visual-edit` WebMCP tool. For a fresh signed-out connection, pass the
+locally held `bridgeToken`; it reads its preview manifest and challenge proof,
+then sends both for validation. Hosted Design never fetches `127.0.0.1`.
+Without page WebMCP, use hosted MCP.
 
 From another app, call the connected Design MCP tool
 `mcp__agent-native-design__open-visual-edit` with the JSON arguments below. It
@@ -257,10 +271,8 @@ URL-backed screens, stores visual-edit context, and navigates to overview mode
 in one call. Never run `pnpm action` from the target app's checkout: its local
 registry does not contain Design actions.
 
-Call it BEFORE starting the durable bridge (step 3 above): it does not contact
-the bridge, so the bridge need not be running yet, and you need its returned
-`bridgeToken` to start the bridge with a matching secret. Omit `bridgeToken`
-on the call so the server mints one.
+Call it before starting the durable bridge: it does not contact the bridge, so
+the server can mint `bridgeToken` for the bridge to adopt. Omit that input.
 
 ```json
 {
@@ -274,13 +286,9 @@ on the call so the server mints one.
 ```
 
 The action returns `designId`, `connectionId`, `bridgeToken`, `screens`,
-`urlPath`, and a credential-free `openUrl`. Its MCP App metadata separately
-carries the one-time editor launcher so the host can redeem it without showing
-the capability to the model or retaining it in the action link. Keep
-`designId`/`connectionId` in the chat context for follow-ups, and pass
-`bridgeToken` to `design connect` (step 3) to start the bridge. On follow-up
-calls reusing an existing `connectionId`, the same token is returned (it is
-minted once and reused), so the running bridge stays valid.
+`urlPath`, and credential-free `openUrl`. MCP App metadata carries the
+hidden one-time launcher. Keep the ids for follow-ups
+and pass the token to `design connect`; reusing the connection reuses its token.
 
 ### Desktop and mobile side by side
 
@@ -357,13 +365,17 @@ For a numbered flow the user describes in chat, keep the labels and order:
 If no `routes` or `paths` are supplied, `open-visual-edit` uses every route
 from the localhost manifest.
 
-Fallback, only when `open-visual-edit` is unavailable:
+Fallback only when `open-visual-edit` is unavailable and hosted Design MCP is
+authorized:
 
 1. Register or refresh the bridge with `connect-localhost`, passing the
    `/manifest.json` result as `routeManifest` and `capabilities`.
 2. Create or reuse a Design project with `create-design`.
 3. Place URL-backed screens with `add-localhost-screens`.
 4. Navigate to overview mode with `navigate`.
+
+The fallback still targets `https://design.agent-native.com`; only the app and
+bridge URLs are localhost. Never run `pnpm action` from `templates/design`.
 
 ## Open The Design Surface
 

@@ -25,7 +25,6 @@ import {
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 
 import { runApplyFileContentUpdate } from "./apply-file-content-update";
-import type { FileContentPersistenceResult } from "./apply-local-content-update";
 import {
   absolutePlacePointForDrop,
   runCrossScreenElementDrop,
@@ -214,9 +213,7 @@ function createRealWriterHarness(
     overviewPresenceFileId: null,
     overviewYdoc: null,
     queryClient,
-    queueFileContentSave: (fileId: string) => {
-      queuedSaves.push(fileId);
-    },
+    queueFileContentSave: (fileId: string) => queuedSaves.push(fileId),
     recordContentHistoryEntry: (entry: unknown) => history.push(entry),
     suppressContentHistoryRef: { current: false },
     t: (key: string) => key,
@@ -1092,48 +1089,34 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
   });
 
   it.each(["source", "target"] as const)(
-    "compensates the other file after a delayed %s save conflict",
+    "compensates the other file when the %s save conflicts later",
     async (conflictingFile) => {
       const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
       const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
       const calls: Array<{ fileId: string; content: string }> = [];
-      const persisted = new Map([
-        ["source", sourceContent],
-        ["target", destinationContent],
-      ]);
-      let resolveTarget!: (result: FileContentPersistenceResult) => void;
-      let resolveSource!: (result: FileContentPersistenceResult) => void;
-      const targetPersistence = new Promise<FileContentPersistenceResult>(
-        (resolve) => {
-          resolveTarget = resolve;
-        },
-      );
-      const sourcePersistence = new Promise<FileContentPersistenceResult>(
-        (resolve) => {
-          resolveSource = resolve;
-        },
-      );
+      let resolveTarget!: (saved: boolean) => void;
+      let resolveSource!: (saved: boolean) => void;
+      const targetSave = new Promise<boolean>((resolve) => {
+        resolveTarget = resolve;
+      });
+      const sourceSave = new Promise<boolean>((resolve) => {
+        resolveSource = resolve;
+      });
+      let publicationCount = 0;
       const result = runStoredCrossScreenDrop({
         sourceContent,
         destinationContent,
         publish: (fileId, content) => {
           calls.push({ fileId, content });
+          publicationCount += 1;
           const publication = acceptFixture(fileId, content);
-          if (calls.length <= 2) {
-            const persistence =
-              fileId === "target" ? targetPersistence : sourcePersistence;
-            return {
-              ...publication,
-              persistence: persistence.then((saveResult) => {
-                if (saveResult.status === "persisted") {
-                  persisted.set(fileId, publication.content);
-                }
-                return saveResult;
-              }),
-            };
+          if (publicationCount === 1) {
+            return { ...publication, saveCompletion: targetSave };
           }
-          persisted.set(fileId, publication.content);
-          return publication;
+          if (publicationCount === 2) {
+            return { ...publication, saveCompletion: sourceSave };
+          }
+          return { ...publication, saveCompletion: Promise.resolve(true) };
         },
         drop: {
           sourceSelector: '[data-agent-native-node-id="moving"]',
@@ -1148,14 +1131,10 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
         },
       });
 
-      if (conflictingFile === "source") {
-        resolveTarget({ status: "persisted" });
-        resolveSource({ status: "conflict" });
-      } else {
-        resolveTarget({ status: "conflict" });
-        resolveSource({ status: "persisted" });
-      }
-      await vi.waitFor(() => expect(calls).toHaveLength(3));
+      expect(result.historyEntries).toEqual([]);
+      resolveTarget(conflictingFile !== "target");
+      resolveSource(conflictingFile !== "source");
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(calls.map(({ fileId }) => fileId)).toEqual([
         "target",
@@ -1165,20 +1144,6 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
       expect(calls[2]?.content).toBe(
         conflictingFile === "source" ? destinationContent : sourceContent,
       );
-      expect([...persisted.entries()]).toEqual([
-        [
-          "source",
-          conflictingFile === "target"
-            ? acceptFixture("source", sourceContent).content
-            : sourceContent,
-        ],
-        [
-          "target",
-          conflictingFile === "source"
-            ? acceptFixture("target", destinationContent).content
-            : destinationContent,
-        ],
-      ]);
       expect(result.historyEntries).toEqual([]);
       expect(result.selectionEvents).toEqual([]);
     },

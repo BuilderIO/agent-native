@@ -104,9 +104,11 @@ export interface CrossScreenElementDropArgs {
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
       immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
+      sourceBaseContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -1046,8 +1048,9 @@ export function runCrossScreenElementDrop(
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
-      immediateSave: true,
       historyBeforeContent: rawDestContent,
+      immediateSave: true,
+      awaitSave: true,
     },
   );
   if (targetPublication.status !== "accepted") return;
@@ -1059,47 +1062,24 @@ export function runCrossScreenElementDrop(
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
-      immediateSave: true,
       historyBeforeContent: sourceContent,
+      immediateSave: true,
+      awaitSave: true,
     },
   );
-
-  const restoreFile = (
-    fileId: string,
-    content: string,
-    acceptedContent: string,
-  ) => {
-    const rollback = applyFileContentUpdate(fileId, content, {
+  if (sourcePublication.status !== "accepted") {
+    const rollback = applyFileContentUpdate(targetScreenId, rawDestContent, {
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
-      immediateSave: true,
-      historyBeforeContent: acceptedContent,
+      historyBeforeContent: targetPublication.content,
     });
-    if (rollback.status !== "accepted") {
+    if (rollback.status !== "accepted")
       toast.error(t("designEditor.toasts.saveConflict"));
-    }
-  };
-
-  if (sourcePublication.status !== "accepted") {
-    const targetPersistence = targetPublication.persistence;
-    if (!targetPersistence) {
-      restoreFile(targetScreenId, rawDestContent, targetPublication.content);
-    } else {
-      void targetPersistence.then((result) => {
-        if (result.status === "persisted" || result.status === "retrying") {
-          restoreFile(
-            targetScreenId,
-            rawDestContent,
-            targetPublication.content,
-          );
-        }
-      });
-    }
     return;
   }
 
-  const finalizeMove = () => {
+  const finalizePublication = () => {
     // History must replay the bytes the publisher accepted. Canonical identity
     // publication may stamp IDs into submitted HTML, and the post-action
     // selection snapshot must resolve against those same final documents.
@@ -1156,33 +1136,69 @@ export function runCrossScreenElementDrop(
     }
   };
 
-  const targetPersistence = targetPublication.persistence;
-  const sourcePersistence = sourcePublication.persistence;
-  if (!targetPersistence && !sourcePersistence) {
-    finalizeMove();
+  const rollbackAfterSaveConflict = (
+    publication: typeof targetPublication,
+    fileId: string,
+    content: string,
+  ) => {
+    const rollback = applyFileContentUpdate(fileId, content, {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      historyBeforeContent: publication.content,
+      sourceBaseContent: publication.content,
+      immediateSave: true,
+      awaitSave: true,
+    });
+    if (rollback.status !== "accepted") return Promise.resolve(false);
+    return rollback.saveCompletion ?? Promise.resolve(true);
+  };
+
+  const targetSave = targetPublication.saveCompletion;
+  const sourceSave = sourcePublication.saveCompletion;
+  if (!targetSave && !sourceSave) {
+    finalizePublication();
     return;
   }
 
-  const persisted = Promise.resolve({ status: "persisted" } as const);
-  void Promise.all([
-    targetPersistence ?? persisted,
-    sourcePersistence ?? persisted,
-  ]).then(([targetResult, sourceResult]) => {
-    const targetFailed =
-      targetResult.status === "conflict" || targetResult.status === "failed";
-    const sourceFailed =
-      sourceResult.status === "conflict" || sourceResult.status === "failed";
-    if (sourceFailed && !targetFailed) {
-      restoreFile(targetScreenId, rawDestContent, targetPublication.content);
+  void Promise.allSettled([
+    targetSave ?? Promise.resolve(true),
+    sourceSave ?? Promise.resolve(true),
+  ]).then(async ([targetResult, sourceResult]) => {
+    const targetSaved =
+      targetResult.status === "fulfilled" && targetResult.value === true;
+    const sourceSaved =
+      sourceResult.status === "fulfilled" && sourceResult.value === true;
+    const saveFailed =
+      targetResult.status === "rejected" || sourceResult.status === "rejected";
+    if (targetSaved && sourceSaved) {
+      finalizePublication();
+      return;
     }
-    if (targetFailed && !sourceFailed) {
-      restoreFile(sourceScreenId, sourceContent, sourcePublication.content);
+    const rollbackResults: Promise<boolean>[] = [];
+    if (targetSaved && !sourceSaved) {
+      rollbackResults.push(
+        rollbackAfterSaveConflict(
+          targetPublication,
+          targetScreenId,
+          rawDestContent,
+        ),
+      );
+    }
+    if (sourceSaved && !targetSaved) {
+      rollbackResults.push(
+        rollbackAfterSaveConflict(
+          sourcePublication,
+          sourceScreenId,
+          sourceContent,
+        ),
+      );
     }
     if (
-      targetResult.status === "persisted" &&
-      sourceResult.status === "persisted"
+      saveFailed ||
+      (await Promise.all(rollbackResults)).some((saved) => !saved)
     ) {
-      finalizeMove();
+      toast.error(t("designEditor.toasts.saveConflict"));
     }
   });
 }

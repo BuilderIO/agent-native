@@ -17,10 +17,7 @@ import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
-import type {
-  ApplyLocalContentUpdateResult,
-  FileContentPersistence,
-} from "./apply-local-content-update";
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 
 export type ApplyFileContentUpdateResult =
   | ApplyLocalContentUpdateResult
@@ -41,6 +38,7 @@ export interface ApplyFileContentUpdateArgs {
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
       immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
@@ -58,6 +56,7 @@ export interface ApplyFileContentUpdateArgs {
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
       immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
@@ -83,7 +82,7 @@ export interface ApplyFileContentUpdateArgs {
       immediate?: boolean;
       identityMigrationSourceContent?: string;
     },
-  ) => FileContentPersistence | undefined;
+  ) => unknown;
   files: DesignFile[];
   getScreenContent: (screenId: string) => string;
   id: string | undefined;
@@ -131,6 +130,7 @@ export function runApplyFileContentUpdate(
     skipPreview?: boolean;
     forcePreviewFullDocument?: boolean;
     immediateSave?: boolean;
+    awaitSave?: boolean;
     persist?: boolean;
     recordHistory?: boolean;
     historyBeforeContent?: string;
@@ -240,11 +240,11 @@ export function runApplyFileContentUpdate(
       TAB_ID,
     );
   }
-  let persistence: FileContentPersistence | undefined;
+  let saveCompletion: Promise<boolean> | undefined;
   if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(fileId);
   } else {
-    persistence = queueFileContentSave(fileId, acceptedContent, {
+    const completion = queueFileContentSave(fileId, acceptedContent, {
       expectedVersionHash: sourceContentHash(
         needsIdentityMigration
           ? nextContent
@@ -254,11 +254,14 @@ export function runApplyFileContentUpdate(
       immediate: true,
       identityMigrationSourceContent,
     });
+    if (completion instanceof Promise) saveCompletion = completion;
   }
   return {
     status: "accepted",
     content: acceptedContent,
     nodeIdMap: prepared.nodeIdMap,
-    persistence,
+    ...(options.awaitSave && saveCompletion instanceof Promise
+      ? { saveCompletion }
+      : {}),
   };
 }

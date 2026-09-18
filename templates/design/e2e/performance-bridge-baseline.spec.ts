@@ -877,7 +877,11 @@ test("collect selectable rects baseline on nested responsive screens", async ({
   expect(marqueeProfiler.host.buildCodeLayerProjection).toBeLessThanOrEqual(4);
   expect(marqueeProfiler.host.reactCommits).toBeGreaterThan(0);
   expect(marqueeProfiler.bridge.domScans).toBe(2);
-  expect(marqueeProfiler.bridge.subtreeNodes).toBeGreaterThan(0);
+  // Overview marquee collection is intentionally lightweight: it still scans
+  // each touched document for selectable geometry, but defers portable subtree
+  // snapshots until a later copy/direct-selection boundary.
+  expect(marqueeProfiler.bridge.subtreeQueries).toBe(0);
+  expect(marqueeProfiler.bridge.subtreeNodes).toBe(0);
   expect(marqueeSelectionAfterRows).not.toEqual(marqueeSelectionBeforeRows);
   expect(marqueeSelectionAfterRows).toEqual(
     expect.arrayContaining([

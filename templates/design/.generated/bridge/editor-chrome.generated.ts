@@ -2835,6 +2835,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
+    var portableStyleCssomHooks = /* @__PURE__ */ new WeakMap();
     var portableStyleMutationObserverOptions = {
       subtree: true,
       childList: true,
@@ -2903,13 +2904,298 @@ export const editorChromeBridgeScript: string = `"use strict";
         return false;
       }
     }
+    function portableStylePropertyDescriptor(target, property) {
+      var current = target;
+      while (current) {
+        var descriptor = Object.getOwnPropertyDescriptor(current, property);
+        if (descriptor) return { owner: current, descriptor };
+        var prototype = Object.getPrototypeOf(current);
+        current = prototype && prototype !== Object.prototype ? prototype : null;
+      }
+      return void 0;
+    }
+    function portableStyleCssomDeclarationChanged(receiver) {
+      try {
+        return receiver.parentRule !== null;
+      } catch (_error) {
+        return true;
+      }
+    }
+    function portableStyleCssomHookKey(property, kind) {
+      return kind + ":" + property;
+    }
+    function portableStyleCssomHookMap(owner, create) {
+      var hooks = portableStyleCssomHooks.get(owner);
+      if (!hooks && create) {
+        hooks = /* @__PURE__ */ new Map();
+        portableStyleCssomHooks.set(owner, hooks);
+      }
+      return hooks;
+    }
+    function portableStyleCssomHookInstalled(found2, hook) {
+      return hook.kind === "method" ? found2.descriptor.value === hook.wrappedValue : found2.descriptor.set === hook.wrappedSetter;
+    }
+    function portableStyleCssomExistingHook(found2, property, kind) {
+      var hooks = portableStyleCssomHookMap(found2.owner, false);
+      var key = portableStyleCssomHookKey(property, kind);
+      var hook = hooks?.get(key);
+      if (!hook) return void 0;
+      if (portableStyleCssomHookInstalled(found2, hook)) return hook;
+      hooks?.delete(key);
+      return void 0;
+    }
+    function portableStyleCssomInvalidateHook(hook, receiver) {
+      hook.subscribers.slice().forEach(function(subscriber) {
+        try {
+          if (!subscriber.shouldInvalidate || subscriber.shouldInvalidate(receiver)) {
+            subscriber.cache.mutationGeneration += 1;
+          }
+        } catch (_error) {
+          subscriber.cache.mutationGeneration += 1;
+        }
+      });
+    }
+    function portableStyleCssomSubscribe(hook, cache, shouldInvalidate) {
+      var subscriber = { cache, shouldInvalidate };
+      hook.subscribers.push(subscriber);
+      var released = false;
+      return function() {
+        if (released) return;
+        released = true;
+        var subscriberIndex = hook.subscribers.indexOf(subscriber);
+        if (subscriberIndex !== -1) hook.subscribers.splice(subscriberIndex, 1);
+        if (hook.subscribers.length > 0) return;
+        var hooks = portableStyleCssomHookMap(hook.owner, false);
+        var current = Object.getOwnPropertyDescriptor(hook.owner, hook.property);
+        if (current && portableStyleCssomHookInstalled(
+          { owner: hook.owner, descriptor: current },
+          hook
+        )) {
+          try {
+            Object.defineProperty(hook.owner, hook.property, hook.descriptor);
+          } catch (_error) {
+            dndLog("style:cssom-hook-restore-failed", {
+              property: hook.property
+            });
+          }
+        }
+        var key = portableStyleCssomHookKey(hook.property, hook.kind);
+        if (hooks?.get(key) === hook) hooks.delete(key);
+        if (hooks?.size === 0) portableStyleCssomHooks.delete(hook.owner);
+      };
+    }
+    function portableStyleWrapCssomMethod(cache, target, property, shouldInvalidate) {
+      var found2 = portableStylePropertyDescriptor(target, property);
+      if (!found2 || typeof found2.descriptor.value !== "function") return true;
+      var existingHook = portableStyleCssomExistingHook(
+        found2,
+        property,
+        "method"
+      );
+      if (existingHook) {
+        return portableStyleCssomSubscribe(existingHook, cache, shouldInvalidate);
+      }
+      var original = found2.descriptor.value;
+      var hook = {
+        owner: found2.owner,
+        property,
+        kind: "method",
+        descriptor: found2.descriptor,
+        subscribers: []
+      };
+      var wrapped = function(...args) {
+        portableStyleCssomInvalidateHook(hook, this);
+        var result = original.apply(this, args);
+        if (property === "replace" && result) {
+          try {
+            var then = result.then;
+            if (typeof then === "function") {
+              then.call(
+                result,
+                function() {
+                  portableStyleCssomInvalidateHook(hook);
+                },
+                function() {
+                  portableStyleCssomInvalidateHook(hook);
+                }
+              );
+            }
+          } catch (_error) {
+            portableStyleCssomInvalidateHook(hook);
+          }
+        }
+        return result;
+      };
+      hook.wrappedValue = wrapped;
+      try {
+        Object.defineProperty(found2.owner, property, {
+          ...found2.descriptor,
+          value: wrapped
+        });
+      } catch (_error) {
+        dndLog("style:cssom-hook-install-failed", { property });
+        return false;
+      }
+      portableStyleCssomHookMap(found2.owner, true).set(
+        portableStyleCssomHookKey(property, "method"),
+        hook
+      );
+      return portableStyleCssomSubscribe(hook, cache, shouldInvalidate);
+    }
+    function portableStyleWrapCssomSetter(cache, target, property, shouldInvalidate) {
+      var found2 = portableStylePropertyDescriptor(target, property);
+      if (!found2 || typeof found2.descriptor.set !== "function") return true;
+      var existingHook = portableStyleCssomExistingHook(
+        found2,
+        property,
+        "setter"
+      );
+      if (existingHook) {
+        return portableStyleCssomSubscribe(existingHook, cache, shouldInvalidate);
+      }
+      var original = found2.descriptor.set;
+      var hook = {
+        owner: found2.owner,
+        property,
+        kind: "setter",
+        descriptor: found2.descriptor,
+        subscribers: []
+      };
+      var wrapped = function(value) {
+        portableStyleCssomInvalidateHook(hook, this);
+        original.call(this, value);
+      };
+      hook.wrappedSetter = wrapped;
+      try {
+        Object.defineProperty(found2.owner, property, {
+          ...found2.descriptor,
+          set: wrapped
+        });
+      } catch (_error) {
+        dndLog("style:cssom-hook-install-failed", { property });
+        return false;
+      }
+      portableStyleCssomHookMap(found2.owner, true).set(
+        portableStyleCssomHookKey(property, "setter"),
+        hook
+      );
+      return portableStyleCssomSubscribe(hook, cache, shouldInvalidate);
+    }
+    function portableStyleWrapCssomSetters(cache, target, shouldInvalidate, restorers) {
+      if (!target) return true;
+      var current = target;
+      while (current && current !== Object.prototype) {
+        var properties = Object.getOwnPropertyNames(current);
+        for (var index = 0; index < properties.length; index += 1) {
+          var property = properties[index];
+          if (property === "constructor") continue;
+          var result = portableStyleWrapCssomSetter(
+            cache,
+            current,
+            property,
+            shouldInvalidate
+          );
+          if (result === false) return false;
+          if (result !== true) restorers.push(result);
+        }
+        var prototype = Object.getPrototypeOf(current);
+        current = prototype && prototype !== Object.prototype ? prototype : null;
+      }
+      return true;
+    }
+    function portableStyleInstallCssomHooks(cache) {
+      var restorers = [];
+      var portableWindow = window;
+      var success = true;
+      var addMethod = function(target, property) {
+        if (!success || !target) return;
+        var result = portableStyleWrapCssomMethod(cache, target, property);
+        if (result === false) success = false;
+        else if (result !== true) restorers.push(result);
+      };
+      var addSetter = function(target, property) {
+        if (!success || !target) return;
+        var result = portableStyleWrapCssomSetter(cache, target, property);
+        if (result === false) success = false;
+        else if (result !== true) restorers.push(result);
+      };
+      var styleSheetPrototype = portableWindow.CSSStyleSheet?.prototype;
+      addMethod(portableWindow.Element?.prototype, "animate");
+      var keyframeEffectPrototype = portableWindow.KeyframeEffect?.prototype;
+      addMethod(keyframeEffectPrototype, "setKeyframes");
+      addMethod(keyframeEffectPrototype, "updateTiming");
+      [
+        "insertRule",
+        "deleteRule",
+        "replace",
+        "replaceSync",
+        "addRule",
+        "removeRule"
+      ].forEach(function(property) {
+        addMethod(styleSheetPrototype, property);
+      });
+      addSetter(portableWindow.Document?.prototype, "adoptedStyleSheets");
+      addSetter(portableWindow.ShadowRoot?.prototype, "adoptedStyleSheets");
+      var styleDeclarationPrototype = portableWindow.CSSStyleDeclaration?.prototype;
+      if (success && styleDeclarationPrototype) {
+        var setPropertyResult = portableStyleWrapCssomMethod(
+          cache,
+          styleDeclarationPrototype,
+          "setProperty",
+          portableStyleCssomDeclarationChanged
+        );
+        if (setPropertyResult === false) success = false;
+        else if (setPropertyResult !== true) restorers.push(setPropertyResult);
+        var removePropertyResult = portableStyleWrapCssomMethod(
+          cache,
+          styleDeclarationPrototype,
+          "removeProperty",
+          portableStyleCssomDeclarationChanged
+        );
+        if (removePropertyResult === false) success = false;
+        else if (removePropertyResult !== true)
+          restorers.push(removePropertyResult);
+      }
+      if (success && !portableStyleWrapCssomSetters(
+        cache,
+        styleDeclarationPrototype,
+        portableStyleCssomDeclarationChanged,
+        restorers
+      )) {
+        success = false;
+      }
+      if (success && !portableStyleWrapCssomSetters(
+        cache,
+        styleSheetPrototype,
+        void 0,
+        restorers
+      )) {
+        success = false;
+      }
+      if (!success) {
+        for (var restoreIndex = restorers.length - 1; restoreIndex >= 0; restoreIndex -= 1) {
+          restorers[restoreIndex]();
+        }
+        return false;
+      }
+      cache.restoreCssomHooks = function() {
+        for (var restoreIndex2 = restorers.length - 1; restoreIndex2 >= 0; restoreIndex2 -= 1) {
+          restorers[restoreIndex2]();
+        }
+        restorers = [];
+      };
+      return true;
+    }
     function createPortableStyleComputedStylesCache() {
       if (typeof MutationObserver === "undefined") return void 0;
       var cache = {
         entries: /* @__PURE__ */ new Map(),
+        animationFingerprints: /* @__PURE__ */ new Map(),
         mutationObserver: null,
         mutationGeneration: 0,
-        observedMutationRoots: []
+        observedMutationRoots: [],
+        restoreCssomHooks: function() {
+        }
       };
       try {
         var observer = new MutationObserver(function(records) {
@@ -2922,8 +3208,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           observer.disconnect();
           return void 0;
         }
+        if (!portableStyleInstallCssomHooks(cache)) {
+          observer.disconnect();
+          return void 0;
+        }
         return cache;
       } catch (_error) {
+        cache.mutationObserver.disconnect();
+        cache.restoreCssomHooks();
         dndLog("style:mutation-observer-unavailable");
         return void 0;
       }
@@ -2943,42 +3235,98 @@ export const editorChromeBridgeScript: string = `"use strict";
         return void 0;
       }
     }
-    function canReadPortableAnimationState(el) {
+    var portableStyleAnimationEffectIds = /* @__PURE__ */ new WeakMap();
+    var nextPortableStyleAnimationEffectId = 1;
+    function portableStyleAnimationEffectId(effect) {
+      if (!effect) return null;
+      var id = portableStyleAnimationEffectIds.get(effect);
+      if (id !== void 0) return id;
+      id = nextPortableStyleAnimationEffectId++;
+      portableStyleAnimationEffectIds.set(effect, id);
+      return id;
+    }
+    function readPortableAnimationState(el) {
       var animatedElement = el;
       try {
         var getAnimations = animatedElement.getAnimations;
         if (typeof getAnimations !== "function") {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          return false;
+          return void 0;
         }
         var animations = getAnimations.call(animatedElement);
         if (!Array.isArray(animations)) {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          return false;
+          return void 0;
         }
+        var cacheable = true;
+        var fingerprintParts = [];
         for (var index = 0; index < animations.length; index += 1) {
-          var playState = animations[index]?.playState;
-          if (typeof playState !== "string") {
+          var animation = animations[index];
+          var playState = animation?.playState;
+          if (!animation || typeof playState !== "string") {
             dndLog("style:animation-state-unreadable", { tag: el.tagName });
-            return false;
+            return void 0;
           }
-          if (playState === "running" || playState === "pending") return false;
+          if (playState === "running" || playState === "pending") {
+            cacheable = false;
+          }
+          fingerprintParts.push(
+            [
+              index,
+              playState,
+              animation.currentTime,
+              animation.startTime,
+              animation.playbackRate,
+              portableStyleAnimationEffectId(animation.effect ?? null),
+              animation.effect && JSON.stringify({
+                keyframes: animation.effect.getKeyframes?.(),
+                timing: animation.effect.getTiming?.(),
+                composite: animation.effect.composite,
+                iterationComposite: animation.effect.iterationComposite,
+                target: animation.effect.target
+              })
+            ].map(function(value) {
+              if (value === null) return "null";
+              if (value === void 0) return "undefined";
+              return \`\${typeof value}:\${String(value)}\`;
+            }).join(":")
+          );
         }
-        return true;
+        return {
+          cacheable,
+          fingerprint: fingerprintParts.join("|") || "none"
+        };
       } catch (_error) {
         dndLog("style:animation-state-read-failed", { tag: el.tagName });
-        return false;
+        return void 0;
       }
+    }
+    function recordPortableStyleAnimationState(cache, el) {
+      var state = readPortableAnimationState(el);
+      if (state) cache.animationFingerprints.set(el, state.fingerprint);
+      else cache.animationFingerprints.delete(el);
     }
     function canReusePortableComputedStyles(el, cache) {
       var current = el;
       while (current) {
         var parent = portableStyleAnimationParent(current);
-        if (parent === void 0) return false;
         if (cache && (!portableStyleObserveElementRoot(cache, current) || parent && !portableStyleObserveElementRoot(cache, parent))) {
           return false;
         }
-        if (!canReadPortableAnimationState(current)) return false;
+        var animationState = readPortableAnimationState(current);
+        if (parent === void 0 || !animationState || !animationState.cacheable) {
+          return false;
+        }
+        if (cache) {
+          var previousFingerprint = cache.animationFingerprints.get(current);
+          if (previousFingerprint === void 0) {
+            cache.animationFingerprints.set(current, animationState.fingerprint);
+          } else if (previousFingerprint !== animationState.fingerprint) {
+            cache.entries.delete(current);
+            cache.animationFingerprints.set(current, animationState.fingerprint);
+            return false;
+          }
+        }
         current = parent;
       }
       return true;
@@ -3102,6 +3450,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         dndLog("style:snapshot-skipped", { el: getSelector(root) });
         return null;
       }
+      if (cache) recordPortableStyleAnimationState(cache, root);
       return {
         version: 1,
         rootSourceId: getSourceId(root) || void 0,
@@ -3524,7 +3873,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || ""
       };
     }
-    function getElementInfo(el, portableComputedStylesCache) {
+    function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = true) {
       var cs = window.getComputedStyle(el);
       var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
       var boundingRect = rectInfoForElement(el);
@@ -3604,11 +3953,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         provenance,
         sourceId || runtimeSourceId || pendingNodeId || getSelector(el)
       );
-      var portableStyleSnapshot = collectPortableStyleSnapshot(
-        el,
-        portableComputedStylesCache,
-        cs
-      );
+      var portableStyleSnapshot = includePortableStyleSnapshot ? collectPortableStyleSnapshot(el, portableComputedStylesCache, cs) : void 0;
       return {
         tagName: el.tagName.toLowerCase(),
         componentName: componentName || void 0,
@@ -3803,21 +4148,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return { x: point.x, y: point.y };
     }
-    function collectSelectableElementInfos(deep, atPoint) {
+    function collectSelectableElementInfos(deep, atPoint, includePortableStyleSnapshot = true) {
       var targets = collectSelectableElements(deep);
       if (atPoint) {
         targets = targets.filter(function(el) {
           return documentSpaceBoundsContainPoint(el, atPoint);
         });
       }
+      if (!includePortableStyleSnapshot) {
+        return targets.map(function(target) {
+          return getElementInfo(target, void 0, false);
+        });
+      }
       portableStyleProbeDocument();
       var portableComputedStylesCache = createPortableStyleComputedStylesCache();
       try {
         return targets.map(function(target) {
-          return getElementInfo(target, portableComputedStylesCache);
+          return getElementInfo(target, portableComputedStylesCache, true);
         });
       } finally {
-        portableComputedStylesCache?.mutationObserver.disconnect();
+        if (portableComputedStylesCache) {
+          portableComputedStylesCache.mutationObserver.disconnect();
+          portableComputedStylesCache.restoreCssomHooks();
+        }
       }
     }
     function documentSpaceBoundsContainPoint(el, point) {
@@ -9578,6 +9931,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return "y";
     }
+    function wrappedFlexMainAxis(parent) {
+      var cs = window.getComputedStyle(parent);
+      if (cs.display !== "flex" && cs.display !== "inline-flex") {
+        return null;
+      }
+      if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+        return null;
+      }
+      return cs.flexDirection && cs.flexDirection.indexOf("row") === 0 ? "x" : "y";
+    }
     function nearestChildInsertionTarget(container, clientX, clientY, excludeEls) {
       var excluded = excludeEls || [];
       function isExcluded(node) {
@@ -9593,8 +9956,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return !isExcluded(child);
       });
       if (!children.length) return null;
-      var axis = parentFlowAxis(container);
       var containerStyles = window.getComputedStyle(container);
+      var wrappedFlexAxis = wrappedFlexMainAxis(container);
+      var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
       var best = null;
       var bestDistance = Infinity;
@@ -9604,14 +9968,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (rect.width <= 0 || rect.height <= 0) continue;
         var center = axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
         var pointer = axis === "x" ? clientX : clientY;
-        var distance = multiTrackGrid ? Math.hypot(
+        var distance = multiTrackGrid || wrappedFlexAxis ? Math.hypot(
           clientX - (rect.left + rect.width / 2),
           clientY - (rect.top + rect.height / 2)
         ) : Math.abs(pointer - center);
         if (distance < bestDistance) {
           bestDistance = distance;
           best = children[j];
-          placement = multiTrackGrid ? clientX < rect.left + rect.width / 2 ? "before" : "after" : pointer < center ? "before" : "after";
+          var placementPointer = axis === "x" ? clientX : clientY;
+          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -9636,6 +10001,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var hit = elementFromEditorPoint(clientX, clientY);
       if (hit && hit !== document.documentElement && !isDraggedOrInsideDragged(hit) && !isOverlayElement(hit) && !isTemplateCloneElement(hit)) {
+        var hitAutoLayoutParent = hit.parentElement;
+        var hitAutoLayoutStyles = hitAutoLayoutParent ? window.getComputedStyle(hitAutoLayoutParent) : null;
+        var hitIsGrid = hitAutoLayoutStyles && (hitAutoLayoutStyles.display === "grid" || hitAutoLayoutStyles.display === "inline-grid");
+        var hitIsWrappedFlex = hitAutoLayoutStyles && (hitAutoLayoutStyles.display === "flex" || hitAutoLayoutStyles.display === "inline-flex") && (hitAutoLayoutStyles.flexWrap === "wrap" || hitAutoLayoutStyles.flexWrap === "wrap-reverse");
+        if (hitAutoLayoutParent && isAutoLayoutElement(hitAutoLayoutParent) && (hitAutoLayoutParent === el.parentElement || hitIsGrid || hitIsWrappedFlex)) {
+          var directChildSlot = nearestChildInsertionTarget(
+            hitAutoLayoutParent,
+            clientX,
+            clientY,
+            dragged
+          );
+          if (directChildSlot) return directChildSlot;
+        }
         if (isContainerDropTarget(hit) && !isTextBearingLeaf(hit)) {
           var containerRect = hit.getBoundingClientRect();
           var edgeAxis = hit.parentElement ? parentFlowAxis(hit.parentElement) : parentFlowAxis(hit);
@@ -9740,6 +10118,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragged = [el].concat(excludeEls || []);
       var parentRect = currentParent.getBoundingClientRect();
       var pointerOutsideCurrentParent = clientX < parentRect.left || clientX > parentRect.right || clientY < parentRect.top || clientY > parentRect.bottom;
+      var pointHit = elementFromEditorPoint(clientX, clientY);
+      if (ignoreTargetAutoLayout && pointerOutsideCurrentParent && isAutoLayoutElement(currentParent) && (!pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+        return {
+          anchor: document.body,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container"
+        };
+      }
       if (keepCurrentParent && pointerOutsideCurrentParent) {
         var freeParent = currentParent;
         while (freeParent && freeParent.parentElement && freeParent.parentElement !== document.body && isAutoLayoutElement(freeParent)) {
@@ -9792,7 +10179,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function ignoreAutoLayoutForDropTarget(target) {
       var container = dropContainerForTarget(target);
-      if (!target || !container || container === document.body || !isAutoLayoutElement(container)) {
+      var isDeclaredFrameInAutoLayout = Boolean(
+        container && container.getAttribute("data-an-primitive") === "frame" && isAutoLayoutElement(container.parentElement)
+      );
+      if (!target || !container || container === document.body || !isAutoLayoutElement(container) && !isDeclaredFrameInAutoLayout) {
         return target;
       }
       return {
@@ -9835,6 +10225,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!hit || hit === document.documentElement || hit === document.body) {
         return unnestAbsoluteToScreenRoot(el, clientX, clientY);
       }
+      var explicitFrame = hit.closest('[data-an-primitive="frame"]');
+      if (explicitFrame && explicitFrame !== document.body && !isDraggedOrInsideDragged(explicitFrame) && isAutoLayoutElement(explicitFrame.parentElement)) {
+        return {
+          anchor: explicitFrame,
+          placement: "inside",
+          axis: parentFlowAxis(explicitFrame),
+          // A declared frame is a deliberate nesting target even while it is a
+          // flex item itself. Its normal drop mode joins the frame's content
+          // flow; Ctrl is the explicit request to keep absolute positioning.
+          dropMode: "flow-insert"
+        };
+      }
       var cursor = hit;
       while (cursor && cursor !== document.body) {
         if (isDraggedOrInsideDragged(cursor) || isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
@@ -9851,7 +10253,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             dropMode: "absolute-container"
           };
         }
-        if (cursor !== document.body && isContainerDropTarget(cursor) && !(parent && parent !== document.body && isAutoLayoutElement(parent))) {
+        if (cursor !== document.body && isContainerDropTarget(cursor) && !(parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame")) {
           if (!isAutoLayoutElement(cursor)) {
             if (cursor === el.parentElement) return null;
             return {
@@ -9913,6 +10315,16 @@ export const editorChromeBridgeScript: string = `"use strict";
               axis: parentFlowAxis(parent),
               dropMode: "flow-insert"
             };
+          }
+          var wrappedParentAxis = wrappedFlexMainAxis(parent);
+          if (wrappedParentAxis) {
+            var wrappedParentSlot = nearestChildInsertionTarget(
+              parent,
+              clientX,
+              clientY,
+              dragged
+            );
+            if (wrappedParentSlot) return wrappedParentSlot;
           }
           var parentAxis = parentFlowAxis(parent);
           var childRect = cursor.getBoundingClientRect();
@@ -11322,7 +11734,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             var rawTarget = resolveReorderOrFreeTarget2(
               cx,
               cy,
-              Boolean(ev.ctrlKey)
+              reorderIgnoresAutoLayout || Boolean(ev.ctrlKey || ev.metaKey)
             );
             rawTarget = applyReorderSizeGuard2(rawTarget, ev);
             currentTarget = stabilizeReorderTarget2(
@@ -11436,7 +11848,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             return;
           }
-          var finalRaw = resolveReorderOrFreeTarget2(cx, cy, Boolean(ev?.ctrlKey));
+          var finalRaw = resolveReorderOrFreeTarget2(
+            cx,
+            cy,
+            reorderIgnoresAutoLayout || Boolean(ev?.ctrlKey || ev?.metaKey)
+          );
           currentTarget = liveReflowEnabled ? stabilizeReorderTarget2(
             applyReorderSizeGuard2(finalRaw, ev),
             cx,
@@ -11763,7 +12179,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             ev.clientY,
             groupOthers
           ) : null;
-          if (currentAutoLayoutTarget && ev.ctrlKey) {
+          if (currentAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
             currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
               currentAutoLayoutTarget
             );
@@ -11893,7 +12309,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             ev.clientY,
             groupOthers
           );
-          if (finalAutoLayoutTarget && ev.ctrlKey) {
+          if (finalAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
             finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
               finalAutoLayoutTarget
             );
@@ -14607,7 +15023,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
             payload: collectSelectableElementInfos(
               Boolean(e.data.deep),
-              readSelectablePoint(e.data.atPoint)
+              readSelectablePoint(e.data.atPoint),
+              e.data.includePortableStyleSnapshot !== false
             )
           },
           "*"
