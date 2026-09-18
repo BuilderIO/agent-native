@@ -539,7 +539,11 @@ describe("submit-content-database-form", () => {
 
   it.each([
     ["invalid select array", "Priority", [42]],
+    ["multiple values for a select", "Priority", ["P1 — High", "P2 — Medium"]],
+    ["null-containing select array", "Priority", ["P1 — High", null]],
     ["invalid multi-select array", "Tags", [42]],
+    ["partially invalid multi-select array", "Tags", ["Design", 42]],
+    ["null-containing multi-select array", "Tags", ["Design", null]],
   ])(
     "rejects %s values that would be verified as empty",
     async (_label, property, value) => {
@@ -611,7 +615,9 @@ describe("submit-content-database-form", () => {
             ],
           }),
         ),
-      ).rejects.toThrow("the supplied value could not be preserved");
+      ).rejects.toThrow(
+        /must be preserved exactly once|could not be preserved/,
+      );
     },
   );
 

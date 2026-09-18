@@ -2,7 +2,12 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  assertAccess,
+  currentAccess,
+  ForbiddenError,
+} from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -159,6 +164,23 @@ function normalizeSubmittedPropertyValue(
     (Array.isArray(value) && value.length === 0);
   let normalized: DocumentPropertyValue;
   if (type === "select" || type === "status" || type === "multi_select") {
+    if (Array.isArray(value)) {
+      const invalidCandidates = value.filter(
+        (candidate) => typeof candidate !== "string",
+      );
+      const nonEmptyCandidates = value.filter(
+        (candidate): candidate is string =>
+          typeof candidate === "string" && candidate.trim() !== "",
+      );
+      if (
+        invalidCandidates.length > 0 ||
+        (type !== "multi_select" && nonEmptyCandidates.length > 1)
+      ) {
+        throw new Error(
+          `Invalid value for "${definition.name}"; every supplied option must be preserved exactly once.`,
+        );
+      }
+    }
     const options = parsePropertyOptions(definition.optionsJson).options ?? [];
     const values = optionCandidates(value, type === "multi_select").map(
       (candidate) => resolveOption(candidate, options, definition.name),
@@ -329,10 +351,12 @@ export default defineAction({
       throw new Error("Database does not belong to a Content space.");
     }
 
+    const accessContext = currentAccess();
     const access = await assertAccess(
       "document",
       database.documentId,
       "editor",
+      accessContext,
     );
     const databaseDocument = access.resource;
     if (databaseDocument.spaceId !== database.spaceId) {
@@ -459,6 +483,38 @@ export default defineAction({
       ) {
         throw new Error(
           "The database form changed before form submission completed.",
+        );
+      }
+      await tx
+        .update(schema.documentShares)
+        .set({ role: sql`${schema.documentShares.role}` })
+        .where(eq(schema.documentShares.resourceId, database.documentId))
+        .returning({ id: schema.documentShares.id });
+      const lockedDocuments = await tx
+        .update(schema.documents)
+        .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+        .where(eq(schema.documents.id, database.documentId))
+        .returning({ id: schema.documents.id });
+      if (lockedDocuments.length !== 1) {
+        throw new Error("Database page not found.");
+      }
+      const [lockedAccess] = await tx
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.id, database.documentId),
+            accessFilter(
+              schema.documents,
+              schema.documentShares,
+              accessContext,
+              "editor",
+            ),
+          ),
+        );
+      if (!lockedAccess) {
+        throw new ForbiddenError(
+          `Requires editor role on document ${database.documentId}`,
         );
       }
       await touchContentDatabase(
