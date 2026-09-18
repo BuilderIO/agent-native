@@ -561,6 +561,120 @@ describe("RecorderEngine streaming connection recovery", () => {
     ).toEqual([[STREAM_CHUNK_BYTES, 1]]);
   });
 
+  it("keeps the resume claim token when a reset is required", async () => {
+    vi.stubGlobal("window", {
+      setTimeout,
+      clearTimeout,
+      location: { pathname: "/" },
+    });
+    const fetchMock = vi.fn(
+      async (url: RequestInfo | URL, _options?: RequestInit) => {
+        const requestUrl = String(url);
+        if (requestUrl.includes("/resume?")) {
+          const attemptId = new URL(
+            requestUrl,
+            "http://localhost",
+          ).searchParams.get("attemptId");
+          return Response.json({
+            resumable: true,
+            uploadMode: "buffered",
+            attemptId,
+            uploadGenerationId: "generation-1",
+            bytesReceived: 0,
+            nextChunkIndex: 0,
+          });
+        }
+        return Response.json({
+          uploadMode: "streaming",
+          uploadGenerationId: "generation-2",
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const engine = new RecorderEngine({
+      recordingId: "rec-1",
+      mode: "screen",
+      uploadMode: "streaming",
+      uploadUrl: "/api/uploads/rec-1/chunk",
+      abortUrl: "/api/uploads/rec-1/abort",
+      resetUrl: "/api/uploads/rec-1/reset-chunks",
+    });
+    const internals = engine as unknown as {
+      claimStreamingUploadResumePoint: () => Promise<null>;
+      resetUploadedChunks: () => Promise<void>;
+      uploadAttemptId: string | null;
+      uploadGenerationId: string | null;
+    };
+
+    await expect(
+      internals.claimStreamingUploadResumePoint(),
+    ).resolves.toBeNull();
+
+    expect(internals.uploadAttemptId).toEqual(expect.any(String));
+    expect(internals.uploadGenerationId).toBe("generation-1");
+
+    await internals.resetUploadedChunks();
+
+    const resetRequest = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(String(resetRequest.body))).toMatchObject({
+      attemptId: internals.uploadAttemptId,
+      uploadGenerationId: "generation-1",
+    });
+  });
+
+  it("keeps reset failures recoverable when they are temporary", async () => {
+    vi.stubGlobal("window", { setTimeout, clearTimeout });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error("connection lost"))
+        .mockResolvedValueOnce(new Response("unavailable", { status: 503 })),
+    );
+    const engine = makeEngine();
+    const internals = engine as unknown as {
+      resetUploadedChunks: () => Promise<void>;
+    };
+
+    await expect(internals.resetUploadedChunks()).rejects.toMatchObject({
+      transport: true,
+    });
+    await expect(internals.resetUploadedChunks()).rejects.toMatchObject({
+      status: 503,
+    });
+  });
+
+  it("does not let an older take reset a newer recording", async () => {
+    let resolveClaim!: (resume: null) => void;
+    const engine = makeEngine();
+    const resetUploadedChunks = vi.fn(async () => "streaming" as const);
+    const claimStreamingUploadResumePoint = vi.fn(
+      () =>
+        new Promise<null>((resolve) => {
+          resolveClaim = resolve;
+        }),
+    );
+    const internals = engine as unknown as {
+      streamingRecoveryGeneration: number;
+      recoverStreamingDelivery: (
+        restartRequired: boolean,
+        recoveryGeneration: number,
+      ) => Promise<void>;
+      claimStreamingUploadResumePoint: typeof claimStreamingUploadResumePoint;
+      resetUploadedChunks: typeof resetUploadedChunks;
+    };
+    internals.streamingRecoveryGeneration = 1;
+    internals.claimStreamingUploadResumePoint = claimStreamingUploadResumePoint;
+    internals.resetUploadedChunks = resetUploadedChunks;
+
+    const recovery = internals.recoverStreamingDelivery(false, 1);
+    internals.streamingRecoveryGeneration = 2;
+    resolveClaim(null);
+
+    await expect(recovery).rejects.toMatchObject({ name: "AbortError" });
+    expect(resetUploadedChunks).not.toHaveBeenCalled();
+  });
+
   it("drains paused delivery before sending the final streaming chunk", async () => {
     vi.useRealTimers();
     vi.stubGlobal(

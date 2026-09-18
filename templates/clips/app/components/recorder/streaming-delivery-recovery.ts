@@ -20,6 +20,7 @@ export class StreamingDeliveryRecovery {
   private attempts = 0;
   private paused = false;
   private restartRequired = false;
+  private generation = 0;
 
   constructor(private readonly opts: StreamingDeliveryRecoveryOptions) {}
 
@@ -63,6 +64,7 @@ export class StreamingDeliveryRecovery {
 
   /** Clears delivery state before a recorder instance begins another take. */
   reset(): void {
+    this.generation += 1;
     this.clear();
     this.active = false;
     this.attempt = null;
@@ -89,7 +91,14 @@ export class StreamingDeliveryRecovery {
     await this.attempt;
     this.clearTimer();
     if (!this.paused) return;
-    await this.runAttempt(false);
+    await this.runAttempt(false, this.generation);
+    if (!this.paused) return;
+    this.clear();
+    this.paused = false;
+    this.restartRequired = false;
+    throw new Error(
+      "Upload failed while reconnecting. Retry uploading your recording.",
+    );
   }
 
   private schedule(immediate = false): void {
@@ -106,16 +115,22 @@ export class StreamingDeliveryRecovery {
 
   private async retry(): Promise<void> {
     if (this.active || !this.opts.canRecover()) return;
-    const attempt = this.runAttempt(true);
+    const generation = this.generation;
+    const attempt = this.runAttempt(true, generation);
     this.attempt = attempt;
     try {
       await attempt;
     } finally {
+      if (generation !== this.generation) return;
       if (this.attempt === attempt) this.attempt = null;
     }
   }
 
-  private async runAttempt(skipWhileOffline: boolean): Promise<void> {
+  private async runAttempt(
+    skipWhileOffline: boolean,
+    generation: number,
+  ): Promise<void> {
+    if (generation !== this.generation) return;
     if (skipWhileOffline && this.isBrowserOffline()) {
       this.schedule();
       return;
@@ -125,11 +140,13 @@ export class StreamingDeliveryRecovery {
     let shouldRetry = false;
     try {
       await this.opts.recover(this.restartRequired);
+      if (generation !== this.generation) return;
       this.attempts = 0;
       this.paused = false;
       this.restartRequired = false;
       this.clear();
     } catch (error) {
+      if (generation !== this.generation) return;
       const failure = error instanceof Error ? error : new Error(String(error));
       if (failure.name === "AbortError") return;
       if (this.isRecoverableFailure(failure)) {
@@ -138,6 +155,7 @@ export class StreamingDeliveryRecovery {
       }
       this.stop(failure);
     } finally {
+      if (generation !== this.generation) return;
       this.active = false;
       if (shouldRetry) this.schedule();
       this.opts.onSettled();

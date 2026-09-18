@@ -110,6 +110,48 @@ describe("StreamingDeliveryRecovery", () => {
     expect(recovery.isPaused).toBe(false);
   });
 
+  it("fails stop-time delivery when recovery cannot finish", async () => {
+    vi.useFakeTimers();
+    const recover = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValue(
+        Object.assign(new Error("connection lost"), { transport: true }),
+      );
+    const { onPermanentFailure, recovery } = setupRecovery({ recover });
+
+    recovery.pause();
+
+    await expect(recovery.drainForStop()).rejects.toThrow(
+      "Upload failed while reconnecting.",
+    );
+
+    expect(onPermanentFailure).not.toHaveBeenCalled();
+    expect(recovery.isPaused).toBe(false);
+  });
+
+  it("ignores a recovery attempt from a previous recording", async () => {
+    vi.useFakeTimers();
+    let resolveRecovery!: () => void;
+    const recover = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRecovery = resolve;
+        }),
+    );
+    const { onSettled, recovery } = setupRecovery({ recover });
+
+    recovery.pause();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recover).toHaveBeenCalledOnce();
+
+    recovery.reset();
+    resolveRecovery();
+    await Promise.resolve();
+
+    expect(onSettled).not.toHaveBeenCalled();
+    expect(recovery.isPaused).toBe(false);
+  });
+
   it("drains paused delivery when recording stops", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("navigator", { onLine: false });
