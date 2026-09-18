@@ -159,7 +159,11 @@ import type {
   VectorEditOverlayState,
 } from "./multi-screen/types";
 import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
-import { type ElementInfo, type PortableStyleSnapshot } from "./types";
+import {
+  type ElementInfo,
+  type ElementSelectionIntent,
+  type PortableStyleSnapshot,
+} from "./types";
 
 /**
  * design-editor overview canvas. Renders every file in the design as a movable,
@@ -4150,6 +4154,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       clientX: number,
       clientY: number,
       mode: "drill" | "pick" = "drill",
+      modifierKeys?: Pick<
+        ElementSelectionIntent,
+        "shiftKey" | "metaKey" | "ctrlKey"
+      >,
     ) => {
       const point = getCanvasPoint(clientX, clientY);
       const previousKey =
@@ -4193,7 +4201,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           updateSelectedIds(() => []);
           onLayerMarqueeSelectionChange?.(
             [{ screenId: target.screenId, info: target.info }],
-            { source: "pointer" },
+            {
+              ctrlKey: Boolean(modifierKeys?.ctrlKey),
+              metaKey: Boolean(modifierKeys?.metaKey),
+              shiftKey: Boolean(modifierKeys?.shiftKey),
+              source: "pointer",
+            },
           );
         },
       );
@@ -7137,7 +7150,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             handleFrameClick(id, ev);
             suppressNextPick.current = true;
           } else if (wasAlreadySelected) {
-            drillIntoScreenAtPoint(id, ev.clientX, ev.clientY, "pick");
+            drillIntoScreenAtPoint(id, ev.clientX, ev.clientY, "pick", ev);
           }
         }
         if (state?.type === "move" && state.hasMoved) {
@@ -8183,7 +8196,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         onEdit?.(id);
         return;
       }
-      drillIntoScreenAtPoint(id, e.clientX, e.clientY);
+      drillIntoScreenAtPoint(id, e.clientX, e.clientY, "drill", e);
     },
     [drillIntoScreenAtPoint, lockedScreenIdSet, onEdit],
   );
