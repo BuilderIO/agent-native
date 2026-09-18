@@ -40,18 +40,17 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function createHooks() {
+function createHooks(nitroApp: Record<string, unknown> = {}) {
   const requestHooks: Array<(event: any) => unknown> = [];
   const responseHooks: Array<(response: Response, event: any) => unknown> = [];
-  installHttpResponseTelemetryHooks({
-    hooks: {
-      hook(name: string, handler: (...args: any[]) => unknown) {
-        if (name === "request") requestHooks.push(handler);
-        if (name === "response") responseHooks.push(handler);
-      },
+  nitroApp.hooks = {
+    hook(name: string, handler: (...args: any[]) => unknown) {
+      if (name === "request") requestHooks.push(handler);
+      if (name === "response") responseHooks.push(handler);
     },
-  });
-  return { requestHooks, responseHooks };
+  };
+  installHttpResponseTelemetryHooks(nitroApp);
+  return { requestHooks, responseHooks, nitroApp };
 }
 
 function eventFor(path: string) {
@@ -192,12 +191,14 @@ describe("http response telemetry", () => {
         tracked.push(event);
       },
     });
+    const nitroApp = {};
     registerHttpRequestTelemetryActionRoute(
       "/_agent-native/actions/reports/:reportId",
       "get-report",
       "/_agent-native/actions/reports/:reportId",
+      nitroApp,
     );
-    const { requestHooks, responseHooks } = createHooks();
+    const { requestHooks, responseHooks } = createHooks(nitroApp);
     const event = eventFor("/_agent-native/actions/reports/report-123");
 
     await requestHooks[0](event);
@@ -309,6 +310,68 @@ describe("http response telemetry", () => {
     });
   });
 
+  it("retains 4xx telemetry for registered WebMCP action routes", async () => {
+    vi.stubEnv("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE", "0");
+    const nitroApp = {};
+    registerHttpRequestTelemetryActionRoute(
+      "/_agent-native/webmcp/actions/protected-report",
+      "protected-report",
+      "/_agent-native/webmcp/actions/:action",
+      nitroApp,
+    );
+    const { requestHooks, responseHooks } = createHooks(nitroApp);
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    const event = eventFor("/_agent-native/webmcp/actions/protected-report");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("forbidden", { status: 403 }), event);
+
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0]?.properties).toMatchObject({
+      action_name: "protected-report",
+      status_code: 403,
+    });
+  });
+
+  it("honors constrained dynamic route patterns", async () => {
+    const nitroApp = {};
+    registerHttpRequestTelemetryActionRoute(
+      "/_agent-native/actions/reports/:id(\\d+)",
+      "get-numeric-report",
+      "/_agent-native/actions/reports/:id(\\d+)",
+      nitroApp,
+    );
+    registerHttpRequestTelemetryActionRoute(
+      "/_agent-native/actions/reports/:slug",
+      "get-slug-report",
+      "/_agent-native/actions/reports/:slug",
+      nitroApp,
+    );
+    const { requestHooks, responseHooks } = createHooks(nitroApp);
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    const event = eventFor("/_agent-native/actions/reports/abc");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("ok"), event);
+
+    expect(tracked[0]?.properties).toMatchObject({
+      action_name: "get-slug-report",
+      route_template: "/_agent-native/actions/reports/:slug",
+    });
+  });
+
   it("does not derive action names from unknown action URLs", async () => {
     const { requestHooks, responseHooks } = createHooks();
     processState.requestSequence = 5;
@@ -330,12 +393,14 @@ describe("http response telemetry", () => {
 
   it("uses registered action metadata before the route handler runs", async () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
+    const nitroApp = {};
     registerHttpRequestTelemetryActionRoute(
       "/mcp/tool/protected-report",
       "protected-report",
       "/mcp/tool/:action",
+      nitroApp,
     );
-    const { requestHooks, responseHooks } = createHooks();
+    const { requestHooks, responseHooks } = createHooks(nitroApp);
     processState.requestSequence = 5;
     const tracked: TrackingEvent[] = [];
     registerTrackingProvider({
@@ -354,6 +419,7 @@ describe("http response telemetry", () => {
       properties: {
         action_name: "protected-report",
         route_template: "/mcp/tool/:action",
+        route_kind: "framework",
         status_code: 401,
       },
     });

@@ -214,7 +214,9 @@ function trackingSpanAttributes(
   };
 
   assign("agent.source", "source");
-  assign("agent.action", "action_name", properties.action);
+  if (name !== "$a2a_read_invoke") {
+    assign("agent.action", "action_name", properties.action);
+  }
   assign("agent.action_source", "action_source");
   assign("agent.caller", "caller");
   assign("agent.outcome", "outcome");

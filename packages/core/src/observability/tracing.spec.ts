@@ -247,6 +247,19 @@ describe("tracing helper — test provider registered", () => {
     );
   });
 
+  it("does not export unresolved direct A2A action names", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent(
+      "$a2a_read_invoke",
+      { action: "caller-controlled-action", duration_ms: 18 },
+      "server",
+    );
+
+    expect(spans[0]?.attributes).not.toHaveProperty("agent.action");
+  });
+
   it("does not turn ordinary analytics events into spans", async () => {
     const { tracer, spans } = createTestTracer();
     __setAgentTracerForTests(tracer as any);

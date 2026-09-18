@@ -498,7 +498,12 @@ function mountActionRoutesInternal(
     const routePath = `${routePrefix}/${path}`;
     const routeTemplate =
       !options?.forcePost && http?.path ? routePath : `${routePrefix}/:action`;
-    registerHttpRequestTelemetryActionRoute(routePath, name, routeTemplate);
+    registerHttpRequestTelemetryActionRoute(
+      routePath,
+      name,
+      routeTemplate,
+      nitroApp,
+    );
 
     // `requiresAuth: false` is the action's explicit contract that its own
     // run() can handle an anonymous request. The auth guard runs before this

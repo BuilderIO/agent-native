@@ -65,9 +65,6 @@ const processState =
 const REQUEST_TELEMETRY_KEY = Symbol.for(
   "@agent-native/core/http-response-telemetry.request",
 );
-const TRUSTED_ACTION_ROUTES_KEY = Symbol.for(
-  "@agent-native/core/http-response-telemetry.action-routes",
-);
 const REQUEST_TRACKING_SCOPE_KEY = Symbol.for(
   "@agent-native/core/http-response-telemetry.tracking-scope",
 );
@@ -78,13 +75,10 @@ interface TrustedActionRoute {
   routeTemplate: string;
 }
 
-type GlobalWithActionRoutes = typeof globalThis & {
-  [TRUSTED_ACTION_ROUTES_KEY]?: Map<string, TrustedActionRoute>;
-};
-const actionRouteGlobal = globalThis as GlobalWithActionRoutes;
-const trustedActionRoutes =
-  actionRouteGlobal[TRUSTED_ACTION_ROUTES_KEY] ??
-  (actionRouteGlobal[TRUSTED_ACTION_ROUTES_KEY] = new Map());
+const trustedActionRoutesByApp = new WeakMap<
+  object,
+  Map<string, TrustedActionRoute>
+>();
 
 interface HttpRequestTelemetryState {
   startedAt: number;
@@ -152,8 +146,11 @@ function normalizedRoutePath(pathname: string): string {
 }
 
 function trustedActionRouteForPath(
+  nitroApp: object,
   pathname: string,
 ): TrustedActionRoute | undefined {
+  const trustedActionRoutes = trustedActionRoutesByApp.get(nitroApp);
+  if (!trustedActionRoutes) return undefined;
   const normalizedPathname = normalizedRoutePath(pathname);
   const exactRoute = trustedActionRoutes.get(normalizedPathname);
   if (exactRoute) return exactRoute;
@@ -173,26 +170,49 @@ function trustedActionRouteForPath(
       const rightStatic = rightSegments.filter(
         (segment) => !segment.startsWith(":"),
       ).length;
+      const leftConstrained = leftSegments.filter(
+        (segment) => segment.startsWith(":") && segment.includes("("),
+      ).length;
+      const rightConstrained = rightSegments.filter(
+        (segment) => segment.startsWith(":") && segment.includes("("),
+      ).length;
       return (
-        rightStatic - leftStatic || rightSegments.length - leftSegments.length
+        rightStatic - leftStatic ||
+        rightConstrained - leftConstrained ||
+        rightSegments.length - leftSegments.length
       );
     })
     .find(([routePath]) => {
       const routeSegments = routePath.split("/").filter(Boolean);
       return (
         routeSegments.length === pathSegments.length &&
-        routeSegments.every(
-          (segment, index) =>
-            segment.startsWith(":") || segment === pathSegments[index],
+        routeSegments.every((segment, index) =>
+          routeSegmentMatches(segment, pathSegments[index] ?? ""),
         )
       );
     })?.[1];
+}
+
+function routeSegmentMatches(
+  routeSegment: string,
+  pathSegment: string,
+): boolean {
+  if (!routeSegment.startsWith(":")) return routeSegment === pathSegment;
+  const constraint = /^:[^?(]+(?:\((.*)\))?$/.exec(routeSegment)?.[1];
+  if (!constraint) return true;
+  try {
+    return new RegExp(`^(?:${constraint})$`).test(pathSegment);
+  } catch {
+    // coercion-ok: invalid declared route constraints cannot match a request.
+    return false;
+  }
 }
 
 export function registerHttpRequestTelemetryActionRoute(
   routePath: string,
   actionName: string,
   routeTemplate: string,
+  nitroApp: object,
 ): void {
   const normalizedRoutePathValue = normalizedRoutePath(routePath);
   const normalizedActionName = actionName.trim();
@@ -202,6 +222,9 @@ export function registerHttpRequestTelemetryActionRoute(
     actionName: normalizedActionName,
     routeTemplate: normalizedRouteTemplate,
   };
+  const trustedActionRoutes =
+    trustedActionRoutesByApp.get(nitroApp) ?? new Map();
+  trustedActionRoutesByApp.set(nitroApp, trustedActionRoutes);
   trustedActionRoutes.set(normalizedRoutePathValue, route);
   const appBasePath = getAppBasePathFromViteEnv();
   if (appBasePath) {
@@ -242,10 +265,15 @@ function statusClass(statusCode: number): string {
 }
 
 function routeKind(pathname: string): string {
+  const appBasePath = getAppBasePathFromViteEnv();
+  const frameworkPath =
+    appBasePath && pathname.startsWith(`${appBasePath}/`)
+      ? pathname.slice(appBasePath.length) || "/"
+      : pathname;
   if (
-    isMcpPublicPath(pathname) ||
-    pathname === "/_agent-native" ||
-    pathname.startsWith("/_agent-native/")
+    isMcpPublicPath(frameworkPath) ||
+    frameworkPath === "/_agent-native" ||
+    frameworkPath.startsWith("/_agent-native/")
   ) {
     return "framework";
   }
@@ -297,11 +325,7 @@ function trackingDecision(
   if (statusCode >= 500) {
     return { track: true, sampleRate: 1, sampled: false };
   }
-  if (
-    statusCode >= 400 &&
-    statusCode < 500 &&
-    /(?:^|\/)_agent-native\/actions(?:\/|$)/.test(pathname)
-  ) {
+  if (statusCode >= 400 && statusCode < 500 && state.actionName) {
     return { track: true, sampleRate: 1, sampled: false };
   }
   if (state.requestSequence === 1 || state.startupDb) {
@@ -473,7 +497,7 @@ export function setHttpRequestTelemetryActionName(
   const normalized = actionName.trim();
   if (state && normalized) {
     state.actionName = normalized;
-    state.routeTemplate ??= normalizedRoutePath(routeTemplate);
+    state.routeTemplate = normalizedRoutePath(routeTemplate);
   }
 }
 
@@ -619,7 +643,10 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
 
   hooks.hook("request", (event: H3Event) => {
     const trackingScope = getOrCreateHttpRequestTrackingScope(event);
-    const trustedActionRoute = trustedActionRouteForPath(requestPath(event));
+    const trustedActionRoute = trustedActionRouteForPath(
+      nitroApp,
+      requestPath(event),
+    );
     const state: HttpRequestTelemetryState = {
       startedAt: Date.now(),
       requestId: randomUUID(),
