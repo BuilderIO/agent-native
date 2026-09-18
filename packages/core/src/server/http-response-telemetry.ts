@@ -154,7 +154,39 @@ function normalizedRoutePath(pathname: string): string {
 function trustedActionRouteForPath(
   pathname: string,
 ): TrustedActionRoute | undefined {
-  return trustedActionRoutes.get(normalizedRoutePath(pathname));
+  const normalizedPathname = normalizedRoutePath(pathname);
+  const exactRoute = trustedActionRoutes.get(normalizedPathname);
+  if (exactRoute) return exactRoute;
+
+  const pathSegments = normalizedPathname.split("/").filter(Boolean);
+  const routeEntries: Array<[string, TrustedActionRoute]> = [
+    ...trustedActionRoutes.entries(),
+  ];
+  return routeEntries
+    .filter(([routePath]) => routePath.includes(":"))
+    .sort(([leftPath], [rightPath]) => {
+      const leftSegments = leftPath.split("/").filter(Boolean);
+      const rightSegments = rightPath.split("/").filter(Boolean);
+      const leftStatic = leftSegments.filter(
+        (segment) => !segment.startsWith(":"),
+      ).length;
+      const rightStatic = rightSegments.filter(
+        (segment) => !segment.startsWith(":"),
+      ).length;
+      return (
+        rightStatic - leftStatic || rightSegments.length - leftSegments.length
+      );
+    })
+    .find(([routePath]) => {
+      const routeSegments = routePath.split("/").filter(Boolean);
+      return (
+        routeSegments.length === pathSegments.length &&
+        routeSegments.every(
+          (segment, index) =>
+            segment.startsWith(":") || segment === pathSegments[index],
+        )
+      );
+    })?.[1];
 }
 
 export function registerHttpRequestTelemetryActionRoute(

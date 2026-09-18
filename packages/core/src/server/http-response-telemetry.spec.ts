@@ -184,6 +184,33 @@ describe("http response telemetry", () => {
     expect(spanNames).toContain("http.server");
   });
 
+  it("matches parameterized action routes before the handler runs", async () => {
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+    registerHttpRequestTelemetryActionRoute(
+      "/_agent-native/actions/reports/:reportId",
+      "get-report",
+      "/_agent-native/actions/reports/:reportId",
+    );
+    const { requestHooks, responseHooks } = createHooks();
+    const event = eventFor("/_agent-native/actions/reports/report-123");
+
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("ok"), event);
+
+    expect(
+      tracked.find((entry) => entry.name === "http.response")?.properties,
+    ).toMatchObject({
+      action_name: "get-report",
+      route_template: "/_agent-native/actions/reports/:reportId",
+    });
+  });
+
   it("weights sampled warm action responses", async () => {
     vi.stubEnv("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE", "0.25");
     processState.requestSequence = 5;

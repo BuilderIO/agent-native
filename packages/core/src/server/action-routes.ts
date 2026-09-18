@@ -494,8 +494,10 @@ function mountActionRoutesInternal(
     const http = entry.http || undefined;
     const method = options?.forcePost ? "POST" : (http?.method ?? "POST");
     const path = options?.forcePost ? name : (http?.path ?? name);
-    const routePath = `${options?.routePrefix ?? ROUTE_PREFIX}/${path}`;
-    const routeTemplate = `${options?.routePrefix ?? ROUTE_PREFIX}/:action`;
+    const routePrefix = options?.routePrefix ?? ROUTE_PREFIX;
+    const routePath = `${routePrefix}/${path}`;
+    const routeTemplate =
+      !options?.forcePost && http?.path ? routePath : `${routePrefix}/:action`;
     registerHttpRequestTelemetryActionRoute(routePath, name, routeTemplate);
 
     // `requiresAuth: false` is the action's explicit contract that its own
