@@ -3446,6 +3446,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           cancelPendingParentDrag();
           clearCrossScreenDrag();
         };
+        const handleParentKeyDown = (ev: KeyboardEvent) => {
+          if (ev.key !== "Escape") return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          ev.stopImmediatePropagation();
+          cancelPendingParentDrag();
+          // Escape can land in the overview host after the pointer has left the
+          // source iframe. In that case the bridge never sees its own keydown,
+          // while the parent mouseup listener would otherwise still finalize a
+          // board fallback drop. Invalidate any pending hit-test first and
+          // forward the real keydown timestamp so the bridge can distinguish
+          // this cancellation from a later Escape after a committed release.
+          crossScreenDropSeqRef.current += 1;
+          crossScreenEndSeenRef.current = true;
+          sourcePreviewIframe.contentWindow?.postMessage(
+            {
+              type: "agent-native:cancel-active-drag",
+              pressedAt: performance.timeOrigin + ev.timeStamp,
+            },
+            "*",
+          );
+          clearCrossScreenDrag();
+        };
         const cleanup = () => {
           if (didCleanup) return;
           didCleanup = true;
@@ -3453,6 +3476,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           window.removeEventListener("mousemove", handleParentMouseMove, true);
           window.removeEventListener("mouseup", handleParentMouseUp, true);
           window.removeEventListener("blur", handleParentWindowBlur, true);
+          window.removeEventListener("keydown", handleParentKeyDown, true);
           restorePreviewPointerEvents();
           if (crossScreenParentDragCleanupRef.current === cleanup) {
             crossScreenParentDragCleanupRef.current = null;
@@ -3462,6 +3486,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         window.addEventListener("mousemove", handleParentMouseMove, true);
         window.addEventListener("mouseup", handleParentMouseUp, true);
         window.addEventListener("blur", handleParentWindowBlur, true);
+        window.addEventListener("keydown", handleParentKeyDown, true);
         return;
       }
 
@@ -3610,6 +3635,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
 
       if (msg.phase === "end") {
+        // Escape can cancel the bridge before its queued native mouseup is
+        // delivered here. That mouseup still posts an end message, but the
+        // host has already invalidated this gesture and must not reinterpret
+        // the late end as a new cross-screen drop.
+        if (crossScreenEndSeenRef.current) {
+          clearCrossScreenDrag();
+          return;
+        }
         // Use the saved payload from the last "move" as the primary source of
         // truth; fall back to the "end" message's own fields in case the ref
         // was cleared (e.g. a brief re-entry into the source iframe nulled it
