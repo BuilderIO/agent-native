@@ -988,6 +988,10 @@ describe("FirstRunOnboarding", () => {
       }),
     );
     expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_role_save_started",
+      { flow: "first_run", step_id: "role", role: "developer" },
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
       "onboarding_role_option_selected",
       { flow: "first_run", step_id: "role", role: "developer" },
     );
