@@ -19,6 +19,10 @@ export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";
 export const BUILDER_OAUTH_SCOPE = "builder:ai:invoke";
 /** Enforced by Builder's `/api/v1/upload/*` endpoints; without it, no uploads. */
 export const BUILDER_ASSETS_WRITE_SCOPE = "builder:assets:write";
+/** Read Builder models and raw content through the general API resource. */
+export const BUILDER_CONTENT_READ_SCOPE = "builder:content:read";
+/** Mutate Builder content through the existing Write API. */
+export const BUILDER_CONTENT_WRITE_SCOPE = "builder:content:write";
 // Requested as one grant covering every Builder surface this app calls,
 // rather than incrementally per feature: a missing scope on an existing
 // session makes resolveBuilderRequestAuthorization throw a reconnect error
@@ -31,6 +35,8 @@ export const BUILDER_OAUTH_SCOPES = [
   "builder:agents:run",
   "builder:browser:connect",
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
   "builder:projects:read",
   "builder:projects:write",
   "builder:designsystem:read",
@@ -63,6 +69,8 @@ export type BuilderOAuthSession = {
   expiresAt?: number;
   scopes: string[];
   scope: BuilderOAuthScope;
+  /** Opaque identity of the selected stored OAuth credential lane. */
+  connectionId?: string;
 };
 
 export type BuilderOAuthRequestAccess = BuilderOAuthSession & {
@@ -349,6 +357,7 @@ export async function getBuilderOAuthSession(
       expiresAt: credentials.tokenExpiresAt,
       scopes,
       scope: options.scope,
+      connectionId: options.key,
     };
   }
   if (requiredScope && missingRequiredScope) {

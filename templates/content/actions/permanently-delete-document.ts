@@ -4,6 +4,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
+import { cleanupBuilderPrivatePayload } from "./_builder-cms-blob-custody.js";
 import {
   deleteTrashedDocumentSubtree,
   PermanentDeleteScopeChangedError,
@@ -22,14 +23,22 @@ export default defineAction({
     const db = getDb();
     let deleted: string[] | undefined;
     for (let attempt = 1; attempt <= MAX_DELETE_SCOPE_ATTEMPTS; attempt += 1) {
+      const deletedBlobReferences = new Set<string>();
       try {
         deleted = await db.transaction((tx) =>
           deleteTrashedDocumentSubtree(
             tx as unknown as ReturnType<typeof getDb>,
             id,
             access.resource.ownerEmail as string,
+            deletedBlobReferences,
           ),
         );
+        for (const reference of deletedBlobReferences) {
+          await cleanupBuilderPrivatePayload(
+            reference,
+            "deleted document source",
+          );
+        }
         break;
       } catch (error) {
         if (

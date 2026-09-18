@@ -1,4 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const blobMocks = vi.hoisted(() => {
+  let data = new Uint8Array();
+  return {
+    put: vi.fn(async (input: { data: Uint8Array }) => {
+      data = input.data;
+      return {
+        id: "blob-1",
+        provider: "test",
+        opaque: true as const,
+        encrypted: true,
+      };
+    }),
+    read: vi.fn(async (handle: never) => ({ data, handle })),
+    delete: vi.fn(async () => ({ deleted: true, provider: "test" })),
+  };
+});
+
+vi.mock("@agent-native/core/private-blob", () => ({
+  putPrivateBlob: blobMocks.put,
+  readPrivateBlob: blobMocks.read,
+  deletePrivateBlob: blobMocks.delete,
+}));
 
 import type {
   ContentDatabaseItem,
@@ -6,6 +29,7 @@ import type {
   DocumentProperty,
 } from "../shared/api";
 import { builderBlocksHash } from "../shared/builder-mdx";
+import { BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY } from "./_builder-cms-blob-custody";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
@@ -14,9 +38,13 @@ import {
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
+  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+  BUILDER_CMS_WRITE_VERSION_KEY,
 } from "./_builder-cms-source-adapter";
 import { resolveBuilderCmsWriteEffect } from "./_builder-cms-write-adapter";
 import {
+  assertBuilderCmsContinuationIdentity,
   buildBuilderLocalOutboundChangeSets,
   builderBodyChangeForLocalContent,
   builderBodyChangeForSourceSnapshotDocument,
@@ -42,6 +70,7 @@ import {
   buildMockBodyChange,
   buildMockFieldChange,
   withBuilderBodySourceValues,
+  withBuilderWriteSnapshotSourceValues,
   mapBuilderCmsEntriesToLocalItems,
   mergeBuilderCmsModelFieldsPreservingReferenceModels,
   mockProposedValue,
@@ -106,6 +135,86 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("stores guarded bases in private blob custody while keeping only compact metadata in SQL", async () => {
+    const entry = await withBuilderWriteSnapshotSourceValues({
+      entry: {
+        id: "entry-1",
+        model: "blog_article",
+        title: "Editable",
+        urlPath: "",
+        updatedAt: "2026-06-08T00:00:00.000Z",
+        sourceValues: {},
+      },
+      snapshot: {
+        canonicalEntry: {} as never,
+        editableEntry: {} as never,
+        writeSnapshot: {
+          version: "opaque-version-1",
+          content: {
+            id: "entry-1",
+            model: "blog_article",
+            data: { unmapped: { nested: true } },
+          },
+          editableContent: {
+            id: "entry-1",
+            model: "blog_article",
+            data: { pendingOnly: "preserved" },
+          },
+          autosaveId: "autosave-1",
+          autosaveCreatedDate: 1782328870774,
+          hasPendingAutosave: true,
+        },
+      },
+      ownerEmail: "owner@example.com",
+      sourceId: "source-1",
+      sourceRowId: "entry-1",
+      sourceTable: "blog_article",
+    });
+
+    expect(entry.sourceValues).toMatchObject({
+      [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-1",
+    });
+    expect(entry.sourceValues).not.toHaveProperty(
+      BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+    );
+    expect(entry.sourceValues).not.toHaveProperty(
+      BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+    );
+    expect(entry.sourceValues[BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY]).toEqual(
+      expect.any(String),
+    );
+    expect(blobMocks.put).toHaveBeenCalledTimes(1);
+    expect(blobMocks.read).toHaveBeenCalledTimes(1);
+    expect(sourceValuesForSnapshot(entry.sourceValues)).toMatchObject({
+      [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-1",
+    });
+    expect(sourceValuesForSnapshot(entry.sourceValues)).not.toHaveProperty(
+      BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+    );
+    expect(sourceValuesForSnapshot(entry.sourceValues)).not.toHaveProperty(
+      BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+    );
+    expect(sourceValuesForSnapshot(entry.sourceValues)).not.toHaveProperty(
+      BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
+    );
+  });
+
+  it("rejects saved continuation identity drift and cross-page overlap", () => {
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 2,
+        activeReadSourceRowIds: ["entry-1"],
+      }),
+    ).toThrow(/does not match its saved offset/);
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 2,
+        activeReadSourceRowIds: ["entry-1", "entry-2"],
+        entries: [{ id: "entry-2" }, { id: "entry-3" }],
+      }),
+    ).toThrow(/repeated an entry from an earlier page/);
+  });
+
   it("page-scopes primary Builder rows without truncating secondary federation", () => {
     expect(
       sourceSnapshotPageDocumentIds({
@@ -405,6 +514,8 @@ describe("database source helpers", () => {
             hasMore: true,
             partial: true,
             readMode: "builder-api",
+            sourceSpacePublicKey: "selected-space-key",
+            sourceConnectionId: "builder-oauth-connection-1",
           },
           sourceFetchState: "fetching",
         }),
@@ -420,6 +531,8 @@ describe("database source helpers", () => {
       lastReadHasMore: true,
       lastReadNextOffset: 100,
       sourceFetchState: "fetching",
+      builderSpacePublicKey: "selected-space-key",
+      connectionId: "builder-oauth-connection-1",
     });
   });
 
@@ -2884,6 +2997,47 @@ describe("database source helpers", () => {
       [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Lossless baseline",
       [BUILDER_CMS_BODY_READABLE_MAP_KEY]: '{"blocks":[]}',
       [BUILDER_CMS_BODY_SIDECARS_KEY]: "{}",
+    });
+  });
+
+  it("preserves the opaque write snapshot across a metadata-only row replacement", () => {
+    const snapshotReference = JSON.stringify({
+      kind: "agent-native.builder-private-payload",
+      version: 1,
+      binding: {
+        ownerEmail: "owner@example.com",
+        sourceId: "source-1",
+      },
+      sha256: "digest",
+      handle: {
+        id: "snapshot-1",
+        provider: "test",
+        opaque: true,
+        encrypted: true,
+      },
+    });
+    expect(
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("doc-1", "Same title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+        builderEntry: {
+          id: "entry-1",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/same-title",
+          updatedAt: "2026-06-08T13:00:00.000Z",
+          sourceValues: { "data.title": "Same title" },
+        },
+        existingSourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_WRITE_VERSION_KEY]: "write-version-1",
+          [BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY]: snapshotReference,
+        }),
+      }),
+    ).toMatchObject({
+      [BUILDER_CMS_WRITE_VERSION_KEY]: "write-version-1",
+      [BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY]: snapshotReference,
     });
   });
 

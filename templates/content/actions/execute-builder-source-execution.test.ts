@@ -7,7 +7,13 @@ import {
   type ContentDatabaseSourceChangeSet,
 } from "../shared/api";
 import type { BuilderCmsEntryLiveState } from "./_builder-cms-read-client";
-import { BUILDER_CMS_BODY_BLOCKS_HASH_KEY } from "./_builder-cms-source-adapter";
+import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
+  BUILDER_CMS_WRITE_VERSION_KEY,
+} from "./_builder-cms-source-adapter";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
@@ -103,6 +109,26 @@ function row(
     freshness: "fresh",
     lastSyncedAt: "2026-06-08T00:00:00.000Z",
     lastSourceUpdatedAt: String(BUILDER_LAST_UPDATED_MS),
+    sourceValues: {
+      [BUILDER_CMS_WRITE_VERSION_KEY]: "write-version-1",
+      [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify({
+        id: sourceRowId,
+        ownerId: "selected-space-key",
+        modelId: "model-uuid",
+        model: sourceTable,
+        data: { title: "Old title", canonicalOnly: "keep-canonical" },
+        published: "published",
+      }),
+      [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify({
+        id: sourceRowId,
+        ownerId: "selected-space-key",
+        modelId: "model-uuid",
+        model: sourceTable,
+        data: { title: "Old title", pendingOnly: "keep-pending" },
+        published: "published",
+      }),
+      [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: false,
+    },
     ...overrides,
   };
 }
@@ -181,6 +207,8 @@ function source(
       titleField: "data.title",
       naturalKeyField: "/blog/[slug]",
       pushMode: "autosave",
+      builderSpacePublicKey: "selected-space-key",
+      connectionId: "builder-oauth-connection-1",
       ...args.metadata,
     },
     fields: [],
@@ -247,6 +275,40 @@ function depsFor(args: {
             status: 200,
             entryId: "builder-entry-1",
             responseBody: { id: "builder-entry-1" },
+            committed: true,
+            content: {
+              id: "builder-entry-1",
+              ownerId: "selected-space-key",
+              modelId: "model-uuid",
+              data: { title: "New title" },
+            },
+            editableContent: {
+              id: "builder-entry-1",
+              ownerId: "selected-space-key",
+              modelId: "model-uuid",
+              data: { title: "New title", pendingOnly: "keep-pending" },
+            },
+            autosaveIds: [],
+            writeSnapshot: {
+              version: "write-version-2",
+              content: {
+                id: "builder-entry-1",
+                ownerId: "selected-space-key",
+                modelId: "model-uuid",
+                data: { title: "New title" },
+              },
+              editableContent: {
+                id: "builder-entry-1",
+                ownerId: "selected-space-key",
+                modelId: "model-uuid",
+                data: { title: "New title", pendingOnly: "keep-pending" },
+              },
+              autosaveId: null,
+              autosaveCreatedDate: null,
+              hasPendingAutosave: false,
+            },
+            superseded: false,
+            readback: "matched",
           },
     ),
     readLiveEntry: vi.fn(async () =>
@@ -279,6 +341,90 @@ function depsFor(args: {
 }
 
 describe("execute Builder source execution", () => {
+  it("keeps a malformed guarded 200 in reconciliation-required state without replay", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      writeResult: {
+        ok: false,
+        status: 200,
+        responseBody: null,
+        ambiguity: "provider",
+        error:
+          "Builder guarded write returned a malformed response after dispatch; remote outcome is unknown.",
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(deps.markExecutionFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ state: "reconciliation_required" }),
+    );
+    expect(deps.markExecutionSucceeded).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { readback: "unavailable" as const, superseded: false },
+    { readback: "changed" as const, superseded: true },
+  ])(
+    "retains local work when a known commit has $readback readback",
+    async ({ readback, superseded }) => {
+      const approvedChangeSet = changeSet();
+      const builderSource = source({ changeSets: [approvedChangeSet] });
+      const execution = executionFor({
+        source: builderSource,
+        changeSet: approvedChangeSet,
+      });
+      const deps = depsFor({
+        source: builderSource,
+        execution,
+        writeResult: {
+          ok: true,
+          status: 200,
+          entryId: "builder-entry-1",
+          responseBody: {},
+          committed: true,
+          content: { id: "builder-entry-1" },
+          editableContent: { id: "builder-entry-1" },
+          autosaveIds: [],
+          writeSnapshot: null,
+          superseded,
+          readback,
+        },
+      });
+
+      await expect(
+        executeBuilderSourceExecutionWithDeps(
+          {
+            databaseId: "database-1",
+            changeSetId: approvedChangeSet.id,
+            pushModeConfirmation: "autosave",
+          },
+          deps,
+        ),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(deps.reconcileWrite).not.toHaveBeenCalled();
+      expect(deps.markExecutionSucceeded).not.toHaveBeenCalled();
+      expect(deps.markExecutionFailed).toHaveBeenCalledWith(
+        expect.objectContaining({ state: "reconciliation_required" }),
+      );
+    },
+  );
+
   it("transitions write-disabled plans without calling Builder", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({
@@ -499,6 +645,9 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
     expect(deps.executeWrite).toHaveBeenCalledWith({
       request: plan.payload.request,
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
+      requireSourceBinding: true,
     });
     expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -546,6 +695,8 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
     });
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
     const readCallOrder = vi.mocked(deps.readLiveEntry).mock
@@ -679,6 +830,9 @@ describe("execute Builder source execution", () => {
       request: expect.objectContaining({
         body: expect.objectContaining({ published: "published" }),
       }),
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
+      requireSourceBinding: true,
     });
   });
 
@@ -727,6 +881,9 @@ describe("execute Builder source execution", () => {
           published: "published",
         }),
       }),
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
+      requireSourceBinding: true,
     });
   });
 
@@ -815,6 +972,9 @@ describe("execute Builder source execution", () => {
       request: expect.objectContaining({
         body: expect.objectContaining({ published: "draft" }),
       }),
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
+      requireSourceBinding: true,
     });
   });
 
@@ -841,6 +1001,8 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
     });
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
   });
@@ -1129,6 +1291,40 @@ describe("execute Builder source execution", () => {
           status: 200,
           entryId: "builder-entry-1",
           body: { id: "builder-entry-1" },
+          committed: true,
+          content: {
+            id: "builder-entry-1",
+            ownerId: "selected-space-key",
+            modelId: "model-uuid",
+            data: { title: "New title" },
+          },
+          editableContent: {
+            id: "builder-entry-1",
+            ownerId: "selected-space-key",
+            modelId: "model-uuid",
+            data: { title: "New title", pendingOnly: "keep-pending" },
+          },
+          autosaveIds: [],
+          writeSnapshot: {
+            version: "write-version-2",
+            content: {
+              id: "builder-entry-1",
+              ownerId: "selected-space-key",
+              modelId: "model-uuid",
+              data: { title: "New title" },
+            },
+            editableContent: {
+              id: "builder-entry-1",
+              ownerId: "selected-space-key",
+              modelId: "model-uuid",
+              data: { title: "New title", pendingOnly: "keep-pending" },
+            },
+            autosaveId: null,
+            autosaveCreatedDate: null,
+            hasPendingAutosave: false,
+          },
+          superseded: false,
+          readback: "matched",
         },
       }),
     });
@@ -1289,7 +1485,7 @@ describe("execute Builder source execution", () => {
     });
   });
 
-  it("reconciles Builder-native field values without copying body blocks into SQL", () => {
+  it("reconciles Builder-native field values without copying body blocks into SQL", async () => {
     const draftCreate = {
       ...changeSet({ pushMode: "draft" }),
       fieldChanges: [
@@ -1333,9 +1529,13 @@ describe("execute Builder source execution", () => {
     } as Parameters<typeof builderCmsReconciledSourceValuesJson>[0]["plan"];
 
     const values = JSON.parse(
-      builderCmsReconciledSourceValuesJson({
+      await builderCmsReconciledSourceValuesJson({
         existingSourceValuesJson: null,
         snapshotSourceValues: undefined,
+        ownerEmail: "owner@example.com",
+        sourceId: "source-1",
+        sourceRowId: "entry-1",
+        sourceModel: BUILDER_CMS_SAFE_WRITE_MODEL,
         changeSet: draftCreate,
         plan,
       }),
@@ -1348,6 +1548,51 @@ describe("execute Builder source execution", () => {
       [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
     });
     expect(values).not.toHaveProperty("data.blocks");
+  });
+
+  it("uses Builder's acknowledged editable values as the mapped reconciliation baseline", async () => {
+    const draftCreate = {
+      ...changeSet({ pushMode: "draft" }),
+      fieldChanges: [
+        {
+          propertyId: "title",
+          propertyName: "Title",
+          localFieldKey: "title",
+          sourceFieldKey: "data.title",
+          currentValue: "Old",
+          proposedValue: "Local proposal",
+        },
+      ],
+    } as ContentDatabaseSourceChangeSet;
+    const values = JSON.parse(
+      await builderCmsReconciledSourceValuesJson({
+        existingSourceValuesJson: null,
+        snapshotSourceValues: undefined,
+        ownerEmail: "owner@example.com",
+        sourceId: "source-1",
+        sourceRowId: "entry-1",
+        sourceModel: BUILDER_CMS_SAFE_WRITE_MODEL,
+        changeSet: draftCreate,
+        plan: {
+          payload: { request: { body: { data: { title: "Local proposal" } } } },
+        } as Parameters<typeof builderCmsReconciledSourceValuesJson>[0]["plan"],
+        writeResult: {
+          ok: true,
+          status: 200,
+          responseBody: null,
+          editableContent: {
+            id: "entry-1",
+            data: { title: "Builder normalized", count: 2 },
+            updatedDate: "2026-09-14T00:00:00.000Z",
+          },
+        },
+      }),
+    );
+
+    expect(values).toMatchObject({
+      "data.title": "Builder normalized",
+      "data.count": 2,
+    });
   });
 
   it("stores Builder's authoritative updated timestamp after a successful write", () => {
@@ -1497,6 +1742,8 @@ describe("execute Builder source execution", () => {
     expect(deps.lookupSafeModelIntent).toHaveBeenCalledWith({
       exactTitle: "New title",
       intendedFields: { title: "New title" },
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
     });
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });

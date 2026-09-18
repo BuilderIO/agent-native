@@ -853,6 +853,7 @@ export interface ContentDatabaseSource {
     readMode?: "fixture" | "builder-api" | (string & {}) | null;
     connectionId?: string | null;
     connectionLabel?: string | null;
+    builderSpacePublicKey?: string | null;
     truthPolicy?: ContentDatabaseSourceTruthPolicy;
     syncPolicy?: "manual" | "keep_in_sync";
     liveBridgeEnabled?: boolean;

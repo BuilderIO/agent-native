@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,6 +8,12 @@ import type {
   ContentDatabaseResponse,
   PrepareBuilderSourceExecutionRequest,
 } from "../shared/api.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  deleteBuilderPrivatePayload,
+  storeBuilderExecutionPayload,
+} from "./_builder-cms-blob-custody.js";
 import { buildBuilderCmsExecutionPlan } from "./_builder-cms-write-adapter.js";
 import { claimBuilderSourceExecutionGate } from "./_builder-source-execution-claim.js";
 import { shouldPreserveBuilderExecution } from "./_builder-source-execution-preservation.js";
@@ -89,6 +95,11 @@ export default defineAction({
         idempotencyKey: plan.idempotencyKey,
         now,
       });
+      let nextReference: string | null = null;
+      let previousReference: string | null = null;
+      let attemptedPayloadJson: string | null = null;
+      let replacementCommitted = false;
+      let replacementPrepared = false;
       try {
         await db.transaction(async (tx) => {
           const [existing] = await tx
@@ -105,19 +116,69 @@ export default defineAction({
             });
 
           if (existing && !preserve) {
-            await tx
+            const payloadJson = await storeBuilderExecutionPayload({
+              payload: plan.payload as unknown as Record<string, unknown>,
+              binding: {
+                ownerEmail: database.ownerEmail,
+                sourceId: source.id,
+                changeSetId: changeSet.id,
+                executionId: existing.id,
+                idempotencyKey: plan.idempotencyKey,
+              },
+            });
+            attemptedPayloadJson = payloadJson;
+            nextReference = builderExecutionPayloadReference(payloadJson);
+            previousReference = builderExecutionPayloadReference(
+              existing.payloadJson,
+            );
+            const [updated] = await tx
               .update(schema.contentDatabaseSourceExecutions)
               .set({
                 state: plan.state,
                 summary: plan.summary,
-                payloadJson: JSON.stringify(plan.payload),
+                payloadJson,
                 lastError: plan.lastError,
                 updatedAt: now,
               })
               .where(
-                eq(schema.contentDatabaseSourceExecutions.id, existing.id),
-              );
+                and(
+                  eq(schema.contentDatabaseSourceExecutions.id, existing.id),
+                  eq(
+                    schema.contentDatabaseSourceExecutions.payloadJson,
+                    existing.payloadJson,
+                  ),
+                  eq(
+                    schema.contentDatabaseSourceExecutions.state,
+                    existing.state,
+                  ),
+                  existing.attemptToken
+                    ? eq(
+                        schema.contentDatabaseSourceExecutions.attemptToken,
+                        existing.attemptToken,
+                      )
+                    : isNull(
+                        schema.contentDatabaseSourceExecutions.attemptToken,
+                      ),
+                ),
+              )
+              .returning({ id: schema.contentDatabaseSourceExecutions.id });
+            if (!updated) {
+              throw new Error("Builder execution changed during prepare.");
+            }
+            replacementPrepared = true;
           } else if (!existing) {
+            const payloadJson = await storeBuilderExecutionPayload({
+              payload: plan.payload as unknown as Record<string, unknown>,
+              binding: {
+                ownerEmail: database.ownerEmail,
+                sourceId: source.id,
+                changeSetId: changeSet.id,
+                executionId,
+                idempotencyKey: plan.idempotencyKey,
+              },
+            });
+            attemptedPayloadJson = payloadJson;
+            nextReference = builderExecutionPayloadReference(payloadJson);
             await tx.insert(schema.contentDatabaseSourceExecutions).values({
               id: executionId,
               ownerEmail: database.ownerEmail,
@@ -128,11 +189,12 @@ export default defineAction({
               state: plan.state,
               idempotencyKey: plan.idempotencyKey,
               summary: plan.summary,
-              payloadJson: JSON.stringify(plan.payload),
+              payloadJson,
               lastError: plan.lastError,
               createdAt: now,
               updatedAt: now,
             });
+            replacementPrepared = true;
           }
 
           if (!preserve) {
@@ -142,15 +204,43 @@ export default defineAction({
               .where(eq(schema.contentDatabaseSources.id, source.id));
           }
         });
+        replacementCommitted = replacementPrepared;
       } catch (error) {
-        // A concurrent prepare may win the unique (source, key) race after our
-        // initial SELECT. Reuse that durable gate; rethrow unrelated failures.
-        const [winner] = await db
-          .select({ id: schema.contentDatabaseSourceExecutions.id })
-          .from(schema.contentDatabaseSourceExecutions)
-          .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
-          .limit(1);
-        if (!winner) throw error;
+        let winner: { id: string; payloadJson: string } | null | undefined;
+        try {
+          [winner] = await db
+            .select({
+              id: schema.contentDatabaseSourceExecutions.id,
+              payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+            })
+            .from(schema.contentDatabaseSourceExecutions)
+            .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
+            .limit(1);
+        } catch {
+          // Inconclusive readback retains both refs.
+        }
+        if (winner?.payloadJson === attemptedPayloadJson) {
+          replacementCommitted = true;
+        } else if (winner) {
+          if (nextReference) {
+            await deleteBuilderPrivatePayload(nextReference).catch(
+              () => undefined,
+            );
+          }
+          // A concurrent prepare won; reuse its durable execution gate.
+        } else {
+          throw error;
+        }
+      }
+      if (
+        replacementCommitted &&
+        previousReference &&
+        previousReference !== nextReference
+      ) {
+        await cleanupBuilderPrivatePayload(
+          previousReference,
+          "superseded prepared execution",
+        );
       }
       timing.record("gate_preparation_and_dry_run_validation", gateStartedAt);
 

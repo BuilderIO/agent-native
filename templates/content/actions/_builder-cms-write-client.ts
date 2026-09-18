@@ -1,4 +1,9 @@
-import { resolveBuilderCredential } from "@agent-native/core/server";
+import {
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "@agent-native/core/server";
 
 export interface BuilderCmsWriteRequest {
   method: "POST" | "PATCH";
@@ -14,25 +19,67 @@ export interface BuilderCmsWriteResult {
   responseBody: unknown;
   error?: string;
   ambiguity?: "timeout" | "transport" | "provider";
+  committed?: true;
+  content?: Record<string, unknown>;
+  editableContent?: Record<string, unknown>;
+  autosaveIds?: string[];
+  writeSnapshot?: Record<string, unknown> | null;
+  superseded?: boolean;
+  readback?: "matched" | "changed" | "unavailable";
 }
 
 export const DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS = 30_000;
 
 type FetchLike = typeof fetch;
 
-function builderWriteApiHost() {
+function builderWriteApiHost(source: BuilderRequestAuthorization["source"]) {
   return (
     process.env.BUILDER_CONTENT_API_HOST ??
     process.env.BUILDER_CMS_API_HOST ??
-    "https://builder.io"
+    (source === "oauth" ? BUILDER_OAUTH_RESOURCE : "https://builder.io")
   ).replace(/\/+$/, "");
 }
 
-async function readBuilderPrivateKey() {
-  return (
-    (await resolveBuilderCredential("BUILDER_PRIVATE_KEY")) ??
-    (await resolveBuilderCredential("BUILDER_CMS_PRIVATE_KEY"))
-  );
+async function readBuilderWriteAuthorization() {
+  return resolveBuilderRequestAuthorization({
+    oauthResource: "general",
+    requiredScope: BUILDER_CONTENT_WRITE_SCOPE,
+    legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+  });
+}
+
+function assertBuilderWriteSourceBinding(
+  authorization: Awaited<ReturnType<typeof readBuilderWriteAuthorization>>,
+  expectedSourceSpace: string | null | undefined,
+  expectedSourceConnectionId: string | null | undefined,
+  required: boolean,
+) {
+  if (
+    required &&
+    (authorization?.source !== "oauth" ||
+      authorization.oauthResource !== "general")
+  ) {
+    throw new Error(
+      "This Builder source's OAuth connection is unavailable. Reconnect the source before writing.",
+    );
+  }
+  if (authorization?.source !== "oauth") return;
+  if (!required && !expectedSourceSpace && !expectedSourceConnectionId) return;
+  if (!expectedSourceSpace || !expectedSourceConnectionId) {
+    throw new Error(
+      "This Builder source is not bound to its connected space. Refresh the source before writing.",
+    );
+  }
+  if (authorization.oauthSelectedPublicKey !== expectedSourceSpace) {
+    throw new Error(
+      "The connected Builder space does not match this Content source. Reconnect the source's Builder space before writing.",
+    );
+  }
+  if (authorization.oauthConnectionId !== expectedSourceConnectionId) {
+    throw new Error(
+      "The connected Builder credential does not match this Content source. Reconnect the source before writing.",
+    );
+  }
 }
 
 function parseResponseBody(text: string): unknown {
@@ -88,6 +135,71 @@ function stringRecordValue(
   return undefined;
 }
 
+interface BuilderGuardedWriteIdentity {
+  entryId: string;
+  ownerId: string;
+  modelId: string;
+}
+
+function guardedWriteIdentity(args: {
+  request: BuilderCmsWriteRequest;
+  expectedSourceSpace?: string | null;
+}): BuilderGuardedWriteIdentity | null {
+  if (
+    !args.request.body ||
+    typeof args.request.body !== "object" ||
+    Array.isArray(args.request.body) ||
+    !Object.prototype.hasOwnProperty.call(args.request.body, "__write")
+  ) {
+    return null;
+  }
+  const body = args.request.body as Record<string, unknown>;
+  const entryId = stringRecordValue(body, ["id", "@id", "uuid"]);
+  const ownerId = stringRecordValue(body, ["ownerId"]);
+  const modelId = stringRecordValue(body, ["modelId"]);
+  const pathParts = args.request.path.split("/").filter(Boolean);
+  const pathEntryId = decodeURIComponent(pathParts[pathParts.length - 1] ?? "");
+  if (
+    !entryId ||
+    !ownerId ||
+    !modelId ||
+    pathEntryId !== entryId ||
+    (args.expectedSourceSpace && ownerId !== args.expectedSourceSpace)
+  ) {
+    throw new Error(
+      "Builder guarded write request does not match its bound entry, model, and space.",
+    );
+  }
+  return { entryId, ownerId, modelId };
+}
+
+function recordHasIdentity(
+  value: unknown,
+  expected: BuilderGuardedWriteIdentity,
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    stringRecordValue(record, ["id", "@id", "uuid"]) === expected.entryId &&
+    stringRecordValue(record, ["ownerId"]) === expected.ownerId &&
+    stringRecordValue(record, ["modelId"]) === expected.modelId
+  );
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 export function extractBuilderCmsWriteEntryId(
   value: unknown,
 ): string | undefined {
@@ -110,8 +222,112 @@ function buildWriteResult(args: {
   ok: boolean;
   status: number;
   responseText: string;
+  guardedIdentity: BuilderGuardedWriteIdentity | null;
 }): BuilderCmsWriteResult {
   const responseBody = parseResponseBody(args.responseText);
+  if (args.status === 409) {
+    const code =
+      responseBody &&
+      typeof responseBody === "object" &&
+      !Array.isArray(responseBody) &&
+      (responseBody as Record<string, unknown>).code;
+    return {
+      ok: false,
+      status: 409,
+      responseBody,
+      error:
+        code === "CONTENT_WRITE_CONFLICT"
+          ? "Builder content changed after review. Refresh and review the change again."
+          : "Builder write request failed with HTTP 409.",
+    };
+  }
+  if (args.ok && args.guardedIdentity) {
+    const record =
+      responseBody &&
+      typeof responseBody === "object" &&
+      !Array.isArray(responseBody)
+        ? (responseBody as Record<string, unknown>)
+        : null;
+    const content = record?.content;
+    const editableContent = record?.editableContent;
+    const autosaveIds = record?.autosaveIds;
+    const writeSnapshot = record?.writeSnapshot;
+    const snapshotRecord =
+      writeSnapshot &&
+      typeof writeSnapshot === "object" &&
+      !Array.isArray(writeSnapshot)
+        ? (writeSnapshot as Record<string, unknown>)
+        : null;
+    const validSnapshot =
+      snapshotRecord !== null &&
+      typeof snapshotRecord.version === "string" &&
+      snapshotRecord.version.trim().length > 0 &&
+      snapshotRecord.content !== null &&
+      typeof snapshotRecord.content === "object" &&
+      !Array.isArray(snapshotRecord.content) &&
+      snapshotRecord.editableContent !== null &&
+      typeof snapshotRecord.editableContent === "object" &&
+      !Array.isArray(snapshotRecord.editableContent) &&
+      (snapshotRecord.autosaveId === null ||
+        typeof snapshotRecord.autosaveId === "string") &&
+      (snapshotRecord.autosaveCreatedDate === null ||
+        (typeof snapshotRecord.autosaveCreatedDate === "number" &&
+          Number.isFinite(snapshotRecord.autosaveCreatedDate))) &&
+      typeof snapshotRecord.hasPendingAutosave === "boolean";
+    if (
+      record?.committed !== true ||
+      !content ||
+      typeof content !== "object" ||
+      Array.isArray(content) ||
+      !editableContent ||
+      typeof editableContent !== "object" ||
+      Array.isArray(editableContent) ||
+      !Array.isArray(autosaveIds) ||
+      autosaveIds.some((id) => typeof id !== "string") ||
+      (writeSnapshot !== null && !validSnapshot) ||
+      typeof record.superseded !== "boolean" ||
+      (record.readback !== "matched" &&
+        record.readback !== "changed" &&
+        record.readback !== "unavailable") ||
+      record.superseded !== (record.readback === "changed") ||
+      (record.readback === "matched" && !validSnapshot) ||
+      (record.readback !== "matched" && writeSnapshot !== null) ||
+      !recordHasIdentity(content, args.guardedIdentity) ||
+      !recordHasIdentity(editableContent, args.guardedIdentity) ||
+      (snapshotRecord !== null &&
+        (!recordHasIdentity(snapshotRecord.content, args.guardedIdentity) ||
+          !recordHasIdentity(
+            snapshotRecord.editableContent,
+            args.guardedIdentity,
+          ))) ||
+      (record.readback === "matched" &&
+        (stableJson(snapshotRecord?.content) !== stableJson(content) ||
+          stableJson(snapshotRecord?.editableContent) !==
+            stableJson(editableContent)))
+    ) {
+      return {
+        ok: false,
+        status: args.status,
+        responseBody: null,
+        ambiguity: "provider",
+        error:
+          "Builder guarded write returned a malformed response after dispatch; remote outcome is unknown.",
+      };
+    }
+    return {
+      ok: true,
+      status: args.status,
+      entryId: extractBuilderCmsWriteEntryId(content),
+      responseBody,
+      committed: true,
+      content: content as Record<string, unknown>,
+      editableContent: editableContent as Record<string, unknown>,
+      autosaveIds: autosaveIds as string[],
+      writeSnapshot: writeSnapshot as Record<string, unknown> | null,
+      superseded: record.superseded,
+      readback: record.readback,
+    };
+  }
   const entryId = extractBuilderCmsWriteEntryId(responseBody);
   const validationMessage =
     !args.ok && (args.status === 400 || args.status === 422)
@@ -136,30 +352,46 @@ function buildWriteResult(args: {
 
 export async function executeBuilderCmsWrite(args: {
   request: BuilderCmsWriteRequest;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  requireSourceBinding?: boolean;
   fetchImpl?: FetchLike;
   /** @deprecated Never used: retrying another transport after dispatch is unsafe. */
   nodeRequestImpl?: unknown;
   timeoutMs?: number;
 }): Promise<BuilderCmsWriteResult> {
-  const privateKey = await readBuilderPrivateKey();
-  if (!privateKey) {
+  const authorization = await readBuilderWriteAuthorization();
+  if (!authorization) {
     return {
       ok: false,
       status: 0,
       responseBody: null,
-      error: "Builder private key is not configured.",
+      error: "Builder write access is not connected.",
     };
   }
+  assertBuilderWriteSourceBinding(
+    authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+    args.requireSourceBinding === true,
+  );
 
-  const url = new URL(args.request.path, builderWriteApiHost());
+  const url = new URL(
+    args.request.path,
+    builderWriteApiHost(authorization.source),
+  );
   for (const [key, value] of Object.entries(args.request.query ?? {})) {
     url.searchParams.set(key, value);
   }
+  const guardedIdentity = guardedWriteIdentity({
+    request: args.request,
+    expectedSourceSpace: args.expectedSourceSpace,
+  });
 
   const body = JSON.stringify(args.request.body);
   const headers = {
     accept: "application/json",
-    authorization: `Bearer ${privateKey}`,
+    authorization: authorization.authorization,
     "content-type": "application/json",
   };
 
@@ -180,6 +412,7 @@ export async function executeBuilderCmsWrite(args: {
       ok: response.ok,
       status: response.status,
       responseText: await response.text(),
+      guardedIdentity,
     });
   } catch {
     const timedOut = controller.signal.aborted;

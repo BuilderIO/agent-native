@@ -5,7 +5,13 @@ import type {
   ContentDatabaseSourceChangeSet,
 } from "../shared/api";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
-import { BUILDER_CMS_BODY_BLOCKS_HASH_KEY } from "./_builder-cms-source-adapter";
+import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
+  BUILDER_CMS_WRITE_VERSION_KEY,
+} from "./_builder-cms-source-adapter";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIntentMarker,
@@ -83,6 +89,22 @@ function source(
         freshness: "fresh",
         lastSyncedAt: "2026-06-08T00:00:00.000Z",
         lastSourceUpdatedAt: "2026-06-08T00:00:00.000Z",
+        sourceValues: {
+          [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-default",
+          [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify({
+            id: "builder-entry-1",
+            ownerId: "selected-space",
+            modelId: "model-uuid",
+            data: { title: "Old title" },
+          }),
+          [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify({
+            id: "builder-entry-1",
+            ownerId: "selected-space",
+            modelId: "model-uuid",
+            data: { title: "Old title" },
+          }),
+          [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: false,
+        },
       },
     ],
     changeSets: [],
@@ -122,6 +144,149 @@ function approvedChangeSet(): ContentDatabaseSourceChangeSet {
 }
 
 describe("Builder CMS write adapter plan", () => {
+  it("blocks every existing-entry write when its guarded snapshot is unavailable", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL);
+    builderSource.rows[0]!.sourceValues = {};
+
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan).toMatchObject({
+      state: "blocked",
+      lastError:
+        "Refresh this Builder entry before writing so a guarded write snapshot can be captured.",
+    });
+  });
+
+  it("builds a guarded autosave from the editable raw base without losing unmapped fields", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      builderSpacePublicKey: "selected-space",
+      connectionId: "connection-1",
+    });
+    builderSource.rows[0]!.sourceValues = {
+      [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-1",
+      [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify({
+        id: "builder-entry-1",
+        ownerId: "selected-space",
+        modelId: "model-uuid",
+        data: { title: "Canonical", nested: { canonical: true } },
+      }),
+      [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify({
+        id: "builder-entry-1",
+        ownerId: "selected-space",
+        modelId: "model-uuid",
+        data: {
+          title: "Pending",
+          nested: { canonical: true },
+          pendingOnly: "preserve me",
+        },
+      }),
+      [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: true,
+    };
+
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan.state).toBe("ready");
+    expect(plan.payload.request.body).toMatchObject({
+      id: "builder-entry-1",
+      data: {
+        title: "New title",
+        nested: { canonical: true },
+        pendingOnly: "preserve me",
+      },
+      __write: { version: "opaque-version-1" },
+    });
+  });
+
+  it("keeps a pending draft beside a canonical live update", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      builderSpacePublicKey: "selected-space",
+      connectionId: "connection-1",
+    });
+    builderSource.rows[0]!.sourceValues = {
+      [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-1",
+      [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify({
+        id: "builder-entry-1",
+        ownerId: "selected-space",
+        modelId: "model-uuid",
+        data: { title: "Canonical", canonicalOnly: "public" },
+      }),
+      [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify({
+        id: "builder-entry-1",
+        ownerId: "selected-space",
+        modelId: "model-uuid",
+        data: { title: "Pending", pendingOnly: "keep editable" },
+      }),
+      [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: true,
+    };
+
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "publish",
+    });
+
+    expect(plan.payload.request.body).toMatchObject({
+      data: { title: "New title", canonicalOnly: "public" },
+      __write: {
+        version: "opaque-version-1",
+        companionDraft: {
+          data: { title: "New title", pendingOnly: "keep editable" },
+        },
+      },
+    });
+    expect(plan.payload.request.body).not.toHaveProperty("data.pendingOnly");
+  });
+
+  it("publishes reviewed pending content with the explicit publishDraft guard", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+      builderSpacePublicKey: "selected-space",
+      connectionId: "connection-1",
+    });
+    builderSource.rows[0]!.sourceValues = {
+      [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-1",
+      [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify({
+        id: "builder-entry-1",
+        ownerId: "selected-space",
+        modelId: "model-uuid",
+        data: { title: "Canonical" },
+      }),
+      [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify({
+        id: "builder-entry-1",
+        ownerId: "selected-space",
+        modelId: "model-uuid",
+        data: { title: "Reviewed pending", pendingOnly: "reviewed" },
+      }),
+      [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: true,
+    };
+
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "publish",
+      publicationTransition: "publish",
+    });
+
+    expect(plan.payload.request.body).toMatchObject({
+      published: "published",
+      data: { title: "New title", pendingOnly: "reviewed" },
+      __write: { version: "opaque-version-1", publishDraft: true },
+    });
+    expect(plan.payload.request.body).not.toHaveProperty(
+      "__write.companionDraft",
+    );
+  });
+
   it("creates deterministic execution keys", () => {
     expect(
       builderCmsExecutionIdempotencyKey({
@@ -817,6 +982,7 @@ describe("Builder CMS write adapter plan", () => {
     builderSource.rows[0] = {
       ...builderSource.rows[0]!,
       sourceValues: {
+        ...builderSource.rows[0]!.sourceValues,
         "data.title": "Old title",
         "data.author": {
           "@type": "@builder.io/core:Reference",
@@ -1052,21 +1218,33 @@ describe("Builder CMS write adapter plan", () => {
     ];
     const mixedSource = {
       ...baseSource,
-      rows: documents.map((documentId, index) => ({
-        ...baseSource.rows[0],
-        id: `row-${index}`,
-        databaseItemId: `item-${index}`,
-        documentId,
-        sourceRowId:
-          index === 0 ? `builder-${documentId}` : `builder-entry-${index}`,
-        sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/${
-          index === 0 ? `builder-${documentId}` : `builder-entry-${index}`
-        }`,
-        provenance:
-          index === 0
-            ? "Builder CMS fixture adapter"
-            : "Builder CMS read adapter",
-      })),
+      rows: documents.map((documentId, index) => {
+        const sourceRowId =
+          index === 0 ? `builder-${documentId}` : `builder-entry-${index}`;
+        const rawEntry = {
+          id: sourceRowId,
+          ownerId: "selected-space",
+          modelId: "model-uuid",
+          data: { title: "Old title" },
+        };
+        return {
+          ...baseSource.rows[0],
+          id: `row-${index}`,
+          databaseItemId: `item-${index}`,
+          documentId,
+          sourceRowId,
+          sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/${sourceRowId}`,
+          provenance:
+            index === 0
+              ? "Builder CMS fixture adapter"
+              : "Builder CMS read adapter",
+          sourceValues: {
+            ...baseSource.rows[0]!.sourceValues,
+            [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify(rawEntry),
+            [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify(rawEntry),
+          },
+        };
+      }),
     };
     const transitions = [
       undefined,
@@ -1318,6 +1496,56 @@ describe("Builder CMS write adapter plan", () => {
         validatedAt: "2026-06-08T01:00:00.000Z",
         mismatches: [],
       },
+    });
+  });
+
+  it("marks a guarded plan stale when its opaque version or full raw base changes", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      builderSpacePublicKey: "selected-space",
+      connectionId: "connection-1",
+    });
+    const rawBase = {
+      id: "builder-entry-1",
+      ownerId: "selected-space",
+      modelId: "model-uuid",
+      data: { title: "Old title", unmapped: "first" },
+    };
+    builderSource.rows[0]!.sourceValues = {
+      [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-1",
+      [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify(rawBase),
+      [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify(rawBase),
+      [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: false,
+    };
+    const storedPlan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+    builderSource.rows[0]!.sourceValues = {
+      ...builderSource.rows[0]!.sourceValues,
+      [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-2",
+      [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify({
+        ...rawBase,
+        data: { ...rawBase.data, unmapped: "second" },
+      }),
+    };
+    const rebuiltPlan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(
+      validateBuilderCmsExecutionDryRun({
+        storedPayload: storedPlan.payload,
+        plan: rebuiltPlan,
+        now: "2026-06-08T01:00:00.000Z",
+      }).dryRun,
+    ).toMatchObject({
+      status: "stale",
+      mismatches: [
+        "Stored Builder request no longer matches the approved change.",
+      ],
     });
   });
 
