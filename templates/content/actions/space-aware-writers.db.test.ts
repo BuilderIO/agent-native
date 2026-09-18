@@ -201,7 +201,7 @@ describe("space-aware document writers", () => {
       runWithRequestContext({ userEmail: OUTSIDER }, () =>
         createDocument.run({ title: "No entry", spaceId }),
       ),
-    ).rejects.toThrow("Not authorized");
+    ).rejects.toThrow("Content space not found");
   });
 
   it("creates canonical Files memberships when the target organization differs from the active organization", async () => {

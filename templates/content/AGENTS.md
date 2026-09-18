@@ -85,7 +85,8 @@ Read the relevant skill before deeper work:
 | `migrate-content-database-rows` | Validate/apply/verify; terminal phases use `manage-content-database-migration` |
 
 Every action carries its schema. Use `tool-search` for comments, sharing,
-Collections, Notion, local sources, and the rest of the registered surface.
+Collections, Notion, local sources such as `remove-local-file-source`, and the
+rest of the registered surface.
 
 For permanent deletion, always plan before executing and report blockers or
 conflicts rather than claiming Trash is empty. Scope mode means all manageable
