@@ -286,6 +286,27 @@ async function dragScreenNode(
   await selectScreenNode(page, screenId, nodeId);
   const source = await boxFor(page, screenId, nodeId);
   console.log(`drag geometry ${JSON.stringify({ source, destination })}`);
+  console.log(
+    `frame geometry ${await page.evaluate(() =>
+      JSON.stringify(
+        Array.from(
+          document.querySelectorAll("[data-screen-iframe-id]"),
+          (node) => {
+            const rect = node.getBoundingClientRect();
+            return {
+              id: node.getAttribute("data-screen-iframe-id"),
+              rect: {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+              },
+            };
+          },
+        ),
+      ),
+    )}`,
+  );
   await page.mouse.move(
     source.x + source.width / 2,
     source.y + source.height / 2,
