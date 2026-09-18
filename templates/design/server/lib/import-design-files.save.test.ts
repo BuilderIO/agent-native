@@ -294,6 +294,44 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
     ]);
   });
 
+  it("reserves responsive preview space when placing imported screens", async () => {
+    mocks.setDesignData({
+      breakpointSet: { breakpoints: [{ id: "mobile", widthPx: 390 }] },
+      screenMetadata: {
+        "existing-screen": { width: 1440, height: 900 },
+      },
+      canvasFrames: {
+        "existing-screen": {
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          z: 0,
+        },
+      },
+    });
+
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "fig-upload",
+      files: [
+        {
+          filename: "imported.html",
+          fileType: "html",
+          content: "<main>Imported</main>",
+          preferredFrame: { width: 1440, height: 900 },
+        },
+      ],
+    });
+
+    // The existing screen paints 1440 + 24 + 390 world pixels. A new import
+    // needs to start after that responsive row and the normal 96px gap.
+    expect(result.placedFrames[0]?.frame).toMatchObject({
+      x: 1950,
+      width: 1440,
+    });
+  });
+
   it("is idempotent: preserves an existing clean id and only fills the missing one", async () => {
     await saveImportedDesignFiles({
       designId: "design-1",

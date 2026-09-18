@@ -13,6 +13,12 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
+import {
+  getResponsiveBreakpointWidths,
+  getResponsiveGroupWidth,
+  getScreenPreviewViewport,
+  visibleBreakpointWidths,
+} from "../../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../../shared/screen-annotation.js";
 import { getDb, schema } from "../db/index.js";
 import { designSourceMutationLockKey } from "../source-workspace.js";
@@ -131,13 +137,51 @@ function nextImportedFrameZ(currentCanvasFrames: unknown): number {
   return Math.max(currentFrameEntries.length, highestPersistedZ + 1);
 }
 
-function nextImportedFrameX(currentCanvasFrames: unknown): number {
-  const currentFrames = Object.values(
+function importedFramePaintedWidth(args: {
+  frame: CanvasFramePlacement;
+  metadata?: unknown;
+  breakpointWidths: readonly number[];
+}): number {
+  const frameWidth = positiveDimension(args.frame.width, DEFAULT_FRAME_WIDTH);
+  const frameHeight = positiveDimension(
+    args.frame.height,
+    DEFAULT_FRAME_HEIGHT,
+  );
+  const metadataRecord = isRecord(args.metadata) ? args.metadata : {};
+  const sourceWidth = positiveDimension(metadataRecord.width, frameWidth);
+  const sourceHeight = positiveDimension(metadataRecord.height, frameHeight);
+  const scale = getScreenPreviewViewport(
+    { width: sourceWidth, height: sourceHeight },
+    { width: frameWidth, height: frameHeight },
+  ).scale;
+  return getResponsiveGroupWidth({
+    primaryWidth: frameWidth,
+    scale,
+    visibleWidths: visibleBreakpointWidths(args.breakpointWidths, sourceWidth),
+  });
+}
+
+function nextImportedFrameX(
+  currentCanvasFrames: unknown,
+  options: {
+    screenMetadataByFileId?: unknown;
+    breakpointWidths?: readonly number[];
+  } = {},
+): number {
+  const currentFrames = Object.entries(
     parseCanvasFrameGeometryById(currentCanvasFrames),
   );
-  const right = currentFrames.reduce((maxRight, frame) => {
+  const metadataMap = isRecord(options.screenMetadataByFileId)
+    ? options.screenMetadataByFileId
+    : {};
+  const breakpointWidths = options.breakpointWidths ?? [];
+  const right = currentFrames.reduce((maxRight, [fileId, frame]) => {
     const x = frame.x ?? 0;
-    const width = frame.width ?? 0;
+    const width = importedFramePaintedWidth({
+      frame,
+      metadata: metadataMap[fileId],
+      breakpointWidths,
+    });
     return Number.isFinite(x) && Number.isFinite(width)
       ? Math.max(maxRight, x + width)
       : maxRight;
@@ -413,12 +457,27 @@ export async function saveImportedDesignFiles(
   await mutateDesignData({
     designId,
     mutate: (current, { updatedAt }) => {
-      let nextFrameX = nextImportedFrameX(current.canvasFrames);
+      const currentScreenMetadata = isRecord(current.screenMetadata)
+        ? current.screenMetadata
+        : {};
+      const breakpointWidths = getResponsiveBreakpointWidths(
+        current.breakpointSet,
+      );
+      let nextFrameX = nextImportedFrameX(current.canvasFrames, {
+        screenMetadataByFileId: currentScreenMetadata,
+        breakpointWidths,
+      });
       placementsForPersistence = placements.map((placement, index) => {
         const x = placement.x ?? nextFrameX;
         nextFrameX = Math.max(
           nextFrameX,
-          x + (placement.width ?? 0) + FRAME_GAP,
+          x +
+            importedFramePaintedWidth({
+              frame: placement,
+              metadata: metadataByFileId.get(placement.fileId ?? ""),
+              breakpointWidths,
+            }) +
+            FRAME_GAP,
         );
         return {
           ...placement,
