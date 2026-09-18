@@ -230,12 +230,16 @@ describe("ConnectionsSettingsContent", () => {
       await Promise.resolve();
     });
     await flushLazyImport(
-      () => container.textContent?.includes("Builder.io") === true,
+      () =>
+        container.textContent?.includes("Builder.io") === true &&
+        Array.from(container.querySelectorAll("button")).some(
+          (button) => button.textContent?.trim() === "Connect",
+        ),
     );
 
     expect(container.textContent).not.toContain("Ready to connect");
     const connectButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Connect Builder"),
+      (button) => button.textContent?.trim() === "Connect",
     );
     expect(connectButton?.disabled).toBe(false);
 

@@ -517,7 +517,7 @@ describe("interactive agent run options — wiring guards", () => {
 
     const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
     const spreadSites = source.match(
-      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
+      /\.\.\.resolveInteractiveAgentRunOptions\(options\),(?:(?!\n\s*(?:finalResponseGuard:|\}\);))[\s\S])*?\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
     );
 
     // Three interactive handlers are created today (prod, anonymous
