@@ -507,6 +507,81 @@ describe("design connect CLI", () => {
 });
 
 describe("design connect bridge endpoints", () => {
+  it("marks live-edit documents and keyed recovery redirects as embeddable", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><html><body><main>Screen</main></body></html>");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const origin = "http://localhost:18081";
+      const liveEditUrl = `${base}/live-edit?path=/library&bridgeKey=screen-a&previewToken=${bridge.previewToken}`;
+      const auth = { "x-design-preview-token": bridge.previewToken };
+      const registration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
+          bridgeKey: "screen-a",
+        },
+        auth,
+      );
+      expect(registration.status).toBe(200);
+      const bridgeKey = String(registration.body.bridgeKey ?? "screen-a");
+
+      const liveEdit = await getText(
+        liveEditUrl.replace("screen-a", encodeURIComponent(bridgeKey)),
+        { origin },
+      );
+      expect(liveEdit.status).toBe(200);
+      expect(liveEdit.headers["cross-origin-resource-policy"]).toBe(
+        "cross-origin",
+      );
+      expect(liveEdit.headers["cross-origin-embedder-policy"]).toBe(
+        "require-corp",
+      );
+
+      const recovery = await getText(
+        `${base}/library?agentNativeBridgeKey=screen-a`,
+        {
+          cookie: `agent-native-preview-token=${bridge.previewToken}`,
+          origin,
+          referer: liveEditUrl,
+          "sec-fetch-dest": "document",
+        },
+      );
+      expect(recovery.status).toBe(302);
+      expect(recovery.headers.location).toContain("/live-edit?");
+      expect(recovery.headers["cross-origin-resource-policy"]).toBe(
+        "cross-origin",
+      );
+      expect(recovery.headers["cross-origin-embedder-policy"]).toBe(
+        "require-corp",
+      );
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("keeps screen-specific editor bridge scripts isolated across parallel frames", async () => {
     const root = tmpDir();
     const devPort = await freePort();

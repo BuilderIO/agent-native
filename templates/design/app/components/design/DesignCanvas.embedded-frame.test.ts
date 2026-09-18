@@ -264,6 +264,14 @@ describe("DesignCanvas iframe sandbox policy", () => {
         previewUrl: "https://branch.builderio.xyz/forms",
       }),
     ).toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: true,
+        parentOrigin: "https://design.agent-native.com",
+        previewUrl: "http://127.0.0.1:7331/live-edit?url=%2Fforms",
+      }),
+    ).toContain("allow-same-origin");
   });
 
   it("only grants same-origin access to trusted cross-origin preview URLs", () => {
@@ -297,6 +305,14 @@ describe("DesignCanvas iframe sandbox policy", () => {
         readOnly: true,
         parentOrigin: "https://editor.builderio.xyz",
         previewUrl: "javascript:parent.document.body.innerHTML='pwned'",
+      }),
+    ).not.toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: true,
+        parentOrigin: "https://design.agent-native.com",
+        previewUrl: "http://127.0.0.1.evil.example/live-edit",
       }),
     ).not.toContain("allow-same-origin");
   });

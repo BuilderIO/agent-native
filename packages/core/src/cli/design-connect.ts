@@ -719,6 +719,10 @@ export async function prepareDesignConnectManifest(
 }
 
 const BRIDGE_CORS_HEADERS = Symbol("agent-native-design-bridge-cors");
+const BRIDGE_EMBEDDED_DOCUMENT_HEADERS = {
+  "cross-origin-resource-policy": "cross-origin",
+  "cross-origin-embedder-policy": "require-corp",
+} as const;
 
 type CorsAwareResponse = ServerResponse & {
   [BRIDGE_CORS_HEADERS]?: Record<string, string>;
@@ -807,6 +811,10 @@ function sendText(
 ) {
   res.writeHead(statusCode, {
     "content-type": contentType,
+    // Design's editor is cross-origin isolated. The live-edit document is
+    // intentionally embedded from the loopback bridge, so opt it into the
+    // same document policy before Chromium creates the frame.
+    ...BRIDGE_EMBEDDED_DOCUMENT_HEADERS,
     ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
     ...bridgeCorsHeaders(res),
   });
@@ -826,6 +834,9 @@ function sendBytes(
     "content-length": String(contentLength),
     ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
   };
+  if (headers.get("content-type")?.includes("html")) {
+    Object.assign(responseHeaders, BRIDGE_EMBEDDED_DOCUMENT_HEADERS);
+  }
   for (const name of [
     "content-type",
     "cache-control",
@@ -2917,7 +2928,11 @@ export async function startDesignConnectBridge(
                 if (keyed.previewToken) {
                   next.searchParams.set("previewToken", keyed.previewToken);
                 }
-                res.writeHead(302, { location: next.toString() });
+                res.writeHead(302, {
+                  location: next.toString(),
+                  ...BRIDGE_EMBEDDED_DOCUMENT_HEADERS,
+                  ...bridgeCorsHeaders(res),
+                });
                 res.end();
                 return;
               }

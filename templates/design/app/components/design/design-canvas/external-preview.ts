@@ -136,6 +136,30 @@ function isKnownDevRuntimeScriptSource(value: string): boolean {
       parsed.pathname.includes("/__x00__react-refresh")
     );
   } catch {
+    // coercion-ok: malformed preview URLs are not loopback previews.
+    return false;
+  }
+}
+
+function isLoopbackPreviewUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    if (
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    ) {
+      return true;
+    }
+    const parts = hostname.split(".");
+    return (
+      parts.length === 4 &&
+      parts[0] === "127" &&
+      parts.every((part) => /^\d+$/.test(part) && Number(part) <= 255)
+    );
+  } catch {
     return false;
   }
 }
@@ -205,7 +229,10 @@ export function getDesignCanvasIframeSandbox(args: {
   parentOrigin?: string;
 }): string {
   if (args.externalPreview) {
-    return isTrustedCrossOriginPreviewUrl(args.previewUrl, args.parentOrigin)
+    // Loopback previews need a real origin inside the sandbox: an opaque
+    // origin makes the dev app's same-site resource policy reject the frame.
+    return isTrustedCrossOriginPreviewUrl(args.previewUrl, args.parentOrigin) ||
+      isLoopbackPreviewUrl(args.previewUrl)
       ? TRUSTED_EXTERNAL_PREVIEW_IFRAME_SANDBOX
       : EXTERNAL_PREVIEW_IFRAME_SANDBOX;
   }
