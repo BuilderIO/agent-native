@@ -1,8 +1,8 @@
 {
   "name": "community-templates",
-  "displayName": "Community templates",
+  "displayName": "Community templates catalog",
   "private": true,
-  "description": "A runnable gallery of small Agent-Native GTM workflow templates.",
+  "description": "A launcher and multi-page set of cloneable Agent-Native GTM community apps.",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",

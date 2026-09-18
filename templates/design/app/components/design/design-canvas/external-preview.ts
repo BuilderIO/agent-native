@@ -136,8 +136,38 @@ function isKnownDevRuntimeScriptSource(value: string): boolean {
       parsed.pathname.includes("/__x00__react-refresh")
     );
   } catch {
+    // coercion-ok: malformed preview URLs are not loopback previews.
     return false;
   }
+}
+
+function isLoopbackPreviewUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    if (
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    ) {
+      return true;
+    }
+    const parts = hostname.split(".");
+    return (
+      parts.length === 4 &&
+      parts[0] === "127" &&
+      parts.every((part) => /^\d+$/.test(part) && Number(part) <= 255)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function getDesignCanvasIframeAllow(
+  previewUrl: string | null | undefined,
+): string | undefined {
+  return isLoopbackPreviewUrl(previewUrl) ? "local-network-access" : undefined;
 }
 
 /**
@@ -183,7 +213,13 @@ export function isTrustedCrossOriginPreviewUrl(
   previewUrl: string | null | undefined,
   parentOrigin?: string,
 ): boolean {
-  if (!previewUrl || !isBuilderPreviewUrl(previewUrl)) return false;
+  if (
+    !previewUrl ||
+    isLoopbackPreviewUrl(previewUrl) ||
+    !isBuilderPreviewUrl(previewUrl)
+  ) {
+    return false;
+  }
 
   const effectiveParentOrigin =
     parentOrigin ??
@@ -205,6 +241,9 @@ export function getDesignCanvasIframeSandbox(args: {
   parentOrigin?: string;
 }): string {
   if (args.externalPreview) {
+    // Keep loopback previews opaque: a local page with scripts and
+    // allow-same-origin could navigate to the editor origin and remove its
+    // own sandbox. The bridge opts opaque frames into COEP/CORS instead.
     return isTrustedCrossOriginPreviewUrl(args.previewUrl, args.parentOrigin)
       ? TRUSTED_EXTERNAL_PREVIEW_IFRAME_SANDBOX
       : EXTERNAL_PREVIEW_IFRAME_SANDBOX;

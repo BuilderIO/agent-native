@@ -23,6 +23,10 @@ export {
   type TrackingExceptionLevel,
 } from "./error-capture.js";
 export {
+  classifyTrackingFailure,
+  type TrackingFailureCategory,
+} from "./failure-category.js";
+export {
   errorToPostHogExceptionProperties,
   parseStackFrames,
   reshapeTrackedExceptionProperties,

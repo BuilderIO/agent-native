@@ -4,9 +4,10 @@ const mockGetQuery = vi.hoisted(() => vi.fn());
 const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
-const mockLoadRecordingMediaBytes = vi.hoisted(() => vi.fn());
-const mockExtractJpegFrame = vi.hoisted(() => vi.fn());
-const mockProbeMediaDurationMs = vi.hoisted(() => vi.fn());
+const mockLoadRecordingMediaFile = vi.hoisted(() => vi.fn());
+const mockExtractJpegFrameFromFile = vi.hoisted(() => vi.fn());
+const mockProbeMediaDurationMsFromFile = vi.hoisted(() => vi.fn());
+const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const MockVideoFrameExtractionError = vi.hoisted(
@@ -37,8 +38,8 @@ vi.mock("../../lib/public-agent-context.js", () => ({
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
   loadPublicAgentAccess: (...args: unknown[]) =>
     mockLoadPublicAgentAccess(...args),
-  loadRecordingMediaBytes: (...args: unknown[]) =>
-    mockLoadRecordingMediaBytes(...args),
+  loadRecordingMediaFile: (...args: unknown[]) =>
+    mockLoadRecordingMediaFile(...args),
   RecordingMediaFetchError: class RecordingMediaFetchError extends Error {
     statusCode: number;
     constructor(message: string, statusCode = 502) {
@@ -54,9 +55,10 @@ vi.mock("../../lib/public-agent-context.js", () => ({
 }));
 
 vi.mock("../../lib/video-frame.js", () => ({
-  extractJpegFrame: (...args: unknown[]) => mockExtractJpegFrame(...args),
-  probeMediaDurationMs: (...args: unknown[]) =>
-    mockProbeMediaDurationMs(...args),
+  extractJpegFrameFromFile: (...args: unknown[]) =>
+    mockExtractJpegFrameFromFile(...args),
+  probeMediaDurationMsFromFile: (...args: unknown[]) =>
+    mockProbeMediaDurationMsFromFile(...args),
   VideoFrameExtractionError: MockVideoFrameExtractionError,
 }));
 vi.mock("../../lib/ensure-recording-thumbnail.js", () => ({
@@ -116,12 +118,14 @@ describe("agent-frame.jpg route", () => {
       ok: true,
       access: makeAccess(),
     });
-    mockLoadRecordingMediaBytes.mockResolvedValue({
-      bytes: new Uint8Array([9, 9, 9]),
+    mockLoadRecordingMediaFile.mockResolvedValue({
+      path: "/tmp/recording.webm",
       mimeType: "video/webm",
+      cleanup: mockCleanupMediaFile,
     });
-    mockExtractJpegFrame.mockResolvedValue(new Uint8Array([1, 2, 3]));
-    mockProbeMediaDurationMs.mockResolvedValue(null);
+    mockExtractJpegFrameFromFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
+    mockCleanupMediaFile.mockResolvedValue(undefined);
     mockEnsureRecordingThumbnail.mockResolvedValue({
       recordingId: "rec-1",
       status: "generated",
@@ -149,8 +153,9 @@ describe("agent-frame.jpg route", () => {
 
     expect(Buffer.from(first as Buffer)).toEqual(Buffer.from([1, 2, 3]));
     expect(Buffer.from(second as Buffer)).toEqual(Buffer.from([1, 2, 3]));
-    expect(mockLoadRecordingMediaBytes).toHaveBeenCalledTimes(1);
-    expect(mockExtractJpegFrame).toHaveBeenCalledTimes(1);
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledTimes(1);
+    expect(mockCleanupMediaFile).toHaveBeenCalledTimes(1);
     expect(headerValue(firstEvent, "Cache-Control")).toBe(
       "private, max-age=0, no-store",
     );
@@ -178,8 +183,8 @@ describe("agent-frame.jpg route", () => {
     await handler(firstEvent as any);
     await handler(secondEvent as any);
 
-    expect(mockLoadRecordingMediaBytes).toHaveBeenCalledTimes(2);
-    expect(mockExtractJpegFrame).toHaveBeenCalledTimes(2);
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(2);
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledTimes(2);
     expect(headerValue(firstEvent, "Cache-Control")).toBe(
       "private, max-age=0, no-store",
     );
@@ -197,13 +202,13 @@ describe("agent-frame.jpg route", () => {
     await handler(makeEvent({ id: "tokenized-public", atMs: "1000" }) as any);
     await handler(makeEvent({ id: "tokenized-public", atMs: "1000" }) as any);
 
-    expect(mockLoadRecordingMediaBytes).toHaveBeenCalledTimes(2);
-    expect(mockExtractJpegFrame).toHaveBeenCalledTimes(2);
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(2);
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledTimes(2);
   });
 
   it("redirects to the actual media range when stored duration is stale", async () => {
-    mockProbeMediaDurationMs.mockResolvedValue(4000);
-    mockExtractJpegFrame
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(4000);
+    mockExtractJpegFrameFromFile
       .mockRejectedValueOnce(
         new MockVideoFrameExtractionError(
           "No frame was available at that timestamp.",
@@ -221,11 +226,10 @@ describe("agent-frame.jpg route", () => {
     expect((result as Response).headers.get("location")).toBe(
       "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=3999",
     );
-    expect(mockProbeMediaDurationMs).toHaveBeenCalledWith(
-      new Uint8Array([9, 9, 9]),
-      "video/webm",
+    expect(mockProbeMediaDurationMsFromFile).toHaveBeenCalledWith(
+      "/tmp/recording.webm",
     );
-    expect(mockExtractJpegFrame).toHaveBeenLastCalledWith(
+    expect(mockExtractJpegFrameFromFile).toHaveBeenLastCalledWith(
       expect.objectContaining({ atMs: 3999 }),
     );
   });
@@ -262,12 +266,12 @@ describe("agent-frame.jpg route", () => {
   });
 
   it("replaces password and legacy token query params with the scoped token", async () => {
-    mockProbeMediaDurationMs.mockResolvedValue(4000);
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(4000);
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
       access: makeAccess({ apiToken: "scoped-token" }),
     });
-    mockExtractJpegFrame
+    mockExtractJpegFrameFromFile
       .mockRejectedValueOnce(
         new MockVideoFrameExtractionError(
           "No frame was available at that timestamp.",
@@ -291,7 +295,7 @@ describe("agent-frame.jpg route", () => {
   });
 
   it("returns media fetch status when recording bytes cannot be loaded", async () => {
-    mockLoadRecordingMediaBytes.mockRejectedValue(
+    mockLoadRecordingMediaFile.mockRejectedValue(
       new RecordingMediaFetchError(
         "Recording media could not be fetched.",
         502,
@@ -305,6 +309,6 @@ describe("agent-frame.jpg route", () => {
     expect(result).toEqual({
       error: "Recording media could not be fetched.",
     });
-    expect(mockExtractJpegFrame).not.toHaveBeenCalled();
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
   });
 });

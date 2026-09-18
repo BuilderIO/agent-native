@@ -273,6 +273,11 @@ function mapAttendees(event: any): CalendarEvent["attendees"] {
     organizer: attendee.organizer || undefined,
     self: attendee.self || undefined,
     optional: attendee.optional === true ? true : undefined,
+    additionalGuests:
+      typeof attendee.additionalGuests === "number" &&
+      attendee.additionalGuests > 0
+        ? attendee.additionalGuests
+        : undefined,
   }));
 }
 
@@ -1896,6 +1901,9 @@ export async function createEvent(
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.optional === true ? { optional: true } : {}),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
     }));
   }
 
@@ -2087,6 +2095,9 @@ export async function updateEvent(
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.optional === true ? { optional: true } : { optional: false }),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
     }));
   }
   if (eventPatch.recurrence !== undefined) {
@@ -2152,6 +2163,10 @@ export async function updateEvent(
       organizer: a.organizer || undefined,
       self: a.self || undefined,
       optional: a.optional === true ? true : undefined,
+      additionalGuests:
+        typeof a.additionalGuests === "number" && a.additionalGuests > 0
+          ? a.additionalGuests
+          : undefined,
     })),
   };
 }

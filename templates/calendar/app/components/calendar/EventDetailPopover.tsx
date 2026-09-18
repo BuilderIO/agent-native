@@ -152,6 +152,7 @@ function buildEventDetailSlotContext(event: CalendarEvent) {
       responseStatus: attendee.responseStatus,
       organizer: attendee.organizer,
       optional: attendee.optional,
+      additionalGuests: attendee.additionalGuests,
       timeZone: attendee.timeZone,
       self: attendee.self,
     })),

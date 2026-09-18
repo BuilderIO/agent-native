@@ -70,6 +70,32 @@ describe("framework secret registrations", () => {
     );
   });
 
+  it("registers Jev as an optional API key with paste-time validation", async () => {
+    registerFrameworkSecrets();
+
+    const jev = getRequiredSecret("JEV_API_KEY");
+    expect(jev).toMatchObject({
+      label: "System one model (Jev)",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+      docsUrl: "https://docs.typesafe.ai/",
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(jev?.validator?.("jev-example-key")).resolves.toEqual({
+      ok: true,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.typesafe.ai/v1/models",
+      { headers: { Authorization: "Bearer jev-example-key" } },
+    );
+  });
+
   it("registers Salesforce workspace OAuth credentials and connection metadata", () => {
     registerFrameworkSecrets();
 

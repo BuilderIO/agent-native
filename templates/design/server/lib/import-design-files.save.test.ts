@@ -192,6 +192,10 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
     });
 
     expect(result.files).toHaveLength(1);
+    expect(result.files[0]?.source).toMatchObject({
+      heightMode: "fixed",
+      heightPinned: true,
+    });
     const insertedValues = mocks.insertValues.mock.calls[0]![0] as {
       content: string;
     };
@@ -218,6 +222,11 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
       {
         id: "existing-screen",
         filename: "existing.html",
+        fileType: "html",
+      },
+      {
+        id: "concurrent-screen",
+        filename: "concurrent.html",
         fileType: "html",
       },
     ]);
@@ -292,6 +301,123 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
         frame: expect.objectContaining({ x: 416, width: 640 }),
       }),
     ]);
+  });
+
+  it("reserves responsive preview space when placing imported screens", async () => {
+    mocks.setExistingFiles([
+      { id: "existing-screen", filename: "existing.html", fileType: "html" },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: { breakpoints: [{ id: "mobile", widthPx: 390 }] },
+      screenMetadata: {
+        "existing-screen": { width: 1440, height: 900 },
+      },
+      canvasFrames: {
+        "existing-screen": {
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          z: 0,
+        },
+      },
+    });
+
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "fig-upload",
+      files: [
+        {
+          filename: "imported.html",
+          fileType: "html",
+          content: "<main>Imported</main>",
+          preferredFrame: { width: 1440, height: 900 },
+        },
+      ],
+    });
+
+    // The existing screen paints 1440 + 24 + 390 world pixels. A new import
+    // needs to start after that responsive row and the normal 96px gap.
+    expect(result.placedFrames[0]?.frame).toMatchObject({
+      x: 1950,
+      width: 1440,
+    });
+  });
+
+  it("ignores board and support-file frames when reserving import space", async () => {
+    mocks.setExistingFiles([
+      { id: "existing-screen", filename: "existing.html", fileType: "html" },
+      { id: "screen", filename: "screen.html", fileType: "html" },
+      { id: "styles", filename: "styles.css", fileType: "css" },
+      { id: "board", filename: "__board__.html", fileType: "html" },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: { breakpoints: [{ id: "mobile", widthPx: 390 }] },
+      screenMetadata: {
+        screen: { width: 1440, height: 900 },
+        styles: { width: 1440, height: 900 },
+        board: { width: 1440, height: 900 },
+      },
+      canvasFrames: {
+        screen: { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+        styles: { x: 2000, y: 0, width: 1440, height: 900, z: 1 },
+        board: { x: 10_000, y: 0, width: 1440, height: 900, z: 2 },
+      },
+    });
+
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "fig-upload",
+      files: [
+        {
+          filename: "imported.html",
+          fileType: "html",
+          content: "<main>Imported</main>",
+          preferredFrame: { width: 1440, height: 900 },
+        },
+      ],
+    });
+
+    expect(result.placedFrames[0]?.frame.x).toBe(1950);
+  });
+
+  it("reserves the rotated responsive group footprint when placing imports", async () => {
+    mocks.setExistingFiles([
+      { id: "rotated", filename: "rotated.html", fileType: "html" },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: { breakpoints: [{ id: "tablet", widthPx: 300 }] },
+      screenMetadata: {
+        rotated: { width: 100, height: 200 },
+      },
+      canvasFrames: {
+        rotated: {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 200,
+          rotation: -45,
+          z: 0,
+        },
+      },
+    });
+
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "fig-upload",
+      files: [
+        {
+          filename: "imported.html",
+          fileType: "html",
+          content: "<main>Imported</main>",
+          preferredFrame: { width: 1440, height: 900 },
+        },
+      ],
+    });
+
+    // The unrotated footprint would end at 424 + 96 = 520. The 45° group
+    // reaches farther right around the primary frame's center.
+    expect(result.placedFrames[0]?.frame.x).toBeGreaterThan(520);
   });
 
   it("is idempotent: preserves an existing clean id and only fills the missing one", async () => {

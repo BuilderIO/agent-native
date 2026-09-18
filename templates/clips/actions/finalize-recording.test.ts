@@ -380,6 +380,26 @@ describe("finalize-recording media serve verification", () => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
+  it("returns an explicit abort signal when cancellation wins the ready race", async () => {
+    seedBufferedRecording();
+    mockState.uploadState = { ...mockState.uploadState, aborted: true };
+    mockState.selectRows[1] = [{ status: "failed" }];
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "rec_1",
+        status: "failed",
+        aborted: true,
+      }),
+    );
+  });
+
   it("verifies private S3 uploads with scoped credentials instead of the public URL", async () => {
     seedBufferedRecording();
     const videoUrl =
