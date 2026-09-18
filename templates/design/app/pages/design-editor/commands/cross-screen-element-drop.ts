@@ -874,6 +874,11 @@ export function runCrossScreenElementDrop(
           { source: { kind: "design-file", fileId: targetScreenId } },
         ).resolution
       : undefined;
+  dndHostLog("persist:target-resolution", {
+    status: targetResolution?.status ?? "none",
+    nodeId: effectiveAnchorNodeId ?? null,
+    selector: provenTargetAnchorSelector ?? null,
+  });
   const resolvedTargetAnchor =
     targetResolution?.status === "resolved" ? targetResolution.node : null;
   const targetAnchorAttrId =
@@ -910,6 +915,12 @@ export function runCrossScreenElementDrop(
           placement: targetAnchorPlacement ?? "inside",
         }
       : { placement: "inside" }),
+  });
+  dndHostLog("persist:move-result", {
+    status: result.status,
+    message: result.message,
+    sourceChanged: result.sourceHtml !== sourceContent,
+    destinationChanged: result.destHtml !== rawDestContent,
   });
   if (result.status !== "applied") {
     toast.error(
