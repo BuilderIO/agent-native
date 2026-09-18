@@ -3457,6 +3457,7 @@ const enUS = {
   database: databaseMessages,
   localFiles: localFilesMessages,
   sidebar: {
+    contentSpace: "Content space",
     cannotReorderPages: "Cannot reorder pages",
     pinned: "Pinned",
     recent: "Recent",
@@ -3724,6 +3725,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       },
     },
     sidebar: {
+      contentSpace: "Content 空间",
       addChild: "新增子项",
       addChildTo: "新增子项至 {{title}}",
       completeStepsAboveFirst: "请先完成上面的步骤",
@@ -4032,6 +4034,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       },
     },
     sidebar: {
+      contentSpace: "Espacio de Content",
       addChild: "Agregar hijo",
       addChildTo: "Agregar hijo a {{title}}",
       completeStepsAboveFirst: "Completa primero los pasos anteriores",
@@ -4110,6 +4113,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "zh-TW": {
     sidebar: {
+      contentSpace: "Content 空間",
       addChild: "新增子項目",
       addChildTo: "新增子項目至 {{title}}",
       database: "資料庫",
@@ -4157,6 +4161,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       toolbar: { undo: "Annuler", redo: "Rétablir" },
     },
     sidebar: {
+      contentSpace: "Espace Content",
       addChild: "Ajouter un enfant",
       addChildTo: "Ajouter un enfant à {{title}}",
       database: "Base de données",
@@ -4208,6 +4213,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       toolbar: { undo: "Rückgängig", redo: "Wiederholen" },
     },
     sidebar: {
+      contentSpace: "Content-Bereich",
       addChild: "Unterelement hinzufügen",
       addChildTo: "Unterelement zu {{title}} hinzufügen",
       database: "Datenbank",
@@ -4258,6 +4264,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       toolbar: { undo: "元に戻す", redo: "やり直す" },
     },
     sidebar: {
+      contentSpace: "Content スペース",
       addChild: "子項目を追加",
       addChildTo: "{{title}} に子項目を追加",
       database: "データベース",
@@ -4306,6 +4313,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       toolbar: { undo: "실행 취소", redo: "다시 실행" },
     },
     sidebar: {
+      contentSpace: "Content 공간",
       addChild: "하위 항목 추가",
       addChildTo: "{{title}}에 하위 항목 추가",
       database: "데이터베이스",
@@ -4353,6 +4361,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       toolbar: { undo: "Desfazer", redo: "Refazer" },
     },
     sidebar: {
+      contentSpace: "Espaço do Content",
       addChild: "Adicionar filho",
       addChildTo: "Adicionar filho a {{title}}",
       database: "Banco de dados",
@@ -4402,6 +4411,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       toolbar: { undo: "पूर्ववत करें", redo: "फिर से करें" },
     },
     sidebar: {
+      contentSpace: "Content स्पेस",
       addChild: "चाइल्ड जोड़ें",
       addChildTo: "{{title}} में चाइल्ड जोड़ें",
       database: "डेटाबेस",
@@ -4449,6 +4459,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       toolbar: { undo: "تراجع", redo: "إعادة" },
     },
     sidebar: {
+      contentSpace: "مساحة Content",
       addChild: "إضافة عنصر فرعي",
       addChildTo: "إضافة عنصر فرعي إلى {{title}}",
       database: "قاعدة البيانات",

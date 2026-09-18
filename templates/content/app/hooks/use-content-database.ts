@@ -154,7 +154,11 @@ export function moveOptimisticContentDatabaseItem(
 export function preserveScopedDatabasePlaceholder<T>(
   previous: T | undefined,
   previousQuery: Pick<Query, "queryKey"> | undefined,
-  scope: { documentId?: string; databaseId?: string },
+  scope: {
+    documentId?: string;
+    databaseId?: string;
+    contentSpaceId?: string;
+  },
 ): T | undefined {
   const previousParams = previousQuery?.queryKey[2];
   if (!previousParams || typeof previousParams !== "object") return undefined;
@@ -162,12 +166,16 @@ export function preserveScopedDatabasePlaceholder<T>(
   const params = previousParams as {
     documentId?: unknown;
     databaseId?: unknown;
+    contentSpaceId?: unknown;
   };
   if (scope.documentId !== undefined) {
     return params.documentId === scope.documentId ? previous : undefined;
   }
   if (scope.databaseId !== undefined) {
-    return params.databaseId === scope.databaseId ? previous : undefined;
+    return params.databaseId === scope.databaseId &&
+      params.contentSpaceId === scope.contentSpaceId
+      ? previous
+      : undefined;
   }
   return undefined;
 }
@@ -775,12 +783,18 @@ export function isContentDatabaseByIdQueryEnabled(
 
 export function useContentDatabaseById(
   databaseId: string | null,
-  options?: { enabled?: boolean; limit?: number },
+  options?: { enabled?: boolean; limit?: number; contentSpaceId?: string },
 ) {
   return useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
     databaseId
-      ? { databaseId, ...(options?.limit ? { limit: options.limit } : {}) }
+      ? {
+          databaseId,
+          ...(options?.limit ? { limit: options.limit } : {}),
+          ...(options?.contentSpaceId
+            ? { contentSpaceId: options.contentSpaceId }
+            : {}),
+        }
       : undefined,
     {
       enabled: isContentDatabaseByIdQueryEnabled(databaseId, options),
@@ -788,6 +802,7 @@ export function useContentDatabaseById(
       placeholderData: (previous, previousQuery) =>
         preserveScopedDatabasePlaceholder(previous, previousQuery, {
           databaseId: databaseId ?? undefined,
+          contentSpaceId: options?.contentSpaceId,
         }),
     },
   );

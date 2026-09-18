@@ -34,7 +34,7 @@ evidence:
     "../../../app/hooks/use-content-database.test.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-09-14"
+last_reviewed: "2026-09-17"
 ---
 
 # Personal sidebar
@@ -87,6 +87,16 @@ than reads or edits. New pins prepend in personal custom order without changing 
 parentage or membership. The persistent Search launcher opens the existing command
 menu instead of maintaining a second sidebar search implementation.
 
+The sidebar now selects one existing Content space without changing organization
+context. Pinned and Recent are filtered at the Action boundary by authoritative current
+Files membership before display limits, while aggregate Favorites remains reachable for
+legacy and unassigned pins. The selected space's Files tree is the only tree rendered;
+section order, visibility, and expansion persist, while five-row Pinned and Recent
+display counts are deliberately transient. Contextual pin reorder patches only the
+loaded subset and preserves unrelated personal order entries. Files, Pinned, and Recent
+share a presentational navigation row; Recent retains its real icon and exact View link
+without inheriting tree expansion or mutation controls.
+
 Database-backed workspace trees read at most 20 roots or immediate children per page,
 use cursor-based Show more, and resolve an active path without enumerating every
 document. Focused tests cover paging limits, parent-scoped reads, access filtering,
@@ -104,10 +114,11 @@ incomplete, so this Capability remains `approved_shape`.
 
 ## Open questions
 
-- The initial catalog is Pinned and Recent alongside existing workspace navigation.
+- The initial catalog is Pinned and Recent alongside selected-space Files navigation.
   Pinned and Recent start visible and expanded, show five entries initially, and allow
-  five-entry increments up to fifty. Section order, visibility, expansion, and display
-  limits are personal preferences.
+  five-entry increments up to fifty. Section order, visibility, and expansion are
+  personal preferences; display limits reset after refresh, collapse/reopen, or a
+  Content-space switch.
 - Database Recent identity is one entry per Database, retaining its latest visited View;
   plain Pages remain separate destinations. Explicit exact-View links and existing
   exact-View pins are not changed by this behavior.

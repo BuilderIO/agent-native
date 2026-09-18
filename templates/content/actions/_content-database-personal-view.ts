@@ -42,9 +42,10 @@ export const filterSchema = z.object({
   parentFilterGroupId: z.string().optional(),
 });
 
+const sidebarOrderItemIdSchema = z.string().min(1).max(256);
 export const sidebarOrderSchema = z.object({
   mode: z.enum(["custom", "last_edited", "name", "created"]),
-  itemIds: z.array(z.string()),
+  itemIds: z.array(sidebarOrderItemIdSchema).max(5_000),
 });
 
 const personalViewOverridesFields = {

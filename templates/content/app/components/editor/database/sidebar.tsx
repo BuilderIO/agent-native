@@ -28,6 +28,7 @@ import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
+import { SidebarNavigationRow } from "@/components/sidebar/SidebarNavigationRow";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -435,6 +436,7 @@ export function ContentFilesSidebarView({
   labels,
   onSelectView,
   sidebarOrder,
+  serverOrdered = false,
   manualReorder,
   onOpenItem,
   onCreateChildPage,
@@ -453,6 +455,7 @@ export function ContentFilesSidebarView({
   onSelectView?: (viewId: string) => void;
   /** A parent-owned, user-scoped Files order. It never writes database membership. */
   sidebarOrder?: ContentSidebarViewOrder;
+  serverOrdered?: boolean;
   manualReorder?: ContentFilesSidebarManualReorder;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
   onCreateChildPage?: (item: ContentDatabaseItem) => void;
@@ -513,9 +516,10 @@ export function ContentFilesSidebarView({
         activeView.filterMode ?? "and",
       )
     : [];
-  const items = sidebarOrder
-    ? contentSidebarOrderedItems(filteredItems, sidebarOrder)
-    : filteredItems;
+  const items =
+    sidebarOrder && !serverOrdered
+      ? contentSidebarOrderedItems(filteredItems, sidebarOrder)
+      : filteredItems;
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(
       items,
@@ -1070,14 +1074,15 @@ function DatabaseSidebarRow({
             />
           </button>
         ) : null}
-        <Link
+        <SidebarNavigationRow
           to={`/page/${item.document.id}`}
+          icon={item.document.icon}
+          hideIconOnHover={hasChildren}
           {...reorder?.controls.attributes}
           {...reorder?.controls.listeners}
           data-sidebar-reorder-item-id={reorder?.controls.itemId}
           role="link"
           className={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded pe-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             reorder && "touch-none cursor-pointer select-none",
             reorder?.controls.isDragging && "cursor-grabbing",
             active && "font-semibold text-foreground",
@@ -1091,20 +1096,6 @@ function DatabaseSidebarRow({
         >
           <span
             className={cn(
-              "flex size-7 shrink-0 items-center justify-center",
-              hasChildren &&
-                "group-hover:opacity-0 group-focus-within:opacity-0",
-            )}
-            aria-hidden="true"
-          >
-            {item.document.icon ? (
-              <span className="text-sm leading-none">{item.document.icon}</span>
-            ) : (
-              <IconFileText className="size-3.5 text-muted-foreground" />
-            )}
-          </span>
-          <span
-            className={cn(
               "min-w-0 flex-1 truncate",
               (hasMenuActions || canCreateChild) &&
                 "group-hover:pe-12 group-focus-within:pe-12",
@@ -1112,7 +1103,7 @@ function DatabaseSidebarRow({
           >
             {title}
           </span>
-        </Link>
+        </SidebarNavigationRow>
 
         {(hasMenuActions || canCreateChild) && (
           <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">

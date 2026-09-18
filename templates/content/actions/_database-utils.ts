@@ -1,3 +1,4 @@
+import { alias } from "@agent-native/core/db/schema";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -8,7 +9,17 @@ import {
   resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -24,6 +35,7 @@ import type {
   ContentDatabaseMembership,
   ContentDatabaseResponse,
   ContentDatabaseTableQuery,
+  ContentSidebarViewOrder,
   DocumentProperty,
 } from "../shared/api.js";
 import {
@@ -553,6 +565,34 @@ type ContentDatabasePageBuild = ContentDatabasePageResponse & {
   hydratedItemCount: number;
 };
 
+const scopedFilesMemberships = alias(
+  schema.contentDatabaseItems,
+  "scoped_files_memberships",
+);
+
+export function contentDatabaseFilesMembershipFilter(filesDatabaseId: string) {
+  return exists(
+    getDb()
+      .select({ id: scopedFilesMemberships.id })
+      .from(scopedFilesMemberships)
+      .where(
+        and(
+          eq(scopedFilesMemberships.databaseId, filesDatabaseId),
+          eq(
+            scopedFilesMemberships.documentId,
+            schema.contentDatabaseItems.documentId,
+          ),
+        ),
+      ),
+  );
+}
+
+export function contentDatabaseCustomOrderRank(itemIds: string[]) {
+  return itemIds.length > 0
+    ? sql<number>`COALESCE(array_position(ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(itemIds)}::jsonb)), ${schema.contentDatabaseItems.id}), ${itemIds.length + 1})`
+    : sql<number>`CAST(1 AS integer)`;
+}
+
 export async function getContentDatabasePageResponse(
   databaseId: string,
   options: {
@@ -561,6 +601,8 @@ export async function getContentDatabasePageResponse(
     tableQuery?: ContentDatabaseTableQuery;
     includeSources?: boolean;
     documentIds?: string[];
+    filesMembershipDatabaseId?: string;
+    sidebarOrder?: ContentSidebarViewOrder;
     database?: typeof schema.contentDatabases.$inferSelect;
   } = {},
 ): Promise<ContentDatabasePageBuild> {
@@ -685,6 +727,9 @@ export async function getContentDatabasePageResponse(
         ? inArray(schema.contentDatabaseItems.documentId, options.documentIds)
         : sql`1 = 0`
       : undefined,
+    options.filesMembershipDatabaseId
+      ? contentDatabaseFilesMembershipFilter(options.filesMembershipDatabaseId)
+      : undefined,
     sql`exists (
       select 1 from ${schema.documents}
       where ${schema.documents.id} = ${schema.contentDatabaseItems.documentId}
@@ -733,22 +778,60 @@ export async function getContentDatabasePageResponse(
         )
       : null;
 
-  let itemsQuery = db
-    .select()
-    .from(schema.contentDatabaseItems)
-    .where(visibleItemFilter)
-    .orderBy(
-      asc(schema.contentDatabaseItems.position),
-      asc(schema.contentDatabaseItems.createdAt),
-      asc(schema.contentDatabaseItems.id),
-    )
-    .$dynamic();
-  if (serverTableQuery) {
-    itemsQuery = itemsQuery.limit(CONTENT_DATABASE_MAX_READ_LIMIT);
-  } else if (limit !== null) {
-    itemsQuery = itemsQuery.limit(limit).offset(offset);
+  let items;
+  if (options.sidebarOrder && !serverTableQuery) {
+    const customItemIds = options.sidebarOrder.itemIds;
+    const customRank = contentDatabaseCustomOrderRank(customItemIds);
+    const order =
+      options.sidebarOrder.mode === "custom"
+        ? [
+            asc(customRank),
+            asc(schema.contentDatabaseItems.position),
+            asc(schema.contentDatabaseItems.id),
+          ]
+        : options.sidebarOrder.mode === "name"
+          ? [asc(schema.documents.title), asc(schema.contentDatabaseItems.id)]
+          : options.sidebarOrder.mode === "created"
+            ? [
+                desc(schema.documents.createdAt),
+                asc(schema.contentDatabaseItems.id),
+              ]
+            : [
+                desc(schema.documents.updatedAt),
+                asc(schema.contentDatabaseItems.id),
+              ];
+    let orderedItemsQuery = db
+      .select({ item: schema.contentDatabaseItems })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .where(visibleItemFilter)
+      .orderBy(...order)
+      .$dynamic();
+    if (limit !== null) {
+      orderedItemsQuery = orderedItemsQuery.limit(limit).offset(offset);
+    }
+    items = (await orderedItemsQuery).map((row) => row.item);
+  } else {
+    let itemsQuery = db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(visibleItemFilter)
+      .orderBy(
+        asc(schema.contentDatabaseItems.position),
+        asc(schema.contentDatabaseItems.createdAt),
+        asc(schema.contentDatabaseItems.id),
+      )
+      .$dynamic();
+    if (serverTableQuery) {
+      itemsQuery = itemsQuery.limit(CONTENT_DATABASE_MAX_READ_LIMIT);
+    } else if (limit !== null) {
+      itemsQuery = itemsQuery.limit(limit).offset(offset);
+    }
+    items = await itemsQuery;
   }
-  let items = await itemsQuery;
   let boundedTableQueryTotal: number | null = null;
   if (serverTableQuery && boundedProjectionPropertyIds) {
     const candidateDocuments = await db
@@ -1234,6 +1317,8 @@ export async function getContentDatabaseResponse(
     tableQuery?: ContentDatabaseTableQuery;
     includeSources?: boolean;
     documentIds?: string[];
+    filesMembershipDatabaseId?: string;
+    sidebarOrder?: ContentSidebarViewOrder;
     database?: typeof schema.contentDatabases.$inferSelect;
   } = {},
 ): Promise<ContentDatabaseResponse> {

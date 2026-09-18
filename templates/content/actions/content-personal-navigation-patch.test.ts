@@ -132,6 +132,31 @@ describe("personal navigation patch action", () => {
       readPersonalDatabaseViewOverrides(ctx.userEmail, "db"),
     ).rejects.toThrow();
   });
+  it("rejects a persisted 5,001-item sidebar order instead of truncating it", async () => {
+    saved = {
+      ...initialState(),
+      views: [
+        {
+          ...initialState().views[0],
+          sidebarOrder: {
+            mode: "custom",
+            itemIds: Array.from(
+              { length: 5_001 },
+              (_, index) => `item-${index}`,
+            ),
+          },
+        },
+      ],
+    };
+
+    await expect(
+      readPersonalDatabaseViewOverrides(ctx.userEmail, "db"),
+    ).rejects.toMatchObject({ name: "ZodError" });
+    expect(
+      (saved as ContentDatabasePersonalViewOverrides).views[0].sidebarOrder
+        ?.itemIds,
+    ).toHaveLength(5_001);
+  });
   it("seeds the first sidebar override from the shared View's query", async () => {
     saved = null;
     await action.run(

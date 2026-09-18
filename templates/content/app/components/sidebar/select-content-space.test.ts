@@ -3,9 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { ContentSpaceSummary } from "@/hooks/use-content-spaces";
 
 import {
+  contentSpaceActionArgs,
   contentSpaceAvailability,
   contentSpaceForStoredSelection,
   contentSpaceForCatalogItem,
+  contentSidebarSubsetReorder,
+  contentSpaceRouteReconciliation,
   contentSpaceIdForCreate,
   createContentSidebarStateWriteQueue,
   createContentSpaceSelectionQueue,
@@ -13,6 +16,15 @@ import {
   selectContentSpace,
   toggleExpandedWorkspaceIds,
 } from "./select-content-space";
+
+describe("contentSpaceActionArgs", () => {
+  it("omits action input until a non-empty Content space is selected", () => {
+    expect(contentSpaceActionArgs(undefined)).toBeUndefined();
+    expect(contentSpaceActionArgs(null)).toBeUndefined();
+    expect(contentSpaceActionArgs("")).toBeUndefined();
+    expect(contentSpaceActionArgs("space-1")).toEqual({ spaceId: "space-1" });
+  });
+});
 
 function space(
   overrides: Partial<ContentSpaceSummary> = {},
@@ -31,6 +43,20 @@ function space(
     ...overrides,
   };
 }
+
+describe("contentSidebarSubsetReorder", () => {
+  it("describes only the five rendered pins when more scoped pins are loaded", () => {
+    const loaded = ["a", "b", "c", "d", "e", "f", "g"];
+    const rendered = loaded.slice(0, 5);
+    expect(
+      contentSidebarSubsetReorder(["e", "a", "b", "c", "d"], rendered),
+    ).toEqual({
+      operation: "reorder-subset",
+      itemIds: ["e", "a", "b", "c", "d"],
+      previousItemIds: ["a", "b", "c", "d", "e"],
+    });
+  });
+});
 
 describe("selectContentSpace", () => {
   it("serializes rapid workspace selections", async () => {
@@ -76,15 +102,15 @@ describe("selectContentSpace", () => {
     const second = select(personal);
 
     await firstStarted;
-    expect(events).toEqual([]);
+    expect(events).toEqual(["persist:builder"]);
     releaseFirst();
     await Promise.all([first, second]);
     expect(events).toEqual([
-      "state:builder",
       "persist:builder",
+      "state:builder",
       "open:builder-files",
-      "state:personal",
       "persist:personal",
+      "state:personal",
       "open:personal-files",
     ]);
   });
@@ -128,7 +154,7 @@ describe("selectContentSpace", () => {
     expect(storedSpaceId).toBe("personal");
   });
 
-  it("syncs state before persisting and opening another org workspace", async () => {
+  it("persists before asynchronous state sync and opening another org workspace", async () => {
     const events: string[] = [];
     const persistSelection = vi.fn((spaceId: string) => {
       events.push(`persist:${spaceId}`);
@@ -148,13 +174,13 @@ describe("selectContentSpace", () => {
     });
 
     expect(events).toEqual([
-      "state:space_1",
       "persist:space_1",
+      "state:space_1",
       "open:files_document_1",
     ]);
   });
 
-  it("does not persist or navigate when application state cannot be updated", async () => {
+  it("keeps the explicit selection persisted when application state cannot be updated", async () => {
     const error = new Error("Application state failed");
     const persistSelection = vi.fn();
     const openFiles = vi.fn();
@@ -168,7 +194,7 @@ describe("selectContentSpace", () => {
       }),
     ).rejects.toBe(error);
 
-    expect(persistSelection).not.toHaveBeenCalled();
+    expect(persistSelection).toHaveBeenCalledWith("space_1");
     expect(openFiles).not.toHaveBeenCalled();
   });
 
@@ -189,6 +215,53 @@ describe("selectContentSpace", () => {
       expect.objectContaining({ id: "space_1" }),
     );
     expect(openFiles).toHaveBeenCalledWith("files_document_1");
+  });
+});
+
+describe("contentSpaceRouteReconciliation", () => {
+  const personal = space({
+    id: "personal",
+    filesDatabaseId: "personal-files-db",
+  });
+  const demo = space({ id: "demo", filesDatabaseId: "demo-files-db" });
+
+  it("does not let a stale route response snap an asynchronous explicit selection back", () => {
+    expect(
+      contentSpaceRouteReconciliation({
+        activeDocumentId: "demo-files-document",
+        routeDocumentId: "demo-files-document",
+        routeFilesDatabaseId: "personal-files-db",
+        selectedSpace: demo,
+        explicitSpaceId: "demo",
+        spaces: [personal, demo],
+      }),
+    ).toEqual({ explicitSelectionReachedRoute: false, routeSpace: null });
+  });
+
+  it("releases explicit selection ownership only when the target route response arrives", () => {
+    expect(
+      contentSpaceRouteReconciliation({
+        activeDocumentId: "demo-files-document",
+        routeDocumentId: "demo-files-document",
+        routeFilesDatabaseId: "demo-files-db",
+        selectedSpace: demo,
+        explicitSpaceId: "demo",
+        spaces: [personal, demo],
+      }),
+    ).toEqual({ explicitSelectionReachedRoute: true, routeSpace: null });
+  });
+
+  it("preserves direct deep-link reconciliation without an explicit selection", () => {
+    expect(
+      contentSpaceRouteReconciliation({
+        activeDocumentId: "demo-page",
+        routeDocumentId: "demo-page",
+        routeFilesDatabaseId: "demo-files-db",
+        selectedSpace: personal,
+        explicitSpaceId: null,
+        spaces: [personal, demo],
+      }).routeSpace,
+    ).toBe(demo);
   });
 });
 
@@ -324,6 +397,22 @@ describe("contentSpaceIdForCreate", () => {
 });
 
 describe("contentSpaceForStoredSelection", () => {
+  it("recovers an explicit stored selection after an initially partial space list", () => {
+    const personal = space({ id: "personal", kind: "personal" });
+    const demo = space({ id: "demo" });
+    const storedSpaceId = "demo";
+
+    expect(
+      contentSpaceForStoredSelection({ spaces: [personal], storedSpaceId }),
+    ).toBe(personal);
+    expect(
+      contentSpaceForStoredSelection({
+        spaces: [personal, demo],
+        storedSpaceId,
+      }),
+    ).toBe(demo);
+  });
+
   it("keeps the stored workspace independently of framework organization context", () => {
     const selected = space({ id: "space_2", orgId: "org_1" });
     expect(

@@ -12,17 +12,26 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
-export function useContentRecent() {
+export function contentRecentQueryArgs(
+  scopeKey: string | undefined,
+  spaceId?: string,
+) {
+  if (!scopeKey) return undefined;
+  return { scopeKey, ...(spaceId ? { spaceId } : {}) };
+}
+
+export function useContentRecent(spaceId?: string) {
   const org = useOrg();
   const scopeKey = org.data
     ? JSON.stringify([
         org.data.email.trim().toLowerCase(),
         org.data.orgId ?? null,
+        spaceId ?? null,
       ])
     : undefined;
   const query = useActionQuery(
     "get-content-recent",
-    { scopeKey },
+    contentRecentQueryArgs(scopeKey, spaceId),
     {
       enabled: Boolean(scopeKey) && !org.isFetching,
       placeholderData: undefined,

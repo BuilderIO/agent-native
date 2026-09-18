@@ -102,7 +102,12 @@ export default defineAction({
         const requestedItemIds = navigation.sidebarOrder
           ? navigation.sidebarOrder.operation === "replace"
             ? navigation.sidebarOrder.itemIds
-            : [navigation.sidebarOrder.itemId]
+            : navigation.sidebarOrder.operation === "reorder-subset"
+              ? [
+                  ...navigation.sidebarOrder.itemIds,
+                  ...navigation.sidebarOrder.previousItemIds,
+                ]
+              : [navigation.sidebarOrder.itemId]
           : [];
         const validItemIds = new Set<string>();
         for (const itemIds of chunks(
@@ -150,7 +155,12 @@ export default defineAction({
             ? navigation.sidebarOrder
             : null;
         const incrementalOrder =
-          navigation.sidebarOrder?.operation !== "replace"
+          navigation.sidebarOrder?.operation === "prepend" ||
+          navigation.sidebarOrder?.operation === "remove"
+            ? navigation.sidebarOrder
+            : null;
+        const subsetOrder =
+          navigation.sidebarOrder?.operation === "reorder-subset"
             ? navigation.sidebarOrder
             : null;
         const patch = replaceOrder
@@ -173,7 +183,15 @@ export default defineAction({
                 statusCode: 404,
                 errorCode: "item_unavailable",
               })
-            : navigation;
+            : subsetOrder &&
+                [...subsetOrder.itemIds, ...subsetOrder.previousItemIds].some(
+                  (id) => !validItemIds.has(id),
+                )
+              ? fail("A reordered sidebar item is unavailable.", {
+                  statusCode: 409,
+                  errorCode: "item_unavailable",
+                })
+              : navigation;
         const value = {
           ...applyContentPersonalNavigationPatch(migrated, patch, config.views),
         };

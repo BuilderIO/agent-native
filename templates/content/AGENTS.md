@@ -65,7 +65,7 @@ Read the relevant skill before deeper work:
 | `pull-document` | Flush collaboration state, then read |
 | `create-document` | Create a page |
 | `resolve-content-landing` | Resolve the caller's landing page |
-| `get-content-recent` | List personal recent destinations with current access |
+| `get-content-recent` | List personal recent destinations with current access, optionally scoped to a Content space's Files membership |
 | `edit-document` | Make a targeted text change |
 | `update-document` | Replace title, content, or description |
 | `delete-document` | Move a page tree to Trash |

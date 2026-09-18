@@ -195,7 +195,7 @@ describe("title changes and database query membership", () => {
     const sidebarKey = ["action", "get-content-sidebar-state", {}] as const;
     const hiddenState = {
       state: {
-        version: 1 as const,
+        version: 2 as const,
         sections: {
           order: ["pinned", "recent", "workspaces"],
           pinned: { visible: false, expanded: false, limit: 5 },
@@ -237,7 +237,7 @@ describe("title changes and database query membership", () => {
       pinned: { visible: true, expanded: true, limit: 5 },
     });
     expect(saveSidebarState).toHaveBeenCalledWith({
-      version: 1,
+      version: 2,
       sections: {
         ...newerState.state.sections,
         pinned: { visible: true, expanded: true, limit: 5 },

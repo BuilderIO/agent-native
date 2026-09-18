@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const boundary = vi.hoisted(() => ({
   orgId: null as string | null,
+  spaceOrgId: null as string | null,
   discovery: vi.fn(),
   select: vi.fn(),
   getSetting: vi.fn(),
@@ -18,6 +19,14 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("./_document-discovery-query.js", () => ({
   documentDiscoveryWhere: boundary.discovery,
 }));
+vi.mock("./_content-space-access.js", () => ({
+  resolveContentSpaceAccess: async () => ({
+    space: {
+      filesDatabaseId: "files-db",
+      orgId: boundary.spaceOrgId,
+    },
+  }),
+}));
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({ select: boundary.select }),
   schema: {
@@ -27,6 +36,10 @@ vi.mock("../server/db/index.js", () => ({
       documentId: "database-document-id",
       viewConfigJson: "view-config",
       deletedAt: "deleted-at",
+    },
+    contentDatabaseItems: {
+      databaseId: "item-database-id",
+      documentId: "item-document-id",
     },
   },
 }));
@@ -62,6 +75,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   boundary.select.mockReset();
   boundary.orgId = null;
+  boundary.spaceOrgId = null;
   stored.clear();
   boundary.getSetting.mockImplementation(
     async (email: string, key: string) =>
@@ -186,6 +200,81 @@ describe("Recent access resolution", () => {
       [],
     );
     expect(boundary.select).toHaveBeenCalledTimes(2);
+  });
+
+  it("filters by current Files membership before resolving Recent rows", async () => {
+    rowsOnce([{ documentId: "in-space" }]);
+    rowsOnce([{ id: "in-space", title: "In space", icon: null }]);
+    expect(
+      await resolveContentRecentEntries(
+        alice.userEmail,
+        [entry("outside"), entry("in-space")],
+        "space-a",
+      ),
+    ).toEqual([
+      {
+        ...entry("in-space"),
+        title: "In space",
+        icon: null,
+        viewName: null,
+      },
+    ]);
+    expect(boundary.discovery).toHaveBeenCalledWith(
+      expect.objectContaining({ additional: expect.anything() }),
+    );
+  });
+
+  it("returns no Recent rows when the selected space belongs to another org", async () => {
+    boundary.orgId = "org-a";
+    boundary.spaceOrgId = "org-b";
+    expect(
+      await resolveContentRecentEntries(
+        alice.userEmail,
+        [entry("org-b-page")],
+        "org-b-space",
+      ),
+    ).toEqual([]);
+    expect(boundary.select).not.toHaveBeenCalled();
+    expect(boundary.discovery).not.toHaveBeenCalled();
+  });
+
+  it("keeps the get action empty for an authorized space in another org", async () => {
+    boundary.orgId = "org-a";
+    boundary.spaceOrgId = "org-b";
+    stored.set(settingId(alice.userEmail, contentRecentSettingKey()), {
+      version: 2,
+      entries: [entry("org-b-page")],
+    });
+    const spaceId = "org-b-space";
+    expect(await getRecent.run({ spaceId }, alice)).toEqual({
+      entries: [],
+      scopeKey: JSON.stringify([alice.userEmail, "org-a", spaceId]),
+    });
+    expect(boundary.select).not.toHaveBeenCalled();
+  });
+
+  it("resolves scoped Recent rows when the selected space matches the active org", async () => {
+    boundary.orgId = "org-a";
+    boundary.spaceOrgId = "org-a";
+    rowsOnce([{ documentId: "org-a-page" }]);
+    rowsOnce([{ id: "org-a-page", title: "Org A", icon: null }]);
+    expect(
+      await resolveContentRecentEntries(
+        alice.userEmail,
+        [entry("org-a-page")],
+        "org-a-space",
+      ),
+    ).toEqual([
+      {
+        ...entry("org-a-page"),
+        title: "Org A",
+        icon: null,
+        viewName: null,
+      },
+    ]);
+    expect(boundary.discovery).toHaveBeenCalledWith(
+      expect.objectContaining({ authorizedOrgIds: ["org-a"] }),
+    );
   });
 
   it("falls back within the same database and omits an unavailable database", async () => {
@@ -362,12 +451,12 @@ describe("Recent action persistence", () => {
     );
     expect(await getRecent.run({}, bob)).toEqual({
       entries: [],
-      scopeKey: JSON.stringify([bob.userEmail, "org-a"]),
+      scopeKey: JSON.stringify([bob.userEmail, "org-a", null]),
     });
     boundary.orgId = "org-b";
     expect(await getRecent.run({}, alice)).toEqual({
       entries: [],
-      scopeKey: JSON.stringify([alice.userEmail, "org-b"]),
+      scopeKey: JSON.stringify([alice.userEmail, "org-b", null]),
     });
     expect(contentRecentSettingKey()).toBe('content-recent:"org-b"');
   });
@@ -387,7 +476,7 @@ describe("Recent action persistence", () => {
   });
 
   it("accepts and returns the normalized identity scope", async () => {
-    const scopeKey = JSON.stringify([alice.userEmail, null]);
+    const scopeKey = JSON.stringify([alice.userEmail, null, null]);
     expect(
       await getRecent.run({ scopeKey }, { userEmail: " Alice@Example.Test " }),
     ).toEqual({ scopeKey, entries: [] });
@@ -453,13 +542,13 @@ describe("sidebar partial state persistence", () => {
     const sections = defaultContentSidebarSections();
     sections.recent.visible = false;
     await Promise.all([
-      updateSidebar.run({ version: 1, expandedDocumentIds: ["page"] }, alice),
-      updateSidebar.run({ version: 1, sections }, alice),
+      updateSidebar.run({ version: 2, expandedDocumentIds: ["page"] }, alice),
+      updateSidebar.run({ version: 2, sections }, alice),
     ]);
     expect(
       stored.get(settingId(alice.userEmail, "content-sidebar-state")),
     ).toEqual({
-      version: 1,
+      version: 2,
       expandedDocumentIds: ["page"],
       sections,
     });
@@ -471,10 +560,10 @@ describe("sidebar partial state persistence", () => {
   it("does not overwrite corrupt persisted state or report a failed mutation as saved", async () => {
     const id = settingId(alice.userEmail, "content-sidebar-state");
     stored.set(id, { version: 99 });
-    await expect(updateSidebar.run({ version: 1 }, alice)).rejects.toThrow();
+    await expect(updateSidebar.run({ version: 2 }, alice)).rejects.toThrow();
     expect(stored.get(id)).toEqual({ version: 99 });
     boundary.mutateSetting.mockRejectedValueOnce(new Error("write failed"));
-    await expect(updateSidebar.run({ version: 1 }, alice)).rejects.toThrow(
+    await expect(updateSidebar.run({ version: 2 }, alice)).rejects.toThrow(
       "write failed",
     );
   });

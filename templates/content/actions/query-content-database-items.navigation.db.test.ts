@@ -2,9 +2,10 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putUserSetting } from "@agent-native/core/settings";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "../shared/api.js";
@@ -17,6 +18,14 @@ const OWNER = "navigation-owner@example.com";
 const OTHER = "navigation-other@example.com";
 const SPACE_ID = "navigation-space";
 const DATABASE_ID = "navigation-files";
+const ORGANIZATION_MEMBER = "navigation-member@example.com";
+const ORGANIZATION_OTHER = "navigation-org-owner@example.com";
+const ORGANIZATION_DENIED = "navigation-denied@example.com";
+const ORGANIZATION_A_ID = "navigation-org-a";
+const ORGANIZATION_B_ID = "navigation-org-b";
+const ORGANIZATION_SPACE_ID = "navigation-org-space";
+const ORGANIZATION_DATABASE_ID = "navigation-org-files";
+const ORGANIZATION_FILES_DOCUMENT_ID = "navigation-org-files-document";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -35,6 +44,14 @@ beforeAll(async () => {
   ).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
+  )`);
 
   const now = new Date().toISOString();
   await getDb().insert(schema.documents).values({
@@ -63,6 +80,61 @@ beforeAll(async () => {
     ownerEmail: OWNER,
     documentId: "navigation-files-document",
     title: "Files",
+    systemRole: "files",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  for (const [id, name] of [
+    [ORGANIZATION_A_ID, "Navigation Org A"],
+    [ORGANIZATION_B_ID, "Navigation Org B"],
+  ]) {
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: [id, name, ORGANIZATION_OTHER, Date.now()],
+    });
+  }
+  for (const orgId of [ORGANIZATION_A_ID, ORGANIZATION_B_ID]) {
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+      args: [
+        `navigation-member-${orgId}`,
+        orgId,
+        ORGANIZATION_MEMBER,
+        "member",
+        Date.now(),
+      ],
+    });
+  }
+  await getDb().insert(schema.documents).values({
+    id: ORGANIZATION_FILES_DOCUMENT_ID,
+    spaceId: ORGANIZATION_SPACE_ID,
+    ownerEmail: ORGANIZATION_OTHER,
+    orgId: ORGANIZATION_B_ID,
+    title: "Organization Files",
+    content: "",
+    visibility: "org",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.contentSpaces).values({
+    id: ORGANIZATION_SPACE_ID,
+    name: "Organization Navigation",
+    kind: "organization",
+    ownerEmail: ORGANIZATION_OTHER,
+    orgId: ORGANIZATION_B_ID,
+    filesDatabaseId: ORGANIZATION_DATABASE_ID,
+    createdBy: ORGANIZATION_OTHER,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.contentDatabases).values({
+    id: ORGANIZATION_DATABASE_ID,
+    spaceId: ORGANIZATION_SPACE_ID,
+    ownerEmail: ORGANIZATION_OTHER,
+    orgId: ORGANIZATION_B_ID,
+    documentId: ORGANIZATION_FILES_DOCUMENT_ID,
+    title: "Organization Files",
     systemRole: "files",
     createdAt: now,
     updatedAt: now,
@@ -111,6 +183,40 @@ async function addFile(args: {
     });
 }
 
+async function addOrganizationFile(args: {
+  id: string;
+  parentId?: string | null;
+  visibility?: "private" | "org";
+}) {
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(schema.documents)
+    .values({
+      id: args.id,
+      spaceId: ORGANIZATION_SPACE_ID,
+      parentId: args.parentId ?? null,
+      ownerEmail: ORGANIZATION_OTHER,
+      orgId: ORGANIZATION_B_ID,
+      title: args.id,
+      content: "",
+      visibility: args.visibility ?? "org",
+      createdAt: now,
+      updatedAt: now,
+    });
+  await getDb()
+    .insert(schema.contentDatabaseItems)
+    .values({
+      id: `membership-${args.id}`,
+      ownerEmail: ORGANIZATION_OTHER,
+      orgId: ORGANIZATION_B_ID,
+      databaseId: ORGANIZATION_DATABASE_ID,
+      documentId: args.id,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+}
+
 async function navigate(
   navigation: {
     parentId: string | null;
@@ -128,6 +234,79 @@ async function navigate(
 }
 
 describe("query-content-database-items Files navigation", () => {
+  it.each([50, 100, 500])(
+    "keeps %i roots bounded to stable 20-row pages",
+    async (rootCount) => {
+      const prefix = `bounded-${rootCount}`;
+      const ids = Array.from(
+        { length: rootCount },
+        (_, index) => `${prefix}-${String(index).padStart(3, "0")}`,
+      );
+      const timestamp = "2026-01-01T00:00:00.000Z";
+      for (let offset = 0; offset < ids.length; offset += 100) {
+        const batch = ids.slice(offset, offset + 100);
+        await getDb()
+          .insert(schema.documents)
+          .values(
+            batch.map((id, index) => ({
+              id,
+              spaceId: SPACE_ID,
+              parentId: null,
+              ownerEmail: OWNER,
+              title: id,
+              content: "",
+              visibility: "private" as const,
+              position: offset + index,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            })),
+          );
+        await getDb()
+          .insert(schema.contentDatabaseItems)
+          .values(
+            batch.map((id, index) => ({
+              id: `membership-${id}`,
+              ownerEmail: OWNER,
+              databaseId: DATABASE_ID,
+              documentId: id,
+              position: offset + index,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            })),
+          );
+      }
+
+      const first = await navigate({ parentId: null }, 20);
+      expect(first.items.map((item) => item.documentId)).toEqual(
+        ids.slice(0, 20),
+      );
+      expect(first.pagination.hasMore).toBe(true);
+
+      const second = await navigate(
+        { parentId: null, cursor: first.pagination.nextCursor! },
+        20,
+      );
+      expect(second.items.map((item) => item.documentId)).toEqual(
+        ids.slice(20, 40),
+      );
+      expect(second.pagination.hasMore).toBe(true);
+
+      const repeatedSecond = await navigate(
+        { parentId: null, cursor: first.pagination.nextCursor! },
+        20,
+      );
+      expect(repeatedSecond).toEqual(second);
+
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.documentId, ids));
+      await getDb()
+        .delete(schema.documents)
+        .where(inArray(schema.documents.id, ids));
+    },
+    60_000,
+  );
+
   it("pages roots and immediate children without cross-parent or inaccessible leakage", async () => {
     for (let index = 0; index < 22; index += 1) {
       await addFile({
@@ -709,6 +888,81 @@ describe("query-content-database-items Files navigation", () => {
     );
     expect(context.workspaceFilesDatabaseId).toBe(DATABASE_ID);
     expect(context.path.at(-1)).toMatchObject({ databaseId: DATABASE_ID });
+  });
+
+  it("returns the authoritative Files database for the Files document itself", async () => {
+    const context = await runWithRequestContext({ userEmail: OWNER }, () =>
+      navigationContextAction.run({ id: "navigation-files-document" }),
+    );
+
+    expect(context.workspaceFilesDatabaseId).toBe(DATABASE_ID);
+    expect(context.path).toHaveLength(1);
+    expect(context.path[0]).toMatchObject({
+      id: "navigation-files-document",
+      databaseId: DATABASE_ID,
+      databaseDocumentId: "navigation-files-document",
+    });
+  });
+
+  it("resolves an authorized organization Files root and child independently of the active organization", async () => {
+    await addOrganizationFile({ id: "organization-child" });
+
+    for (const orgId of [ORGANIZATION_A_ID, undefined]) {
+      const filesContext = await runWithRequestContext(
+        { userEmail: ORGANIZATION_MEMBER, orgId },
+        () =>
+          navigationContextAction.run({ id: ORGANIZATION_FILES_DOCUMENT_ID }),
+      );
+      expect(filesContext.workspaceFilesDatabaseId).toBe(
+        ORGANIZATION_DATABASE_ID,
+      );
+      expect(filesContext.path.map((entry) => entry.id)).toEqual([
+        ORGANIZATION_FILES_DOCUMENT_ID,
+      ]);
+
+      const childContext = await runWithRequestContext(
+        { userEmail: ORGANIZATION_MEMBER, orgId },
+        () => navigationContextAction.run({ id: "organization-child" }),
+      );
+      expect(childContext.workspaceFilesDatabaseId).toBe(
+        ORGANIZATION_DATABASE_ID,
+      );
+      expect(childContext.path.map((entry) => entry.id)).toEqual([
+        "organization-child",
+      ]);
+    }
+  });
+
+  it("denies Files navigation without selected-space membership", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: ORGANIZATION_DENIED }, () =>
+        navigationContextAction.run({ id: "organization-child" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("does not disclose a restricted ancestor from an authorized organization space", async () => {
+    await addOrganizationFile({
+      id: "restricted-organization-parent",
+      visibility: "private",
+    });
+    await addOrganizationFile({
+      id: "organization-child-with-restricted-parent",
+      parentId: "restricted-organization-parent",
+    });
+
+    const context = await runWithRequestContext(
+      { userEmail: ORGANIZATION_MEMBER, orgId: ORGANIZATION_A_ID },
+      () =>
+        navigationContextAction.run({
+          id: "organization-child-with-restricted-parent",
+        }),
+    );
+
+    expect(context.workspaceFilesDatabaseId).toBe(ORGANIZATION_DATABASE_ID);
+    expect(context.path.map((entry) => entry.id)).toEqual([
+      "organization-child-with-restricted-parent",
+    ]);
   });
 
   it("associates a child without denormalized spaceId to its authoritative Files path", async () => {

@@ -4,13 +4,14 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, type AccessContext } from "@agent-native/core/sharing";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { ContentNavigationContext } from "../shared/api.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getContentSourceMode,
@@ -20,6 +21,107 @@ import {
 } from "./_local-file-documents.js";
 
 const MAX_ANCESTORS = 100;
+
+type NavigationFilesContext = {
+  databaseId: string;
+  databaseDocumentId: string;
+  spaceId: string;
+  accessContext: AccessContext;
+};
+
+function isContentSpaceAccessDenial(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.startsWith("Not authorized for Content space") ||
+      (error.message.startsWith("Content space") &&
+        error.message.endsWith("not found")))
+  );
+}
+
+async function resolveNavigationFilesContext(
+  db: ReturnType<typeof getDb>,
+  documentId: string,
+): Promise<NavigationFilesContext | undefined> {
+  const membershipCandidates = await db
+    .select({
+      databaseId: schema.contentDatabases.id,
+      databaseDocumentId: schema.contentDatabases.documentId,
+      spaceId: schema.contentSpaces.id,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabases,
+      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+    )
+    .innerJoin(
+      schema.contentSpaces,
+      eq(schema.contentSpaces.id, schema.contentDatabases.spaceId),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.documentId, documentId),
+        eq(schema.contentDatabases.systemRole, "files"),
+        eq(schema.contentSpaces.filesDatabaseId, schema.contentDatabases.id),
+        isNull(schema.contentDatabases.deletedAt),
+        isNull(schema.contentSpaces.archivedAt),
+      ),
+    );
+  const filesDocumentCandidates = await db
+    .select({
+      databaseId: schema.contentDatabases.id,
+      databaseDocumentId: schema.contentDatabases.documentId,
+      spaceId: schema.contentSpaces.id,
+    })
+    .from(schema.contentDatabases)
+    .innerJoin(
+      schema.contentSpaces,
+      eq(schema.contentSpaces.id, schema.contentDatabases.spaceId),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, documentId),
+        eq(schema.contentDatabases.systemRole, "files"),
+        eq(schema.contentSpaces.filesDatabaseId, schema.contentDatabases.id),
+        isNull(schema.contentDatabases.deletedAt),
+        isNull(schema.contentSpaces.archivedAt),
+      ),
+    );
+  const candidates = new Map(
+    [...membershipCandidates, ...filesDocumentCandidates].map((candidate) => [
+      candidate.databaseId,
+      candidate,
+    ]),
+  );
+  const authorized: NavigationFilesContext[] = [];
+  for (const candidate of candidates.values()) {
+    try {
+      const access = await resolveContentSpaceAccess(
+        candidate.spaceId,
+        "viewer",
+        { db },
+      );
+      authorized.push({
+        ...candidate,
+        accessContext: {
+          userEmail: access.authority.userEmail,
+          orgId: access.authority.orgId ?? undefined,
+        },
+      });
+    } catch (error) {
+      if (!isContentSpaceAccessDenial(error)) throw error;
+    }
+  }
+  if (authorized.length > 1) {
+    fail(
+      "The document belongs to more than one authoritative Files navigation context.",
+      {
+        errorCode: "navigation_context_ambiguous",
+        statusCode: 409,
+      },
+    );
+  }
+  return authorized[0];
+}
 
 function permissions(role: string) {
   return {
@@ -91,7 +193,13 @@ export default defineAction({
     );
     const path: ContentNavigationContext["path"] = [];
     const userEmail = getRequestUserEmail();
-    const orgId = getRequestOrgId();
+    const navigationFilesContext = await resolveNavigationFilesContext(db, id);
+    const accessContext: AccessContext =
+      navigationFilesContext?.accessContext ?? {
+        userEmail,
+        orgId: getRequestOrgId() ?? undefined,
+      };
+    const orgId = accessContext.orgId;
     const seen = new Set<string>();
     let activeRow: typeof schema.documents.$inferSelect | undefined;
     let activeMembership:
@@ -132,7 +240,11 @@ export default defineAction({
           and(
             eq(schema.documents.id, currentId),
             isNull(schema.documents.trashedAt),
-            accessFilter(schema.documents, schema.documentShares),
+            accessFilter(
+              schema.documents,
+              schema.documentShares,
+              accessContext,
+            ),
           ),
         )
         .limit(1);
@@ -176,7 +288,11 @@ export default defineAction({
             isNull(schema.contentDatabases.deletedAt),
             eq(schema.contentDatabases.systemRole, "files"),
             isNull(databaseDocuments.trashedAt),
-            accessFilter(databaseDocuments, schema.documentShares),
+            accessFilter(
+              databaseDocuments,
+              schema.documentShares,
+              accessContext,
+            ),
           ),
         )
         .limit(2);
@@ -190,6 +306,13 @@ export default defineAction({
         );
       }
       const membership = memberships[0];
+      const activeFilesDatabase =
+        row.id === id &&
+        !membership &&
+        navigationFilesContext?.databaseDocumentId === row.id
+          ? navigationFilesContext
+          : undefined;
+      const navigationMembership = membership ?? activeFilesDatabase;
       const shareRows = userEmail
         ? await db
             .select({ role: schema.documentShares.role })
@@ -225,8 +348,8 @@ export default defineAction({
         parentId: row.parentId,
         title: row.title,
         icon: row.icon,
-        databaseId: membership?.databaseId ?? null,
-        databaseDocumentId: membership?.databaseDocumentId ?? null,
+        databaseId: navigationMembership?.databaseId ?? null,
+        databaseDocumentId: navigationMembership?.databaseDocumentId ?? null,
         isFavorite: false,
         visibility: row.visibility as "private" | "org" | "public",
         ...permissions(role),
@@ -241,7 +364,7 @@ export default defineAction({
         );
       if (row.id === id) {
         activeRow = row as typeof schema.documents.$inferSelect;
-        activeMembership = membership;
+        activeMembership = navigationMembership;
       }
     }
     if (userEmail) {

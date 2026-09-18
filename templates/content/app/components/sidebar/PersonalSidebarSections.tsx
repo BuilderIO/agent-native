@@ -10,10 +10,16 @@ import {
   type ContentSidebarSections,
   type ContentSidebarSectionId,
 } from "@shared/content-personal-navigation";
-import { IconChevronRight, IconDots } from "@tabler/icons-react";
+import {
+  IconChevronRight,
+  IconClock,
+  IconDots,
+  IconFiles,
+  IconGripVertical,
+  IconPin,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
@@ -31,31 +37,35 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useContentRecent } from "@/hooks/use-content-recent";
 import { cn } from "@/lib/utils";
 
+import { contentSpaceActionArgs } from "./select-content-space";
 import {
   SidebarReorderProvider,
   useSidebarReorderItem,
   type SidebarReorderLabels,
 } from "./sidebar-reorder";
-
-const stateKey = ["action", "get-content-sidebar-state", {}];
+import { SidebarNavigationRow } from "./SidebarNavigationRow";
 
 export function PersonalSidebarSections({
   renderPinned,
   pinnedCount,
-  renderWorkspaces,
+  renderFiles,
+  spaceId,
   onNavigate,
   reorderLabels,
 }: {
   renderPinned: (limit: number) => ReactNode;
   pinnedCount: number;
-  renderWorkspaces: () => ReactNode;
+  renderFiles: () => ReactNode;
+  spaceId: string;
   onNavigate?: () => void;
   reorderLabels: SidebarReorderLabels;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const state = useActionQuery("get-content-sidebar-state", {});
-  const recent = useContentRecent();
+  const stateArgs = contentSpaceActionArgs(spaceId);
+  const stateKey = ["action", "get-content-sidebar-state", stateArgs];
+  const state = useActionQuery("get-content-sidebar-state", stateArgs);
+  const recent = useContentRecent(spaceId);
   const update = useActionMutation("update-content-sidebar-state", {
     skipActionQueryInvalidation: true,
   });
@@ -64,6 +74,8 @@ export function PersonalSidebarSections({
   );
   const pending = useRef(0);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const [limits, setLimits] = useState({ pinned: 5, recent: 5 });
+  useEffect(() => setLimits({ pinned: 5, recent: 5 }), [spaceId]);
   const sections =
     optimistic ??
     state.data?.state?.sections ??
@@ -76,7 +88,8 @@ export function PersonalSidebarSections({
       .then(async () => {
         try {
           const saved = await update.mutateAsync({
-            version: 1,
+            version: 2,
+            spaceId,
             sections: next,
           });
           queryClient.setQueryData(stateKey, saved);
@@ -92,7 +105,7 @@ export function PersonalSidebarSections({
     void queue.current.catch(() => undefined);
   }
   function change(
-    id: "pinned" | "recent",
+    id: ContentSidebarSectionId,
     patch: Partial<ContentSidebarSections["pinned"]>,
   ) {
     save({ ...sections, [id]: { ...sections[id], ...patch } });
@@ -100,26 +113,26 @@ export function PersonalSidebarSections({
   const labels = {
     pinned: t("sidebar.pinned"),
     recent: t("sidebar.recent"),
-    workspaces: t("sidebar.workspaces"),
+    files: t("sidebar.files"),
   };
   function canShowMore(id: "pinned" | "recent") {
     const count =
       id === "pinned" ? pinnedCount : (recent.data?.entries.length ?? 0);
-    if (sections[id].limit >= 50) return false;
-    return count > sections[id].limit;
+    if (limits[id] >= 50) return false;
+    return count > limits[id];
   }
   if (state.isError)
     return (
       <>
         <QueryErrorState compact onRetry={() => void state.refetch()} />
-        {renderWorkspaces()}
+        {renderFiles()}
       </>
     );
   if (state.isLoading)
     return (
       <>
         <Skeleton className="mx-3 my-2 h-7" />
-        {renderWorkspaces()}
+        {renderFiles()}
       </>
     );
   return (
@@ -136,11 +149,15 @@ export function PersonalSidebarSections({
         }
       >
         {sections.order.map((id) =>
-          id === "workspaces" ? (
+          id === "files" ? (
             <PersonalSection
               key={id}
               id={id}
               label={labels[id]}
+              expanded={sections.files.expanded}
+              onToggle={() =>
+                change("files", { expanded: !sections.files.expanded })
+              }
               reorderLabels={reorderLabels}
               sections={sections}
               labels={labels}
@@ -148,7 +165,7 @@ export function PersonalSidebarSections({
                 change(sectionId, { visible })
               }
             >
-              {renderWorkspaces()}
+              {sections.files.expanded ? renderFiles() : null}
             </PersonalSection>
           ) : sections[id].visible ? (
             <PersonalSection
@@ -156,7 +173,12 @@ export function PersonalSidebarSections({
               id={id}
               label={labels[id]}
               expanded={sections[id].expanded}
-              onToggle={() => change(id, { expanded: !sections[id].expanded })}
+              onToggle={() => {
+                if (sections[id].expanded) {
+                  setLimits((current) => ({ ...current, [id]: 5 }));
+                }
+                change(id, { expanded: !sections[id].expanded });
+              }}
               reorderLabels={reorderLabels}
               sections={sections}
               labels={labels}
@@ -167,7 +189,7 @@ export function PersonalSidebarSections({
               {sections[id].expanded && (
                 <>
                   {id === "pinned" ? (
-                    renderPinned(sections.pinned.limit)
+                    renderPinned(limits.pinned)
                   ) : recent.isError ? (
                     <QueryErrorState
                       compact
@@ -177,22 +199,25 @@ export function PersonalSidebarSections({
                   ) : recent.isLoading ? (
                     <Skeleton className="mx-2 h-20" />
                   ) : recent.data?.entries.length ? (
-                    <nav aria-label={labels.recent}>
+                    <nav
+                      aria-label={labels.recent}
+                      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
+                    >
                       {recent.data.entries
-                        .slice(0, sections.recent.limit)
+                        .slice(0, limits.recent)
                         .map((entry) => (
-                          <Link
+                          <SidebarNavigationRow
                             key={contentRecentTargetKey(entry.target)}
                             to={contentRecentHref(entry.target)}
+                            icon={entry.icon}
                             onClick={onNavigate}
-                            className="flex h-7 min-w-0 items-center gap-1.5 rounded px-2 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             title={
                               entry.viewName
                                 ? `${entry.title} · ${entry.viewName}`
                                 : entry.title
                             }
                           >
-                            <span className="truncate">
+                            <span className="min-w-0 flex-1 truncate">
                               {entry.title || t("sidebar.untitled")}
                             </span>
                             {entry.viewName && (
@@ -200,7 +225,7 @@ export function PersonalSidebarSections({
                                 {entry.viewName}
                               </span>
                             )}
-                          </Link>
+                          </SidebarNavigationRow>
                         ))}
                     </nav>
                   ) : (
@@ -213,19 +238,22 @@ export function PersonalSidebarSections({
                       variant="ghost"
                       size="sm"
                       onClick={() =>
-                        change(id, {
-                          limit: Math.min(50, sections[id].limit + 5),
-                        })
+                        setLimits((current) => ({
+                          ...current,
+                          [id]: Math.min(50, current[id] + 5),
+                        }))
                       }
                     >
                       {t("sidebar.showMore")}
                     </Button>
                   )}
-                  {sections[id].limit > 5 && (
+                  {limits[id] > 5 && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => change(id, { limit: 5 })}
+                      onClick={() =>
+                        setLimits((current) => ({ ...current, [id]: 5 }))
+                      }
                     >
                       {t("sidebar.showLess")}
                     </Button>
@@ -263,6 +291,8 @@ function PersonalSection({
 }) {
   const t = useT();
   const reorder = useSidebarReorderItem(id);
+  const SectionIcon =
+    id === "pinned" ? IconPin : id === "recent" ? IconClock : IconFiles;
   return (
     <section
       ref={reorder.setNodeRef}
@@ -276,11 +306,20 @@ function PersonalSection({
             aria-label={label}
             aria-expanded={expanded}
             onClick={onToggle}
-            className="flex size-7 items-center justify-center rounded hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+            className="group/toggle flex min-w-0 flex-1 items-center rounded text-start text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <IconChevronRight
-              className={cn("size-3.5", expanded && "rotate-90")}
-            />
+            <span className="flex size-7 shrink-0 items-center justify-center">
+              <span className="relative size-3.5">
+                <SectionIcon className="absolute inset-0 size-3.5 transition-opacity group-hover/toggle:opacity-0 group-focus-visible/toggle:opacity-0" />
+                <IconChevronRight
+                  className={cn(
+                    "absolute inset-0 size-3.5 opacity-0 transition-[opacity,transform] group-hover/toggle:opacity-100 group-focus-visible/toggle:opacity-100 rtl:-scale-x-100",
+                    expanded && "rotate-90",
+                  )}
+                />
+              </span>
+            </span>
+            <span className="min-w-0 flex-1 truncate">{label}</span>
           </button>
         )}
         <button
@@ -288,9 +327,9 @@ function PersonalSection({
           {...reorder.attributes}
           {...reorder.listeners}
           aria-label={reorderLabels.drag(label)}
-          className="min-w-0 flex-1 truncate text-start text-xs font-medium text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex size-7 shrink-0 touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {label}
+          <IconGripVertical className="size-3.5" />
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

@@ -4,7 +4,7 @@ export const CONTENT_RECENT_LIMIT = 50;
 export const contentSidebarSectionIdSchema = z.enum([
   "pinned",
   "recent",
-  "workspaces",
+  "files",
 ]);
 export type ContentSidebarSectionId = z.infer<
   typeof contentSidebarSectionIdSchema
@@ -17,12 +17,14 @@ export const contentSidebarSectionsSchema = z.object({
   pinned: z.object({
     visible: z.boolean(),
     expanded: z.boolean(),
-    limit: z.number().int().min(5).max(50),
   }),
   recent: z.object({
     visible: z.boolean(),
     expanded: z.boolean(),
-    limit: z.number().int().min(5).max(50),
+  }),
+  files: z.object({
+    visible: z.literal(true),
+    expanded: z.boolean(),
   }),
 });
 export type ContentSidebarSections = z.infer<
@@ -30,9 +32,10 @@ export type ContentSidebarSections = z.infer<
 >;
 export function defaultContentSidebarSections(): ContentSidebarSections {
   return {
-    order: ["pinned", "recent", "workspaces"],
-    pinned: { visible: true, expanded: true, limit: 5 },
-    recent: { visible: true, expanded: true, limit: 5 },
+    order: ["pinned", "recent", "files"],
+    pinned: { visible: true, expanded: true },
+    recent: { visible: true, expanded: true },
+    files: { visible: true, expanded: true },
   };
 }
 

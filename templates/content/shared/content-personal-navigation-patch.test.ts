@@ -132,4 +132,69 @@ describe("personal navigation patch", () => {
       }).views[0].sidebarOrder?.itemIds,
     ).toEqual(["a", "b", "c", "d", "e", "f"]);
   });
+
+  it("reorders a contextual subset without moving unrelated pins", () => {
+    const current = {
+      version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+      views: [
+        {
+          id: "table",
+          sorts: [],
+          filters: [],
+          filterMode: "and" as const,
+          sidebarOrder: {
+            mode: "custom" as const,
+            itemIds: [
+              "other-a",
+              "space-a",
+              "space-b",
+              "other-b",
+              "space-c",
+              "space-d",
+              "other-c",
+              "space-e",
+              "space-f",
+              "space-g",
+            ],
+          },
+        },
+      ],
+    };
+    const next = applyContentPersonalNavigationPatch(current, {
+      sidebarOrder: {
+        operation: "reorder-subset",
+        viewId: "table",
+        previousItemIds: [
+          "space-a",
+          "space-b",
+          "space-c",
+          "space-d",
+          "space-e",
+        ],
+        itemIds: ["space-e", "space-a", "space-b", "space-c", "space-d"],
+      },
+    });
+    expect(next.views[0].sidebarOrder?.itemIds).toEqual([
+      "other-a",
+      "space-e",
+      "space-a",
+      "other-b",
+      "space-b",
+      "space-c",
+      "other-c",
+      "space-d",
+      "space-f",
+      "space-g",
+    ]);
+    expect(() =>
+      applyContentPersonalNavigationPatch(current, {
+        sidebarOrder: {
+          operation: "reorder-subset",
+          viewId: "table",
+          previousItemIds: ["space-a", "space-b"],
+          itemIds: ["space-a", "different"],
+        },
+      }),
+    ).toThrow("must match");
+  });
 });

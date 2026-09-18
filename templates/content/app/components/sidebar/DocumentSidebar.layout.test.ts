@@ -278,116 +278,39 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("navigate(previousPath, {");
   });
 
-  it("keeps independently expanded Files lists beneath their workspaces", () => {
+  it("renders one selected Content space with a shallow Files tree", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
-    expect(sidebar).toContain("aria-expanded={expanded}");
     expect(sidebar).toContain('"get-content-sidebar-state"');
     expect(sidebar).toContain('"update-content-sidebar-state"');
-    expect(sidebar).toContain(
-      "stored?.expandedWorkspaceIds ?? contentSpaces.map",
-    );
     expect(sidebar).toContain(
       "expandedDocumentIds={visibleExpandedDocumentIds}",
     );
     expect(sidebar).toContain(
       "new Set([...expandedDocumentIds, ...activeAncestorIds])",
     );
-    expect(sidebar).toContain("toggleExpandedWorkspaceIds(current, space.id)");
-    expect(sidebar).toContain("ensureWorkspaceExpanded(current, space.id)");
-    expect(sidebar).not.toContain(
-      "if (!selectedSpace || !sidebarStateHydratedRef.current) return",
-    );
     expect(sidebar).toContain("createContentSidebarStateWriteQueue");
-    expect(sidebar).not.toContain("sidebarStateWriteTimerRef");
     expect(sidebar).toContain(
       'toast.error(t("sidebar.failedSaveSidebarState")',
     );
-    expect(sidebar).toContain(
-      '"group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md"',
-    );
-    expect(sidebar).toContain("group-hover/workspace-header:opacity-100");
-    expect(sidebar).toContain(
-      "group-focus-visible/workspace-toggle:opacity-100",
-    );
-    expect(sidebar).toContain(
-      "group-focus-within/workspace-header:opacity-100",
-    );
-    expect(sidebar).not.toContain('className="group/workspace min-w-0"');
-    expect(sidebar).toContain("{expanded ? (");
     expect(sidebar).toContain("<WorkspaceSidebarItem");
-    expect(sidebar).toContain("<IconArrowsSort size={14} />");
-    expect(sidebar).toContain("<DropdownMenuRadioGroup");
-    expect(sidebar).toContain("useDeferredFilesDatabaseId(");
-    expect(sidebar).toContain("INITIAL_EXPANDED_WORKSPACE_READ_DELAY_MS");
-    expect(sidebar).toContain("if (!wasExpanded)");
-    expect(sidebar).not.toContain("<SidebarDragHandle");
-    expect(sidebar).not.toContain("<SidebarReorderMenuItems");
+    expect(sidebar).toContain("compact={compact}");
+    expect(sidebar).toContain('!compact && "ps-4"');
     expect(sidebar).toContain(
-      "data-sidebar-reorder-item-id={reorder?.controls.itemId}",
+      "renderWorkspaceRoot(selectedSpace, undefined, true)",
     );
-    expect(sidebar).toContain('"touch-none cursor-pointer select-none"');
-    expect(sidebar).toContain(
-      '<span className="min-w-0 flex-1 truncate">{space.name}</span>',
-    );
-    expect(sidebar).toContain('className="min-w-0 pb-1 ps-4"');
-    expect(sidebar).not.toContain(
-      'className="ms-3 border-s border-border/70 pb-1 ps-1"',
-    );
-    expect(sidebar).toContain('role="link"');
-    expect(sidebar).toContain(
-      'aria-label={`${t("sidebar.newPage")} — ${space.name}`}',
-    );
-    expect(sidebar).toContain("selected={selectedSpace?.id === space.id}");
-    expect(sidebar).toContain("onOpenItem={(item: ContentDatabaseItem) =>");
+    expect(sidebar).toContain("value={selectedSpace.id}");
+    expect(sidebar).toContain("contentSpaces.map((space)");
+    expect(sidebar).toContain('<Link to="/favorites">');
     expect(sidebar).toContain("void handleSelectContentSpace(space, null)");
-    expect(sidebar).toContain(
-      "await handleCreatePage(undefined, space.id, id, space.filesDatabaseId)",
-    );
-    expect(sidebar).toContain("activeDocumentId={activeDocumentId}");
-    expect(sidebar).toContain("onCreateChildPage={(nextSpace, item) =>");
-    expect(sidebar).toContain("onDeleteItem={(item) =>");
-    expect(sidebar).toContain("onToggleFavorite={(item) =>");
-    expect(sidebar).toContain(
-      "applyOptimisticItemToContentDatabase(current, optimisticItem)",
-    );
-    expect(sidebar).not.toContain("<WorkspaceCreateMenu");
-    expect(sidebar).toContain(
-      "text-[10px] font-semibold uppercase tracking-wider",
-    );
-    expect(sidebar).toContain("to={`/page/${space.filesDocumentId}`}");
-    expect(sidebar).toContain("!event.metaKey");
-    expect(sidebar).toContain("event.preventDefault()");
-    expect(sidebar).toContain(
-      "void handleSelectContentSpace(nextSpace, documentId)",
-    );
-    expect(sidebar).toContain(
-      'className="mb-2 min-w-0 overflow-x-hidden px-2"',
-    );
-    expect(sidebar).not.toContain("{selected ? footer : null}");
-    expect(sidebar).not.toContain('t("sidebar.workspaces")');
-    expect(sidebar).not.toContain(
-      '<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">',
-    );
     expect(sidebar).toContain(
       'import { OrgSwitcher } from "@agent-native/core/client/org";',
     );
     expect(sidebar).toContain("<OrgSwitcher reserveSpace />");
-    expect(sidebar).not.toContain("<ExtensionsSidebarSection />");
-    expect(sidebar.indexOf("<OrgSwitcher reserveSpace />")).toBeLessThan(
-      sidebar.indexOf("{/* Footer */}"),
-    );
     expect(sidebar).toContain('t("sidebar.addWorkspace")');
     expect(sidebar).toContain("<WorkspaceSourceMenu");
     expect(sidebar).toContain("onCreated={handleWorkspaceCreated}");
-    expect(sidebar).not.toContain("useCreateContentSpace");
-    expect(sidebar).not.toContain("handleCreateWorkspace");
-    expect(sidebar).toContain("workspaceCatalogDatabaseId");
-    expect(sidebar).toContain("workspaceCatalogPersonalView.data?.overrides");
-    expect(sidebar).toContain("renderItem={(item, reorder) =>");
-    expect(sidebar).toContain("name: item.document.title || space.name");
     expect(sidebar).toContain("scroll={false}");
-    expect(sidebar.match(/scroll=\{false\}/g)).toHaveLength(3);
   });
 
   it("never empties the Files tree while a deferred database read is paused", () => {
@@ -410,6 +333,19 @@ describe("document sidebar layout", () => {
     expect(hooks).toContain(
       "isContentDatabaseByIdQueryEnabled(databaseId, options)",
     );
+    expect(sidebar).toContain("const previouslyExpanded = useRef(false)");
+  });
+
+  it("waits for a selected Content space before mounting scoped sidebar queries", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
+
+    expect(sidebar).toContain("contentSpaceActionArgs(selectedSpace?.id)");
+    expect(sidebar).toContain("enabled: Boolean(sidebarStateArgs)");
+    expect(sidebar).toContain("{selectedSpace ? (");
+    expect(sidebar).toContain("spaceId={selectedSpace.id}");
+    expect(sidebar).toContain('t("sidebar.contentSpace")');
+    expect(sections).toContain("contentSpaceActionArgs(spaceId)");
   });
 
   it("uses the full row width until right-side actions are revealed", () => {
@@ -533,26 +469,34 @@ describe("document sidebar layout", () => {
     const sections = readSidebarSource("./PersonalSidebarSections.tsx");
 
     expect(sidebar).toContain("<PersonalSidebarSections");
-    expect(sidebar).toContain("renderWorkspaces={renderWorkspaceNavigation}");
+    expect(sidebar).toContain("renderFiles={renderWorkspaceNavigation}");
     expect(sidebar).toContain("renderPinned={(limit) =>");
     expect(sections).toContain("sections[id].visible");
     expect(sections).toContain("expanded={sections[id].expanded}");
     expect(sections).toContain(
-      "onToggle={() => change(id, { expanded: !sections[id].expanded })}",
+      "change(id, { expanded: !sections[id].expanded });",
     );
     expect(sections).toContain("aria-expanded={expanded}");
     expect(sections).toContain('expanded && "rotate-90"');
-    expect(sections).toContain("renderPinned(sections.pinned.limit)");
+    expect(sections).toContain("IconGripVertical");
+    expect(sections).toContain("group-hover/toggle:opacity-0");
+    expect(sections).toContain("group-focus-visible/toggle:opacity-100");
+    expect(sections).toContain("<SidebarNavigationRow");
+    expect(sections).toContain("renderPinned(limits.pinned)");
     expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId, {");
-    expect(sidebar).toContain("favoritesData.items,");
-    expect(sidebar).toContain(").slice(0, limit)");
+    expect(sidebar).toContain("favoritesData?.items ?? []");
+    expect(sidebar).toContain(").slice(0, limit);");
     expect(sidebar).toContain(
       "overrides={favoritesPersonalView.data?.overrides}",
     );
     expect(sidebar).toContain("sidebarOrder={favoritesOrder.order}");
     expect(sidebar).toContain("handlePinnedReorder");
     expect(sidebar).not.toContain("updateFavoritesPersonalView.isPending");
-    expect(sidebar).toContain("onReorder: handlePinnedReorder");
+    expect(sidebar).toContain(
+      'const serverOrdered = favoritesOrder.order.mode !== "custom";',
+    );
+    expect(sidebar).toContain("renderedItems.map((item) => item.id)");
+    expect(sidebar).toContain("contentSidebarSubsetReorder(");
     expect(sidebar).toContain(
       "flex h-7 w-full min-w-0 items-center rounded-md px-1",
     );

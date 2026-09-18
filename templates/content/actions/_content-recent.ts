@@ -1,5 +1,5 @@
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
-import { and, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -9,6 +9,7 @@ import {
   type ContentRecentResult,
 } from "../shared/content-personal-navigation.js";
 import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { documentDiscoveryWhere } from "./_document-discovery-query.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
 
@@ -25,10 +26,36 @@ const viewIdentitySchema = z.object({
 export async function resolveContentRecentEntries(
   userEmail: string,
   entries: ContentRecentEntry[],
+  spaceId?: string,
 ): Promise<ContentRecentResult[]> {
   if (entries.length === 0) return [];
   const db = getDb();
   const orgId = getRequestOrgId();
+  let scopedEntries = entries;
+  if (spaceId) {
+    const access = await resolveContentSpaceAccess(spaceId, "viewer", { db });
+    if (access.space.orgId && access.space.orgId !== orgId) return [];
+    const memberships = await db
+      .select({ documentId: schema.contentDatabaseItems.documentId })
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseItems.databaseId,
+            access.space.filesDatabaseId,
+          ),
+          inArray(
+            schema.contentDatabaseItems.documentId,
+            entries.map((entry) => entry.target.documentId),
+          ),
+        ),
+      );
+    const memberIds = new Set(memberships.map((row) => row.documentId));
+    scopedEntries = entries.filter((entry) =>
+      memberIds.has(entry.target.documentId),
+    );
+  }
+  if (scopedEntries.length === 0) return [];
   const documents = await db
     .select({
       id: schema.documents.id,
@@ -42,12 +69,14 @@ export async function resolveContentRecentEntries(
         authorizedOrgIds: orgId ? [orgId] : [],
         additional: inArray(
           schema.documents.id,
-          entries.map((entry) => entry.target.documentId),
+          scopedEntries.map((entry) => entry.target.documentId),
         ),
       }),
     );
   const byId = new Map(documents.map((document) => [document.id, document]));
-  const databaseEntries = entries.filter((entry) => entry.target.databaseId);
+  const databaseEntries = scopedEntries.filter(
+    (entry) => entry.target.databaseId,
+  );
   const viewDocumentIds = databaseEntries
     .filter(
       (entry) => entry.target.databaseId && byId.has(entry.target.documentId),
@@ -100,7 +129,7 @@ export async function resolveContentRecentEntries(
   }
   const results: ContentRecentResult[] = [];
   const seen = new Set<string>();
-  for (const entry of entries) {
+  for (const entry of scopedEntries) {
     const database = entry.target.databaseId
       ? databasesById.get(entry.target.databaseId)
       : undefined;

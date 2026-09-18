@@ -23,6 +23,12 @@ export const contentPersonalNavigationPatchSchema = z
           viewId: idSchema,
           itemId: idSchema,
         }),
+        z.object({
+          operation: z.literal("reorder-subset"),
+          viewId: idSchema,
+          itemIds: z.array(idSchema).min(1).max(5_000),
+          previousItemIds: z.array(idSchema).min(1).max(5_000),
+        }),
       ])
       .optional(),
   })
@@ -56,25 +62,48 @@ export function applyContentPersonalNavigationPatch(
     mode: "custom" as const,
     itemIds: [],
   };
-  const sidebarOrder =
-    "itemId" in sidebarPatch && sidebarPatch.operation === "prepend"
-      ? {
-          ...previousOrder,
-          itemIds: previousOrder.itemIds.includes(sidebarPatch.itemId)
-            ? previousOrder.itemIds
-            : [sidebarPatch.itemId, ...previousOrder.itemIds],
-        }
-      : "itemId" in sidebarPatch
+  let sidebarOrder;
+  if (sidebarPatch.operation === "reorder-subset") {
+    const desired = [...new Set(sidebarPatch.itemIds)];
+    const previous = [...new Set(sidebarPatch.previousItemIds)];
+    if (
+      desired.length !== previous.length ||
+      desired.some((id) => !previous.includes(id))
+    ) {
+      throw new Error("Reordered items must match the loaded subset.");
+    }
+    const subset = new Set(previous);
+    const baseOrder = [
+      ...previousOrder.itemIds,
+      ...previous.filter((id) => !previousOrder.itemIds.includes(id)),
+    ];
+    let index = 0;
+    sidebarOrder = {
+      ...previousOrder,
+      mode: "custom" as const,
+      itemIds: baseOrder.map((id) => (subset.has(id) ? desired[index++]! : id)),
+    };
+  } else {
+    sidebarOrder =
+      "itemId" in sidebarPatch && sidebarPatch.operation === "prepend"
         ? {
             ...previousOrder,
-            itemIds: previousOrder.itemIds.filter(
-              (id) => id !== sidebarPatch.itemId,
-            ),
+            itemIds: previousOrder.itemIds.includes(sidebarPatch.itemId)
+              ? previousOrder.itemIds
+              : [sidebarPatch.itemId, ...previousOrder.itemIds],
           }
-        : {
-            mode: sidebarPatch.mode,
-            itemIds: [...new Set(sidebarPatch.itemIds)],
-          };
+        : "itemId" in sidebarPatch
+          ? {
+              ...previousOrder,
+              itemIds: previousOrder.itemIds.filter(
+                (id) => id !== sidebarPatch.itemId,
+              ),
+            }
+          : {
+              mode: sidebarPatch.mode,
+              itemIds: [...new Set(sidebarPatch.itemIds)],
+            };
+  }
   const view = {
     id: viewId,
     sorts: query.sorts,

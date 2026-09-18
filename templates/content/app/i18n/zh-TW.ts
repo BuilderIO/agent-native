@@ -1243,6 +1243,7 @@ const messages = {
     sidebar: "側邊欄",
   },
   sidebar: {
+    contentSpace: "Content 空間",
     cannotReorderPages: "無法重新排序頁面",
     pinned: "已釘選",
     recent: "最近瀏覽",

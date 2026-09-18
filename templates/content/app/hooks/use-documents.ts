@@ -700,11 +700,10 @@ export function useUpdateDocument() {
         const personalViewFilter = {
           queryKey: ["action", "get-content-database-personal-view"],
         } as const;
-        const sidebarStateKey = [
-          "action",
-          "get-content-sidebar-state",
-          {},
-        ] as const;
+        const sidebarStateEntry = currentContentSidebarState(queryClient);
+        const sidebarStateKey =
+          sidebarStateEntry?.[0] ??
+          (["action", "get-content-sidebar-state", {}] as const);
         await Promise.all([
           queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
@@ -731,15 +730,19 @@ export function useUpdateDocument() {
           [sidebarStateKey, queryClient.getQueryData(sidebarStateKey)],
         ];
 
-        const sidebarState = queryClient.getQueryData<{
-          state?: { version: 1; sections: ContentSidebarSections };
-        }>(sidebarStateKey);
+        const sidebarState = sidebarStateEntry?.[1];
+        const sidebarSpaceId = (
+          sidebarStateKey[2] as { spaceId?: unknown } | undefined
+        )?.spaceId;
         const nextSidebarState =
           variables.isFavorite === true &&
           sidebarState?.state?.sections.pinned.visible &&
           !sidebarState.state.sections.pinned.expanded
             ? {
-                version: 1 as const,
+                version: 2 as const,
+                ...(typeof sidebarSpaceId === "string"
+                  ? { spaceId: sidebarSpaceId }
+                  : {}),
                 sections: {
                   ...sidebarState.state.sections,
                   pinned: {
@@ -850,7 +853,7 @@ export function useUpdateDocument() {
           context as
             | {
                 nextSidebarState?: {
-                  version: 1;
+                  version: 2;
                   sections: ContentSidebarSections;
                 };
               }
@@ -863,7 +866,7 @@ export function useUpdateDocument() {
         )?.previous?.find(
           ([key]) => key[1] === "get-content-sidebar-state",
         )?.[1] as
-          | { state?: { version: 1; sections: ContentSidebarSections } }
+          | { state?: { version: 2; sections: ContentSidebarSections } }
           | undefined;
         // A CAS conflict is a normal (non-thrown) result, not a successful
         // save — converge the caches to the returned server document (so the
@@ -985,14 +988,12 @@ export function useUpdateDocument() {
               action: {
                 label: t("editor.properties.show"),
                 onClick: () => {
-                  const sidebarStateKey = [
-                    "action",
-                    "get-content-sidebar-state",
-                    {},
-                  ] as const;
-                  const current = queryClient.getQueryData<{
-                    state?: { version: 1; sections: ContentSidebarSections };
-                  }>(sidebarStateKey);
+                  const sidebarStateEntry =
+                    currentContentSidebarState(queryClient);
+                  const sidebarStateKey =
+                    sidebarStateEntry?.[0] ??
+                    (["action", "get-content-sidebar-state", {}] as const);
+                  const current = sidebarStateEntry?.[1];
                   if (!current?.state) {
                     toast.error(t("sidebar.failedSaveSidebarState"));
                     void queryClient.invalidateQueries({
@@ -1001,7 +1002,15 @@ export function useUpdateDocument() {
                     return;
                   }
                   const next = {
-                    version: 1 as const,
+                    version: 2 as const,
+                    ...(typeof (
+                      sidebarStateKey[2] as { spaceId?: unknown } | undefined
+                    )?.spaceId === "string"
+                      ? {
+                          spaceId: (sidebarStateKey[2] as { spaceId: string })
+                            .spaceId,
+                        }
+                      : {}),
                     sections: {
                       ...current.state.sections,
                       pinned: {
@@ -1252,4 +1261,11 @@ export function filterDocumentTreeDocuments(
   }
 
   return documents.filter((doc) => !isDatabaseContainedDocument(doc));
+}
+function currentContentSidebarState(queryClient: QueryClient) {
+  return queryClient
+    .getQueriesData<{
+      state?: { version: 2; sections: ContentSidebarSections };
+    }>({ queryKey: ["action", "get-content-sidebar-state"] })
+    .find(([, data]) => data?.state?.sections);
 }
