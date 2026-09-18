@@ -758,6 +758,7 @@ function clearPendingSelection() {
 export async function waitForThreadRunToClear(
   apiUrl: string,
   threadId?: string,
+  tabId?: string,
 ): Promise<boolean> {
   if (!threadId) return true;
   const deadline = Date.now() + ACTIVE_RUN_CLEAR_TIMEOUT_MS;
@@ -772,6 +773,7 @@ export async function waitForThreadRunToClear(
     setActiveRun({
       threadId,
       runId: info.runId,
+      ...(tabId ? { tabId } : {}),
       ...(info.turnId ? { turnId: info.turnId } : {}),
       lastSeq: sameStoredRun ? stored.lastSeq : -1,
       ...(sameStoredRun && stored.activityTool
@@ -4038,6 +4040,7 @@ const AssistantChatInner = forwardRef<
       setActiveRun({
         threadId,
         runId,
+        ...(tabId ? { tabId } : {}),
         ...(reconnectTurnIdRef.current
           ? { turnId: reconnectTurnIdRef.current }
           : {}),
@@ -5290,7 +5293,11 @@ const AssistantChatInner = forwardRef<
           // terminal SSE event a beat before SQL has marked the previous run
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
-          const runCleared = await waitForThreadRunToClear(apiUrl, threadId);
+          const runCleared = await waitForThreadRunToClear(
+            apiUrl,
+            threadId,
+            tabId,
+          );
           if (cancelled) return;
           if (!runCleared) {
             // The server still owns this turn (including a deferred durable

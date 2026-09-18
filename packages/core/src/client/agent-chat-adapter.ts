@@ -2171,6 +2171,7 @@ export function createAgentChatAdapter(
   };
   const tabId = options?.tabId;
   const threadId = options?.threadId;
+  const activeRunTabId = tabId ?? threadId;
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
   const effortRef = options?.effortRef;
@@ -2398,6 +2399,12 @@ export function createAgentChatAdapter(
       if (threadId) setPendingTurn({ threadId, turnId });
       let runId: string | null = null;
       let lastSeq = -1;
+      const activeRunMatchesTab = (
+        activeRun: ReturnType<typeof getActiveRun>,
+      ) =>
+        !activeRun?.tabId ||
+        !activeRunTabId ||
+        activeRun.tabId === activeRunTabId;
       const ownsActiveRunState = () => {
         const activeRun = getActiveRun();
         return (
@@ -2405,7 +2412,8 @@ export function createAgentChatAdapter(
           (!!threadId &&
             !!runId &&
             activeRun.threadId === threadId &&
-            activeRun.runId === runId)
+            activeRun.runId === runId &&
+            activeRunMatchesTab(activeRun))
         );
       };
       const clearOwnedActiveRun = () => {
@@ -2449,10 +2457,16 @@ export function createAgentChatAdapter(
             activeRun.threadId === threadId &&
             activeRun.runId === runId);
         if (!ownsActiveRun) {
-          // A different thread may own the global active-run pointer. The
-          // current tab still needs its terminal presentation cleanup, but a
-          // newer run in this thread must keep its running state intact.
-          if (!threadId || activeRun?.threadId === threadId) return;
+          // A different thread may own the global active-run pointer. Only a
+          // run from another tab should trigger this adapter's cleanup; a
+          // newer run in this tab must keep its running state intact.
+          if (
+            !threadId ||
+            activeRun?.threadId === threadId ||
+            activeRunMatchesTab(activeRun)
+          ) {
+            return;
+          }
           publishTerminalChatUiStopped();
           return;
         }
@@ -2983,6 +2997,7 @@ export function createAgentChatAdapter(
                   runId: activeRunId,
                   turnId,
                   lastSeq,
+                  ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
                 });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
@@ -3068,6 +3083,7 @@ export function createAgentChatAdapter(
                   runId: activeRunId,
                   turnId,
                   lastSeq,
+                  ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
                 });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
@@ -3760,6 +3776,7 @@ export function createAgentChatAdapter(
                   runId: activeRunId,
                   turnId,
                   lastSeq,
+                  ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
                 });
               }
               const seqBeforeAttach = lastSeq;
@@ -4579,7 +4596,13 @@ export function createAgentChatAdapter(
             }
             if (runId && threadId) {
               clearPendingTurnIfMatches(threadId, turnId);
-              setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
+              setActiveRun({
+                threadId,
+                runId,
+                turnId,
+                lastSeq: -1,
+                ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
+              });
             }
 
             takeRunStreamOwnership();
