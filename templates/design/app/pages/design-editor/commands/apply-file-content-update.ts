@@ -12,7 +12,6 @@ import {
   writeCollabText,
 } from "@/pages/design-editor/collab-sync";
 import { TAB_ID } from "@/pages/design-editor/editor-session";
-import type { FileContentSaveSettledHandler } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryEntry } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
@@ -48,7 +47,6 @@ export interface ApplyFileContentUpdateArgs {
       shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
-      onSaveSettled?: FileContentSaveSettledHandler;
     },
   ) => void;
   applyLocalContentUpdate: (
@@ -67,7 +65,6 @@ export interface ApplyFileContentUpdateArgs {
       shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
-      onSaveSettled?: FileContentSaveSettledHandler;
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesignRef: RefObject<boolean>;
@@ -84,7 +81,6 @@ export interface ApplyFileContentUpdateArgs {
       syncCollab?: boolean;
       immediate?: boolean;
       identityMigrationSourceContent?: string;
-      onSaveSettled?: FileContentSaveSettledHandler;
     },
   ) => unknown;
   files: DesignFile[];
@@ -143,7 +139,6 @@ export function runApplyFileContentUpdate(
     shaderWriteCompletion?: true;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
-    onSaveSettled?: FileContentSaveSettledHandler;
   } = {},
 ): ApplyFileContentUpdateResult {
   if (!canEditDesignRef.current) return { status: "refused" };
@@ -258,7 +253,6 @@ export function runApplyFileContentUpdate(
       syncCollab,
       immediate: true,
       identityMigrationSourceContent,
-      onSaveSettled: options.onSaveSettled,
     });
     if (completion instanceof Promise) saveCompletion = completion;
   }

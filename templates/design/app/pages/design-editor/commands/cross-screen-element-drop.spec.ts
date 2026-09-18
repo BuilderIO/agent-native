@@ -57,7 +57,6 @@ function runStoredCrossScreenDrop(args: {
   sourceContent: string;
   destinationContent: string;
   drop: Parameters<typeof runCrossScreenElementDrop>[1];
-  autoSettle?: boolean;
   publish?: Parameters<
     typeof runCrossScreenElementDrop
   >[0]["applyFileContentUpdate"];
@@ -67,10 +66,7 @@ function runStoredCrossScreenDrop(args: {
     ["source", args.sourceContent],
     ["target", args.destinationContent],
   ]);
-  const baseContentByFile = new Map([
-    ["source", acceptFixture("source", args.sourceContent).content],
-    ["target", acceptFixture("target", args.destinationContent).content],
-  ]);
+  const baseContentByFile = new Map(contentByFile);
   const historyEntries: unknown[] = [];
   const selectionEvents: string[] = [];
   let activeFileId: string | null = null;
@@ -91,24 +87,26 @@ function runStoredCrossScreenDrop(args: {
       Parameters<typeof runCrossScreenElementDrop>[0]["applyFileContentUpdate"]
     >[2],
   ) => {
-    const settle = options?.onSaveSettled
-      ? (settlement: { persisted: boolean }) => {
-          if (!settlement.persisted) {
-            contentByFile.set(fileId, baseContentByFile.get(fileId) ?? "");
-          }
-          options.onSaveSettled?.(settlement);
-        }
-      : undefined;
-    const result = publish(
-      fileId,
-      content,
-      settle ? { ...options, onSaveSettled: settle } : options,
-    );
+    const result = publish(fileId, content, options);
     if (result.status === "accepted") {
       writes.set(fileId, result.content);
       contentByFile.set(fileId, result.content);
-      if (args.autoSettle !== false) {
-        settle?.({ persisted: true });
+      if (result.saveCompletion) {
+        return {
+          ...result,
+          saveCompletion: result.saveCompletion.then(
+            (persisted) => {
+              if (!persisted) {
+                contentByFile.set(fileId, baseContentByFile.get(fileId) ?? "");
+              }
+              return persisted;
+            },
+            (error) => {
+              contentByFile.set(fileId, baseContentByFile.get(fileId) ?? "");
+              throw error;
+            },
+          ),
+        };
       }
     }
     return result;
@@ -174,7 +172,6 @@ function runStoredCrossScreenDrop(args: {
     selectionEvents,
     selectedElement,
     selectedLayerIds,
-    baseContentByFile,
     contentByFile,
     writes,
   };
@@ -1128,6 +1125,10 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
   it("compensates a completed destination save when the source save conflicts later", async () => {
     const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
     const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    const expectedDestinationContent = acceptFixture(
+      "target",
+      destinationContent,
+    ).content;
     const calls: Array<{ fileId: string; content: string }> = [];
     let resolveTarget!: (saved: boolean) => void;
     let resolveSource!: (saved: boolean) => void;
@@ -1179,6 +1180,8 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     expect(calls[2]?.content).toBe(destinationContent);
     expect(result.historyEntries).toEqual([]);
     expect(result.selectionEvents).toEqual([]);
+    expect(result.contentByFile.get("source")).toBe(sourceContent);
+    expect(result.contentByFile.get("target")).toBe(expectedDestinationContent);
   });
 
   it("records no duplicate history or selection when the real writer rejects Alpine content", () => {

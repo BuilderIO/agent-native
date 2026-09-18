@@ -801,7 +801,6 @@ import {
   coalescePendingFileContentSave,
   createPendingLocalFileContent,
   type FileContentSaveRequest,
-  type FileContentSaveSettledHandler,
   type PendingLocalFileContent,
   flushFileContentSavesOnBackground,
   flushPendingFileContentSavesOnCleanup,
@@ -4226,7 +4225,6 @@ function DesignEditor() {
       syncCollab: boolean,
       expectedVersionHash: string,
       identityMigrationSourceContent?: string,
-      onSaveSettled?: FileContentSaveSettledHandler,
     ): FileContentSaveRequest => {
       const operationRevision =
         (fileSaveOperationRevisionRef.current[fileId] ?? 0) + 1;
@@ -4239,7 +4237,6 @@ function DesignEditor() {
         operationRevision,
         expectedVersionHash,
         identityMigrationSourceContent,
-        onSaveSettled,
       };
     },
     [],
@@ -4334,7 +4331,6 @@ function DesignEditor() {
         syncCollab?: boolean;
         immediate?: boolean;
         identityMigrationSourceContent?: string;
-        onSaveSettled?: FileContentSaveSettledHandler;
       },
     ) => {
       if (!canEditDesignRef.current) return Promise.resolve(false);
@@ -4360,7 +4356,6 @@ function DesignEditor() {
           options.syncCollab ?? true,
           expectedVersionHash,
           options.identityMigrationSourceContent,
-          options.onSaveSettled,
         ),
         pendingFileSavesRef.current[fileId],
       );
@@ -9524,7 +9519,6 @@ function DesignEditor() {
         shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
-        onSaveSettled?: FileContentSaveSettledHandler;
       } = {},
     ) => {
       if (
@@ -9619,7 +9613,6 @@ function DesignEditor() {
         shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
-        onSaveSettled?: FileContentSaveSettledHandler;
       } = {},
     ) => {
       if (options.persist !== false && !canApplyContentEdit(fileId)) {

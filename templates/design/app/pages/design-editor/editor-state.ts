@@ -597,14 +597,6 @@ export function restorePendingFileContent<
   };
 }
 
-export type FileContentSaveSettlement = {
-  persisted: boolean;
-};
-
-export type FileContentSaveSettledHandler = (
-  settlement: FileContentSaveSettlement,
-) => void;
-
 export interface FileContentSaveRequest {
   identityMigrationSourceContent?: string;
   /**
@@ -622,8 +614,6 @@ export interface FileContentSaveRequest {
   operationRevision: number;
   /** Hash of the source content this edit was computed from. */
   expectedVersionHash: string;
-  /** In-memory completion hook; never serialized into the save outbox. */
-  onSaveSettled?: FileContentSaveSettledHandler;
 }
 
 /**

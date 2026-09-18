@@ -15,10 +15,7 @@ import {
   LOCAL_EDIT_ORIGIN,
   TAB_ID,
 } from "@/pages/design-editor/editor-session";
-import type {
-  FileContentSaveSettledHandler,
-  PreviewContentReplaceResult,
-} from "@/pages/design-editor/editor-state";
+import type { PreviewContentReplaceResult } from "@/pages/design-editor/editor-state";
 import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/editor-state";
 import type {
   ContentHistoryChange,
@@ -63,7 +60,6 @@ export interface ApplyLocalContentUpdateArgs {
       syncCollab?: boolean;
       immediate?: boolean;
       identityMigrationSourceContent?: string;
-      onSaveSettled?: FileContentSaveSettledHandler;
     },
   ) => unknown;
   recordContentHistoryEntry: (
@@ -369,7 +365,6 @@ export function runApplyLocalContentUpdate(
       syncCollab: !writeLiveDoc,
       immediate: needsIdentityMigration ? true : options.immediateSave,
       identityMigrationSourceContent,
-      onSaveSettled: options.onSaveSettled,
     });
     if (completion instanceof Promise) saveCompletion = completion;
   }

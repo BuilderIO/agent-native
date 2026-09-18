@@ -31,54 +31,6 @@ function deferred<T>() {
 }
 
 describe("runSaveFileContent source version", () => {
-  it("reports a delayed save conflict to the publication caller", async () => {
-    const id = "screen-delayed-conflict";
-    const pendingSave = deferred<unknown>();
-    const onSaveSettled = vi.fn();
-    const pending: FileContentSaveRequest = {
-      id,
-      content: "<main>move</main>",
-      syncCollab: true,
-      operationSource: "tab-a",
-      operationRevision: 1,
-      expectedVersionHash: sourceContentHash("<main>original</main>"),
-      onSaveSettled,
-    };
-    const fileSaveChainsRef: SaveFileContentArgs["fileSaveChainsRef"] = {
-      current: {},
-    };
-    const args: SaveFileContentArgs = {
-      acknowledgeOutboxEntry: vi.fn(async () => {}),
-      canEditDesignRef: { current: true },
-      createFileSaveOutboxEntry: vi.fn(() => null),
-      fileSaveChainsRef,
-      journalOutboxEntry: vi.fn(async () => true),
-      latestFileSaveForUnloadRef: { current: {} },
-      rollbackPendingLocalFileContent: vi.fn(),
-      markPendingLocalFileContent: vi.fn(),
-      queryClient: { invalidateQueries: vi.fn() } as unknown as QueryClient,
-      setPatchProof: vi.fn(),
-      t: (key) => key,
-      updateFileMutation: {
-        mutateAsync: vi.fn(() => pendingSave.promise),
-      } as unknown as SaveFileContentArgs["updateFileMutation"],
-      warnChangesWillRetry: vi.fn(),
-    };
-
-    runSaveFileContent(args, pending);
-    await Promise.resolve();
-    expect(onSaveSettled).not.toHaveBeenCalled();
-
-    pendingSave.reject(
-      Object.assign(new Error("Source file changed since it was read."), {
-        status: 409,
-      }),
-    );
-    await fileSaveChainsRef.current[id];
-
-    expect(onSaveSettled).toHaveBeenCalledWith({ persisted: false });
-  });
-
   it("replays from the oldest base when a successor keepalive races a missing predecessor", async () => {
     const baseContent = "<main>original</main>";
     const predecessorContent = "<main>predecessor</main>";
