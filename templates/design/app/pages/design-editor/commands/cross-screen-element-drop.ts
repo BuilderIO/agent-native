@@ -846,6 +846,11 @@ export function runCrossScreenElementDrop(
     { nodeId: provenSourceNodeId, selector: provenSourceSelector },
     { source: { kind: "design-file", fileId: sourceScreenId } },
   ).resolution;
+  dndHostLog("persist:source-resolution", {
+    status: sourceResolution.status,
+    nodeId: provenSourceNodeId ?? null,
+    selector: provenSourceSelector ?? null,
+  });
   const resolvedSourceNode =
     sourceResolution.status === "resolved" ? sourceResolution.node : null;
   if (!resolvedSourceNode) {
