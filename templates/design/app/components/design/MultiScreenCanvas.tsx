@@ -2675,7 +2675,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const runHitTest = (
       candidate: CrossScreenDragTarget,
       boardPoint: Point,
-      options: { preview?: boolean; timeoutMs?: number } = {},
+      options: {
+        preview?: boolean;
+        timeoutMs?: number;
+        previewRequestSeq?: number;
+      } = {},
     ): Promise<CrossScreenHitTestResult> => {
       const targetScreen = screensRef.current.find(
         (s) => s.id === candidate.id,
@@ -2784,7 +2788,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               ? ev.data.anchorRect
               : undefined,
           };
-          crossScreenLastHitResultRef.current.set(candidate.id, result);
+          if (
+            options.preview &&
+            options.previewRequestSeq === crossScreenHitTestSeqRef.current
+          ) {
+            crossScreenLastHitResultRef.current.set(candidate.id, result);
+          }
           resolve(result);
         };
         window.addEventListener("message", hitListener);
@@ -2831,7 +2840,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       boardPoint: Point,
     ) => {
       const requestSeq = ++crossScreenHitTestSeqRef.current;
-      void runHitTest(candidate, boardPoint, { preview: true }).then((hit) => {
+      void runHitTest(candidate, boardPoint, {
+        preview: true,
+        previewRequestSeq: requestSeq,
+      }).then((hit) => {
         if (crossScreenHitTestSeqRef.current !== requestSeq) return;
         if (crossScreenTargetRef.current?.id !== candidate.id) return;
         const targetScreen = screensRef.current.find(
