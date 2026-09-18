@@ -1,0 +1,22 @@
+{
+  "name": "@community-templates/toolkit",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./styles.css": "./styles.css",
+    "./template-data": "./template-data.ts"
+  },
+  "dependencies": {
+    "@agent-native/core": "workspace:*",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@tabler/icons-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "typescript": "catalog:"
+  }
+}

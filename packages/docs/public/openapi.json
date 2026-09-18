@@ -1,0 +1,298 @@
+{
+  "openapi": "3.2.0",
+  "info": {
+    "title": "Agent-Native public API",
+    "version": "1.0.0",
+    "description": "Machine-readable HTTP and MCP entry points published by Agent-Native. The desktop release endpoints are public and the MCP endpoint uses the authentication described in the Authentication documentation.",
+    "contact": {
+      "name": "Builder.io support",
+      "email": "support@builder.io",
+      "url": "https://www.agent-native.com/contact"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://www.agent-native.com",
+      "description": "Agent-Native production site"
+    }
+  ],
+  "externalDocs": {
+    "description": "Agent-Native developer documentation",
+    "url": "https://www.agent-native.com/docs/external-agents"
+  },
+  "paths": {
+    "/api/desktop-latest.json": {
+      "get": {
+        "tags": ["Desktop"],
+        "summary": "Get the latest desktop release manifest",
+        "description": "Returns the normalized desktop download manifest for the production or nightly release channel.",
+        "operationId": "getDesktopDownloadManifest",
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "query",
+            "description": "Release channel to inspect.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["production", "nightly"],
+              "default": "production"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requested desktop release manifest.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopDownloadManifest"
+                }
+              }
+            }
+          },
+          "502": {
+            "$ref": "#/components/responses/DesktopReleaseUnavailable"
+          }
+        }
+      }
+    },
+    "/api/desktop-updates/{asset}": {
+      "get": {
+        "tags": ["Desktop"],
+        "summary": "Resolve a desktop updater asset",
+        "description": "Resolves a supported updater metadata asset to the signed release URL. Prefix the asset with nightly/ to use the nightly release channel.",
+        "operationId": "resolveDesktopUpdaterAsset",
+        "parameters": [
+          {
+            "name": "asset",
+            "in": "path",
+            "description": "Supported updater or release asset filename, such as latest-mac.yml, nightly/latest-mac.yml, or Agent-Native-1.0.0-mac.zip.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(nightly/)?[A-Za-z0-9._ -]+$",
+              "examples": [
+                "latest-mac.yml",
+                "nightly/latest-mac.yml",
+                "Agent-Native-1.0.0-mac.zip"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirects to the signed release asset.",
+            "headers": {
+              "Location": {
+                "description": "Signed release asset URL.",
+                "schema": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidDesktopAsset"
+          },
+          "404": {
+            "$ref": "#/components/responses/DesktopAssetNotFound"
+          },
+          "502": {
+            "$ref": "#/components/responses/DesktopReleaseUnavailable"
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "tags": ["MCP"],
+        "summary": "Call the Agent-Native MCP server",
+        "description": "Streamable HTTP Model Context Protocol endpoint. Authenticate with the standard remote MCP OAuth flow or a supported bearer token, then use the MCP initialize, tools/list, and tools/call methods.",
+        "operationId": "handleMcpProtocolRequest",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/McpJsonRpcRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MCP JSON-RPC response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpJsonRpcResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidApiRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedApiRequest"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT or access token"
+      }
+    },
+    "schemas": {
+      "DesktopDownloadManifest": {
+        "type": "object",
+        "required": ["version", "tag", "pub_date", "assets"],
+        "properties": {
+          "version": { "type": "string" },
+          "tag": { "type": "string" },
+          "pub_date": { "type": ["string", "null"], "format": "date-time" },
+          "notes": { "type": "string" },
+          "assets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DesktopAsset" }
+          }
+        }
+      },
+      "DesktopAsset": {
+        "type": "object",
+        "required": ["name", "url", "size", "kind"],
+        "properties": {
+          "name": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "size": { "type": "integer", "minimum": 0 },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mac-arm64",
+              "mac-x64",
+              "windows-x64",
+              "windows-arm64",
+              "linux-tar-x64",
+              "linux-tar-arm64",
+              "linux-appimage-x64",
+              "linux-appimage-arm64",
+              "linux-deb-x64",
+              "linux-deb-arm64",
+              "unknown"
+            ]
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "required": ["code", "message", "resolution"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable error code."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message."
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Actionable recovery hint for an agent or client."
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "$ref": "#/components/schemas/ApiError" }
+        }
+      },
+      "McpJsonRpcRequest": {
+        "type": "object",
+        "required": ["jsonrpc", "method"],
+        "properties": {
+          "jsonrpc": { "const": "2.0" },
+          "id": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "integer" },
+              { "type": "null" }
+            ]
+          },
+          "method": {
+            "type": "string",
+            "description": "MCP JSON-RPC method, such as initialize, tools/list, or tools/call."
+          },
+          "params": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "McpJsonRpcResponse": {
+        "type": "object",
+        "required": ["jsonrpc"],
+        "properties": {
+          "jsonrpc": { "const": "2.0" },
+          "id": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "integer" },
+              { "type": "null" }
+            ]
+          },
+          "result": { "type": "object", "additionalProperties": true },
+          "error": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "responses": {
+      "InvalidApiRequest": {
+        "description": "The request was invalid.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "UnauthorizedApiRequest": {
+        "description": "Authentication is required or invalid.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "InvalidDesktopAsset": {
+        "description": "The updater asset name is invalid.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "DesktopAssetNotFound": {
+        "description": "The updater asset does not exist for the selected release channel.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "DesktopReleaseUnavailable": {
+        "description": "The upstream release service is temporarily unavailable.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      }
+    }
+  }
+}

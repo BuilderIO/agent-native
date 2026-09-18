@@ -1,0 +1,105 @@
+// Contract: the marketing panel's "New to <app>? Learn more" link, its
+// bottom-right placement, and the branded auth background treatment
+// were deleted as dead code twice in one day. This spec renders the real
+// onboarding HTML for every entry in BUILT_IN_AUTH_MARKETING and asserts the
+// structural contract directly, so a future deletion fails a test instead of
+// flipping a unit expectation.
+import { afterEach, describe, expect, it } from "vitest";
+
+import { resetAppConfigForTests } from "../app-config/index.js";
+import type { AuthPageProps } from "../client/auth/AuthPage.js";
+import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+import { getOnboardingHtml } from "./onboarding-html.js";
+
+function readAuthPageData(html: string): AuthPageProps {
+  const match = html.match(
+    /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
+  );
+  if (!match) throw new Error("auth page data is missing");
+  return JSON.parse(match[1]!) as AuthPageProps;
+}
+
+describe("built-in auth marketing layout contract", () => {
+  afterEach(() => {
+    resetAppConfigForTests();
+  });
+
+  const entries = Object.entries(BUILT_IN_AUTH_MARKETING);
+
+  it("has built-in apps to cover", () => {
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
+  it.each(entries)(
+    "renders the marketing contract for %s",
+    (slug, marketing) => {
+      const html = getOnboardingHtml({
+        requestHost: `${slug}.agent-native.com`,
+      });
+      const props = readAuthPageData(html);
+
+      // (a) the marketing panel root element is present
+      expect(props.marketing?.appName).toBe(marketing.appName);
+      expect(html).toContain('data-agent-native-marketing-home="true"');
+      expect(html).toContain('class="marketing-panel"');
+      expect(html).not.toMatch(/<img[^>]*class="auth-marketing-screenshot"/);
+
+      // (e) the layout background/wrapper classes the config depends on
+      expect(html).toContain('<body class="has-marketing">');
+      expect(html).toContain('class="split');
+      expect(html).toContain('class="form-panel');
+
+      // (b) the learn-more link renders with a non-empty href and text
+      const linkMatch = html.match(
+        /<a class="auth-marketing-learn-more"[^>]*href="([^"]+)"/,
+      );
+      expect(linkMatch?.[1]).toBeTruthy();
+      const shortName = marketing.appName.replace(/^Agent-Native\s+/i, "");
+      expect(html).toContain(`New to ${shortName}?`);
+      expect(html).toContain(">Learn more<");
+    },
+  );
+
+  it("declares the placement-class CSS rules and the auth background treatment", () => {
+    const html = getOnboardingHtml({
+      requestHost: "slides.agent-native.com",
+    });
+
+    // bottom-right placement of the learn-more link
+    expect(html).toMatch(
+      /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*bottom:/,
+    );
+    expect(html).toMatch(
+      /\.auth-marketing-home\.has-product-screenshot \.form-panel\s*{[^}]*align-items:\s*center;/,
+    );
+    expect(html).toContain("--b-hero-ocean-opacity: 0.32;");
+    expect(html).toContain("--b-hero-shader-opacity: 0.15;");
+    expect(html).toContain("--b-hero-ocean-opacity: 0.3;");
+    expect(html).toContain("--b-hero-shader-opacity: 0.22;");
+    expect(html).toMatch(
+      /\[data-agent-native-starfield\]\s*{[^}]*opacity:\s*var\(--b-hero-shader-opacity,\s*0\.15\);/,
+    );
+    expect(html).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*{\s*\[data-agent-native-starfield\]\s*{\s*opacity:\s*var\(--b-hero-shader-opacity,\s*0\.15\);/,
+    );
+    // Let the ocean or fallback background's own opacity token control contrast.
+    expect(html).toMatch(
+      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*none;/,
+    );
+    expect(html).not.toMatch(
+      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*opacity\s*:/,
+    );
+  });
+
+  it("keeps per-app screenshot paths unique and non-empty", () => {
+    const screenshotPaths = entries
+      .map(([, config]) => config.screenshotPath)
+      .filter((path): path is string => path !== undefined);
+
+    expect(screenshotPaths.length).toBeGreaterThan(0);
+    for (const path of screenshotPaths) {
+      expect(path.trim().length).toBeGreaterThan(0);
+    }
+    expect(new Set(screenshotPaths).size).toBe(screenshotPaths.length);
+  });
+});
