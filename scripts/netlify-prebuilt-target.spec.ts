@@ -11,6 +11,7 @@ test("maps the beta chat site to the chat template and beta ref", () => {
   assert.equal(target.siteName, "chat");
   assert.equal(target.sourceTemplate, "chat");
   assert.equal(target.sourceRef, "beta");
+  assert.equal(target.clientDirectory, "templates/chat/build/client");
   assert.equal(target.publishDirectory, "templates/chat/dist");
   assert.equal(
     target.functionsDirectory,
@@ -45,6 +46,7 @@ test("maps the framework production site to the docs project", () => {
 
   assert.equal(target.siteName, "fw");
   assert.equal(target.sourceTemplate, "@agent-native/docs");
+  assert.equal(target.clientDirectory, "packages/docs/build/client");
   assert.equal(target.publishDirectory, "packages/docs/dist");
   assert.equal(
     target.functionsDirectory,
