@@ -14913,9 +14913,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     htmlEl.style.top = Math.round(baseTop + localDy) + "px";
   }
 
-  function applyRuntimeReorder(el, target) {
+  function applyRuntimeReorder(el, target): boolean {
     if (!el || !target || !target.anchor || !target.anchor.parentElement)
-      return;
+      return false;
+    var previousParent = el.parentElement;
+    var previousNextSibling = el.nextElementSibling;
+    var previousInlineStyle = el.getAttribute("style");
     var desiredDropPoint =
       target.dropMode === "absolute-container"
         ? ((
@@ -14952,9 +14955,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
-    // The optimistic DOM order/reparent now diverges from authored source.
-    // Keep known unique IDs, but invalidate the complete-source revision.
-    publishSourceDocumentProvenance(undefined, true);
+    var runtimeMutationApplied =
+      previousParent !== el.parentElement ||
+      previousNextSibling !== el.nextElementSibling ||
+      previousInlineStyle !== el.getAttribute("style");
+    if (runtimeMutationApplied) {
+      // The optimistic DOM order/reparent now diverges from authored source.
+      // Keep known unique IDs, but invalidate the complete-source revision.
+      publishSourceDocumentProvenance(undefined, true);
+    }
+    return runtimeMutationApplied;
   }
 
   function postVisualStructureChange(
@@ -15112,12 +15122,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Board-text auto-color: adapt before the DOM move so the re-parent
       // check sees the ORIGINAL parent (see adaptAutoTextColorForNest).
       adaptAutoTextColorForNest(member, container);
-      applyRuntimeReorder(member, memberTarget);
-      postVisualStructureChange(member, memberTarget, {
-        prevParent: prevParent,
-        prevNextSibling: prevNextSibling,
-        prevInlinePositionStyles: prevInlinePositionStyles,
-      });
+      if (applyRuntimeReorder(member, memberTarget)) {
+        postVisualStructureChange(member, memberTarget, {
+          prevParent: prevParent,
+          prevNextSibling: prevNextSibling,
+          prevInlinePositionStyles: prevInlinePositionStyles,
+        });
+      }
       previous = member;
     }
     postElementMarqueeSelect(members, false, ev);
@@ -17012,18 +17023,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // Optimistically apply the reorder in the DOM for immediate
           // visual feedback; the visual-structure-ack handler will confirm
           // or revert once the parent processes the change.
-          applyRuntimeReorder(reorderEl, currentTarget);
+          var runtimeMutationApplied = applyRuntimeReorder(
+            reorderEl,
+            currentTarget,
+          );
           dndLog("commit:done", {
             el: getSelector(reorderEl),
             parent: reorderEl.parentElement
               ? getSelector(reorderEl.parentElement)
               : null,
           });
-          postVisualStructureChange(reorderEl, currentTarget, {
-            prevParent: prevParent,
-            prevNextSibling: prevNextSibling,
-            prevInlinePositionStyles: prevInlinePositionStyles,
-          });
+          if (runtimeMutationApplied) {
+            postVisualStructureChange(reorderEl, currentTarget, {
+              prevParent: prevParent,
+              prevNextSibling: prevNextSibling,
+              prevInlinePositionStyles: prevInlinePositionStyles,
+            });
+          }
         }
       }
       document.addEventListener(events.move, onReorderMove, true);
@@ -17542,16 +17558,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             dragEl,
             dropContainerForTarget(currentAutoLayoutTarget),
           );
-          applyRuntimeReorder(dragEl, currentAutoLayoutTarget);
+          var runtimeMutationApplied = applyRuntimeReorder(
+            dragEl,
+            currentAutoLayoutTarget,
+          );
           dndLog("commit:free-nest", {
             el: getSelector(dragEl),
             target: dndTarget(currentAutoLayoutTarget),
           });
-          postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
-            prevParent: prevParent,
-            prevNextSibling: prevNextSibling,
-            prevInlinePositionStyles: prevInlinePositionStyles,
-          });
+          if (runtimeMutationApplied) {
+            postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
+              prevParent: prevParent,
+              prevNextSibling: prevNextSibling,
+              prevInlinePositionStyles: prevInlinePositionStyles,
+            });
+          }
         }
       } else {
         dndLog("commit:free-absolute", { count: memberStates.length });
@@ -21622,10 +21643,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         prevNextSibling: runtimeSubject.nextSibling,
         prevInlinePositionStyles: snapshotInlinePositionStyles(runtimeSubject),
       };
-      applyRuntimeReorder(runtimeSubject, runtimeTarget);
+      var runtimeMutationApplied = applyRuntimeReorder(
+        runtimeSubject,
+        runtimeTarget,
+      );
       selectedEl = runtimeSubject;
       positionOverlay(selectionOverlay, selectedEl);
-      postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
+      if (runtimeMutationApplied) {
+        postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
+      }
       return;
     }
     if (e.data.type === "runtime-structure-insert") {
@@ -21736,15 +21762,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           prevInlinePositionStyles:
             snapshotInlinePositionStyles(existingInsertEl),
         };
-        applyRuntimeReorder(existingInsertEl, insertTarget);
+        var runtimeMutationApplied = applyRuntimeReorder(
+          existingInsertEl,
+          insertTarget,
+        );
         selectedEl = existingInsertEl;
         positionOverlay(selectionOverlay, selectedEl);
         refreshOverlays();
-        postVisualStructureChange(
-          existingInsertEl,
-          insertTarget,
-          reinsertOrigin,
-        );
+        if (runtimeMutationApplied) {
+          postVisualStructureChange(
+            existingInsertEl,
+            insertTarget,
+            reinsertOrigin,
+          );
+        }
         return;
       }
       if (replaceInsertAnchor) {

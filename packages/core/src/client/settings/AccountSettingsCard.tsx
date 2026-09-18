@@ -21,17 +21,26 @@ import {
   IconDownload,
   IconExternalLink,
   IconLock,
+  IconShieldLock,
   IconLogout,
   IconPencil,
   IconShieldCheck,
   IconTrash,
 } from "@tabler/icons-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { docsUrl } from "../../shared/docs-url.js";
 import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
 import type { UserProfile } from "../../user-profile/shared.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  disableTwoFactor,
+  enableTwoFactor,
+  getTwoFactorStatus,
+  verifyTwoFactor,
+  type TwoFactorSetup,
+} from "../auth/two-factor.js";
 import {
   Popover,
   PopoverContent,
@@ -69,6 +78,271 @@ interface AuthMethods {
 
 interface PasswordMutationResult {
   status: boolean;
+}
+
+function TwoFactorSettings() {
+  const t = useT();
+  const { session } = useSession();
+  const authMethods = useActionQuery<AuthMethods>(
+    "get-auth-methods",
+    undefined,
+    { enabled: !!session?.email },
+  );
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [setup, setSetup] = useState<TwoFactorSetup | null>(null);
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!session?.email) return;
+    let active = true;
+    void getTwoFactorStatus()
+      .then((status) => {
+        if (active) setEnabled(status.enabled);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : t("settings.twoFactorLoadError"),
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [session?.email, t]);
+
+  if (!session?.email) return null;
+
+  const hasPassword = authMethods.data?.hasPassword ?? false;
+  const isLoading = enabled === null || authMethods.isLoading;
+
+  const resetForm = () => {
+    setError(null);
+    setSaved(false);
+    setPassword("");
+    setCode("");
+  };
+
+  const startSetup = async () => {
+    const currentPassword = password;
+    setPending(true);
+    resetForm();
+    try {
+      setSetup(
+        await enableTwoFactor(hasPassword ? currentPassword : undefined),
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("settings.twoFactorSetupError"),
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const confirmSetup = async () => {
+    if (!/^\d{6,8}$/.test(code.trim())) {
+      setError(t("settings.twoFactorCodeError"));
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await verifyTwoFactor(code.trim());
+      setEnabled(true);
+      setSaved(true);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("settings.twoFactorSetupError"),
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const turnOff = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      await disableTwoFactor(hasPassword ? password : undefined);
+      setEnabled(false);
+      setSetup(null);
+      setSaved(false);
+      setPassword("");
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("settings.twoFactorDisableError"),
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const passwordField = hasPassword ? (
+    <TextField
+      id="agent-native-two-factor-password"
+      type="password"
+      label={t("settings.passwordCurrentLabel")}
+      value={password}
+      onChange={(value) => {
+        setError(null);
+        setPassword(value);
+      }}
+      placeholder={t("settings.passwordPlaceholder")}
+      autoComplete="current-password"
+      disabled={pending}
+    />
+  ) : null;
+
+  const panel = isLoading ? (
+    <SettingsSkeleton lines={2} />
+  ) : setup ? (
+    <div className="space-y-3">
+      <p className="text-sm text-foreground">
+        {t("settings.twoFactorSetupTitle")}
+      </p>
+      <QRCodeSVG
+        value={setup.totpURI}
+        size={176}
+        fgColor="hsl(var(--foreground))"
+        bgColor="hsl(var(--background))"
+        className="rounded-md p-2"
+        aria-label={t("settings.twoFactorQrLabel")}
+      />
+      <code className="block break-all rounded-md bg-muted p-2 text-[11px] text-muted-foreground">
+        {setup.totpURI}
+      </code>
+      {!enabled && (
+        <>
+          <TextField
+            id="agent-native-two-factor-code"
+            type="text"
+            label={t("settings.twoFactorCodeLabel")}
+            value={code}
+            onChange={(value) => setCode(value.replace(/\D/g, ""))}
+            placeholder="000000"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            disabled={pending}
+          />
+          <ActionButton
+            type="button"
+            intent="primary"
+            emphasis="solid"
+            size="compact"
+            pending={pending}
+            disabled={pending || !code}
+            onPress={() => void confirmSetup()}
+          >
+            {t("settings.twoFactorVerify")}
+          </ActionButton>
+        </>
+      )}
+      {enabled && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {t("settings.twoFactorBackupCodes")}
+          </p>
+          <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-2 font-mono text-xs">
+            {setup.backupCodes.map((backupCode) => (
+              <code key={backupCode}>{backupCode}</code>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  ) : enabled ? (
+    <div className="space-y-3">
+      {passwordField}
+      <ActionButton
+        type="button"
+        intent="danger"
+        emphasis="outline"
+        size="compact"
+        pending={pending}
+        disabled={pending || (hasPassword && !password)}
+        onPress={() => void turnOff()}
+      >
+        {t("settings.twoFactorDisable")}
+      </ActionButton>
+    </div>
+  ) : (
+    <div className="space-y-3">
+      {passwordField}
+      <ActionButton
+        type="button"
+        intent="primary"
+        emphasis="solid"
+        size="compact"
+        pending={pending}
+        disabled={pending || (hasPassword && !password)}
+        onPress={() => void startSetup()}
+      >
+        {t("settings.twoFactorEnable")}
+      </ActionButton>
+    </div>
+  );
+
+  return (
+    <SettingsRow
+      id="two-factor"
+      label={
+        <span className="flex items-center gap-2">
+          <IconShieldLock className="size-4 text-muted-foreground" />
+          {t("settings.twoFactorTitle")}
+        </span>
+      }
+      description={
+        error ? (
+          <span className="text-destructive" role="alert">
+            {error}
+          </span>
+        ) : saved ? (
+          <span className="flex items-center gap-1 text-primary" role="status">
+            <IconCheck className="size-3" />
+            {t("settings.twoFactorSaved")}
+          </span>
+        ) : enabled ? (
+          t("settings.twoFactorEnabled")
+        ) : (
+          t("settings.twoFactorDescription")
+        )
+      }
+      control={
+        <Popover>
+          <PopoverTrigger asChild>
+            <ActionButton
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              size="compact"
+            >
+              {t("settings.twoFactorManage")}
+            </ActionButton>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={6}
+            className="w-[min(460px,calc(100vw-2rem))] p-4"
+          >
+            {panel}
+          </PopoverContent>
+        </Popover>
+      }
+    />
+  );
 }
 
 function PasswordSettings() {
@@ -776,6 +1050,7 @@ export function AccountSettingsForm({
         })}
         control={<SchedulingTimezoneField compact />}
       />
+      <TwoFactorSettings />
       <PasswordSettings />
       {email && <PrivacySettings />}
       <SettingsRow

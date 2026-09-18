@@ -75,7 +75,7 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
           ip_address TEXT,
           user_agent TEXT,
           -- guard:allow-identity-column — Better Auth user primary key, not an email identity.
-          user_id TEXT NOT NULL,
+          user_id TEXT NOT NULL, -- guard:allow-identity-column — immutable Better Auth user id owned by the auth plugin
           active_organization_id TEXT
         );
         CREATE TABLE IF NOT EXISTS "account" (
@@ -429,6 +429,29 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
       postgres: `
         ALTER TABLE "jwks" ADD COLUMN IF NOT EXISTS "alg" TEXT;
         ALTER TABLE "jwks" ADD COLUMN IF NOT EXISTS "crv" TEXT
+      `,
+    },
+  },
+  {
+    version: 9,
+    name: "better-auth-two-factor-tables",
+    sql: {
+      postgres: `
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "two_factor_enabled" BOOLEAN NOT NULL DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS "twoFactor" (
+          id TEXT PRIMARY KEY,
+          secret TEXT NOT NULL,
+          backup_codes TEXT NOT NULL,
+          -- guard:allow-identity-column - immutable Better Auth user id owned by the auth plugin
+          user_id TEXT NOT NULL,
+          verified BOOLEAN NOT NULL DEFAULT TRUE,
+          failed_verification_count BIGINT NOT NULL DEFAULT 0,
+          locked_until TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS "twoFactor_secret_idx"
+          ON "twoFactor" (secret);
+        CREATE INDEX IF NOT EXISTS "twoFactor_user_id_idx"
+          ON "twoFactor" (user_id)
       `,
     },
   },

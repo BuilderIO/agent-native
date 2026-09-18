@@ -8,7 +8,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
 import { readCalendarSettings } from "../server/lib/calendar-settings.js";
 import { listGoogleCalendars } from "../server/lib/google-calendar.js";
-import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
+import {
+  getCalendarAttendeeCount,
+  type CalendarEvent,
+  type CalendarEventDraft,
+} from "../shared/api.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   isEventVisibleForDeclinedPreference,
@@ -164,7 +168,7 @@ export default defineAction({
           allDay: e.allDay || undefined,
           recurrence: e.recurrence || undefined,
           recurringEventId: e.recurringEventId || undefined,
-          attendeeCount: e.attendees?.length ?? 0,
+          attendeeCount: getCalendarAttendeeCount(e.attendees),
           attendeeNames: e.attendees
             ?.filter((a: any) => !a.self)
             .slice(0, 8)

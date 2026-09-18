@@ -453,8 +453,13 @@ describe("/api/uploads/:recordingId/abort route", () => {
         status: "uploading",
         uploadGenerationId: "generation-1",
       })
-      .mockResolvedValueOnce(null);
-    mockCompareAndSetManyAppState.mockResolvedValue(false);
+      .mockResolvedValueOnce({
+        recordingId: "rec-1",
+        pendingMediaVerification: true,
+      });
+    mockCompareAndSetManyAppState
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
     const consoleInfo = vi
       .spyOn(console, "info")
       .mockImplementation(() => undefined);
@@ -469,7 +474,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
       consoleInfo.mockRestore();
     }
 
-    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+    expect(mockCompareAndSetManyAppState).toHaveBeenNthCalledWith(1, [
       {
         key: "recording-upload-rec-1",
         expectedValue: {
@@ -480,13 +485,23 @@ describe("/api/uploads/:recordingId/abort route", () => {
         nextValue: expect.objectContaining({ status: "failed" }),
       },
     ]);
+    expect(mockCompareAndSetManyAppState).toHaveBeenNthCalledWith(2, [
+      {
+        key: "recording-media-verification-rec-1",
+        expectedValue: {
+          recordingId: "rec-1",
+          pendingMediaVerification: true,
+        },
+        nextValue: null,
+      },
+    ]);
     expect(mockWriteAppState).toHaveBeenCalledTimes(1);
     expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
       ts: expect.any(Number),
     });
   });
 
-  it("surfaces auxiliary-state failures after claiming the abort", async () => {
+  it("surfaces upload-state claim failures before claiming the row", async () => {
     mockSelectRows.rows = [
       {
         id: "rec-1",
@@ -506,6 +521,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
       "application state unavailable",
     );
 
+    expect(mockDb.update).not.toHaveBeenCalled();
     expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });

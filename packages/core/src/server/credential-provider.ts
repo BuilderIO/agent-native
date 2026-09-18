@@ -244,6 +244,7 @@ export function resolveVercelDeploymentProtectionHeaders(
 
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "ANTHROPIC_API_KEY",
+  "JEV_API_KEY",
   // The Builder-credits pair pays for the deployed app's own model calls and
   // carries no end-user identity — the token is scoped to ['gateway'] and can
   // make no identity-bearing Builder call. The legacy BUILDER_PRIVATE_KEY /

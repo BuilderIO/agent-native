@@ -171,6 +171,8 @@ describe("AgentKitChat", () => {
 
     expect(styles).toContain('[data-agent-composer-slot="root"]');
     expect(styles).toContain('[data-agent-message-queue="true"]');
+    expect(styles).toContain("margin: 0 auto;");
+    expect(styles).not.toContain("margin: 0 auto -1rem;");
     expect(styles).toContain('[data-agent-native-composer-popover="true"]');
     expect(styles).toContain('[data-agent-suggestion-bar="true"]');
     expect(styles).not.toContain("@source");

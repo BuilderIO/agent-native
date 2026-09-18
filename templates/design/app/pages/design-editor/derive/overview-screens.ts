@@ -108,6 +108,7 @@ export function deriveOverviewScreens({
     const heightMode = resolveScreenHeightMode(
       metadata.heightMode,
       metadata.heightPinned === true,
+      metadata.sourceType,
     );
     const breakpointHeights =
       rawBreakpointHeights &&
