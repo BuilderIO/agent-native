@@ -60,6 +60,12 @@ function runStoredCrossScreenDrop(args: {
   publish?: Parameters<
     typeof runCrossScreenElementDrop
   >[0]["applyFileContentUpdate"];
+  afterDrop?: (args: {
+    applyFileContentUpdate: Parameters<
+      typeof runCrossScreenElementDrop
+    >[0]["applyFileContentUpdate"];
+    setSelectionFingerprint: (value: string) => void;
+  }) => void;
 }) {
   const writes = new Map<string, string>();
   const contentByFile = new Map([
@@ -76,6 +82,8 @@ function runStoredCrossScreenDrop(args: {
   } | null = null;
   let selectedLayerIds: string[] = [];
   let selectedElement: unknown = null;
+  let selectionFingerprint = "before-drop";
+  const saveOperationRevisionByFile: Record<string, number> = {};
   const publish: Parameters<
     typeof runCrossScreenElementDrop
   >[0]["applyFileContentUpdate"] =
@@ -89,6 +97,8 @@ function runStoredCrossScreenDrop(args: {
   ) => {
     const result = publish(fileId, content, options);
     if (result.status === "accepted") {
+      saveOperationRevisionByFile[fileId] =
+        (saveOperationRevisionByFile[fileId] ?? 0) + 1;
       writes.set(fileId, result.content);
       contentByFile.set(fileId, result.content);
       if (result.saveCompletion) {
@@ -119,6 +129,10 @@ function runStoredCrossScreenDrop(args: {
       clearPendingOverviewLayerSelectionTimer: () => {},
       codeLayerOwnerByNodeIdRef: { current: new Map() },
       designSourceType: "inline",
+      fileSaveOperationRevisionRef: {
+        current: saveOperationRevisionByFile,
+      },
+      getCurrentSelectionFingerprint: () => selectionFingerprint,
       getScreenContent: (screenId) => contentByFile.get(screenId) ?? "",
       id: undefined,
       overviewScreens: [
@@ -165,6 +179,12 @@ function runStoredCrossScreenDrop(args: {
     },
     args.drop,
   );
+  args.afterDrop?.({
+    applyFileContentUpdate,
+    setSelectionFingerprint: (value) => {
+      selectionFingerprint = value;
+    },
+  });
   return {
     activeFileId,
     createdOverviewLayerSelection,
@@ -1198,6 +1218,62 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
       );
     },
   );
+
+  it("does not finalize stale history or selection after a later edit", async () => {
+    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
+    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    let resolveTarget!: (saved: boolean) => void;
+    let resolveSource!: (saved: boolean) => void;
+    const targetSave = new Promise<boolean>((resolve) => {
+      resolveTarget = resolve;
+    });
+    const sourceSave = new Promise<boolean>((resolve) => {
+      resolveSource = resolve;
+    });
+    let publicationCount = 0;
+    const laterSourceContent =
+      '<!doctype html><html><body><p data-agent-native-node-id="later">Later</p></body></html>';
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent,
+      publish: (fileId, content) => {
+        const publication = acceptFixture(fileId, content);
+        publicationCount += 1;
+        if (publicationCount === 1) {
+          return { ...publication, saveCompletion: targetSave };
+        }
+        if (publicationCount === 2) {
+          return { ...publication, saveCompletion: sourceSave };
+        }
+        return { ...publication, saveCompletion: Promise.resolve(true) };
+      },
+      afterDrop: ({ applyFileContentUpdate, setSelectionFingerprint }) => {
+        applyFileContentUpdate("source", laterSourceContent);
+        setSelectionFingerprint("after-drop-selection");
+      },
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="moving"]',
+        sourceNodeId: "moving",
+        sourceProvenance: { uniqueNodeId: "moving" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "target-root",
+        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
+        targetAnchorProvenance: { uniqueNodeId: "target-root" },
+        targetAnchorPlacement: "inside",
+      },
+    });
+
+    resolveTarget(true);
+    resolveSource(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(result.historyEntries).toEqual([]);
+    expect(result.selectionEvents).toEqual([]);
+    expect(result.contentByFile.get("source")).toContain(
+      'data-agent-native-node-id="later"',
+    );
+  });
 
   it("records no duplicate history or selection when the real writer rejects Alpine content", () => {
     const sourceInput = `<!doctype html><html><head>

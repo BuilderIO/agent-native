@@ -128,7 +128,9 @@ export interface CrossScreenElementDropArgs {
     >
   >;
   designSourceType: "inline" | "localhost" | "fusion";
+  fileSaveOperationRevisionRef?: RefObject<Record<string, number>>;
   getScreenContent: (screenId: string) => string;
+  getCurrentSelectionFingerprint?: () => string;
   id: string | undefined;
   overviewScreens: OverviewScreen[];
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
@@ -166,7 +168,9 @@ export function runCrossScreenElementDrop(
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
+    fileSaveOperationRevisionRef,
     getScreenContent,
+    getCurrentSelectionFingerprint,
     id,
     overviewScreens,
     pendingOverviewLayerSelectionRef,
@@ -1041,6 +1045,7 @@ export function runCrossScreenElementDrop(
       after: nextDestContent,
     },
   ];
+  const selectionFingerprintAtPublication = getCurrentSelectionFingerprint?.();
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
     nextDestContent,
@@ -1079,7 +1084,28 @@ export function runCrossScreenElementDrop(
     return;
   }
 
+  const saveOperationRevisionsAtPublication = {
+    [targetScreenId]: fileSaveOperationRevisionRef?.current[targetScreenId],
+    [sourceScreenId]: fileSaveOperationRevisionRef?.current[sourceScreenId],
+  };
+  const isCurrentPublication = (
+    fileId: string,
+    publication: Extract<ApplyFileContentUpdateResult, { status: "accepted" }>,
+  ) =>
+    getScreenContent(fileId) === publication.content &&
+    (fileSaveOperationRevisionRef === undefined ||
+      fileSaveOperationRevisionRef.current[fileId] ===
+        saveOperationRevisionsAtPublication[fileId]);
+  const canFinalizePublication = () =>
+    isCurrentPublication(targetScreenId, targetPublication) &&
+    isCurrentPublication(sourceScreenId, sourcePublication) &&
+    (selectionFingerprintAtPublication === undefined ||
+      selectionFingerprintAtPublication === getCurrentSelectionFingerprint?.());
+
   const finalizePublication = () => {
+    // Save completion is asynchronous. Do not append stale whole-document
+    // history or restore an old selection after a newer edit/navigation lands.
+    if (!canFinalizePublication()) return;
     // History must replay the bytes the publisher accepted. Canonical identity
     // publication may stamp IDs into submitted HTML, and the post-action
     // selection snapshot must resolve against those same final documents.
@@ -1141,6 +1167,9 @@ export function runCrossScreenElementDrop(
     fileId: string,
     content: string,
   ) => {
+    if (!isCurrentPublication(fileId, publication)) {
+      return Promise.resolve(false);
+    }
     const rollback = applyFileContentUpdate(fileId, content, {
       recordHistory: false,
       refreshPreview: false,

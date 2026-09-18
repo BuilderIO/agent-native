@@ -15146,6 +15146,21 @@ function DesignEditor() {
           contentUndoStackRef,
           contentHistorySelectionAfterRef,
           designSourceType,
+          fileSaveOperationRevisionRef,
+          getCurrentSelectionFingerprint: () =>
+            JSON.stringify({
+              activeFileId: activeFileIdRef.current,
+              selectedLayerIds: selectedLayerIdsStateRef.current,
+              overviewSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+              selectedElement: selectedElementRef.current
+                ? {
+                    id: selectedElementRef.current.id ?? null,
+                    selector: selectedElementRef.current.selector ?? null,
+                    sourceId: selectedElementRef.current.sourceId ?? null,
+                  }
+                : null,
+              viewMode: viewModeRef.current,
+            }),
           getScreenContent,
           id,
           overviewScreens,
