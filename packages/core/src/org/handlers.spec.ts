@@ -582,14 +582,10 @@ describe("org handlers", () => {
     mockExecute.mockResolvedValueOnce({
       rows: [
         {
-          email: "alice@example.test",
-          role: "member",
-          joinedAt: 1,
-        },
-        {
           email: "bob@example.test",
           role: "member",
           joinedAt: 2,
+          totalCount: 1,
         },
       ],
     });
@@ -619,11 +615,33 @@ describe("org handlers", () => {
       ],
     });
     expect(mockExecute).toHaveBeenCalledTimes(1);
-    expect(mockExecute.mock.calls[0][0].sql).not.toContain("LOWER(email) LIKE");
-    expect(mockGetUserProfiles).toHaveBeenCalledWith([
-      "alice@example.test",
-      "bob@example.test",
-    ]);
+    expect(mockExecute.mock.calls[0][0].sql).toContain(
+      "LOWER(COALESCE(u.name, '')) LIKE",
+    );
+    expect(mockGetUserProfiles).toHaveBeenCalledWith(["bob@example.test"]);
+  });
+
+  it("keeps SQL name matches when profile hydration is partial", async () => {
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          email: "bob@example.test",
+          role: "member",
+          joinedAt: 2,
+          totalCount: 1,
+        },
+      ],
+    });
+    mockGetUserProfiles.mockResolvedValue(new Map());
+
+    await expect(
+      listMembersHandler(
+        makeEvent("/_agent-native/org/members?search=smith&limit=1"),
+      ),
+    ).resolves.toMatchObject({
+      totalCount: 1,
+      members: [{ email: "bob@example.test", image: null }],
+    });
   });
 
   it("rejects malformed workspace app visibility defaults", async () => {

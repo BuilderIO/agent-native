@@ -576,26 +576,24 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   let hasMore = false;
 
   if (search) {
-    // ponytail: name search hydrates the org roster; add an indexed profile
-    // directory if large organizations make this path slow.
-    const { rows } = await e.execute({
-      sql: `${baseSql} ORDER BY LOWER(email) ASC`,
-      args: [ctx.orgId],
-    });
-    profiles = await getUserProfiles(rows.map((r: any) => String(r.email)));
-    const matchingRows = rows.filter((r: any) => {
-      const email = String(r.email).toLowerCase();
-      const name = profiles.get(email)?.name?.toLowerCase() ?? "";
-      return email.includes(search) || name.includes(search);
-    });
-    totalCount = matchingRows.length;
+    const searchPattern = `%${escapeLike(search)}%`;
     const pageLimit = limit ?? 25;
-    const rowsWithLookahead = matchingRows.slice(
-      offset,
-      offset + pageLimit + 1,
-    );
-    pageRows = rowsWithLookahead.slice(0, pageLimit);
-    hasMore = rowsWithLookahead.length > pageLimit;
+    const { rows } = await e.execute({
+      sql: `SELECT m.email, m.role, m.joined_at AS "joinedAt",
+                   COUNT(*) OVER() AS "totalCount"
+            FROM org_members m
+            LEFT JOIN "user" u ON LOWER(u.email) = LOWER(m.email)
+            WHERE m.org_id = ? AND m.federation_removal_pending_at IS NULL
+              AND (LOWER(m.email) LIKE ? ESCAPE '!'
+                   OR LOWER(COALESCE(u.name, '')) LIKE ? ESCAPE '!')
+            ORDER BY LOWER(m.email) ASC
+            LIMIT ? OFFSET ?`,
+      args: [ctx.orgId, searchPattern, searchPattern, pageLimit + 1, offset],
+    });
+    pageRows = rows.slice(0, pageLimit);
+    totalCount = Number((rows[0] as any)?.totalCount ?? 0);
+    hasMore = rows.length > pageLimit;
+    profiles = await getUserProfiles(pageRows.map((r: any) => String(r.email)));
   } else {
     const args: unknown[] = [ctx.orgId];
     let sql = `${baseSql} ORDER BY LOWER(email) ASC`;
@@ -656,6 +654,10 @@ function clampInteger(
   const value = input === null ? fallback : Number.parseInt(input, 10);
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, value));
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
 function normalizeInviteRole(input: unknown): "member" | "admin" {
