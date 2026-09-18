@@ -14,6 +14,7 @@ import {
   expandAllLayers,
   gotoEditor,
   installBridge,
+  waitForBridge,
 } from "./helpers";
 
 const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
@@ -34,8 +35,8 @@ const BOARD_SCREEN_FIXTURE = `<!doctype html><html><body style="margin:0;min-hei
 const BOARD_FIXTURE = `<!doctype html><html><body style="margin:0;min-height:900px">
 <main data-agent-native-node-id="board-stage" data-agent-native-layer-name="Board stage" style="position:relative;width:900px;height:700px">
 <div data-agent-native-node-id="red" data-agent-native-layer-name="Red" data-an-primitive="rectangle" style="position:absolute;left:220px;top:180px;width:240px;height:200px;background:red"></div>
-<div data-agent-native-node-id="blue" data-agent-native-layer-name="Blue" data-an-primitive="rectangle" style="position:absolute;left:220px;top:180px;width:240px;height:200px;background:blue"></div>
-<div data-agent-native-node-id="green" data-agent-native-layer-name="Green" data-an-primitive="rectangle" style="position:absolute;left:220px;top:180px;width:240px;height:200px;background:green"></div>
+<div data-agent-native-node-id="blue" data-agent-native-layer-name="Blue" data-an-primitive="rectangle" style="position:absolute;left:360px;top:280px;width:240px;height:200px;background:blue"></div>
+<div data-agent-native-node-id="green" data-agent-native-layer-name="Green" data-an-primitive="rectangle" style="position:absolute;left:500px;top:380px;width:240px;height:200px;background:green"></div>
 </main></body></html>`;
 
 async function action(
@@ -164,7 +165,22 @@ function boardFrame(page: Page): FrameLocator {
     .contentFrame();
 }
 
+async function boardTreeOrder(page: Page): Promise<string[]> {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button] span[title]")
+    .evaluateAll((layers) => {
+      const boardLayerNames = new Set(["Red", "Blue", "Green"]);
+      return layers
+        .map((layer) => layer.getAttribute("title"))
+        .filter(
+          (name): name is string => name !== null && boardLayerNames.has(name),
+        );
+    });
+}
+
 async function rightClickBoardNode(page: Page, nodeId: string): Promise<void> {
+  await page.evaluate(() => ((window as any).__bridge = []));
   const frame = boardFrame(page);
   const node = frame.locator(`[data-agent-native-node-id="${nodeId}"]`);
   const point = await node.evaluate((element) => {
@@ -183,6 +199,7 @@ async function rightClickBoardNode(page: Page, nodeId: string): Promise<void> {
       }),
     );
   }, point);
+  await waitForBridge(page, "element-contextmenu");
   await expect(page.getByRole("menu").last()).toBeVisible();
 }
 
@@ -351,7 +368,6 @@ test("Figma arrange keyboard commands use physical brackets and persist across r
           ),
         )
         .toEqual(testCase.expected);
-
       if (index === cases.length - 1) {
         await page.reload({ waitUntil: "domcontentloaded" });
         await expect(
@@ -416,6 +432,14 @@ test("Figma overview board arrange commands measure, persist, and support contex
           ),
         )
         .toEqual(testCase.expected);
+      await expect
+        .poll(() => boardTreeOrder(page))
+        .toEqual(
+          testCase.expected
+            .slice()
+            .reverse()
+            .map((id) => id[0]!.toUpperCase() + id.slice(1)),
+        );
 
       if (index === cases.length - 1) {
         await page.reload({ waitUntil: "domcontentloaded" });
@@ -423,6 +447,8 @@ test("Figma overview board arrange commands measure, persist, and support contex
           page.getByRole("button", { name: "Move", exact: true }),
         ).toBeVisible({ timeout: 30_000 });
         await enterDirectMode(page);
+        await installBridge(page);
+        await expandAllLayers(page);
         await expect
           .poll(() =>
             boardFrame(page)
@@ -459,6 +485,26 @@ test("Figma overview board arrange commands measure, persist, and support contex
         ),
       )
       .toEqual(["green", "blue", "red"]);
+    await expect
+      .poll(() => boardTreeOrder(page))
+      .toEqual(["Red", "Blue", "Green"]);
+
+    await rightClickBoardNode(page, "blue");
+    await page
+      .getByRole("menu")
+      .last()
+      .getByText("Bring to front", { exact: true })
+      .click();
+    await expect
+      .poll(() =>
+        indexHtml(request, designId, "__board__.html").then((html) =>
+          childNodeIds(html, "board-stage"),
+        ),
+      )
+      .toEqual(["green", "red", "blue"]);
+    await expect
+      .poll(() => boardTreeOrder(page))
+      .toEqual(["Blue", "Red", "Green"]);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
