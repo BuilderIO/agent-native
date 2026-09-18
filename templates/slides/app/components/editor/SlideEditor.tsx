@@ -2047,6 +2047,7 @@ export default function SlideEditor({
       activePath: number[] | null = null,
       activeHtml: string | null = null,
       activeSourceContent: string | null = null,
+      activeOriginalStyle: string | null | undefined = undefined,
     ) => {
       // SlideRenderer swaps each `<div class="mermaid">` for a
       // `data-mermaid-index` placeholder and renders the diagram as SVG via
@@ -2072,6 +2073,13 @@ export default function SlideEditor({
             activeHtml,
             activeSourceContent ?? undefined,
           );
+          if (activeOriginalStyle !== undefined) {
+            if (activeOriginalStyle === null) {
+              activeClone.removeAttribute("style");
+            } else {
+              activeClone.setAttribute("style", activeOriginalStyle);
+            }
+          }
         }
       }
       const placeholders = clone.querySelectorAll("[data-mermaid-index]");
@@ -2136,6 +2144,7 @@ export default function SlideEditor({
       activeRichTextPathRef.current,
       activeRichTextHtmlRef.current,
       session?.slideId === slide.id ? session.originalContent : null,
+      session?.slideId === slide.id ? session.originalStyle : undefined,
     );
   }, [serializeSlideContentHtml, slide.content]);
 
@@ -2225,6 +2234,7 @@ export default function SlideEditor({
       session.path,
       latest,
       session.originalContent,
+      session.originalStyle,
     );
     if (draftContent !== null)
       persistInlineEditDraft(session.slideId, draftContent);
@@ -2745,9 +2755,9 @@ export default function SlideEditor({
       host.className = "slide-content slide-rich-editor-host";
       const originalStyle = el.getAttribute("style");
       const computedStyle = window.getComputedStyle(el);
+      const slideCanvas = el.closest<HTMLElement>("[data-slide-canvas]");
       const positionHost = () => {
         const rect = el.getBoundingClientRect();
-        const slideCanvas = el.closest<HTMLElement>("[data-slide-canvas]");
         const canvasRect = slideCanvas?.getBoundingClientRect();
         const scaleX =
           slideCanvas && slideCanvas.offsetWidth > 0 && canvasRect
@@ -2785,10 +2795,17 @@ export default function SlideEditor({
       if (contentScope) host.dataset.slideContentScope = contentScope;
       document.body.append(host);
       positionHost();
+      const resizeObserver =
+        typeof ResizeObserver === "undefined"
+          ? null
+          : new ResizeObserver(positionHost);
+      resizeObserver?.observe(el);
+      if (slideCanvas) resizeObserver?.observe(slideCanvas);
       window.addEventListener("resize", positionHost);
       const scrollContainer = scrollContainerRef.current;
       scrollContainer?.addEventListener("scroll", positionHost);
       const cleanupHost = () => {
+        resizeObserver?.disconnect();
         window.removeEventListener("resize", positionHost);
         scrollContainer?.removeEventListener("scroll", positionHost);
         host.remove();

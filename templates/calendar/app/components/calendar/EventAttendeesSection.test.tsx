@@ -125,6 +125,35 @@ describe("EventAttendeesSection attendee controls", () => {
     expect(document.querySelector("button button")).toBeNull();
   });
 
+  it("shows grouped guests in the attendee row", () => {
+    const event: CalendarEvent = {
+      id: "event-grouped-guests",
+      title: "Planning",
+      description: "",
+      location: "",
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      allDay: false,
+      source: "google",
+      createdAt: "2026-07-10T15:00:00.000Z",
+      updatedAt: "2026-07-10T15:00:00.000Z",
+      attendees: [
+        {
+          email: "guest@example.com",
+          displayName: "Guest",
+          responseStatus: "accepted",
+          additionalGuests: 2,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<EventAttendeesSection event={event} />);
+    });
+
+    expect(document.body.textContent).toContain("deleteEvent.guest");
+  });
+
   it("shows the matching Google Calendar proposal action with RSVP controls", () => {
     const googleCalendarLink =
       "https://calendar.google.com/calendar/u/0/r/eventedit/abc";

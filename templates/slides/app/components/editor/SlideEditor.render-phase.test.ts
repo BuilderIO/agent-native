@@ -135,6 +135,27 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("restores editor-only styles before serializing the live draft", () => {
+    const serializeStart = source.indexOf("const serializeSlideContentHtml");
+    const serializeEnd = source.indexOf(
+      "const readCurrentSlideContentHtml",
+      serializeStart,
+    );
+    const serializeBody = source.slice(serializeStart, serializeEnd);
+    const disposeStart = source.indexOf("const disposeRichTextEditor");
+    const disposeEnd = source.indexOf(
+      "const flushInlineEditDraft",
+      disposeStart,
+    );
+    const disposeBody = source.slice(disposeStart, disposeEnd);
+
+    expect(serializeBody).toContain(
+      "activeOriginalStyle: string | null | undefined = undefined",
+    );
+    expect(serializeBody).toContain("if (activeOriginalStyle !== undefined)");
+    expect(disposeBody).toContain("session.originalStyle,");
+  });
+
   it("scales the portalled editor with the transformed canvas", () => {
     const enterStart = source.indexOf("const enterInlineEdit");
     const enterEnd = source.indexOf("// Exit edit mode", enterStart);
@@ -147,6 +168,9 @@ describe("SlideEditor render-phase safety", () => {
     expect(enterBody).toContain(
       "host.style.transform = `scale(${safeScaleX}, ${safeScaleY})`",
     );
+    expect(enterBody).toContain("new ResizeObserver(positionHost)");
+    expect(enterBody).toContain("resizeObserver?.observe(slideCanvas)");
+    expect(enterBody).toContain("resizeObserver?.disconnect()");
   });
 
   it("marks and strips only the outer rich-text layer", () => {
