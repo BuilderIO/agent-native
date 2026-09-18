@@ -728,6 +728,7 @@ export function EmailThread({
             id: t.id,
             accountEmail: t.accountEmail,
             threadId: t.threadId || t.id,
+            suppressionToken,
           });
       }
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
@@ -805,6 +806,7 @@ export function EmailThread({
             id: t.id,
             accountEmail: t.accountEmail,
             threadId: t.threadId || t.id,
+            suppressionToken,
           });
       }
       void queryClient.invalidateQueries({ queryKey: ["emails"] });

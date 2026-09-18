@@ -355,6 +355,7 @@ export async function applyLocalLabelDelta(
         inInbox: labels.has("INBOX") && !labels.has("TRASH") ? 1 : 0,
         isImportant: labels.has("IMPORTANT") ? 1 : 0,
         updatedAt: now,
+        localMutationAt: now,
       };
 
       if (!messageScoped) {
@@ -613,6 +614,7 @@ export async function upsertInboxThreadRows(
       hasAttachments: r.hasAttachments ? 1 : 0,
       syncedAt: r.syncedAt,
       updatedAt: now,
+      localMutationAt: null,
     }));
 
   await getDb()
@@ -641,11 +643,20 @@ export async function upsertInboxThreadRows(
         hasAttachments: sql`excluded.has_attachments`,
         syncedAt: sql`excluded.synced_at`,
         updatedAt: sql`excluded.updated_at`,
+        localMutationAt: sql`excluded.local_mutation_at`,
       },
       // A Gmail read started before a local mutation may return the old
       // labels after that mutation has already updated this row. Keep the
-      // newer local write until a later sync observation catches up.
-      setWhere: sql`excluded.synced_at > ${schema.mailInboxThreads.updatedAt}`,
+      // newer local write until a later sync observation catches up. A fetch
+      // that started after the local write can still be stale, so the Gmail
+      // history id must also move before the marker is cleared.
+      setWhere: sql`
+        excluded.synced_at > ${schema.mailInboxThreads.updatedAt}
+        AND (
+          ${schema.mailInboxThreads.localMutationAt} IS NULL
+          OR excluded.history_id IS DISTINCT FROM ${schema.mailInboxThreads.historyId}
+        )
+      `,
     });
 }
 

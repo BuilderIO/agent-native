@@ -779,7 +779,7 @@ export function EmailList({
         }
         for (const ref of emailRefs) {
           if (restorableThreadIds.has(ref.threadId || ref.id))
-            unarchiveEmail.mutate(ref);
+            unarchiveEmail.mutate({ ...ref, suppressionToken });
         }
       };
       const consumeUndo = setUndoAction(undo);
@@ -926,7 +926,7 @@ export function EmailList({
         }
         for (const ref of emailRefs) {
           if (restorableThreadIds.has(ref.threadId || ref.id))
-            untrashEmail.mutate(ref);
+            untrashEmail.mutate({ ...ref, suppressionToken });
         }
       };
       const consumeUndo = setUndoAction(undo);
@@ -1614,7 +1614,12 @@ export function EmailList({
             };
           },
         );
-        unarchiveEmail.mutate({ id, accountEmail, threadId: tid });
+        unarchiveEmail.mutate({
+          id,
+          accountEmail,
+          threadId: tid,
+          suppressionToken,
+        });
       };
       const consumeUndo = setUndoAction(undo);
       const toastId = toast(t("mail.toasts.archived"), {

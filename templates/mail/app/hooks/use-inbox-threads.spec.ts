@@ -415,12 +415,12 @@ describe("snapshotInboxThreads / restoreInboxThreadsOptimistic", () => {
     });
 
     const snapshot = snapshotInboxThreads(qc);
-    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
 
     // Sanity: the optimistic write actually landed before we roll it back.
     expect(visibleResult(qc).items.map((i) => i.id)).toEqual(["m2"]);
 
-    clearInboxThreadRemoval(qc, "t1");
+    clearInboxThreadRemoval(qc, "t1", [mutationId]);
     restoreInboxThreadsOptimistic(qc, snapshot);
 
     for (const tab of ["important", "other"]) {
@@ -438,9 +438,9 @@ describe("snapshotInboxThreads / restoreInboxThreadsOptimistic", () => {
 describe("synced inbox mutation consistency", () => {
   it("shows a removed thread immediately after undo clears its journal entry", () => {
     const qc = makeClient(seedResult());
-    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
 
-    clearInboxThreadRemoval(qc, "t1");
+    clearInboxThreadRemoval(qc, "t1", [mutationId]);
 
     expect(visibleResult(qc).items).toContainEqual(
       expect.objectContaining({ threadId: "t1" }),
@@ -449,10 +449,10 @@ describe("synced inbox mutation consistency", () => {
 
   it("retires one overlapping journal entry without restoring another", () => {
     const qc = makeClient(seedResult());
-    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const removeId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
     const readId = markInboxThreadReadOptimistic(qc, new Set(["t2"]), false);
 
-    clearInboxThreadRemoval(qc, "t1");
+    clearInboxThreadRemoval(qc, "t1", [removeId]);
     expect(visibleResult(qc).items.map((item) => item.threadId)).toEqual([
       "t1",
       "t2",
@@ -464,6 +464,38 @@ describe("synced inbox mutation consistency", () => {
 
     // Keep the second mutation alive until its server evidence arrives.
     expect(readId).toMatch(/^inbox-mutation-/);
+  });
+
+  it("undoes only its own same-thread removal", () => {
+    const qc = makeClient(seedResult());
+    const archiveId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const muteId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+
+    clearInboxThreadRemoval(qc, "t1", [archiveId]);
+    expect(visibleResult(qc).items).not.toContainEqual(
+      expect.objectContaining({ threadId: "t1" }),
+    );
+
+    clearInboxThreadRemoval(qc, "t1", [muteId]);
+    expect(visibleResult(qc).items).toContainEqual(
+      expect.objectContaining({ threadId: "t1" }),
+    );
+  });
+
+  it("keeps a pending removal past the old timeout ceiling", () => {
+    vi.useFakeTimers();
+    try {
+      const qc = makeClient(seedResult());
+      removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+
+      vi.advanceTimersByTime(60_001);
+
+      expect(visibleResult(qc).items).not.toContainEqual(
+        expect.objectContaining({ threadId: "t1" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retires an older read target when a newer target settles", () => {
@@ -528,9 +560,9 @@ describe("synced inbox mutation consistency", () => {
 
   it("restores a removal journal when an undo action fails", () => {
     const qc = makeClient(seedResult());
-    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
 
-    const snapshot = clearInboxThreadRemoval(qc, "t1");
+    const snapshot = clearInboxThreadRemoval(qc, "t1", [mutationId]);
     restoreInboxThreadRemovals(qc, snapshot);
 
     expect(
@@ -541,7 +573,7 @@ describe("synced inbox mutation consistency", () => {
   it("does not keep cleared undo targets in removal evidence", () => {
     const qc = makeClient(seedResult());
     const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1", "t2"]));
-    clearInboxThreadRemoval(qc, "t1");
+    clearInboxThreadRemoval(qc, "t1", [mutationId]);
 
     qc.setQueryData(
       ["action", "list-inbox-threads", { tab: "important" }],

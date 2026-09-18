@@ -172,8 +172,6 @@ function threadKeyOf(item: Pick<InboxThreadItem, "id" | "threadId">): string {
   return item.threadId || item.id;
 }
 
-const INBOX_MUTATION_TTL_MS = 60_000;
-
 type InboxThreadState = {
   threadId: string;
   unreadCount: number;
@@ -186,26 +184,22 @@ type InboxMutation =
       kind: "remove";
       observedThreadIds: string[];
       threadIds: string[];
-      timestamp: number;
     }
   | {
       id: string;
       kind: "read";
       states: InboxThreadState[];
-      timestamp: number;
     }
   | {
       id: string;
       kind: "unread-count";
       state: InboxThreadState;
-      timestamp: number;
     }
   | {
       id: string;
       isStarred: boolean;
       kind: "star";
       threadIds: string[];
-      timestamp: number;
     };
 
 type InboxRemovalMutation = Extract<InboxMutation, { kind: "remove" }>;
@@ -216,10 +210,10 @@ export type InboxThreadRemovalSnapshot = Array<{
 }>;
 
 type InboxMutationInput =
-  | Omit<Extract<InboxMutation, { kind: "remove" }>, "id" | "timestamp">
-  | Omit<Extract<InboxMutation, { kind: "read" }>, "id" | "timestamp">
-  | Omit<Extract<InboxMutation, { kind: "unread-count" }>, "id" | "timestamp">
-  | Omit<Extract<InboxMutation, { kind: "star" }>, "id" | "timestamp">;
+  | Omit<Extract<InboxMutation, { kind: "remove" }>, "id">
+  | Omit<Extract<InboxMutation, { kind: "read" }>, "id">
+  | Omit<Extract<InboxMutation, { kind: "unread-count" }>, "id">
+  | Omit<Extract<InboxMutation, { kind: "star" }>, "id">;
 
 const inboxMutationJournals = new WeakMap<
   QueryClient,
@@ -237,15 +231,7 @@ function inboxMutationJournal(qc: QueryClient) {
 }
 
 function activeInboxMutations(qc: QueryClient): InboxMutation[] {
-  const journal = inboxMutationJournal(qc);
-  const now = Date.now();
-  for (const [id, mutation] of journal) {
-    // ponytail: the 60s TTL is the fallback ceiling. Evidence-based retirement
-    // below is deliberately conservative because a stale Gmail refetch must
-    // never be allowed to resurrect a mutation that has not been observed.
-    if (now - mutation.timestamp > INBOX_MUTATION_TTL_MS) journal.delete(id);
-  }
-  return [...journal.values()];
+  return [...inboxMutationJournal(qc).values()];
 }
 
 function inboxMutationConflictKeys(mutation: InboxMutation): string[] {
@@ -369,7 +355,6 @@ function recordInboxMutation(
   const recorded = {
     ...mutation,
     id,
-    timestamp: Date.now(),
   } as InboxMutation;
   inboxMutationJournal(qc).set(id, recorded);
   return recorded;
@@ -479,11 +464,17 @@ export function settleInboxMutationIfObserved(
 export function clearInboxThreadRemoval(
   qc: QueryClient,
   threadId: string,
+  mutationIds: readonly string[],
 ): InboxThreadRemovalSnapshot {
   const journal = inboxMutationJournal(qc);
   const snapshot: InboxThreadRemovalSnapshot = [];
+  const allowedIds = new Set(mutationIds);
   for (const [id, mutation] of journal) {
-    if (mutation.kind !== "remove" || !mutation.threadIds.includes(threadId)) {
+    if (
+      mutation.kind !== "remove" ||
+      !allowedIds.has(id) ||
+      !mutation.threadIds.includes(threadId)
+    ) {
       continue;
     }
     snapshot.push({ id, mutation, threadId });

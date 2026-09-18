@@ -154,6 +154,7 @@ export const mailInboxThreads = table(
     hasAttachments: integer("has_attachments"),
     syncedAt: integer("synced_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
+    localMutationAt: integer("local_mutation_at"),
   },
   (t) => [
     index("mail_inbox_threads_owner_inbox_date_idx").on(

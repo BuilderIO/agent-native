@@ -74,11 +74,15 @@ describe("removal undo claim ownership", () => {
       const hook = hookSource.slice(start, end === -1 ? undefined : end);
 
       expect(hook).toContain("recordSuppressionClaim");
+      expect(hook).toContain("recordInboxMutationClaim");
       expect(hook).toContain("suppressionToken");
       expect(hook).toContain(
         "return { ...mutation, createSuppressionToken, getSuppressionIds }",
       );
       expect(hook.indexOf("recordSuppressionClaim")).toBeLessThan(
+        hook.indexOf("await Promise.all"),
+      );
+      expect(hook.indexOf("recordInboxMutationClaim")).toBeLessThan(
         hook.indexOf("await Promise.all"),
       );
     }
@@ -133,6 +137,35 @@ describe("filterSuppressedThreads", () => {
     // still list the thread.
     expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
+  });
+
+  it("does not expire a pending archive claim while stale data is possible", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-26T12:00:00.000Z"));
+    archivedSuppressionIds.push(
+      suppressThread("thread-archived", "archive", {
+        views: ["inbox", "unread"],
+      }),
+    );
+
+    vi.advanceTimersByTime(60_001);
+
+    expect(
+      filterSuppressedThreads(
+        [makeEmail("msg-archived", "thread-archived")],
+        "inbox",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("optimistic property overrides", () => {
+  it("retires read and star overrides only after provider evidence", () => {
+    const source = emailsHookSource();
+
+    expect(source).not.toContain("OVERRIDE_DURATION");
+    expect(source).toContain("reconcileOptimisticOverrides");
+    expect(source).toContain("Object.is(observed[property], props[property])");
   });
 });
 
@@ -573,9 +606,27 @@ describe("inbox-thread cache rollback on mutation error", () => {
 
       expect(hook).toContain("onMutate:");
       expect(hook).toContain("findInboxThreadIdByMessageId(qc, id)");
-      expect(hook).toContain("clearInboxThreadRemoval(qc, threadId)");
+      expect(hook).toContain("clearInboxThreadRemoval(");
+      expect(hook).toContain("getInboxMutationIds(suppressionToken, threadId)");
       expect(hook).toContain("restoreInboxThreadRemovals(qc");
     }
+  });
+
+  it("keeps a newer same-thread suppression claim after an older undo", () => {
+    const threadId = "thread-overlap";
+    const archived = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+    const muted = suppressThread(threadId, "mute", {
+      views: ["inbox", "unread"],
+    });
+    const row = [makeEmail("message-overlap", threadId)];
+
+    expect(releaseSuppression(threadId, archived)).toBe(false);
+    expect(filterSuppressedThreads(row, "inbox")).toEqual([]);
+
+    expect(releaseSuppression(threadId, muted)).toBe(true);
+    expect(filterSuppressedThreads(row, "inbox")).toEqual(row);
   });
 
   it("keeps bulk Gmail rollbacks scoped to the items that failed", () => {

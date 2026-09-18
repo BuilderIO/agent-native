@@ -216,6 +216,7 @@ describe("applyLocalLabelDelta", () => {
     expect(set.inInbox).toBe(1);
     expect(set.isUnread).toBe(0);
     expect(set.isStarred).toBe(1);
+    expect(set.localMutationAt).toEqual(expect.any(Number));
   });
 
   it("flips in_inbox to 0 when INBOX is removed (archive)", async () => {
@@ -425,6 +426,9 @@ describe("sync write fences", () => {
     ]);
 
     expect(dbState.conflictUpdates[0].setWhere).toMatchObject({ op: "sql" });
+    expect(dbState.conflictUpdates[0].setWhere.strings.join(" ")).toContain(
+      "IS DISTINCT FROM",
+    );
   });
 
   it("does not let full-sync cleanup mark a locally updated row stale", async () => {
