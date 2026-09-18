@@ -110,6 +110,9 @@ describe("content agent-readable discovery", () => {
     expect(guidance.instructions).toContain(
       "add this instance as a remote MCP server, authenticate, enable the connection or its tools, and retry",
     );
+    expect(guidance.instructions).toContain(
+      "does not distinguish missing permission from a stale, deleted, or invalid document id",
+    );
     expect(guidance.instructions).not.toContain("tell the user");
     expect(guidance.instructions).not.toContain("Do not ask");
   });

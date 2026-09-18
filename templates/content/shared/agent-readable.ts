@@ -153,7 +153,7 @@ export function contentDocumentMcpInstructionText(
   );
   const privateAccessFacts =
     options.accessState === "authentication-required" || !options.accessState
-      ? " This response establishes only that anonymous HTTP access is unavailable; the connected account's document permission has not been evaluated. For an MCP-capable agent without a Content connection, the normal access path is for the user to add this instance as a remote MCP server, authenticate, enable the connection or its tools, and retry the original document request. Only an authenticated get-document denial establishes that the connected account lacks document permission."
+      ? " This response establishes only that anonymous HTTP access is unavailable; the connected account's document permission has not been evaluated. For an MCP-capable agent without a Content connection, the normal access path is for the user to add this instance as a remote MCP server, authenticate, enable the connection or its tools, and retry the original document request. An authenticated get-document not-found response does not distinguish missing permission from a stale, deleted, or invalid document id."
       : "";
   const mcpPermissionFacts =
     options.accessState === "public"

@@ -160,10 +160,11 @@ does not currently write Antigravity configuration.
 Authentication identifies the connected account; it does not broaden document
 permissions. A public document remains readable from its share page without
 MCP. A private document becomes readable through MCP only when that account
-already has access. If the MCP server is connected but `get-document` returns
-an access denial, the document owner must grant that account access. Reinstalling
-the connector or changing the public share link does not resolve an account
-permission denial.
+already has access. If `get-document` returns "not found" after connection, that
+response does not distinguish missing permission from a stale, deleted, or
+invalid document ID. Verify the link and connected account's access before
+changing permissions. Reinstalling the connector or changing the public share
+link does not resolve a confirmed account permission denial.
 
 <a id="access-tab"></a>
 

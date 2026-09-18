@@ -133,9 +133,9 @@ Um link privado do Content pode identificar o documento sem expor seu conteúdo.
 
 Esse fluxo funciona com qualquer host compatível com MCP, incluindo Claude, ChatGPT, Claude Code, Codex, Cursor, Antigravity, OpenCode e GitHub Copilot / VS Code. As telas de configuração e autenticação variam por host. O Antigravity gerencia servidores remotos em **Settings → Customizations → Installed MCP Servers** ou na configuração MCP; o comando `connect` do Agent-Native ainda não configura o Antigravity.
 
-A autenticação identifica a conta conectada e não amplia suas permissões. Um documento público continua legível pelo link. Um documento privado só pode ser lido via MCP quando essa conta já tem acesso. Se `get-document` retornar acesso negado após a conexão, o proprietário precisa conceder acesso a essa conta.
+A autenticação identifica a conta conectada e não amplia suas permissões. Um documento público continua legível pelo link. Um documento privado só pode ser lido via MCP quando essa conta já tem acesso. Se `get-document` retornar “não encontrado” após a conexão, a resposta não distingue falta de permissão de um ID de documento obsoleto, excluído ou inválido. Verifique o link e o acesso da conta conectada antes de alterar permissões.
 
-Reinstalar o conector ou alterar o link de compartilhamento público não resolve uma negação de permissão da conta conectada.
+Reinstalar o conector ou alterar o link de compartilhamento público não resolve uma negação de permissão confirmada da conta conectada.
 
 <a id="access-tab"></a>
 

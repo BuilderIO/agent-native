@@ -134,9 +134,9 @@ Ein privater Content-Freigabelink kann das Dokument identifizieren, ohne seinen 
 
 Dieser Ablauf funktioniert mit jedem MCP-fähigen Host, darunter Claude, ChatGPT, Claude Code, Codex, Cursor, Antigravity, OpenCode und GitHub Copilot / VS Code. Konfiguration und Authentifizierung unterscheiden sich je nach Host. Antigravity verwaltet entfernte Server unter **Settings → Customizations → Installed MCP Servers** oder in seiner MCP-Konfiguration; der Agent-Native-Befehl `connect` konfiguriert Antigravity derzeit nicht.
 
-Die Authentifizierung identifiziert das verbundene Konto und erweitert dessen Dokumentberechtigungen nicht. Öffentliche Dokumente bleiben über ihren Freigabelink lesbar. Private Dokumente sind über MCP nur lesbar, wenn das verbundene Konto bereits Zugriff hat. Gibt `get-document` nach der Verbindung eine Zugriffsverweigerung zurück, muss der Eigentümer diesem Konto Zugriff gewähren.
+Die Authentifizierung identifiziert das verbundene Konto und erweitert dessen Dokumentberechtigungen nicht. Öffentliche Dokumente bleiben über ihren Freigabelink lesbar. Private Dokumente sind über MCP nur lesbar, wenn das verbundene Konto bereits Zugriff hat. Gibt `get-document` nach der Verbindung „nicht gefunden“ zurück, unterscheidet die Antwort nicht zwischen fehlender Berechtigung und einer veralteten, gelöschten oder ungültigen Dokument-ID. Prüfen Sie den Link und den Zugriff des verbundenen Kontos, bevor Sie Berechtigungen ändern.
 
-Eine Neuinstallation der Verbindung oder eine Änderung des öffentlichen Freigabelinks behebt keine Berechtigungsverweigerung für das verbundene Konto.
+Eine Neuinstallation der Verbindung oder eine Änderung des öffentlichen Freigabelinks behebt keine bestätigte Berechtigungsverweigerung für das verbundene Konto.
 
 <a id="access-tab"></a>
 

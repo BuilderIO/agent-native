@@ -133,9 +133,9 @@ Claude、ChatGPT、游標、Claude 程式碼、Codex、Grok 和其他的主機�
 
 此流程適用於 Claude、ChatGPT、Claude Code、Codex、Cursor、Antigravity、OpenCode、GitHub Copilot / VS Code 等支援 MCP 的主機。設定介面與驗證提示依主機而異。Antigravity 透過 **Settings → Customizations → Installed MCP Servers** 或 MCP 設定檔管理遠端伺服器；Agent-Native 的 `connect` 指令目前不會設定 Antigravity。
 
-驗證只會識別已連線的帳戶，不會擴大文件權限。公開文件仍可從分享頁面讀取。私人文件只有在該帳戶原本已有權限時才能透過 MCP 讀取。如果連線後 `get-document` 回傳拒絕存取，文件擁有者必須授予該帳戶權限。
+驗證只會識別已連線的帳戶，不會擴大文件權限。公開文件仍可從分享頁面讀取。私人文件只有在該帳戶原本已有權限時才能透過 MCP 讀取。如果連線後 `get-document` 回傳「找不到」，該回應無法區分權限不足與過期、已刪除或無效的文件 ID。變更權限前，請確認連結和已連線帳戶的存取權限。
 
-重新安裝連接器或變更公開分享連結，無法解決已連線帳戶的權限遭拒問題。
+重新安裝連接器或變更公開分享連結，無法解決已確認的已連線帳戶權限遭拒問題。
 
 <a id="access-tab"></a>
 
