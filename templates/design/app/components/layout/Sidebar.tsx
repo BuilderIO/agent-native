@@ -75,7 +75,7 @@ export function Sidebar() {
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
-  const orgSwitcher = <OrgSwitcher compact={collapsed} reserveSpace />;
+  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
   return (
     <AppSidebar
