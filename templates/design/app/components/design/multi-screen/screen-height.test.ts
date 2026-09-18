@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isImportedStaticScreenSource,
   resolveAutoFitScreenHeight,
   resolveScreenHeightMode,
 } from "./screen-height";
@@ -11,6 +12,21 @@ describe("screen height modes", () => {
     expect(resolveScreenHeightMode(undefined, true)).toBe("fixed");
     expect(resolveScreenHeightMode(undefined, false)).toBe("auto");
     expect(resolveScreenHeightMode(undefined, undefined)).toBe("auto");
+  });
+
+  it("pins imported static screens unless they explicitly choose a mode", () => {
+    expect(isImportedStaticScreenSource("figma-import")).toBe(true);
+    expect(isImportedStaticScreenSource("html-upload")).toBe(true);
+    expect(isImportedStaticScreenSource("fig-frame")).toBe(true);
+    expect(isImportedStaticScreenSource("creative-context-native-clone")).toBe(
+      true,
+    );
+    expect(isImportedStaticScreenSource("inline")).toBe(false);
+    expect(resolveScreenHeightMode(undefined, false, "figma-import")).toBe(
+      "fixed",
+    );
+    expect(resolveScreenHeightMode("hug", false, "figma-import")).toBe("hug");
+    expect(resolveScreenHeightMode("auto", false, "figma-import")).toBe("auto");
   });
 
   it("preserves the existing device floor for automatic screens", () => {

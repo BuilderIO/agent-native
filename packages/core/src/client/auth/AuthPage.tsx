@@ -5,6 +5,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
+import { getAppStatus } from "../../shared/app-status.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
@@ -30,6 +31,8 @@ export interface AuthMarketingProps {
   tagline?: string;
   description?: string;
   features?: string[];
+  authHeadline?: string;
+  authDescription?: string;
   screenshotSrc?: string;
   screenshotWidth?: number;
   screenshotHeight?: number;
@@ -2343,6 +2346,15 @@ export function AuthPage(props: AuthPageProps) {
   const marketingCopy = marketing
     ? { ...marketing, ...(marketingLocales[locale] ?? {}) }
     : undefined;
+  const marketingAppName =
+    marketingCopy?.appName.replace(/^Agent-Native\s+/i, "") ?? "";
+  const marketingStatus = getAppStatus(trackingApp || marketingAppName);
+  const usesMarketingWelcome =
+    !!marketingCopy &&
+    (view === "signup" ||
+      view === "login" ||
+      view === "magicLink" ||
+      view === "googleOnly");
   const cardClassName = [
     "card",
     view === "verification" ? "verifying" : "",
@@ -2474,16 +2486,27 @@ export function AuthPage(props: AuthPageProps) {
   );
   const authCard = (
     <div className={cardClassName}>
-      <h1 id="heading" data-i18n={keys.heading}>
-        {t(keys.heading)}
+      <h1
+        id="heading"
+        data-i18n={usesMarketingWelcome ? "welcomeToApp" : keys.heading}
+        data-auth-marketing-title={usesMarketingWelcome ? "true" : undefined}
+      >
+        {usesMarketingWelcome
+          ? t("welcomeToApp").replace("{appName}", marketingAppName)
+          : t(keys.heading)}
       </h1>
       <p
         id="subtitle"
         className="subtitle"
-        data-i18n={keys.subtitle}
-        hidden={shouldHideAuthSubtitle(view, localDevAvailable)}
+        data-i18n={usesMarketingWelcome ? undefined : keys.subtitle}
+        data-auth-marketing-subtitle={usesMarketingWelcome ? "true" : undefined}
+        hidden={
+          usesMarketingWelcome
+            ? false
+            : shouldHideAuthSubtitle(view, localDevAvailable)
+        }
       >
-        {t(keys.subtitle)}
+        {usesMarketingWelcome ? t("welcomeSubtitle") : t(keys.subtitle)}
       </p>
       <p
         className={`upgrade-note ${upgradeVisible ? "show" : ""}`}
@@ -2636,14 +2659,7 @@ export function AuthPage(props: AuthPageProps) {
               {magicLinkBusy ? t("sending") : t("sendMagicLink")}
             </button>
             {notice("magic-link")}
-            {legalNote}
-            <p
-              style={{
-                marginTop: "0.75rem",
-                fontSize: "0.75rem",
-                textAlign: "start",
-              }}
-            >
+            <p className="auth-mode-switch">
               <button
                 type="button"
                 className="link-button auth-mode-link"
@@ -2654,6 +2670,7 @@ export function AuthPage(props: AuthPageProps) {
                 {t("usePasswordInstead")}
               </button>
             </p>
+            {legalNote}
           </form>
         ) : null}
         {authMode === "magic-link" ? (
@@ -3035,15 +3052,56 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
+  const marketingContent = marketingCopy ? (
+    <div className="marketing-content">
+      <h2 className="app-name">
+        <picture>
+          {brandMarkLightSrc ? (
+            <source
+              media="(prefers-color-scheme: light)"
+              srcSet={brandMarkLightSrc}
+            />
+          ) : null}
+          <img
+            className="brand-mark"
+            src={brandMarkSrc}
+            alt=""
+            aria-hidden="true"
+          />
+        </picture>
+        <span className="app-name-label">{marketingAppName}</span>
+        <span className="app-status-badge">{marketingStatus}</span>
+      </h2>
+      <div className="marketing-copy">
+        <p className="auth-marketing-headline" data-marketing-field="headline">
+          {marketingCopy.authHeadline ?? marketingCopy.tagline}
+        </p>
+        {(marketingCopy.authDescription ?? marketingCopy.description) ? (
+          <p
+            className="auth-marketing-description"
+            data-marketing-field="description"
+          >
+            {marketingCopy.authDescription ?? marketingCopy.description}
+          </p>
+        ) : null}
+        <div className="marketing-actions">
+          <a
+            className="oss-badge"
+            href={githubUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span data-i18n="openSource">{t("openSource")}</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  ) : null;
   const marketingSurface = marketingCopy ? (
     <MarketingHome
-      appName={marketingCopy.appName}
+      appName={marketingAppName}
       variant="auth"
-      background={
-        marketingCopy.screenshotSrc ? null : (
-          <OceanBackground className="auth-marketing-background" />
-        )
-      }
+      background={null}
       topRight={
         marketingCopy.learnMoreUrl ? (
           <a
@@ -3053,13 +3111,8 @@ export function AuthPage(props: AuthPageProps) {
             target="_blank"
             rel="noreferrer"
           >
-            <span>
-              {t("newToApp").replace(
-                "{appName}",
-                marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
-              )}
-            </span>
-            <span aria-hidden="true"> - </span>
+            <span>{t("newToApp").replace("{appName}", marketingAppName)}</span>
+            <span aria-hidden="true"> </span>
             <span className="auth-marketing-learn-more-link">
               {t("learnMore")}
             </span>
@@ -3067,81 +3120,14 @@ export function AuthPage(props: AuthPageProps) {
         ) : null
       }
       auth={authCard}
-      className={[
-        "auth-marketing-home",
-        marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className="auth-marketing-home"
     >
-      {marketingCopy.screenshotSrc ? (
-        <div
-          className="auth-marketing-screenshot-wrap"
-          style={{
-            aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
-          }}
-        >
+      <div className="auth-marketing-visual">
+        <div className="auth-marketing-screenshot-wrap">
           <OceanBackground className="auth-marketing-screenshot" />
         </div>
-      ) : (
-        <div className="marketing-content">
-          <h2 className="app-name">
-            <picture>
-              {brandMarkLightSrc ? (
-                <source
-                  media="(prefers-color-scheme: light)"
-                  srcSet={brandMarkLightSrc}
-                />
-              ) : null}
-              <img
-                className="brand-mark"
-                src={brandMarkSrc}
-                alt=""
-                aria-hidden="true"
-              />
-            </picture>
-            <span>{marketingCopy.appName}</span>
-          </h2>
-          <p className="app-tagline" data-marketing-field="tagline">
-            {marketingCopy.tagline}
-          </p>
-          {marketingCopy.description ? (
-            <p className="app-desc" data-marketing-field="description">
-              {marketingCopy.description}
-            </p>
-          ) : null}
-          {marketingCopy.features?.length ? (
-            <ul className="feature-list">
-              {marketingCopy.features.map((feature, index) => (
-                <li key={index} data-marketing-feature-index={index}>
-                  {feature}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <div className="marketing-actions">
-            <a
-              className="oss-link"
-              href={githubUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" />
-              </svg>
-              <span data-i18n="openSource">{t("openSource")}</span>
-            </a>
-          </div>
-        </div>
-      )}
+        {marketingContent}
+      </div>
     </MarketingHome>
   ) : (
     <div className="auth-centered">{authCard}</div>
