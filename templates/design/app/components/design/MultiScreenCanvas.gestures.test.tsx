@@ -333,10 +333,23 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             correlationId: string;
             includePortableStyleSnapshot?: boolean;
           };
-          // Overview marquee collection is geometry-first. The full portable
-          // subtree snapshot remains on direct selection/drill-in paths, but
-          // paying for it before a marquee has a hit-set blocks large boards.
-          expect(data.includePortableStyleSnapshot).toBe(false);
+          if (data.includePortableStyleSnapshot) {
+            window.dispatchEvent(
+              new MessageEvent("message", {
+                data: {
+                  type: "agent-native:selectable-rects-result",
+                  correlationId: data.correlationId,
+                  payload: [
+                    candidate(
+                      iframe === screenA ? "screen-a-layer" : "screen-b-layer",
+                    ),
+                  ],
+                },
+                source: iframe.contentWindow,
+              }),
+            );
+            return;
+          }
           if (iframe === screenA) {
             window.dispatchEvent(
               new MessageEvent("message", {

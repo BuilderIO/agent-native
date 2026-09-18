@@ -5105,6 +5105,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 ) {
                   return;
                 }
+                const refreshedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+                if (refreshedSelectionRevision !== releasedSelectionRevision) {
+                  onLayerMarqueeSelectionChange?.([], {
+                    source: "marquee",
+                    cancelled: true,
+                  });
+                  finishDrag();
+                  return;
+                }
                 reportLayerSelection(finalRect, true);
                 finishDrag();
               },
