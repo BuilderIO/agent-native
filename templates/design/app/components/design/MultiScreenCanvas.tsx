@@ -4202,6 +4202,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           onLayerMarqueeSelectionChange?.(
             [{ screenId: target.screenId, info: target.info }],
             {
+              additive: Boolean(modifierKeys?.shiftKey),
               ctrlKey: Boolean(modifierKeys?.ctrlKey),
               metaKey: Boolean(modifierKeys?.metaKey),
               shiftKey: Boolean(modifierKeys?.shiftKey),
