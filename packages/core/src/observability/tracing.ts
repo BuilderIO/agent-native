@@ -119,7 +119,7 @@ const TRACKING_SPAN_NAMES = new Map([
   ["$a2a_invocation", "a2a.invocation"],
   ["$a2a_read_invoke", "a2a.read"],
 ]);
-type TrackingEventOrigin = "client" | "server";
+export type TrackingEventOrigin = "client" | "server";
 
 const pendingTrackingEvents = new Set<Promise<void>>();
 
@@ -136,10 +136,50 @@ function trackingAttributeValue(
   value: unknown,
 ): string | number | boolean | undefined {
   return typeof value === "string" ||
-    typeof value === "number" ||
+    (typeof value === "number" && Number.isFinite(value)) ||
     typeof value === "boolean"
     ? value
     : undefined;
+}
+
+function clientTrackingSpanAttributes(
+  properties: Record<string, unknown>,
+): Record<string, string | number | boolean> {
+  const attributes: Record<string, string | number | boolean> = {};
+  const assignNumber = (attribute: string, key: string) => {
+    const value = properties[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      attributes[attribute] = value;
+    }
+  };
+  const assignBoolean = (attribute: string, key: string) => {
+    const value = properties[key];
+    if (typeof value === "boolean") attributes[attribute] = value;
+  };
+
+  assignBoolean("agent.success", "success");
+  assignBoolean("agent.sampled", "sampled");
+  assignNumber("agent.sample_rate", "sample_rate");
+  assignNumber("http.status_code", "status_code");
+  for (const key of [
+    "duration_ms",
+    "ttfb_ms",
+    "body_ms",
+    "server_duration_ms",
+    "network_overhead_ms",
+    "framework_ready_wait_ms",
+    "db_operation_wall_ms",
+    "db_operation_count",
+    "cold_start",
+  ]) {
+    assignNumber(`agent.${key}`, key);
+  }
+
+  const statusCode = properties.status_code;
+  if (typeof statusCode === "number" && Number.isFinite(statusCode)) {
+    attributes["http.status_class"] = `${Math.floor(statusCode / 100)}xx`;
+  }
+  return attributes;
 }
 
 function trackingSpanAttributes(
@@ -151,6 +191,12 @@ function trackingSpanAttributes(
     "agent.event_name": name,
   };
   if (origin) attributes["agent.telemetry_source"] = origin;
+  if (origin === "client") {
+    return {
+      ...attributes,
+      ...clientTrackingSpanAttributes(properties),
+    };
+  }
   const assign = (attribute: string, key: string, value = properties[key]) => {
     const normalized = trackingAttributeValue(value);
     if (normalized !== undefined) attributes[attribute] = normalized;
@@ -165,7 +211,7 @@ function trackingSpanAttributes(
   assign("agent.sample_rate", "sample_rate");
   assign("agent.sampled", "sampled");
   assign("http.method", "method");
-  assign("http.route", "path");
+  assign("http.route", "route_template");
   assign("http.status_code", "status_code");
   assign("http.status_class", "status_class");
   assign("agent.duration_ms", "duration_ms");
@@ -219,15 +265,16 @@ export async function recordTrackingEvent(
   }
 
   try {
+    const endTime = Date.now();
     const span = await startAgentSpan(
       spanName,
       trackingSpanAttributes(normalizedName, properties, origin),
       null,
-      Date.now() - durationMs,
+      endTime - durationMs,
     );
     endAgentSpan(span, {
       status: trackingSpanStatus(properties),
-      endTime: Date.now(),
+      endTime,
     });
     // coercion-ok: optional OTel export must never affect analytics or request handling.
   } catch {

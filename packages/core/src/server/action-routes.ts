@@ -58,7 +58,10 @@ import {
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
 } from "./embed-session.js";
-import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
+import {
+  getHttpRequestTelemetryId,
+  setHttpRequestTelemetryActionName,
+} from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
 import {
   getForwardedRequestOrigin,
@@ -514,6 +517,7 @@ function mountActionRoutesInternal(
     app.use(
       routePath,
       defineEventHandler(async (event) => {
+        setHttpRequestTelemetryActionName(event, name);
         const reqMethod = getMethod(event);
         const effectiveMethod =
           reqMethod === "HEAD" && method === "GET" ? "GET" : reqMethod;

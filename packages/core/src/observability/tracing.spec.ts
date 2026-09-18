@@ -24,6 +24,7 @@ interface RecordedSpan {
   name: string;
   attributes: Record<string, string | number | boolean>;
   startTime?: unknown;
+  endTime?: unknown;
   status?: { code: number; message?: string };
   exceptions: Array<{ name?: string; message: string }>;
   ended: boolean;
@@ -60,7 +61,8 @@ function createTestTracer() {
         recordException(exception) {
           recorded.exceptions.push(exception);
         },
-        end() {
+        end(endTime) {
+          recorded.endTime = endTime;
           recorded.ended = true;
         },
       };
@@ -158,6 +160,7 @@ describe("tracing helper — test provider registered", () => {
         action_name: "list-visual-plans",
         method: "GET",
         path: "/_agent-native/actions/list-visual-plans",
+        route_template: "/_agent-native/actions/:action",
         status_code: 200,
         duration_ms: 42,
         request_id: "request-1",
@@ -173,7 +176,7 @@ describe("tracing helper — test provider registered", () => {
         "agent.telemetry_source": "server",
         "agent.action": "list-visual-plans",
         "http.method": "GET",
-        "http.route": "/_agent-native/actions/list-visual-plans",
+        "http.route": "/_agent-native/actions/:action",
         "http.status_code": 200,
         "agent.duration_ms": 42,
       },
@@ -181,6 +184,7 @@ describe("tracing helper — test provider registered", () => {
       ended: true,
     });
     expect(spans[0]?.startTime).toEqual(expect.any(Number));
+    expect(spans[0]?.endTime).toEqual(expect.any(Number));
   });
 
   it("marks client transport failures as OTel errors", async () => {
@@ -192,6 +196,8 @@ describe("tracing helper — test provider registered", () => {
       {
         action: "get-deck",
         outcome: "network-error",
+        caller: "frontend",
+        path: "/users/customer-secret",
         success: false,
         duration_ms: 18,
       },
@@ -201,13 +207,40 @@ describe("tracing helper — test provider registered", () => {
     expect(spans[0]).toMatchObject({
       name: "action.client",
       attributes: {
-        "agent.action": "get-deck",
-        "agent.outcome": "network-error",
         "agent.success": false,
       },
       status: { code: SPAN_STATUS_ERROR },
       ended: true,
     });
+    expect(spans[0]?.attributes).not.toHaveProperty("agent.action");
+    expect(spans[0]?.attributes).not.toHaveProperty("agent.outcome");
+    expect(spans[0]?.attributes).not.toHaveProperty("http.route");
+  });
+
+  it("does not export client-provided string dimensions", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent(
+      "action.response",
+      {
+        action: "customer-secret",
+        caller: "attacker-controlled",
+        outcome: "arbitrary-user-content",
+        path: "/customer-secret",
+        duration_ms: 18,
+      },
+      "client",
+    );
+
+    expect(spans[0]?.attributes).toEqual(
+      expect.not.objectContaining({
+        "agent.action": "customer-secret",
+        "agent.caller": "attacker-controlled",
+        "agent.outcome": "arbitrary-user-content",
+        "http.route": "/customer-secret",
+      }),
+    );
   });
 
   it("does not turn ordinary analytics events into spans", async () => {

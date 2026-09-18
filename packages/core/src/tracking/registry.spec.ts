@@ -216,6 +216,22 @@ describe("tracking registry", () => {
     );
   });
 
+  it("marks browser-forwarded events as client-originated", () => {
+    captureEvents();
+
+    track(
+      "action.response",
+      { duration_ms: 12, success: true },
+      { telemetryOrigin: "client" },
+    );
+
+    expect(mockQueueTrackingEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ duration_ms: 12, success: true }),
+      "client",
+    );
+  });
+
   it("lets an explicit session override the ambient request", async () => {
     const events = captureEvents();
 

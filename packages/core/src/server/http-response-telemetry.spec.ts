@@ -10,6 +10,7 @@ import {
   installHttpResponseTelemetryHooks,
   normalizeHttpTelemetryPath,
   recordFrameworkReadyWait,
+  setHttpRequestTelemetryActionName,
 } from "./http-response-telemetry.js";
 
 // The module keeps its cold-start bookkeeping on globalThis under this symbol.
@@ -111,6 +112,7 @@ describe("http response telemetry", () => {
     };
 
     await requestHooks[0](event);
+    setHttpRequestTelemetryActionName(event as any, "list-visual-plans");
     await withDbTimeout("connect", async () => undefined, 100);
     await withDbTimeout("query", async () => undefined, 100);
     recordFrameworkReadyWait(event as any, 12);
@@ -169,6 +171,10 @@ describe("http response telemetry", () => {
         "/_agent-native/actions/list-transactional-email-ai-requests",
       );
       await requestHooks[0](event);
+      setHttpRequestTelemetryActionName(
+        event as any,
+        "list-transactional-email-ai-requests",
+      );
       await responseHooks[0](new Response("{}"), event);
 
       expect(tracked[0]).toMatchObject({
@@ -228,6 +234,7 @@ describe("http response telemetry", () => {
       res: { status: 403, headers: new Headers() },
     };
     await requestHooks[0](actionEvent);
+    setHttpRequestTelemetryActionName(actionEvent as any, "get-visual-plan");
     await responseHooks[0](
       new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 }),
       actionEvent,
@@ -242,6 +249,25 @@ describe("http response telemetry", () => {
         status_class: "4xx",
       },
     });
+  });
+
+  it("does not derive action names from unknown action URLs", async () => {
+    const { requestHooks, responseHooks } = createHooks();
+    processState.requestSequence = 5;
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    const event = eventFor("/_agent-native/actions/unknown-customer-value");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("not found", { status: 404 }), event);
+
+    expect(tracked[0]?.properties).not.toHaveProperty("action_name");
+    expect(tracked[0]?.properties).not.toHaveProperty("route_template");
   });
 
   it("does not recursively track analytics ingestion requests", async () => {
@@ -280,6 +306,7 @@ describe("http response telemetry", () => {
 
     const event = eventFor("/_agent-native/actions/list-visual-plans");
     await requestHooks[0](event);
+    setHttpRequestTelemetryActionName(event as any, "list-visual-plans");
     const response = new Response("{}");
     await responseHooks[0](response, event);
 
@@ -329,6 +356,7 @@ describe("http response telemetry", () => {
 
     const event = eventFor("/_agent-native/actions/get-visual-plan");
     await requestHooks[0](event);
+    setHttpRequestTelemetryActionName(event as any, "get-visual-plan");
     const response = new Response("{}", {
       headers: { "cache-control": "private, no-store" },
     });

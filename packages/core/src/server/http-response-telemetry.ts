@@ -64,6 +64,7 @@ const installedApps = new WeakSet<object>();
 interface HttpRequestTelemetryState {
   startedAt: number;
   requestId: string;
+  actionName?: string;
   processAgeAtStartMs: number;
   requestSequence: number;
   frameworkReadyWaitMs: number;
@@ -129,19 +130,6 @@ export function normalizeHttpTelemetryPath(pathname: string): string {
     .split("/")
     .map((segment, index) => (index === 0 ? "" : normalizeSegment(segment)))
     .join("/");
-}
-
-function actionNameForPath(pathname: string): string | undefined {
-  const prefix = "/_agent-native/actions/";
-  const normalized = pathname.replace(/\/+$/, "");
-  if (!normalized.startsWith(prefix)) return undefined;
-  const actionPath = normalized.slice(prefix.length);
-  if (!actionPath || actionPath.includes("/")) return undefined;
-  try {
-    return decodeURIComponent(actionPath);
-  } catch {
-    return actionPath;
-  }
 }
 
 function statusClass(statusCode: number): string {
@@ -267,7 +255,7 @@ async function emitTelemetry(
   if (decision.track) {
     try {
       const host = hostForEvent(event);
-      const actionName = actionNameForPath(pathname);
+      const actionName = state.actionName;
       const db = getDatabaseRuntimeFingerprint();
       track(TELEMETRY_EVENT_NAME, {
         source: "server",
@@ -277,7 +265,12 @@ async function emitTelemetry(
         method: getMethod(event),
         path: normalizeHttpTelemetryPath(pathname),
         route_kind: routeKind(pathname),
-        ...(actionName ? { action_name: actionName } : {}),
+        ...(actionName
+          ? {
+              action_name: actionName,
+              route_template: "/_agent-native/actions/:action",
+            }
+          : {}),
         status_code: statusCode,
         status_class: statusClass(statusCode),
         sample_rate: decision.sampleRate,
@@ -361,6 +354,16 @@ function requestTelemetryState(
 /** Return the durable request id while a request is still being handled. */
 export function getHttpRequestTelemetryId(event: H3Event): string | undefined {
   return requestTelemetryState(event)?.requestId;
+}
+
+/** Record a route name supplied by the registered action router, not the URL. */
+export function setHttpRequestTelemetryActionName(
+  event: H3Event,
+  actionName: string,
+): void {
+  const state = requestTelemetryState(event);
+  const normalized = actionName.trim();
+  if (state && normalized) state.actionName = normalized;
 }
 
 function appendServerTiming(
