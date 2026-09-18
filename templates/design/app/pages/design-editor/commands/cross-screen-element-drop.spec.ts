@@ -1127,6 +1127,14 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     async (conflictingFile) => {
       const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
       const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+      const canonicalSourceContent = acceptFixture(
+        "source",
+        sourceContent,
+      ).content;
+      const canonicalDestinationContent = acceptFixture(
+        "target",
+        destinationContent,
+      ).content;
       const calls: Array<{ fileId: string; content: string }> = [];
       let resolveTarget!: (saved: boolean) => void;
       let resolveSource!: (saved: boolean) => void;
@@ -1180,6 +1188,14 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
       );
       expect(result.historyEntries).toEqual([]);
       expect(result.selectionEvents).toEqual([]);
+      expect(result.contentByFile.get("source")).toBe(
+        conflictingFile === "target" ? canonicalSourceContent : sourceContent,
+      );
+      expect(result.contentByFile.get("target")).toBe(
+        conflictingFile === "source"
+          ? canonicalDestinationContent
+          : destinationContent,
+      );
     },
   );
 
