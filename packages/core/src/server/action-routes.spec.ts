@@ -976,6 +976,25 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("registers optional-auth action routes before the auth guard", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const nitroApp = {
+      use: vi.fn(),
+    };
+
+    mountActionRoutes(nitroApp, {
+      "public-metadata": {
+        requiresAuth: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    });
+
+    expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
+      ["/_agent-native/actions/public-metadata"],
+      nitroApp,
+    );
+  });
+
   it("propagates a verified capability to a public action without impersonating its owner", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestAuthCapability, getRequestUserEmail } =
@@ -3278,6 +3297,58 @@ describe("mountWebMcpActionRoutes", () => {
         req: { json: async () => ({}) },
       }),
     ).rejects.toMatchObject({ statusCode: 401 });
+  });
+
+  it("does not let a bootstrap capability match ordinary visual-edit actions", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "bootstrap-owner@example.com",
+      token: "signed-bootstrap-capability",
+      targetPath: "/visual-edit",
+      scope: `capability:visual-edit-bootstrap:${"a".repeat(32)}`,
+    });
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "open-visual-edit": {
+          tool: { description: "Open visual edit", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["visual-edit-bootstrap"],
+        } as any,
+        "ordinary-visual-edit": {
+          tool: { description: "Ordinary visual edit", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["visual-edit"],
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+        },
+      },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "open-visual-edit",
+        title: "Open visual edit",
+        description: "Open visual edit",
+        inputSchema: {},
+        readOnly: false,
+      },
+    ]);
   });
 
   it("does not treat a synthetic anonymous owner as authenticated", async () => {

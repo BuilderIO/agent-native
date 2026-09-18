@@ -123,7 +123,7 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge placement="inline" collapsed />));
 
-    expect(container.querySelector('[role="status"]')?.className).toContain(
+    expect(container.querySelector("button")?.className).toContain(
       "text-[9px]",
     );
 
@@ -133,7 +133,7 @@ describe("EnvironmentBadge render", () => {
       ),
     );
 
-    const betaBadge = container.querySelector('[role="status"]');
+    const betaBadge = container.querySelector("button");
     expect(betaBadge?.className).toContain("text-[10px]");
     expect(betaBadge?.className).not.toContain("text-[9px]");
   });
@@ -188,7 +188,7 @@ describe("EnvironmentBadge render", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("renders the badge for signed-out visitors without interaction", () => {
+  it("opens development feedback for signed-out visitors", () => {
     useSessionMock.mockReturnValue({
       session: null,
       status: "unauthenticated",
@@ -196,16 +196,30 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    const badge = container.querySelector('[role="status"]');
-    expect(badge?.textContent).toBe("alpha");
-    expect(badge?.className).toContain("border-primary/80");
-    expect(badge?.className).toContain("bottom-3");
-    expect(badge?.className).toContain("left-3");
-    expect(container.querySelector("button")).toBeNull();
-    expect(container.textContent).toContain("alpha");
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toBe("alpha");
+    expect(trigger?.className).toContain("border-primary/80");
+    expect(trigger?.className).toContain("bottom-3");
+    expect(trigger?.className).toContain("left-3");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    const popover = document.body.querySelector('[data-side="top"]');
+    expect(popover?.textContent).toContain("Under active development");
+    expect(popover?.textContent).toContain(
+      "This template is under active development",
+    );
+    expect(
+      popover?.querySelector('button[aria-label="Send feedback"]'),
+    ).not.toBeNull();
   });
 
-  it("renders the badge for non-builder users without interaction", () => {
+  it("opens development feedback for non-builder users", () => {
     useSessionMock.mockReturnValue({
       session: { email: "person@example.com" },
       status: "authenticated",
@@ -213,10 +227,20 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    expect(container.querySelector("button")).toBeNull();
-    const badge = container.querySelector('[role="status"]');
-    expect(badge?.textContent).toBe("alpha");
-    expect(container.textContent).toContain("alpha");
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toBe("alpha");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    expect(document.body.textContent).toContain("Under active development");
+    expect(
+      document.body.querySelector('button[aria-label="Send feedback"]'),
+    ).not.toBeNull();
   });
 
   it("opens an inline chip popover for @builder.io employees", () => {
@@ -326,7 +350,7 @@ describe("EnvironmentBadge render", () => {
     expect(container.querySelector("button")?.textContent).toBe("custom");
   });
 
-  it("renders non-interactive chip on production for non-employee sessions", () => {
+  it("opens development feedback on production for non-employee sessions", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -342,7 +366,18 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    expect(container.querySelector("button")).toBeNull();
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toBe("alpha");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    const popover = document.body.querySelector('[data-side="top"]');
+    expect(popover?.textContent).toContain("Under active development");
   });
 
   it("automatically redirects an employee from production to beta", () => {

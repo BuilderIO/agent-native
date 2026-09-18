@@ -113,6 +113,10 @@ const FIRST_TOUCH_COOKIE = "an_ft";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
 
+export function isVerificationLinkInvalid(error: string | null): boolean {
+  return error === "verification_link_invalid" || error === "INVALID_TOKEN";
+}
+
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -918,8 +922,7 @@ export function AuthPage(props: AuthPageProps) {
     if (googleOnly) return;
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
     const params = new URLSearchParams(window.location.search);
-    const verificationError =
-      params.get("error") === "verification_link_invalid";
+    const verificationError = isVerificationLinkInvalid(params.get("error"));
     if (params.get("verified") || verificationError) {
       setView("login");
       const rememberedEmail = readPendingSignupEmail();

@@ -13627,8 +13627,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "y";
   }
 
+  function wrappedFlexMainAxis(parent: Element): string | null {
+    var cs = window.getComputedStyle(parent);
+    if (cs.display !== "flex" && cs.display !== "inline-flex") {
+      return null;
+    }
+    if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+      return null;
+    }
+    return cs.flexDirection && cs.flexDirection.indexOf("row") === 0
+      ? "x"
+      : "y";
+  }
+
   // Resolves a between-children insertion inside `container` from the
-  // pointer position: the nearest visible child (by flow-axis center)
+  // pointer position: the nearest visible child (by flow-axis center, or
+  // two-dimensional visual distance for wrapped flex and multi-track grid)
   // becomes the anchor with before/after placement, which renders as the
   // Figma-style insertion LINE between children. Returns null when the
   // container has no eligible children (caller falls back to "inside").
@@ -13668,8 +13682,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return !isExcluded(child);
     });
     if (!children.length) return null;
-    var axis = parentFlowAxis(container);
     var containerStyles = window.getComputedStyle(container);
+    var wrappedFlexAxis = wrappedFlexMainAxis(container);
+    var axis = wrappedFlexAxis || parentFlowAxis(container);
     var multiTrackGrid =
       (containerStyles.display === "grid" ||
         containerStyles.display === "inline-grid") &&
@@ -13686,27 +13701,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var center =
         axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
       var pointer = axis === "x" ? clientX : clientY;
-      // A multi-column grid is two-dimensional. Comparing X alone ties cells
-      // in the same column across every row, so a drop beside row 2 used to
-      // anchor against row 1 and jump to the beginning of the grid. Resolve
-      // the nearest visual cell in both axes, then use X for row-major
-      // before/after placement. One-column grids retain the normal Y path.
-      var distance = multiTrackGrid
-        ? Math.hypot(
-            clientX - (rect.left + rect.width / 2),
-            clientY - (rect.top + rect.height / 2),
-          )
-        : Math.abs(pointer - center);
+      // A multi-column grid or wrapped flex is two-dimensional. Comparing one
+      // axis alone ties cells/items across rows, so a drop can anchor against
+      // the wrong visual track. Resolve the nearest visual child in both
+      // axes, then use the container's main axis for before/after placement.
+      // One-column grids and non-wrapped flex retain their normal flow path.
+      var distance =
+        multiTrackGrid || wrappedFlexAxis
+          ? Math.hypot(
+              clientX - (rect.left + rect.width / 2),
+              clientY - (rect.top + rect.height / 2),
+            )
+          : Math.abs(pointer - center);
       if (distance < bestDistance) {
         bestDistance = distance;
         best = children[j];
-        placement = multiTrackGrid
-          ? clientX < rect.left + rect.width / 2
-            ? "before"
-            : "after"
-          : pointer < center
-            ? "before"
-            : "after";
+        var placementPointer = axis === "x" ? clientX : clientY;
+        placement =
+          multiTrackGrid || wrappedFlexAxis
+            ? placementPointer < center
+              ? "before"
+              : "after"
+            : pointer < center
+              ? "before"
+              : "after";
       }
     }
     if (!best) return null;
@@ -13755,6 +13773,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       !isOverlayElement(hit) &&
       !isTemplateCloneElement(hit)
     ) {
+      // A same-parent child is always a slot. Cross-parent slots are only
+      // forced for wrapped flex and grid, where the row/cell geometry carries
+      // insertion intent; a child of an ordinary flex item can still be an
+      // intentional nesting target.
+      var hitAutoLayoutParent = hit.parentElement;
+      var hitAutoLayoutStyles = hitAutoLayoutParent
+        ? window.getComputedStyle(hitAutoLayoutParent)
+        : null;
+      var hitIsGrid =
+        hitAutoLayoutStyles &&
+        (hitAutoLayoutStyles.display === "grid" ||
+          hitAutoLayoutStyles.display === "inline-grid");
+      var hitIsWrappedFlex =
+        hitAutoLayoutStyles &&
+        (hitAutoLayoutStyles.display === "flex" ||
+          hitAutoLayoutStyles.display === "inline-flex") &&
+        (hitAutoLayoutStyles.flexWrap === "wrap" ||
+          hitAutoLayoutStyles.flexWrap === "wrap-reverse");
+      if (
+        hitAutoLayoutParent &&
+        isAutoLayoutElement(hitAutoLayoutParent) &&
+        (hitAutoLayoutParent === el.parentElement ||
+          hitIsGrid ||
+          hitIsWrappedFlex)
+      ) {
+        var directChildSlot = nearestChildInsertionTarget(
+          hitAutoLayoutParent,
+          clientX,
+          clientY,
+          dragged,
+        );
+        if (directChildSlot) return directChildSlot;
+      }
       if (isContainerDropTarget(hit) && !isTextBearingLeaf(hit)) {
         var containerRect = hit.getBoundingClientRect();
         var edgeAxis = hit.parentElement
@@ -13910,6 +13961,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientY < parentRect.top ||
       clientY > parentRect.bottom;
 
+    // Cmd/Ctrl's auto-layout override is a free placement gesture. Once it
+    // leaves its current auto-layout parent, resolve the root escape before a
+    // nearby sibling/container can pull it back into that parent's flow.
+    var pointHit = elementFromEditorPoint(clientX, clientY);
+    if (
+      ignoreTargetAutoLayout &&
+      pointerOutsideCurrentParent &&
+      isAutoLayoutElement(currentParent) &&
+      (!pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement)
+    ) {
+      // Cmd/Ctrl is an explicit escape from the current auto-layout tree.
+      // Use the document root as the persistence anchor instead of placing
+      // after the former parent, whose generated screen wrapper would retain
+      // the child in that tree after the source round-trip.
+      return {
+        anchor: document.body,
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container",
+      };
+    }
+
     if (keepCurrentParent && pointerOutsideCurrentParent) {
       // Figma parity: an auto-layout parent cannot host a freely
       // (absolutely) positioned child at all, so "keep current parent,
@@ -14009,7 +14084,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return target;
   }
 
-  /** Apply Figma's Control-drag "Ignore auto layout" modifier to an
+  /** Apply Figma's Cmd/Ctrl-drag "Ignore auto layout" modifier to an
    * absolute/freeform drag target. The flow-origin path above already made
    * this conversion, but the ordinary absolute drag path used to ignore the
    * modifier and strip position/left/top on drop. Resolve to the auto-layout
@@ -14018,11 +14093,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
    * or the container background. */
   function ignoreAutoLayoutForDropTarget(target) {
     var container = dropContainerForTarget(target);
+    var isDeclaredFrameInAutoLayout = Boolean(
+      container &&
+      container.getAttribute("data-an-primitive") === "frame" &&
+      isAutoLayoutElement(container.parentElement),
+    );
     if (
       !target ||
       !container ||
       container === document.body ||
-      !isAutoLayoutElement(container)
+      (!isAutoLayoutElement(container) && !isDeclaredFrameInAutoLayout)
     ) {
       return target;
     }
@@ -14110,6 +14190,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!hit || hit === document.documentElement || hit === document.body) {
       return unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
+    var explicitFrame = hit.closest('[data-an-primitive="frame"]');
+    if (
+      explicitFrame &&
+      explicitFrame !== document.body &&
+      !isDraggedOrInsideDragged(explicitFrame) &&
+      isAutoLayoutElement(explicitFrame.parentElement)
+    ) {
+      return {
+        anchor: explicitFrame,
+        placement: "inside",
+        axis: parentFlowAxis(explicitFrame),
+        // A declared frame is a deliberate nesting target even while it is a
+        // flex item itself. Its normal drop mode joins the frame's content
+        // flow; Ctrl is the explicit request to keep absolute positioning.
+        dropMode: "flow-insert",
+      };
+    }
     var cursor = hit;
     while (cursor && cursor !== document.body) {
       if (
@@ -14175,7 +14272,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         cursor !== document.body &&
         isContainerDropTarget(cursor) &&
-        !(parent && parent !== document.body && isAutoLayoutElement(parent))
+        !(
+          parent &&
+          parent !== document.body &&
+          isAutoLayoutElement(parent) &&
+          cursor.getAttribute("data-an-primitive") !== "frame"
+        )
       ) {
         // Free (absolute) element into a non-auto-layout container stays free:
         // nest as an absolute child at the drop point, never convert to flex.
@@ -14253,6 +14355,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             axis: parentFlowAxis(parent),
             dropMode: "flow-insert",
           };
+        }
+        var wrappedParentAxis = wrappedFlexMainAxis(parent);
+        if (wrappedParentAxis) {
+          var wrappedParentSlot = nearestChildInsertionTarget(
+            parent,
+            clientX,
+            clientY,
+            dragged,
+          );
+          if (wrappedParentSlot) return wrappedParentSlot;
         }
         var parentAxis = parentFlowAxis(parent);
         var childRect = cursor.getBoundingClientRect();
@@ -16633,7 +16745,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           var rawTarget = resolveReorderOrFreeTarget(
             cx,
             cy,
-            Boolean(ev.ctrlKey),
+            reorderIgnoresAutoLayout || Boolean(ev.ctrlKey || ev.metaKey),
           );
           rawTarget = applyReorderSizeGuard(rawTarget, ev);
           currentTarget = stabilizeReorderTarget(
@@ -16809,7 +16921,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Space held only at release still takes effect; live reflow then runs
         // one final stabilize tick so the drop still lands on the previewed
         // slot rather than jumping.
-        var finalRaw = resolveReorderOrFreeTarget(cx, cy, Boolean(ev?.ctrlKey));
+        var finalRaw = resolveReorderOrFreeTarget(
+          cx,
+          cy,
+          reorderIgnoresAutoLayout || Boolean(ev?.ctrlKey || ev?.metaKey),
+        );
         currentTarget = liveReflowEnabled
           ? stabilizeReorderTarget(
               applyReorderSizeGuard(finalRaw, ev),
@@ -17206,7 +17322,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               groupOthers,
             )
           : null;
-        if (currentAutoLayoutTarget && ev.ctrlKey) {
+        if (currentAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
           currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             currentAutoLayoutTarget,
           );
@@ -17375,7 +17491,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ev.clientY,
           groupOthers,
         );
-        if (finalAutoLayoutTarget && ev.ctrlKey) {
+        if (finalAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
           finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             finalAutoLayoutTarget,
           );

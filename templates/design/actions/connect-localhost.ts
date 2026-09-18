@@ -58,7 +58,7 @@ function isLoopbackHostname(hostname: string): boolean {
   );
 }
 
-function normalizeBridgeUrl(value: string): string {
+export function normalizeBridgeUrl(value: string): string {
   const normalized = normalizeUrl(value, "bridgeUrl");
   const parsed = new URL(normalized);
   if (parsed.username || parsed.password) {
@@ -91,6 +91,7 @@ function stableConnectionId(
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+export const DEFAULT_BRIDGE_URL = "http://127.0.0.1:7331";
 
 /** One-way compatibility derivation shared with the core design-connect CLI. */
 export function derivePreviewToken(bridgeToken: string): string {
@@ -182,7 +183,7 @@ export default defineAction({
     const now = new Date().toISOString();
     const db = getDb();
     const devServerUrl = normalizeUrl(args.devServerUrl, "devServerUrl");
-    const bridgeUrl = args.bridgeUrl
+    const requestedBridgeUrl = args.bridgeUrl
       ? normalizeBridgeUrl(args.bridgeUrl)
       : undefined;
     const rootPath = args.routeManifest?.rootPath ?? args.rootPath;
@@ -231,6 +232,7 @@ export default defineAction({
       .select({
         ownerEmail: schema.designLocalhostConnections.ownerEmail,
         orgId: schema.designLocalhostConnections.orgId,
+        bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
         previewToken: schema.designLocalhostConnections.previewToken,
         bridgeToken: schema.designLocalhostConnections.bridgeToken,
       })
@@ -248,6 +250,15 @@ export default defineAction({
           "Omit id so a per-user connection id is derived instead.",
       );
     }
+
+    // The page-local visual-edit entry point does not need to make the user
+    // repeat the conventional bridge port. Preserve a custom existing port;
+    // new connections use the same default as `design connect`.
+    const bridgeUrl =
+      requestedBridgeUrl ??
+      (existing[0]?.bridgeUrl
+        ? normalizeBridgeUrl(existing[0].bridgeUrl)
+        : DEFAULT_BRIDGE_URL);
 
     // Token for a new row: explicit, else existing, else mint. The account or
     // trusted local-CLI principal owning the row is what lets the bridge skip a

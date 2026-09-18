@@ -9931,6 +9931,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return "y";
     }
+    function wrappedFlexMainAxis(parent) {
+      var cs = window.getComputedStyle(parent);
+      if (cs.display !== "flex" && cs.display !== "inline-flex") {
+        return null;
+      }
+      if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+        return null;
+      }
+      return cs.flexDirection && cs.flexDirection.indexOf("row") === 0 ? "x" : "y";
+    }
     function nearestChildInsertionTarget(container, clientX, clientY, excludeEls) {
       var excluded = excludeEls || [];
       function isExcluded(node) {
@@ -9946,8 +9956,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return !isExcluded(child);
       });
       if (!children.length) return null;
-      var axis = parentFlowAxis(container);
       var containerStyles = window.getComputedStyle(container);
+      var wrappedFlexAxis = wrappedFlexMainAxis(container);
+      var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
       var best = null;
       var bestDistance = Infinity;
@@ -9957,14 +9968,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (rect.width <= 0 || rect.height <= 0) continue;
         var center = axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
         var pointer = axis === "x" ? clientX : clientY;
-        var distance = multiTrackGrid ? Math.hypot(
+        var distance = multiTrackGrid || wrappedFlexAxis ? Math.hypot(
           clientX - (rect.left + rect.width / 2),
           clientY - (rect.top + rect.height / 2)
         ) : Math.abs(pointer - center);
         if (distance < bestDistance) {
           bestDistance = distance;
           best = children[j];
-          placement = multiTrackGrid ? clientX < rect.left + rect.width / 2 ? "before" : "after" : pointer < center ? "before" : "after";
+          var placementPointer = axis === "x" ? clientX : clientY;
+          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -9989,6 +10001,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var hit = elementFromEditorPoint(clientX, clientY);
       if (hit && hit !== document.documentElement && !isDraggedOrInsideDragged(hit) && !isOverlayElement(hit) && !isTemplateCloneElement(hit)) {
+        var hitAutoLayoutParent = hit.parentElement;
+        var hitAutoLayoutStyles = hitAutoLayoutParent ? window.getComputedStyle(hitAutoLayoutParent) : null;
+        var hitIsGrid = hitAutoLayoutStyles && (hitAutoLayoutStyles.display === "grid" || hitAutoLayoutStyles.display === "inline-grid");
+        var hitIsWrappedFlex = hitAutoLayoutStyles && (hitAutoLayoutStyles.display === "flex" || hitAutoLayoutStyles.display === "inline-flex") && (hitAutoLayoutStyles.flexWrap === "wrap" || hitAutoLayoutStyles.flexWrap === "wrap-reverse");
+        if (hitAutoLayoutParent && isAutoLayoutElement(hitAutoLayoutParent) && (hitAutoLayoutParent === el.parentElement || hitIsGrid || hitIsWrappedFlex)) {
+          var directChildSlot = nearestChildInsertionTarget(
+            hitAutoLayoutParent,
+            clientX,
+            clientY,
+            dragged
+          );
+          if (directChildSlot) return directChildSlot;
+        }
         if (isContainerDropTarget(hit) && !isTextBearingLeaf(hit)) {
           var containerRect = hit.getBoundingClientRect();
           var edgeAxis = hit.parentElement ? parentFlowAxis(hit.parentElement) : parentFlowAxis(hit);
@@ -10093,6 +10118,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragged = [el].concat(excludeEls || []);
       var parentRect = currentParent.getBoundingClientRect();
       var pointerOutsideCurrentParent = clientX < parentRect.left || clientX > parentRect.right || clientY < parentRect.top || clientY > parentRect.bottom;
+      var pointHit = elementFromEditorPoint(clientX, clientY);
+      if (ignoreTargetAutoLayout && pointerOutsideCurrentParent && isAutoLayoutElement(currentParent) && (!pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+        return {
+          anchor: document.body,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container"
+        };
+      }
       if (keepCurrentParent && pointerOutsideCurrentParent) {
         var freeParent = currentParent;
         while (freeParent && freeParent.parentElement && freeParent.parentElement !== document.body && isAutoLayoutElement(freeParent)) {
@@ -10145,7 +10179,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function ignoreAutoLayoutForDropTarget(target) {
       var container = dropContainerForTarget(target);
-      if (!target || !container || container === document.body || !isAutoLayoutElement(container)) {
+      var isDeclaredFrameInAutoLayout = Boolean(
+        container && container.getAttribute("data-an-primitive") === "frame" && isAutoLayoutElement(container.parentElement)
+      );
+      if (!target || !container || container === document.body || !isAutoLayoutElement(container) && !isDeclaredFrameInAutoLayout) {
         return target;
       }
       return {
@@ -10188,6 +10225,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!hit || hit === document.documentElement || hit === document.body) {
         return unnestAbsoluteToScreenRoot(el, clientX, clientY);
       }
+      var explicitFrame = hit.closest('[data-an-primitive="frame"]');
+      if (explicitFrame && explicitFrame !== document.body && !isDraggedOrInsideDragged(explicitFrame) && isAutoLayoutElement(explicitFrame.parentElement)) {
+        return {
+          anchor: explicitFrame,
+          placement: "inside",
+          axis: parentFlowAxis(explicitFrame),
+          // A declared frame is a deliberate nesting target even while it is a
+          // flex item itself. Its normal drop mode joins the frame's content
+          // flow; Ctrl is the explicit request to keep absolute positioning.
+          dropMode: "flow-insert"
+        };
+      }
       var cursor = hit;
       while (cursor && cursor !== document.body) {
         if (isDraggedOrInsideDragged(cursor) || isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
@@ -10204,7 +10253,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             dropMode: "absolute-container"
           };
         }
-        if (cursor !== document.body && isContainerDropTarget(cursor) && !(parent && parent !== document.body && isAutoLayoutElement(parent))) {
+        if (cursor !== document.body && isContainerDropTarget(cursor) && !(parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame")) {
           if (!isAutoLayoutElement(cursor)) {
             if (cursor === el.parentElement) return null;
             return {
@@ -10266,6 +10315,16 @@ export const editorChromeBridgeScript: string = `"use strict";
               axis: parentFlowAxis(parent),
               dropMode: "flow-insert"
             };
+          }
+          var wrappedParentAxis = wrappedFlexMainAxis(parent);
+          if (wrappedParentAxis) {
+            var wrappedParentSlot = nearestChildInsertionTarget(
+              parent,
+              clientX,
+              clientY,
+              dragged
+            );
+            if (wrappedParentSlot) return wrappedParentSlot;
           }
           var parentAxis = parentFlowAxis(parent);
           var childRect = cursor.getBoundingClientRect();
@@ -11683,7 +11742,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             var rawTarget = resolveReorderOrFreeTarget2(
               cx,
               cy,
-              Boolean(ev.ctrlKey)
+              reorderIgnoresAutoLayout || Boolean(ev.ctrlKey || ev.metaKey)
             );
             rawTarget = applyReorderSizeGuard2(rawTarget, ev);
             currentTarget = stabilizeReorderTarget2(
@@ -11797,7 +11856,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             return;
           }
-          var finalRaw = resolveReorderOrFreeTarget2(cx, cy, Boolean(ev?.ctrlKey));
+          var finalRaw = resolveReorderOrFreeTarget2(
+            cx,
+            cy,
+            reorderIgnoresAutoLayout || Boolean(ev?.ctrlKey || ev?.metaKey)
+          );
           currentTarget = liveReflowEnabled ? stabilizeReorderTarget2(
             applyReorderSizeGuard2(finalRaw, ev),
             cx,
@@ -12129,7 +12192,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             ev.clientY,
             groupOthers
           ) : null;
-          if (currentAutoLayoutTarget && ev.ctrlKey) {
+          if (currentAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
             currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
               currentAutoLayoutTarget
             );
@@ -12259,7 +12322,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             ev.clientY,
             groupOthers
           );
-          if (finalAutoLayoutTarget && ev.ctrlKey) {
+          if (finalAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
             finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
               finalAutoLayoutTarget
             );

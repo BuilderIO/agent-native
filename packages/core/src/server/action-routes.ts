@@ -492,6 +492,14 @@ function mountActionRoutesInternal(
     const path = options?.forcePost ? name : (http?.path ?? name);
     const routePath = `${options?.routePrefix ?? ROUTE_PREFIX}/${path}`;
 
+    // `requiresAuth: false` is the action's explicit contract that its own
+    // run() can handle an anonymous request. The auth guard runs before this
+    // handler, so register the exact route or the contract is unreachable in
+    // a real app even though the dispatcher below correctly handles 401s.
+    if (entry.requiresAuth === false && !options?.caller) {
+      registerAuthPublicPaths([routePath], app);
+    }
+
     // These two actions authenticate with a scoped A2A bearer rather than a
     // browser session. Let that verifier see the request before the cookie
     // auth guard rejects it; the action route still fails closed on invalid

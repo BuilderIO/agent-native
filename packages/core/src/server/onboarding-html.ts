@@ -12,6 +12,7 @@ import { renderToString } from "react-dom/server";
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import {
   AuthPage,
+  isVerificationLinkInvalid,
   type AuthPageProps,
   type AuthView,
 } from "../client/auth/AuthPage.js";
@@ -1164,7 +1165,7 @@ function initialAuthView(
     const url = new URL(opts.requestPath ?? "/", "https://agent-native.local");
     if (
       url.searchParams.has("verified") ||
-      url.searchParams.get("error") === "verification_link_invalid"
+      isVerificationLinkInvalid(url.searchParams.get("error"))
     ) {
       return "login";
     }
