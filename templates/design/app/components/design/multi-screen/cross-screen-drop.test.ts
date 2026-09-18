@@ -71,6 +71,17 @@ describe("isPointerInsideSourceIframe", () => {
     ).toBe(true);
   });
 
+  it("rejects stale negative coordinates after the pointer exits", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: -1055,
+        iframeY: 111,
+        viewportW: 1280,
+        viewportH: 844,
+      }),
+    ).toBe(false);
+  });
+
   it("still classifies a pointer past the content's real edge as outside a 0.5x-scaled card", () => {
     expect(
       isPointerInsideSourceIframe({
