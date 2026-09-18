@@ -1153,6 +1153,33 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("registers only capability-scoped action routes with the auth guard", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const nitroApp = { use: vi.fn() };
+    mockRegisterAuthPublicPaths.mockClear();
+
+    mountActionRoutes(nitroApp, {
+      "read-capability": {
+        http: { method: "GET" },
+        capabilityScopes: ["visual-edit"],
+        run: vi.fn(),
+      } as any,
+      "private-action": {
+        http: { method: "GET" },
+        run: vi.fn(),
+      } as any,
+    });
+
+    expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
+      ["/_agent-native/actions/read-capability"],
+      nitroApp,
+    );
+    expect(mockRegisterAuthPublicPaths).not.toHaveBeenCalledWith(
+      ["/_agent-native/actions/private-action"],
+      nitroApp,
+    );
+  });
+
   it("allows HEAD for GET actions", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

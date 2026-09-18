@@ -492,11 +492,15 @@ function mountActionRoutesInternal(
     const path = options?.forcePost ? name : (http?.path ?? name);
     const routePath = `${options?.routePrefix ?? ROUTE_PREFIX}/${path}`;
 
-    // `requiresAuth: false` is the action's explicit contract that its own
-    // run() can handle an anonymous request. The auth guard runs before this
-    // handler, so register the exact route or the contract is unreachable in
-    // a real app even though the dispatcher below correctly handles 401s.
-    if (entry.requiresAuth === false && !options?.caller) {
+    // Capability-scoped actions authenticate inside this handler so a signed
+    // embed token can authorize the exact action without becoming a session.
+    // Let those routes reach that verifier. Anonymous actions keep their
+    // existing contract for non-WebMCP routes; unrelated actions stay behind
+    // the normal auth guard.
+    if (
+      (entry.requiresAuth === false && !options?.caller) ||
+      (Array.isArray(entry.capabilityScopes) && entry.capabilityScopes.length)
+    ) {
       registerAuthPublicPaths([routePath], app);
     }
 
