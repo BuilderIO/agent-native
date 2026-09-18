@@ -11366,7 +11366,7 @@ function DesignEditor() {
       } = {},
     ) => {
       const run = () => {
-        runScreenElementSelect(
+        const selectionAccepted = runScreenElementSelect(
           {
             activeBreakpointWidthStateRef,
             applyFileContentUpdate,
@@ -11400,7 +11400,9 @@ function DesignEditor() {
           options,
         );
         rehydrateRenderedInfoAfterPreview();
-        maybeShowDeepSelectGuidance(screenId, info, intent);
+        if (selectionAccepted) {
+          maybeShowDeepSelectGuidance(screenId, info, intent);
+        }
       };
       // Only a genuine user pick is a selection-only undo step. The
       // selection command may also persist an infrastructure node id, but
