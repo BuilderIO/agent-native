@@ -52,6 +52,7 @@ export function normalizeConnectUrl(value: string): URL | null {
 export function parseConnectAgentCard(
   value: unknown,
   targetOrigin: string,
+  targetPath = "/",
 ): ConnectAgentCard | null {
   if (!value || typeof value !== "object") return null;
   const card = value as Record<string, unknown>;
@@ -71,6 +72,15 @@ export function parseConnectAgentCard(
   }
   if (cardUrl.username || cardUrl.password) return null;
   if (cardUrl.origin !== targetOrigin) return null;
+  const normalizedTargetPath = targetPath.replace(/\/+$/, "") || "/";
+  const normalizedCardPath = cardUrl.pathname.replace(/\/+$/, "") || "/";
+  if (
+    normalizedTargetPath !== "/" &&
+    normalizedCardPath !== normalizedTargetPath &&
+    !normalizedCardPath.startsWith(`${normalizedTargetPath}/`)
+  ) {
+    return null;
+  }
   const capabilities =
     card.capabilities && typeof card.capabilities === "object"
       ? (card.capabilities as Record<string, unknown>)
@@ -159,7 +169,11 @@ export async function fetchConnectAgentCard(
   if (length > 256_000) throw new Error("Agent card is too large");
   const body = await response.text();
   if (body.length > 256_000) throw new Error("Agent card is too large");
-  const card = parseConnectAgentCard(JSON.parse(body), target.origin);
+  const card = parseConnectAgentCard(
+    JSON.parse(body),
+    target.origin,
+    target.pathname,
+  );
   if (!card)
     throw new Error("This app has an invalid or incompatible agent card.");
   return card;

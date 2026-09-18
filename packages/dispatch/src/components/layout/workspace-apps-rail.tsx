@@ -26,6 +26,8 @@ function appLabel(app: WorkspaceAppSummary): string {
   return app.name.trim() || app.id;
 }
 
+type RailApp = WorkspaceAppSummary & { external?: boolean };
+
 export function WorkspaceAppsRail({
   collapsed = false,
   onNavigate,
@@ -48,50 +50,49 @@ export function WorkspaceAppsRail({
   if (appsQuery.isError || !appsQuery.data) return null;
 
   const workspaceApps = appsQuery.data;
-  const apps = workspaceApps
-    .filter(
+  const apps: RailApp[] = [
+    ...workspaceApps.filter(
       (app) =>
         isWorkspaceAppVisibleInDefaultLaunchers(app) &&
         !app.archived &&
         app.status !== "pending" &&
         !!workspaceAppHref(app),
-    )
-    .concat(
-      filterOtherApps(connectedAppsQuery.data ?? [], workspaceApps).map(
-        (app) => ({
-          id: app.id,
-          name: app.name,
-          description: app.description,
-          path: "",
-          url: app.homeUrl ?? app.url,
-          status: "ready" as const,
-        }),
-      ),
-    )
-    .sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
+    ),
+    ...filterOtherApps(connectedAppsQuery.data ?? [], workspaceApps).map(
+      (app) => ({
+        id: app.id,
+        name: app.name,
+        description: app.description,
+        path: "",
+        url: app.homeUrl ?? app.url,
+        status: "ready" as const,
+        external: true,
+      }),
+    ),
+  ].sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
 
   if (apps.length === 0) return null;
 
-  const renderAppLink = (app: WorkspaceAppSummary) => {
+  const renderAppLink = (app: RailApp) => {
     const href = workspaceAppHref(app);
     if (!href) return null;
 
     const label = appLabel(app);
     const active = appMatchesPath(app, location.pathname);
-    const link = (
-      <Link
-        to={workspaceAppRoute(app.id)}
-        aria-current={active ? "page" : undefined}
-        aria-label={collapsed ? label : undefined}
-        onClick={onNavigate}
-        className={cn(
-          "flex h-9 items-center rounded-md text-sm transition-colors",
-          collapsed ? "w-9 justify-center" : "w-full gap-2 px-2 text-start",
-          active
-            ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-            : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        )}
-      >
+    const linkProps = {
+      "aria-current": active ? ("page" as const) : undefined,
+      "aria-label": collapsed ? label : undefined,
+      onClick: onNavigate,
+      className: cn(
+        "flex h-9 items-center rounded-md text-sm transition-colors",
+        collapsed ? "w-9 justify-center" : "w-full gap-2 px-2 text-start",
+        active
+          ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+          : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+      ),
+    };
+    const linkContent = (
+      <>
         <AppIcon
           id={app.id}
           name={label}
@@ -100,6 +101,15 @@ export function WorkspaceAppsRail({
           className={cn("size-5 rounded-md", active && "ring-1 ring-ring/30")}
         />
         {!collapsed ? <span className="truncate">{label}</span> : null}
+      </>
+    );
+    const link = app.external ? (
+      <a href={href} {...linkProps}>
+        {linkContent}
+      </a>
+    ) : (
+      <Link to={workspaceAppRoute(app.id)} {...linkProps}>
+        {linkContent}
       </Link>
     );
 

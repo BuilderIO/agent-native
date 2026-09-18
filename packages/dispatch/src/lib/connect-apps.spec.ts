@@ -51,6 +51,30 @@ describe("connect apps helpers", () => {
         "https://slides.example.com",
       ),
     ).toBeNull();
+    expect(
+      parseConnectAgentCard(
+        {
+          name: "Slides",
+          description: "A slide workspace",
+          url: "https://slides.example.com/other-app/_agent-native/a2a",
+          capabilities: { connect: true },
+        },
+        "https://slides.example.com",
+        "/slides",
+      ),
+    ).toBeNull();
+    expect(
+      parseConnectAgentCard(
+        {
+          name: "Slides",
+          description: "A slide workspace",
+          url: "https://slides.example.com/slides/_agent-native/a2a",
+          capabilities: { connect: true },
+        },
+        "https://slides.example.com",
+        "/slides",
+      ),
+    ).toMatchObject({ connect: true });
   });
 
   it("uses the existing identity login and open handoff", () => {

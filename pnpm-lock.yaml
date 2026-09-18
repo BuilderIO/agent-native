@@ -259,6 +259,12 @@ importers:
         specifier: 2.9.0
         version: 2.9.0
 
+  community-templates:
+    dependencies:
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../packages/core
+
   community-templates/account-expert:
     dependencies:
       '@agent-native/agentkit':
