@@ -665,6 +665,15 @@ type BooleanMutationState = {
   pending: Map<number, boolean>;
 };
 
+function optimisticBooleanState(
+  emailId: string,
+  field: "isRead" | "isStarred",
+  fallback: boolean | undefined,
+): boolean | undefined {
+  const value = optimisticOverrides.get(emailId)?.props[field];
+  return typeof value === "boolean" ? value : fallback;
+}
+
 const starMutations = new Map<string, BooleanMutationState>();
 
 function beginBooleanMutation(
@@ -749,7 +758,7 @@ export function beginReadMutation(
   return beginBooleanMutation(
     readMutationVersions,
     emailId,
-    currentState,
+    optimisticBooleanState(emailId, "isRead", currentState),
     isRead,
   );
 }
@@ -774,7 +783,12 @@ function beginStarMutation(
   currentState: boolean | undefined,
   isStarred: boolean,
 ) {
-  return beginBooleanMutation(starMutations, emailId, currentState, isStarred);
+  return beginBooleanMutation(
+    starMutations,
+    emailId,
+    optimisticBooleanState(emailId, "isStarred", currentState),
+    isStarred,
+  );
 }
 
 function confirmStarMutation(

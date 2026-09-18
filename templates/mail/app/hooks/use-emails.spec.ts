@@ -9,6 +9,7 @@ import {
   consumeExternalEmailRefresh,
   beginReadMutation,
   confirmReadMutation,
+  clearOptimisticOverride,
   filterSuppressedThreads,
   markExternalEmailRefresh,
   parseAccountErrorsHeader,
@@ -16,6 +17,7 @@ import {
   releaseSuppression,
   releaseSuppressionClaims,
   rollbackReadMutation,
+  setOptimisticOverride,
   suppressThread,
 } from "./use-emails";
 
@@ -376,6 +378,16 @@ describe("useMarkRead", () => {
 
     confirmReadMutation("message-confirmed", first, false);
     expect(rollbackReadMutation("message-confirmed", second)).toBe(false);
+  });
+
+  it("uses a retained optimistic confirmation over stale cache data", () => {
+    const first = beginReadMutation("message-stale-cache", false, true);
+    expect(confirmReadMutation("message-stale-cache", first, true)).toBe(true);
+    setOptimisticOverride("message-stale-cache", { isRead: true });
+
+    const second = beginReadMutation("message-stale-cache", false, false);
+    expect(rollbackReadMutation("message-stale-cache", second)).toBe(true);
+    clearOptimisticOverride("message-stale-cache");
   });
 
   it("keeps a newer completion authoritative over an older completion", () => {
