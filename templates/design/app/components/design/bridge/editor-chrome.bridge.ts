@@ -2980,6 +2980,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     entries: Map<Element, PortableStyleCacheEntry>;
     mutationObserver: MutationObserver;
     mutationGeneration: number;
+    observedMutationRoots: Node[];
+  };
+
+  var portableStyleMutationObserverOptions = {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    characterData: true,
   };
 
   function portableStyleMutationAffectsCache(record: MutationRecord): boolean {
@@ -3032,6 +3040,54 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return cache.mutationGeneration;
   }
 
+  function portableStyleObserveMutationRoot(
+    cache: PortableStyleComputedStylesCache,
+    root: Node,
+  ): boolean {
+    if (cache.observedMutationRoots.indexOf(root) !== -1) return true;
+    try {
+      cache.mutationObserver.observe(
+        root,
+        portableStyleMutationObserverOptions,
+      );
+      cache.observedMutationRoots.push(root);
+      // A newly discovered root may already have changed while an earlier
+      // snapshot was being read, so invalidate entries captured before it was
+      // observed.
+      if (cache.observedMutationRoots.length > 1) {
+        cache.mutationGeneration += 1;
+      }
+      return true;
+    } catch (_error) {
+      cache.mutationGeneration += 1;
+      dndLog("style:mutation-root-unavailable");
+      return false;
+    }
+  }
+
+  function portableStyleObserveElementRoot(
+    cache: PortableStyleComputedStylesCache,
+    el: Element,
+  ): boolean {
+    try {
+      var shadowRoot = (el as Element & { shadowRoot?: ShadowRoot | null })
+        .shadowRoot;
+      if (shadowRoot && !portableStyleObserveMutationRoot(cache, shadowRoot)) {
+        return false;
+      }
+      var getRootNode = (el as Element & { getRootNode?: () => Node })
+        .getRootNode;
+      if (typeof getRootNode !== "function") return true;
+      var root = getRootNode.call(el);
+      if (!(root instanceof Node)) return false;
+      return portableStyleObserveMutationRoot(cache, root);
+    } catch (_error) {
+      cache.mutationGeneration += 1;
+      dndLog("style:mutation-root-read-failed", { tag: el.tagName });
+      return false;
+    }
+  }
+
   function createPortableStyleComputedStylesCache():
     | PortableStyleComputedStylesCache
     | undefined {
@@ -3040,6 +3096,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       entries: new Map<Element, PortableStyleCacheEntry>(),
       mutationObserver: null as unknown as MutationObserver,
       mutationGeneration: 0,
+      observedMutationRoots: [],
     };
     try {
       var observer = new MutationObserver(function (records) {
@@ -3047,13 +3104,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           cache.mutationGeneration += 1;
         }
       });
-      observer.observe(document, {
-        subtree: true,
-        childList: true,
-        attributes: true,
-        characterData: true,
-      });
       cache.mutationObserver = observer;
+      if (!portableStyleObserveMutationRoot(cache, document)) {
+        observer.disconnect();
+        return undefined;
+      }
       return cache;
     } catch (_error) {
       dndLog("style:mutation-observer-unavailable");
@@ -3111,15 +3166,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  function canReusePortableComputedStyles(el: Element): boolean {
+  function canReusePortableComputedStyles(
+    el: Element,
+    cache?: PortableStyleComputedStylesCache,
+  ): boolean {
     // Computed inherited values can change while only an ancestor is
     // animated. Recheck the whole style parent chain on every cache lookup;
     // caching this answer would make a mid-request animation invisible.
     var current: Element | null = el;
     while (current) {
-      if (!canReadPortableAnimationState(current)) return false;
       var parent = portableStyleAnimationParent(current);
       if (parent === undefined) return false;
+      if (
+        cache &&
+        (!portableStyleObserveElementRoot(cache, current) ||
+          (parent && !portableStyleObserveElementRoot(cache, parent)))
+      ) {
+        return false;
+      }
+      if (!canReadPortableAnimationState(current)) return false;
       current = parent;
     }
     return true;
@@ -3131,7 +3196,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     computedStyle?: CSSStyleDeclaration,
   ): Record<string, string> | null {
     if (!el) return {};
-    var cacheSafe = !cache || canReusePortableComputedStyles(el);
+    var cacheSafe = !cache || canReusePortableComputedStyles(el, cache);
     var cacheGeneration = cache
       ? portableStyleMutationGeneration(cache)
       : undefined;

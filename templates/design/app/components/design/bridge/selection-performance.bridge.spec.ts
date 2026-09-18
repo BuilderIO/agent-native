@@ -781,6 +781,68 @@ describe("large concurrent selectable-rects requests", () => {
     }
   }, 60_000);
 
+  it("invalidates cached slotted styles after a shadow-root stylesheet mutation", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="host" data-agent-native-node-id="host">
+          <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>("#host");
+        const leaf = document.querySelector<HTMLElement>("#leaf");
+        if (!host || !leaf)
+          throw new Error("shadow style fixture did not attach");
+        const shadow = host.attachShadow({ mode: "open" });
+        shadow.innerHTML = `<style id="theme">slot { color: rgb(255, 0, 0); }</style><slot></slot>`;
+        const slot = shadow.querySelector("slot");
+        if (!slot) throw new Error("shadow style fixture slot did not attach");
+        const nativeGetAnimations = leaf.getAnimations.bind(leaf);
+        let reads = 0;
+        leaf.getAnimations = () => {
+          reads += 1;
+          // The parent snapshot has already cached the leaf by the time the
+          // overlapping child snapshot reaches this second animation check.
+          if (reads === 2) {
+            const style = shadow.querySelector<HTMLStyleElement>("#theme");
+            if (!style)
+              throw new Error("shadow style fixture stylesheet missing");
+            style.textContent = "slot { color: rgb(0, 0, 255); }";
+          }
+          return nativeGetAnimations();
+        };
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const live = await page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>("#host")!;
+        const leaf = document.querySelector<HTMLElement>("#leaf")!;
+        const slot = host.shadowRoot?.querySelector("slot")!;
+        return {
+          leaf: getComputedStyle(leaf).color,
+          slot: getComputedStyle(slot).color,
+        };
+      });
+      const parentInfo = payload.find((info) => info.sourceId === "parent");
+      const portableLeaf = parentInfo?.portableStyleSnapshot?.nodes?.find(
+        (node) => node.sourceId === "leaf",
+      )?.styles?.color;
+      expect(live.leaf).toBe("rgb(0, 0, 255)");
+      expect(live.slot).toBe(live.leaf);
+      expect(portableLeaf).toBe(live.leaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   it("follows assigned slots when checking inherited animated styles", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

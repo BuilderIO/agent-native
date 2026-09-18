@@ -2835,6 +2835,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
+    var portableStyleMutationObserverOptions = {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true
+    };
     function portableStyleMutationAffectsCache(record) {
       if (record.type === "attributes") {
         return !(record.target instanceof Element && (record.attributeName === "data-an-pending-node-id" || isOverlayElement(record.target)));
@@ -2862,12 +2868,48 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return cache.mutationGeneration;
     }
+    function portableStyleObserveMutationRoot(cache, root) {
+      if (cache.observedMutationRoots.indexOf(root) !== -1) return true;
+      try {
+        cache.mutationObserver.observe(
+          root,
+          portableStyleMutationObserverOptions
+        );
+        cache.observedMutationRoots.push(root);
+        if (cache.observedMutationRoots.length > 1) {
+          cache.mutationGeneration += 1;
+        }
+        return true;
+      } catch (_error) {
+        cache.mutationGeneration += 1;
+        dndLog("style:mutation-root-unavailable");
+        return false;
+      }
+    }
+    function portableStyleObserveElementRoot(cache, el) {
+      try {
+        var shadowRoot = el.shadowRoot;
+        if (shadowRoot && !portableStyleObserveMutationRoot(cache, shadowRoot)) {
+          return false;
+        }
+        var getRootNode = el.getRootNode;
+        if (typeof getRootNode !== "function") return true;
+        var root = getRootNode.call(el);
+        if (!(root instanceof Node)) return false;
+        return portableStyleObserveMutationRoot(cache, root);
+      } catch (_error) {
+        cache.mutationGeneration += 1;
+        dndLog("style:mutation-root-read-failed", { tag: el.tagName });
+        return false;
+      }
+    }
     function createPortableStyleComputedStylesCache() {
       if (typeof MutationObserver === "undefined") return void 0;
       var cache = {
         entries: /* @__PURE__ */ new Map(),
         mutationObserver: null,
-        mutationGeneration: 0
+        mutationGeneration: 0,
+        observedMutationRoots: []
       };
       try {
         var observer = new MutationObserver(function(records) {
@@ -2875,13 +2917,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             cache.mutationGeneration += 1;
           }
         });
-        observer.observe(document, {
-          subtree: true,
-          childList: true,
-          attributes: true,
-          characterData: true
-        });
         cache.mutationObserver = observer;
+        if (!portableStyleObserveMutationRoot(cache, document)) {
+          observer.disconnect();
+          return void 0;
+        }
         return cache;
       } catch (_error) {
         dndLog("style:mutation-observer-unavailable");
@@ -2930,19 +2970,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         return false;
       }
     }
-    function canReusePortableComputedStyles(el) {
+    function canReusePortableComputedStyles(el, cache) {
       var current = el;
       while (current) {
-        if (!canReadPortableAnimationState(current)) return false;
         var parent = portableStyleAnimationParent(current);
         if (parent === void 0) return false;
+        if (cache && (!portableStyleObserveElementRoot(cache, current) || parent && !portableStyleObserveElementRoot(cache, parent))) {
+          return false;
+        }
+        if (!canReadPortableAnimationState(current)) return false;
         current = parent;
       }
       return true;
     }
     function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
-      var cacheSafe = !cache || canReusePortableComputedStyles(el);
+      var cacheSafe = !cache || canReusePortableComputedStyles(el, cache);
       var cacheGeneration = cache ? portableStyleMutationGeneration(cache) : void 0;
       var cached = cache?.entries.get(el);
       if (cacheSafe && cached && cached.generation === cacheGeneration) {
