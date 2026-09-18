@@ -78,29 +78,28 @@ function renderStep(
   const onOpenChange = vi.fn();
   const onDesignSystemsChanged = vi.fn();
 
-  render(
-    <NewDeckReferenceStep
-      open
-      designSystems={[{ id: "ds-1", title: "Builder" }]}
-      decks={[]}
-      defaultDesignSystemId="ds-1"
-      defaultReferenceDeckId={null}
-      onSelect={onSelect}
-      onImport={onImport}
-      onImportSource={onImportSource}
-      onSkip={vi.fn()}
-      onOpenChange={onOpenChange}
-      onDesignSystemsChanged={onDesignSystemsChanged}
-      title="New presentation"
-      designSystemLabel="Design system"
-      referenceDeckLabel="Reference deck"
-      chooseDeckLabel="Match the style of an existing deck"
-      importingLabel="Importing..."
-      skipLabel="Skip"
-      searchDecksLabel="Search decks"
-      {...overrides}
-    />,
-  );
+  const props = {
+    open: true,
+    designSystems: [{ id: "ds-1", title: "Builder" }],
+    decks: [] as Deck[],
+    defaultDesignSystemId: "ds-1",
+    defaultReferenceDeckId: null,
+    onSelect,
+    onImport,
+    onImportSource,
+    onSkip: vi.fn(),
+    onOpenChange,
+    onDesignSystemsChanged,
+    title: "New presentation",
+    designSystemLabel: "Design system",
+    referenceDeckLabel: "Reference deck",
+    chooseDeckLabel: "Match the style of an existing deck",
+    importingLabel: "Importing...",
+    skipLabel: "Skip",
+    searchDecksLabel: "Search decks",
+    ...overrides,
+  };
+  const view = render(<NewDeckReferenceStep {...props} />);
 
   return {
     onSelect,
@@ -108,6 +107,11 @@ function renderStep(
     onImportSource,
     onOpenChange,
     onDesignSystemsChanged,
+    rerender: (
+      nextOverrides: Partial<
+        React.ComponentProps<typeof NewDeckReferenceStep>
+      > = {},
+    ) => view.rerender(<NewDeckReferenceStep {...props} {...nextOverrides} />),
   };
 }
 
@@ -378,6 +382,21 @@ describe("<NewDeckReferenceStep>", () => {
     expect(
       screen.getByRole("combobox", { name: "Reference deck" }).textContent,
     ).toContain("Last used deck");
+  });
+
+  it("hydrates the default design system when the list resolves after opening", () => {
+    const { rerender } = renderStep({
+      designSystems: [],
+      defaultDesignSystemId: "ds-1",
+    });
+
+    expect(screen.getAllByRole("combobox")[0]?.textContent).toContain("None");
+
+    rerender({ designSystems: [{ id: "ds-1", title: "Builder" }] });
+
+    expect(screen.getAllByRole("combobox")[0]?.textContent).toContain(
+      "Builder",
+    );
   });
 
   it("keeps the reference step locked until selection handling finishes", async () => {

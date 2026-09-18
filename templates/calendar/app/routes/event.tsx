@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/client/navigation";
 import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
-import type { CalendarEvent } from "@shared/api";
+import { getCalendarAttendeeCount, type CalendarEvent } from "@shared/api";
 import {
   IconClock,
   IconMapPin,
@@ -122,9 +122,9 @@ function EventCard({ event }: { event: CalendarEvent }) {
                     )}
                   </span>
                 ))}
-                {event.attendees.length > 5 && (
+                {getCalendarAttendeeCount(event.attendees) > 5 && (
                   <span className="text-muted-foreground/60 text-xs">
-                    +{event.attendees.length - 5} more
+                    +{getCalendarAttendeeCount(event.attendees) - 5} more
                   </span>
                 )}
               </div>
