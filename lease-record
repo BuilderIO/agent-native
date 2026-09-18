@@ -1,0 +1,10 @@
+pr=5319
+owner_thread=01a0b2cc-3fa6-7541-8c5f-163e122aa2eb
+owner_host=local
+version=9c7363b7-75df-40cc-92e7-086fbcc27ce7
+status=active
+renewed_at=1789710603
+expires_at=1789711503
+observed_legacy_heartbeat_version=absent
+legacy_retired=true
+released=false
