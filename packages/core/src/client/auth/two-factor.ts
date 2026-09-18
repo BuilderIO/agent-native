@@ -1,16 +1,16 @@
 import { agentNativePath } from "../api-path.js";
 
+type TwoFactorResponse = Record<string, unknown>;
+
 export interface TwoFactorStatus {
   enabled: boolean;
 }
 
-export interface TwoFactorSetup {
+export type TwoFactorSetup = TwoFactorResponse & {
   method: "totp";
   totpURI: string;
   backupCodes: string[];
-}
-
-type TwoFactorResponse = Record<string, unknown>;
+};
 
 const isTwoFactorSetup = (data: TwoFactorResponse): data is TwoFactorSetup =>
   data.method === "totp" &&
@@ -26,13 +26,13 @@ const isTwoFactorStatus = (data: unknown): data is TwoFactorStatus =>
 
 const isSuccessfulTwoFactorResponse = (
   data: TwoFactorResponse,
-): data is { ok: true } => data.ok === true;
+): data is TwoFactorResponse & { ok: true } => data.ok === true;
 
 const isDisabledTwoFactorResponse = (
   data: TwoFactorResponse,
-): data is { status: true } => data.status === true;
+): data is TwoFactorResponse & { status: true } => data.status === true;
 
-async function requestTwoFactor<T>(
+async function requestTwoFactor<T extends TwoFactorResponse>(
   path: string,
   body: Record<string, unknown> = {},
   isValid: (data: TwoFactorResponse) => data is T,
