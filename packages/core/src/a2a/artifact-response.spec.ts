@@ -1,0 +1,2233 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  appendA2AArtifactLinks,
+  appendA2APersistedMutationReceipts,
+  buildA2ARecoverableArtifactMessage,
+  buildA2AVerifiedMutationReceipt,
+  extractA2AArtifactIdentities,
+  extractA2APersistedMutationReceipts,
+  guardA2AArtifactResponse,
+  stripA2APersistedArtifactMarkers,
+} from "./artifact-response.js";
+
+describe("appendA2AArtifactLinks", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("identifies framework-generated unverified artifact rejections", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Created it: https://content.agent-native.com/page/provisional",
+      [],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(true);
+    expect(guarded.text).toContain("could not verify the document URL");
+  });
+
+  it("appends a document URL from a successful create-document result", () => {
+    const text = appendA2AArtifactLinks(
+      "Created the brief.",
+      [
+        {
+          tool: "create-document",
+          result: JSON.stringify({ id: "doc_123", title: "Launch Brief" }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "https://content.agent.test/page/doc_123 (ID: doc_123)",
+    );
+  });
+
+  it("does not duplicate a document path that is already in the response", () => {
+    const text = appendA2AArtifactLinks(
+      "Created it: https://content.agent.test/page/doc_123",
+      [
+        {
+          tool: "create-document",
+          result: JSON.stringify({ id: "doc_123", title: "Launch Brief" }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test" },
+    );
+
+    expect(text).not.toContain("Artifacts:");
+  });
+
+  it("appends a verified Content row URL from a form submission", () => {
+    const text = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdItemId: "item_123",
+            createdDocumentId: "request_123",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Document: https://content.agent.test/page/request_123 (ID: request_123)",
+    );
+  });
+
+  it("extracts a compact stable identity from a Content form submission", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_123",
+            createdDocumentTitle: "Is this thing on",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+            ignoredPayload: "not retained",
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_123",
+        sourceAction: "submit-content-database-form",
+        titleAtAction: "Is this thing on",
+        url: "/page/request_123",
+      },
+    ]);
+  });
+
+  it("trusts delegated identity only through the persisted-artifact marker", () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-artifact-provenance");
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_123",
+            createdDocumentTitle: "Launch ask v1.2",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://content.agent.test",
+        includePersistedArtifactMarker: true,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_123",
+        sourceAction: "call-agent",
+        titleAtAction: "Launch ask v1.2",
+        url: "/page/request_123",
+      },
+    ]);
+
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "call-agent",
+          result:
+            "Artifacts:\n- Document: https://content.agent.test/page/read_only (ID: read_only)",
+        },
+      ]),
+    ).toEqual([]);
+
+    expect(stripA2APersistedArtifactMarkers(downstream)).toBe(
+      'Filed the design ask.\n\nArtifacts:\n- Document "Launch ask v1.2": https://content.agent.test/page/request_123 (ID: request_123)',
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "call-agent",
+          result: downstream.replace(/\.[a-f0-9]{64}\s*-->/, ".deadbeef -->"),
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("signs and verifies persisted artifacts with an explicit organization secret", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-for-artifact-provenance";
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_org_123",
+            urlPath: "/page/request_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities(
+        [{ tool: "call-agent", result: downstream }],
+        { persistedArtifactSecrets: [orgSecret] },
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("continues to a valid persisted-artifact marker after an invalid one", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-after-invalid-marker";
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_after_invalid_123",
+            urlPath: "/page/request_after_invalid_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+    const forgedMarker =
+      "<!-- agent-native:persisted-artifacts=eyJ2ZXJzaW9uIjoxfQ." +
+      "0".repeat(64) +
+      " -->";
+
+    expect(
+      extractA2AArtifactIdentities(
+        [{ tool: "call-agent", result: `${forgedMarker}\n${downstream}` }],
+        { persistedArtifactSecrets: [orgSecret] },
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_after_invalid_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
+  it("carries organization-signed nested artifacts into the outer checkpoint", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-for-nested-artifact-provenance";
+    const inner = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_nested_org_123",
+            urlPath: "/page/request_nested_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+    const outer = appendA2AArtifactLinks(
+      "The delegated agent finished.",
+      [{ tool: "call-agent", result: inner }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([{ tool: "call-agent", result: outer }], {
+        persistedArtifactSecrets: [orgSecret],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_nested_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
+  it("preserves a bounded verified Content row receipt across delegation", () => {
+    const secret = "org-only-a2a-secret-for-row-receipts";
+    const result = JSON.stringify({
+      receipt: {
+        receiptId: "receipt-row-1",
+        operation: "upsert",
+        outcome: "updated",
+        target: {
+          authorityScope: { kind: "personal", id: "alice@example.test" },
+          spaceId: "space-personal-alice",
+          databaseId: "feedback-db",
+          databaseDocumentId: "feedback-db-document",
+        },
+        row: {
+          itemId: "feedback-item-1",
+          documentId: "feedback-document-1",
+          urlPath: "/page/feedback-document-1",
+          rowRevision: "row-after",
+        },
+        affected: { title: false, propertyIds: ["status"] },
+        idempotency: {
+          key: "slack:D-test:request-1",
+          result: "replayed",
+          payloadDigest: "digest-1",
+        },
+        revisions: { before: "row-before", after: "row-after" },
+        readback: {
+          verified: true,
+          title: "Private feedback",
+          propertyValues: { private_notes: "must not cross A2A" },
+        },
+      },
+    });
+    const direct = extractA2APersistedMutationReceipts([
+      { tool: "upsert-database-item-by-key", result },
+    ]);
+
+    expect(direct).toEqual([
+      expect.objectContaining({
+        receiptId: "receipt-row-1",
+        sourceAction: "upsert-database-item-by-key",
+        row: {
+          itemId: "feedback-item-1",
+          documentId: "feedback-document-1",
+          urlPath: "/page/feedback-document-1",
+        },
+        idempotency: expect.objectContaining({ result: "replayed" }),
+        readbackVerified: true,
+      }),
+    ]);
+    expect(JSON.stringify(direct)).not.toContain("private_notes");
+
+    const downstream = appendA2AArtifactLinks(
+      "Updated the feedback row.",
+      [{ tool: "upsert-database-item-by-key", result }],
+      {
+        baseUrl: "https://content.agent.test",
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-current",
+      },
+    );
+    expect(downstream).toContain("Mutation receipts:");
+    expect(downstream).toContain(
+      "receipt-row-1: updated via upsert-database-item-by-key",
+    );
+    expect(downstream).toContain(
+      "https://content.agent.test/page/feedback-document-1",
+    );
+    expect(downstream).toContain("idempotency: replayed");
+    expect(stripA2APersistedArtifactMarkers(downstream)).toContain(
+      "receipt-row-1: updated via upsert-database-item-by-key",
+    );
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: downstream }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-current",
+        },
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        receiptId: "receipt-row-1",
+        sourceAction: "call-agent",
+        row: expect.objectContaining({ documentId: "feedback-document-1" }),
+      }),
+    ]);
+
+    vi.stubEnv("A2A_SECRET", secret);
+    const organizationSecret = "different-organization-receipt-secret";
+    const outer = appendA2AArtifactLinks(
+      "Delegated update finished.",
+      [{ tool: "call-agent", result: downstream }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: organizationSecret,
+        delegatedTaskId: "task-outer",
+      },
+    );
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: outer }],
+        { persistedArtifactSecrets: [organizationSecret] },
+      ),
+    ).toEqual([]);
+    expect(
+      appendA2APersistedMutationReceipts(
+        "Current task response.",
+        [{ tool: "call-agent", result: downstream }],
+        {
+          persistedArtifactSecret: secret,
+          delegatedTaskId: "task-other",
+        },
+      ),
+    ).toBe("Current task response.");
+
+    const current = appendA2AArtifactLinks(
+      "Current update finished.",
+      [{ tool: "upsert-database-item-by-key", result }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-current",
+      },
+    );
+    const prior = appendA2AArtifactLinks(
+      "Prior update finished.",
+      [{ tool: "upsert-database-item-by-key", result }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-prior",
+      },
+    );
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: `${prior}\n${current}` }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-current",
+        },
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("preserves exact block receipt identity without retaining block bodies", () => {
+    const receipts = extractA2APersistedMutationReceipts([
+      {
+        tool: "mutate-content-database-block",
+        result: JSON.stringify({
+          receipt: {
+            receiptId: "receipt-block-1",
+            operation: "update",
+            outcome: "updated",
+            target: {
+              authorityScope: { kind: "personal", id: "alice@example.test" },
+              spaceId: "space-personal-alice",
+              databaseId: "feedback-db",
+              databaseDocumentId: "feedback-db-document",
+              itemId: "feedback-item-1",
+              rowDocumentId: "feedback-document-1",
+              propertyId: "details",
+            },
+            rowLink: {
+              urlPath: "/page/feedback-document-1",
+              label: "Open database row",
+            },
+            idempotency: {
+              key: "slack:D-test:request-2",
+              result: "applied",
+              payloadDigest: "digest-2",
+            },
+            revisions: {
+              row: { before: "row-before", after: "row-after" },
+              field: { before: 1, after: 2 },
+            },
+            affected: {
+              blockIds: ["block-1"],
+              deletedBlockIds: [],
+              order: ["block-1"],
+            },
+            readback: {
+              verified: true,
+              blocks: [{ id: "block-1", value: { nfm: "private body" } }],
+            },
+          },
+        }),
+      },
+    ]);
+
+    expect(receipts[0]).toMatchObject({
+      receiptId: "receipt-block-1",
+      target: {
+        rowDocumentId: "feedback-document-1",
+        propertyId: "details",
+      },
+      row: {
+        itemId: "feedback-item-1",
+        documentId: "feedback-document-1",
+        urlPath: "/page/feedback-document-1",
+      },
+      revisions: { fieldBefore: 1, fieldAfter: 2 },
+    });
+    expect(JSON.stringify(receipts)).not.toContain("private body");
+  });
+
+  it("uses the global secret when no artifact signing override is provided", () => {
+    const globalSecret = "global-a2a-secret-for-artifact-provenance";
+    vi.stubEnv("A2A_SECRET", globalSecret);
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_global_123",
+            urlPath: "/page/request_global_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      { includePersistedArtifactMarker: true },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_global_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
+  it("keeps nested mutation receipts on the target app origin", () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-nested-mutation-receipts");
+    const downstream = appendA2AArtifactLinks(
+      "Updated the existing row.",
+      [
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_123" }),
+          completedSideEffect: true,
+        },
+      ],
+      {
+        baseUrl: "https://content.agent.test",
+        includeReferencedArtifacts: true,
+        includePersistedArtifactMarker: true,
+      },
+    );
+    const callAgentResult = {
+      tool: "call-agent",
+      result: downstream,
+      completedSideEffect: true,
+    };
+
+    const receipt = buildA2AVerifiedMutationReceipt([callAgentResult], {
+      baseUrl: "https://dispatch.agent.test",
+    });
+    expect(receipt).toContain("Document ID: request_123");
+    expect(receipt).not.toContain(
+      "https://dispatch.agent.test/page/request_123",
+    );
+
+    const delivered = appendA2AArtifactLinks(receipt ?? "", [callAgentResult], {
+      baseUrl: "https://dispatch.agent.test",
+    });
+    expect(delivered).toContain(
+      "https://content.agent.test/page/request_123 (ID: request_123)",
+    );
+    expect(delivered).not.toContain(
+      "https://dispatch.agent.test/page/request_123",
+    );
+  });
+
+  it("excludes lookup artifacts from the stable identity ledger", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            items: Array.from({ length: 20 }, (_, index) => ({
+              documentId: `lookup_${index}`,
+              title: `Lookup ${index}`,
+            })),
+          }),
+        },
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_target",
+            createdDocumentTitle: "Target request",
+            urlPath: "/page/request_target",
+            verification: { found: true },
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_target",
+        sourceAction: "submit-content-database-form",
+        titleAtAction: "Target request",
+        url: "/page/request_target",
+      },
+    ]);
+  });
+
+  it.each(["edit-image", "restyle-image", "save-generated-asset"])(
+    "retains image identity from the %s write alias",
+    (tool) => {
+      expect(
+        extractA2AArtifactIdentities([
+          {
+            tool,
+            result: JSON.stringify({
+              assetId: "asset_target",
+              title: "Target image",
+              pageUrl: "/assets/asset_target",
+            }),
+          },
+        ]),
+      ).toEqual([
+        {
+          resourceType: "image",
+          id: "asset_target",
+          sourceAction: tool,
+          titleAtAction: "Target image",
+          url: "/assets/asset_target",
+        },
+      ]);
+    },
+  );
+
+  it("retains image exports but excludes video exports from image identity", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "export-asset",
+          result: JSON.stringify({
+            assetId: "image_target",
+            artifactType: "image",
+            pageUrl: "/assets/image_target",
+          }),
+        },
+        {
+          tool: "export-asset",
+          result: JSON.stringify({
+            assetId: "video_target",
+            artifactType: "video",
+            pageUrl: "/assets/video_target",
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "image",
+        id: "image_target",
+        sourceAction: "export-asset",
+        url: "/assets/image_target",
+      },
+    ]);
+  });
+
+  it("retains the stable identity of an empty design shell", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "create-design",
+          result: JSON.stringify({ id: "design_shell", title: "Launch" }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "design",
+        id: "design_shell",
+        sourceAction: "create-design",
+        titleAtAction: "Launch",
+      },
+    ]);
+  });
+
+  it("appends the focused Analytics URL returned by save-monitor", () => {
+    const text = appendA2AArtifactLinks(
+      "The uptime monitor was created.",
+      [
+        {
+          tool: "save-monitor",
+          result: JSON.stringify({
+            id: "monitor_123",
+            name: "clips.agent-native.com",
+            monitorAppUrl:
+              "https://analytics.agent-native.com/monitoring?view=uptime&monitor=monitor_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://analytics.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      '- Monitor "clips.agent-native.com": https://analytics.agent-native.com/monitoring?view=uptime&monitor=monitor_123 (ID: monitor_123)',
+    );
+  });
+
+  it("appends the direct public URL returned for an anonymous published form", () => {
+    const text = appendA2AArtifactLinks(
+      "The feedback form is live.",
+      [
+        {
+          tool: "create-form",
+          result: JSON.stringify({
+            id: "form_123",
+            title: "Product feedback",
+            status: "published",
+            settings: { anonymous: true },
+            publicUrl:
+              "https://forms.agent-native.com/f/product-feedback-a1b2c3",
+          }),
+        },
+      ],
+      { baseUrl: "https://forms.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      '- Anonymous form "Product feedback": https://forms.agent-native.com/f/product-feedback-a1b2c3 (ID: form_123)',
+    );
+  });
+
+  it("recognizes add-database-item as a recoverable Content row artifact", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "add-database-item",
+          result: JSON.stringify({
+            createdItemId: "item_456",
+            createdDocumentId: "request_456",
+            items: [
+              {
+                id: "item_456",
+                document: { id: "request_456", title: "Homepage refresh" },
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      '- Document "Homepage refresh": https://content.agent.test/page/request_456 (ID: request_456)',
+    );
+  });
+
+  it("builds an identity-only receipt for a verified document update", () => {
+    const text = buildA2AVerifiedMutationReceipt(
+      [
+        {
+          tool: "update-document",
+          result: JSON.stringify({
+            id: "request_456",
+            title: "Historical title must not be repeated",
+            urlPath: "/page/request_456",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain("A verified change was saved");
+    expect(text).toContain(
+      "- Document: https://content.agent.test/page/request_456 (ID: request_456)",
+    );
+    expect(text).not.toContain("Historical title must not be repeated");
+  });
+
+  it("does not treat read-only or failed action results as mutation receipts", () => {
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "get-document",
+          result: JSON.stringify({
+            id: "request_456",
+            urlPath: "/page/request_456",
+          }),
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "update-document",
+          result: "Error: update rejected",
+        },
+      ]),
+    ).toBeNull();
+  });
+
+  it("builds a document receipt for a sparse property correction", () => {
+    const text = buildA2AVerifiedMutationReceipt(
+      [
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_456" }),
+          completedSideEffect: true,
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Document: https://content.agent.test/page/request_456 (ID: request_456)",
+    );
+  });
+
+  it("rejects conflicts and explicitly incomplete write events", () => {
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "update-document",
+          result: JSON.stringify({
+            conflict: true,
+            id: "request_456",
+            document: { id: "request_456" },
+          }),
+          completedSideEffect: true,
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_456" }),
+          completedSideEffect: false,
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_456" }),
+          isError: true,
+        },
+      ]),
+    ).toBeNull();
+  });
+
+  it("ignores a mismatched Content submission URL and uses the canonical page route", () => {
+    const text = appendA2AArtifactLinks(
+      "Filed it.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_real",
+            url: "https://content.agent.test/page/request_other",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "https://content.agent.test/page/request_real (ID: request_real)",
+    );
+    expect(text).not.toContain("request_other");
+  });
+
+  it("appends a deck URL from a successful create-deck result", () => {
+    const text = appendA2AArtifactLinks(
+      "Created the deck.",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({ id: "deck_123", title: "Roadmap" }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Deck: https://slides.agent.test/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
+  it("treats add-slide with a positive slide count as a recoverable deck artifact", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "add-slide",
+          result: JSON.stringify({ deckId: "deck_123", slideCount: 3 }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Deck: https://slides.agent.test/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
+  it("verifies a deck built through actions outside the deck allow-list", () => {
+    // The documented live-generation flow creates an empty deck and fills it in
+    // with a follow-up write, so neither call looks like a populated create.
+    const text = appendA2AArtifactLinks(
+      "Your deck is ready: https://slides.agent.test/deck/deck_123",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            title: "Roadmap",
+            slideCount: 0,
+            url: "https://slides.agent.test/deck/deck_123",
+          }),
+        },
+        {
+          tool: "patch-deck",
+          result: JSON.stringify({ ok: true, deckId: "deck_123" }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).not.toContain("could not verify");
+    expect(text).toContain("https://slides.agent.test/deck/deck_123");
+  });
+
+  it("verifies a deck from an importer that returns its canonical URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Imported: https://slides.agent.test/deck/deck_123",
+      [
+        {
+          tool: "import-pptx",
+          result: JSON.stringify({
+            id: "deck_123",
+            slideCount: 12,
+            url: "https://slides.agent.test/deck/deck_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).not.toContain("could not verify");
+    expect(text).toContain("https://slides.agent.test/deck/deck_123");
+  });
+
+  it("treats update-dashboard as a recoverable dashboard artifact", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "update-dashboard",
+          result: JSON.stringify({
+            id: "growth-funnel",
+            name: "Growth Funnel",
+            urlPath: "/adhoc/growth-funnel",
+          }),
+        },
+      ],
+      { baseUrl: "https://analytics.agent.test/" },
+    );
+
+    expect(text).toContain(
+      '- Dashboard "Growth Funnel": https://analytics.agent.test/adhoc/growth-funnel (ID: growth-funnel)',
+    );
+  });
+
+  it("treats save-analysis as a recoverable report artifact", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "save-analysis",
+          result: JSON.stringify({
+            id: "q2-pipeline-report",
+            name: "Q2 Pipeline Report",
+            urlPath: "/analyses/q2-pipeline-report",
+          }),
+        },
+      ],
+      { baseUrl: "https://analytics.agent.test/" },
+    );
+
+    expect(text).toContain(
+      '- Report "Q2 Pipeline Report": https://analytics.agent.test/analyses/q2-pipeline-report (ID: q2-pipeline-report)',
+    );
+  });
+
+  it("prefers canonical URLs returned by successful artifact actions", () => {
+    const text = appendA2AArtifactLinks(
+      "Created the deck.",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            title: "Roadmap",
+            url: "https://workspace.example.test/slides/deck/deck_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Deck: https://workspace.example.test/slides/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
+  it("does not duplicate a deck path that is already in the response", () => {
+    const text = appendA2AArtifactLinks(
+      "Created it: https://slides.agent.test/deck/deck_123",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({ id: "deck_123", title: "Roadmap" }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test" },
+    );
+
+    expect(text).not.toContain("Artifacts:");
+  });
+
+  it("can include an artifact proof block for already-mentioned verified URLs", () => {
+    const text = appendA2AArtifactLinks(
+      "Deck ready: https://slides.agent-native.com/deck/deck_123",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            slideCount: 1,
+            url: "https://slides.agent-native.com/deck/deck_123",
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://slides.agent-native.com",
+        includeReferencedArtifacts: true,
+      },
+    );
+
+    expect(text).toContain(
+      "Deck ready: https://slides.agent-native.com/deck/deck_123",
+    );
+    expect(text).toContain(
+      "Artifacts:\n- Deck: https://slides.agent-native.com/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
+  it("can include a read-only get-deck proof block when the response already mentions the URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Deck exists: https://slides.agent-native.com/deck/deck_123",
+      [
+        {
+          tool: "get-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            title: "Builder Workspace Slack QA Deck",
+            slideCount: 7,
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://slides.agent-native.com",
+        includeReferencedArtifacts: true,
+      },
+    );
+
+    expect(text).toContain(
+      "Artifacts:\n- Deck: https://slides.agent-native.com/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
+  it("treats list-decks results as verified read-only deck artifacts", () => {
+    const text = appendA2AArtifactLinks(
+      "Existing deck: https://slides.agent-native.com/deck/deck_123",
+      [
+        {
+          tool: "list-decks",
+          result: JSON.stringify({
+            count: 1,
+            decks: [
+              {
+                id: "deck_123",
+                title: "Builder Workspace Slack QA Deck",
+                url: "https://slides.agent-native.com/deck/deck_123",
+                slideCount: 7,
+              },
+            ],
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://slides.agent-native.com",
+        includeReferencedArtifacts: true,
+      },
+    );
+
+    expect(text).toContain(
+      "Existing deck: https://slides.agent-native.com/deck/deck_123",
+    );
+    expect(text).toContain(
+      "Artifacts:\n- Deck: https://slides.agent-native.com/deck/deck_123 (ID: deck_123)",
+    );
+    expect(text).not.toContain("could not verify");
+  });
+
+  it("does not let list-decks verify deck URLs for IDs that were not listed", () => {
+    const text = appendA2AArtifactLinks(
+      "Existing deck: https://slides.agent-native.com/deck/deck_fake",
+      [
+        {
+          tool: "list-decks",
+          result: JSON.stringify({
+            count: 1,
+            decks: [
+              {
+                id: "deck_real",
+                title: "Real Deck",
+                url: "https://slides.agent-native.com/deck/deck_real",
+                slideCount: 7,
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the deck URL");
+    expect(text).not.toContain("deck_fake");
+    expect(text).toContain("https://slides.agent-native.com/deck/deck_real");
+  });
+
+  it("blocks hallucinated deck URLs with no successful deck action", () => {
+    const text = appendA2AArtifactLinks(
+      "Done: https://slides.agent.test/deck/deck_404",
+      [],
+      { baseUrl: "https://slides.agent.test" },
+    );
+
+    expect(text).toContain("could not verify the deck URL");
+    expect(text).not.toContain("deck_404");
+    expect(text).not.toContain("https://slides.agent.test/deck/");
+  });
+
+  it("does not validate deck-shaped URLs on another host", () => {
+    const text = appendA2AArtifactLinks(
+      "The Slides agent returned https://slides.agent.test/deck/deck_123",
+      [],
+      { baseUrl: "https://dispatch.agent.test" },
+    );
+
+    expect(text).toBe(
+      "The Slides agent returned https://slides.agent.test/deck/deck_123",
+    );
+  });
+
+  it("appends a design URL only after generate-design saved files", () => {
+    const text = appendA2AArtifactLinks(
+      "The prototype is ready.",
+      [
+        {
+          tool: "create-design",
+          result: JSON.stringify({ id: "design_123", title: "Prototype" }),
+        },
+        {
+          tool: "generate-design",
+          result: JSON.stringify({
+            designId: "design_123",
+            savedFiles: [{ id: "file_1", filename: "index.html" }],
+            fileCount: 1,
+          }),
+        },
+      ],
+      { baseUrl: "https://design.agent.test" },
+    );
+
+    expect(text).toContain(
+      "https://design.agent.test/design/design_123 (ID: design_123, 1 file)",
+    );
+  });
+
+  it("blocks shell-only design responses from being reported as completed artifacts", () => {
+    const text = appendA2AArtifactLinks(
+      "Here is your design: https://design.agent.test/design/design_123",
+      [
+        {
+          tool: "create-design",
+          result: JSON.stringify({ id: "design_123", title: "Prototype" }),
+        },
+      ],
+      { baseUrl: "https://design.agent.test" },
+    );
+
+    expect(text).toContain("not ready yet");
+    expect(text).toContain("no renderable files were saved");
+    expect(text).not.toContain("https://design.agent.test/design/design_123");
+  });
+
+  it("blocks hallucinated design URLs with no successful design action", () => {
+    const text = appendA2AArtifactLinks(
+      "Done: https://design.agent.test/design/DSyLeIdyBc9p_drm40Tfp",
+      [],
+      { baseUrl: "https://design.agent.test" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("DSyLeIdyBc9p_drm40Tfp");
+    expect(text).not.toContain("https://design.agent.test/design/");
+  });
+
+  it("blocks design URLs when create-design failed before returning JSON", () => {
+    const text = appendA2AArtifactLinks(
+      "Here is the prototype: https://design.agent.test/design/design_404",
+      [
+        {
+          tool: "create-design",
+          result: "Error: no authenticated user",
+        },
+      ],
+      { baseUrl: "https://design.agent.test" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("https://design.agent.test/design/design_404");
+  });
+
+  it("does not validate artifact-shaped URLs on another host", () => {
+    const text = appendA2AArtifactLinks(
+      "The Design agent returned https://design.agent.test/design/design_123",
+      [],
+      { baseUrl: "https://dispatch.agent.test" },
+    );
+
+    expect(text).toBe(
+      "The Design agent returned https://design.agent.test/design/design_123",
+    );
+  });
+
+  it("blocks unverified production Design URLs even when the caller is another app", () => {
+    const text = appendA2AArtifactLinks(
+      "The Design agent returned https://design.agent-native.com/design/us1sfMEZNWUQZHDldxoFA",
+      [],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).toContain("saved app data");
+    expect(text).not.toContain("us1sfMEZNWUQZHDldxoFA");
+    expect(text).not.toContain("https://design.agent-native.com/design/");
+  });
+
+  it("allows verified production Slides URLs when a successful deck action returned the same artifact", () => {
+    const text = appendA2AArtifactLinks(
+      "Deck ready: https://slides.agent-native.com/deck/deck_123",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            slideCount: 1,
+            url: "https://slides.agent-native.com/deck/deck_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Deck ready: https://slides.agent-native.com/deck/deck_123",
+    );
+  });
+
+  it("allows verified production Content URLs when a successful document action returned the same artifact", () => {
+    const text = appendA2AArtifactLinks(
+      "Document ready: https://content.agent-native.com/page/doc_123",
+      [
+        {
+          tool: "create-document",
+          result: JSON.stringify({
+            id: "doc_123",
+            title: "Launch Brief",
+            url: "https://content.agent-native.com/page/doc_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Document ready: https://content.agent-native.com/page/doc_123",
+    );
+  });
+
+  it("allows a Content URL proven by a nested get-content-document read result", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_read",
+      [
+        {
+          tool: "get-content-document",
+          result: JSON.stringify({
+            document: { id: "doc_read", title: "Design asks" },
+            url: "https://content.agent-native.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Document: https://content.agent-native.com/page/doc_read",
+    );
+  });
+
+  it("rejects an off-origin URL from a get-document read result", () => {
+    const text = appendA2AArtifactLinks(
+      "Found the document.",
+      [
+        {
+          tool: "get-document",
+          result: JSON.stringify({
+            id: "doc_read",
+            url: "https://untrusted.example.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(text).toContain("https://content.agent-native.com/page/doc_read");
+    expect(text).not.toContain("https://untrusted.example.com/page/doc_read");
+  });
+
+  it("rejects an off-origin URL from a nested get-content-document read result", () => {
+    const text = appendA2AArtifactLinks(
+      "Found the document.",
+      [
+        {
+          tool: "get-content-document",
+          result: JSON.stringify({
+            document: { id: "doc_read", title: "Design asks" },
+            url: "https://untrusted.example.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(text).toContain("https://content.agent-native.com/page/doc_read");
+    expect(text).not.toContain("https://untrusted.example.com/page/doc_read");
+  });
+
+  it("allows database and row page URLs returned by get-content-database", () => {
+    const text = appendA2AArtifactLinks(
+      [
+        "Database: https://content.agent-native.com/page/database_doc",
+        "Row: https://content.agent-native.com/page/request_doc",
+      ].join("\n"),
+      [
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            database: {
+              id: "database_123",
+              documentId: "database_doc",
+              title: "Design asks",
+            },
+            items: [
+              {
+                id: "item_123",
+                document: { id: "request_doc", title: "Homepage refresh" },
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      "Database: https://content.agent-native.com/page/database_doc",
+    );
+    expect(text).toContain(
+      "Row: https://content.agent-native.com/page/request_doc",
+    );
+    expect(text).not.toContain("could not verify");
+  });
+
+  it("rejects off-origin database and row URL candidates", () => {
+    const text = appendA2AArtifactLinks(
+      "Found the design asks database.",
+      [
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            url: "https://untrusted.example.com/page/database_doc",
+            database: {
+              id: "database_123",
+              documentId: "database_doc",
+              title: "Design asks",
+            },
+            items: [
+              {
+                id: "item_123",
+                url: "https://untrusted.example.com/page/request_doc",
+                document: { id: "request_doc", title: "Homepage refresh" },
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      "https://content.agent-native.com/page/database_doc",
+    );
+    expect(text).toContain("https://content.agent-native.com/page/request_doc");
+    expect(text).not.toContain("https://untrusted.example.com/page/");
+  });
+
+  it("does not treat an unavailable get-content-database result as document proof", () => {
+    const text = appendA2AArtifactLinks(
+      "Database: https://content.agent-native.com/page/database_missing",
+      [
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            available: false,
+            reason: "not_found",
+            databaseId: "database_123",
+            documentId: "database_missing",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain("database_missing");
+  });
+
+  it("allows a canonical document URL paired with its ID by a generic read action", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_read",
+      [
+        {
+          tool: "read-content-resource",
+          result: JSON.stringify({
+            documentId: "doc_read",
+            url: "https://content.agent-native.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Document: https://content.agent-native.com/page/doc_read",
+    );
+  });
+
+  it("does not let a generic read result prove a document URL on another origin", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_read",
+      [
+        {
+          tool: "read-content-resource",
+          result: JSON.stringify({
+            documentId: "doc_read",
+            url: "https://untrusted.example.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain(
+      "https://content.agent-native.com/page/doc_read",
+    );
+  });
+
+  it("does not let a generic read result prove a mismatched document URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_fake",
+      [
+        {
+          tool: "read-content-resource",
+          result: JSON.stringify({
+            documentId: "doc_real",
+            url: "https://content.agent-native.com/page/doc_fake",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain("doc_fake");
+  });
+
+  it("does not let a generic write result prove a document URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_fake",
+      [
+        {
+          tool: "publish-unrelated-resource",
+          result: JSON.stringify({
+            documentId: "doc_fake",
+            url: "https://content.agent-native.com/page/doc_fake",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain("doc_fake");
+  });
+
+  it("allows artifact URLs proven by a downstream call-agent artifact block", () => {
+    const text = appendA2AArtifactLinks(
+      [
+        "Slides: https://slides.agent-native.com/deck/deck_real",
+        "Doc: https://content.agent-native.com/page/doc_real",
+        "Design: https://design.agent-native.com/design/design_real",
+      ].join("\n"),
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "The downstream app verified these artifacts.",
+            "",
+            "Artifacts:",
+            "- Deck: https://slides.agent-native.com/deck/deck_real (ID: deck_real)",
+            '- Document "Launch Brief": https://content.agent-native.com/page/doc_real (ID: doc_real)',
+            "- Design: https://design.agent-native.com/design/design_real (ID: design_real, 1 file)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("https://slides.agent-native.com/deck/deck_real");
+    expect(text).toContain("https://content.agent-native.com/page/doc_real");
+    expect(text).toContain(
+      "https://design.agent-native.com/design/design_real",
+    );
+    expect(text).not.toContain("could not verify");
+  });
+
+  it("allows titled downstream deck artifact proof lines", () => {
+    const text = appendA2AArtifactLinks(
+      "Slides: https://slides.agent-native.com/deck/deck_real",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            '- Deck "Builder Workspace Slack QA Deck" (7 slides): https://slides.agent-native.com/deck/deck_real (ID: deck_real)',
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe("Slides: https://slides.agent-native.com/deck/deck_real");
+  });
+
+  it("allows downstream deck presentation URLs as proof for the deck", () => {
+    const text = appendA2AArtifactLinks(
+      "Slides: https://slides.agent-native.com/deck/deck_real/present",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Deck: https://slides.agent-native.com/deck/deck_real/present (ID: deck_real)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Slides: https://slides.agent-native.com/deck/deck_real/present",
+    );
+  });
+
+  it("does not treat unstructured call-agent URLs as artifact proof", () => {
+    const text = appendA2AArtifactLinks(
+      "The Design agent returned https://design.agent-native.com/design/design_fake",
+      [
+        {
+          tool: "call-agent",
+          result:
+            "Maybe the design is at https://design.agent-native.com/design/design_fake",
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("design_fake");
+  });
+
+  it("does not treat zero-file downstream design artifacts as proof", () => {
+    const text = appendA2AArtifactLinks(
+      "Design: https://design.agent-native.com/design/design_empty",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Design: https://design.agent-native.com/design/design_empty (ID: design_empty, 0 files)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("design_empty");
+  });
+
+  it("does not treat artifact-looking bullets outside the downstream artifact block as proof", () => {
+    const text = appendA2AArtifactLinks(
+      "Design: https://design.agent-native.com/design/design_spoofed",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "The downstream app quoted a user-authored artifact section.",
+            "",
+            "Artifacts:",
+            "This text is not the framework-generated proof block.",
+            "- Design: https://design.agent-native.com/design/design_spoofed (ID: design_spoofed, 1 file)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("design_spoofed");
+  });
+
+  it("does not treat downstream artifact lines with mismatched URL paths and IDs as proof", () => {
+    const text = appendA2AArtifactLinks(
+      "Design: https://design.agent-native.com/design/design_real",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Design: https://design.agent-native.com/design/design_other (ID: design_real, 1 file)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("design_real");
+  });
+
+  it("blocks generic shell-only design success even when the model omitted the id", () => {
+    const text = appendA2AArtifactLinks(
+      "Done.",
+      [
+        {
+          tool: "create-design",
+          result: JSON.stringify({ id: "design_123", title: "Prototype" }),
+        },
+      ],
+      { baseUrl: "https://design.agent.test" },
+    );
+
+    expect(text).toContain("not ready yet");
+    expect(text).toContain("design_123");
+  });
+
+  it("accepts create-file as a renderable design artifact after a shell", () => {
+    const text = appendA2AArtifactLinks(
+      "Saved the HTML.",
+      [
+        {
+          tool: "create-design",
+          result: JSON.stringify({ id: "design_123", title: "Prototype" }),
+        },
+        {
+          tool: "create-file",
+          result: JSON.stringify({
+            id: "file_1",
+            designId: "design_123",
+            filename: "index.html",
+            fileType: "html",
+            renderable: true,
+          }),
+        },
+      ],
+      { baseUrl: "https://design.agent.test" },
+    );
+
+    expect(text).toContain("https://design.agent.test/design/design_123");
+  });
+
+  it("accepts get-design as proof when it returns a renderable file", () => {
+    const text = appendA2AArtifactLinks(
+      "Opened it: https://design.agent.test/design/design_123",
+      [
+        {
+          tool: "get-design",
+          result: JSON.stringify({
+            id: "design_123",
+            title: "Prototype",
+            files: [
+              {
+                id: "file_1",
+                filename: "index.html",
+                fileType: "html",
+                content: "<!doctype html><html></html>",
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://design.agent.test" },
+    );
+
+    expect(text).toBe("Opened it: https://design.agent.test/design/design_123");
+  });
+
+  it("can parse JSON returned after shell logging", () => {
+    const text = appendA2AArtifactLinks(
+      "",
+      [
+        {
+          tool: "create-document",
+          result:
+            'Created document "Notes" (doc_123)\n{"id":"doc_123","title":"Notes"}',
+        },
+      ],
+      { baseUrl: "https://content.agent.test" },
+    );
+
+    expect(text).toContain("https://content.agent.test/page/doc_123");
+  });
+
+  it("blocks unverified analytics artifact URLs on known production hosts", () => {
+    const text = appendA2AArtifactLinks(
+      "Dashboard ready: https://analytics.agent-native.com/adhoc/fake-dashboard",
+      [],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the dashboard URL");
+  });
+
+  it("parses downstream dashboard and report artifact proof blocks", () => {
+    const text = appendA2AArtifactLinks(
+      "Created both.",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Dashboard: https://analytics.agent.test/adhoc/growth-funnel (ID: growth-funnel)",
+            "- Report: https://analytics.agent.test/analyses/q2-pipeline-report (ID: q2-pipeline-report)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent.test" },
+    );
+
+    expect(text).toContain("https://analytics.agent.test/adhoc/growth-funnel");
+    expect(text).toContain(
+      "https://analytics.agent.test/analyses/q2-pipeline-report",
+    );
+  });
+
+  it("appends a verified image artifact from generate-image", () => {
+    const text = appendA2AArtifactLinks(
+      "Generated the hero image.",
+      [
+        {
+          tool: "generate-image",
+          result: JSON.stringify({
+            id: "asset_123",
+            runId: "run_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://assets.agent.test" },
+    );
+
+    expect(text).toContain(
+      "- Image: https://assets.agent.test/image/asset_123 (ID: asset_123, Run: run_123)",
+    );
+  });
+
+  it("treats image batch results as recoverable artifacts", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "generate-image-batch",
+          result: JSON.stringify({
+            images: [
+              { ok: true, id: "asset_one", runId: "run_one" },
+              { ok: false, error: "blocked" },
+              { ok: true, assetId: "asset_two" },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://assets.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Image: https://assets.agent.test/image/asset_one (ID: asset_one, Run: run_one)",
+    );
+    expect(text).toContain(
+      "- Image: https://assets.agent.test/image/asset_two (ID: asset_two)",
+    );
+    expect(text).not.toContain("blocked");
+  });
+
+  it("blocks unverified production image URLs from other apps", () => {
+    const text = appendA2AArtifactLinks(
+      "Image ready: https://assets.agent-native.com/image/asset_fake",
+      [],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the image URL");
+    expect(text).not.toContain("asset_fake");
+  });
+
+  it("allows image URLs proven by a downstream call-agent artifact block", () => {
+    const text = appendA2AArtifactLinks(
+      "Image: https://assets.agent-native.com/image/asset_real",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Image: https://assets.agent-native.com/image/asset_real (ID: asset_real, Run: run_real)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Image: https://assets.agent-native.com/image/asset_real",
+    );
+  });
+
+  it("allows the canonical Assets detail URL in downstream artifact blocks", () => {
+    const text = appendA2AArtifactLinks(
+      "Image: https://assets.agent-native.com/asset/asset_real",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Image: https://assets.agent-native.com/asset/asset_real (ID: asset_real, Run: run_real)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Image: https://assets.agent-native.com/asset/asset_real",
+    );
+  });
+
+  it("detects image artifacts structurally without a tool-name allow-list", () => {
+    const text = appendA2AArtifactLinks(
+      "Image: https://assets.agent-native.com/asset/asset_structural",
+      [
+        {
+          tool: "generate-asset",
+          result: JSON.stringify({
+            id: "asset_structural",
+            artifactType: "image",
+            url: "/asset/asset_structural",
+          }),
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(text).not.toContain("could not verify");
+  });
+
+  it.each([
+    ["intact", JSON.stringify({ count: 1, images: [] })],
+    [
+      "ledger recovered",
+      '(Recovered from prior interrupted chunk — action already completed.)\n\n{\n  "count": 3\n...[ledger truncated at 8000 chars]',
+    ],
+    [
+      "delegated cap",
+      '{\n  "count": 6\n\n...[truncated — full result was 24,000 chars; only first 20,000 shown]',
+    ],
+  ])("verifies %s image results from typed receipts", (_label, result) => {
+    const guarded = guardA2AArtifactResponse(
+      "Images: https://assets.agent-native.com/asset/asset_receipt",
+      [
+        {
+          tool: "generate-image-batch",
+          result,
+          completedSideEffect: true,
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_receipt",
+              url: "/asset/asset_receipt",
+              runId: "run_receipt",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(false);
+    expect(guarded.text).not.toContain("no successful artifact action");
+  });
+
+  it("distinguishes unreadable truncated evidence from absent artifacts", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Images: https://assets.agent-native.com/asset/asset_unreadable",
+      [
+        {
+          tool: "generate-image-batch",
+          result:
+            '(Recovered from prior interrupted chunk — action already completed.)\n\n{\n  "count": 3\n...[ledger truncated at 8000 chars]',
+          completedSideEffect: true,
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(true);
+    expect(guarded.text).toContain(
+      "generate-image-batch completed, but its result was truncated",
+    );
+    expect(guarded.text).not.toContain("successful artifact action");
+  });
+
+  it.each([
+    ["document", "doc_roundtrip", "/page/doc_roundtrip"],
+    ["deck", "deck_roundtrip", "/deck/deck_roundtrip"],
+    ["dashboard", "dashboard_roundtrip", "/adhoc/dashboard_roundtrip"],
+    ["analysis", "analysis_roundtrip", "/analyses/analysis_roundtrip"],
+    ["image", "image_roundtrip", "/asset/image_roundtrip"],
+    ["design", "design_roundtrip", "/design/design_roundtrip"],
+  ] as const)(
+    "round-trips a formatted %s artifact through downstream verification",
+    (kind, id, path) => {
+      const origin = "https://artifacts.agent-native.com";
+      const downstream = appendA2AArtifactLinks(
+        "Saved the artifact.",
+        [
+          {
+            tool: "write-artifact",
+            result: "result body intentionally irrelevant",
+            artifacts: [{ kind, id, url: path, title: "Round trip" }],
+          },
+        ],
+        { baseUrl: origin },
+      );
+      const guarded = guardA2AArtifactResponse(
+        `Artifact: ${origin}${path}`,
+        [{ tool: "call-agent", result: downstream }],
+        { baseUrl: "https://caller.agent-native.com" },
+      );
+
+      expect(guarded.rejectedUnverifiedArtifactReferences).toBe(false);
+      expect(guarded.text).toContain(`${origin}${path}`);
+    },
+  );
+
+  it("parses complete wrapped JSON before treating sentinel text as truncation", () => {
+    const text = appendA2AArtifactLinks(
+      "Generated it.",
+      [
+        {
+          tool: "generate-image",
+          result: [
+            "action output:",
+            JSON.stringify({
+              id: "asset_complete",
+              title: "...[ledger truncated at is literal title text",
+            }),
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://assets.agent.test" },
+    );
+
+    expect(text).toContain("/image/asset_complete");
+    expect(text).not.toContain("result was truncated");
+  });
+
+  it("attributes truncation only when the tool can produce the referenced kind", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Document: https://content.agent-native.com/page/doc_unverified",
+      [
+        {
+          tool: "generate-image-batch",
+          result:
+            '{\n  "images": [\n...[truncated — full result was 24,000 chars]',
+        },
+      ],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(guarded.text).toContain("successful artifact action");
+    expect(guarded.text).not.toContain("result was truncated");
+  });
+
+  it("retains verified artifact lines in a truncation rejection", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Images: https://assets.agent-native.com/asset/asset_unverified",
+      [
+        {
+          tool: "generate-image",
+          result: JSON.stringify({ id: "asset_verified" }),
+        },
+        {
+          tool: "generate-image-batch",
+          result:
+            '{\n  "images": [\n...[truncated — full result was 24,000 chars]',
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.text).toContain("result was truncated");
+    expect(guarded.text).toContain("get-asset");
+    expect(guarded.text).toContain("Artifacts:");
+    expect(guarded.text).toContain("/image/asset_verified");
+  });
+
+  it("revalidates typed document receipts at the Content origin", () => {
+    const rejected = guardA2AArtifactResponse(
+      "Document: https://content.agent-native.com/page/doc_generic",
+      [
+        {
+          tool: "read-workspace-document",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "document",
+              id: "doc_generic",
+              url: "https://attacker.example/page/doc_generic",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+    expect(rejected.rejectedUnverifiedArtifactReferences).toBe(true);
+
+    const accepted = appendA2AArtifactLinks(
+      "Read it.",
+      [
+        {
+          tool: "get-document",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "document",
+              id: "doc_known",
+              url: "https://attacker.example/page/doc_known",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+    expect(accepted).toContain(
+      "https://content.agent-native.com/page/doc_known",
+    );
+    expect(accepted).not.toContain("attacker.example");
+  });
+
+  it("rejects typed receipts whose canonical URL names another artifact", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Image: https://assets.agent-native.com/asset/asset_expected",
+      [
+        {
+          tool: "generate-asset",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_expected",
+              url: "/asset/asset_other",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(true);
+  });
+
+  it("keeps a known producer's artifact ID when its URL is non-canonical", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Image: https://assets.agent-native.com/asset/asset_cdn",
+      [
+        {
+          tool: "generate-asset",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_cdn",
+              url: "https://cdn.example.com/generated.png",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(false);
+    expect(guarded.text).not.toContain("cdn.example.com");
+  });
+
+  it("does not emit attacker-hosted URLs from typed artifact receipts", () => {
+    const text = appendA2AArtifactLinks(
+      "Generated it.",
+      [
+        {
+          tool: "generate-asset",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_hostile",
+              url: "https://attacker.example/asset/asset_hostile",
+            },
+          ],
+        },
+      ],
+      {
+        baseUrl: "https://assets.agent-native.com",
+        includeReferencedArtifacts: true,
+      },
+    );
+
+    expect(text).toContain(
+      "https://assets.agent-native.com/image/asset_hostile",
+    );
+    expect(text).not.toContain("attacker.example");
+  });
+
+  it("does not demand artifact verification for Assets API collection routes", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Search with https://assets.agent-native.com/api/assets/search",
+      [],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(false);
+  });
+
+  it("formats the real design file count carried by a typed receipt", () => {
+    const text = appendA2AArtifactLinks(
+      "Generated the design.",
+      [
+        {
+          tool: "generate-design",
+          result: "truncated",
+          artifacts: [{ kind: "design", id: "design_two", fileCount: 2 }],
+        },
+      ],
+      { baseUrl: "https://design.agent.test" },
+    );
+
+    expect(text).toContain("(ID: design_two, 2 files)");
+  });
+
+  it("round-trips a structurally detected generate-asset identity through a signed marker", () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-generate-asset");
+    const downstream = appendA2AArtifactLinks(
+      "Generated it.",
+      [
+        {
+          tool: "generate-asset",
+          result: JSON.stringify({
+            id: "asset_signed",
+            pageUrl: "/assets/asset_signed",
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://assets.agent-native.com",
+        includePersistedArtifactMarker: true,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        resourceType: "image",
+        id: "asset_signed",
+        sourceAction: "call-agent",
+        url: "/assets/asset_signed",
+      }),
+    ]);
+  });
+
+  it("does not sign artifact identities from unknown producer tools", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "echo-user-payload",
+          result: "opaque",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_echoed",
+              url: "/asset/asset_echoed",
+            },
+          ],
+        },
+      ]),
+    ).toEqual([]);
+  });
+});

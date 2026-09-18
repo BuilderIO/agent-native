@@ -1,0 +1,1403 @@
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { type CodeLayerNode } from "@shared/code-layer";
+import { sourceContentHash } from "@shared/source-workspace";
+import type { QueryClient } from "@tanstack/react-query";
+import type { Dispatch, RefObject, SetStateAction } from "react";
+import { toast } from "sonner";
+import * as Y from "yjs";
+
+import { trace } from "@/components/design/design-trace";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
+import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
+import type { FrameGeometry } from "@/components/design/multi-screen/types";
+import type {
+  ElementInfo,
+  RuntimeStructureInsertRequest,
+  RuntimeStructureMoveRequest,
+} from "@/components/design/types";
+import type {
+  ClipboardContentMutationOrigin,
+  ClipboardContentMutationPublication,
+} from "@/lib/clipboard-content-lineage";
+import {
+  refreshElementInfoFromContent,
+  refreshSelectedLayerIdsFromContent,
+} from "@/pages/design-editor/code-layer-state";
+import { writeCollabText } from "@/pages/design-editor/collab-sync";
+import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
+import { prepareContentHistoryReplay } from "@/pages/design-editor/commands/prepare-content-history-replay";
+import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import {
+  getCanvasFrameGeometry,
+  staleGeometryFrameIds,
+  viewportChangedFrameIds,
+} from "@/pages/design-editor/design-data-geometry-utils";
+import { TAB_ID } from "@/pages/design-editor/editor-session";
+import type {
+  PreviewContentReplaceResult,
+  UndoRedoOrderKind,
+} from "@/pages/design-editor/editor-state";
+import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/editor-state";
+import type {
+  ContentHistoryChange,
+  ContentHistoryEntry,
+  ContentHistorySelectionAfterMap,
+  FileCreationHistoryEntry,
+  FileDeletionHistoryEntry,
+  GeometryHistoryEntry,
+  GeometryHistorySelection,
+  SelectionHistoryEntry,
+} from "@/pages/design-editor/history";
+import {
+  MAX_DESIGN_UNDO_STACK,
+  applyGeometryHistoryDiff,
+  filterFileDeletionHistoryEntry,
+  findLastContentHistoryChangeIndex,
+  partitionContentHistoryEntry,
+  contentHistoryEntryFromChanges,
+  readYjsRedoSelection,
+  removeRecentUndoRedoOrderKinds,
+  restoreFileContentHistoryOrderToken,
+} from "@/pages/design-editor/history";
+import {
+  resolveHistorySelection,
+  resolveLocalHistorySelection,
+} from "@/pages/design-editor/history-identity";
+import type {
+  PendingLiveNonStyleEdit,
+  PendingLiveNonStyleUndoEntry,
+  PendingLiveStructureUndoEntry,
+  PendingVisualStyleEdit,
+  PendingVisualStyleUndoEntry,
+} from "@/pages/design-editor/pending-edits";
+import {
+  buildPendingVisualStyleRevertPatches,
+  mergePendingLiveNonStyleEdits,
+  mergePendingVisualStyleEdits,
+  pendingVisualStyleEditsFromUndoStack,
+  pendingVisualStyleUndoTargets,
+  pendingStructureRedoCommand,
+  shouldRedoPendingLiveNonStyleBeforeStyle,
+} from "@/pages/design-editor/pending-edits";
+import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selection-state";
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
+import type { DesignFile } from "@/pages/design-editor/types";
+
+export interface RedoArgs {
+  activeEditorDragRef: RefObject<boolean>;
+  activeFile: DesignFile;
+  applyFileContentUpdate: (
+    fileId: string,
+    nextContent: string,
+    options?: {
+      refreshPreview?: boolean;
+      skipPreview?: boolean;
+      forcePreviewFullDocument?: boolean;
+      persist?: boolean;
+      recordHistory?: boolean;
+      historyBeforeContent?: string;
+      updatedAt?: string;
+      clipboardMutation?: ClipboardContentMutationPublication;
+    },
+  ) => ApplyFileContentUpdateResult;
+  applyDesignDataHistoryChanges?: (
+    changes: readonly ContentHistoryChange[],
+    direction: "undo" | "redo",
+  ) => void;
+  applyGeometryHistoryContentChanges?: (
+    changes: readonly ContentHistoryChange[],
+    direction: "undo" | "redo",
+  ) => void;
+  applyLocalContentUpdate: (
+    nextContent: string,
+    options?: {
+      refreshPreview?: boolean;
+      skipPreview?: boolean;
+      forcePreviewFullDocument?: boolean;
+      immediateSave?: boolean;
+      persist?: boolean;
+      recordHistory?: boolean;
+      historyBeforeContent?: string;
+      updatedAt?: string;
+      clipboardMutation?: ClipboardContentMutationPublication;
+    },
+  ) => ApplyLocalContentUpdateResult;
+  canEditDesign: boolean;
+  clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
+  clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
+  /** See UndoArgs's matching field doc comment (undo.ts). */
+  codeLayerOwnerByNodeIdRef: RefObject<Map<string, { node: CodeLayerNode }>>;
+  contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
+  contentRedoSelectionStackRef: RefObject<
+    (GeometryHistorySelection | undefined)[]
+  >;
+  contentRedoStackRef: RefObject<ContentHistoryEntry[]>;
+  contentUndoSelectionStackRef: RefObject<
+    (GeometryHistorySelection | undefined)[]
+  >;
+  contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  createFileMutation: ReturnType<
+    typeof useActionMutation<undefined, undefined, "create-file">
+  >;
+  deleteRuntimeElement: (
+    selector?: string | null,
+    candidates?: readonly string[],
+    requestId?: string,
+  ) => boolean;
+  designDataJsonRef: RefObject<Record<string, unknown>>;
+  fileCreationRedoStackRef: RefObject<FileCreationHistoryEntry[]>;
+  fileCreationUndoStackRef: RefObject<FileCreationHistoryEntry[]>;
+  fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
+  fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
+  fileHistoryMutationPendingRef: RefObject<boolean>;
+  clearPendingHistory?: () => void;
+  files: DesignFile[];
+  filesRef?: RefObject<DesignFile[]>;
+  focusCreatedScreen: (screenId: string, geometry: FrameGeometry) => void;
+  geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
+  geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
+  getFreshActiveContent: () => string;
+  getScreenContent: (screenId: string) => string;
+  historyOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  id: string | undefined;
+  isSynced: boolean;
+  lastLocalContentRef: RefObject<string | null>;
+  resetGeometryCommitCoalescing?: () => void;
+  liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
+  liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
+  localContentRedoStackRef: RefObject<ContentHistoryChange[]>;
+  localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
+  markPendingLocalFileContent: (
+    fileId: string,
+    content: string,
+    baseUpdatedAt?: string | null,
+  ) => void;
+  optimisticallyInsertCreatedFile: (args: {
+    fileId: string;
+    filename: string;
+    fileType: DesignFile["fileType"];
+    content: string;
+    result?: Record<string, unknown> | null;
+  }) => void;
+  overviewScreens: OverviewScreen[];
+  pendingLiveNonStyleEditsRef: RefObject<PendingLiveNonStyleEdit[]>;
+  pendingLiveNonStyleRedoStackRef: RefObject<PendingLiveNonStyleUndoEntry[]>;
+  pendingLiveNonStyleUndoStackRef: RefObject<PendingLiveNonStyleUndoEntry[]>;
+  pendingLocalFileContentsRef: RefObject<
+    Map<
+      string,
+      { content: string; startedAt: number; baseUpdatedAt?: string | null }
+    >
+  >;
+  pendingStructureRedoReplayRef: RefObject<
+    PendingLiveStructureUndoEntry | undefined
+  >;
+  pendingStructureRedoReplayTimerRef: RefObject<number | undefined>;
+  pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
+  pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  performDeleteFiles: (
+    filesToDelete: DesignFile[],
+    options?: {
+      skipFileCreationRedoPrune?: boolean;
+      recordDeletionHistory?: boolean;
+      preserveHistory?: boolean;
+      onMutationSettled?: (
+        deletedFiles: DesignFile[],
+        failedFiles: DesignFile[],
+      ) => void;
+    },
+  ) => void;
+  publishAuthoritativeClipboardMutation: (args: {
+    fileId: string;
+    baseContent: string;
+    nextContent: string;
+    origin: ClipboardContentMutationOrigin;
+    baseSource?: "lineage" | "document";
+  }) => ClipboardContentMutationPublication | null;
+  queryClient: QueryClient;
+  queueFileContentSave: (
+    fileId: string,
+    content: string,
+    options: {
+      expectedVersionHash: string;
+      syncCollab?: boolean;
+      immediate?: boolean;
+    },
+  ) => void;
+  recordLocalContentHistoryChangeFallback: (
+    change: ContentHistoryChange,
+  ) => void;
+  redoOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  replacePreviewContent: (
+    nextContent: string,
+    selector?: string | null,
+    options?: { forceFullDocument?: boolean },
+  ) => PreviewContentReplaceResult;
+  restoreSelectionSnapshot: (
+    selection: GeometryHistorySelection | undefined,
+  ) => void;
+  runtimeStructureInsertRevisionRef: RefObject<number>;
+  runtimeStructureMoveRevisionRef: RefObject<number>;
+  selectionRedoStackRef: RefObject<SelectionHistoryEntry[]>;
+  selectionUndoStackRef: RefObject<SelectionHistoryEntry[]>;
+  setContentRenderRevision: Dispatch<SetStateAction<number>>;
+  setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  setPendingLayerStateReplayRequest: Dispatch<
+    SetStateAction<{
+      requestId: number;
+      patches: Array<{
+        screenId: string;
+        layerId: string;
+        state: "hidden" | "locked";
+        enabled: boolean;
+      }>;
+    } | null>
+  >;
+  setPendingLiveNonStyleEdits: Dispatch<
+    SetStateAction<PendingLiveNonStyleEdit[]>
+  >;
+  setPendingTextRevertRequest: Dispatch<
+    SetStateAction<{
+      requestId: number;
+      patches: Array<{
+        screenId: string;
+        selector: string;
+        sourceId?: string | null;
+        value: string;
+        html?: string;
+      }>;
+    } | null>
+  >;
+  setPendingVisualStyleEdits: Dispatch<
+    SetStateAction<PendingVisualStyleEdit[]>
+  >;
+  setPendingVisualStyleRevertRequest: Dispatch<
+    SetStateAction<{
+      requestId: number;
+      patches: ReturnType<typeof buildPendingVisualStyleRevertPatches>;
+    } | null>
+  >;
+  setRuntimeStructureInsertRequest: Dispatch<
+    SetStateAction<
+      (RuntimeStructureInsertRequest & { screenId: string }) | null
+    >
+  >;
+  setRuntimeStructureMoveRequest: Dispatch<
+    SetStateAction<(RuntimeStructureMoveRequest & { screenId: string }) | null>
+  >;
+  setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
+  suppressContentHistoryRef: RefObject<boolean>;
+  syncLiveScreenSnapshotPreview: (screenId: string, html: string) => void;
+  syncUndoRedoState: () => void;
+  t: (key: string, options?: Record<string, unknown>) => string;
+  undoManagerRef: RefObject<Y.UndoManager | null>;
+  updateLiveScreenSnapshotContent: (
+    screenId: string,
+    html: string,
+    options?: { recordHistory?: boolean },
+  ) => boolean;
+  viewModeRef: RefObject<"single" | "overview">;
+  writeFrameGeometrySnapshot: (
+    geometryById: CanvasFrameGeometryById,
+    options?: {
+      replacePendingGeometrySave?: boolean;
+      syncViewportFrameIds?: string[];
+      pinHeightFrameIds?: string[];
+    },
+  ) => void;
+  ydoc: Y.Doc | null;
+}
+
+export function runRedo({
+  activeEditorDragRef,
+  activeFile,
+  applyFileContentUpdate,
+  applyDesignDataHistoryChanges,
+  applyGeometryHistoryContentChanges,
+  applyLocalContentUpdate,
+  canEditDesign,
+  clipboardPasteRedoStackRef,
+  clipboardPasteUndoStackRef,
+  codeLayerOwnerByNodeIdRef,
+  contentHistorySelectionAfterRef,
+  contentRedoSelectionStackRef,
+  contentRedoStackRef,
+  contentUndoSelectionStackRef,
+  contentUndoStackRef,
+  createFileMutation,
+  deleteRuntimeElement,
+  designDataJsonRef,
+  fileCreationRedoStackRef,
+  fileCreationUndoStackRef,
+  fileDeletionRedoStackRef,
+  fileDeletionUndoStackRef,
+  fileHistoryMutationPendingRef,
+  clearPendingHistory,
+  files,
+  filesRef,
+  focusCreatedScreen,
+  geometryRedoStackRef,
+  geometryUndoStackRef,
+  getFreshActiveContent,
+  getScreenContent,
+  historyOrderRef,
+  id,
+  isSynced,
+  lastLocalContentRef,
+  resetGeometryCommitCoalescing,
+  liveFrameGeometryRef,
+  liveScreenSnapshotsById,
+  localContentRedoStackRef,
+  localContentUndoStackRef,
+  markPendingLocalFileContent,
+  optimisticallyInsertCreatedFile,
+  overviewScreens,
+  pendingLiveNonStyleEditsRef,
+  pendingLiveNonStyleRedoStackRef,
+  pendingLiveNonStyleUndoStackRef,
+  pendingLocalFileContentsRef,
+  pendingStructureRedoReplayRef,
+  pendingStructureRedoReplayTimerRef,
+  pendingVisualStyleEditsRef,
+  pendingVisualStyleRedoStackRef,
+  pendingVisualStyleUndoStackRef,
+  performDeleteFiles,
+  publishAuthoritativeClipboardMutation,
+  queryClient,
+  queueFileContentSave,
+  recordLocalContentHistoryChangeFallback,
+  redoOrderRef,
+  replacePreviewContent,
+  restoreSelectionSnapshot,
+  runtimeStructureInsertRevisionRef,
+  runtimeStructureMoveRevisionRef,
+  selectionRedoStackRef,
+  selectionUndoStackRef,
+  setContentRenderRevision,
+  setHoveredElement,
+  setPendingLayerStateReplayRequest,
+  setPendingLiveNonStyleEdits,
+  setPendingTextRevertRequest,
+  setPendingVisualStyleEdits,
+  setPendingVisualStyleRevertRequest,
+  setRuntimeStructureInsertRequest,
+  setRuntimeStructureMoveRequest,
+  setSelectedElement,
+  setSelectedLayerIdsState,
+  suppressContentHistoryRef,
+  syncLiveScreenSnapshotPreview,
+  syncUndoRedoState,
+  t,
+  undoManagerRef,
+  updateLiveScreenSnapshotContent,
+  viewModeRef,
+  writeFrameGeometrySnapshot,
+  ydoc,
+}: RedoArgs) {
+  const restoreHistorySelection = (
+    selection: GeometryHistorySelection | undefined,
+    replaySources: Record<string, string> = {},
+  ) => {
+    const currentFiles = filesRef?.current ?? files;
+    const actualSources = Object.fromEntries(
+      currentFiles.map((file) => [
+        file.id,
+        replaySources[file.id] ?? getScreenContent(file.id),
+      ]),
+    );
+    const resolved = resolveHistorySelection(
+      selection,
+      actualSources,
+      replaySources,
+    );
+    restoreSelectionSnapshot(resolved.selection);
+    if (selection) setSelectedElement(resolved.element);
+  };
+  trace("history", "redo", {});
+  if (!canEditDesign) return;
+  // U10: see the matching guard in handleUndo — don't redo into a document
+  // state an in-progress, uncommitted drag is about to overwrite anyway.
+  if (activeEditorDragRef.current) return;
+  if (fileHistoryMutationPendingRef.current) return;
+  resetGeometryCommitCoalescing?.();
+  const pendingNonStyleRedoStack = pendingLiveNonStyleRedoStackRef.current;
+  const pendingNonStyleRedo =
+    pendingNonStyleRedoStack[pendingNonStyleRedoStack.length - 1];
+  const pendingLiveRedoStack = pendingVisualStyleRedoStackRef.current;
+  const pendingLiveRedo = pendingLiveRedoStack[pendingLiveRedoStack.length - 1];
+  const redoPendingNonStyleFirst = shouldRedoPendingLiveNonStyleBeforeStyle(
+    pendingLiveRedo,
+    pendingNonStyleRedo,
+  );
+  if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "structure") {
+    const redoCommand = pendingStructureRedoCommand(pendingNonStyleRedo.edit);
+    // A removal has no bridge echo to wait for: re-issuing the delete under
+    // the same requestId is the whole replay, so move the entry back onto
+    // the undo stack here instead of arming pendingStructureRedoReplayRef
+    // for a `visual-structure-change` that will never arrive.
+    if (redoCommand.kind === "delete") {
+      const redoneEdit = pendingNonStyleRedo.edit;
+      if (
+        !deleteRuntimeElement(
+          redoneEdit.selector,
+          [redoneEdit.selector],
+          redoneEdit.requestId,
+        )
+      ) {
+        return;
+      }
+      pendingLiveNonStyleRedoStackRef.current = pendingNonStyleRedoStack.slice(
+        0,
+        -1,
+      );
+      pendingLiveNonStyleUndoStackRef.current = [
+        ...pendingLiveNonStyleUndoStackRef.current,
+        pendingNonStyleRedo,
+      ];
+      const nextPending = mergePendingLiveNonStyleEdits(
+        pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+      );
+      pendingLiveNonStyleEditsRef.current = nextPending;
+      setPendingLiveNonStyleEdits(nextPending);
+      syncUndoRedoState();
+      return;
+    }
+    if (pendingStructureRedoReplayRef.current) return;
+    pendingStructureRedoReplayRef.current = pendingNonStyleRedo;
+    if (redoCommand.kind === "insert") {
+      runtimeStructureInsertRevisionRef.current += 1;
+      setRuntimeStructureInsertRequest({
+        requestId: runtimeStructureInsertRevisionRef.current,
+        screenId: pendingNonStyleRedo.edit.screenId,
+        html: redoCommand.html,
+        replaceAnchor: redoCommand.replaceAnchor,
+        anchor: {
+          selector: pendingNonStyleRedo.edit.anchorSelector,
+          sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
+        },
+        placement: pendingNonStyleRedo.edit.placement,
+      });
+      if (pendingStructureRedoReplayTimerRef.current !== undefined) {
+        window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
+      }
+      pendingStructureRedoReplayTimerRef.current = window.setTimeout(() => {
+        pendingStructureRedoReplayRef.current = undefined;
+        pendingStructureRedoReplayTimerRef.current = undefined;
+        syncUndoRedoState();
+      }, 1_000);
+      syncUndoRedoState();
+      return;
+    }
+    runtimeStructureMoveRevisionRef.current += 1;
+    setRuntimeStructureMoveRequest({
+      requestId: runtimeStructureMoveRevisionRef.current,
+      screenId: pendingNonStyleRedo.edit.screenId,
+      subject: {
+        selector: pendingNonStyleRedo.edit.selector,
+        sourceId: pendingNonStyleRedo.edit.sourceId ?? undefined,
+      },
+      anchor: {
+        selector: pendingNonStyleRedo.edit.anchorSelector,
+        sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
+      },
+      placement: pendingNonStyleRedo.edit.placement,
+    });
+    if (pendingStructureRedoReplayTimerRef.current !== undefined) {
+      window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
+    }
+    pendingStructureRedoReplayTimerRef.current = window.setTimeout(() => {
+      pendingStructureRedoReplayRef.current = undefined;
+      pendingStructureRedoReplayTimerRef.current = undefined;
+      syncUndoRedoState();
+    }, 1_000);
+    syncUndoRedoState();
+    return;
+  }
+  if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "layer-state") {
+    pendingLiveNonStyleRedoStackRef.current = pendingNonStyleRedoStack.slice(
+      0,
+      -1,
+    );
+    pendingLiveNonStyleUndoStackRef.current = [
+      ...pendingLiveNonStyleUndoStackRef.current,
+      pendingNonStyleRedo,
+    ];
+    const nextPending = mergePendingLiveNonStyleEdits(
+      pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+    );
+    pendingLiveNonStyleEditsRef.current = nextPending;
+    setPendingLayerStateReplayRequest({
+      requestId: Date.now() + Math.random(),
+      patches: [
+        {
+          screenId: pendingNonStyleRedo.edit.screenId,
+          layerId: pendingNonStyleRedo.edit.layerId,
+          state: pendingNonStyleRedo.edit.state,
+          enabled: pendingNonStyleRedo.edit.enabled,
+        },
+      ],
+    });
+    setPendingLiveNonStyleEdits(nextPending);
+    syncUndoRedoState();
+    return;
+  }
+  if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "text") {
+    const pendingTextRedo = pendingNonStyleRedo;
+    pendingLiveNonStyleRedoStackRef.current = pendingNonStyleRedoStack.slice(
+      0,
+      -1,
+    );
+    pendingLiveNonStyleUndoStackRef.current = [
+      ...pendingLiveNonStyleUndoStackRef.current,
+      pendingTextRedo,
+    ];
+    const nextPending = mergePendingLiveNonStyleEdits(
+      pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+    );
+    pendingLiveNonStyleEditsRef.current = nextPending;
+    setPendingTextRevertRequest({
+      requestId: Date.now() + Math.random(),
+      patches: [
+        {
+          screenId: pendingTextRedo.edit.screenId,
+          selector: pendingTextRedo.edit.selector,
+          sourceId: pendingTextRedo.edit.sourceId,
+          value: pendingTextRedo.edit.value,
+          html: pendingTextRedo.edit.html,
+        },
+      ],
+    });
+    setPendingLiveNonStyleEdits(nextPending);
+    // Bug fix — same stale-inspector-panel issue as handleUndo. Redo
+    // reapplies pendingTextRedo.edit.value/html via
+    // setPendingTextRevertRequest above, but never resynced
+    // selectedElement, so resync with the same values here.
+    if (pendingTextRedo.edit.screenId === activeFile?.id) {
+      const {
+        sourceId: redoneSourceId,
+        selector: redoneSelector,
+        value: redoneValue,
+        html: redoneHtml,
+      } = pendingTextRedo.edit;
+      setSelectedElement((prev) => {
+        if (!prev) return prev;
+        if (
+          !pendingEditTargetsSelectedElement({
+            editSourceId: redoneSourceId,
+            editSelector: redoneSelector,
+            selectedSourceId: prev.sourceId,
+            selectedSelector: prev.selector,
+          })
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          textContent: redoneValue,
+          htmlContent: redoneHtml ?? prev.htmlContent,
+        };
+      });
+    }
+    syncUndoRedoState();
+    return;
+  }
+  if (pendingLiveRedo) {
+    const nextRedoStack = pendingLiveRedoStack.slice(0, -1);
+    pendingVisualStyleRedoStackRef.current = nextRedoStack;
+    pendingVisualStyleUndoStackRef.current = [
+      ...pendingVisualStyleUndoStackRef.current,
+      pendingLiveRedo,
+    ];
+    const nextPending = mergePendingVisualStyleEdits(
+      pendingVisualStyleEditsFromUndoStack(
+        pendingVisualStyleUndoStackRef.current,
+      ),
+    );
+    pendingVisualStyleEditsRef.current = nextPending;
+    setPendingVisualStyleRevertRequest({
+      requestId: Date.now() + Math.random(),
+      patches: pendingVisualStyleUndoTargets(pendingLiveRedo).map(
+        ({ edit }) => ({
+          screenId: edit.screenId,
+          selector: edit.selector,
+          sourceId: edit.sourceId,
+          // Redo builds its patch inline rather than through
+          // buildPendingVisualStyleRevertPatches, so it needs the runtime
+          // pair explicitly or it re-applies into the wrong namespace.
+          runtimeSelector: edit.runtimeSelector,
+          runtimeSourceId: edit.runtimeSourceId,
+          styles: edit.styles,
+          interactionState: edit.interactionState,
+        }),
+      ),
+    });
+    setPendingVisualStyleEdits(nextPending);
+    // Bug fix — same stale-inspector-panel issue as handleUndo's style
+    // branch. Merge the redo's own style values (already applied to the
+    // DOM via setPendingVisualStyleRevertRequest above) into
+    // selectedElement.computedStyles.
+    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    setSelectedElement((prev) => {
+      if (!prev) return prev;
+      const redoneTarget = redoneTargets.find(
+        ({ edit }) =>
+          edit.screenId === activeFile?.id &&
+          pendingEditTargetsSelectedElement({
+            editSourceId: edit.sourceId,
+            editSelector: edit.selector,
+            selectedSourceId: prev.sourceId,
+            selectedSelector: prev.selector,
+          }),
+      );
+      if (!redoneTarget) return prev;
+      return {
+        ...prev,
+        computedStyles: {
+          ...prev.computedStyles,
+          ...redoneTarget.edit.styles,
+        },
+      };
+    });
+    syncUndoRedoState();
+    return;
+  }
+  const redoClipboardPaste = () => {
+    if (
+      redoOrderRef.current[redoOrderRef.current.length - 1] !==
+      "clipboard-paste"
+    ) {
+      return false;
+    }
+    const clipboardPasteRedo =
+      clipboardPasteRedoStackRef.current[
+        clipboardPasteRedoStackRef.current.length - 1
+      ];
+    if (!clipboardPasteRedo) return false;
+    const currentContent =
+      pendingLocalFileContentsRef.current.get(clipboardPasteRedo.fileId)
+        ?.content ??
+      (clipboardPasteRedo.fileId === activeFile?.id
+        ? getFreshActiveContent()
+        : (getScreenContent(clipboardPasteRedo.fileId) ?? ""));
+    if (currentContent !== clipboardPasteRedo.before) return false;
+    if (isShaderWriteInFlight(clipboardPasteRedo.fileId)) {
+      toast.error(t("designEditor.toasts.saveConflict"), {
+        id: `design-source-shader-conflict:${clipboardPasteRedo.fileId}`,
+      });
+      return false;
+    }
+    const clipboardMutation = publishAuthoritativeClipboardMutation({
+      fileId: clipboardPasteRedo.fileId,
+      baseContent: clipboardPasteRedo.before,
+      nextContent: clipboardPasteRedo.after,
+      origin: "clipboard-redo",
+      baseSource: "document",
+    });
+    if (!clipboardMutation) return false;
+    const writeResult =
+      clipboardPasteRedo.fileId === activeFile?.id
+        ? applyLocalContentUpdate(clipboardPasteRedo.after, {
+            recordHistory: false,
+            forcePreviewFullDocument: true,
+            immediateSave: true,
+            clipboardMutation,
+          })
+        : applyFileContentUpdate(
+            clipboardPasteRedo.fileId,
+            clipboardPasteRedo.after,
+            {
+              recordHistory: false,
+              forcePreviewFullDocument: true,
+              clipboardMutation,
+            },
+          );
+    if (writeResult.status !== "accepted") return false;
+    clipboardPasteRedoStackRef.current =
+      clipboardPasteRedoStackRef.current.slice(0, -1);
+    clipboardPasteUndoStackRef.current = [
+      ...clipboardPasteUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      clipboardPasteRedo,
+    ];
+    redoOrderRef.current = redoOrderRef.current.slice(0, -1);
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      "clipboard-paste",
+    ];
+    return true;
+  };
+  const um = undoManagerRef.current;
+  const canUseOverviewHistory = viewModeRef.current === "overview";
+  let prunedRedoHistory = 0;
+  let contentReplayRefused = false;
+  const redoContent = (scope: "any" | "local" | "global" = "any") => {
+    if (scope !== "global" && um?.canRedo()) {
+      const beforeRedoContent = ydoc?.getText("content").toJSON();
+      const redoneItem = um.redo();
+      // Figma parity: redo re-selects whatever the original gesture left
+      // selected (the new group, the pasted copy, the duplicate) — see the
+      // matching note on the geometry branch below and
+      // stampYjsUndoSelectionAfter's doc comment. Overrides the
+      // refresh-from-content heuristic, which can only ever keep or drop
+      // whatever is CURRENTLY selected and has no way to reach forward to a
+      // node that didn't exist until this redo created it.
+      const restoredAfterSelection = readYjsRedoSelection(redoneItem);
+      if (ydoc && activeFile && beforeRedoContent !== undefined) {
+        const ytext = ydoc.getText("content");
+        const rawNext = ytext.toJSON();
+        let next = rawNext;
+        try {
+          next = prepareCanonicalSourceContent(rawNext, {
+            fileId: activeFile.id,
+            fileType: activeFile.fileType,
+          }).content;
+        } catch {
+          toast.error(t("common.genericError"), {
+            id: `design-source-identity:${activeFile.id}`,
+          });
+          return false;
+        }
+        if (next !== rawNext) writeCollabText(ydoc, ytext, next, TAB_ID);
+        markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
+        lastLocalContentRef.current = next;
+        queueFileContentSave(activeFile.id, next, {
+          expectedVersionHash: sourceContentHash(beforeRedoContent),
+          syncCollab: !(ydoc && isSynced),
+        });
+        // Holistic flash pipeline: see the matching comment in handleUndo —
+        // only fall back to a full srcdoc rebuild when the in-place bridge
+        // patch genuinely failed, instead of always reloading the iframe on
+        // top of an already-successful in-place replace.
+        if (
+          previewContentReplaceNeedsRenderFallback(
+            replacePreviewContent(next, null, {
+              forceFullDocument: true,
+            }),
+          )
+        ) {
+          setContentRenderRevision((revision) => revision + 1);
+        }
+        // Clear stale selection if the redo removed the selected element.
+        setSelectedElement((prev) => {
+          if (restoredAfterSelection)
+            return resolveLocalHistorySelection(
+              restoredAfterSelection,
+              activeFile.id,
+              next,
+            ).selectedElement;
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(next, prev, {
+            kind: "design-file",
+            fileId: activeFile.id,
+          });
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(next, prev, {
+            kind: "design-file",
+            fileId: activeFile.id,
+          });
+        });
+        // U18: keep the layers-panel highlight in sync too.
+        setSelectedLayerIdsState((prev) =>
+          restoredAfterSelection
+            ? resolveLocalHistorySelection(
+                restoredAfterSelection,
+                activeFile.id,
+                next,
+              ).selectedLayerIds
+            : refreshSelectedLayerIdsFromContent(next, prev, {
+                kind: "design-file",
+                fileId: activeFile.id,
+              }),
+        );
+        // Restore the local fallback mirror (see U3) that undoContent()
+        // dropped, so it survives a UndoManager teardown right after redo.
+        if (
+          typeof beforeRedoContent === "string" &&
+          beforeRedoContent !== next
+        ) {
+          recordLocalContentHistoryChangeFallback({
+            fileId: activeFile.id,
+            before: beforeRedoContent,
+            after: next,
+          });
+        }
+      }
+      historyOrderRef.current = [
+        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "content",
+      ];
+      return true;
+    }
+
+    if (!canUseOverviewHistory && scope !== "global" && activeFile?.id) {
+      const localIndex = findLastContentHistoryChangeIndex(
+        localContentRedoStackRef.current,
+        activeFile.id,
+      );
+      if (localIndex !== -1) {
+        const [entry] = localContentRedoStackRef.current.splice(localIndex, 1);
+        if (entry) {
+          localContentUndoStackRef.current = [
+            ...localContentUndoStackRef.current.slice(
+              -(MAX_DESIGN_UNDO_STACK - 1),
+            ),
+            entry,
+          ];
+          historyOrderRef.current = [
+            ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+            "content",
+          ];
+          // U20: route a live-snapshot screen's replay through
+          // updateLiveScreenSnapshotContent — see the matching note above.
+          if (liveScreenSnapshotsById[entry.fileId]) {
+            updateLiveScreenSnapshotContent(entry.fileId, entry.after, {
+              recordHistory: false,
+            });
+            syncLiveScreenSnapshotPreview(entry.fileId, entry.after);
+          } else {
+            applyLocalContentUpdate(entry.after, {
+              refreshPreview: false,
+              forcePreviewFullDocument: true,
+              immediateSave: true,
+              recordHistory: false,
+            });
+          }
+          setSelectedElement((prev) => {
+            if (!prev) return prev;
+            return refreshElementInfoFromContent(entry.after, prev, {
+              kind: "design-file",
+              fileId: entry.fileId,
+            });
+          });
+          setHoveredElement((prev) => {
+            if (!prev) return prev;
+            return refreshElementInfoFromContent(entry.after, prev, {
+              kind: "design-file",
+              fileId: entry.fileId,
+            });
+          });
+          // U18: keep the layers-panel highlight in sync too.
+          setSelectedLayerIdsState((prev) =>
+            refreshSelectedLayerIdsFromContent(entry.after, prev, {
+              kind: "design-file",
+              fileId: entry.fileId,
+            }),
+          );
+          return true;
+        }
+      }
+    }
+
+    if (scope === "local") return false;
+    const entry =
+      contentRedoStackRef.current[contentRedoStackRef.current.length - 1];
+    if (!entry) return false;
+    const linkedComponent =
+      "linkedComponent" in entry && entry.linkedComponent === true;
+    if (!canUseOverviewHistory && !linkedComponent) return false;
+    const entrySelection =
+      contentRedoSelectionStackRef.current[
+        contentRedoSelectionStackRef.current.length - 1
+      ];
+    // Figma parity: redo re-selects whatever the original gesture left
+    // selected (the new group, the pasted copy, the duplicate) when it
+    // stamped one — see ContentHistorySelectionAfterMap's doc comment for
+    // why this is a lookup by the entry's own object identity rather than a
+    // second index-aligned slot, and why it silently falls back to the
+    // pre-gesture `entrySelection` (this stack's pre-existing redo
+    // behavior) once that identity no longer survives a rebuild.
+    const entrySelectionAfter =
+      contentHistorySelectionAfterRef.current.get(entry) ?? entrySelection;
+    const { available: changes, remainder } = partitionContentHistoryEntry(
+      entry,
+      files.map((file) => file.id),
+      activeFile?.id,
+    );
+    if (changes.length === 0) {
+      contentRedoStackRef.current.pop();
+      contentRedoSelectionStackRef.current.pop();
+      prunedRedoHistory += 1;
+      return false;
+    }
+    const preparedReplay = prepareContentHistoryReplay({
+      activeFile,
+      changes,
+      direction: "redo",
+      files,
+      getFreshActiveContent,
+      getScreenContent,
+      liveScreenSnapshotsById,
+      t,
+    });
+    if (!preparedReplay) {
+      contentReplayRefused = true;
+      return false;
+    }
+    const acceptedContents = new Map<string, string>();
+    let replayAccepted = true;
+    suppressContentHistoryRef.current = true;
+    try {
+      for (const change of changes) {
+        if (change.before === change.after) continue;
+        // U20: see the matching note in handleUndo — route a live-snapshot
+        // screen's replay through updateLiveScreenSnapshotContent instead
+        // of the regular content path.
+        if (liveScreenSnapshotsById[change.fileId]) {
+          acceptedContents.set(change.fileId, change.after);
+          updateLiveScreenSnapshotContent(change.fileId, change.after, {
+            recordHistory: false,
+          });
+          syncLiveScreenSnapshotPreview(change.fileId, change.after);
+        } else {
+          const prepared = preparedReplay.get(change.fileId);
+          if (!prepared) {
+            replayAccepted = false;
+            break;
+          }
+          const result =
+            change.fileId === activeFile?.id
+              ? applyLocalContentUpdate(change.after, {
+                  historyBeforeContent: prepared.historyBeforeContent,
+                  refreshPreview: false,
+                  forcePreviewFullDocument: true,
+                  immediateSave: true,
+                  recordHistory: false,
+                })
+              : applyFileContentUpdate(change.fileId, change.after, {
+                  historyBeforeContent: prepared.historyBeforeContent,
+                  recordHistory: false,
+                  refreshPreview: false,
+                });
+          if (result.status !== "accepted") {
+            replayAccepted = false;
+            break;
+          }
+          acceptedContents.set(change.fileId, result.content);
+        }
+      }
+    } finally {
+      suppressContentHistoryRef.current = false;
+    }
+    if (!replayAccepted) {
+      contentReplayRefused = true;
+      return false;
+    }
+    const replayedChanges = changes.map((change) => {
+      const prepared = preparedReplay.get(change.fileId);
+      const acceptedContent = acceptedContents.get(change.fileId);
+      return prepared && acceptedContent !== undefined
+        ? {
+            ...change,
+            before: prepared.historyBeforeContent,
+            after: acceptedContent,
+          }
+        : change;
+    });
+
+    contentRedoStackRef.current.pop();
+    contentRedoSelectionStackRef.current.pop();
+    const remainderEntry = contentHistoryEntryFromChanges(
+      remainder,
+      linkedComponent,
+    );
+    if (remainderEntry) {
+      contentRedoStackRef.current.push(remainderEntry);
+      contentRedoSelectionStackRef.current.push(entrySelection);
+      restoreFileContentHistoryOrderToken(redoOrderRef.current, true);
+    }
+    const appliedEntry = contentHistoryEntryFromChanges(
+      replayedChanges,
+      linkedComponent,
+    )!;
+    const stampedAfter = contentHistorySelectionAfterRef.current.get(entry);
+    if (stampedAfter)
+      contentHistorySelectionAfterRef.current.set(appliedEntry, stampedAfter);
+    contentUndoStackRef.current = [
+      ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      appliedEntry,
+    ];
+    contentUndoSelectionStackRef.current = [
+      ...contentUndoSelectionStackRef.current.slice(
+        -(MAX_DESIGN_UNDO_STACK - 1),
+      ),
+      entrySelection,
+    ];
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      "file-content",
+    ];
+    applyDesignDataHistoryChanges?.(changes, "redo");
+    const activeChange = replayedChanges.find(
+      (change) =>
+        change.fileId === activeFile?.id && change.before !== change.after,
+    );
+    if (activeChange) {
+      setSelectedElement((prev) => {
+        if (!prev) return prev;
+        return refreshElementInfoFromContent(activeChange.after, prev, {
+          kind: "design-file",
+          fileId: activeChange.fileId,
+        });
+      });
+      setHoveredElement((prev) => {
+        if (!prev) return prev;
+        return refreshElementInfoFromContent(activeChange.after, prev, {
+          kind: "design-file",
+          fileId: activeChange.fileId,
+        });
+      });
+      // U18: keep the layers-panel highlight in sync too.
+      setSelectedLayerIdsState((prev) =>
+        refreshSelectedLayerIdsFromContent(activeChange.after, prev, {
+          kind: "design-file",
+          fileId: activeChange.fileId,
+        }),
+      );
+    }
+    restoreHistorySelection(
+      entrySelectionAfter,
+      Object.fromEntries(
+        replayedChanges.map((change) => [change.fileId, change.after]),
+      ),
+    );
+    return true;
+  };
+  const redoGeometry = () => {
+    if (!canUseOverviewHistory) return false;
+    const entry = geometryRedoStackRef.current.pop();
+    if (!entry) return false;
+    // Freshness guard: when this entry was undone it wrote `entry.before`. If
+    // a peer/agent has since moved any touched frame, replaying `entry.after`
+    // would clobber that change — drop this entry and try the next redo.
+    const stale = staleGeometryFrameIds(
+      entry,
+      liveFrameGeometryRef.current,
+      entry.before,
+    );
+    if (stale.length > 0) {
+      console.debug(
+        "[design] skipping stale geometry redo; frames changed since capture:",
+        stale,
+      );
+      toast.info(t("designEditor.toasts.redoSkippedConcurrentEdit"));
+      return redoGeometry();
+    }
+    geometryUndoStackRef.current = [
+      ...geometryUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      entry,
+    ];
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      "geometry",
+    ];
+    // U11: see the matching undoGeometry note — merge this entry's diff
+    // onto the current live map instead of replacing it wholesale.
+    writeFrameGeometrySnapshot(
+      applyGeometryHistoryDiff(
+        getCanvasFrameGeometry(designDataJsonRef.current),
+        entry,
+        "redo",
+      ),
+      {
+        replacePendingGeometrySave: true,
+        syncViewportFrameIds: viewportChangedFrameIds(
+          entry.before,
+          entry.after,
+        ),
+      },
+    );
+    // Figma parity: redo re-selects whatever was selected when this
+    // gesture's change was originally made (i.e. the selection AFTER the
+    // gesture committed, matching what undo just took away).
+    if (entry.linkedContentChanges?.length) {
+      applyGeometryHistoryContentChanges?.(entry.linkedContentChanges, "redo");
+    }
+    restoreHistorySelection(
+      entry.selectionAfter,
+      Object.fromEntries(
+        (entry.linkedContentChanges ?? []).map((change) => [
+          change.fileId,
+          change.after,
+        ]),
+      ),
+    );
+    return true;
+  };
+  // Figma parity (ground-truth Round 4): redo a plain selection change — see
+  // SelectionHistoryEntry's doc comment and undo.ts's undoSelection.
+  const redoSelection = () => {
+    if (!canUseOverviewHistory) return false;
+    const entry = selectionRedoStackRef.current.pop();
+    if (!entry) return false;
+    selectionUndoStackRef.current = [
+      ...selectionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      entry,
+    ];
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      "selection",
+    ];
+    restoreHistorySelection(entry.after);
+    return true;
+  };
+  // U12: redo a screen create/duplicate by recreating the file with the
+  // same filename/content/fileType and restoring its recorded geometry.
+  // This is async (createFileMutation), unlike every other redo path here,
+  // so it optimistically reports success immediately (mirrors
+  // handleAddScreen's own optimistic cache write) and surfaces a toast on
+  // failure instead of rolling the redo stacks back.
+  const redoFileCreation = () => {
+    if (!canUseOverviewHistory) return false;
+    const entry = fileCreationRedoStackRef.current.pop();
+    if (!entry) return false;
+    if (!id) return false;
+    fileCreationUndoStackRef.current = [
+      ...fileCreationUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      entry,
+    ];
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      "file-created",
+    ];
+    fileHistoryMutationPendingRef.current = true;
+    syncUndoRedoState();
+    createFileMutation.mutate(
+      {
+        designId: id,
+        filename: entry.filename,
+        content: entry.content,
+        fileType: entry.fileType,
+      } as any,
+      {
+        onSuccess: (result: any) => {
+          const nextId = typeof result?.id === "string" ? result.id : null;
+          if (nextId) {
+            const geometry = {
+              ...getInitialFrameGeometry(overviewScreens.length, {
+                width: 1280,
+                height: 2560,
+              }),
+              ...entry.geometry,
+            };
+            optimisticallyInsertCreatedFile({
+              fileId: nextId,
+              filename: entry.filename,
+              fileType: entry.fileType,
+              content: entry.content,
+              result,
+            });
+            writeFrameGeometrySnapshot({
+              ...getCanvasFrameGeometry(designDataJsonRef.current),
+              [nextId]: geometry,
+            });
+            focusCreatedScreen(nextId, geometry);
+          }
+          fileHistoryMutationPendingRef.current = false;
+          syncUndoRedoState();
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
+        },
+        onError: (error: unknown) => {
+          // The optimistic history move happened before the request. Put the
+          // entry back exactly where it came from so a failed redo remains
+          // retryable and does not leave a phantom undo operation behind.
+          if (
+            fileCreationUndoStackRef.current[
+              fileCreationUndoStackRef.current.length - 1
+            ] === entry
+          ) {
+            fileCreationUndoStackRef.current =
+              fileCreationUndoStackRef.current.slice(0, -1);
+          }
+          historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+            historyOrderRef.current,
+            "file-created",
+            1,
+          );
+          fileCreationRedoStackRef.current = [
+            ...fileCreationRedoStackRef.current.slice(
+              -(MAX_DESIGN_UNDO_STACK - 1),
+            ),
+            entry,
+          ];
+          redoOrderRef.current = [
+            ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+            "file-created",
+          ];
+          clearPendingHistory?.();
+          fileHistoryMutationPendingRef.current = false;
+          syncUndoRedoState();
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("designEditor.toasts.screenDuplicateError"),
+          );
+        },
+      },
+    );
+    return true;
+  };
+  const redoFileDeletion = () => {
+    if (!canUseOverviewHistory) return false;
+    const entry = fileDeletionRedoStackRef.current.pop();
+    if (!entry) return false;
+
+    fileHistoryMutationPendingRef.current = true;
+    syncUndoRedoState();
+    const currentEntry = {
+      ...entry,
+      files: entry.files.map((file) => ({
+        ...file,
+        content: getScreenContent(file.id),
+      })),
+    };
+    performDeleteFiles(currentEntry.files, {
+      preserveHistory: true,
+      onMutationSettled: (deletedFiles, failedFiles) => {
+        if (deletedFiles.length > 0) {
+          const deletedIds = new Set(deletedFiles.map((file) => file.id));
+          fileDeletionUndoStackRef.current = [
+            ...fileDeletionUndoStackRef.current.slice(
+              -(MAX_DESIGN_UNDO_STACK - 1),
+            ),
+            filterFileDeletionHistoryEntry(currentEntry, deletedIds),
+          ];
+          historyOrderRef.current = [
+            ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+            "file-deleted",
+          ];
+        }
+        if (failedFiles.length > 0) {
+          const failedIds = new Set(failedFiles.map((file) => file.id));
+          fileDeletionRedoStackRef.current = [
+            ...fileDeletionRedoStackRef.current.slice(
+              -(MAX_DESIGN_UNDO_STACK - 1),
+            ),
+            filterFileDeletionHistoryEntry(currentEntry, failedIds),
+          ];
+          redoOrderRef.current = [
+            ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+            "file-deleted",
+          ];
+          clearPendingHistory?.();
+        }
+        fileHistoryMutationPendingRef.current = false;
+        syncUndoRedoState();
+      },
+    });
+    return true;
+  };
+
+  const tryRedoActions = (...actions: Array<() => boolean>) => {
+    for (const action of actions) {
+      if (action()) return true;
+      if (contentReplayRefused) return false;
+    }
+    return false;
+  };
+  const redoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
+    if (preferred === "clipboard-paste") return redoClipboardPaste();
+    if (preferred === "selection") {
+      return tryRedoActions(redoSelection, redoContent, redoGeometry);
+    }
+    if (preferred === "file-deleted") {
+      return tryRedoActions(
+        redoFileDeletion,
+        redoFileCreation,
+        redoContent,
+        redoGeometry,
+      );
+    }
+    if (preferred === "file-created")
+      return tryRedoActions(
+        redoFileCreation,
+        redoFileDeletion,
+        redoContent,
+        redoGeometry,
+      );
+    if (preferred === "geometry")
+      return tryRedoActions(redoGeometry, redoContent);
+    if (preferred === "file-content") {
+      const prunedBefore = prunedRedoHistory;
+      if (redoContent("global")) return true;
+      if (contentReplayRefused || prunedRedoHistory > prunedBefore)
+        return false;
+      return redoGeometry();
+    }
+    if (preferred === "content") {
+      const prunedBefore = prunedRedoHistory;
+      if (redoContent("local")) return true;
+      if (contentReplayRefused) return false;
+      if (redoContent("global")) return true;
+      if (contentReplayRefused || prunedRedoHistory > prunedBefore)
+        return false;
+      return redoGeometry();
+    }
+    return tryRedoActions(redoFileDeletion, redoContent, redoGeometry);
+  };
+  let didRedo = false;
+  if (canUseOverviewHistory) {
+    while (!didRedo) {
+      const preferred = redoOrderRef.current[redoOrderRef.current.length - 1];
+      if (preferred !== "clipboard-paste") redoOrderRef.current.pop();
+      didRedo = redoByOrder(preferred);
+      if (contentReplayRefused) {
+        if (preferred !== undefined && preferred !== "clipboard-paste")
+          redoOrderRef.current.push(preferred);
+        break;
+      }
+      if (didRedo) {
+        // Figma parity (ground-truth Round 4, Part B): redoing a real edit
+        // consumes any selection-only step still sitting above it on the
+        // redo ledger instead of replaying it — undo walked back through
+        // that trailing selection change, but redo does not reconstruct it.
+        // `preferred` can only route to redoSelection() when it is exactly
+        // "selection" (see redoByOrder above), so anything else here means a
+        // real edit was what just redid.
+        if (preferred !== "selection") {
+          while (
+            redoOrderRef.current[redoOrderRef.current.length - 1] ===
+            "selection"
+          ) {
+            redoOrderRef.current.pop();
+            selectionRedoStackRef.current.pop();
+          }
+        }
+        break;
+      }
+      if (preferred === "clipboard-paste" || preferred === undefined) break;
+    }
+  } else {
+    const preferred = redoOrderRef.current[redoOrderRef.current.length - 1];
+    const linkedEntry =
+      contentRedoStackRef.current[contentRedoStackRef.current.length - 1];
+    const canRedoLinkedEntry =
+      !!linkedEntry &&
+      "linkedComponent" in linkedEntry &&
+      linkedEntry.linkedComponent === true;
+    if (preferred === "clipboard-paste") {
+      didRedo = redoClipboardPaste();
+    } else if (preferred === "file-content" && canRedoLinkedEntry) {
+      redoOrderRef.current.pop();
+      didRedo = redoContent("global");
+      if (!didRedo && prunedRedoHistory === 0)
+        redoOrderRef.current.push(preferred);
+    } else if (preferred === "content") {
+      redoOrderRef.current.pop();
+      didRedo = redoContent("local");
+      if (!didRedo) redoOrderRef.current.push(preferred);
+    } else if (preferred === undefined) {
+      didRedo = redoContent("local");
+    }
+  }
+  if (didRedo || prunedRedoHistory > 0) {
+    syncUndoRedoState();
+  }
+}

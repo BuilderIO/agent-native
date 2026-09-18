@@ -1,0 +1,179 @@
+---
+title: "Embed Clips"
+description: "Embed hosted Clips in your product with an org service token, preconfigured video storage, short-lived intake URLs, and completion messages."
+search: "Clips embed iframe organization service token anonymous recording intake Builder S3 storage self-host"
+---
+
+# Embed Clips
+
+Use hosted Clips as the recording backend for your product. A person can record from an iframe without signing in to Clips. Your backend uses an org service token to create a short-lived intake URL, and Clips stores the resulting recording in that organization's configured storage.
+
+This guide covers the hosted embedding flow. It does not require the person recording to have a Clips account.
+
+## How the integration works
+
+The integration has four parts:
+
+1. An organization admin configures video storage in Clips.
+2. Your backend stores the org service token and requests an intake URL.
+3. Your product passes only the short-lived intake URL to an iframe.
+4. Clips uploads the recording to the organization's storage and posts a completion message to your product.
+
+The org service token never belongs in the iframe. It is bound to the organization that minted it, so the token itself supplies the organization context. An organization ID is useful for your own tenant mapping, but it is not a credential by itself.
+
+## Configure the Clips organization
+
+Create or select the Clips organization that should own the recordings. An organization admin then configures video storage through Clips onboarding or Clips Settings:
+
+- **Builder.io Connect** provides managed video storage and AI credits.
+- **S3-compatible storage** uses the organization's configured endpoint, bucket, access key, secret key, and optional region or public base URL. Cloudflare R2 and DigitalOcean Spaces use the same storage settings with their provider-specific names.
+
+Storage configuration is organization-scoped. Every recording created through that organization's service token uses the storage already connected to that organization. The embedding product does not need the Builder.io or S3 credentials.
+
+The video is stored in the configured object storage. Clips stores the recording metadata, ownership, processing state, and storage reference in its database.
+
+## Create an organization service token
+
+Run the existing `connect` command as an organization owner or admin. The command opens a browser sign-in, creates a named service token for the active organization, and prints the token once:
+
+```bash
+npx @agent-native/core@latest connect https://clips.agent-native.com \
+  --service-token support-desk --ttl-days 365
+```
+
+Copy the printed token directly into your product's server-side secret manager. The token is organization-owned, so it continues working if the person who minted it leaves the organization or revokes their personal tokens. It is never written to a local client configuration. Use a different service name for each integration so one caller can be revoked without breaking another.
+
+`--ttl-days` accepts 1 to 365 days and defaults to 365. The token acts as an organization member. It cannot create or revoke other service tokens or change organization settings.
+
+## Request an intake URL
+
+Your trusted backend calls the Clips intake action. Use the hosted Clips origin for hosted accounts, or your own Clips origin when self-hosting.
+
+```ts
+const clipsBaseUrl = "https://clips.agent-native.com";
+const clipsServiceToken = process.env.CLIPS_SERVICE_TOKEN;
+
+const response = await fetch(
+  `${clipsBaseUrl}/_agent-native/actions/create-recording-intake-link`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${clipsServiceToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ttlSeconds: 3600,
+    }),
+  },
+);
+
+if (!response.ok) {
+  throw new Error("Could not create a Clips intake URL");
+}
+
+const intake = await response.json();
+// intake.url is safe to pass to the recording iframe.
+```
+
+The service token's signed organization context determines which organization owns the intake. The action response is the intake object at the top level. The default intake lifetime is one hour. The maximum is four hours. Each intake URL can create one recording.
+
+Do not make this request from an anonymous browser. Do not return the service token, storage credentials, or a long-lived Clips session to the browser.
+
+## Embed the recorder
+
+Pass the returned URL directly to an iframe. The URL contains the narrow, signed capability that lets the visitor create and upload one private recording.
+
+```tsx
+<iframe
+  data-clips-recorder
+  src={intake.url}
+  allow="display-capture; camera; microphone"
+  title="Report a problem"
+  style={{ width: 420, height: 560, border: 0 }}
+/>
+```
+
+You can add small, non-sensitive context values to the intake URL before rendering it, such as a project ID, page title, application version, or environment. Do not put passwords, API keys, customer records, or other sensitive values in the URL. URLs can appear in browser history, logs, analytics, and referrers.
+
+The recorder opens a top-level popup when the visitor starts capture. Browser media permissions and screen capture require a user gesture in a top-level browsing context. Allow popups for the host product during testing.
+
+## Receive the completion message
+
+When the recording is saved, the done page posts `agent-native.clips.bug-report.submitted` to the embedding parent. Validate the Clips origin and the message source before using the payload.
+
+```ts
+const clipsOrigin = new URL(clipsBaseUrl).origin;
+const recorderFrame = document.querySelector<HTMLIFrameElement>(
+  "iframe[data-clips-recorder]",
+);
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== clipsOrigin) return;
+  if (recorderFrame && event.source !== recorderFrame.contentWindow) return;
+  if (event.data?.type !== "agent-native.clips.bug-report.submitted") return;
+
+  const { recordingId, recordingUrl, embedUrl, agentAccessStatus } = event.data;
+  if (!recordingId) return;
+
+  // Send recordingId to your trusted backend and attach it to the support case.
+  console.log({ recordingId, recordingUrl, embedUrl, agentAccessStatus });
+});
+```
+
+The completion payload can include `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt`, and `agentAccessStatus`. Treat `recordingId` as the durable identifier for the support case. A write-only intake may report `agentAccessStatus: "unavailable"` until your authenticated backend creates a separate scoped agent link. That status does not mean the recording is empty.
+
+The browser message is a notification, not an authorization grant. Your backend should use its own authenticated connection to Clips when it needs to read or share the completed recording.
+
+## Where recordings are stored
+
+Recordings created through the service token are owned by the organization associated with that token. Clips sends the media through its normal upload and finalize pipeline. The pipeline uses the Builder.io or S3-compatible storage configured for that organization.
+
+The iframe does not upload directly to your bucket, and it does not need bucket credentials. Your product receives recording identifiers and scoped URLs from Clips. Store only the identifiers or URLs you need in your own support system.
+
+## Self-hosting Clips
+
+Self-hosting uses the same organization contract:
+
+1. Deploy Clips with a persistent database and a public `BETTER_AUTH_URL`.
+2. Create the organization that will own embedded recordings.
+3. Configure Builder.io Connect or S3-compatible storage once in that organization.
+4. Run `connect` against the self-hosted Clips origin to create the organization's service token.
+5. Provide that token once to your embedding backend as a deployment or secret-manager value.
+6. Use the self-hosted Clips origin when your backend requests intake URLs.
+
+```bash
+npx @agent-native/core@latest connect https://clips.example.com \
+  --service-token support-desk --ttl-days 365
+```
+
+For example, the embedding backend can keep these values in its server-side configuration:
+
+```text
+CLIPS_BASE_URL=https://clips.example.com
+CLIPS_SERVICE_TOKEN=<secret>
+```
+
+The token is provided once to the backend. Each visitor still receives a new short-lived intake URL. No token or storage credential is added to the iframe, and no iframe code change is needed when the token is rotated.
+
+See [Deployment](/docs/deployment) for general self-hosting requirements.
+
+## Security checklist
+
+- Keep the organization service token in a server-side secret manager.
+- Use HTTPS for both the host product and Clips.
+- Treat each intake URL as a bearer credential. Keep it out of logs and referrer data.
+- Use the shortest useful intake lifetime.
+- Validate both `event.origin` and `event.source` in the completion listener.
+- Never expose Clips' owner-scoped upload endpoints directly to anonymous users.
+- Rotate the service token by creating a replacement with `connect`, deploying it, verifying the flow, then revoking the old token with `revoke-org-service-token`.
+- Keep the organization ID and intake ID with the trusted backend rather than trusting values supplied by the visitor.
+
+## Troubleshooting
+
+**The intake request is unauthorized.** Confirm that the backend is using a non-expired, non-revoked service token minted for the intended Clips origin. The token's organization binding determines where the intake is created.
+
+**The iframe opens a sign-in page.** Make sure the iframe uses the short-lived URL returned by `create-recording-intake-link`. Do not embed `/record` or a normal Clips library URL for an anonymous visitor.
+
+**The recording does not finish.** Check that the organization has Builder.io or S3-compatible storage configured. An anonymous visitor cannot configure storage from the iframe.
+
+**The completion has no agent link.** That is expected for a write-only intake. Have your authenticated backend create a separate scoped agent link if the support workflow needs agent-readable transcript and frame data.

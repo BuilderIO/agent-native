@@ -1,0 +1,41 @@
+{
+  "manifestVersion": 1,
+  "package": "@agent-native/creative-context",
+  "catalogs": ["domain-packages"],
+  "units": [
+    {
+      "id": "package/creative-context",
+      "label": "Creative Context domain package",
+      "catalog": "domain-packages",
+      "catalogItems": ["creative-context"],
+      "entrypoints": [
+        ".",
+        "./actions",
+        "./client",
+        "./connectors",
+        "./messages",
+        "./jobs",
+        "./embeddings",
+        "./eval",
+        "./schema",
+        "./search/fusion",
+        "./server",
+        "./store",
+        "./types",
+        "./vector"
+      ],
+      "strategy": "package-eject",
+      "sourceEntries": [
+        "src",
+        "docs",
+        "agent-native.eject.json",
+        "agent-native.package.json",
+        "package.json",
+        "tsconfig.json"
+      ],
+      "targetRoot": "packages/creative-context",
+      "protectedImports": ["@agent-native/core"],
+      "verification": ["pnpm --dir packages/creative-context typecheck"]
+    }
+  ]
+}

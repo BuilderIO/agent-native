@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Design component React fixture</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 700px;
+        background: #111827;
+        color: white;
+        font: 16px system-ui;
+      }
+      main {
+        padding: 40px;
+      }
+      .card {
+        display: grid;
+        gap: 8px;
+        width: 260px;
+        padding: 20px;
+        border-radius: 14px;
+        background: #1f2937;
+      }
+      .card button {
+        padding: 10px 14px;
+        border: 0;
+        border-radius: 8px;
+        background: #6366f1;
+        color: white;
+      }
+      [data-agent-native-component-ref] {
+        outline: 1px dashed #f59e0b;
+      }
+    </style>
+  </head>
+  <body>
+    <main
+      data-agent-native-node-id="react-screen"
+      data-agent-native-layer-name="React Component Screen"
+      data-agent-native-source-kind="react"
+      data-agent-native-source-path="src/App.tsx"
+      data-agent-native-source-file="src/App.tsx"
+      data-agent-native-source-line="1"
+      data-agent-native-source-column="1"
+    >
+      <div
+        data-agent-native-node-id="promotion-target"
+        data-agent-native-layer-name="Promotion target"
+      >
+        Promote me
+      </div>
+      <section
+        class="card"
+        data-agent-native-node-id="card-main"
+        data-agent-native-layer-name="Card Main"
+        data-agent-native-component="ReusableCard"
+        data-agent-native-component-id="cmp-reusable-card"
+        data-agent-native-source-file="src/App.tsx"
+        data-agent-native-source-line="3"
+        data-agent-native-source-column="1"
+        data-source-framework="react"
+        data-source-file="src/App.tsx"
+        data-source-line="3"
+        data-source-column="1"
+        data-component-name="ReusableCard"
+      >
+        <strong data-agent-native-node-id="card-title">Canonical card</strong>
+        <button
+          data-agent-native-node-id="card-button"
+          data-agent-native-prop-label="Open"
+        >
+          Open
+        </button>
+      </section>
+      <section
+        class="card"
+        data-agent-native-node-id="card-instance"
+        data-agent-native-layer-name="Card Instance"
+        data-agent-native-component="ReusableCard"
+        data-agent-native-component-ref="cmp-reusable-card"
+        data-agent-native-component-overrides="%7B%22card-title%22%3A%7B%22textContent%22%3A%22Instance%20override%22%7D%7D"
+      >
+        <strong
+          data-agent-native-node-id="card-instance-title"
+          data-agent-native-component-source-node-id="card-title"
+          >Instance override</strong
+        >
+        <button
+          data-agent-native-node-id="card-instance-button"
+          data-agent-native-component-source-node-id="card-button"
+        >
+          Open
+        </button>
+      </section>
+    </main>
+  </body>
+</html>

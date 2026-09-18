@@ -1,0 +1,121 @@
+---
+title: "路由"
+description: "基于 React Router v8 为代理本机应用提供的文件式路由：页面、动态参数与导航。"
+---
+
+# 路由
+
+代理本机应用使用 **React Router v8**，通过来自 `@react-router/fs-routes` 的 `flatRoutes()` 实现文件式路由。`app/routes/` 中的每个文件都会变成一个 URL。模板使用点号命名约定：点号在单个文件名内分隔 URL 段。
+
+本页涵盖客户端路由，即从 `app/routes/` 在浏览器中渲染的页面。服务器路由是一个独立的系统：`server/routes/` 下的 Nitro 文件路由，加上框架自己的 `/_agent-native/*` 端点，它们位于 [Routes](/docs/server-routes) 页面。这两者不共享目录、命名约定或路由器，因此 `server/routes/` 中的文件永远不会在这里变成页面，`app/routes/` 中的文件也永远不会变成服务器端点。
+
+<Diagram id="doc-block-client-routing-1" title="文件名 → URL" summary="app/routes/ 中的每个文件都会变成一个 URL。点号变成斜杠，$ 段变成动态参数。">
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 基于文件的路由 {#file-based-routing}
+
+### 文件 → URL 映射
+
+| 文件                       | URL                    | 说明                                                                 |
+| -------------------------- | ---------------------- | -------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | 索引路由                                                             |
+| `dashboard.tsx`            | `/dashboard`           | 简单页面                                                             |
+| `extensions.$id.tsx`       | `/extensions/:id`      | 嵌套在 `extensions.tsx` 的 `<Outlet/>` 中。`$` 是动态参数            |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | 结尾的 `_` 跳过在 `dashboard.tsx` 下的嵌套，因此这是它自己的独立页面 |
+| `_app.tsx`                 | （无 URL 段）          | 无路径布局。以 `_` 作前缀                                            |
+| `inbox/route.tsx`          | `/inbox`               | 文件夹形式。`route.tsx` 即索引                                       |
+
+为某个段加上 `$` 前缀即可得到动态参数。加上 `_` 前缀可使其成为无路径布局路由（没有 URL 段），或者在点号前加上结尾的 `_`，可以让一个看起来是嵌套的路径退出在其父级布局下的嵌套。模板使用 `flatRoutes()`。上面的点号命名文件是主要形式，嵌套文件夹形式 `inbox/route.tsx` 同样可用。
+
+## 添加新页面 {#adding-a-page}
+
+创建文件并导出一个默认组件：
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+就是这样。开发服务器会在启动时读取路由文件。如果 `pnpm dev` 已在运行，请在添加文件后重启它。无需注册。
+
+## 动态参数 {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+点号前结尾的 `_` 使这个页面不会嵌套在 `dashboard.tsx` 的 `<Outlet/>` 中，因此它会作为自己完整的页面渲染在 `/dashboard/:ticketId`，而不是出现在工单队列的布局里面。
+
+## 导航 {#navigation}
+
+使用 `<Link>` 进行客户端导航，使用 `useNavigate()` 进行编程式导航：
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+这两者本身都不会告诉代理用户正在看什么。这是一个独立的问题，由 `useAgentRouteState()` 将当前路由写入应用程序状态来处理。见 [Context Awareness](/docs/context-awareness)。
+
+## 下一步
+
+- [**概览**](/docs/client-overview) — `app/routes/` 在 `app/` 和 `public/` 其余部分中的位置
+- [**数据与同步**](/docs/client-data) — 在路由内部读写数据
+- [**Agent 聊天**](/docs/client-agent-chat) — 从路由中发送提示并暂存上下文
+- [**Routes**](/docs/server-routes) — 独立的服务器路由系统：`server/routes/` 下的文件路由，以及框架的 `/_agent-native/` 命名空间
+- [**Context Awareness**](/docs/context-awareness) — 代理如何得知当前路由与选择
