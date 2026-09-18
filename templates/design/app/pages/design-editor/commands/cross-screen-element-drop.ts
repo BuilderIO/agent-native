@@ -728,12 +728,26 @@ export function runCrossScreenElementDrop(
 
   const sourceContent = getScreenContent(sourceScreenId);
   const rawDestContent = getScreenContent(targetScreenId);
+  dndHostLog("persist:content", {
+    sourceScreenId,
+    targetScreenId,
+    sourceLength: sourceContent?.length ?? 0,
+    destinationLength: rawDestContent?.length ?? 0,
+    sourceNodeId: sourceNodeId ?? null,
+    sourceSelector,
+  });
   if (!sourceContent || !rawDestContent) return;
 
   const sourceProvenanceForContent = resolveSourceNodeProvenance(
     sourceContent,
     sourceProvenance,
   );
+  dndHostLog("persist:source-provenance", {
+    sourceScreenId,
+    sourceNodeId: sourceNodeId ?? null,
+    sourceProvenance: sourceProvenance ?? null,
+    resolved: sourceProvenanceForContent ?? null,
+  });
   if (!sourceProvenanceForContent) {
     toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     return;
