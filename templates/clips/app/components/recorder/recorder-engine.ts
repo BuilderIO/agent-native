@@ -906,6 +906,18 @@ export class RecorderEngine {
     );
   }
 
+  getUploadAbortFence(): {
+    attemptId?: string;
+    uploadGenerationId?: string;
+  } {
+    return {
+      ...(this.uploadAttemptId ? { attemptId: this.uploadAttemptId } : {}),
+      ...(this.uploadGenerationId
+        ? { uploadGenerationId: this.uploadGenerationId }
+        : {}),
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Acquire media
   // -------------------------------------------------------------------------
@@ -1601,6 +1613,7 @@ export class RecorderEngine {
     }
 
     this.uploadFailure = null;
+    this.uploadAbort?.abort(makeAbortError("Upload retry started."));
     this.streamingRecoveryGeneration += 1;
     this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;

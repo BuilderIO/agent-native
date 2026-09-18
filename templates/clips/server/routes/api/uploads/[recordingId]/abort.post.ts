@@ -106,7 +106,8 @@ export async function handleAbortRecordingUpload(
     const existingGenerationId = existing.uploadGenerationId ?? null;
     if (
       requestedAttemptId !== existingAttemptId ||
-      requestedGenerationId !== existingGenerationId
+      (requestedAttemptId === null &&
+        requestedGenerationId !== existingGenerationId)
     ) {
       setResponseStatus(event, 409);
       return {
@@ -174,12 +175,17 @@ export async function handleAbortRecordingUpload(
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
-          existingGenerationId === null
-            ? isNull(schema.recordings.uploadGenerationId)
-            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
+          existingAttemptId === null
+            ? existingGenerationId === null
+              ? isNull(schema.recordings.uploadGenerationId)
+              : eq(schema.recordings.uploadGenerationId, existingGenerationId)
+            : undefined,
         ),
       )
-      .returning({ id: schema.recordings.id });
+      .returning({
+        id: schema.recordings.id,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
+      });
 
     if (aborted.length !== 1) {
       setResponseStatus(event, 409);
@@ -188,6 +194,11 @@ export async function handleAbortRecordingUpload(
         staleAttempt: true,
       };
     }
+
+    const abortedGenerationId =
+      typeof aborted[0]?.uploadGenerationId === "string"
+        ? aborted[0].uploadGenerationId
+        : existingGenerationId;
 
     const auxiliaryStateUpdated = await compareAndSetManyAppState([
       {
@@ -217,14 +228,14 @@ export async function handleAbortRecordingUpload(
       );
     }
 
-    // Reset may have started this exact generation's provider session after
-    // our preflight read but before the abort claim. Re-read after the row CAS
-    // so either abort observes the late handle or reset observes the lost row
-    // claim and compensates it.
+    // Reset may have created a new provider session between our preflight
+    // read and the attempt-fenced abort claim. Re-read the claimed generation
+    // so cancellation cleans up that replacement session instead of leaving it
+    // active after the client has gone idle.
     if (!preserveRecoveryState) {
       resumableSession = await getResumableSession(
         recordingId,
-        existingGenerationId,
+        abortedGenerationId,
       );
     }
 
@@ -233,7 +244,7 @@ export async function handleAbortRecordingUpload(
       : await deleteRecordingChunks(
           ownerEmail,
           recordingId,
-          existingGenerationId,
+          abortedGenerationId,
         );
     if (!preserveRecoveryState) {
       if (resumableSession) {
@@ -262,12 +273,12 @@ export async function handleAbortRecordingUpload(
         // retry can still address the multipart upload. Deleting it here would
         // permanently orphan the provider-side session.
         if (providerCleanupSucceeded) {
-          await deleteResumableSession(recordingId, existingGenerationId).catch(
+          await deleteResumableSession(recordingId, abortedGenerationId).catch(
             () => {},
           );
         }
       } else {
-        await deleteResumableSession(recordingId, existingGenerationId).catch(
+        await deleteResumableSession(recordingId, abortedGenerationId).catch(
           () => {},
         );
       }

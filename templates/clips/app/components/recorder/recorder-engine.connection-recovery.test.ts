@@ -818,6 +818,7 @@ describe("RecorderEngine streaming connection recovery", () => {
       claimStreamingUploadResumePoint: typeof claimStreamingUploadResumePoint;
       resetUploadedChunks: typeof resetUploadedChunks;
       uploadBufferedChunks: typeof uploadBufferedChunks;
+      uploadAbort: AbortController | null;
       localChunks: Blob[];
       lastFinalizeMeta: {
         durationMs: number;
@@ -826,6 +827,8 @@ describe("RecorderEngine streaming connection recovery", () => {
         hasCamera: boolean;
       } | null;
     };
+    const staleUploadAbort = new AbortController();
+    internals.uploadAbort = staleUploadAbort;
     internals.localChunks = [new Blob(["recording"])];
     internals.lastFinalizeMeta = {
       durationMs: 1,
@@ -848,6 +851,7 @@ describe("RecorderEngine streaming connection recovery", () => {
     await engine.retryUpload();
     resolveClaim(null);
 
+    expect(staleUploadAbort.signal.aborted).toBe(true);
     await expect(recovery).rejects.toMatchObject({ name: "AbortError" });
     expect(uploadBufferedChunks).toHaveBeenCalledOnce();
     expect(resetUploadedChunks).not.toHaveBeenCalled();
