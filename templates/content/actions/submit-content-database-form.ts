@@ -168,6 +168,30 @@ function normalizeSubmittedPropertyValue(
   } else {
     normalized = normalizePropertyValue(type, value);
   }
+  const rawDateEnd =
+    type === "date" &&
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "end" in value
+      ? (value as { end?: unknown }).end
+      : undefined;
+  const hasSuppliedDateEnd =
+    rawDateEnd !== undefined &&
+    rawDateEnd !== null &&
+    (typeof rawDateEnd !== "string" || rawDateEnd.trim() !== "");
+  if (
+    hasSuppliedDateEnd &&
+    (typeof normalized !== "object" ||
+      normalized === null ||
+      Array.isArray(normalized) ||
+      !("end" in normalized) ||
+      !normalized.end)
+  ) {
+    throw new Error(
+      `Invalid value for "${definition.name}"; the supplied date end could not be preserved.`,
+    );
+  }
   if (!explicitlyEmpty && isEmptyPropertyValue(normalized)) {
     throw new Error(
       `Invalid value for "${definition.name}"; the supplied value could not be preserved as ${type}.`,
@@ -404,6 +428,18 @@ export default defineAction({
         tx as unknown as ReturnType<typeof getDb>,
         databaseId,
       );
+      const [lockedDatabase] = await tx
+        .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      if (
+        !lockedDatabase ||
+        lockedDatabase.viewConfigJson !== database.viewConfigJson
+      ) {
+        throw new Error(
+          "The database form changed before form submission completed.",
+        );
+      }
       await touchContentDatabase(
         tx as unknown as ReturnType<typeof getDb>,
         databaseId,

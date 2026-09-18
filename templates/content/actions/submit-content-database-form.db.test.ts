@@ -471,6 +471,41 @@ describe("submit-content-database-form", () => {
   });
 
   it.each([
+    [
+      "invalid end",
+      { start: "2026-09-20", end: "not-a-date", includeTime: false },
+    ],
+    [
+      "backwards end",
+      { start: "2026-09-20", end: "2026-09-19", includeTime: false },
+    ],
+    ["non-string end", { start: "2026-09-20", end: 42, includeTime: false }],
+  ])("rejects a date range with an %s", async (_label, value) => {
+    const seeded = await seedFormDatabase();
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Invalid date range",
+          propertyEntries: [
+            { property: "Description", value: "Keep valid fields." },
+            { property: "Priority", value: "P1 — High" },
+            { property: "Deadline", value },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("the supplied date end could not be preserved");
+
+    const items = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(items).toHaveLength(0);
+  });
+
+  it.each([
     ["invalid select array", "Priority", [42]],
     ["invalid multi-select array", "Tags", [42]],
   ])(
