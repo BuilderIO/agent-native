@@ -2119,10 +2119,17 @@ export default function SlideEditor({
     ) as HTMLElement | null;
     if (!slideContent) return null;
     const session = richTextEditorSessionRef.current;
+    const liveSerializationRoot =
+      session?.slideId === slide.id &&
+      session.element.isConnected &&
+      slideContent.contains(session.element)
+        ? slideContent
+        : null;
     const serializationRoot =
-      session?.slideId === slide.id
+      liveSerializationRoot ??
+      (session?.slideId === slide.id
         ? session.slideContentSnapshot
-        : slideContent;
+        : slideContent);
     return serializeSlideContentHtml(
       serializationRoot,
       slide.content,
@@ -2203,8 +2210,17 @@ export default function SlideEditor({
       session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
     session.latestHtml = latest;
     activeRichTextHtmlRef.current = latest;
+    const liveSlideContent = containerRef.current?.querySelector(
+      ".slide-content",
+    ) as HTMLElement | null;
+    const serializationRoot =
+      liveSlideContent &&
+      session.element.isConnected &&
+      liveSlideContent.contains(session.element)
+        ? liveSlideContent
+        : session.slideContentSnapshot;
     const draftContent = serializeSlideContentHtml(
-      session.slideContentSnapshot,
+      serializationRoot,
       session.sourceContent,
       session.path,
       latest,
@@ -2731,10 +2747,24 @@ export default function SlideEditor({
       const computedStyle = window.getComputedStyle(el);
       const positionHost = () => {
         const rect = el.getBoundingClientRect();
+        const slideCanvas = el.closest<HTMLElement>("[data-slide-canvas]");
+        const canvasRect = slideCanvas?.getBoundingClientRect();
+        const scaleX =
+          slideCanvas && slideCanvas.offsetWidth > 0 && canvasRect
+            ? canvasRect.width / slideCanvas.offsetWidth
+            : 1;
+        const scaleY =
+          slideCanvas && slideCanvas.offsetHeight > 0 && canvasRect
+            ? canvasRect.height / slideCanvas.offsetHeight
+            : 1;
+        const safeScaleX = Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1;
+        const safeScaleY = Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1;
         host.style.left = `${rect.left}px`;
         host.style.top = `${rect.top}px`;
-        host.style.width = `${rect.width}px`;
-        host.style.minHeight = `${rect.height}px`;
+        host.style.width = `${rect.width / safeScaleX}px`;
+        host.style.minHeight = `${rect.height / safeScaleY}px`;
+        host.style.transformOrigin = "top left";
+        host.style.transform = `scale(${safeScaleX}, ${safeScaleY})`;
       };
       host.style.position = "fixed";
       host.style.zIndex = "1000";

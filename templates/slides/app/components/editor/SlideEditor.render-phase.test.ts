@@ -115,6 +115,40 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("serializes inspector mutations from the connected live slide root", () => {
+    const readStart = source.indexOf("const readCurrentSlideContentHtml");
+    const readEnd = source.indexOf(
+      "const readCurrentSlideContentHtmlRef",
+      readStart,
+    );
+    const disposeStart = source.indexOf("const disposeRichTextEditor");
+    const disposeEnd = source.indexOf(
+      "const flushInlineEditDraft",
+      disposeStart,
+    );
+
+    expect(source.slice(readStart, readEnd)).toContain(
+      "slideContent.contains(session.element)",
+    );
+    expect(source.slice(disposeStart, disposeEnd)).toContain(
+      "liveSlideContent.contains(session.element)",
+    );
+  });
+
+  it("scales the portalled editor with the transformed canvas", () => {
+    const enterStart = source.indexOf("const enterInlineEdit");
+    const enterEnd = source.indexOf("// Exit edit mode", enterStart);
+    const enterBody = source.slice(enterStart, enterEnd);
+
+    expect(enterBody).toContain(
+      'el.closest<HTMLElement>("[data-slide-canvas]")',
+    );
+    expect(enterBody).toContain('host.style.transformOrigin = "top left"');
+    expect(enterBody).toContain(
+      "host.style.transform = `scale(${safeScaleX}, ${safeScaleY})`",
+    );
+  });
+
   it("marks and strips only the outer rich-text layer", () => {
     expect(source).toContain(
       'element.setAttribute("data-slide-text-block", "true")',
