@@ -10250,12 +10250,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ref={worldRef}
         data-multi-screen-canvas-world
         className="pointer-events-none absolute"
-        style={{
-          left: 0,
-          top: 0,
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-          transformOrigin: "top left",
-        }}
+        style={
+          {
+            left: 0,
+            top: 0,
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+            transformOrigin: "top left",
+            // Controlled zoom also renders the world transform, so it must
+            // replace any counter-scale left by an imperative camera tick.
+            [CHROME_SCALE_CSS_VAR]: chromeScale,
+          } as CSSProperties
+        }
       >
         {boardFileId &&
           boardFileContent !== undefined &&

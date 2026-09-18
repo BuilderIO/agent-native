@@ -25302,11 +25302,13 @@ function DesignEditor() {
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.
-                  // Keep transformed canvas layers inside their own compositor
-                  // surface so they cannot invalidate the editor chrome.
+                  // A backdrop root must live outside the scaled world. Without
+                  // it, iframe backdrop filters inherit the shell's rounded clip
+                  // and Chrome sizes their masks in inverse-zoom coordinates.
                   style={
                     {
                       isolation: "isolate",
+                      willChange: "opacity",
                       ...(canvasBackground
                         ? {
                             "--design-editor-canvas-bg": canvasBackground,
