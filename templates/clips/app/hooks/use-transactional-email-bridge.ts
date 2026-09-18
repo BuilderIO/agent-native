@@ -2,7 +2,11 @@ import {
   sendToAgentChat,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
-import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useChangeVersions,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useEffect, useRef } from "react";
 
 export const TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS = 60_000;
@@ -82,10 +86,13 @@ export async function dispatchClaimedTransactionalEmailAiRequests(
 
 export function useTransactionalEmailBridge(): void {
   const actionVersion = useChangeVersions(["action"]);
+  const { status } = useSession();
   const dispatched = useRef(new Set<string>());
   const inflight = useRef(false);
 
   useEffect(() => {
+    if (status !== "authenticated") return;
+
     const tick = () => {
       if (inflight.current) return;
       inflight.current = true;
@@ -101,5 +108,5 @@ export function useTransactionalEmailBridge(): void {
     // do not emit SQL/action change events that this browser can observe.
     const timer = setInterval(tick, TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [actionVersion]);
+  }, [actionVersion, status]);
 }

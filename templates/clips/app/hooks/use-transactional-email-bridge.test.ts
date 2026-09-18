@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
   sendToAgentChat: vi.fn(),
+  sessionStatus: "authenticated" as string,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -15,6 +16,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mocks.callAction(...args),
   useChangeVersions: vi.fn(() => "0"),
+  useSession: vi.fn(() => ({ status: mocks.sessionStatus })),
 }));
 
 import {
@@ -57,6 +59,7 @@ function BridgeHarness() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.sessionStatus = "authenticated";
   mocks.callAction.mockResolvedValue({ requests: [request] });
 });
 
@@ -128,6 +131,20 @@ describe("transactional email bridge", () => {
       await vi.advanceTimersByTimeAsync(TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS);
     });
     expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    container.remove();
+  });
+
+  it("does not poll while the session is not authenticated", async () => {
+    mocks.sessionStatus = "unauthenticated";
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(createElement(BridgeHarness));
+    });
+
+    expect(mocks.callAction).not.toHaveBeenCalled();
     container.remove();
   });
 
