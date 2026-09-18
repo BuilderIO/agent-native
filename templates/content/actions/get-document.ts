@@ -149,6 +149,7 @@ export default defineAction({
 
     return {
       id: doc.id,
+      spaceId: doc.spaceId,
       deepLink: buildDeepLink({
         app: "content",
         view: "editor",

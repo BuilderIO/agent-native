@@ -333,10 +333,15 @@ function PagedContentFilesBranch({
             type="button"
             size="sm"
             variant="ghost"
-            className="h-7 justify-start text-xs text-muted-foreground"
+            className="grid h-7 w-full items-center gap-1.5 p-0 pe-1.5 text-start text-xs text-muted-foreground"
+            style={{
+              gridTemplateColumns: `${databaseSidebarRowIndent(props.depth, false) + 28}px minmax(0, 1fr)`,
+            }}
             onClick={() => setNextPageVisible(true)}
           >
-            {t("sidebar.showMore")}
+            <span className="col-start-2 truncate">
+              {t("sidebar.showMore")}
+            </span>
           </Button>
         )
       ) : null}

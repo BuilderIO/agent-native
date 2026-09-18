@@ -34,7 +34,7 @@ evidence:
     "../../../app/hooks/use-content-database.test.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-09-17"
+last_reviewed: "2026-09-18"
 ---
 
 # Personal sidebar
@@ -96,6 +96,12 @@ display counts are deliberately transient. Contextual pin reorder patches only t
 loaded subset and preserves unrelated personal order entries. Files, Pinned, and Recent
 share a presentational navigation row; Recent retains its real icon and exact View link
 without inheriting tree expansion or mutation controls.
+
+Each section's menu opens its complete selected-space collection: scoped personal pins,
+the retained Recent window, or the canonical Files table. Section headers use one grid
+for the toggle/drag surface and menu; pointer dragging works from the icon, label, or
+empty header space while the menu remains separate. Tree paging rows share the file-row
+grid so nested Show more controls align with their child depth.
 
 Database-backed workspace trees read at most 20 roots or immediate children per page,
 use cursor-based Show more, and resolve an active path without enumerating every

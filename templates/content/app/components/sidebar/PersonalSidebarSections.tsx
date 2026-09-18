@@ -15,11 +15,17 @@ import {
   IconClock,
   IconDots,
   IconFiles,
-  IconGripVertical,
   IconPin,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEventHandler,
+  type ReactNode,
+} from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
@@ -52,6 +58,7 @@ export function PersonalSidebarSections({
   spaceId,
   onNavigate,
   reorderLabels,
+  seeAllHrefs,
 }: {
   renderPinned: (limit: number) => ReactNode;
   pinnedCount: number;
@@ -59,6 +66,7 @@ export function PersonalSidebarSections({
   spaceId: string;
   onNavigate?: () => void;
   reorderLabels: SidebarReorderLabels;
+  seeAllHrefs: Record<ContentSidebarSectionId, string>;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -159,6 +167,7 @@ export function PersonalSidebarSections({
                 change("files", { expanded: !sections.files.expanded })
               }
               reorderLabels={reorderLabels}
+              seeAllHref={seeAllHrefs[id]}
               sections={sections}
               labels={labels}
               onChangeVisible={(sectionId, visible) =>
@@ -180,6 +189,7 @@ export function PersonalSidebarSections({
                 change(id, { expanded: !sections[id].expanded });
               }}
               reorderLabels={reorderLabels}
+              seeAllHref={seeAllHrefs[id]}
               sections={sections}
               labels={labels}
               onChangeVisible={(sectionId, visible) =>
@@ -274,6 +284,7 @@ function PersonalSection({
   expanded,
   onToggle,
   reorderLabels,
+  seeAllHref,
   sections,
   labels,
   onChangeVisible,
@@ -284,6 +295,7 @@ function PersonalSection({
   expanded?: boolean;
   onToggle?: () => void;
   reorderLabels: SidebarReorderLabels;
+  seeAllHref: string;
   sections: ContentSidebarSections;
   labels: Record<ContentSidebarSectionId, string>;
   onChangeVisible: (id: "pinned" | "recent", visible: boolean) => void;
@@ -291,22 +303,33 @@ function PersonalSection({
 }) {
   const t = useT();
   const reorder = useSidebarReorderItem(id);
+  const pointerDragListener = (
+    reorder.listeners as typeof reorder.listeners & {
+      onPointerDown?: PointerEventHandler<HTMLButtonElement>;
+    }
+  )?.onPointerDown;
   const SectionIcon =
     id === "pinned" ? IconPin : id === "recent" ? IconClock : IconFiles;
   return (
     <section
       ref={reorder.setNodeRef}
       style={reorder.style}
+      data-sidebar-reorder-item-id={reorder.itemId}
       className="mb-2 min-w-0 px-2"
     >
-      <div className="flex h-7 min-w-0 items-center gap-1">
+      <div className="grid h-7 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center gap-1">
         {onToggle && (
           <button
             type="button"
             aria-label={label}
             aria-expanded={expanded}
+            {...reorder.attributes}
+            onPointerDown={pointerDragListener}
             onClick={onToggle}
-            className="group/toggle flex min-w-0 flex-1 items-center rounded text-start text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              "group/toggle grid min-w-0 touch-none select-none grid-cols-[1.75rem_minmax(0,1fr)] items-center rounded text-start text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+              reorder.isDragging && "cursor-grabbing",
+            )}
           >
             <span className="flex size-7 shrink-0 items-center justify-center">
               <span className="relative size-3.5">
@@ -322,15 +345,6 @@ function PersonalSection({
             <span className="min-w-0 flex-1 truncate">{label}</span>
           </button>
         )}
-        <button
-          type="button"
-          {...reorder.attributes}
-          {...reorder.listeners}
-          aria-label={reorderLabels.drag(label)}
-          className="flex size-7 shrink-0 touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconGripVertical className="size-3.5" />
-        </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -343,6 +357,10 @@ function PersonalSection({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem
                 disabled={reorder.siblingIndex === 0}

@@ -301,7 +301,10 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("value={selectedSpace.id}");
     expect(sidebar).toContain("contentSpaces.map((space)");
-    expect(sidebar).toContain('<Link to="/favorites">');
+    expect(sidebar).not.toContain('<Link to="/favorites">');
+    expect(sidebar).toContain(
+      "pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`",
+    );
     expect(sidebar).toContain("void handleSelectContentSpace(space, null)");
     expect(sidebar).toContain(
       'import { OrgSwitcher } from "@agent-native/core/client/org";',
@@ -467,6 +470,7 @@ describe("document sidebar layout", () => {
   it("renders Pinned through exact database memberships with accessible reordering", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const sections = readSidebarSource("./PersonalSidebarSections.tsx");
+    const reorder = readSidebarSource("./sidebar-reorder.tsx");
 
     expect(sidebar).toContain("<PersonalSidebarSections");
     expect(sidebar).toContain("renderFiles={renderWorkspaceNavigation}");
@@ -478,7 +482,14 @@ describe("document sidebar layout", () => {
     );
     expect(sections).toContain("aria-expanded={expanded}");
     expect(sections).toContain('expanded && "rotate-90"');
-    expect(sections).toContain("IconGripVertical");
+    expect(sections).not.toContain("IconGripVertical");
+    expect(sections).toContain("onPointerDown={pointerDragListener}");
+    expect(sections).toContain("onClick={onToggle}");
+    expect(sections).toContain("grid-cols-[minmax(0,1fr)_1.75rem]");
+    expect(sections).toContain("grid-cols-[1.75rem_minmax(0,1fr)]");
+    expect(sections).not.toContain("{...reorder.listeners}");
+    expect(sections).toContain("data-sidebar-reorder-item-id={reorder.itemId}");
+    expect(reorder).toContain("activationConstraint: { distance: 5 }");
     expect(sections).toContain("group-hover/toggle:opacity-0");
     expect(sections).toContain("group-focus-visible/toggle:opacity-100");
     expect(sections).toContain("<SidebarNavigationRow");
@@ -531,6 +542,11 @@ describe("document sidebar layout", () => {
       sections.indexOf("<DropdownMenuTrigger"),
     );
     expect(menuTrigger).not.toContain("aria-label={reorderLabels.drag(label)}");
+    expect(sections).toContain("seeAllHrefs:");
+    expect(sections).toContain("seeAllHref={seeAllHrefs[id]}");
+    expect(sections).toContain(
+      '<Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>',
+    );
   });
 
   it("keeps delete confirmation owned by the stable sidebar", () => {

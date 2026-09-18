@@ -36,6 +36,9 @@ const messages = {
   landing: {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
+    workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
+    workspaceWelcomeUnavailableDescription:
+      "您可以瀏覽此空間，但沒有建立歡迎頁面的權限。",
   },
   team: {
     metaTitle: "工作區存取 - Content",
@@ -1249,8 +1252,11 @@ const messages = {
     recent: "最近瀏覽",
     customizeSidebar: "自訂側邊欄",
     noRecentVisits: "尚無最近瀏覽記錄",
+    noPinnedItems: "尚無已釘選項目",
     showMore: "顯示更多",
     showLess: "顯示更少",
+    seeAll: "查看全部…",
+    seeAllFiles: "查看所有檔案",
     loadingPinned: "正在載入已釘選項目…",
     dragToReorder: "拖曳以重新排序 {{label}}",
     moveUp: "上移",

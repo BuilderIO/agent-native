@@ -1171,14 +1171,29 @@ function PageEditorSessionBody({
     databaseDocumentId,
   });
   useEffect(() => {
-    if (host !== "page") return;
-    void rememberContentLandingDocument(documentId).catch((error) => {
+    if (host !== "page" || document.database?.systemRole) return;
+    void rememberContentLandingDocument(
+      {
+        documentId,
+        ...(databaseId ? { databaseId } : {}),
+        ...(requestedViewId ? { viewId: requestedViewId } : {}),
+      },
+      document.spaceId ?? undefined,
+    ).catch((error) => {
       toast.error(t("landing.saveFailed"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     });
-  }, [documentId, host, t]);
+  }, [
+    databaseId,
+    document.database?.systemRole,
+    document.spaceId,
+    documentId,
+    host,
+    requestedViewId,
+    t,
+  ]);
   const updateDocument = useUpdateDocument();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
   const updatePreviewDocumentDraftRef = useRef(
@@ -3422,7 +3437,7 @@ function PageEditorSessionBody({
                 { requestSource: "content-breadcrumb" },
               ),
             persistSelection: setStoredSpaceId,
-            openFiles: () => navigate(`/page/${targetId}`, { flushSync: true }),
+            openSpace: () => navigate(`/page/${targetId}`, { flushSync: true }),
           }),
         )
         .catch((error) => {

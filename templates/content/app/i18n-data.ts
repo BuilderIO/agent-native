@@ -3171,6 +3171,9 @@ const enUS = {
     previousPageUnavailable:
       "Your previous page is no longer available, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
+    workspaceWelcomeUnavailableTitle: "Nothing is open here yet",
+    workspaceWelcomeUnavailableDescription:
+      "You can browse this space, but you do not have permission to create its welcome page.",
   },
   team: {
     metaTitle: "Workspace access - Content",
@@ -3463,8 +3466,11 @@ const enUS = {
     recent: "Recent",
     customizeSidebar: "Customize sidebar",
     noRecentVisits: "No recent visits",
+    noPinnedItems: "No pinned items",
     showMore: "Show more",
     showLess: "Show less",
+    seeAll: "See all…",
+    seeAllFiles: "See all files",
     loadingPinned: "Loading pinned items…",
     dragToReorder: "Drag to reorder {{label}}",
     moveUp: "Move up",
@@ -9892,50 +9898,80 @@ const landingMessagesByLocale = {
   "zh-CN": {
     previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
     saveFailed: "无法保存您的位置",
+    workspaceWelcomeUnavailableTitle: "此处尚未打开任何内容",
+    workspaceWelcomeUnavailableDescription:
+      "您可以查看此工作区，但没有创建欢迎页面的权限。",
   },
   "zh-TW": {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
+    workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
+    workspaceWelcomeUnavailableDescription:
+      "您可以查看這個工作區，但沒有建立歡迎頁面的權限。",
   },
   "es-ES": {
     previousPageUnavailable:
       "Tu página anterior ya no está disponible, así que abrimos la página de bienvenida.",
     saveFailed: "No se pudo guardar tu ubicación",
+    workspaceWelcomeUnavailableTitle: "Todavía no hay nada abierto aquí",
+    workspaceWelcomeUnavailableDescription:
+      "Puedes ver este espacio de trabajo, pero no tienes permiso para crear su página de bienvenida.",
   },
   "fr-FR": {
     previousPageUnavailable:
       "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
     saveFailed: "Votre emplacement n’a pas pu être enregistré",
+    workspaceWelcomeUnavailableTitle: "Rien n’est encore ouvert ici",
+    workspaceWelcomeUnavailableDescription:
+      "Vous pouvez consulter cet espace de travail, mais vous n’êtes pas autorisé à créer sa page d’accueil.",
   },
   "de-DE": {
     previousPageUnavailable:
       "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
     saveFailed: "Deine Position konnte nicht gespeichert werden",
+    workspaceWelcomeUnavailableTitle: "Hier ist noch nichts geöffnet",
+    workspaceWelcomeUnavailableDescription:
+      "Du kannst diesen Arbeitsbereich ansehen, hast aber keine Berechtigung, seine Willkommensseite zu erstellen.",
   },
   "ja-JP": {
     previousPageUnavailable:
       "前回のページを利用できないため、ようこそページを開きました。",
     saveFailed: "現在位置を保存できませんでした",
+    workspaceWelcomeUnavailableTitle: "まだ何も開かれていません",
+    workspaceWelcomeUnavailableDescription:
+      "このワークスペースは表示できますが、ようこそページを作成する権限がありません。",
   },
   "ko-KR": {
     previousPageUnavailable:
       "이전 페이지를 더 이상 사용할 수 없어 시작 페이지를 열었습니다.",
     saveFailed: "현재 위치를 저장하지 못했습니다",
+    workspaceWelcomeUnavailableTitle: "아직 열린 콘텐츠가 없습니다",
+    workspaceWelcomeUnavailableDescription:
+      "이 워크스페이스를 볼 수 있지만 시작 페이지를 만들 권한이 없습니다.",
   },
   "pt-BR": {
     previousPageUnavailable:
       "Sua página anterior não está mais disponível, então abrimos a página de boas-vindas.",
     saveFailed: "Não foi possível salvar sua localização",
+    workspaceWelcomeUnavailableTitle: "Ainda não há nada aberto aqui",
+    workspaceWelcomeUnavailableDescription:
+      "Você pode ver este espaço de trabalho, mas não tem permissão para criar a página de boas-vindas.",
   },
   "hi-IN": {
     previousPageUnavailable:
       "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
     saveFailed: "आपकी जगह सेव नहीं की जा सकी",
+    workspaceWelcomeUnavailableTitle: "यहाँ अभी कुछ भी खुला नहीं है",
+    workspaceWelcomeUnavailableDescription:
+      "आप यह वर्कस्पेस देख सकते हैं, लेकिन इसका स्वागत पेज बनाने की अनुमति आपके पास नहीं है।",
   },
   "ar-SA": {
     previousPageUnavailable:
       "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
     saveFailed: "تعذر حفظ موضعك",
+    workspaceWelcomeUnavailableTitle: "لا يوجد شيء مفتوح هنا بعد",
+    workspaceWelcomeUnavailableDescription:
+      "يمكنك عرض مساحة العمل هذه، لكن ليس لديك إذن لإنشاء صفحة الترحيب الخاصة بها.",
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, typeof enUS.landing>;
 
@@ -11840,8 +11876,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "最近瀏覽",
     customizeSidebar: "自訂側邊欄",
     noRecentVisits: "尚無最近瀏覽記錄",
+    noPinnedItems: "尚無已釘選項目",
     showMore: "顯示更多",
     showLess: "顯示更少",
+    seeAll: "查看全部…",
+    seeAllFiles: "查看所有檔案",
     pinned: "已釘選",
     loadingPinned: "正在載入已釘選項目…",
     dragToReorder: "拖曳以重新排序 {{label}}",
@@ -11868,8 +11907,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "最近访问",
     customizeSidebar: "自定义侧边栏",
     noRecentVisits: "暂无最近访问记录",
+    noPinnedItems: "暂无已固定项目",
     showMore: "显示更多",
     showLess: "显示更少",
+    seeAll: "查看全部…",
+    seeAllFiles: "查看所有文件",
     pinned: "已固定",
     loadingPinned: "正在加载已固定项目…",
     dragToReorder: "拖动以重新排序 {{label}}",
@@ -11896,8 +11938,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "Recientes",
     customizeSidebar: "Personalizar barra lateral",
     noRecentVisits: "No hay visitas recientes",
+    noPinnedItems: "No hay elementos fijados",
     showMore: "Mostrar más",
     showLess: "Mostrar menos",
+    seeAll: "Ver todo…",
+    seeAllFiles: "Ver todos los archivos",
     pinned: "Fijados",
     loadingPinned: "Cargando elementos fijados…",
     dragToReorder: "Arrastra para reordenar {{label}}",
@@ -11924,8 +11969,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "Récents",
     customizeSidebar: "Personnaliser la barre latérale",
     noRecentVisits: "Aucune visite récente",
+    noPinnedItems: "Aucun élément épinglé",
     showMore: "Afficher plus",
     showLess: "Afficher moins",
+    seeAll: "Tout afficher…",
+    seeAllFiles: "Afficher tous les fichiers",
     pinned: "Épinglés",
     loadingPinned: "Chargement des éléments épinglés…",
     dragToReorder: "Faites glisser {{label}} pour le réorganiser",
@@ -11952,8 +12000,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "Zuletzt besucht",
     customizeSidebar: "Seitenleiste anpassen",
     noRecentVisits: "Keine letzten Besuche",
+    noPinnedItems: "Keine angehefteten Elemente",
     showMore: "Mehr anzeigen",
     showLess: "Weniger anzeigen",
+    seeAll: "Alle anzeigen…",
+    seeAllFiles: "Alle Dateien anzeigen",
     pinned: "Angeheftet",
     loadingPinned: "Angeheftete Elemente werden geladen…",
     dragToReorder: "{{label}} zum Neuordnen ziehen",
@@ -11981,8 +12032,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "最近の閲覧",
     customizeSidebar: "サイドバーをカスタマイズ",
     noRecentVisits: "最近の閲覧はありません",
+    noPinnedItems: "固定された項目はありません",
     showMore: "もっと見る",
     showLess: "表示を減らす",
+    seeAll: "すべて表示…",
+    seeAllFiles: "すべてのファイルを表示",
     pinned: "固定済み",
     loadingPinned: "固定済みの項目を読み込み中…",
     dragToReorder: "{{label}} をドラッグして並べ替え",
@@ -12009,8 +12063,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "최근 방문",
     customizeSidebar: "사이드바 사용자 지정",
     noRecentVisits: "최근 방문 기록 없음",
+    noPinnedItems: "고정된 항목 없음",
     showMore: "더 보기",
     showLess: "간략히 보기",
+    seeAll: "모두 보기…",
+    seeAllFiles: "모든 파일 보기",
     pinned: "고정됨",
     loadingPinned: "고정된 항목 불러오는 중…",
     dragToReorder: "{{label}} 드래그하여 순서 변경",
@@ -12037,8 +12094,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "Recentes",
     customizeSidebar: "Personalizar barra lateral",
     noRecentVisits: "Nenhuma visita recente",
+    noPinnedItems: "Nenhum item fixado",
     showMore: "Mostrar mais",
     showLess: "Mostrar menos",
+    seeAll: "Ver tudo…",
+    seeAllFiles: "Ver todos os arquivos",
     pinned: "Fixados",
     loadingPinned: "Carregando itens fixados…",
     dragToReorder: "Arraste para reordenar {{label}}",
@@ -12065,8 +12125,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "हाल ही में देखे गए",
     customizeSidebar: "साइडबार अनुकूलित करें",
     noRecentVisits: "हाल ही में कोई पेज नहीं देखा",
+    noPinnedItems: "कोई पिन किया गया आइटम नहीं",
     showMore: "और दिखाएँ",
     showLess: "कम दिखाएँ",
+    seeAll: "सभी देखें…",
+    seeAllFiles: "सभी फ़ाइलें देखें",
     pinned: "पिन किए गए",
     loadingPinned: "पिन किए गए आइटम लोड हो रहे हैं…",
     dragToReorder: "{{label}} को फिर से क्रमबद्ध करने के लिए खींचें",
@@ -12093,8 +12156,11 @@ const sidebarPinnedMessagesByLocale: Partial<
     recent: "الأخيرة",
     customizeSidebar: "تخصيص الشريط الجانبي",
     noRecentVisits: "لا توجد زيارات حديثة",
+    noPinnedItems: "لا توجد عناصر مثبتة",
     showMore: "عرض المزيد",
     showLess: "عرض أقل",
+    seeAll: "عرض الكل…",
+    seeAllFiles: "عرض كل الملفات",
     pinned: "مثبتة",
     loadingPinned: "جارٍ تحميل العناصر المثبتة…",
     dragToReorder: "اسحب لإعادة ترتيب {{label}}",

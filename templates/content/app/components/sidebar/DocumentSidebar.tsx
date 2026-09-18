@@ -1262,11 +1262,16 @@ export function DocumentSidebar({
                 { requestSource: "content-sidebar" },
               ),
             persistSelection: setStoredSpaceId,
-            openFiles: (documentId) => {
+            openSpace: (spaceId) => {
               if (targetDocumentId === null) return;
-              void navigate(`/page/${targetDocumentId ?? documentId}`, {
-                flushSync: true,
-              });
+              void navigate(
+                targetDocumentId
+                  ? `/page/${targetDocumentId}`
+                  : `/space/${encodeURIComponent(spaceId)}`,
+                {
+                  flushSync: true,
+                },
+              );
             },
           }),
         );
@@ -2157,9 +2162,6 @@ export function DocumentSidebar({
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
-          <DropdownMenuItem asChild>
-            <Link to="/favorites">{t("sidebar.pinned")}</Link>
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <WorkspaceSourceMenu onCreated={handleWorkspaceCreated}>
@@ -2576,6 +2578,11 @@ export function DocumentSidebar({
               renderFiles={renderWorkspaceNavigation}
               onNavigate={onNavigate}
               reorderLabels={sidebarReorderLabels}
+              seeAllHrefs={{
+                pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                recent: `/recent?spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                files: `/page/${selectedSpace.filesDocumentId}`,
+              }}
               renderPinned={(limit) => {
                 const serverOrdered = favoritesOrder.order.mode !== "custom";
                 const renderedItems = (

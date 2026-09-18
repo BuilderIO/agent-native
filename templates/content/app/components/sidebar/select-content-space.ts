@@ -93,11 +93,11 @@ export async function selectContentSpace(args: {
   space: ContentSpaceSummary;
   syncApplicationState: (space: ContentSpaceSummary) => Promise<unknown>;
   persistSelection: (spaceId: string) => void;
-  openFiles: (documentId: string) => void;
+  openSpace: (spaceId: string) => void;
 }) {
   args.persistSelection(args.space.id);
   await args.syncApplicationState(args.space);
-  args.openFiles(args.space.filesDocumentId);
+  args.openSpace(args.space.id);
 }
 
 export function contentSpaceRouteReconciliation(args: {

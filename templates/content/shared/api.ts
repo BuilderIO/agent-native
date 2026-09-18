@@ -23,6 +23,7 @@ export interface ContentContextPathEntry {
 
 export interface Document {
   id: string;
+  spaceId?: string | null;
   parentId: string | null;
   title: string;
   content: string;

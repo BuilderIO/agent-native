@@ -94,7 +94,7 @@ describe("selectContentSpace", () => {
             events.push(`state:${next.id}`);
           },
           persistSelection: (id) => events.push(`persist:${id}`),
-          openFiles: (id) => events.push(`open:${id}`),
+          openSpace: (id) => events.push(`open:${id}`),
         }),
       );
 
@@ -108,10 +108,10 @@ describe("selectContentSpace", () => {
     expect(events).toEqual([
       "persist:builder",
       "state:builder",
-      "open:builder-files",
+      "open:builder",
       "persist:personal",
       "state:personal",
-      "open:personal-files",
+      "open:personal",
     ]);
   });
 
@@ -126,7 +126,7 @@ describe("selectContentSpace", () => {
         persistSelection: (id) => {
           storedSpaceId = id;
         },
-        openFiles: (id) => opened.push(id),
+        openSpace: (id) => opened.push(id),
       });
     };
     const personal = space({
@@ -146,11 +146,7 @@ describe("selectContentSpace", () => {
     await select(personal);
 
     expect(states).toEqual(["personal", "builder", "personal"]);
-    expect(opened).toEqual([
-      "personal-files",
-      "builder-files",
-      "personal-files",
-    ]);
+    expect(opened).toEqual(["personal", "builder", "personal"]);
     expect(storedSpaceId).toBe("personal");
   });
 
@@ -162,59 +158,59 @@ describe("selectContentSpace", () => {
     const syncApplicationState = vi.fn(async () => {
       events.push("state:space_1");
     });
-    const openFiles = vi.fn((documentId: string) => {
-      events.push(`open:${documentId}`);
+    const openSpace = vi.fn((spaceId: string) => {
+      events.push(`open:${spaceId}`);
     });
 
     await selectContentSpace({
       space: space(),
       syncApplicationState,
       persistSelection,
-      openFiles,
+      openSpace,
     });
 
     expect(events).toEqual([
       "persist:space_1",
       "state:space_1",
-      "open:files_document_1",
+      "open:space_1",
     ]);
   });
 
   it("keeps the explicit selection persisted when application state cannot be updated", async () => {
     const error = new Error("Application state failed");
     const persistSelection = vi.fn();
-    const openFiles = vi.fn();
+    const openSpace = vi.fn();
 
     await expect(
       selectContentSpace({
         space: space(),
         syncApplicationState: async () => Promise.reject(error),
         persistSelection,
-        openFiles,
+        openSpace,
       }),
     ).rejects.toBe(error);
 
     expect(persistSelection).toHaveBeenCalledWith("space_1");
-    expect(openFiles).not.toHaveBeenCalled();
+    expect(openSpace).not.toHaveBeenCalled();
   });
 
   it("persists and opens the selected Files database", async () => {
     const persistSelection = vi.fn();
     const syncApplicationState = vi.fn(async () => undefined);
-    const openFiles = vi.fn();
+    const openSpace = vi.fn();
 
     await selectContentSpace({
       space: space(),
       syncApplicationState,
       persistSelection,
-      openFiles,
+      openSpace,
     });
 
     expect(persistSelection).toHaveBeenCalledWith("space_1");
     expect(syncApplicationState).toHaveBeenCalledWith(
       expect.objectContaining({ id: "space_1" }),
     );
-    expect(openFiles).toHaveBeenCalledWith("files_document_1");
+    expect(openSpace).toHaveBeenCalledWith("space_1");
   });
 });
 

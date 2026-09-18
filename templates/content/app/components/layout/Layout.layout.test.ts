@@ -30,7 +30,9 @@ describe("app layout", () => {
     expect(source).toContain("const isCompactLayout = useIsCompactLayout()");
     expect(source).toContain("{isCompactLayout ? (");
     expect(source).toContain("}, [location.key])");
-    expect(source).toContain('className="w-[85vw] max-w-80 p-0"');
+    expect(source).toContain(
+      'className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"',
+    );
     expect(source).not.toContain("md:hidden");
   });
 

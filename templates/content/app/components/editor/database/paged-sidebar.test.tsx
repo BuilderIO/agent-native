@@ -130,6 +130,11 @@ describe("PagedContentFilesSidebarView", () => {
 
     expect(container.querySelectorAll("a")).toHaveLength(20);
     expect(container.textContent).toContain("Show more");
+    expect(
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent === "Show more",
+      )?.style.gridTemplateColumns,
+    ).toBe("28px minmax(0, 1fr)");
     await act(async () =>
       Array.from(container.querySelectorAll("button"))
         .find((button) => button.textContent === "Show more")
@@ -226,6 +231,11 @@ describe("PagedContentFilesSidebarView", () => {
       20,
     );
     expect(container.textContent).toContain("Show more");
+    expect(
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent === "Show more",
+      )?.style.gridTemplateColumns,
+    ).toBe("46px minmax(0, 1fr)");
     await act(async () =>
       Array.from(container.querySelectorAll("button"))
         .find((button) => button.textContent === "Show more")

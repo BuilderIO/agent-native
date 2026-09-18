@@ -1812,7 +1812,8 @@ function DatabaseTable({
               { requestSource: "content-workspaces-database" },
             ),
           persistSelection: setStoredSpaceId,
-          openFiles: (documentId) => navigate(`/page/${documentId}`),
+          openSpace: (spaceId) =>
+            navigate(`/space/${encodeURIComponent(spaceId)}`),
         });
       })
       .catch((error) => {
