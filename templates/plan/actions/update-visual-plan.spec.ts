@@ -737,6 +737,99 @@ describe("update-visual-plan comments", () => {
     expect(JSON.stringify(result)).not.toContain("Original intro.");
   });
 
+  it.each([
+    {
+      name: "targeted prototype patch",
+      input: {
+        contentPatches: [
+          {
+            op: "update-prototype-screen" as const,
+            screenId: "screen_1",
+            patch: { title: "Updated home" },
+          },
+        ],
+      },
+    },
+    {
+      name: "full replacement",
+      input: {
+        expectedUpdatedAt: baseUpdatedAt,
+        contentPatches: [],
+        content: {
+          ...structuredContent,
+          prototype: {
+            ...structuredContent.prototype,
+            screens: structuredContent.prototype.screens.map((screen) => ({
+              ...screen,
+              title: "Updated home",
+            })),
+          },
+        },
+      },
+    },
+  ])(
+    "rejects $name when the visible canvas is unchanged",
+    async ({ input }) => {
+      request.email = "editor@example.com";
+      const { updateWhereMock } = useSuccessfulDb();
+      loadPlanBundleMock.mockResolvedValue(planBundle());
+
+      await expect(
+        (
+          updateVisualPlan as {
+            run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+          }
+        ).run(
+          {
+            planId: "plan_public",
+            ...input,
+            sections: [],
+            comments: [],
+            consumedCommentIds: [],
+          },
+          { caller: "tool" },
+        ),
+      ).rejects.toThrow("visible canvas unchanged");
+
+      expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+      expect(updateWhereMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows an explicit single-surface edit and keeps the parity warning", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    const result = await (
+      updateVisualPlan as {
+        run: (args: unknown, ctx?: unknown) => Promise<Record<string, unknown>>;
+      }
+    ).run(
+      {
+        planId: "plan_public",
+        allowSurfaceMismatch: true,
+        contentPatches: [
+          {
+            op: "update-prototype-screen",
+            screenId: "screen_1",
+            patch: { title: "Updated home" },
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      },
+      { caller: "tool" },
+    );
+
+    expect(result).toMatchObject({
+      changed: {
+        warnings: [expect.stringContaining("allowSurfaceMismatch")],
+      },
+    });
+  });
+
   it("handles a 13-task amendment as three incremental writes", async () => {
     request.email = "editor@example.com";
     useSuccessfulDb();

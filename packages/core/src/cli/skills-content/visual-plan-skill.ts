@@ -209,6 +209,47 @@ forward only the code-research and plan-composition guidance here.
 8. For hosted plans, export with \`export-visual-plan\` only when the user wants a
    shareable receipt or repo-check-in artifacts.
 
+### Visible-surface parity
+
+When a plan has both canvas and prototype content, the canvas is the first
+visible static surface. The prototype and document-body tabs are separate
+surfaces. Updating only a prototype screen, a document-body tab, or a wireframe
+block does not update the canvas and is not a complete UI revision.
+
+Before editing, inventory the matching canvas frame IDs and prototype screen IDs.
+For a UI critique, patch both surfaces with the same labels, copy, and states
+unless the user explicitly asks to change only one. After the write, verify the
+persisted canvas frame HTML/captions and prototype screen HTML separately.
+Never hand off a plan when the visible canvas still shows the prior direction.
+The update action rejects a prototype change that leaves an existing canvas
+unchanged; use \`allowSurfaceMismatch: true\` only when the user explicitly wants
+a single-surface edit, and treat a parity error as a blocked write otherwise.
+For optional spot-audit tools, keep the default neutral: do not turn every row
+into a queue or imply that an unaudited row is a problem.
+
+### Observability review contract
+
+When a plan describes human observability or refinement, model the requested
+scope explicitly: a single-app view with the app's native output preview, and,
+when a workspace combines apps, a workspace view that rolls the same row
+contract across app adapters. A single-app deployment must work without
+workspace chrome. Keep the scopes consistent without flattening away
+app-specific previews.
+
+Keep ordinary feedback separate from audit verdicts. If non-admin feedback is
+allowed, audit state, audit votes, improvement approval, and applying changes
+must still be gated server-side by the product's explicit admin permission;
+hide those controls for other roles but never rely on UI hiding alone. Use an
+app role for an app-scoped admin, not a share role or a second organization.
+
+Collect feedback across many rows before synthesis. A list-level improvement
+pass should group repeated patterns, suggest concrete targets (skills,
+instructions, memories, data dictionaries, certified dashboards, or creative
+context), show evidence plus before/after diffs, allow reviewer feedback and
+regeneration, and apply nothing until an admin explicitly approves it. A
+thumbs-down should capture a reason; a thumbs-up may optionally promote a
+representative example into context.
+
 ## Self-Review Before Handoff
 
 This adversarial self-review pass is opt-in, not default: run it only for

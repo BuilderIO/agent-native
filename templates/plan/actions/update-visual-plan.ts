@@ -450,6 +450,36 @@ function contentPatchDetails(input: {
   });
 }
 
+function surfaceParityWarnings(
+  before: PlanContent | null,
+  after: PlanContent | null,
+  patches: PlanContentPatch[],
+) {
+  if (!before?.canvas?.frames.length || !after?.canvas?.frames.length) {
+    return [];
+  }
+  const hasPrototypeEdit = patches.some(
+    (patch) =>
+      patch.op === "set-prototype" ||
+      patch.op === "update-prototype-screen" ||
+      patch.op === "patch-prototype-html",
+  );
+  const prototypeChanged =
+    hasPrototypeEdit ||
+    (before.prototype !== undefined &&
+      after.prototype !== undefined &&
+      JSON.stringify(before.prototype) !== JSON.stringify(after.prototype));
+  if (
+    !prototypeChanged ||
+    JSON.stringify(before.canvas.frames) !== JSON.stringify(after.canvas.frames)
+  ) {
+    return [];
+  }
+  return [
+    "This update changes the prototype while leaving the visible canvas unchanged. Patch the matching canvas frame(s) too, or pass allowSurfaceMismatch: true only for an intentional single-surface edit.",
+  ];
+}
+
 const CONTENT_DESCRIPTION =
   "Destructive full structured content replacement. Read the latest plan first and pass its updatedAt as expectedUpdatedAt. Prefer granular contentPatches for ordinary edits; use this only for intentional broad restructuring.";
 const CONTENT_PATCHES_DESCRIPTION =
@@ -511,6 +541,13 @@ const updateVisualPlanSchema = z.object({
     .default(false)
     .describe(
       "Explicit confirmation for a full content replacement or replace-blocks call that removes existing block IDs, collapses a nonempty canvas to zero frames, or collapses a nonempty prototype to zero screens. Keep false for normal rewrites. Set true only after reviewing the latest plan and intentionally accepting those losses; expectedUpdatedAt is still required.",
+    ),
+  allowSurfaceMismatch: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Explicit confirmation for an intentional single-surface prototype edit when a visible canvas also exists. Keep false for normal UI revisions so stale canvas content is rejected before writing.",
     ),
   html: z
     .string()
@@ -581,7 +618,7 @@ export default defineAction({
     isConsequential: true,
     title: "Update Visual Plan",
     description:
-      "Patch structured plan content, add visual sections, record comments, or mark feedback consumed.",
+      "Patch structured plan content, add visual sections, record comments, or mark feedback consumed. When canvas and prototype coexist, patch both visible surfaces; mismatches are rejected before writing unless allowSurfaceMismatch is explicitly true.",
   },
   mcpApp: {
     compactCatalog: true,
@@ -682,6 +719,7 @@ export default defineAction({
       args.content !== undefined || hasReplaceBlocksPatch;
     let nextContent =
       args.content !== undefined ? normalizePlanContent(args.content) : null;
+    let surfaceWarnings: string[] = [];
     let versionAtLoad: string | null = null;
     let bundleAtLoad: Awaited<ReturnType<typeof loadPlanBundle>> | null = null;
 
@@ -749,6 +787,14 @@ export default defineAction({
           `Destructive structured replacement would ${warnings.join(" and ")}. Reload and review the latest plan, then pass allowDestructive: true with its expectedUpdatedAt only if those losses are intentional.`,
         );
       }
+    }
+    surfaceWarnings = surfaceParityWarnings(
+      bundleAtLoad?.plan.content ?? null,
+      nextContent,
+      args.contentPatches,
+    );
+    if (surfaceWarnings.length > 0 && !args.allowSurfaceMismatch) {
+      throw new Error(surfaceWarnings.join(" "));
     }
     const sourceBundleForMarkdown =
       nextContent && args.markdown === undefined
@@ -1246,6 +1292,7 @@ export default defineAction({
           statusChanged: args.status !== undefined,
           contentPatchOps: args.contentPatches.map((patch) => patch.op),
           commentCount: insertedCommentIds.length,
+          ...(surfaceWarnings.length > 0 ? { warnings: surfaceWarnings } : {}),
         }),
         ...(local?.written ? { localFiles: local } : {}),
       };
