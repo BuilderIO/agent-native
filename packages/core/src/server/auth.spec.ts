@@ -4654,6 +4654,8 @@ describe("server/auth", () => {
       });
       expect(signInEmail).toHaveBeenCalledWith({
         body: { email: "user@example.com", password: "secret-password" },
+        headers: expect.any(Headers),
+        returnHeaders: true,
       });
       expect(event.res.headers.get("set-cookie")).toContain(
         "agent-native-first-run=1",
