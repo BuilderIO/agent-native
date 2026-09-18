@@ -259,6 +259,78 @@ Updated body.`,
     expect(resourceDeleteMock).toHaveBeenCalledWith("resource-1");
   });
 
+  it("persists and updates reasoning_effort, and rejects an unrecognized value", async () => {
+    const defineResult = JSON.parse(
+      await tool().run({
+        action: "define",
+        name: "qa-effort",
+        trigger_type: "event",
+        event: "test.event.fired",
+        body: "Record the QA signal.",
+        model: "gpt-5.6-luna",
+        reasoning_effort: "high",
+      }),
+    );
+    expect(defineResult.reasoningEffort).toBe("high");
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      owner,
+      "jobs/qa-effort.md",
+      expect.stringContaining("reasoningEffort: high"),
+    );
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-effort.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+model: gpt-5.6-luna
+reasoningEffort: high
+---
+
+Record the QA signal.`,
+    });
+
+    const updateResult = JSON.parse(
+      await tool().run({
+        action: "update",
+        name: "qa-effort",
+        reasoning_effort: "low",
+      }),
+    );
+    expect(updateResult.reasoningEffort).toBe("low");
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-effort.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+model: gpt-5.6-luna
+reasoningEffort: low
+---
+
+Record the QA signal.`,
+    });
+
+    const rejected = await tool().run({
+      action: "update",
+      name: "qa-effort",
+      reasoning_effort: "extreme",
+    });
+    expect(rejected).toContain("Invalid reasoning effort");
+  });
+
   it("rejects define with mode: deterministic and persists nothing", async () => {
     const result = await tool().run({
       action: "define",

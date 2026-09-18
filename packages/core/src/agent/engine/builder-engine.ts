@@ -16,6 +16,7 @@
  * overridable via BUILDER_GATEWAY_BASE_URL.
  */
 
+import { getAppConfig } from "../../app-config/index.js";
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
@@ -364,8 +365,21 @@ class BuilderEngine implements AgentEngine {
       thinkingEnabled: Boolean(reasoningEffort) && /claude/i.test(model),
     });
 
+    // OpenAI rejects `reasoning_effort` alongside function tools on Chat
+    // Completions ("Function tools with reasoning_effort are not supported
+    // for <model> in /v1/chat/completions … or set reasoning_effort to
+    // 'none'"), and the gateway routes GPT models there today. Every chat on
+    // a gpt-5.x model with tools failed deterministically because of this.
+    // Omitting the field does NOT help — OpenAI then applies the model's own
+    // default effort and rejects identically; only the explicit "none"
+    // clears it. Same guard as the ai-sdk engine's forced-Chat-Completions
+    // path. `builderGatewayGptResponsesLane` flips once the gateway proxies
+    // this combination to the Responses API instead — do not flip it before
+    // that ships, or every GPT + tools request 400s again.
     const gptToolsRequireExplicitNoReasoning =
-      cachedTools.length > 0 && isGPTReasoningModel(model);
+      cachedTools.length > 0 &&
+      isGPTReasoningModel(model) &&
+      !getAppConfig().agent.builderGatewayGptResponsesLane;
     const body: Record<string, unknown> = {
       model,
       messages: cachedMessages,
@@ -379,14 +393,6 @@ class BuilderEngine implements AgentEngine {
       ...(samplingAllowed && typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
         : {}),
-      // OpenAI rejects `reasoning_effort` alongside function tools on Chat
-      // Completions ("Function tools with reasoning_effort are not supported
-      // for <model> in /v1/chat/completions … or set reasoning_effort to
-      // 'none'"), and the gateway routes GPT models there. Every chat on a
-      // gpt-5.x model failed deterministically because of this. Omitting the
-      // field does NOT help — OpenAI then applies the model's own default
-      // effort and rejects identically; only the explicit "none" clears it.
-      // Same guard as the ai-sdk engine's forced-Chat-Completions path.
       ...(reasoningEffort || gptToolsRequireExplicitNoReasoning
         ? {
             reasoning_effort: gptToolsRequireExplicitNoReasoning

@@ -1,3 +1,8 @@
+import {
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
+
 export type JobLastStatus = "success" | "error" | "running" | "skipped";
 export type JobTriggerType = "schedule" | "event" | "webhook";
 export type JobExecutionMode = "agentic" | "deterministic";
@@ -36,6 +41,15 @@ export interface JobFrontmatter {
   deliveryThreadRef?: string;
   deliveryTenantId?: string;
   model?: string;
+  /**
+   * Per-run reasoning effort override; omitted uses the model's default (see
+   * `normalizeReasoningEffortForRequest`). Applies immediately for models the
+   * configured engine already forwards effort for; see
+   * `packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md` for
+   * the one lane (GPT + tools on the Builder gateway) where it does not yet
+   * take effect.
+   */
+  reasoningEffort?: ReasoningEffort;
   /** Per-run guard for background automations; omitted uses the app setting. */
   maxIterations?: number;
   /** Per-turn input-token guard; omitted uses the app setting. */
@@ -196,6 +210,7 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "deliveryThreadRef",
   "deliveryTenantId",
   "model",
+  "reasoningEffort",
   "maxIterations",
   "maxRunInputTokens",
   "mcpTools",
@@ -390,6 +405,9 @@ function parseKnownField(
       break;
     case "model":
       meta.model = value;
+      break;
+    case "reasoningEffort":
+      meta.reasoningEffort = isReasoningEffort(value) ? value : undefined;
       break;
     case "maxIterations":
       meta.maxIterations = parsePositiveInteger(value);
@@ -598,6 +616,9 @@ export function buildJobResourceContent(
   pushString(lines, "deliveryThreadRef", meta.deliveryThreadRef);
   pushString(lines, "deliveryTenantId", meta.deliveryTenantId);
   pushString(lines, "model", meta.model);
+  if (meta.reasoningEffort) {
+    lines.push(`reasoningEffort: ${meta.reasoningEffort}`);
+  }
   if (meta.maxIterations !== undefined) {
     lines.push(`maxIterations: ${meta.maxIterations}`);
   }
@@ -680,6 +701,7 @@ const UNQUOTED_STRING_FRONTMATTER_KEYS = new Set([
   "triggerType",
   "mode",
   "runAs",
+  "reasoningEffort",
 ]);
 
 export type JobFrontmatterPatchValue =
