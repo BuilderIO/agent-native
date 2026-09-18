@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync as nodeReadFileSync } from "node:fs";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -33,6 +33,17 @@ import {
   buildFrameworkCoreCompact,
 } from "./prompts/index.js";
 import { runWithRequestContext } from "./request-context.js";
+
+function readFileSync(
+  path: string | URL,
+  options: BufferEncoding | { encoding: BufferEncoding },
+): string {
+  const resolvedPath =
+    typeof path === "string" && path.startsWith("src/")
+      ? new URL(`../../${path}`, import.meta.url)
+      : path;
+  return nodeReadFileSync(resolvedPath, options);
+}
 
 describe("shouldBlockInProductCodeEditingSurface", () => {
   it("blocks app-rendered chat surfaces, including legacy iframe labels", () => {
