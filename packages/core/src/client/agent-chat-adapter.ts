@@ -2397,13 +2397,20 @@ export function createAgentChatAdapter(
 
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
-      if (threadId) setPendingTurn({ threadId, turnId });
+      if (threadId) {
+        setPendingTurn({
+          threadId,
+          turnId,
+          ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
+        });
+      }
       let runId: string | null = null;
       let lastSeq = -1;
       const hasPendingSuccessorRequest = () => {
         const pendingTurn = getPendingTurn();
         return Boolean(
           pendingTurn &&
+          (pendingTurn.tabId ?? pendingTurn.threadId) === activeRunTabId &&
           (pendingTurn.threadId !== threadId || pendingTurn.turnId !== turnId),
         );
       };
@@ -2468,7 +2475,8 @@ export function createAgentChatAdapter(
           (!!threadId &&
             !!runId &&
             activeRun.threadId === threadId &&
-            activeRun.runId === runId);
+            activeRun.runId === runId &&
+            activeRunMatchesTab(activeRun));
         if (!ownsActiveRun) {
           // A different thread may own the global active-run pointer. Only a
           // run from another tab should trigger this adapter's cleanup; a
