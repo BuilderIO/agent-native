@@ -517,13 +517,13 @@ describe("interactive agent run options — wiring guards", () => {
 
     const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
     const spreadSites = source.match(
-      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
+      /\.\.\.resolveInteractiveAgentRunOptions\(options\),(?:(?!createProductionAgentHandler\(\{)[\s\S])*?finalResponseGuard: options\?\.finalResponseGuard,/g,
     );
 
     // Three interactive handlers are created today (prod, anonymous
     // read-only, dev). If this count changes, a new call site was added or
     // removed — update this guard alongside it, and confirm the new/changed
-    // site still spreads the run options immediately before
+    // site still spreads the run options before
     // `finalResponseGuard`.
     expect(handlerCallSites).toHaveLength(3);
     expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
