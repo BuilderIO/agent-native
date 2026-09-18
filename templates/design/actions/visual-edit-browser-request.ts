@@ -21,11 +21,8 @@ export function isSameOriginVisualEditBrowserRequest(
   const origin = headers.get("origin");
   const requestOrigin = getRequestContext()?.requestOrigin;
   if (origin && requestOrigin) {
-    try {
-      return new URL(origin).origin === new URL(requestOrigin).origin;
-    } catch {
-      return false;
-    }
+    if (!URL.canParse(origin) || !URL.canParse(requestOrigin)) return false;
+    return new URL(origin).origin === new URL(requestOrigin).origin;
   }
 
   return fetchSite === "same-origin" || fetchSite === "none";
