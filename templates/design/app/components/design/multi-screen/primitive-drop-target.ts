@@ -668,14 +668,11 @@ export function getPrimitiveDropTargetForPoint(
       continue;
     }
     const boardRect = toBoardRect(primitive, topScreen.geometry, metadata);
-    // In-screen reparenting only accepts a frame that can contain the dragged
-    // layer's rendered bounds. A nested cross-screen target may fall back to
-    // its ancestor, but a top-level target has no larger fallback available.
+    // A reparent target must contain the dragged layer's rendered bounds. The
+    // loop naturally falls through from an undersized nested target to an
+    // eligible ancestor when one exists.
     if (
       draggedBoardRect &&
-      (draggedScreenId === topScreen.screen.id ||
-        primitive.parentNodeId !== undefined ||
-        primitive.parentProjectionNodeId !== undefined) &&
       (draggedBoardRect.width > boardRect.width + 1 ||
         draggedBoardRect.height > boardRect.height + 1)
     ) {

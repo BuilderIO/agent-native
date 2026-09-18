@@ -133,9 +133,27 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
     await altDrag(page, dragSurface, 220, 140);
 
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
+    const copyId = Object.keys(await frameOffsets(page)).find(
+      (id) => id !== fileIds[0],
+    );
+    expect(copyId).toBeDefined();
+    // Shell insertion and the geometry snapshot are separate React updates;
+    // wait for the duplicate's translated frame before asserting its drop.
+    await expect
+      .poll(
+        async () => {
+          const offset = (await frameOffsets(page))[copyId!];
+          return Boolean(
+            offset &&
+            offset.left > before[fileIds[0]!]!.left &&
+            offset.top > before[fileIds[0]!]!.top,
+          );
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
     const after = await frameOffsets(page);
     expect(after[fileIds[0]!]).toEqual(before[fileIds[0]!]);
-    const copyId = Object.keys(after).find((id) => id !== fileIds[0])!;
     expect(after[copyId]!.left).toBeGreaterThan(before[fileIds[0]!]!.left);
     expect(after[copyId]!.top).toBeGreaterThan(before[fileIds[0]!]!.top);
   } finally {

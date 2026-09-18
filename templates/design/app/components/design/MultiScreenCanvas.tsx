@@ -1963,6 +1963,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       })),
       currentGeometryById: frameGeometryRef.current,
       persistedGeometryById: geometryById,
+      geometryOverridesById,
     });
 
     if (changed) {
@@ -1979,6 +1980,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     });
   }, [
     geometryById,
+    geometryOverridesById,
     getResolvedMetadata,
     screens,
     selectableScreens,
