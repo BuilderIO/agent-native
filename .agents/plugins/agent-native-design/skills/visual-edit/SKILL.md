@@ -83,6 +83,9 @@ once with `list-browser-session-webmcp-tools` and run with
 `run-host-webmcp-tool` pair. Preserve the exact discovered name, origin, and
 args. Otherwise use the page-world API. Agent-Native pages expose this helper:
 
+Example assumes signed-in or existing bridge; fresh signed-out loopback must add
+the locally held `bridgeToken` described below.
+
 ```js
 const an = window.__agentNativeWebMcp;
 const status = await an.ready({ waitMs: 20_000 });
