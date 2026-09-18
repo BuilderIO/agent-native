@@ -5,6 +5,7 @@ import {
   vectorEndpointAttributesMarkup,
   vectorEndpointDefsMarkup,
   vectorEndpointPairForPrimitive,
+  vectorEndpointMarkerId,
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
 } from "@shared/vector-endpoints";
@@ -123,11 +124,11 @@ export function reassignDuplicatedNodeIds(content: string): string {
 
   const rewriteReference = (id: string): string => {
     for (const [oldNodeId, nextNodeId] of nodeIdMap) {
-      if (
-        id === `${oldNodeId}-arrow` ||
-        id.startsWith(`${oldNodeId}-vector-marker-`)
-      ) {
-        return id.replace(oldNodeId, nextNodeId);
+      if (id === `${oldNodeId}-arrow`) return `${nextNodeId}-arrow`;
+      for (const side of ["start", "end"] as const) {
+        if (id === vectorEndpointMarkerId(oldNodeId, side)) {
+          return vectorEndpointMarkerId(nextNodeId, side);
+        }
       }
     }
     return id;

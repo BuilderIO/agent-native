@@ -68,6 +68,7 @@ import {
 import { isRunningAppSourceType } from "@shared/source-mode";
 import {
   vectorEndpointMarkerId,
+  vectorEndpointMarkerOrientation,
   vectorEndpointPairForPrimitive,
   vectorEndpointShape,
 } from "@shared/vector-endpoints";
@@ -11241,7 +11242,7 @@ function DraftPrimitiveContent({
           markerHeight="10"
           refX={side === "start" ? "2" : "8"}
           refY="5"
-          orient="auto"
+          orient={vectorEndpointMarkerOrientation(side)}
           markerUnits="strokeWidth"
         >
           {renderEndpointShape(endpoint)}

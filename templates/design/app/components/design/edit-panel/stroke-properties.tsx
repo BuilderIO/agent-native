@@ -75,6 +75,7 @@ import type {
   StylesChangeHandler,
 } from "./style-change-types";
 import { STROKE_POSITION_OPTIONS } from "./style-options";
+import { vectorEndpointInspectorIdentity } from "./vector-endpoint-inspector";
 
 /**
  * Paint types allowed for CSS properties with no clean gradient/image
@@ -801,7 +802,7 @@ function VectorEndpointControls({
     startStyle,
     endStyle,
   );
-  const endpointIdentity = `${element.sourceId}:${element.primitiveKind}`;
+  const endpointIdentity = vectorEndpointInspectorIdentity(element);
   const [localEndpointState, setLocalEndpointState] = useState(() => ({
     identity: endpointIdentity,
     endpoints,

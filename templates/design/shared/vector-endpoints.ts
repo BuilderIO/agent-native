@@ -92,6 +92,12 @@ export function vectorEndpointPropertyForSide(
     : VECTOR_END_ENDPOINT_PROPERTY;
 }
 
+export function vectorEndpointMarkerOrientation(
+  side: VectorEndpointSide,
+): "auto-start-reverse" | "auto" {
+  return side === "start" ? "auto-start-reverse" : "auto";
+}
+
 export function vectorEndpointMarkerId(
   nodeId: string,
   side: VectorEndpointSide,
@@ -196,7 +202,7 @@ function markerMarkup(
     .map(([name, value]) => `${name}="${escapeMarkup(value)}"`)
     .join(" ");
   const refX = side === "start" ? "2" : "8";
-  return `<marker data-an-vector-endpoint-marker="${side}" id="${escapeMarkup(vectorEndpointMarkerId(nodeId, side))}" markerWidth="10" markerHeight="10" refX="${refX}" refY="5" orient="auto" markerUnits="strokeWidth"><${shape.tag} ${attributes}/></marker>`;
+  return `<marker data-an-vector-endpoint-marker="${side}" id="${escapeMarkup(vectorEndpointMarkerId(nodeId, side))}" markerWidth="10" markerHeight="10" refX="${refX}" refY="5" orient="${vectorEndpointMarkerOrientation(side)}" markerUnits="strokeWidth"><${shape.tag} ${attributes}/></marker>`;
 }
 
 export function vectorEndpointDefsMarkup(

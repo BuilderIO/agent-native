@@ -942,6 +942,16 @@ describe("arrow paint target", () => {
         ?.querySelector("marker[data-an-vector-endpoint-marker='end'] circle")
         ?.getAttribute("stroke"),
     ).toBe("context-stroke");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("orient"),
+    ).toBe("auto-start-reverse");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("orient"),
+    ).toBe("auto");
   });
 
   it.each([
@@ -987,6 +997,19 @@ describe("arrow paint target", () => {
     );
     const nextId = /data-agent-native-node-id="([^"]+)"/.exec(copied)?.[1];
     expect(nextId).toBeTruthy();
+    expect(copied).toContain(`id="${nextId}-vector-marker-end"`);
+    expect(copied).toContain(`url(#${nextId}-vector-marker-end)`);
+  });
+
+  it("rekeys sanitized marker IDs when duplicating a punctuated node ID", async () => {
+    const { reassignDuplicatedNodeIds } =
+      await import("./canvas-primitive-insert");
+    const copied = reassignDuplicatedNodeIds(
+      '<svg data-agent-native-node-id="line.1"><defs><marker id="line-1-vector-marker-end"/></defs><path marker-end="url(#line-1-vector-marker-end)"/></svg>',
+    );
+    const nextId = /data-agent-native-node-id="([^"]+)"/.exec(copied)?.[1];
+    expect(nextId).toBeTruthy();
+    expect(copied).not.toContain('id="line-1-vector-marker-end"');
     expect(copied).toContain(`id="${nextId}-vector-marker-end"`);
     expect(copied).toContain(`url(#${nextId}-vector-marker-end)`);
   });

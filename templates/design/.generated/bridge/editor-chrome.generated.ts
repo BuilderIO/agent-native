@@ -3492,6 +3492,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       "webkitLineClamp",
       "--agent-native-truncate-original-display",
       "--agent-native-truncate-original-overflow",
+      "--an-vector-start-point",
+      "--an-vector-end-point",
       "whiteSpace",
       "backgroundImage",
       "backgroundColor",
@@ -3870,7 +3872,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return {
         ...computed,
-        "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || ""
+        "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || "",
+        "--an-vector-start-point": el.style.getPropertyValue(
+          "--an-vector-start-point"
+        ),
+        "--an-vector-end-point": el.style.getPropertyValue(
+          "--an-vector-end-point"
+        )
       };
     }
     function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = true) {
@@ -9084,6 +9092,163 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (prop.indexOf("--") === 0) return prop;
       return prop.replace(/([A-Z])/g, "-$1").toLowerCase();
     }
+    var VECTOR_ENDPOINT_STYLES = [
+      "none",
+      "round",
+      "square",
+      "line",
+      "triangle",
+      "reversed-triangle",
+      "circle",
+      "diamond"
+    ];
+    function vectorEndpointMarkerIdForRuntime(nodeId, side) {
+      var safeNodeId = nodeId.replace(/[^A-Za-z0-9_-]/g, "-") || "vector";
+      return safeNodeId + "-vector-marker-" + side;
+    }
+    function vectorEndpointShapeForRuntime(endpoint) {
+      switch (endpoint) {
+        case "round":
+          return {
+            tag: "circle",
+            attributes: { cx: "5", cy: "5", r: "4", fill: "context-stroke" }
+          };
+        case "square":
+          return {
+            tag: "rect",
+            attributes: {
+              x: "1",
+              y: "1",
+              width: "8",
+              height: "8",
+              fill: "context-stroke"
+            }
+          };
+        case "line":
+          return {
+            tag: "path",
+            attributes: {
+              d: "M 0 0 L 10 5 L 0 10",
+              fill: "none",
+              stroke: "context-stroke",
+              "stroke-width": "1",
+              "stroke-linecap": "round",
+              "stroke-linejoin": "round"
+            }
+          };
+        case "triangle":
+          return {
+            tag: "path",
+            attributes: { d: "M 0 0 L 10 5 L 0 10 z", fill: "context-stroke" }
+          };
+        case "reversed-triangle":
+          return {
+            tag: "path",
+            attributes: { d: "M 10 0 L 0 5 L 10 10 z", fill: "context-stroke" }
+          };
+        case "circle":
+          return {
+            tag: "circle",
+            attributes: {
+              cx: "5",
+              cy: "5",
+              r: "4",
+              fill: "none",
+              stroke: "context-stroke",
+              "stroke-width": "1"
+            }
+          };
+        case "diamond":
+          return {
+            tag: "path",
+            attributes: {
+              d: "M 5 0 L 10 5 L 5 10 L 0 5 z",
+              fill: "none",
+              stroke: "context-stroke",
+              "stroke-width": "1",
+              "stroke-linejoin": "round"
+            }
+          };
+        default:
+          return null;
+      }
+    }
+    function applyVectorEndpointProperty(el, cssProperty, rawValue) {
+      if (el.tagName.toLowerCase() !== "svg" || !["path", "line", "arrow"].includes(
+        el.getAttribute("data-an-primitive") || ""
+      )) {
+        return false;
+      }
+      var nodeId = el.getAttribute("data-agent-native-node-id");
+      if (!nodeId) return false;
+      var side = cssProperty === "--an-vector-start-point" ? "start" : "end";
+      var raw = String(rawValue ?? "").trim();
+      var endpoint = raw || "none";
+      if (VECTOR_ENDPOINT_STYLES.indexOf(endpoint) === -1) return false;
+      var shape = vectorPaintTarget(el);
+      if (!shape) return false;
+      var wrapperStyle = el.style;
+      var markerId = vectorEndpointMarkerIdForRuntime(nodeId, side);
+      var defs = el.querySelector(
+        ":scope > defs[data-an-vector-endpoints]"
+      );
+      if (defs) {
+        Array.from(defs.children).forEach(function(child) {
+          if (child.tagName.toLowerCase() === "marker" && (child.getAttribute("data-an-vector-endpoint-marker") === side || child.getAttribute("id") === markerId)) {
+            child.remove();
+          }
+        });
+      }
+      if (endpoint !== "none") {
+        if (!defs) {
+          defs = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "defs"
+          );
+          defs.setAttribute("data-an-vector-endpoints", "true");
+          el.insertBefore(defs, shape);
+        }
+        var endpointShape = vectorEndpointShapeForRuntime(endpoint);
+        if (!endpointShape) return false;
+        var marker = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "marker"
+        );
+        marker.setAttribute("data-an-vector-endpoint-marker", side);
+        marker.setAttribute("id", markerId);
+        marker.setAttribute("markerWidth", "10");
+        marker.setAttribute("markerHeight", "10");
+        marker.setAttribute("refX", side === "start" ? "2" : "8");
+        marker.setAttribute("refY", "5");
+        marker.setAttribute(
+          "orient",
+          side === "start" ? "auto-start-reverse" : "auto"
+        );
+        marker.setAttribute("markerUnits", "strokeWidth");
+        var markerShape = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          endpointShape.tag
+        );
+        Object.keys(endpointShape.attributes).forEach(function(name) {
+          markerShape.setAttribute(name, endpointShape.attributes[name]);
+        });
+        marker.appendChild(markerShape);
+        defs.appendChild(marker);
+      } else if (defs && defs.children.length === 0) {
+        defs.remove();
+      }
+      if (endpoint === "none") {
+        shape.removeAttribute(side === "start" ? "marker-start" : "marker-end");
+        wrapperStyle.removeProperty(cssProperty);
+      } else {
+        shape.setAttribute(
+          side === "start" ? "marker-start" : "marker-end",
+          "url(#" + markerId + ")"
+        );
+        wrapperStyle.setProperty(cssProperty, endpoint);
+      }
+      return true;
+    }
     function vectorPaintTarget(el) {
       if (!el || el.tagName.toLowerCase() !== "svg") return null;
       var kind = el.getAttribute("data-an-primitive") || "";
@@ -9337,6 +9502,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !property) return false;
       var cssProperty = normalizeCssPropertyName(property);
       if (!cssProperty) return false;
+      if (cssProperty === "--an-vector-start-point" || cssProperty === "--an-vector-end-point") {
+        return applyVectorEndpointProperty(el, cssProperty, value);
+      }
       if (cssProperty === "--an-vector-stroke-position") {
         return applyVectorStrokePosition(el, String(value));
       }
