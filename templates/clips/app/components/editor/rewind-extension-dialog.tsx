@@ -43,6 +43,8 @@ interface RewindExtensionDialogProps {
   durationMs: number;
   videoFormat: "webm" | "mp4";
   hasAudio: boolean;
+  width: number;
+  height: number;
   visibility: "private" | "org" | "public";
   onVisibilityChanged: () => void | Promise<void>;
   onApplied: () => void | Promise<void>;
@@ -75,6 +77,8 @@ export function RewindExtensionDialog({
   durationMs,
   videoFormat,
   hasAudio,
+  width,
+  height,
   visibility,
   onVisibilityChanged,
   onApplied,
@@ -172,11 +176,15 @@ export function RewindExtensionDialog({
               url: `${appBasePath()}/api/video/${encodeURIComponent(request.preRollRecordingId)}`,
               format: "mp4",
               hasAudio,
+              width,
+              height,
             },
             {
               url: `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}`,
               format: videoFormat,
               hasAudio,
+              width,
+              height,
             },
           ],
           (next) => mounted.current && setProgress(next.progress),
@@ -224,12 +232,14 @@ export function RewindExtensionDialog({
       applyExtension,
       durationMs,
       hasAudio,
+      height,
       onApplied,
       onOpenChange,
       recordingId,
       requestExtension,
       requestTranscript,
       videoFormat,
+      width,
     ],
   );
 

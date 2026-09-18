@@ -41,6 +41,8 @@ interface RecordingLite {
   thumbnailUrl?: string | null;
   videoFormat?: "webm" | "mp4";
   videoUrl?: string | null;
+  width: number;
+  height: number;
 }
 
 export function StitchManager({
@@ -120,6 +122,8 @@ export function StitchManager({
         queue.map((r) => ({
           url: r.videoUrl!,
           format: r.videoFormat ?? "webm",
+          width: r.width,
+          height: r.height,
         })),
         (p) => setProgress(p.progress),
       );

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+let lastExecArgs: string[] = [];
+
 class FakeFfmpeg {
   private handlers = new Map<string, (payload: unknown) => void>();
 
@@ -15,9 +17,11 @@ class FakeFfmpeg {
 
   async writeFile(): Promise<void> {}
 
-  async exec(): Promise<void> {
+  async exec(args: string[]): Promise<number> {
+    lastExecArgs = args;
     this.handlers.get("log")?.({ message: "frame=12 fps=30" });
     this.handlers.get("progress")?.({ progress: 0.42 });
+    return 0;
   }
 
   async readFile(): Promise<Uint8Array> {
@@ -34,6 +38,7 @@ vi.mock("@ffmpeg/util", () => ({
 }));
 
 import {
+  exportConcat,
   exportMp4,
   resetFfmpegInstance,
   type ExportProgress,
@@ -42,6 +47,7 @@ import {
 const originalWindow = (globalThis as { window?: unknown }).window;
 
 afterEach(() => {
+  lastExecArgs = [];
   resetFfmpegInstance();
   if (originalWindow === undefined) {
     Reflect.deleteProperty(globalThis, "window");
@@ -51,6 +57,25 @@ afterEach(() => {
       value: originalWindow,
     });
   }
+});
+
+describe("exportConcat", () => {
+  it("normalizes differently sized recordings before concatenating", async () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+
+    await exportConcat([
+      { url: "/one.webm", width: 1920, height: 1080 },
+      { url: "/two.webm", width: 1920, height: 1050 },
+    ]);
+
+    const filter = lastExecArgs[lastExecArgs.indexOf("-filter_complex") + 1];
+    expect(filter).toContain(
+      "[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+    );
+  });
 });
 
 describe("exportMp4 progress", () => {

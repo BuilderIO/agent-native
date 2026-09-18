@@ -937,6 +937,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           durationMs={durationMs}
           videoFormat={videoFormat}
           hasAudio={Boolean(recording.hasAudio)}
+          width={recording.width}
+          height={recording.height}
           visibility={recording.visibility}
           onVisibilityChanged={async () => {
             await playerDataQuery.refetch();

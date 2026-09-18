@@ -353,6 +353,8 @@ export async function exportConcat(
     url: string;
     format?: "webm" | "mp4";
     hasAudio?: boolean;
+    width: number;
+    height: number;
   }>,
   onProgress?: (p: ExportProgress) => void,
 ): Promise<Blob> {
@@ -382,10 +384,24 @@ export async function exportConcat(
       `src${i}.${s.format ?? "webm"}`,
     ]);
     const includesAudio = sources.every((source) => source.hasAudio !== false);
+    const targetWidth =
+      Math.ceil(Math.max(...sources.map((source) => source.width)) / 2) * 2;
+    const targetHeight =
+      Math.ceil(Math.max(...sources.map((source) => source.height)) / 2) * 2;
+    if (
+      !Number.isFinite(targetWidth) ||
+      targetWidth <= 0 ||
+      !Number.isFinite(targetHeight) ||
+      targetHeight <= 0
+    ) {
+      throw new Error("Every source needs valid video dimensions");
+    }
     const filterParts: string[] = [];
     const concatInputs: string[] = [];
     for (let i = 0; i < sources.length; i++) {
-      filterParts.push(`[${i}:v]setpts=PTS-STARTPTS[v${i}]`);
+      filterParts.push(
+        `[${i}:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS[v${i}]`,
+      );
       if (includesAudio) {
         filterParts.push(`[${i}:a]asetpts=PTS-STARTPTS[a${i}]`);
         concatInputs.push(`[v${i}][a${i}]`);
@@ -415,7 +431,10 @@ export async function exportConcat(
       "+faststart",
       "stitched.mp4",
     ];
-    await ffmpeg.exec(outputArgs);
+    const exitCode = await ffmpeg.exec(outputArgs);
+    if (exitCode !== 0) {
+      throw new Error(`Could not combine recordings (ffmpeg exit ${exitCode})`);
+    }
 
     const data = (await ffmpeg.readFile("stitched.mp4")) as Uint8Array;
     const blob = new Blob([data as BlobPart], { type: "video/mp4" });
