@@ -728,26 +728,12 @@ export function runCrossScreenElementDrop(
 
   const sourceContent = getScreenContent(sourceScreenId);
   const rawDestContent = getScreenContent(targetScreenId);
-  dndHostLog("persist:content", {
-    sourceScreenId,
-    targetScreenId,
-    sourceLength: sourceContent?.length ?? 0,
-    destinationLength: rawDestContent?.length ?? 0,
-    sourceNodeId: sourceNodeId ?? null,
-    sourceSelector,
-  });
   if (!sourceContent || !rawDestContent) return;
 
   const sourceProvenanceForContent = resolveSourceNodeProvenance(
     sourceContent,
     sourceProvenance,
   );
-  dndHostLog("persist:source-provenance", {
-    sourceScreenId,
-    sourceNodeId: sourceNodeId ?? null,
-    sourceProvenance: sourceProvenance ?? null,
-    resolved: sourceProvenanceForContent ?? null,
-  });
   if (!sourceProvenanceForContent) {
     toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     return;
@@ -758,13 +744,6 @@ export function runCrossScreenElementDrop(
   const targetProvenanceForContent = targetAnchorWasRequested
     ? resolveSourceNodeProvenance(rawDestContent, targetAnchorProvenance)
     : undefined;
-  dndHostLog("persist:target-provenance", {
-    targetScreenId,
-    targetAnchorNodeId: targetAnchorNodeId ?? null,
-    targetAnchorSelector: targetAnchorSelector ?? null,
-    targetAnchorProvenance: targetAnchorProvenance ?? null,
-    resolved: targetProvenanceForContent ?? null,
-  });
   if (targetAnchorWasRequested && !targetProvenanceForContent) {
     toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     return;
@@ -846,11 +825,6 @@ export function runCrossScreenElementDrop(
     { nodeId: provenSourceNodeId, selector: provenSourceSelector },
     { source: { kind: "design-file", fileId: sourceScreenId } },
   ).resolution;
-  dndHostLog("persist:source-resolution", {
-    status: sourceResolution.status,
-    nodeId: provenSourceNodeId ?? null,
-    selector: provenSourceSelector ?? null,
-  });
   const resolvedSourceNode =
     sourceResolution.status === "resolved" ? sourceResolution.node : null;
   if (!resolvedSourceNode) {
@@ -874,11 +848,6 @@ export function runCrossScreenElementDrop(
           { source: { kind: "design-file", fileId: targetScreenId } },
         ).resolution
       : undefined;
-  dndHostLog("persist:target-resolution", {
-    status: targetResolution?.status ?? "none",
-    nodeId: effectiveAnchorNodeId ?? null,
-    selector: provenTargetAnchorSelector ?? null,
-  });
   const resolvedTargetAnchor =
     targetResolution?.status === "resolved" ? targetResolution.node : null;
   const targetAnchorAttrId =
@@ -915,12 +884,6 @@ export function runCrossScreenElementDrop(
           placement: targetAnchorPlacement ?? "inside",
         }
       : { placement: "inside" }),
-  });
-  dndHostLog("persist:move-result", {
-    status: result.status,
-    message: result.message,
-    sourceChanged: result.sourceHtml !== sourceContent,
-    destinationChanged: result.destHtml !== rawDestContent,
   });
   if (result.status !== "applied") {
     toast.error(
@@ -1036,13 +999,6 @@ export function runCrossScreenElementDrop(
       ` grab=${point(sourcePointerOffset)}`,
   );
   const nextDestContent = placed.content;
-  dndHostLog("persist:placement", {
-    branch: placed.branch,
-    sourceLength: result.sourceHtml.length,
-    destinationLength: nextDestContent.length,
-    sourceHasNode: result.sourceHtml.includes(nodeAttrId),
-    destinationHasNode: nextDestContent.includes(nodeAttrId),
-  });
 
   // Both halves of a cross-screen move must pass the exact publication
   // integrity boundary before either file or the history stack is changed.
@@ -1058,10 +1014,6 @@ export function runCrossScreenElementDrop(
       previousContent: rawDestContent,
     });
   } catch {
-    dndHostLog("persist:publication-preflight-rejected", {
-      sourceScreenId,
-      targetScreenId,
-    });
     toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     return;
   }
@@ -1106,13 +1058,6 @@ export function runCrossScreenElementDrop(
       awaitSave: true,
     },
   );
-  dndHostLog("persist:target-publication", {
-    status: targetPublication.status,
-    contentLength:
-      targetPublication.status === "accepted"
-        ? targetPublication.content.length
-        : 0,
-  });
   if (targetPublication.status !== "accepted") return;
 
   const sourcePublication = applyFileContentUpdate(
@@ -1127,13 +1072,6 @@ export function runCrossScreenElementDrop(
       awaitSave: true,
     },
   );
-  dndHostLog("persist:source-publication", {
-    status: sourcePublication.status,
-    contentLength:
-      sourcePublication.status === "accepted"
-        ? sourcePublication.content.length
-        : 0,
-  });
   if (sourcePublication.status !== "accepted") {
     const rollback = applyFileContentUpdate(targetScreenId, rawDestContent, {
       recordHistory: false,
@@ -1256,12 +1194,6 @@ export function runCrossScreenElementDrop(
     targetSave ?? Promise.resolve(true),
     sourceSave ?? Promise.resolve(true),
   ]).then(async ([targetResult, sourceResult]) => {
-    dndHostLog("persist:save-results", {
-      target:
-        targetResult.status === "fulfilled" ? targetResult.value : "rejected",
-      source:
-        sourceResult.status === "fulfilled" ? sourceResult.value : "rejected",
-    });
     const targetSaved =
       targetResult.status === "fulfilled" && targetResult.value === true;
     const sourceSaved =
