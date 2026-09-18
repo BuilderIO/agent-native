@@ -10475,7 +10475,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           continue;
         }
         var parent = cursor.parentElement;
-        if (parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame") {
+        if (parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && !isTextBearingLeaf(parent) && !isTemplateCloneElement(cursor)) {
           var directChildSlot = nearestChildInsertionTarget(
             parent,
             clientX,

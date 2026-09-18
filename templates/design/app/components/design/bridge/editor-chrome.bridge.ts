@@ -14620,7 +14620,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         parent &&
         parent !== document.body &&
         isAutoLayoutElement(parent) &&
-        cursor.getAttribute("data-an-primitive") !== "frame"
+        cursor.getAttribute("data-an-primitive") !== "frame" &&
+        !isTextBearingLeaf(parent) &&
+        !isTemplateCloneElement(cursor)
       ) {
         var directChildSlot = nearestChildInsertionTarget(
           parent,
@@ -18187,7 +18189,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               groupOthers,
             )
           : null;
-        if (currentAutoLayoutTarget && ev.ctrlKey) {
+        if (currentAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
           currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             currentAutoLayoutTarget,
           );
@@ -18356,7 +18358,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ev.clientY,
           groupOthers,
         );
-        if (finalAutoLayoutTarget && ev.ctrlKey) {
+        if (finalAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
           finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             finalAutoLayoutTarget,
           );
