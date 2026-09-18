@@ -125,6 +125,53 @@ export const DOCS_FRAGMENT_REDIRECTS: Record<string, Record<string, string>> =
       "crm-call-evidence":
         "/docs/template-clips-integrations#crm-call-evidence",
     },
+    // Slides' Generating & Editing Decks and Design Systems & Media merge
+    // renamed most headings (gerund → imperative) and dropped the
+    // image-generation section entirely.
+    "template-slides-features": {
+      "generating-a-deck-from-a-prompt": "#generate-a-deck-from-a-prompt",
+      "editing-slides-visually": "#edit-slides-visually",
+      "presenting-full-screen": "#present-full-screen",
+      "comments-and-real-time-collaboration":
+        "#comment-and-collaborate-in-real-time",
+      "sharing-a-deck": "#share-a-deck",
+      "restoring-an-earlier-version": "#restore-an-earlier-version",
+      "saved-design-systems": "#design-systems",
+      "building-a-design-system-from-what-you-already-have":
+        "#builder-integration",
+      "moving-decks-in-and-out-of-other-formats":
+        "#move-decks-in-and-out-of-other-formats",
+      // "generating-and-finding-images" has no replacement: the feature was
+      // removed from the docs, not renamed. Left unmapped on purpose so it
+      // falls through to the top of Features rather than a wrong section.
+    },
+    // Design's Quality & Components, Brand & Figma, and Review & Handoff
+    // merge moved most technical content into the Developer Guide's action
+    // inventory instead of Features, and renamed several of the ids that
+    // stayed on Features.
+    "template-design-features": {
+      "audit-and-screenshot": "/docs/template-design-developers#quality",
+      components: "/docs/template-design-developers#components",
+      motion: "/docs/template-design-developers#motion-and-shaders",
+      "shader-fills": "/docs/template-design-developers#motion-and-shaders",
+      "importing-brand-from-somewhere-else": "#new-design-system",
+      figma: "#import",
+      "bringing-in-a-frame-pixel-accurate-import": "#import",
+      "pasting-instead-of-linking": "#import",
+      "inserting-one-component-or-just-reading-a-file": "#import",
+      "fidelity-limits": "#import",
+      "visual-edit":
+        "/docs/template-design-developers#localhost-bridge-visual-edit",
+      "keep-the-canvas-beside-your-chat":
+        "/docs/template-design-developers#localhost-bridge-visual-edit",
+      "review-feedback": "/docs/template-design-developers#review-feedback",
+      "export-and-handoff":
+        "/docs/template-design-developers#export-and-handoff",
+      "full-app-building":
+        "/docs/template-design-developers#full-app-building",
+      // "why-the-results-dont-look-generic" has no equivalent section left
+      // anywhere in the new five pages. Left unmapped on purpose.
+    },
   };
 
 /**

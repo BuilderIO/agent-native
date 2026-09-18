@@ -35,12 +35,45 @@ describe("resolveFragmentRedirect", () => {
 
   it("returns undefined for a slug with no known legacy fragments", () => {
     expect(
-      resolveFragmentRedirect("template-slides-features", "#anything"),
+      resolveFragmentRedirect("template-forms-features", "#anything"),
     ).toBeUndefined();
   });
 
   it("returns undefined for an empty hash", () => {
     expect(resolveFragmentRedirect("template-clips-features", "")).toBeUndefined();
     expect(resolveFragmentRedirect("template-clips-features", "#")).toBeUndefined();
+  });
+
+  it("resolves a Slides gerund-to-imperative heading rename", () => {
+    expect(
+      resolveFragmentRedirect(
+        "template-slides-features",
+        "#generating-a-deck-from-a-prompt",
+      ),
+    ).toBe("#generate-a-deck-from-a-prompt");
+  });
+
+  it("leaves the removed Slides image-generation fragment unmapped", () => {
+    expect(
+      resolveFragmentRedirect(
+        "template-slides-features",
+        "#generating-and-finding-images",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("resolves a Design fragment that moved to the Developer Guide", () => {
+    expect(
+      resolveFragmentRedirect("template-design-features", "#components"),
+    ).toBe("/docs/template-design-developers#components");
+  });
+
+  it("resolves a Design fragment that stayed on Features under a new id", () => {
+    expect(
+      resolveFragmentRedirect(
+        "template-design-features",
+        "#importing-brand-from-somewhere-else",
+      ),
+    ).toBe("#new-design-system");
   });
 });
