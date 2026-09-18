@@ -2254,10 +2254,15 @@ function sendAgentNativeAnalytics(
 function emitBrowserTrackingEvent(
   name: string,
   props: Record<string, unknown>,
-  sendGtag = true,
+  options: {
+    gtagProperties?: Record<string, unknown>;
+    sendGtag?: boolean;
+  } = {},
 ): void {
+  const { gtagProperties = props, sendGtag = true } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
-  if (sendGtag) window.gtag?.("event", name.replace(/\s+/g, "_"), props);
+  if (sendGtag)
+    window.gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
   if (ensureAmplitude()) {
     _amplitudeModule?.track(name, amplitudeProps);
   } else if (_amplitudeApiKey) {
@@ -2277,14 +2282,16 @@ export function trackEvent(
   if (isQaTrackingIdentity(_trackingIdentity)) return;
   ensureSentry();
   const props = resolveProps(name, params);
-  emitBrowserTrackingEvent(name, props);
   const canonical = canonicalTrackingEvent(name, props);
+  const gtagNameMatchesCanonical =
+    canonical !== null && name.replace(/\s+/g, "_") === canonical.name;
+  emitBrowserTrackingEvent(name, props, {
+    gtagProperties: gtagNameMatchesCanonical ? canonical.properties : props,
+  });
   if (canonical) {
-    emitBrowserTrackingEvent(
-      canonical.name,
-      canonical.properties,
-      name.replace(/\s+/g, "_") !== canonical.name,
-    );
+    emitBrowserTrackingEvent(canonical.name, canonical.properties, {
+      sendGtag: !gtagNameMatchesCanonical,
+    });
   }
   const lifecycle = legacyLifecycleEvent(name, props);
   if (lifecycle) trackEvent(lifecycle.name, lifecycle.properties);

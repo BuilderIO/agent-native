@@ -680,6 +680,14 @@ describe("browser analytics pageviews", () => {
         legacy_event_name: legacyName,
       },
     });
+    expect(gtag).toHaveBeenCalledWith(
+      "event",
+      "session_status",
+      expect.objectContaining({
+        canonical_event_name: "session_status",
+        legacy_event_name: legacyName,
+      }),
+    );
     expect(gtag).toHaveBeenCalledTimes(1);
   });
 

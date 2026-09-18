@@ -13,7 +13,8 @@ const REPO_ROOT = path.resolve(
 const SOURCE_EXTENSIONS = /\.(?:tsx?|jsx?|mjs|cjs)$/;
 const EXCLUDED_PATH =
   /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|coverage)(\/|$)/;
-const EVENT_CALL = /(?:^|[^\w$.])(trackEvent|track)\(\s*["'`]([^"'`]+)["'`]/g;
+export const EVENT_CALL =
+  /(?:^|[^\w$])(?:[\w$]+\??\.)*(trackEvent|track)\(\s*["'`]([^"'`]+)["'`]/g;
 const RESERVED_EVENT_NAMES = new Set([
   "action.response",
   "app.first_action",
@@ -102,4 +103,9 @@ function main() {
   process.exit(1);
 }
 
-main();
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  main();
+}
