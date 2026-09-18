@@ -48,6 +48,7 @@ export interface MemoData {
   headline: string;
   sections: Array<{ label: string; body: string }>;
   evidence: string[];
+  variants?: Record<string, MemoData>;
 }
 
 export interface SignalItem {
@@ -95,6 +96,7 @@ export interface Template {
   setup: string;
   rows?: QueueItem[];
   sections?: DetailSection[];
+  sectionsByRowId?: Record<string, DetailSection[]>;
   draft?: DraftData;
   memo?: MemoData;
   signals?: SignalItem[];
@@ -266,6 +268,126 @@ const linkedinIcpRows: QueueItem[] = [
   },
 ];
 
+const accountTieringSectionsByRowId: Record<string, DetailSection[]> = {
+  "acme-health": [
+    { label: "Why now", value: "Usage up 34%; security pack opened twice" },
+    { label: "Relationship", value: "Champion active · procurement engaged" },
+    { label: "Next move", value: "Invite VP Operations to expansion review" },
+    { label: "Sources", value: "CRM · Product analytics · Calendar" },
+  ],
+  "northstar-labs": [
+    { label: "Why now", value: "Champion changed roles" },
+    { label: "Relationship", value: "New operations contact opened the brief" },
+    { label: "Next move", value: "Confirm the new owner and renewal timeline" },
+    { label: "Sources", value: "CRM · Mail · Calendar" },
+  ],
+  fieldwire: [
+    { label: "Why now", value: "Three active teams near the usage threshold" },
+    {
+      label: "Relationship",
+      value: "Account owner is engaged · no exec sponsor",
+    },
+    { label: "Next move", value: "Confirm expansion criteria with the owner" },
+    { label: "Sources", value: "CRM · Product analytics · Calendar" },
+  ],
+  "meridian-bio": [
+    { label: "Why now", value: "Low activity over the last 30 days" },
+    { label: "Relationship", value: "No open opportunity" },
+    { label: "Next move", value: "Re-engage only after a qualified signal" },
+    { label: "Sources", value: "CRM · Product analytics" },
+  ],
+};
+
+const churnSectionsByRowId: Record<string, DetailSection[]> = {
+  "vector-works": [
+    { label: "Risk signal", value: "Weekly active users down 41%" },
+    { label: "Relationship", value: "Sponsor silent on 2 check-ins" },
+    {
+      label: "Suggested play",
+      value: "Executive value review with a usage recovery plan",
+    },
+    { label: "Sources", value: "Product analytics · Support · CRM" },
+  ],
+  "lumen-payments": [
+    {
+      label: "Risk signal",
+      value: "Support volume elevated; no new users in 30 days",
+    },
+    { label: "Relationship", value: "Renewal in 46 days · $52k ARR" },
+    {
+      label: "Suggested play",
+      value: "Rebuild adoption with the support lead and sponsor",
+    },
+    { label: "Sources", value: "Product analytics · Support · CRM" },
+  ],
+  "harbor-logistics": [
+    {
+      label: "Risk signal",
+      value: "Usage steady; 2 new teams added this month",
+    },
+    { label: "Relationship", value: "Renewal in 73 days · $29k ARR" },
+    {
+      label: "Suggested play",
+      value: "Confirm the expansion path while the account is healthy",
+    },
+    { label: "Sources", value: "Product analytics · CRM · Calendar" },
+  ],
+  "sunroom-retail": [
+    {
+      label: "Risk signal",
+      value: "Renewal in 9 days; latest note is six weeks old",
+    },
+    { label: "Relationship", value: "Renewal task is unassigned" },
+    {
+      label: "Suggested play",
+      value: "Assign an owner and schedule a renewal checkpoint",
+    },
+    { label: "Sources", value: "CRM · Calendar" },
+  ],
+};
+
+const linkedinIcpSectionsByRowId: Record<string, DetailSection[]> = {
+  "rivet-security": [
+    { label: "Fit", value: "Series B · 220 employees" },
+    {
+      label: "Timing",
+      value: "Hiring 3 platform engineers; second data center",
+    },
+    {
+      label: "Suggested opener",
+      value: "Ask how platform handoff scales with the new team",
+    },
+    { label: "Sources", value: "LinkedIn · Company site · CRM" },
+  ],
+  "kindred-health": [
+    { label: "Fit", value: "Series C · 480 employees" },
+    { label: "Timing", value: "VP Engineering posted about operational drag" },
+    {
+      label: "Suggested opener",
+      value: "Reference the handoff and operational-drag post",
+    },
+    { label: "Sources", value: "LinkedIn · Company site · CRM" },
+  ],
+  "cinder-finance": [
+    { label: "Fit", value: "Series A · 96 employees" },
+    { label: "Timing", value: "No timely trigger found this week" },
+    {
+      label: "Suggested opener",
+      value: "Wait for a trigger; do not interrupt the team yet",
+    },
+    { label: "Sources", value: "LinkedIn · Company site · CRM" },
+  ],
+  "redwood-robotics": [
+    { label: "Fit", value: "Series B · 150 employees" },
+    { label: "Timing", value: "New product launch and operations hire" },
+    {
+      label: "Suggested opener",
+      value: "Reference the launch and new-hire timing window",
+    },
+    { label: "Sources", value: "LinkedIn · Company site · CRM" },
+  ],
+};
+
 export const templates: Template[] = [
   {
     slug: "agent-advisor",
@@ -320,6 +442,7 @@ export const templates: Template[] = [
     metric: { value: "42", label: "accounts in scope" },
     setup: "Connect a CRM and choose the signals that define priority.",
     rows: accountTieringRows,
+    sectionsByRowId: accountTieringSectionsByRowId,
     sections: [
       { label: "Why now", value: "Usage up 34%; security pack opened twice" },
       { label: "Relationship", value: "Champion active · procurement engaged" },
@@ -502,6 +625,52 @@ export const templates: Template[] = [
         "Email thread: security review approved on Sep 12",
         "CRM: implementation plan shared before legal review",
       ],
+      variants: {
+        "orbit-loss": {
+          headline: "Orbit lost on timing, not fit.",
+          sections: [
+            {
+              label: "Decision pattern",
+              body: "The economic buyer joined after pricing was framed, so cost became the default lens for the decision.",
+            },
+            {
+              label: "What changed the outcome",
+              body: "Pricing entered late and the implementation risk never got a concrete owner.",
+            },
+            {
+              label: "Change for next time",
+              body: "Bring the economic buyer and implementation plan into the second meeting.",
+            },
+          ],
+          evidence: [
+            "Call note: “We need to see the business case before we can move.”",
+            "CRM: economic buyer joined the final call",
+            "Email thread: pricing sent after technical validation",
+          ],
+        },
+        "fieldwire-win": {
+          headline: "Fieldwire bought the path to adoption.",
+          sections: [
+            {
+              label: "Decision pattern",
+              body: "A focused pilot made the first value moment concrete and gave the team a shared finish line.",
+            },
+            {
+              label: "What changed the outcome",
+              body: "Clear adoption milestones reduced the perceived risk of expanding to more teams.",
+            },
+            {
+              label: "Change for next time",
+              body: "Lead with a small pilot and define the expansion signal before the first demo.",
+            },
+          ],
+          evidence: [
+            "Call note: pilot scope agreed with the account team",
+            "CRM: three adoption milestones completed",
+            "Email thread: expansion approved after the pilot review",
+          ],
+        },
+      },
     },
   },
   {
@@ -523,6 +692,7 @@ export const templates: Template[] = [
     metric: { value: "4", label: "accounts needing review" },
     setup: "Connect product usage, support history, and renewal dates.",
     rows: churnRows,
+    sectionsByRowId: churnSectionsByRowId,
     sections: [
       { label: "Risk signal", value: "Weekly active users down 41%" },
       { label: "Relationship", value: "Sponsor silent on 2 check-ins" },
@@ -806,6 +976,7 @@ export const templates: Template[] = [
     metric: { value: "24", label: "prospects in scope" },
     setup: "Define your ICP and the signals that create a timing window.",
     rows: linkedinIcpRows,
+    sectionsByRowId: linkedinIcpSectionsByRowId,
     sections: [
       { label: "Fit", value: "Series A-C · 80-500 employees" },
       { label: "Timing", value: "Hiring, launch, or new operations leader" },

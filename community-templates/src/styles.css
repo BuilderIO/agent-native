@@ -540,7 +540,7 @@ h1 {
 .search-field input::placeholder {
   color: #aaaead;
 }
-.filter-button,
+.filter-label,
 .icon-text-button {
   display: inline-flex;
   align-items: center;
@@ -553,7 +553,6 @@ h1 {
   border-radius: 5px;
   font-size: 10px;
 }
-.filter-button:hover,
 .icon-text-button:hover {
   color: var(--ink);
   border-color: var(--rule-strong);

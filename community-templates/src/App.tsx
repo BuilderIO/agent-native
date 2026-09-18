@@ -594,9 +594,9 @@ function QueueView({
             placeholder="Filter accounts"
           />
         </label>
-        <button className="filter-button" type="button">
+        <span className="filter-label">
           <IconFilter size={15} /> All signals
-        </button>
+        </span>
       </ViewHeader>
       <div className="queue-layout">
         <div className="queue-table">
@@ -628,7 +628,14 @@ function QueueView({
             <div className="empty-table">No records match this filter.</div>
           ) : null}
         </div>
-        <QueueDetail row={selected} sections={template.sections} />
+        <QueueDetail
+          row={selected}
+          sections={
+            selected
+              ? (template.sectionsByRowId?.[selected.id] ?? template.sections)
+              : template.sections
+          }
+        />
       </div>
     </div>
   );
@@ -753,9 +760,9 @@ function DraftView({
           value={query}
           onChange={setQuery}
         />
-        <button className="filter-button" type="button">
+        <span className="filter-label">
           <IconFilter size={15} /> Needs review
-        </button>
+        </span>
       </ViewHeader>
       <div className="draft-layout">
         <div className="record-list">
@@ -879,9 +886,9 @@ function MemoView({
         title="Patterns worth carrying forward"
         count="Q3"
       >
-        <button className="filter-button" type="button">
+        <span className="filter-label">
           <IconFilter size={15} /> Won + lost
-        </button>
+        </span>
         <SearchField
           placeholder="Find a deal"
           value={query}
@@ -930,6 +937,7 @@ function MemoPanel({ row, memo }: { row?: QueueItem; memo?: MemoData }) {
         Select a deal to see the memo.
       </div>
     );
+  const selectedMemo = memo.variants?.[row.id] ?? memo;
   return (
     <div className="memo-panel">
       <div className="memo-panel-head">
@@ -941,9 +949,9 @@ function MemoPanel({ row, memo }: { row?: QueueItem; memo?: MemoData }) {
           <IconCircleCheck size={15} /> Cited
         </span>
       </div>
-      <h4>{memo.headline}</h4>
+      <h4>{selectedMemo.headline}</h4>
       <div className="memo-sections">
-        {memo.sections.map((section) => (
+        {selectedMemo.sections.map((section) => (
           <div className="memo-section" key={section.label}>
             <span>{section.label}</span>
             <p>{section.body}</p>
@@ -953,9 +961,9 @@ function MemoPanel({ row, memo }: { row?: QueueItem; memo?: MemoData }) {
       <div className="memo-evidence">
         <div className="memo-evidence-head">
           <span className="view-kicker">SOURCE TRAIL</span>
-          <span>{memo.evidence.length} references</span>
+          <span>{selectedMemo.evidence.length} references</span>
         </div>
-        {memo.evidence.map((evidence) => (
+        {selectedMemo.evidence.map((evidence) => (
           <div className="source-line" key={evidence}>
             <IconQuote size={14} />
             <span>{evidence}</span>
@@ -1010,9 +1018,9 @@ function WatchView({
           value={query}
           onChange={setQuery}
         />
-        <button className="filter-button" type="button">
+        <span className="filter-label">
           <IconFilter size={15} /> High relevance
-        </button>
+        </span>
       </ViewHeader>
       <div className="signal-layout">
         <div className="signal-feed">
@@ -1143,9 +1151,9 @@ function LibraryView({
           value={query}
           onChange={setQuery}
         />
-        <button className="filter-button" type="button">
+        <span className="filter-label">
           <IconFilter size={15} /> All topics
-        </button>
+        </span>
       </ViewHeader>
       <div className="library-layout">
         <div className="clip-grid">
@@ -1252,9 +1260,9 @@ function AccountView({ template }: { template: Template }) {
           value={query}
           onChange={setQuery}
         />
-        <button className="filter-button" type="button">
+        <span className="filter-label">
           <IconFilter size={15} /> Current accounts
-        </button>
+        </span>
       </ViewHeader>
       {accountMatches ? (
         <div className="account-layout">
@@ -1378,9 +1386,9 @@ function AdvisorView({
         title="Turn a repeat into a reusable app"
         count="3 systems"
       >
-        <button className="filter-button" type="button">
+        <span className="filter-label">
           <IconFilter size={15} /> Recent workflows
-        </button>
+        </span>
       </ViewHeader>
       <div className="advisor-grid">
         <div className="observed-panel">
