@@ -420,28 +420,33 @@ async function heldPanelDrag(
     sourceBox.x + sourceBox.width / 2,
     sourceBox.y + sourceBox.height / 2,
   );
-  await page.mouse.down();
-  await page.mouse.move(
-    sourceBox.x + sourceBox.width / 2 + 14,
-    sourceBox.y + sourceBox.height / 2 + 6,
-    {
-      steps: 8,
-    },
-  );
-  await page.mouse.move(targetBox.x + targetBox.width / 2, targetY, {
-    steps: 24,
-  });
-  await page.waitForTimeout(350);
-  const indicators = page.locator("[data-layer-drop-indicator]");
-  const count = await indicators.count();
-  const placement =
-    count > 0
-      ? ((await indicators.first().getAttribute("data-layer-drop-indicator")) ??
-        "")
-      : "";
-  await onHeld?.();
-  await page.mouse.up();
-  return { indicator: { placement, count }, sourceBox, targetBox };
+  let mouseHeld = false;
+  try {
+    mouseHeld = true;
+    await page.mouse.down();
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2 + 14,
+      sourceBox.y + sourceBox.height / 2 + 6,
+      {
+        steps: 8,
+      },
+    );
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetY, {
+      steps: 24,
+    });
+    await page.waitForTimeout(350);
+    const indicators = page.locator("[data-layer-drop-indicator]");
+    const count = await indicators.count();
+    const placement =
+      count > 0
+        ? ((await indicators.first().getAttribute("data-layer-drop-indicator")) ??
+          "")
+        : "";
+    await onHeld?.();
+    return { indicator: { placement, count }, sourceBox, targetBox };
+  } finally {
+    if (mouseHeld) await page.mouse.up();
+  }
 }
 
 test.use({ viewport: { width: 1600, height: 1100 } });

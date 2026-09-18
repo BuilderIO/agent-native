@@ -568,11 +568,7 @@ async function dragHeld(
 ) {
   await selectLayer(
     page,
-    options.sourceLayerName ??
-      sourceId
-        .split("-")
-        .join(" ")
-        .replace(/\b\w/g, (c: string) => c.toUpperCase()),
+    options.sourceLayerName ?? (await layerNameForNode(page, screenId, sourceId)),
   );
   const source = await boxFor(page, screenId, sourceId);
   const target = await boxFor(page, screenId, targetId);

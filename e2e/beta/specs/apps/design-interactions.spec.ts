@@ -754,6 +754,11 @@ test.describe("authenticated beta Design interactions", () => {
         timeout: 10_000,
       });
       await page.mouse.up();
+      await expect(
+        urlTarget
+          .contentFrame()
+          .locator('[data-agent-native-node-id="external-target"]'),
+      ).toBeVisible({ timeout: 30_000 });
 
       await expect
         .poll(async () => {
