@@ -397,6 +397,33 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "destination-anchor",
     );
     console.log(
+      "[cross-screen-auto-layout] screen-to-screen target",
+      JSON.stringify({
+        destination,
+        anchor: await probeNode(
+          page,
+          design.destinationId,
+          "destination-anchor",
+        ),
+        frames: await page
+          .locator("iframe[data-design-preview-iframe]")
+          .evaluateAll((iframes) =>
+            iframes.map((iframe) => {
+              const rect = iframe.getBoundingClientRect();
+              return {
+                id: iframe.getAttribute("data-screen-iframe-id"),
+                rect: {
+                  x: rect.x,
+                  y: rect.y,
+                  width: rect.width,
+                  height: rect.height,
+                },
+              };
+            }),
+          ),
+      }),
+    );
+    console.log(
       "[cross-screen-auto-layout] destination probe",
       JSON.stringify({
         destination,
