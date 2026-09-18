@@ -508,6 +508,42 @@ export async function resolveDispatchExecutionContext(
     if (installation) {
       return resolveManagedSlackDmExecutionContext(incoming, installation);
     }
+    const linkedOwner = await resolveLinkedOwner(
+      "slack",
+      identityKeyForIncoming(incoming),
+      { allowAnyOrgFallback: true },
+    );
+    if (linkedOwner) {
+      const orgId = await resolveOrgIdForEmail(linkedOwner);
+      return {
+        ownerEmail: linkedOwner,
+        orgId,
+        principalType: "user",
+      };
+    }
+    const verifiedEmail = incoming.senderEmail?.trim().toLowerCase();
+    if (
+      incoming.actorTrust?.verified === true &&
+      incoming.senderVerified === true &&
+      verifiedEmail &&
+      incoming.actorTrust.memberType !== "guest" &&
+      incoming.actorTrust.memberType !== "external"
+    ) {
+      const orgId = await resolveOrgIdForEmail(verifiedEmail);
+      if (orgId) {
+        return {
+          ownerEmail: verifiedEmail,
+          orgId,
+          principalType: "user",
+        };
+      }
+      incoming.platformContext.identityLinkRequired = true;
+      return {
+        ownerEmail: fallbackOwnerForIncoming(incoming),
+        orgId: null,
+        principalType: "user",
+      };
+    }
     incoming.platformContext.identityVerificationFailed = true;
     return {
       ownerEmail: fallbackOwnerForIncoming(incoming),

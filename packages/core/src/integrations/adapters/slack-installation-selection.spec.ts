@@ -15,7 +15,8 @@ vi.mock("../installations-store.js", () => ({
   resolveIntegrationTokenBundle: resolveIntegrationTokenBundleMock,
 }));
 
-const { slackAdapter } = await import("./slack.js");
+const { resolveSlackBotTokenForIncoming, slackAdapter } =
+  await import("./slack.js");
 
 const installation = (installationKey: string) => ({
   id: installationKey,
@@ -68,10 +69,19 @@ describe("slack outbound installation selection", () => {
     getActiveIntegrationInstallationByKeyMock.mockResolvedValue(
       installation("T1:agent-native"),
     );
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ ok: true, ts: "1.0" }),
-    }));
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/auth.test")) {
+        return new Response(
+          JSON.stringify({ ok: true, team_id: "T1", bot_id: "B1" }),
+        );
+      }
+      if (url.endsWith("/api/bots.info")) {
+        return new Response(
+          JSON.stringify({ ok: true, bot: { app_id: "agent-native" } }),
+        );
+      }
+      return new Response(JSON.stringify({ ok: true, ts: "1.0" }));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await slackAdapter().sendMessageToTarget!(
@@ -98,10 +108,14 @@ describe("slack outbound installation selection", () => {
     listActiveIntegrationInstallationsForTenantMock.mockResolvedValue([
       installation("T1:agent-native"),
     ]);
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ ok: true, ts: "1.0" }),
-    }));
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/auth.test")) {
+        return new Response(
+          JSON.stringify({ ok: true, team_id: "T1", bot_id: "B1" }),
+        );
+      }
+      return new Response(JSON.stringify({ ok: true, ts: "1.0" }));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await slackAdapter().sendMessageToTarget!(
@@ -110,5 +124,46 @@ describe("slack outbound installation selection", () => {
     );
 
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("falls back to the deploy token when a saved installation belongs to another app", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-deploy-token";
+    getActiveIntegrationInstallationByKeyMock.mockResolvedValue(
+      installation("T1:A1"),
+    );
+    resolveIntegrationTokenBundleMock.mockResolvedValue({
+      accessToken: "xoxb-stale-managed-token",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const token = new Headers(init?.headers).get("authorization");
+        if (token === "Bearer xoxb-stale-managed-token") {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T1", bot_id: "B-STALE" }),
+          );
+        }
+        if (String(_url).endsWith("/api/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T1", bot_id: "B1" }),
+          );
+        }
+        return new Response(
+          JSON.stringify({ ok: true, bot: { app_id: "A1" } }),
+        );
+      }),
+    );
+
+    await expect(
+      resolveSlackBotTokenForIncoming({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:1.0",
+        text: "hello",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", apiAppId: "A1" },
+        timestamp: Date.now(),
+      }),
+    ).resolves.toBe("xoxb-deploy-token");
   });
 });

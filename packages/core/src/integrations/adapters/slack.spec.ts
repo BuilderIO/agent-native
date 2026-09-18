@@ -112,7 +112,7 @@ describe("slackAdapter", () => {
       senderVerified: false,
       actorTrust: { memberType: "unknown", verified: false },
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     // Immediately after the failure, the short negative cache absorbs retries.
     await adapter.hydrateIncomingIdentity?.({
@@ -125,7 +125,7 @@ describe("slackAdapter", () => {
       platformContext: { teamId: "T777" },
       timestamp: Date.now(),
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     // Well before the 10-minute positive TTL, the lookup is re-attempted, so
     // a transient users.info blip cannot fail-close this sender's identity.
@@ -139,6 +139,48 @@ describe("slackAdapter", () => {
       conversationType: "dm",
       platformContext: { teamId: "T777" },
       timestamp: Date.now(),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("retries a transient users.info transport failure before declining identity", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("cold Slack connection"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            user: {
+              name: "alice",
+              profile: {
+                email: "alice@example.test",
+                real_name: "Alice Example",
+              },
+            },
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = slackAdapter({
+      resolveBotToken: async () => "xoxb-example-not-real",
+    });
+
+    await expect(
+      adapter.hydrateIncomingIdentity?.({
+        platform: "slack",
+        externalThreadId: "A779:T779:D779:1.2",
+        text: "hello",
+        senderId: "U779",
+        tenantId: "T779",
+        conversationType: "dm",
+        platformContext: { teamId: "T779" },
+        timestamp: Date.now(),
+      }),
+    ).resolves.toMatchObject({
+      senderEmail: "alice@example.test",
+      senderVerified: true,
+      actorTrust: { memberType: "member", verified: true },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -1015,7 +1057,6 @@ describe("slackAdapter", () => {
         channel: "C123",
         thread_ts: "111.222",
         task_display_mode: "plan",
-        markdown_text: "I’m looking into this for you.",
         chunks: [
           {
             type: "plan_update",
@@ -1058,15 +1099,34 @@ describe("slackAdapter", () => {
       ]),
     );
     expect(
+      requests.filter((request) => request.method === "chat.appendStream"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          body: expect.not.objectContaining({
+            markdown_text: expect.anything(),
+          }),
+        }),
+      ]),
+    );
+    expect(
       requests.find((request) => request.method === "chat.stopStream"),
     ).toMatchObject({
       method: "chat.stopStream",
       body: {
         channel: "C123",
         ts: "999.000",
-        markdown_text: "Report complete.",
+        chunks: expect.arrayContaining([
+          {
+            type: "markdown_text",
+            text: "Report complete.",
+          },
+        ]),
       },
     });
+    expect(
+      requests.find((request) => request.method === "chat.stopStream")?.body,
+    ).not.toHaveProperty("markdown_text");
   });
 
   it("resumes a Slack stream without starting a second task card", async () => {
