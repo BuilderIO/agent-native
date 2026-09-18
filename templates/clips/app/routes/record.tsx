@@ -2401,7 +2401,10 @@ export default function RecordRoute() {
         fetch(pending.abortUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason: message }),
+          body: JSON.stringify({
+            reason: message,
+            ...engine.getUploadAbortFence(),
+          }),
         }).catch(() => {});
       }
       setError(message);
@@ -2446,7 +2449,10 @@ export default function RecordRoute() {
         fetch(pending.abortUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason: message }),
+          body: JSON.stringify({
+            reason: message,
+            ...engine.getUploadAbortFence(),
+          }),
         }).catch(() => {});
       }
       setCompressionProgress(null);

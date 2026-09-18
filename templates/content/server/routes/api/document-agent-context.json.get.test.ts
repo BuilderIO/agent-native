@@ -48,16 +48,22 @@ vi.mock("../../../shared/agent-readable.js", () => ({
     mcpUrl: `${options.origin}${options.basePath}/mcp`,
     mcpConnectUrl: `${options.origin}${options.basePath}/mcp/connect`,
     readAction: { name: "get-document", arguments: { id } },
-    whenToolUnavailable: {
-      action: "tell-user-to-connect",
+    access: {
+      state: "authentication-required",
+      summary: "Private Content document",
+      sharePageAuthenticationRequired: true,
+      sharePageHttpAccess: "denied",
+      sharePageAuthorization: "none",
+      mcpActionAuthenticationRequired: true,
+      mcpConnectionRequiredForPageAccess: true,
+      mcpAccountPermission: "not-evaluated",
+      mcpAuthorization: "connected-account-existing-permissions",
+      setupDocumentationUrl:
+        "https://www.agent-native.com/docs/external-agents/#private-content-links",
       connectionUrl: `${options.origin}${options.basePath}/mcp/connect`,
-      message: `Connect at ${options.origin}${options.basePath}/mcp/connect`,
+      missingMcpConnectionPath:
+        "add-remote-server-authenticate-enable-and-retry",
     },
-    prohibitedFallbacks: [
-      "ask-user-to-paste-document",
-      "ask-user-to-make-document-public",
-      "ask-user-to-change-sharing",
-    ],
     instructions: "Use authenticated Content MCP.",
   }),
 }));
@@ -134,9 +140,20 @@ describe("GET /api/document-agent-context.json", () => {
       mcpUrl: "https://content.example.test/content/mcp",
       mcpConnectUrl: "https://content.example.test/content/mcp/connect",
       readAction: { name: "get-document", arguments: { id: document.id } },
-      whenToolUnavailable: {
-        action: "tell-user-to-connect",
+      access: {
+        state: "authentication-required",
+        sharePageAuthenticationRequired: true,
+        sharePageHttpAccess: "denied",
+        sharePageAuthorization: "none",
+        mcpActionAuthenticationRequired: true,
+        mcpConnectionRequiredForPageAccess: true,
+        mcpAccountPermission: "not-evaluated",
+        mcpAuthorization: "connected-account-existing-permissions",
+        setupDocumentationUrl:
+          "https://www.agent-native.com/docs/external-agents/#private-content-links",
         connectionUrl: "https://content.example.test/content/mcp/connect",
+        missingMcpConnectionPath:
+          "add-remote-server-authenticate-enable-and-retry",
       },
     });
   });

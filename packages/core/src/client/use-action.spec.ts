@@ -184,6 +184,9 @@ describe("callAction", () => {
       expect.objectContaining({
         action: "list-plans",
         request_id: "request-123",
+        sample_rate: 1,
+        sample_weight: 1,
+        sampled: false,
         status_code: 200,
         outcome: "success",
         server_duration_ms: 120,
@@ -225,11 +228,41 @@ describe("callAction", () => {
       expect.objectContaining({
         action: "get-visual-plan",
         request_id: "request-forbidden",
+        sample_rate: 1,
+        sample_weight: 1,
+        sampled: false,
         status_code: 403,
         status_class: "4xx",
         outcome: "http-error",
       }),
     );
+  });
+
+  it("records the inclusion rate and weight for sampled fast successes", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "0.25");
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ ok: true }, { status: 200 })),
+    );
+
+    try {
+      await expect(
+        callAction("list-plans", {}, { method: "GET" }),
+      ).resolves.toEqual({ ok: true });
+
+      expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+        "action.response",
+        expect.objectContaining({
+          action: "list-plans",
+          sample_rate: 0.25,
+          sample_weight: 4,
+          sampled: true,
+        }),
+      );
+    } finally {
+      random.mockRestore();
+    }
   });
 
   it("re-resolves the session when an action is refused as unauthenticated", async () => {
@@ -481,6 +514,17 @@ describe("callAction", () => {
     // React Query relies on recognizing the original cancellation.
     const error = await promise.catch((err) => err);
     expect(String(error.message)).not.toContain("Action any-action failed");
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        action: "any-action",
+        outcome: "cancelled",
+        sample_rate: 1,
+        sample_weight: 1,
+        sampled: false,
+        success: false,
+      }),
+    );
   });
 
   it("surfaces a transport-level abort as a retryable error, not a cancellation", async () => {

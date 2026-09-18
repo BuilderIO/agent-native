@@ -64,6 +64,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/tracking", () => ({
+  classifyTrackingFailure: () => "error",
   track: (...args: unknown[]) => mockTrack(...args),
 }));
 
@@ -852,7 +853,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
 
   it("returns 409 aborted when finalize reports the recording was cancelled", async () => {
     mockAppState.set(`${CHUNK_PREFIX}000000`, { bytes: 5 });
-    mockFinalizeRun.mockResolvedValue({ status: "failed" });
+    mockFinalizeRun.mockResolvedValue({ status: "failed", aborted: true });
     setRequest({
       query: { index: "1", total: "2", isFinal: "1", mimeType: "video/webm" },
     });
@@ -865,6 +866,46 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       error: "Recording was cancelled before it finished saving.",
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_upload_blocking_failure",
+      expect.objectContaining({
+        stage: "finalize_recording",
+        outcome: "cancelled",
+        failure_type: "cancelled",
+        upload_mode: "buffered",
+      }),
+      { userId: "owner@example.com" },
+    );
+  });
+
+  it("does not label a non-cancel finalize failure as an abort", async () => {
+    mockAppState.set(`${CHUNK_PREFIX}000000`, { bytes: 5 });
+    mockFinalizeRun.mockResolvedValue({
+      status: "failed",
+      storageSetupRequired: true,
+      failureReason: "storage setup required",
+    });
+    setRequest({
+      query: { index: "1", total: "2", isFinal: "1", mimeType: "video/webm" },
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: false,
+      finalized: false,
+      status: "failed",
+      storageSetupRequired: true,
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 500);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_upload_blocking_failure",
+      expect.objectContaining({
+        stage: "finalize_recording",
+        outcome: "failed",
+        failure_type: "storage_error",
+        upload_mode: "buffered",
+      }),
+      { userId: "owner@example.com" },
+    );
   });
 
   it("preserves buffered source-byte proof when finalize committed before its response was lost", async () => {
