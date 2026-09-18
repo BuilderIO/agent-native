@@ -93,6 +93,12 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toContain(
       "inset-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));",
     );
+    expect(mobileCss).toContain(
+      ':root[dir="rtl"] .auth-marketing-home .auth-marketing-top-right',
+    );
+    expect(mobileCss).toContain(
+      "inset-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));",
+    );
     expect(html).toContain("--b-hero-ocean-opacity: 0.32;");
     expect(html).toContain("--b-hero-shader-opacity: 0.15;");
     expect(html).toContain("--b-hero-ocean-opacity: 0.3;");

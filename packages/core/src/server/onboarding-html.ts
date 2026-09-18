@@ -2673,6 +2673,10 @@ ${marketingStyles}
       margin-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));
       padding: 0;
     }
+    :root[dir="rtl"] .auth-marketing-home .auth-marketing-top-right {
+      inset-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));
+      margin-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));
+    }
     .auth-marketing-home .auth-marketing-layout {
       flex-direction: column;
     }
