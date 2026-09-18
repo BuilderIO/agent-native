@@ -3,7 +3,10 @@ import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  readDeployCredentialEnv,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
 
 export interface AutomationModelSettings {
@@ -13,6 +16,8 @@ export interface AutomationModelSettings {
 
 export const DEFAULT_AUTOMATION_ENGINE = "builder";
 export const DEFAULT_AUTOMATION_MODEL = "gpt-5-6-luna";
+export const TYPESAFE_AUTOMATION_ENGINE = "typesafe";
+export const TYPESAFE_AUTOMATION_MODEL = "jev-latest";
 
 const CHEAP_MODEL_CANDIDATES: AutomationModelSettings[] = [
   { engine: DEFAULT_AUTOMATION_ENGINE, model: DEFAULT_AUTOMATION_MODEL },
@@ -62,6 +67,13 @@ async function resolveEngineDefaultModel(
 export async function resolveDefaultAutomationModel(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
+  if (readDeployCredentialEnv("TYPESAFE_API_KEY")) {
+    return {
+      engine: TYPESAFE_AUTOMATION_ENGINE,
+      model: TYPESAFE_AUTOMATION_MODEL,
+    };
+  }
+
   for (const candidate of CHEAP_MODEL_CANDIDATES) {
     if (
       candidate.engine &&
@@ -89,6 +101,35 @@ export async function resolveDefaultAutomationModel(
 
   // Leave engine selection to resolveEngine so a configured non-Luna provider
   // remains usable when none of the preferred Luna engines is connected.
+  return {};
+}
+
+/** Text generation is only needed when feedback rewrites a rule. */
+export async function resolveTextAutomationModelSettings(
+  ownerEmail: string,
+): Promise<AutomationModelSettings> {
+  for (const candidate of CHEAP_MODEL_CANDIDATES) {
+    if (
+      candidate.engine &&
+      (await canResolveEngine(ownerEmail, candidate.engine))
+    ) {
+      return candidate;
+    }
+  }
+
+  const agentEngine = (await getSetting("agent-engine")) as {
+    engine?: string;
+    model?: string;
+  } | null;
+  if (agentEngine?.engine || agentEngine?.model) {
+    const model =
+      agentEngine.model ??
+      (agentEngine.engine
+        ? await resolveEngineDefaultModel(ownerEmail, agentEngine.engine)
+        : undefined);
+    return { engine: agentEngine.engine, model };
+  }
+
   return {};
 }
 
