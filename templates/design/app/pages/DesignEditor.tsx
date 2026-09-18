@@ -12293,10 +12293,37 @@ function DesignEditor() {
         sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
         anchorSelector?: string;
         anchorSourceId?: string;
+        anchorElementInfo?: ElementInfo;
+        requestId?: string;
+        dropMode?: "flow-insert" | "absolute-container";
+        forceFlowPositionOverride?: boolean;
+        sourceRect?: { x: number; y: number; width: number; height: number };
+        anchorRect?: { x: number; y: number; width: number; height: number };
         placement?: "before" | "after" | "inside";
       },
-    ) =>
-      runVisualDuplicateChange(
+    ) => {
+      if (isRunningAppSourceType(activeCanvasSourceType) && activeFile) {
+        recordPendingLiveStructureEdit(
+          activeFile.id,
+          elementInfo?.runtimeSelector ?? elementInfo?.selector ?? selector,
+          details?.anchorSelector ?? selector,
+          details?.placement ?? "after",
+          elementInfo,
+          {
+            sourceId: elementInfo?.runtimeSourceId || elementInfo?.sourceId,
+            anchorSourceId: details?.anchorSourceId || details?.sourceId,
+            anchorElementInfo: details?.anchorElementInfo,
+            requestId: details?.requestId,
+            dropMode: details?.dropMode,
+            forceFlowPositionOverride: details?.forceFlowPositionOverride,
+            sourceRect: details?.sourceRect,
+            anchorRect: details?.anchorRect,
+            insertedHtml: cloneHtml,
+          },
+        );
+        return "pending";
+      }
+      return runVisualDuplicateChange(
         {
           activeFile,
           applyLinkedComponentEdit,
@@ -12319,15 +12346,18 @@ function DesignEditor() {
         cloneHtml,
         elementInfo,
         details,
-      ),
+      );
+    },
     [
       remapMotionTracksForClone,
       applyLinkedComponentEdit,
       activeFile,
+      activeCanvasSourceType,
       applyLocalContentUpdate,
       canEditDesign,
       componentCloneContextForFile,
       getFreshActiveContent,
+      recordPendingLiveStructureEdit,
       selectedElement,
       selectedLayerIdsState,
       t,
@@ -12503,6 +12533,12 @@ function DesignEditor() {
         sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
         anchorSelector?: string;
         anchorSourceId?: string;
+        anchorElementInfo?: ElementInfo;
+        requestId?: string;
+        dropMode?: "flow-insert" | "absolute-container";
+        forceFlowPositionOverride?: boolean;
+        sourceRect?: { x: number; y: number; width: number; height: number };
+        anchorRect?: { x: number; y: number; width: number; height: number };
         placement?: "before" | "after" | "inside";
       },
     ) =>
@@ -12517,6 +12553,9 @@ function DesignEditor() {
           componentLinksForFile: componentCloneContextForFile,
           getScreenContent,
           handleVisualDuplicateChange,
+          designSourceType,
+          overviewScreens,
+          recordPendingLiveStructureEdit,
           t,
         },
         screenId,
@@ -12532,8 +12571,11 @@ function DesignEditor() {
       applyFileContentUpdate,
       canEditDesign,
       componentCloneContextForFile,
+      designSourceType,
       getScreenContent,
       handleVisualDuplicateChange,
+      overviewScreens,
+      recordPendingLiveStructureEdit,
       t,
     ],
   );

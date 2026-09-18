@@ -598,9 +598,15 @@ export interface MultiScreenCanvasProps {
       sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
       anchorSelector?: string;
       anchorSourceId?: string;
+      anchorElementInfo?: ElementInfo;
+      requestId?: string;
+      dropMode?: "flow-insert" | "absolute-container";
+      forceFlowPositionOverride?: boolean;
+      sourceRect?: { x: number; y: number; width: number; height: number };
+      anchorRect?: { x: number; y: number; width: number; height: number };
       placement?: "before" | "after" | "inside";
     },
-  ) => boolean | void;
+  ) => boolean | "pending" | void;
   /**
    * Called when inline text is edited on a board element.
    * Target file is boardFileId.

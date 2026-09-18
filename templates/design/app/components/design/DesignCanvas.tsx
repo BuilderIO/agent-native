@@ -712,9 +712,15 @@ interface DesignCanvasProps {
       sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
       anchorSelector?: string;
       anchorSourceId?: string;
+      anchorElementInfo?: ElementInfo;
+      requestId?: string;
+      dropMode?: "flow-insert" | "absolute-container";
+      forceFlowPositionOverride?: boolean;
+      sourceRect?: { x: number; y: number; width: number; height: number };
+      anchorRect?: { x: number; y: number; width: number; height: number };
       placement?: "before" | "after" | "inside";
     },
-  ) => boolean | void;
+  ) => boolean | "pending" | void;
   tweakValues: Record<string, string>;
   /** Whether draw-to-prompt mode is active (overlays the iframe). */
   drawMode?: boolean;
@@ -3478,7 +3484,7 @@ export function DesignCanvas({
       }
       if (e.data.type === "element-select") {
         const reported = e.data.payload as
-          | { selector?: string; sourceId?: string }
+          | { selector?: string; sourceId?: string; runtimeSourceId?: string }
           | undefined;
         const reportedCandidates: string[] = [];
         if (reported?.selector) reportedCandidates.push(reported.selector);
@@ -3487,12 +3493,14 @@ export function DesignCanvas({
             `[data-agent-native-node-id="${reported.sourceId}"]`,
           );
         }
+        const reportedRuntimeSourceId = reported?.runtimeSourceId?.trim();
         if (e.data.intent) {
           // User click (carries intent): iframe already shows it — suppress the
           // echo-back to avoid the fast-click bounce.
           suppressMirrorSelectorsRef.current =
             reportedCandidates.length > 0 ? reportedCandidates : null;
         } else if (
+          !reportedRuntimeSourceId &&
           selectedSelectorRef.current &&
           reportedCandidates.length > 0 &&
           !reportedCandidates.includes(selectedSelectorRef.current) &&
@@ -3745,7 +3753,7 @@ export function DesignCanvas({
                 )
               ? (rawSourceNodeIdMap as [string, string][])
               : null;
-        let applied = false;
+        let applied: boolean | "pending" = false;
         if (
           selector &&
           cloneHtml &&
@@ -3753,28 +3761,73 @@ export function DesignCanvas({
             placement === "after" ||
             placement === "inside")
         ) {
-          applied =
-            typeof onVisualDuplicateChange === "function" &&
-            onVisualDuplicateChange(selector, cloneHtml, e.data.payload, {
-              sourceId:
-                typeof e.data.sourceId === "string"
-                  ? e.data.sourceId
-                  : undefined,
-              sourceNodeIdMap,
-              anchorSelector:
-                typeof e.data.anchorSelector === "string"
-                  ? e.data.anchorSelector
-                  : undefined,
-              anchorSourceId:
-                typeof e.data.anchorSourceId === "string"
-                  ? e.data.anchorSourceId
-                  : undefined,
-              placement,
-            }) !== false;
+          const result =
+            typeof onVisualDuplicateChange === "function"
+              ? onVisualDuplicateChange(selector, cloneHtml, e.data.payload, {
+                  sourceId:
+                    typeof e.data.sourceId === "string"
+                      ? e.data.sourceId
+                      : undefined,
+                  sourceNodeIdMap,
+                  anchorSelector:
+                    typeof e.data.anchorSelector === "string"
+                      ? e.data.anchorSelector
+                      : undefined,
+                  anchorSourceId:
+                    typeof e.data.anchorSourceId === "string"
+                      ? e.data.anchorSourceId
+                      : undefined,
+                  anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
+                    ? e.data.anchorPayload
+                    : undefined,
+                  requestId,
+                  dropMode:
+                    e.data.dropMode === "flow-insert" ||
+                    e.data.dropMode === "absolute-container"
+                      ? e.data.dropMode
+                      : undefined,
+                  forceFlowPositionOverride:
+                    e.data.forceFlowPositionOverride === true,
+                  sourceRect:
+                    e.data.sourceRect &&
+                    typeof e.data.sourceRect === "object" &&
+                    Number.isFinite(e.data.sourceRect.x) &&
+                    Number.isFinite(e.data.sourceRect.y) &&
+                    Number.isFinite(e.data.sourceRect.width) &&
+                    Number.isFinite(e.data.sourceRect.height)
+                      ? {
+                          x: Number(e.data.sourceRect.x),
+                          y: Number(e.data.sourceRect.y),
+                          width: Number(e.data.sourceRect.width),
+                          height: Number(e.data.sourceRect.height),
+                        }
+                      : undefined,
+                  anchorRect:
+                    e.data.anchorRect &&
+                    typeof e.data.anchorRect === "object" &&
+                    Number.isFinite(e.data.anchorRect.x) &&
+                    Number.isFinite(e.data.anchorRect.y) &&
+                    Number.isFinite(e.data.anchorRect.width) &&
+                    Number.isFinite(e.data.anchorRect.height)
+                      ? {
+                          x: Number(e.data.anchorRect.x),
+                          y: Number(e.data.anchorRect.y),
+                          width: Number(e.data.anchorRect.width),
+                          height: Number(e.data.anchorRect.height),
+                        }
+                      : undefined,
+                  placement,
+                })
+              : false;
+          applied = result === "pending" ? "pending" : result !== false;
         }
-        if (requestId) {
+        if (requestId && applied !== "pending") {
           iframeRef.current?.contentWindow?.postMessage(
-            { type: "visual-structure-ack", requestId, applied },
+            {
+              type: "visual-structure-ack",
+              requestId,
+              applied: true === applied,
+            },
             "*",
           );
         }

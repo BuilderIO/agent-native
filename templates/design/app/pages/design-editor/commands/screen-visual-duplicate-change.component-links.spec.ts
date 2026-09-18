@@ -5,10 +5,92 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { GeometryHistorySelection } from "@/pages/design-editor/history";
+import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runScreenVisualDuplicateChange } from "./screen-visual-duplicate-change";
 
 describe("runScreenVisualDuplicateChange linked main structure", () => {
+  it.each(["active", "inactive"])(
+    "keeps a %s localhost duplicate pending with the runtime clone identity",
+    (targetId) => {
+      const cloneHtml =
+        '<div data-agent-native-node-id="runtime-copy">Copy</div>';
+      const cloneInfo = {
+        tagName: "DIV",
+        runtimeSelector: '[data-agent-native-node-id="runtime-copy"]',
+        runtimeSourceId: "runtime-copy",
+        selector: '[data-agent-native-node-id="runtime-copy"]',
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 20, y: 20, width: 80, height: 40 },
+        isFlexChild: true,
+        isFlexContainer: false,
+      } satisfies ElementInfo;
+      const recordPendingLiveStructureEdit = vi.fn();
+      const handleVisualDuplicateChange = vi.fn();
+      const getScreenContent = vi.fn(() => {
+        throw new Error("live duplicate must not parse the URL as HTML");
+      });
+
+      const result = runScreenVisualDuplicateChange(
+        {
+          activeFile: {
+            id: "active",
+            filename: "active.html",
+            fileType: "html",
+            content: "http://localhost:3000/",
+          } as unknown as DesignFile,
+          applyFileContentUpdate: vi.fn(),
+          canEditDesign: true,
+          designSourceType: "localhost",
+          getScreenContent,
+          handleVisualDuplicateChange,
+          overviewScreens: [{ id: targetId, sourceType: "localhost" } as never],
+          recordPendingLiveStructureEdit,
+          t: (key: string) => key,
+        },
+        targetId,
+        '[data-agent-native-node-id="source"]',
+        cloneHtml,
+        cloneInfo,
+        {
+          sourceId: "source",
+          anchorSelector: '[data-agent-native-node-id="anchor"]',
+          anchorSourceId: "anchor",
+          anchorElementInfo: {
+            ...cloneInfo,
+            runtimeSelector: undefined,
+            runtimeSourceId: undefined,
+            selector: '[data-agent-native-node-id="anchor"]',
+            sourceId: "anchor",
+          },
+          requestId: "duplicate-live-1",
+          dropMode: "flow-insert",
+          placement: "after",
+        },
+      );
+
+      expect(result).toBe("pending");
+      expect(handleVisualDuplicateChange).not.toHaveBeenCalled();
+      expect(getScreenContent).not.toHaveBeenCalled();
+      expect(recordPendingLiveStructureEdit).toHaveBeenCalledWith(
+        targetId,
+        '[data-agent-native-node-id="runtime-copy"]',
+        '[data-agent-native-node-id="anchor"]',
+        "after",
+        cloneInfo,
+        expect.objectContaining({
+          sourceId: "runtime-copy",
+          anchorSourceId: "anchor",
+          anchorElementInfo: expect.objectContaining({ sourceId: "anchor" }),
+          requestId: "duplicate-live-1",
+          dropMode: "flow-insert",
+          insertedHtml: cloneHtml,
+        }),
+      );
+    },
+  );
+
   it("dispatches an inactive-screen interior clone without a local write", () => {
     const activeFile = {
       id: "active-file",
@@ -59,12 +141,15 @@ describe("runScreenVisualDuplicateChange linked main structure", () => {
         applyLinkedComponentEdit,
         applyFileContentUpdate,
         canEditDesign: true,
+        designSourceType: "inline",
         componentLinksForFile: () => ({
           sourceFileIds: [screenId],
           targetSource: source,
           documents: [{ source, content }],
         }),
         getScreenContent: () => content,
+        overviewScreens: [],
+        recordPendingLiveStructureEdit: vi.fn(),
         handleVisualDuplicateChange: () => {
           throw new Error("inactive screen should use its own linked path");
         },

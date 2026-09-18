@@ -13670,6 +13670,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceNodeIdMap?: Array<[string, string]>,
   ) {
     if (!originalEl || !cloneEl) return;
+    var anchorEl = target && target.anchor ? target.anchor : originalEl;
     // The host immediately pushes the persisted clone back through the source
     // morph. Claim the optimistic clone first so that round-trip reuses it
     // instead of importing a second copy beside it.
@@ -13688,16 +13689,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         requestId: requestId,
         selector: getSelector(originalEl),
         sourceId: getSourceId(originalEl),
-        anchorSelector:
-          target && target.anchor ? getSelector(target.anchor) : "",
-        anchorSourceId:
-          target && target.anchor ? getSourceId(target.anchor) : "",
+        // A free Alt-drag has no resolved insertion target, but the source is
+        // still inserted after its original sibling. Keep that anchor in the
+        // host message so live-source persistence can replay the same relation.
+        anchorSelector: getSelector(anchorEl),
+        anchorSourceId: getSourceId(anchorEl),
         placement: target && target.placement ? target.placement : "after",
+        dropMode: target && target.dropMode ? target.dropMode : undefined,
+        forceFlowPositionOverride:
+          target && target.forceFlowPositionOverride === true
+            ? true
+            : undefined,
+        sourceRect: rectInfoForElement(cloneEl),
+        anchorRect: rectInfoForElement(anchorEl),
         sourceNodeIdMap: Array.isArray(sourceNodeIdMap)
           ? sourceNodeIdMap
           : undefined,
         cloneHtml: cloneEl.outerHTML,
         payload: getElementInfo(cloneEl),
+        anchorPayload: getElementInfo(anchorEl),
       },
       "*",
     );
@@ -14775,6 +14785,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var grabbedRect = selectedEl.getBoundingClientRect();
       var clone = selectedEl.cloneNode(true);
       duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
+      clone.setAttribute("data-agent-native-clone-root", "true");
       selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
       publishSourceDocumentProvenance(undefined, true);
       selectedEl = clone;
@@ -15361,7 +15372,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           hideInsertionGuide();
           clearReorderLift();
           clearReorderReflow();
-          showTransformBadge("Move layer", cx, cy);
+          showTransformBadge(
+            duplicatedForDrag ? "Duplicate layer" : "Move layer",
+            cx,
+            cy,
+          );
         } else {
           // NOT reset here: postCrossScreenDrag above runs every tick
           // regardless of inside/outside, so crossScreenClaimedByHost tracks
@@ -15398,7 +15413,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
           applyReorderLift(dx, dy);
           applyReorderReflow(currentTarget, cx, cy);
-          showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
+          showTransformBadge(
+            duplicatedForDrag
+              ? "Duplicate layer"
+              : currentTarget
+                ? "Move layer"
+                : "Move",
+            cx,
+            cy,
+          );
         }
       }
       function cleanupReorderDrag() {
@@ -15592,6 +15615,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         if (duplicatedForDrag) {
           applyRuntimeReorder(reorderEl, currentTarget);
+          positionOverlay(selectionOverlay, reorderEl);
           postVisualDuplicateChange(
             originalSelectedEl,
             reorderEl,
