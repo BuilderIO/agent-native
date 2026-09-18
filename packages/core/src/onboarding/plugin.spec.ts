@@ -458,6 +458,29 @@ describe("onboarding plugin routes", () => {
     );
   });
 
+  it("omits unsafe browser session ids from role telemetry", async () => {
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      {
+        "content-type": "application/json",
+        "x-agent-native-session-id": "unsafe session id",
+      },
+      { role: "developer" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding.role_selected",
+      expect.objectContaining({ outcome: "success" }),
+      { userId: "alice@example.com" },
+    );
+  });
+
   it("tracks a bounded category when the role save fails", async () => {
     const failure = new Error("provider details stay out of analytics");
     updateUserOnboardingRoleMock.mockRejectedValueOnce(failure);

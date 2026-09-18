@@ -105,11 +105,8 @@ export function readAgentRunTimezone(event: H3Event): string | undefined {
 export function readBrowserSessionIdHeader(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-agent-native-session-id");
   const value = Array.isArray(raw) ? raw[0] : raw;
-  return typeof value === "string" &&
-    value.trim().length > 0 &&
-    value.trim().length < 128
-    ? value.trim()
-    : undefined;
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return /^[!-~]{1,127}$/.test(trimmed) ? trimmed : undefined;
 }
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;

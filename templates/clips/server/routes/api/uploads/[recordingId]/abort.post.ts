@@ -159,6 +159,29 @@ export async function handleAbortRecordingUpload(
       : await getResumableSession(recordingId, existingGenerationId);
 
     const now = new Date().toISOString();
+    const abortedUploadState = {
+      ...existingUploadState,
+      recordingId,
+      status: "failed",
+      aborted: true,
+      failureReason,
+      updatedAt: now,
+    };
+    const uploadStateClaimed = await compareAndSetManyAppState([
+      {
+        key: uploadStateKey,
+        expectedValue: existingUploadStateSnapshot,
+        nextValue: abortedUploadState,
+      },
+    ]);
+    if (!uploadStateClaimed) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+
     const aborted = await db
       .update(schema.recordings)
       .set({
@@ -182,6 +205,18 @@ export async function handleAbortRecordingUpload(
       .returning({ id: schema.recordings.id });
 
     if (aborted.length !== 1) {
+      const uploadStateRestored = await compareAndSetManyAppState([
+        {
+          key: uploadStateKey,
+          expectedValue: abortedUploadState,
+          nextValue: existingUploadStateSnapshot,
+        },
+      ]);
+      if (!uploadStateRestored) {
+        console.info(
+          `[abort] upload state changed while rolling back stale abort for ${recordingId}`,
+        );
+      }
       setResponseStatus(event, 409);
       return {
         error: "A newer upload retry is already active.",
@@ -189,32 +224,18 @@ export async function handleAbortRecordingUpload(
       };
     }
 
-    const auxiliaryStateUpdated = await compareAndSetManyAppState([
-      {
-        key: uploadStateKey,
-        expectedValue: existingUploadStateSnapshot,
-        nextValue: {
-          ...existingUploadState,
-          recordingId,
-          status: "failed",
-          aborted: true,
-          failureReason,
-          updatedAt: now,
+    if (
+      existingVerificationStateSnapshot &&
+      !(await compareAndSetManyAppState([
+        {
+          key: verificationStateKey,
+          expectedValue: existingVerificationStateSnapshot,
+          nextValue: null,
         },
-      },
-      ...(existingVerificationStateSnapshot
-        ? [
-            {
-              key: verificationStateKey,
-              expectedValue: existingVerificationStateSnapshot,
-              nextValue: null,
-            },
-          ]
-        : []),
-    ]);
-    if (!auxiliaryStateUpdated) {
+      ]))
+    ) {
       console.info(
-        `[abort] upload state changed after abort claim; preserving replacement state for ${recordingId}`,
+        `[abort] verification state changed after abort claim; preserving replacement state for ${recordingId}`,
       );
     }
 
