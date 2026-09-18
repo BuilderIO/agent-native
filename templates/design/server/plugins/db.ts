@@ -412,8 +412,14 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
     design_id TEXT NOT NULL,
     requester_email TEXT NOT NULL,
     requester_name TEXT NOT NULL,
-    requested_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    requested_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    notified_at TEXT
   )`,
+    },
+    {
+      version: 28,
+      name: "design-access-request-notified-at",
+      sql: `ALTER TABLE design_access_requests ADD COLUMN IF NOT EXISTS notified_at TEXT`,
     },
   ],
   { table: "design_migrations" },

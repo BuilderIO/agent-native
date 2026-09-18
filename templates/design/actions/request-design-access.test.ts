@@ -11,14 +11,25 @@ const state = vi.hoisted(() => ({
   access: null as { role?: string } | null,
   emailConfigured: true,
   insertConflict: false,
+  existingRequest: undefined as { notifiedAt: string | null } | undefined,
 }));
 
-const selectLimit = vi.hoisted(() =>
-  vi.fn(async () => (state.design ? [state.design] : [])),
+const selectWhere = vi.hoisted(() =>
+  vi.fn(async (condition: { column: string }) =>
+    condition.column === "design_access_requests.id"
+      ? state.existingRequest
+        ? [state.existingRequest]
+        : []
+      : state.design
+        ? [state.design]
+        : [],
+  ),
 );
 const insertReturning = vi.hoisted(() =>
   vi.fn(async () =>
-    state.insertConflict ? [] : [{ id: "design-access-request-1" }],
+    state.insertConflict
+      ? []
+      : [{ id: "design-access-request-1", notifiedAt: null }],
   ),
 );
 const insertValues = vi.hoisted(() =>
@@ -26,13 +37,16 @@ const insertValues = vi.hoisted(() =>
     onConflictDoNothing: () => ({ returning: insertReturning }),
   })),
 );
+const updateWhere = vi.hoisted(() => vi.fn(async () => []));
+const updateSet = vi.hoisted(() => vi.fn(() => ({ where: updateWhere })));
 const db = vi.hoisted(() => ({
   select: vi.fn(() => ({
     from: vi.fn(() => ({
-      where: vi.fn(() => ({ limit: selectLimit })),
+      where: vi.fn((condition) => ({ limit: () => selectWhere(condition) })),
     })),
   })),
   insert: vi.fn(() => ({ values: insertValues })),
+  update: vi.fn(() => ({ set: updateSet })),
 }));
 const resolveAccess = vi.hoisted(() => vi.fn(async () => state.access));
 const sendEmail = vi.hoisted(() => vi.fn(async () => undefined));
@@ -50,6 +64,7 @@ vi.mock("../server/db/index.js", () => ({
       designId: "design_access_requests.design_id",
       requesterEmail: "design_access_requests.requester_email",
       requesterName: "design_access_requests.requester_name",
+      notifiedAt: "design_access_requests.notified_at",
     },
   },
 }));
@@ -90,6 +105,7 @@ beforeEach(() => {
   state.access = null;
   state.emailConfigured = true;
   state.insertConflict = false;
+  state.existingRequest = undefined;
 });
 
 describe("request-design-access", () => {
@@ -118,6 +134,7 @@ describe("request-design-access", () => {
 
   it("does not notify twice when the same viewer requests again", async () => {
     state.insertConflict = true;
+    state.existingRequest = { notifiedAt: "2026-09-18T19:00:00.000Z" };
 
     const result = await action.run({ designId: "design-1" });
 
@@ -127,6 +144,23 @@ describe("request-design-access", () => {
       notifiedOwner: false,
     });
     expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("retries an owner notification that previously failed", async () => {
+    state.insertConflict = true;
+    state.existingRequest = { notifiedAt: null };
+
+    const result = await action.run({ designId: "design-1" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      alreadyRequested: true,
+      notifiedOwner: true,
+    });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(updateSet).toHaveBeenCalledWith({
+      notifiedAt: expect.any(String),
+    });
   });
 
   it("requires a signed-in viewer", async () => {

@@ -3744,9 +3744,11 @@ function DesignEditor() {
     (hasPendingGeneration || Boolean(readPendingGeneration(id))) &&
     !pendingQuestionsVisible;
 
-  const { data: designResult, isLoading: designLoading } = useActionQuery<
-    DesignData | string
-  >(
+  const {
+    data: designResult,
+    isLoading: designLoading,
+    refetch: refetchDesign,
+  } = useActionQuery<DesignData | string>(
     "get-design",
     { id: id! },
     {
@@ -23520,9 +23522,11 @@ function DesignEditor() {
         }
         accessRequestPending={requestDesignAccessMutation.isPending}
         accessRequestSent={designAccessRequestSent}
-        signInHref={buildSignInHrefForDesignIntent("save")}
+        signInHref={buildSignInHrefForComment()}
         onRequestAccess={() => void handleRequestDesignAccess()}
-        onRetryAccessCheck={() => void refetchDesignAccessStatus()}
+        onRetryAccessCheck={() => {
+          void Promise.all([refetchDesign(), refetchDesignAccessStatus()]);
+        }}
       />
     );
   }

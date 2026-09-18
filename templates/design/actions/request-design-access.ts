@@ -158,17 +158,27 @@ export default defineAction({
         requesterName,
       })
       .onConflictDoNothing()
-      .returning({ id: schema.designAccessRequests.id });
+      .returning({
+        id: schema.designAccessRequests.id,
+        notifiedAt: schema.designAccessRequests.notifiedAt,
+      });
 
     if (!request) {
-      return {
-        ok: true,
-        alreadyHasAccess: false,
-        alreadyRequested: true,
-        notifiedOwner: false,
-        requestId,
-        message: "Access has already been requested from the design owner.",
-      };
+      const [existingRequest] = await db
+        .select({ notifiedAt: schema.designAccessRequests.notifiedAt })
+        .from(schema.designAccessRequests)
+        .where(eq(schema.designAccessRequests.id, requestId))
+        .limit(1);
+      if (existingRequest?.notifiedAt) {
+        return {
+          ok: true,
+          alreadyHasAccess: false,
+          alreadyRequested: true,
+          notifiedOwner: false,
+          requestId,
+          message: "Access has already been requested from the design owner.",
+        };
+      }
     }
 
     let notifiedOwner = false;
@@ -187,15 +197,26 @@ export default defineAction({
       );
     }
 
+    if (notifiedOwner) {
+      await db
+        .update(schema.designAccessRequests)
+        .set({ notifiedAt: new Date().toISOString() })
+        .where(eq(schema.designAccessRequests.id, requestId));
+    }
+
     return {
       ok: true,
       alreadyHasAccess: false,
-      alreadyRequested: false,
+      alreadyRequested: !request,
       notifiedOwner,
       requestId,
       message: notifiedOwner
-        ? "Access request sent to the design owner."
-        : "Access request recorded for the design owner.",
+        ? request
+          ? "Access request sent to the design owner."
+          : "Access request notification sent to the design owner."
+        : request
+          ? "Access request recorded for the design owner."
+          : "Access request is queued for the design owner.",
     };
   },
 });

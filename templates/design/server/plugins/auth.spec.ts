@@ -28,6 +28,7 @@ describe("design auth plugin", () => {
       expect.objectContaining({
         publicPaths: expect.arrayContaining([
           "/_agent-native/actions/get-design",
+          "/_agent-native/actions/get-design-access-status",
           "/_agent-native/actions/list-design-native-assets",
           "/_agent-native/actions/list-review-comments",
         ]),
