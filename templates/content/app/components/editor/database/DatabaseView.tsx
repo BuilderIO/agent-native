@@ -201,6 +201,8 @@ import {
   useSuggestSourceJoinKey,
   useUpdateContentDatabasePersonalView,
   useUpdateContentDatabaseView,
+  type ContentDatabaseViewSaveRequest,
+  type ContentDatabaseViewSaveResponse,
   writeBuilderAttachPreviewToCache,
 } from "@/hooks/use-content-database";
 import { useUpdateContentPersonalNavigation } from "@/hooks/use-content-personal-navigation";
@@ -217,6 +219,7 @@ import {
 import {
   isDocumentUpdateConflict,
   type DocumentUpdateResult,
+  useCreateDocument,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
@@ -269,6 +272,7 @@ import {
   type PreviewDocumentSaveDeferred,
   type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
+import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
 import {
   DatabaseColumnPresentation,
   ColumnPresentationMenuItems,
@@ -302,13 +306,75 @@ export interface DatabaseViewProps {
   renderMode?: "page" | "inline";
   canEdit?: boolean;
   isActive?: boolean;
-  requestedViewId?: string | null;
+  viewId?: string | null;
   foreground?: boolean;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
 const CONTENT_DATABASE_MAX_ITEM_LIMIT = 5_000;
+
+export function createDatabaseViewSaveQueue() {
+  let previous: Promise<unknown> = Promise.resolve();
+  return <T,>(save: () => Promise<T>): Promise<T> => {
+    const next = previous.then(save, save);
+    previous = next;
+    return next;
+  };
+}
+
+type DatabaseViewSetupRevision = {
+  databaseId: string;
+  target: {
+    spaceId: string;
+    databaseId: string;
+    databaseDocumentId: string;
+  };
+  schemaRevision: string;
+  configurationRevision: string;
+};
+
+export function contentDatabaseViewSaveRequest({
+  data,
+  databaseId,
+  revision,
+  idempotencyKey,
+  viewConfig,
+}: {
+  data: ContentDatabaseResponse | undefined;
+  databaseId: string;
+  revision: DatabaseViewSetupRevision | null;
+  idempotencyKey: string;
+  viewConfig: ContentDatabaseViewConfig;
+}): ContentDatabaseViewSaveRequest {
+  if (!data || data.database.id !== databaseId) {
+    throw new Error("Collection view save context is unavailable");
+  }
+  if (data.database.systemRole != null || data.database.spaceId == null) {
+    return { databaseId, viewConfig };
+  }
+  if (
+    !revision ||
+    revision.databaseId !== databaseId ||
+    revision.target.databaseId !== databaseId
+  ) {
+    throw new Error("Collection view save contract is unavailable");
+  }
+  return {
+    operation: "replace",
+    target: revision.target,
+    expectedSchemaRevision: revision.schemaRevision,
+    expectedConfigurationRevision: revision.configurationRevision,
+    idempotencyKey,
+    viewConfig,
+  };
+}
+
+function contentDatabaseViewSaveValue(
+  response: ContentDatabaseViewSaveResponse,
+) {
+  return "receipt" in response ? response.value : response.database.viewConfig;
+}
 
 export function databaseSearchExpandedItemLimit(
   searchQuery: string,
@@ -753,7 +819,7 @@ export function DatabaseView({
   renderMode = "page",
   canEdit = true,
   isActive,
-  requestedViewId,
+  viewId,
   foreground = false,
   onExportContextChange,
 }: DatabaseViewProps) {
@@ -771,7 +837,7 @@ export function DatabaseView({
       renderMode={renderMode}
       canEdit={effectiveCanEdit}
       isActive={isActive ?? renderMode === "page"}
-      requestedViewId={requestedViewId}
+      viewId={viewId}
       foreground={foreground}
       onExportContextChange={onExportContextChange}
     />
@@ -786,7 +852,7 @@ function DatabaseTable({
   renderMode,
   canEdit,
   isActive,
-  requestedViewId: exactRequestedViewId,
+  viewId: exactRequestedViewId,
   foreground,
   onExportContextChange,
 }: {
@@ -797,7 +863,7 @@ function DatabaseTable({
   renderMode: "page" | "inline";
   canEdit: boolean;
   isActive: boolean;
-  requestedViewId?: string | null;
+  viewId?: string | null;
   foreground: boolean;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }) {
@@ -849,13 +915,16 @@ function DatabaseTable({
     document.id,
     databaseRequestItemLimit,
     tableQuery,
-    foreground && renderMode === "page" && isActive
-      ? { refetchOnMount: "always" }
-      : undefined,
+    {
+      systemRole: document.database?.systemRole,
+      ...(foreground && renderMode === "page" && isActive
+        ? { refetchOnMount: "always" as const }
+        : {}),
+    },
   );
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
-  // the user-facing "Database unavailable" state.
+  // the user-facing "Collection unavailable" state.
   const data = isContentDatabaseUnavailable(database.data)
     ? undefined
     : database.data;
@@ -881,7 +950,10 @@ function DatabaseTable({
   const attachPreviewActive = Boolean(data?.attachPreview);
   const effectiveCanEdit = canEdit && !attachPreviewActive;
   const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
-  const isCreatingDatabaseItem = addItem.isPending;
+  const createDocument = useCreateDocument();
+  const createTarget = databaseCreateTarget(data);
+  const canCreateItems = databaseCanCreateItems(createTarget);
+  const isCreatingDatabaseItem = addItem.isPending || createDocument.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
@@ -897,9 +969,10 @@ function DatabaseTable({
     renderMode,
   );
   const serializedSearchParams = searchParams.toString();
-  const requestedViewId =
-    exactRequestedViewId ??
-    (searchParams.get(viewSelectionSearchParam)?.trim() || null);
+  const requestedViewId = requestedDatabaseViewId(
+    exactRequestedViewId,
+    searchParams.get(viewSelectionSearchParam),
+  );
   const personalViewDatabaseId = data?.database.id ?? null;
   const newDatabaseRowLabel = isWorkspaceCatalog
     ? t("sidebar.addWorkspace")
@@ -974,6 +1047,7 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [preserveSourceNavigationOnClose, setPreserveSourceNavigationOnClose] =
     useState(false);
   const sourceHandoffActiveRef = useRef(false);
@@ -1088,6 +1162,9 @@ function DatabaseTable({
   const submittedViewRef = useRef<{ databaseId: string; key: string } | null>(
     null,
   );
+  const viewSetupRevisionRef = useRef<DatabaseViewSetupRevision | null>(null);
+  const databaseViewSaveDataRef = useRef(data);
+  databaseViewSaveDataRef.current = data;
 
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
@@ -1122,6 +1199,7 @@ function DatabaseTable({
   );
   const hydratedViewRef = useRef("");
   const hydratedDatabaseIdRef = useRef<string | null>(null);
+  const viewSaveQueueRef = useRef(createDatabaseViewSaveQueue());
   const saveViewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const personalViewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -1848,7 +1926,33 @@ function DatabaseTable({
     } = {},
   ) {
     if (!databaseId) return null;
-    if (isWorkspaceCatalog) return null;
+    if (createTarget.kind === "unsupported") return null;
+    const createdItem =
+      createTarget.kind === "space-page"
+        ? await createWorkspacePage(createTarget.spaceId, title)
+        : await createCollectionRow(title, propertyValueOverrides);
+    if (!createdItem) return null;
+    // Both create paths settle the same way, so the workspace Files table
+    // opens and focuses a new page exactly like an ordinary collection row.
+    const needsPreview = databaseCreatedItemNeedsPreview(
+      items,
+      createdItem,
+      options,
+    );
+    if (needsPreview) {
+      setCreatedPreviewItem(createdItem);
+      setPreviewDocumentId(createdItem.document.id);
+      setPreviewTitleFocusDocumentId(createdItem.document.id);
+    } else if (options.focusInlineTitle) {
+      setInlineTitleFocusDocumentId(createdItem.document.id);
+    }
+    return createdItem;
+  }
+
+  async function createCollectionRow(
+    title: string,
+    propertyValueOverrides: Record<string, DocumentPropertyValue>,
+  ) {
     const mutationContract = data?.mutationContract;
     if (!mutationContract) {
       toast.error(dbText("failedToCreateRow"));
@@ -1858,15 +1962,31 @@ function DatabaseTable({
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
     };
-    let response;
     try {
-      response = await addItem.mutateAsync({
+      const response = await addItem.mutateAsync({
         target: mutationContract.target,
         expectedSchemaRevision: mutationContract.schemaRevision,
         idempotencyKey: crypto.randomUUID(),
         ...(title.trim() ? { title } : {}),
         propertyValues:
           Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
+      });
+      return response.createdItem ?? null;
+    } catch (err) {
+      toast.error(dbText("failedToCreateRow"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
+      return null;
+    }
+  }
+
+  async function createWorkspacePage(spaceId: string, title: string) {
+    let created;
+    try {
+      created = await createDocument.mutateAsync({
+        title: title.trim(),
+        spaceId,
       });
     } catch (err) {
       toast.error(dbText("failedToCreateRow"), {
@@ -1875,19 +1995,21 @@ function DatabaseTable({
       });
       return null;
     }
-    const createdItem = response.createdItem ?? null;
-    const needsPreview =
-      !!createdItem &&
-      databaseCreatedItemNeedsPreview(items, createdItem, options);
-    if (createdItem && needsPreview) {
-      setCreatedPreviewItem(createdItem);
-      setPreviewDocumentId(createdItem.document.id);
-      setPreviewTitleFocusDocumentId(createdItem.document.id);
+    // `refetch` resolves with an error result rather than rejecting, so a
+    // failed refresh has to be read off the result. The page is already
+    // committed here; reporting the stale view is what keeps a successful
+    // create from looking like it did nothing.
+    const refreshed = await database.refetch();
+    if (refreshed.isError) {
+      toast.error(dbText("pageCreatedCollectionRefreshFailed"));
+      return null;
     }
-    if (createdItem && options.focusInlineTitle && !needsPreview) {
-      setInlineTitleFocusDocumentId(createdItem.document.id);
-    }
-    return createdItem ?? null;
+    const refreshedData =
+      refreshed.data && "database" in refreshed.data ? refreshed.data : null;
+    return (
+      refreshedData?.items.find((item) => item.document.id === created.id) ??
+      null
+    );
   }
 
   async function createBoardCard(group: DatabaseBoardGroup, title = "") {
@@ -2006,17 +2128,46 @@ function DatabaseTable({
     });
   }
 
+  const saveSharedDatabaseView = useCallback(
+    async (
+      expectedDatabaseId: string,
+      nextViewConfig: ContentDatabaseViewConfig,
+    ) => {
+      const request = contentDatabaseViewSaveRequest({
+        data: databaseViewSaveDataRef.current,
+        databaseId: expectedDatabaseId,
+        revision: viewSetupRevisionRef.current,
+        idempotencyKey: crypto.randomUUID(),
+        viewConfig: nextViewConfig,
+      });
+      const response = await updateView.mutateAsync(request);
+      if (
+        "receipt" in response &&
+        viewPersistenceRef.current.databaseId === expectedDatabaseId
+      ) {
+        const revision = viewSetupRevisionRef.current;
+        if (revision?.databaseId === expectedDatabaseId) {
+          viewSetupRevisionRef.current = {
+            ...revision,
+            schemaRevision: response.receipt.revisions.schemaAfter,
+            configurationRevision:
+              response.receipt.revisions.configurationAfter,
+          };
+        }
+      }
+      return contentDatabaseViewSaveValue(response);
+    },
+    [updateView.mutateAsync],
+  );
+
   async function savePersonalQueryForEveryone() {
     if (!databaseId) return;
-
     try {
-      const response = await updateView.mutateAsync({
-        databaseId,
-        viewConfig,
+      const response = await viewSaveQueueRef.current(async () => {
+        return saveSharedDatabaseView(databaseId, viewConfig);
       });
-      const nextViewConfig = normalizeClientDatabaseViewConfig(
-        response.database.viewConfig,
-      );
+      if (viewPersistenceRef.current.databaseId !== databaseId) return;
+      const nextViewConfig = normalizeClientDatabaseViewConfig(response);
       if (personalViewSaveTimerRef.current) {
         clearTimeout(personalViewSaveTimerRef.current);
         personalViewSaveTimerRef.current = null;
@@ -2619,6 +2770,19 @@ function DatabaseTable({
       reconciled.viewConfig,
     );
     setHydratedDatabaseId(data.database.id);
+    const mutationContract = data.mutationContract;
+    if (mutationContract && data.configurationRevision) {
+      const { authorityScope: _authorityScope, ...target } =
+        mutationContract.target;
+      viewSetupRevisionRef.current = {
+        databaseId: data.database.id,
+        target,
+        schemaRevision: mutationContract.schemaRevision,
+        configurationRevision: data.configurationRevision,
+      };
+    } else {
+      viewSetupRevisionRef.current = null;
+    }
     if (hydratedViewRef.current === nextKey) return;
     hydratedViewRef.current = nextKey;
     setSavedViewConfig(reconciled.savedViewConfig);
@@ -2636,6 +2800,8 @@ function DatabaseTable({
   }, [
     data?.database.id,
     data?.database.viewConfig,
+    data?.configurationRevision,
+    data?.mutationContract,
     personalView.data?.overrides,
     personalView.isLoading,
     requestedViewId,
@@ -2672,14 +2838,11 @@ function DatabaseTable({
     }
     saveViewTimerRef.current = setTimeout(() => {
       submittedViewRef.current = { databaseId, key: nextKey };
-      void updateView
-        .mutateAsync({ databaseId, viewConfig: sharedViewConfig })
-        .then(
+      void viewSaveQueueRef.current(async () => {
+        return saveSharedDatabaseView(databaseId, sharedViewConfig).then(
           (response) => {
             if (viewPersistenceRef.current.databaseId !== databaseId) return;
-            const nextViewConfig = normalizeClientDatabaseViewConfig(
-              response.database.viewConfig,
-            );
+            const nextViewConfig = normalizeClientDatabaseViewConfig(response);
             viewPersistenceRef.current.savedViewConfig = nextViewConfig;
             setSavedViewConfig(nextViewConfig);
             if (
@@ -2711,6 +2874,7 @@ function DatabaseTable({
             });
           },
         );
+      });
     }, 350);
     return () => {
       if (saveViewTimerRef.current) {
@@ -2722,8 +2886,8 @@ function DatabaseTable({
     databaseId,
     personalQueryDirty,
     personalView.data?.overrides,
+    saveSharedDatabaseView,
     savedViewConfig,
-    updateView.mutateAsync,
     viewConfig,
   ]);
 
@@ -2942,22 +3106,23 @@ function DatabaseTable({
             </Tooltip>
           ) : null}
           <Button
+            ref={settingsTriggerRef}
             type="button"
             variant="ghost"
             size="sm"
             aria-label={
               builderReviewChangeSets.length > 0
                 ? builderReviewCountIsComplete
-                  ? `Database settings, ${builderReviewChangeSets.length} Builder update pending`
-                  : "Database settings, Builder updates pending"
-                : "Database settings"
+                  ? `Collection settings, ${builderReviewChangeSets.length} Builder update pending`
+                  : "Collection settings, Builder updates pending"
+                : "Collection settings"
             }
             title={
               builderReviewChangeSets.length > 0
                 ? builderReviewCountIsComplete
                   ? `${builderReviewChangeSets.length} Builder update pending`
                   : "Builder updates pending"
-                : "Database settings"
+                : "Collection settings"
             }
             className={cn(
               databaseToolbarIconButtonClass(
@@ -3008,7 +3173,7 @@ function DatabaseTable({
                 New
               </Button>
             </WorkspaceSourceMenu>
-          ) : effectiveCanEdit ? (
+          ) : effectiveCanEdit && canCreateItems ? (
             <Button
               type="button"
               size="sm"
@@ -3136,7 +3301,7 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
@@ -3174,7 +3339,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -3198,7 +3363,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -3223,7 +3388,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -3260,7 +3425,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -3445,6 +3610,7 @@ function DatabaseTable({
       />
 
       <DatabaseSettingsPanelSheet
+        triggerRef={settingsTriggerRef}
         open={settingsOpen}
         panel={settingsPanel}
         databaseId={databaseId}
@@ -7442,6 +7608,7 @@ function NotionLogoMark({ className }: { className?: string }) {
 
 function DatabaseSettingsPanelSheet({
   open,
+  triggerRef,
   panel,
   databaseId,
   documentId,
@@ -7480,6 +7647,7 @@ function DatabaseSettingsPanelSheet({
   onGroupsCollapsedChange,
 }: {
   open: boolean;
+  triggerRef: { current: HTMLButtonElement | null };
   panel: DatabaseSettingsPanel;
   databaseId: string;
   documentId: string;
@@ -7573,11 +7741,9 @@ function DatabaseSettingsPanelSheet({
     }
   }, [open, panel, preserveSourceNavigationOnClose]);
 
-  if (!open) return null;
-
   const title =
     panel === "main"
-      ? "Database settings"
+      ? "Collection settings"
       : panel === "source"
         ? sourceNavTitle(sourceNavStack)
         : databaseSettingsPanelTitle(panel);
@@ -7591,107 +7757,135 @@ function DatabaseSettingsPanelSheet({
   };
 
   return (
-    <aside
-      className="fixed bottom-0 right-0 top-12 z-40 flex w-[320px] max-w-[calc(100vw-1rem)] flex-col border-l border-border bg-background shadow-[-12px_0_32px_rgba(15,23,42,0.06)]"
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose();
+      }}
+      modal={false}
     >
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
-        {panel === "main" ? null : (
+      <SheetContent
+        side="right"
+        showOverlay={false}
+        showClose={false}
+        aria-describedby={undefined}
+        className="bottom-0 top-12 z-40 flex h-auto w-[320px] max-w-[calc(100vw-1rem)] flex-col gap-0 p-0 sm:max-w-[calc(100vw-1rem)]"
+        onInteractOutside={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const activeElement = window.document.activeElement;
+          if (
+            activeElement instanceof HTMLElement &&
+            activeElement !== window.document.body &&
+            event.target instanceof HTMLElement &&
+            !event.target.contains(activeElement)
+          ) {
+            return;
+          }
+          triggerRef.current?.focus();
+        }}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
+          {panel === "main" ? null : (
+            <button
+              type="button"
+              aria-label="Back"
+              className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={handleBack}
+            >
+              <IconArrowLeft className="size-4" />
+            </button>
+          )}
+          <SheetTitle className="min-w-0 flex-1 truncate text-sm font-semibold">
+            {title}
+          </SheetTitle>
           <button
             type="button"
-            aria-label="Back"
+            aria-label={dbText("closeDatabaseSettings")}
             className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={handleBack}
+            onClick={onClose}
           >
-            <IconArrowLeft className="size-4" />
+            <IconX className="size-4" />
           </button>
-        )}
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {title}
         </div>
-        <button
-          type="button"
-          aria-label={dbText("closeDatabaseSettings")}
-          className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onClose}
-        >
-          <IconX className="size-4" />
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-3">
-        {panel === "main" ? (
-          <DatabaseSettingsMainPanel
-            activeView={activeView}
-            source={source}
-            sourceCount={sources.length || (source ? 1 : 0)}
-            propertyCount={properties.length}
-            hiddenCount={hiddenCount}
-            onPanelChange={onPanelChange}
-          />
-        ) : panel === "source" ? (
-          <DatabaseSettingsSourcePanel
-            source={source}
-            sources={sources}
-            databaseId={databaseId}
-            documentId={documentId}
-            isFilesDatabase={isFilesDatabase}
-            itemCount={items.length}
-            canEdit={canEdit}
-            canManage={canManage}
-            nav={sourceNavStack}
-            onNavPush={(step) => setSourceNavStack((stack) => [...stack, step])}
-            onNavReplace={setSourceNavStack}
-            onAttachBuilderSource={onAttachBuilderSource}
-            onFederateSource={onFederateSource}
-            onChangeSourceRole={onChangeSourceRole}
-            onDisconnectSecondary={(sourceId) => {
-              onDisconnectSecondary(sourceId);
-              setSourceNavStack([]);
-            }}
-            onRefreshSource={onRefreshSource}
-            onHydrateBuilderBodies={onHydrateBuilderBodies}
-            onDisconnectSource={onDisconnectSource}
-            onReviewBuilderUpdate={onReviewBuilderUpdate}
-            onSetBuilderLiveWrites={onSetBuilderLiveWrites}
-            sourceActionPending={sourceActionPending}
-            builderAttachPreviewPending={builderAttachPreview.isFetching}
-            sourcePendingOperations={sourcePendingOperations}
-          />
-        ) : panel === "layout" ? (
-          <DatabaseSettingsLayoutPanel
-            activeView={activeView}
-            properties={properties}
-            onViewTypeChange={onViewTypeChange}
-            onWrapCellsChange={onWrapCellsChange}
-            onOpenPagesInChange={onOpenPagesInChange}
-            onFormQuestionsChange={onFormQuestionsChange}
-          />
-        ) : panel === "property_visibility" ? (
-          <DatabaseSettingsPropertyVisibilityPanel
-            documentId={documentId}
-            databaseId={databaseId}
-            properties={properties}
-            activeView={activeView}
-            items={items}
-            source={source}
-            sources={sources}
-            hiddenCount={hiddenCount}
-            onPropertyHiddenChange={onPropertyHiddenChange}
-            onPropertiesHiddenChange={onPropertiesHiddenChange}
-          />
-        ) : panel === "group" ? (
-          <DatabaseSettingsGroupPanel
-            activeView={activeView}
-            properties={properties}
-            groupIds={groupIds}
-            onGroupByChange={onGroupByChange}
-            onHideEmptyGroupsChange={onHideEmptyGroupsChange}
-            onGroupsCollapsedChange={onGroupsCollapsedChange}
-          />
-        ) : null}
-      </div>
-    </aside>
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-3">
+          {panel === "main" ? (
+            <DatabaseSettingsMainPanel
+              activeView={activeView}
+              source={source}
+              sourceCount={sources.length || (source ? 1 : 0)}
+              propertyCount={properties.length}
+              hiddenCount={hiddenCount}
+              onPanelChange={onPanelChange}
+            />
+          ) : panel === "source" ? (
+            <DatabaseSettingsSourcePanel
+              source={source}
+              sources={sources}
+              databaseId={databaseId}
+              documentId={documentId}
+              isFilesDatabase={isFilesDatabase}
+              itemCount={items.length}
+              canEdit={canEdit}
+              canManage={canManage}
+              nav={sourceNavStack}
+              onNavPush={(step) =>
+                setSourceNavStack((stack) => [...stack, step])
+              }
+              onNavReplace={setSourceNavStack}
+              onAttachBuilderSource={onAttachBuilderSource}
+              onFederateSource={onFederateSource}
+              onChangeSourceRole={onChangeSourceRole}
+              onDisconnectSecondary={(sourceId) => {
+                onDisconnectSecondary(sourceId);
+                setSourceNavStack([]);
+              }}
+              onRefreshSource={onRefreshSource}
+              onHydrateBuilderBodies={onHydrateBuilderBodies}
+              onDisconnectSource={onDisconnectSource}
+              onReviewBuilderUpdate={onReviewBuilderUpdate}
+              onSetBuilderLiveWrites={onSetBuilderLiveWrites}
+              sourceActionPending={sourceActionPending}
+              builderAttachPreviewPending={builderAttachPreview.isFetching}
+              sourcePendingOperations={sourcePendingOperations}
+            />
+          ) : panel === "layout" ? (
+            <DatabaseSettingsLayoutPanel
+              activeView={activeView}
+              properties={properties}
+              onViewTypeChange={onViewTypeChange}
+              onWrapCellsChange={onWrapCellsChange}
+              onOpenPagesInChange={onOpenPagesInChange}
+              onFormQuestionsChange={onFormQuestionsChange}
+            />
+          ) : panel === "property_visibility" ? (
+            <DatabaseSettingsPropertyVisibilityPanel
+              documentId={documentId}
+              databaseId={databaseId}
+              properties={properties}
+              activeView={activeView}
+              items={items}
+              source={source}
+              sources={sources}
+              hiddenCount={hiddenCount}
+              onPropertyHiddenChange={onPropertyHiddenChange}
+              onPropertiesHiddenChange={onPropertiesHiddenChange}
+            />
+          ) : panel === "group" ? (
+            <DatabaseSettingsGroupPanel
+              activeView={activeView}
+              properties={properties}
+              groupIds={groupIds}
+              onGroupByChange={onGroupByChange}
+              onHideEmptyGroupsChange={onHideEmptyGroupsChange}
+              onGroupsCollapsedChange={onGroupsCollapsedChange}
+            />
+          ) : null}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -7700,7 +7894,7 @@ function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
   if (panel === "layout") return "Layout";
   if (panel === "property_visibility") return "Property visibility";
   if (panel === "group") return "Group";
-  return "Database settings";
+  return "Collection settings";
 }
 
 function DatabaseSettingsMainPanel({
@@ -11373,7 +11567,7 @@ function databaseOpenPagesInLabel(value: ContentDatabaseOpenPagesIn) {
 function databaseOpenPagesInDescription(value: ContentDatabaseOpenPagesIn) {
   return value === "full_page"
     ? "Navigate to the page when opening a row."
-    : "Open rows in a side panel without leaving the database.";
+    : "Open rows in a side panel without leaving the collection.";
 }
 
 function databaseFilterModeLabel(filterMode: DatabaseFilterMode) {
@@ -13403,6 +13597,13 @@ export function selectDatabaseView(
 }
 
 export const DATABASE_VIEW_SELECTION_SEARCH_PARAM = "databaseViewId";
+
+export function requestedDatabaseViewId(
+  explicitViewId: string | null | undefined,
+  savedSelection: string | null | undefined,
+) {
+  return explicitViewId?.trim() || savedSelection?.trim() || null;
+}
 
 export function databaseViewSelectionSearchParam(
   databaseId: string,
@@ -18590,12 +18791,19 @@ function RowNameCell({
         wrapCells ? "items-start" : "items-center",
       )}
     >
-      <DatabaseItemPageIcon
-        document={item.document}
-        className="size-4 text-sm"
-        fallbackClassName="size-4"
-        fallback={workspaceCatalog ? "folder" : "page"}
-      />
+      <span
+        className={cn(
+          "flex shrink-0 items-center",
+          databaseTitleButtonDensityClass(rowDensity, wrapCells),
+        )}
+      >
+        <DatabaseItemPageIcon
+          document={item.document}
+          className="size-4 text-sm"
+          fallbackClassName="size-4"
+          fallback={workspaceCatalog ? "folder" : "page"}
+        />
+      </span>
       {canEdit && editingTitle ? (
         <input
           ref={rowTitleInputRef}

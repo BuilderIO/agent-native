@@ -22,14 +22,15 @@ export default function DocumentPage() {
   const [searchParams] = useSearchParams();
   const databaseId = searchParams.get("databaseId");
   const databaseDocumentId = searchParams.get("databaseDocumentId");
+  const viewId = searchParams.get("viewId");
 
   return id ? (
     <DocumentEditor
       documentId={id}
       foreground
-      requestedViewId={searchParams.get("viewId")}
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
+      viewId={viewId}
     />
   ) : (
     <div className="flex-1 flex items-center justify-center text-muted-foreground">

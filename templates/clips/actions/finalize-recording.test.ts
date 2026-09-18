@@ -38,6 +38,7 @@ const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
 const mockDbExecute = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec_1" }]),
@@ -83,6 +84,10 @@ vi.mock("@agent-native/core/db", () => ({
 
 vi.mock("@agent-native/core/event-bus", () => ({
   emit: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
@@ -375,6 +380,26 @@ describe("finalize-recording media serve verification", () => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
+  it("returns an explicit abort signal when cancellation wins the ready race", async () => {
+    seedBufferedRecording();
+    mockState.uploadState = { ...mockState.uploadState, aborted: true };
+    mockState.selectRows[1] = [{ status: "failed" }];
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "rec_1",
+        status: "failed",
+        aborted: true,
+      }),
+    );
+  });
+
   it("verifies private S3 uploads with scoped credentials instead of the public URL", async () => {
     seedBufferedRecording();
     const videoUrl =
@@ -412,6 +437,19 @@ describe("finalize-recording media serve verification", () => {
       allowLegacyObjectKey: true,
     });
     expect(fetch).not.toHaveBeenCalled();
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_ready",
+      expect.objectContaining({
+        app_name: "clips",
+        output_id: "rec_1",
+        output_type: "clip",
+        duration_s: 1,
+        video_format: "webm",
+        has_audio: true,
+        has_camera: false,
+      }),
+      { userId: "owner@example.com" },
+    );
   });
 
   it("falls back to the public URL when signed S3 credentials cannot read", async () => {

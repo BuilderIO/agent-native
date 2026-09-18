@@ -64,8 +64,10 @@ const messages = {
     extensions: "拡張機能",
     newRecording: "新規録画",
     folders: "フォルダ",
+    recordings: "録画",
     newFolder: "新規フォルダ",
     noSpaces: "スペースはまだありません",
+    noSpacesAdminCta: "組織の管理者に最初のスペース作成を依頼してください。",
     desktopCta: "デスクトップアプリを入手",
     desktopTitle: "Clips デスクトップアプリを入手しましょう。",
     desktopBody:
@@ -79,6 +81,7 @@ const messages = {
     createFolderError: "作成に失敗しました",
     folderCreated: "フォルダを作成しました",
     folderNamePlaceholder: "フォルダ名",
+    breadcrumbBack: "{{label}}に戻る",
   },
   empty: {
     library: {
@@ -514,6 +517,11 @@ const messages = {
     shareLink: "共有リンク",
     shareWithHumans: "人と共有する",
     shareWithAgents: "エージェントと共有する",
+    people: "ユーザー",
+    agents: "エージェント",
+    openInClaude: "Claude で開く",
+    openInClaudeCode: "Claude Code で開く",
+    openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
       "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
@@ -652,6 +660,7 @@ const messages = {
     organizationFallback: "組織",
     saving: "保存中…",
     save: "保存",
+    saved: "保存済み",
   },
   downloadRoute: {
     pageTitle: "ダウンロード",
@@ -664,9 +673,11 @@ const messages = {
     downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
     alsoFor: "{{platform}}でもご利用いただけます",
     backToLibrary: "ライブラリに戻る",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips をダウンロード",
     stable: "安定版",
     nightly: "Nightly",
+    allPlatforms: "すべてのプラットフォーム",
+    releaseChannel: "リリースチャンネル",
     switchToNightly: "Nightly ビルドに切り替え",
     switchToStable: "安定版ビルドに切り替え",
     retry: "再試行",
@@ -717,16 +728,17 @@ const messages = {
     agentTitle: "エージェントを管理",
     title: "設定",
     pageTitle: "設定 · Clips",
-    experiments: "実験機能",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
-    experimentVideoEditing: "動画編集",
-    experimentVideoEditingDescription: "新しい動画エディターをお試しください。",
-    experimentMeetings: "会議と文字起こし",
-    experimentMeetingsDescription:
+    labVideoEditing: "動画編集",
+    labVideoEditingDescription: "新しい動画エディターをお試しください。",
+    labMeetings: "会議と文字起こし",
+    labMeetingsDescription:
       "会議の自動キャプチャと文字起こしをお試しください。",
-    experimentWisprFlow: "音声入力",
-    experimentWisprFlowDescription: "新しい音声入力機能をお試しください。",
+    labWisprFlow: "音声入力",
+    labWisprFlowDescription:
+      "Clips Desktop の音声入力を表示または非表示にします。",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
     preferencesTitle: "環境設定",
     languageTitle: "言語",
@@ -957,6 +969,8 @@ const messages = {
     renameFailed: "クリップ名の変更に失敗しました",
     renameClip: "クリップ名を変更",
     clipTitle: "クリップタイトル",
+    archiveAction: "アーカイブ",
+    moveToTrashAction: "ゴミ箱に移動",
     movedToTrash: "ゴミ箱に移動しました",
     restoredFromArchive: "アーカイブから復元しました",
     archived: "アーカイブしました",
@@ -1348,13 +1362,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (ローカライズ済み)",
     chromeTitle: "Chrome extension (ローカライズ済み)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (ローカライズ済み)",
+    chromeDescription: "Chrome 拡張機能でブラウザのタブをキャプチャします。",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (ローカライズ済み)",
     desktopTitle: "Desktop app (ローカライズ済み)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (ローカライズ済み)",
+    desktopDescription: "グローバルショートカットとシステム音声で録画します。",
     openDesktopApp: "Open desktop app (ローカライズ済み)",
   },
   editableTitle: {
@@ -1744,6 +1756,7 @@ const messages = {
     donePageTitle: "バグレポートを送信しました · Clips",
     eyebrow: "バグレポート",
     title: "バグレポートを録画",
+    sidebarCta: "フィードバックを送る",
     description:
       "画面、音声、編集済みのブラウザーコンテキストで短い再現手順をチーム向けに記録します。",
     issueTitleLabel: "問題のタイトル",
@@ -1853,10 +1866,18 @@ const messages = {
       "コンソールの問題 {{consoleCount}} 件 · 失敗したリクエスト {{networkCount}} 件",
     noFailures: "失敗は検出されませんでした",
     failuresPresent: "ブラウザの問題が検出されました",
+    unviewedCount: "未確認 {{count}} 件",
     captureSuccessful: "診断情報を取得しました",
     capturedFrom: "{{source}} から取得",
     browserCapture: "ブラウザキャプチャ",
     views: "診断ビュー",
+    timeline: "タイムライン",
+    navigation: "ナビゲーション",
+    click: "クリック",
+    input: "入力",
+    scroll: "スクロール",
+    requestStarted: "リクエスト開始",
+    responseReceived: "レスポンス受信",
     issues: "問題",
     consoleSource: "コンソール",
     networkSource: "ネットワーク",

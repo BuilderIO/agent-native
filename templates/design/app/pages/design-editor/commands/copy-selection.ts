@@ -65,11 +65,14 @@ export async function runCopySelection({
   t,
   viewModeRef,
 }: CopySelectionArgs) {
-  const entries = getSelectedLayerSnapshots().map((snapshot) => ({
+  const snapshots = getSelectedLayerSnapshots();
+  const entries = snapshots.map((snapshot) => ({
     html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
     rootNodeId: snapshot.rootNodeId,
+    sourceParentNodeId: snapshot.sourceParentNodeId,
     sourceFileId: snapshot.sourceFileId,
     portableStyleSnapshot: snapshot.portableStyleSnapshot,
+    styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
     managedStyleSnapshot: snapshot.managedStyleSnapshot,
   }));
   // Whole-screen copy (U6): getSelectedLayerSnapshots explicitly excludes
@@ -143,13 +146,12 @@ export async function runCopySelection({
   lastWrittenClipboardPlainTextRef.current = plainText;
   pasteCascadeRef.current = 0;
   setHasCanvasClipboard(true);
+  // Clipboard permission is tied to this key activation. The settled
+  // selection cache above has already collected richer marquee snapshots.
+  const writePromise = writeDesignClipboard({ plainText, html: clipboardHtml });
   try {
-    await writeDesignClipboard({ plainText, html: clipboardHtml });
+    await writePromise;
   } catch {
-    // The OS clipboard write failing is tolerated: the in-memory refs
-    // above are already populated, so in-app cut-then-paste still works.
-    // Only the true "nothing was captured at all" case (the early return
-    // above) should abort a cut (see U15).
     toast.error(t("designEditor.toasts.clipboardBlocked"));
   }
   return true;

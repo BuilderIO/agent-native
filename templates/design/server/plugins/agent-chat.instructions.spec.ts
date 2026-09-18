@@ -36,6 +36,13 @@ describe("design review agent instructions", () => {
 describe("external design authoring catalog", () => {
   it("keeps context reads and writes on the compact connector surface", () => {
     for (const name of [
+      "open-visual-edit",
+      "connect-localhost",
+      "add-localhost-screens",
+      "list-localhost-connections",
+      "update-screen-source",
+      "add-breakpoint",
+      "remove-breakpoint",
       "list-designs",
       "list-design-systems",
       "get-design-snapshot",
@@ -53,6 +60,41 @@ describe("external design authoring catalog", () => {
       'externalAgents: { writes: "allowlisted" }',
     );
     expect(agentChatSource).toContain("designSystem.agentContext");
+  });
+
+  it("keeps explicit multi-page and prototype behavior in the acceptance contract", () => {
+    expect(agentChatSource).toContain(
+      "requested content, named pages, and page counts as acceptance criteria",
+    );
+    expect(agentChatSource).toContain(
+      "call generate-screens with every requested page",
+    );
+    expect(agentChatSource).toContain(
+      "Generated controls that look interactive must work in the prototype",
+    );
+    expect(agentChatSource).toContain(
+      "Exercise the primary links and buttons before reporting completion",
+    );
+  });
+});
+
+describe("design autosave tool coverage", () => {
+  it("treats screen renames as persisted design edits", () => {
+    const editToolsStart = agentChatSource.indexOf("const DESIGN_EDIT_TOOLS");
+    const fileTargetStart = agentChatSource.indexOf(
+      "const DESIGN_FILE_TARGET_TOOLS",
+    );
+    const helperStart = agentChatSource.indexOf("function eventRecord");
+
+    expect(agentChatSource.slice(editToolsStart, fileTargetStart)).toContain(
+      '"rename-screen"',
+    );
+    expect(agentChatSource.slice(fileTargetStart, helperStart)).toContain(
+      '"rename-screen"',
+    );
+    expect(agentChatSource).toContain(
+      'tool === "delete-file" || tool === "rename-screen" || tool === "update-file"',
+    );
   });
 });
 

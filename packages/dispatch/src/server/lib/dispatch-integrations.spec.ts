@@ -417,7 +417,7 @@ describe("beforeDispatchProcess", () => {
     expect(result).toEqual({
       handled: true,
       responseText:
-        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open https://dispatch.agent-native.test/identities while signed in and link Slack.",
     });
   });
 
@@ -439,7 +439,7 @@ describe("beforeDispatchProcess", () => {
     expect(result).toEqual({
       handled: true,
       responseText:
-        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
     });
     expect(mocks.consumeLinkToken).not.toHaveBeenCalled();
   });
@@ -518,7 +518,7 @@ describe("beforeDispatchProcess", () => {
       {
         handled: true,
         responseText:
-          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
       },
     );
     expect(mocks.consumeLinkToken).not.toHaveBeenCalled();
@@ -607,7 +607,7 @@ describe("managed Slack execution identity", () => {
       {
         handled: true,
         responseText:
-          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
       },
     );
   });
@@ -650,7 +650,7 @@ describe("managed Slack execution identity", () => {
       {
         handled: true,
         responseText:
-          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
       },
     );
   });
@@ -803,7 +803,7 @@ describe("managed Slack execution identity", () => {
       {
         handled: true,
         responseText:
-          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
       },
     );
   });

@@ -51,6 +51,7 @@ let terminalAction: typeof import("./manage-content-database-migration.js").defa
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let touchContentDatabase: typeof import("./_content-database-mutation-lock.js").touchContentDatabase;
 let serializeMigrationValue: typeof import("./_content-database-row-migration.js").serializeMigrationValue;
+let maxMigrationFlushConcurrency: number;
 const now = () => new Date().toISOString();
 
 beforeAll(async () => {
@@ -62,6 +63,9 @@ beforeAll(async () => {
     await import("./_content-database-row-migration.js")
   ).serializeMigrationValue;
   action = (await import("./migrate-content-database-rows.js")).default;
+  maxMigrationFlushConcurrency = (
+    await import("./migrate-content-database-rows.js")
+  ).MAX_MIGRATION_FLUSH_CONCURRENCY;
   terminalAction = (await import("./manage-content-database-migration.js"))
     .default;
   ({ lockContentDatabaseMutation, touchContentDatabase } =
@@ -483,6 +487,45 @@ describe("migrate-content-database-rows", () => {
     expect(durableLock.entered).toBe(false);
     releaseSecond();
     await expect(operation).rejects.toThrow("Synthetic flush failure");
+  });
+
+  it("bounds concurrent editor flushes for large migration plans", async () => {
+    const seed = await fixture(45);
+    const input = plan(seed);
+    let active = 0;
+    let maximumActive = 0;
+    flushOpenDocumentEditorToSql.mockImplementation(async () => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active -= 1;
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+
+    expect(flushOpenDocumentEditorToSql).toHaveBeenCalledTimes(45);
+    expect(maximumActive).toBeGreaterThan(1);
+    expect(maximumActive).toBeLessThanOrEqual(maxMigrationFlushConcurrency);
+  });
+
+  it("stops after draining a failed editor flush batch", async () => {
+    const seed = await fixture(maxMigrationFlushConcurrency + 1);
+    const input = plan(seed);
+    flushOpenDocumentEditorToSql.mockRejectedValueOnce(
+      new Error("Synthetic batched flush failure"),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      ),
+    ).rejects.toThrow("Synthetic batched flush failure");
+    expect(flushOpenDocumentEditorToSql).toHaveBeenCalledTimes(
+      maxMigrationFlushConcurrency,
+    );
+    expect(durableLock.entered).toBe(false);
   });
 
   it("validates without writes, applies all 20 synthetic rows, and replays without versions", async () => {
@@ -910,6 +953,99 @@ describe("migrate-content-database-rows", () => {
     ).toHaveLength(10_000);
   }, 60_000);
 
+  it("validates, applies, and verifies a complete 143-row migration", async () => {
+    const seed = await fixture(143);
+    const input = plan(seed);
+
+    const validated: any = await runWithRequestContext(
+      { userEmail: OWNER },
+      () => action.run({ phase: "validate", plan: input }),
+    );
+    expect(validated).toMatchObject({
+      phase: "validate",
+      counts: { rows: 143 },
+      verified: false,
+    });
+
+    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    expect(applied).toMatchObject({
+      state: "applied",
+      counts: { rows: 143 },
+      verified: false,
+    });
+
+    const verified: any = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        action.run({
+          phase: "verify",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+    );
+    expect(verified).toMatchObject({
+      state: "verified",
+      verified: true,
+    });
+
+    const migratedRows = await getDb()
+      .select({ id: schema.documents.id, content: schema.documents.content })
+      .from(schema.documents)
+      .where(
+        inArray(
+          schema.documents.id,
+          seed.rows.map((row: any) => row.documentId),
+        ),
+      );
+    expect(migratedRows).toHaveLength(143);
+    expect(new Map(migratedRows.map((row) => [row.id, row.content]))).toEqual(
+      new Map(input.rows.map((row: any) => [row.documentId, row.content])),
+    );
+
+    const migratedValues = await getDb()
+      .select({
+        documentId: schema.documentPropertyValues.documentId,
+        propertyId: schema.documentPropertyValues.propertyId,
+        valueJson: schema.documentPropertyValues.valueJson,
+      })
+      .from(schema.documentPropertyValues)
+      .where(
+        inArray(
+          schema.documentPropertyValues.documentId,
+          seed.rows.map((row: any) => row.documentId),
+        ),
+      );
+    const expectedValues = new Map<string, string>();
+    for (const row of input.rows) {
+      for (const value of row.protectedPropertyValues)
+        expectedValues.set(
+          `${row.documentId}:${value.propertyId}`,
+          value.valueJson,
+        );
+      for (const value of row.propertyValues) {
+        const definition = input.propertyDefinitions.find(
+          (candidate: any) => candidate.id === value.propertyId,
+        );
+        expectedValues.set(
+          `${row.documentId}:${value.propertyId}`,
+          serializeMigrationValue(definition!, value.value),
+        );
+      }
+    }
+    expect(migratedValues).toHaveLength(143 * 7);
+    const actualValues = new Map(
+      migratedValues.map((value) => [
+        `${value.documentId}:${value.propertyId}`,
+        value.valueJson,
+      ]),
+    );
+    for (const [key, value] of expectedValues)
+      expect(actualValues.get(key)).toBe(value);
+  }, 60_000);
+
   it("rejects source-mapped legacy fields and detects property-description drift", async () => {
     const db = getDb();
     const mappedSeed = await fixture();
@@ -973,6 +1109,80 @@ describe("migrate-content-database-rows", () => {
         }),
       ),
     ).rejects.toThrow("drifted");
+  });
+
+  it("detects an edit-away/edit-back body revision during verification", async () => {
+    const db = getDb();
+    const seed = await fixture();
+    const input = plan(seed);
+    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    const documentId = seed.rows[0].documentId;
+    const migratedContent = input.rows[0].content;
+
+    await db
+      .update(schema.documents)
+      .set({
+        content: "# Temporary editor change",
+        bodyRevision: sql`${schema.documents.bodyRevision} + 1`,
+        updatedAt: now(),
+      })
+      .where(eq(schema.documents.id, documentId));
+    await db
+      .update(schema.documents)
+      .set({
+        content: migratedContent,
+        bodyRevision: sql`${schema.documents.bodyRevision} + 1`,
+        updatedAt: now(),
+      })
+      .where(eq(schema.documents.id, documentId));
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({
+          phase: "verify",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+      ),
+    ).rejects.toThrow("drifted");
+  });
+
+  it("keeps a legacy-format migration receipt operable", async () => {
+    const db = getDb();
+    const seed = await fixture();
+    const input = plan(seed);
+    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    const [receipt] = await db
+      .select()
+      .from(schema.contentDatabaseMigrationReceipts)
+      .where(eq(schema.contentDatabaseMigrationReceipts.id, applied.receiptId));
+    const legacyResult = JSON.parse(receipt.resultJson);
+    delete legacyResult.bodyRevisionDigest;
+    await db
+      .update(schema.contentDatabaseMigrationReceipts)
+      .set({ resultJson: JSON.stringify(legacyResult) })
+      .where(eq(schema.contentDatabaseMigrationReceipts.id, applied.receiptId));
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      ),
+    ).resolves.toMatchObject({ replayed: true, state: "applied" });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({
+          phase: "verify",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+      ),
+    ).resolves.toMatchObject({ state: "verified", verified: true });
   });
 
   it("requires current editor access to every row before legacy cleanup", async () => {

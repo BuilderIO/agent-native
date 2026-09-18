@@ -280,7 +280,8 @@ instructions, and application state.
 ## Data And Security
 
 - Schema changes must be additive. Never drop, rename, truncate, or destructively
-  alter tables or columns in migrations or startup code.
+  alter tables or columns in migrations or startup code. New columns must
+  default or allow null.
 - SQL stores structured app state, metadata, references, and searchable text. Do
   not store large raw payloads — files, images, videos, audio, PDFs, ZIPs,
   screenshots, session replay chunks, thumbnails, `data:` URLs, or base64 file
@@ -331,9 +332,9 @@ instructions, and application state.
   `no-store`, `Vary: Cookie`, session/cookie reads, or auth branches to the SSR
   path — personalization is client-side after load. Enforced by
   `guard:ssr-cache-shell` and `ssr-handler.spec.ts`; do not weaken either.
-- UIs should be optimistic by default: update cache and navigate immediately,
-  roll back on error, and avoid click-blocking spinners except for destructive or
-  irreversible operations.
+- UIs should update optimistically, roll back errors, and avoid blocking spinners
+  except for destructive work.
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Data loads use layout-matching `Skeleton` geometry, not a generic "Loading..."
   label; reserve `Spinner` for brief mutations, uploads, and progress actions.
 - For any user-facing UI change — including screenshot feedback, copy or density

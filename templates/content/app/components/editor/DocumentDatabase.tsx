@@ -8,7 +8,7 @@ export * from "./database/DatabaseView";
 interface DocumentDatabaseProps {
   document: Document;
   canEdit: boolean;
-  requestedViewId?: string | null;
+  viewId?: string | null;
   foreground?: boolean;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }
@@ -16,7 +16,7 @@ interface DocumentDatabaseProps {
 export function DocumentDatabase({
   document,
   canEdit,
-  requestedViewId,
+  viewId,
   foreground,
   onExportContextChange,
 }: DocumentDatabaseProps) {
@@ -28,7 +28,7 @@ export function DocumentDatabase({
       databaseId={databaseId}
       databaseDocumentId={document.id}
       canEdit={canEdit}
-      requestedViewId={requestedViewId}
+      viewId={viewId}
       foreground={foreground}
       onExportContextChange={onExportContextChange}
     />

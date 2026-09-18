@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { BuilderImage } from "./builder-image";
 import { sitePathForLocale } from "./docs-locale";
 import { APP_ART } from "./website-redesign/app-art";
+import { AppStatusBadge } from "./website-redesign/ds/app-status-badge";
 import { CardArrow } from "./website-redesign/ds/card-arrow";
 
 export { trackEvent };
@@ -170,7 +171,7 @@ export function TemplateCard({ template }: { template: Template }) {
   const art = APP_ART[template.slug];
 
   return (
-    <article className="group flex min-w-0 flex-col overflow-hidden border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
+    <article className="group flex min-w-0 flex-col overflow-hidden border-e border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
       <Link
         data-an-prefetch="viewport"
         to={templatePath}
@@ -225,8 +226,9 @@ export function TemplateCard({ template }: { template: Template }) {
           )}
         </div>
         <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
-          <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+          <h3 className="m-0 flex items-center gap-[var(--spacing-2)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
             {template.name}
+            <AppStatusBadge appId={template.slug} />
           </h3>
           <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
             {description}

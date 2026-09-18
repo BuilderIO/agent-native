@@ -5,6 +5,8 @@ build
 .netlify
 .react-router
 .generated
+.agent-native/
+**/data/
 data/pglite/
 .env
 .env.local

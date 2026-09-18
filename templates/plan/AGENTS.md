@@ -27,6 +27,7 @@ generating or editing a plan.
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Follow the root framework rules: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no

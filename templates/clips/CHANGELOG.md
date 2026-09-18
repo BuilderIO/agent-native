@@ -3,6 +3,104 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-17
+
+### Fixed
+
+- Clips waits for authentication before showing the recording action
+- The Clips sort control keeps its keyboard focus ring visible
+
+## 2026-09-16
+
+### Improved
+
+- Agents can continue through long recording transcripts without losing later sections.
+
+### Fixed
+
+- Clips no longer marks incomplete Loom downloads as ready
+- The desktop retry control stays still while it offers cancellation.
+- Google sign-in now opens reliably from embedded Clips viewers
+
+## 2026-09-15
+
+### Added
+
+- Recordings include a structured timeline of browser interactions and diagnostics
+
+### Improved
+
+- Clips places editing controls between the video preview and timeline.
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+- Trash now supports paging through more than 100 deleted recordings
+
+### Fixed
+
+- Google sign-up now opens reliably in embedded browsers
+- Clips Desktop keeps Dictate visible when voice dictation is enabled
+- Clips no longer reports 0% completion on a clip that only agents have read - completion and CTA conversion now show as unknown until a human view is counted
+- Clips popovers now close when you switch to another application.
+- Clips serves private thumbnails through the same-origin thumbnail route.
+- Playback speed changes no longer restart paused clips, Picture-in-Picture stops cleanly when leaving the player, and the Windows tray stays within the usable desktop without hiding recorder controls.
+- The comments empty state now uses the shared shadcn empty-state style with an icon
+- Fixed the volume slider knob alignment in shared recordings
+- Shared Clips now focus the agent when asked, show clear viewer-safe transcript states, and keep workspace branding visible.
+
+## 2026-09-14
+
+### Fixed
+
+- Comment edits and reactions stay consistent during rapid updates.
+- Comment threads keep overlapping replies, reactions, and deletions consistent.
+- Selected recording checkboxes remain visible while selecting multiple clips
+
+## 2026-09-13
+
+### Improved
+
+- Members now know to ask an organization admin to create the first Space.
+
+### Fixed
+
+- Dictate stays available by default in Clips Desktop.
+
+## 2026-09-12
+
+### Fixed
+
+- Archive and Move to trash actions now use clear, action-specific labels in Clips.
+- Clips sign-in prompts now focus on the requested action with larger buttons.
+- Meetings stays in navigation and links to its Labs setting when unavailable.
+
+## 2026-09-10
+
+### Fixed
+
+- Deleting your only organization no longer leaves a "Couldn't load organization branding" error above the create-an-organization card in Settings.
+- Builder and other MCP connections now open setup in a new tab.
+
+## 2026-09-09
+
+### Improved
+
+- Attendee and viewer avatars use a slimmer border.
+
+### Fixed
+
+- The Agent sidebar now fits below the app toolbar without clipping its composer.
+- Desktop recorder switches now keep their checked state clear and legible in dark mode.
+- Recording pages now open the same contextual Agent panel used throughout the app.
+
+## 2026-09-08
+
+### Improved
+
+- The Cmd+K command menu now searches and navigates across recordings, meetings, dictations, folders, and spaces.
+
+### Fixed
+
+- Fixed desktop comment threads by keeping them in a full-height viewer tab, polished the side-panel tabs and spacing, added move, minimize, and close controls to desktop Clips windows, corrected the shared New recording action’s split-button corners, made library sub-item selection clear in the sidebar, and added visible folder tiles plus scoped recording actions to library and space views.
+
 ## 2026-09-04
 
 ### Fixed

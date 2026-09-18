@@ -17,6 +17,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
 import {
@@ -54,6 +55,19 @@ function emptyStateResponse(): Response {
   return new Response(
     JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
   );
+}
+
+function deferredResponse(): {
+  promise: Promise<Response>;
+  resolve: (response: Response) => void;
+} {
+  let resolve!: (response: Response) => void;
+  return {
+    promise: new Promise<Response>((done) => {
+      resolve = done;
+    }),
+    resolve,
+  };
 }
 
 /** Routes collab/poll endpoints to canned JSON and counts state fetches. */
@@ -130,6 +144,252 @@ describe("useCollaborativeDoc connection registry", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["network", "503", "ambiguous", "success"])(
+    "retains edits made during an in-flight %s response and converges on acknowledgement",
+    async (outcome) => {
+      const server = new Y.Doc();
+      server.getText("content").insert(0, "seed");
+      const { mock: fallback } = makeFetchMock();
+      const bodies: string[] = [];
+      let release!: () => void;
+      const firstRequest = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith("/state")) {
+            return new Response(
+              JSON.stringify({
+                state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+                  "base64",
+                ),
+              }),
+            );
+          }
+          if (!url.endsWith("/update")) return fallback(input);
+          const body = String(init?.body);
+          bodies.push(body);
+          if (bodies.length === 1) {
+            await firstRequest;
+            if (outcome === "network") throw new TypeError("offline");
+            if (outcome === "503") return new Response(null, { status: 503 });
+            Y.applyUpdate(
+              server,
+              Buffer.from(JSON.parse(body).update, "base64"),
+            );
+            if (outcome === "ambiguous") throw new TypeError("response lost");
+          } else {
+            Y.applyUpdate(
+              server,
+              Buffer.from(JSON.parse(body).update, "base64"),
+            );
+          }
+          return new Response(JSON.stringify({ ok: true }));
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="outbound-retry"
+          onResult={(next) => {
+            result = next;
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => result!.ydoc!.getText("content").insert(4, " one"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(80);
+      });
+      act(() => result!.ydoc!.getText("content").insert(8, " two"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(80);
+      });
+      expect(bodies).toHaveLength(1);
+      await act(async () => {
+        release();
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(bodies).toHaveLength(2);
+      expect(server.getText("content").toString()).toBe("seed one two");
+      expect(result!.ydoc!.getText("content").toString()).toBe("seed one two");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(bodies).toHaveLength(2);
+      server.destroy();
+    },
+  );
+
+  it.each([true, false])(
+    "retains failed teardown operations only for the same user (same=%s)",
+    async (sameUser) => {
+      const server = new Y.Doc();
+      server.getText("content").insert(0, "seed");
+      const { mock: fallback } = makeFetchMock();
+      let failUpdates = true;
+      let updateCount = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith("/state"))
+            return new Response(
+              JSON.stringify({
+                state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+                  "base64",
+                ),
+              }),
+            );
+          if (!url.endsWith("/update")) return fallback(input);
+          updateCount++;
+          if (failUpdates) return new Response(null, { status: 503 });
+          Y.applyUpdate(
+            server,
+            Buffer.from(JSON.parse(String(init?.body)).update, "base64"),
+          );
+          return new Response(JSON.stringify({ ok: true }));
+        }),
+      );
+      const user = {
+        name: "Editor",
+        email: "editor@example.test",
+        color: "blue",
+      };
+      let result: UseCollaborativeDocResult | undefined;
+      const root = mount(
+        <Probe
+          docId="retired-updates"
+          user={user}
+          onResult={(next) => {
+            result = next;
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => result!.ydoc!.getText("content").insert(4, " unsent"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(80);
+      });
+      act(() => root.render(null));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      const retiredCount = updateCount;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(updateCount).toBe(retiredCount);
+      expect(_collabDocRegistrySizeForTests()).toBe(0);
+      failUpdates = false;
+      mount(
+        <Probe
+          docId="retired-updates"
+          user={sameUser ? user : { ...user, email: "another@example.test" }}
+          onResult={(next) => {
+            result = next;
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      expect(server.getText("content").toString()).toBe(
+        sameUser ? "seed unsent" : "seed",
+      );
+      expect(result!.ydoc!.getText("content").toString()).toBe(
+        sameUser ? "seed unsent" : "seed",
+      );
+      expect(updateCount).toBe(retiredCount + (sameUser ? 1 : 0));
+      server.destroy();
+    },
+  );
+
+  it.each(["pagehide", "timeout"])(
+    "replays an unacknowledged original update after %s",
+    async (trigger) => {
+      const server = new Y.Doc();
+      server.getText("content").insert(0, "seed");
+      const { mock: fallback } = makeFetchMock();
+      const requests: RequestInit[] = [];
+      let rejectFirst!: () => void;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith("/state"))
+            return new Response(
+              JSON.stringify({
+                state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+                  "base64",
+                ),
+              }),
+            );
+          if (!url.endsWith("/update")) return fallback(input);
+          requests.push(init!);
+          Y.applyUpdate(
+            server,
+            Buffer.from(JSON.parse(String(init?.body)).update, "base64"),
+          );
+          if (requests.length === 1) {
+            return new Promise<Response>((_resolve, reject) => {
+              rejectFirst = () => reject(new TypeError("response lost"));
+              init?.signal?.addEventListener("abort", rejectFirst, {
+                once: true,
+              });
+            });
+          }
+          return new Response(JSON.stringify({ ok: true }));
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="ambiguous-delivery"
+          onResult={(next) => {
+            result = next;
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => result!.ydoc!.getText("content").insert(4, " once"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(80);
+      });
+      if (trigger === "pagehide") {
+        window.dispatchEvent(new Event("pagehide"));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(requests[1]?.keepalive).toBe(true);
+        await act(async () => {
+          rejectFirst();
+          await vi.advanceTimersByTimeAsync(0);
+        });
+      } else {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(17_000);
+        });
+      }
+      expect(requests).toHaveLength(2);
+      expect(requests[1]?.body).toBe(requests[0]?.body);
+      expect(server.getText("content").toString()).toBe("seed once");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(requests).toHaveLength(2);
+      server.destroy();
+    },
+  );
+
   it("shares one Y.Doc and one state fetch across two mounts of the same docId", async () => {
     const { mock, stateFetches } = makeFetchMock();
     vi.stubGlobal("fetch", mock);
@@ -156,6 +416,133 @@ describe("useCollaborativeDoc connection registry", () => {
     // Both subscribers converge on the same synced state.
     expect(a?.isSynced).toBe(true);
     expect(b?.isSynced).toBe(true);
+  });
+
+  it("returns a fresh sync receipt after an older transport fetch completes", async () => {
+    const backgroundState = deferredResponse();
+    const requestedState = deferredResponse();
+    let stateVectorFetches = 0;
+    const stateVectorRequests: RequestInit[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state\?/.test(url)) {
+        stateVectorFetches++;
+        stateVectorRequests.push(init ?? {});
+        return stateVectorFetches === 1
+          ? backgroundState.promise
+          : requestedState.promise;
+      }
+      if (/\/collab\/[^/]+\/state$/.test(url)) return emptyStateResponse();
+      if (url.includes("/_agent-native/poll")) {
+        // Force the transport's ring-gap recovery path to have an older
+        // state-vector request in flight when requestSync is called.
+        return new Response(JSON.stringify({ version: 2_000, events: [] }));
+      }
+      return new Response(JSON.stringify({ states: [] }));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe docId="receipt-doc" onResult={(next) => (result = next)} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result?.initialization.status).toBe("ready");
+    expect(stateVectorFetches).toBe(1);
+    const requestSync = result!.requestSync;
+    let receipt!: ReturnType<UseCollaborativeDocResult["requestSync"]>;
+    act(() => {
+      receipt = result!.requestSync();
+    });
+    // The receipt starts a fresh request immediately instead of waiting for
+    // the older transport recovery, which may never settle.
+    expect(stateVectorFetches).toBe(2);
+    expect(stateVectorRequests[1]?.cache).toBe("no-store");
+
+    act(() => {
+      root.render(
+        <Probe docId="receipt-doc" onResult={(next) => (result = next)} />,
+      );
+    });
+    expect(result?.requestSync).toBe(requestSync);
+
+    let outcome: Awaited<typeof receipt> | undefined;
+    await act(async () => {
+      requestedState.resolve(emptyStateResponse());
+      outcome = await receipt;
+    });
+    expect(outcome).toEqual({ status: "synced" });
+
+    await act(async () => {
+      backgroundState.resolve(emptyStateResponse());
+      await Promise.resolve();
+    });
+  });
+
+  it("reports state-vector failure and can retry without a false sync ack", async () => {
+    let stateVectorFetches = 0;
+    const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state\?/.test(url)) {
+        stateVectorFetches++;
+        if (stateVectorFetches === 1) {
+          return new Response("nope", { status: 503 });
+        }
+        if (stateVectorFetches === 2) {
+          return new Response(JSON.stringify({ state: "AQ==" }));
+        }
+        if (stateVectorFetches === 3) {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("Timed out", "AbortError"));
+            });
+          });
+        }
+        return emptyStateResponse();
+      }
+      if (/\/collab\/[^/]+\/state$/.test(url)) return emptyStateResponse();
+      if (url.includes("/_agent-native/poll")) {
+        return new Response(JSON.stringify({ version: 1, events: [] }));
+      }
+      return new Response(JSON.stringify({ states: [] }));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe docId="failed-receipt-doc" onResult={(next) => (result = next)} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const failed = await result!.requestSync();
+    expect(failed.status).toBe("failed");
+    if (failed.status === "failed") {
+      expect(failed.error.message).toContain("HTTP 503");
+    }
+    const malformed = await result!.requestSync();
+    expect(malformed.status).toBe("failed");
+    const timedOutReceipt = result!.requestSync();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    const timedOut = await timedOutReceipt;
+    expect(timedOut.status).toBe("failed");
+    await expect(result!.requestSync()).resolves.toEqual({ status: "synced" });
+
+    const staleRequestSync = result!.requestSync;
+    act(() => root.unmount());
+    roots = roots.filter((candidate) => candidate !== root);
+    await expect(staleRequestSync()).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(stateVectorFetches).toBe(4);
   });
 
   it.each([

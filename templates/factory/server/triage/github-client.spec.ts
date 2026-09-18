@@ -3,7 +3,10 @@ import { generateKeyPairSync } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveConnectorSecret } from "../connectors/credentials.js";
-import { createGitHubClient } from "./github-client.js";
+import {
+  createGitHubClient,
+  reviewCommentsFromGraphqlThreads,
+} from "./github-client.js";
 
 vi.mock("../connectors/credentials.js", () => ({
   resolveConnectorSecret: vi.fn(),
@@ -242,7 +245,11 @@ describe("GitHub triage client", () => {
         );
       if (path.endsWith("/comments"))
         return response(
-          { id: 10, html_url: "https://github.test/comment/10" },
+          {
+            id: 10,
+            html_url: "https://github.test/comment/10",
+            user: { login: "factory-bot" },
+          },
           201,
         );
       if (path.endsWith("/merge"))
@@ -292,6 +299,7 @@ describe("GitHub triage client", () => {
     ).resolves.toEqual({
       id: 10,
       htmlUrl: "https://github.test/comment/10",
+      author: "factory-bot",
     });
     await expect(client.mergePullRequest(repository, 2)).resolves.toEqual({
       sha: "merge-sha",
@@ -337,6 +345,9 @@ describe("GitHub triage client", () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
       const url = new URL(String(input));
       const path = url.pathname;
+      if (path === "/graphql") {
+        return response({});
+      }
       if (path.endsWith("/reviews")) {
         return response([
           {
@@ -427,6 +438,7 @@ describe("GitHub triage client", () => {
     );
     expect(paths).toEqual([
       "/repos/builder/factory/pulls/7/reviews",
+      "/graphql",
       "/repos/builder/factory/pulls/7/comments",
       "/repos/builder/factory/commits/sha-7/check-runs",
     ]);
@@ -492,9 +504,72 @@ describe("GitHub triage client", () => {
     expect(evidence.reviewsTruncated).toBe(false);
   });
 
+  it("preserves GraphQL completeness when a full page has exactly 100 comments", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/graphql") {
+        return response({
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: {
+                  pageInfo: { hasNextPage: false },
+                  nodes: Array.from({ length: 100 }, (_, index) => ({
+                    id: `PRRT_${index}`,
+                    isResolved: false,
+                    isOutdated: false,
+                    comments: {
+                      pageInfo: { hasNextPage: false },
+                      nodes: [
+                        {
+                          databaseId: index + 1,
+                          body: `comment ${index}`,
+                          createdAt: "2026-08-28T12:00:00Z",
+                          author: { login: "reviewer" },
+                        },
+                      ],
+                    },
+                  })),
+                },
+              },
+            },
+          },
+        });
+      }
+      if (path.endsWith("/reviews") || path.endsWith("/comments")) {
+        return response([]);
+      }
+      if (path.endsWith("/check-runs")) {
+        return response({
+          total_count: 1,
+          check_runs: [
+            {
+              name: "ci",
+              status: "completed",
+              conclusion: "success",
+              completed_at: "2026-08-28T12:02:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+
+    const evidence = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).getPullRequestEvidence(repository, 7, "sha-7");
+
+    expect(evidence.comments).toHaveLength(100);
+    expect(evidence.commentsTruncated).toBe(false);
+  });
+
   it("falls back to Actions workflow runs when Checks permission is unavailable", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
       const path = new URL(String(input)).pathname;
+      if (path === "/graphql") {
+        return response({});
+      }
       if (path.endsWith("/reviews") || path.endsWith("/comments")) {
         return response([]);
       }
@@ -538,6 +613,7 @@ describe("GitHub triage client", () => {
       fetchImpl.mock.calls.map(([input]) => new URL(String(input)).pathname),
     ).toEqual([
       "/repos/builder/factory/pulls/7/reviews",
+      "/graphql",
       "/repos/builder/factory/pulls/7/comments",
       "/repos/builder/factory/commits/sha-7/check-runs",
       "/repos/builder/factory/actions/runs",
@@ -582,6 +658,82 @@ describe("GitHub triage client", () => {
       },
     ]);
     expect(snapshot.commentsTruncated).toBe(false);
+  });
+
+  it("lists issue comments across pages and reports a readable scan", async () => {
+    const page = (start: number, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: start + index,
+        user: { login: "builderio-bot", id: 9 },
+        body: `comment ${start + index}`,
+        created_at: "2026-08-28T12:00:00Z",
+        html_url: `https://github.com/builder/factory/pull/7#c${start + index}`,
+      }));
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      if (!url.pathname.endsWith("/issues/7/comments")) {
+        throw new Error(`unexpected ${url.pathname}`);
+      }
+      return response(
+        url.searchParams.get("page") === "1" ? page(1, 100) : page(101, 3),
+      );
+    });
+
+    const scan = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).listIssueComments(repository, 7);
+
+    expect(scan.comments).toHaveLength(103);
+    expect(scan.truncated).toBe(false);
+    expect(scan.comments[0]).toEqual({
+      id: "1",
+      author: "builderio-bot",
+      body: "comment 1",
+      createdAt: "2026-08-28T12:00:00Z",
+      htmlUrl: "https://github.com/builder/factory/pull/7#c1",
+    });
+  });
+
+  // A capped scan is the case that must never read as "Factory has not asked yet".
+  it("marks an issue comment scan truncated when every page is full", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      user: { login: "reviewer", id: 2 },
+      body: "chatter",
+      created_at: "2026-08-28T12:00:00Z",
+      html_url: `https://github.com/builder/factory/pull/7#c${index + 1}`,
+    }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => response(full));
+
+    const scan = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).listIssueComments(repository, 7);
+
+    expect(scan.truncated).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
+  });
+
+  it("refuses an issue comment whose body is not a string", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response([
+        {
+          id: 5,
+          user: { login: "reviewer", id: 2 },
+          body: null,
+          created_at: "2026-08-28T12:00:00Z",
+          html_url: "https://github.com/builder/factory/pull/7#c5",
+        },
+      ]),
+    );
+
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl,
+      }).listIssueComments(repository, 7),
+    ).rejects.toThrow("issue comment body");
   });
 
   it("fails loudly when GitHub check-run results are truncated", async () => {
@@ -666,6 +818,65 @@ describe("GitHub triage client", () => {
     ).resolves.toEqual({
       number: 44,
       htmlUrl: "https://github.test/issues/44",
+    });
+  });
+
+  it("rejects GraphQL payloads with top-level errors", () => {
+    expect(
+      reviewCommentsFromGraphqlThreads({
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                pageInfo: { hasNextPage: false },
+                nodes: [],
+              },
+            },
+          },
+        },
+        errors: [{ message: "Could not resolve review thread" }],
+      }),
+    ).toBeNull();
+  });
+
+  it("maps GraphQL review threads into flat comments with thread flags", () => {
+    const parsed = reviewCommentsFromGraphqlThreads({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              pageInfo: { hasNextPage: false },
+              nodes: [
+                {
+                  id: "PRRT_kwDOABC",
+                  isResolved: false,
+                  isOutdated: true,
+                  comments: {
+                    pageInfo: { hasNextPage: false },
+                    nodes: [
+                      {
+                        databaseId: 123,
+                        body: "please fix",
+                        createdAt: "2026-09-14T18:00:00.000Z",
+                        path: "src/a.ts",
+                        line: 10,
+                        author: { login: "builder-io-integration[bot]" },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(parsed?.comments).toHaveLength(1);
+    expect(parsed?.comments[0]).toMatchObject({
+      id: "123",
+      isOutdated: true,
+      isResolved: false,
+      threadId: "PRRT_kwDOABC",
     });
   });
 

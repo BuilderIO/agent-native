@@ -1,12 +1,17 @@
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
-import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
+import {
+  isHostedWorkspaceRuntime,
+  resolveVercelDeploymentProtectionHeaders,
+} from "../server/credential-provider.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { getOrgA2ASecret, getOrgDomain } from "./context.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 
 const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
+const WORKSPACE_APP_CLAIM_ACTION_PATH =
+  "/_agent-native/actions/claim-workspace-app-organization";
 const WORKSPACE_APP_ACCESS_TIMEOUT_MS = 2_500;
 
 export interface WorkspaceAppAccessContext {
@@ -22,6 +27,18 @@ interface WorkspaceOrgMember {
 
 function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+export function isStandaloneDispatchRuntime(): boolean {
+  const app = getAppConfig().app;
+  const isDispatch = [
+    app.id,
+    app.legacyId,
+    app.template,
+    app.slug,
+    app.packageName,
+  ].some((value) => value?.trim().toLowerCase() === "dispatch");
+  return isDispatch && !isHostedWorkspaceRuntime();
 }
 
 function configuredWorkspaceDirectory(): string | null {
@@ -50,16 +67,40 @@ function workspaceAppsActionUrl(base: string): URL | null {
   }
 }
 
-function workspaceAppsFromResponse(value: unknown): Array<{ id?: unknown }> {
-  if (Array.isArray(value)) return value as Array<{ id?: unknown }>;
+function workspaceAppsFromResponse(
+  value: unknown,
+): Array<{ id?: unknown; orgEnabled?: unknown; org_enabled?: unknown }> {
+  if (Array.isArray(value)) {
+    return value as Array<{
+      id?: unknown;
+      orgEnabled?: unknown;
+      org_enabled?: unknown;
+    }>;
+  }
   if (
     value &&
     typeof value === "object" &&
     Array.isArray((value as { apps?: unknown }).apps)
   ) {
-    return (value as { apps: Array<{ id?: unknown }> }).apps;
+    return (
+      value as {
+        apps: Array<{
+          id?: unknown;
+          orgEnabled?: unknown;
+          org_enabled?: unknown;
+        }>;
+      }
+    ).apps;
   }
   return [];
+}
+
+function workspaceAppIsDisabled(app: {
+  orgEnabled?: unknown;
+  org_enabled?: unknown;
+}): boolean {
+  const value = app.orgEnabled ?? app.org_enabled;
+  return value === false || value === 0 || value === "false" || value === "0";
 }
 
 /**
@@ -110,12 +151,13 @@ async function hostedWorkspaceAppAccess(
     const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
       url.toString(),
     );
+    const headers = {
+      accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      ...protectionHeaders,
+    };
     const response = await fetch(url, {
-      headers: {
-        accept: "application/json",
-        Authorization: `Bearer ${token}`,
-        ...protectionHeaders,
-      },
+      headers,
       ...(protectionHeaders["x-vercel-protection-bypass"]
         ? { redirect: "manual" as const }
         : {}),
@@ -126,12 +168,85 @@ async function hostedWorkspaceAppAccess(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await response.json().catch(() => null),
     );
-    return apps.some((app) => app.id === appId);
+    const matchingApp = apps.find((app) => app.id === appId);
+    if (matchingApp) return !workspaceAppIsDisabled(matchingApp);
+
+    const claimUrl = new URL(url);
+    claimUrl.pathname = claimUrl.pathname.replace(
+      WORKSPACE_APPS_ACTION_PATH,
+      WORKSPACE_APP_CLAIM_ACTION_PATH,
+    );
+    claimUrl.search = "";
+    const claimResponse = await fetch(claimUrl, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "content-type": "application/json",
+      },
+      ...(protectionHeaders["x-vercel-protection-bypass"]
+        ? { redirect: "manual" as const }
+        : {}),
+      body: JSON.stringify({ appId }),
+      signal: controller.signal,
+    });
+    if (!claimResponse.ok) return false;
+    // coercion-ok: malformed registry JSON is an authorization failure.
+    const claim = (await claimResponse.json().catch(() => null)) as {
+      allowed?: unknown;
+    } | null;
+    if (claim?.allowed !== true) return false;
+
+    const refreshedResponse = await fetch(url, {
+      headers,
+      ...(protectionHeaders["x-vercel-protection-bypass"]
+        ? { redirect: "manual" as const }
+        : {}),
+      signal: controller.signal,
+    });
+    if (!refreshedResponse.ok) return false;
+    const refreshedApps = workspaceAppsFromResponse(
+      // coercion-ok: malformed registry JSON is an authorization failure.
+      await refreshedResponse.json().catch(() => null),
+    );
+    const refreshedApp = refreshedApps.find((app) => app.id === appId);
+    return refreshedApp ? !workspaceAppIsDisabled(refreshedApp) : false;
   } catch (error) {
     console.error("[workspace-app-access] registry access check failed", error);
     return false;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function localOrganizationAppEnabled(
+  appId: string,
+  orgId: string | null,
+): Promise<boolean | null> {
+  if (!orgId) return null;
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT org_enabled FROM workspace_apps
+            WHERE id = ? AND org_id = ? LIMIT 1`,
+      args: [appId, orgId],
+    });
+    const row = Array.isArray(result?.rows)
+      ? (result.rows[0] as { org_enabled?: unknown } | undefined)
+      : undefined;
+    if (!row) return null;
+    return !(
+      row.org_enabled === false ||
+      row.org_enabled === 0 ||
+      row.org_enabled === "false" ||
+      row.org_enabled === "0"
+    );
+  } catch (error) {
+    if (!isMissingOrganizationTableError(error)) {
+      console.error(
+        "[workspace-app-access] local organization app state unavailable",
+        error,
+      );
+    }
+    return null;
   }
 }
 
@@ -155,6 +270,7 @@ async function loadWorkspaceOrgMember(
     });
   } catch (error) {
     if (!isMissingOrganizationTableError(error)) throw error;
+    if (!isStandaloneDispatchRuntime()) throw error;
     memberResult = await db.execute({
       sql: `SELECT role FROM org_members
             WHERE org_id = ? AND LOWER(email) = ?
@@ -191,22 +307,74 @@ async function isActiveWorkspaceOrgMember(
   return membership.active;
 }
 
+async function claimWorkspaceAppOrganization(
+  db: DbExec,
+  appId: string,
+  orgId: string,
+  member: WorkspaceOrgMember,
+): Promise<boolean> {
+  if (member.role !== "owner" && member.role !== "admin") {
+    return false;
+  }
+  const claim = await db.execute({
+    sql: `UPDATE workspace_apps SET org_id = ?
+          WHERE id = ? AND org_id IS NULL
+            AND TRIM(owner_email) = '' AND visibility = 'org'
+          RETURNING org_id`,
+    args: [orgId, appId],
+  });
+  if (claim.rows.length > 0) return true;
+
+  const current = await db.execute({
+    sql: `SELECT org_id FROM workspace_apps WHERE id = ? LIMIT 1`,
+    args: [appId],
+  });
+  return current.rows[0]?.org_id === orgId;
+}
+
+export async function claimWorkspaceAppForOrganization(
+  appId: string,
+  context: WorkspaceAppAccessContext,
+): Promise<boolean> {
+  const normalizedAppId = appId.trim();
+  const email = normalizedEmail(context.email);
+  const orgId = context.orgId?.trim() || null;
+  if (!normalizedAppId || !email || !orgId) return false;
+
+  try {
+    const db = getDbExec();
+    const member = await loadWorkspaceOrgMember(db, orgId, email);
+    if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
+      return false;
+    }
+    return claimWorkspaceAppOrganization(db, normalizedAppId, orgId, member);
+  } catch (error) {
+    console.error("[workspace-app-access] organization claim failed", error);
+    return false;
+  }
+}
+
 async function isDispatchWorkspaceAppAccessAllowed(
   context: WorkspaceAppAccessContext,
   email: string,
 ): Promise<boolean> {
   const orgId = context.orgId?.trim() || null;
-  // Dispatch remains available in personal/no-org mode. Organization-scoped
-  // Dispatch is a private control plane for owners and admins.
   if (!orgId) return true;
 
   try {
     const member = await loadWorkspaceOrgMember(getDbExec(), orgId, email);
-    if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
-      return false;
-    }
-    return member.role === "owner" || member.role === "admin";
+    // Standalone Dispatch hosts can carry an org id before enabling the org
+    // schema. Preserve their authenticated-only access until that schema exists.
+    return Boolean(
+      member && (await isActiveWorkspaceOrgMember(member, orgId, email)),
+    );
   } catch (error) {
+    if (
+      isMissingOrganizationTableError(error) &&
+      isStandaloneDispatchRuntime()
+    ) {
+      return true;
+    }
     console.error("[workspace-app-access] Dispatch access check failed", error);
     return false;
   }
@@ -230,6 +398,17 @@ export async function isWorkspaceAppAccessAllowed(
     return isDispatchWorkspaceAppAccessAllowed(context, email);
   }
 
+  // A local disable is an explicit organization decision and must win over
+  // the hosted registry response. Missing local rows preserve the registry
+  // path for hosted deployments that do not mirror workspace_apps locally.
+  if (configuredWorkspaceDirectory()) {
+    const locallyEnabled = await localOrganizationAppEnabled(
+      normalizedAppId,
+      context.orgId?.trim() || null,
+    );
+    if (locallyEnabled === false) return false;
+  }
+
   const hostedAccess = await hostedWorkspaceAppAccess(
     normalizedAppId,
     context,
@@ -243,12 +422,17 @@ export async function isWorkspaceAppAccessAllowed(
   try {
     const db = getDbExec();
     const appResult = await db.execute({
-      sql: `SELECT owner_email, org_id, visibility
+      sql: `SELECT owner_email, org_id, visibility, org_enabled
             FROM workspace_apps WHERE id = ? LIMIT 1`,
       args: [normalizedAppId],
     });
     const app = appResult.rows[0] as
-      | { owner_email?: unknown; org_id?: unknown; visibility?: unknown }
+      | {
+          owner_email?: unknown;
+          org_id?: unknown;
+          visibility?: unknown;
+          org_enabled?: unknown;
+        }
       | undefined;
     if (!app) return false;
 
@@ -259,15 +443,37 @@ export async function isWorkspaceAppAccessAllowed(
       (typeof app.org_id === "string" ? app.org_id : "").trim() || null;
     const orgId = context.orgId?.trim() || null;
     const sameOrg = !!resourceOrgId && resourceOrgId === orgId;
+    const orgEnabled =
+      app.org_enabled !== false &&
+      app.org_enabled !== 0 &&
+      app.org_enabled !== "false" &&
+      app.org_enabled !== "0";
+    const canClaimCallerOrg =
+      !resourceOrgId && !ownerEmail && app.visibility === "org" && !!orgId;
 
+    if (sameOrg && !orgEnabled) return false;
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
-    if (!sameOrg || !orgId) return false;
+    if ((!sameOrg && !canClaimCallerOrg) || !orgId) return false;
 
     const member = await loadWorkspaceOrgMember(db, orgId, email);
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }
     const memberRole = member.role;
+    if (canClaimCallerOrg) {
+      // Fresh workspaces register apps before their first organization exists.
+      // Claim once so a missing org never becomes cross-organization access.
+      if (
+        !(await claimWorkspaceAppOrganization(
+          db,
+          normalizedAppId,
+          orgId,
+          member,
+        ))
+      ) {
+        return false;
+      }
+    }
     if (memberRole === "owner" || memberRole === "admin") return true;
 
     if (app.visibility === "org") return true;

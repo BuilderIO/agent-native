@@ -359,8 +359,9 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     );
     expect(source).toContain("previewFrameId={");
     expect(source).toContain("breakpointWidthPx,");
+    expect(canvasSource).toContain("const editableContent = bootDeferred");
     expect(canvasSource).toContain(
-      "const editableContent = renderBreakpointContent?.(",
+      "renderBreakpointContent?.(screen, metadata, {",
     );
     expect(canvasSource).toContain("editableContent ? (");
     expect(source).toContain(
@@ -391,17 +392,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(source).not.toContain("w-[190px] max-w-full shrink-0 !text-[11px]");
   });
 
-  it("confirms that deleting a base screen includes all responsive variants", () => {
-    const deletionDialogSource = readFileSync(
-      "app/components/design/editor/PendingScreenDeletionDialog.tsx",
-      "utf8",
-    );
-    expect(deletionDialogSource).toContain(
-      "designEditor.screenDeletion.descriptionOne",
-    );
-    expect(deletionDialogSource).toContain(
-      "designEditor.screenDeletion.descriptionMany",
-    );
+  it("deletes selected screens without an editor-open-only confirmation flow", () => {
+    expect(source).not.toContain("PendingScreenDeletionDialog");
+    expect(source).not.toContain("screenDeletion");
+    expect(source).toContain("recordDeletionHistory: true");
   });
 
   it("routes every style-commit path through the scoped write helper", () => {
@@ -467,56 +461,54 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(escape).toContain("handleBreakpointBarSelect(undefined)");
   });
 
-  it("BP-DEEP v2 item 6: change-width swaps through add + re-target + remove (add-first, orphan-proof)", () => {
+  it("BP-DEEP v2 item 6: change-width uses one same-id update mutation", () => {
     const handler = source.slice(
       source.indexOf("const handleBreakpointChangeWidth"),
       source.indexOf("const handleOverviewAddBreakpoint"),
     );
-    expect(handler).toContain("removeBreakpointMutation.mutateAsync");
-    expect(handler).toContain("addBreakpointMutation.mutateAsync");
+    expect(handler).toMatch(/updateBreakpointMutation\s*\.mutateAsync/);
+    expect(handler).not.toContain("removeBreakpointMutation.mutateAsync");
+    expect(handler).not.toContain("addBreakpointMutation.mutateAsync");
     expect(handler).toContain(
-      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+      "activeBreakpointWidthStateRef.current === existing.widthPx",
     );
-    // Orphan-proof ordering: the add call must appear before the remove call
-    // (add-then-remove, not remove-then-add), so a failed/slow add never
-    // leaves the active edit scope pointed at a width with no backing
-    // breakpoint.
-    const addIndex = handler.indexOf("addBreakpointMutation.mutateAsync");
-    const removeIndex = handler.indexOf("removeBreakpointMutation.mutateAsync");
-    expect(addIndex).toBeGreaterThanOrEqual(0);
-    expect(removeIndex).toBeGreaterThan(addIndex);
-    // The re-target call must happen between add and remove, so the UI's
-    // edit scope follows the new width before the old breakpoint is torn
-    // down (success path: active target follows the width change).
+    expect(handler).toContain(
+      "handleBreakpointBarSelect(widthPx, breakpointId)",
+    );
+    expect(handler).toContain("if (!result?.updated)");
+    expect(handler).toContain("result?.reason");
+    expect(handler).toContain("collabReconcilePending");
+    expect(handler).toContain("visualEditor.changesSaveWhenReconnected");
+    const updateIndex = handler.search(
+      /updateBreakpointMutation\s*\.mutateAsync/,
+    );
     const retargetIndex = handler.indexOf(
-      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+      "handleBreakpointBarSelect(widthPx, breakpointId)",
     );
-    expect(retargetIndex).toBeGreaterThan(addIndex);
-    expect(retargetIndex).toBeLessThan(removeIndex);
+    expect(updateIndex).toBeGreaterThanOrEqual(0);
+    expect(retargetIndex).toBeGreaterThan(updateIndex);
   });
 
-  it("BP-DEEP v2 item 6: an add failure aborts before touching the old breakpoint (failure path — old breakpoint stays intact and targeted)", () => {
+  it("keeps Enter handling local in the overview breakpoint width input", () => {
+    const menuStart = canvasSource.indexOf("onChangeBreakpointWidth ? (");
+    const widthInput = canvasSource.slice(
+      menuStart,
+      canvasSource.indexOf("</DropdownMenuContent>", menuStart),
+    );
+
+    expect(menuStart).toBeGreaterThanOrEqual(0);
+    expect(widthInput).toContain("onKeyDownCapture");
+  });
+
+  it("BP-DEEP v2 item 6: an update failure surfaces without a second breakpoint mutation", () => {
     const handler = source.slice(
       source.indexOf("const handleBreakpointChangeWidth"),
       source.indexOf("const handleOverviewAddBreakpoint"),
     );
-    // The add call is wrapped in its own try/catch that returns early,
-    // before the re-target or remove calls run — so a rejected add never
-    // reaches handleBreakpointBarSelect or removeBreakpointMutation, leaving
-    // the old breakpoint (and, if it was active, the active target) fully
-    // intact.
-    const tryIndex = handler.indexOf("try {");
-    const addIndex = handler.indexOf("addBreakpointMutation.mutateAsync");
-    const catchIndex = handler.indexOf("} catch {", addIndex);
-    const returnIndex = handler.indexOf("return;", catchIndex);
-    const retargetIndex = handler.indexOf(
-      "if (wasActive) handleBreakpointBarSelect(widthPx)",
-    );
-    expect(tryIndex).toBeGreaterThanOrEqual(0);
-    expect(tryIndex).toBeLessThan(addIndex);
-    expect(catchIndex).toBeGreaterThan(addIndex);
-    expect(returnIndex).toBeGreaterThan(catchIndex);
-    expect(returnIndex).toBeLessThan(retargetIndex);
+    expect(handler).toMatch(/updateBreakpointMutation\s*\.mutateAsync/);
+    expect(handler).toContain(".catch((error) => {");
+    expect(handler).toContain("toast.error");
+    expect(handler).not.toContain("removeBreakpointMutation.mutateAsync");
   });
 
   it("gates overview side-by-side frames on the show-all toggle", () => {
@@ -526,6 +518,33 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     );
     expect(overviewScreensSource).toContain("!breakpointFramesHidden &&");
     expect(source).toContain("breakpointFramesHidden,");
+  });
+
+  it("optimistically patches breakpointSet and shows pending feedback on add/remove/update", () => {
+    expect(source).toContain("optimisticAddBreakpointData");
+    expect(source).toContain("optimisticRemoveBreakpointData");
+    expect(source).toContain("beginOptimisticBreakpointSetPatch");
+    expect(source).toContain("breakpointMutationPending={");
+    expect(source).toContain("addBreakpointMutation.isPending");
+    expect(source).toContain("removeBreakpointMutation.isPending");
+    expect(source).toContain("updateBreakpointMutation.isPending");
+    const addHandler = source.slice(
+      source.indexOf("const addDesignBreakpoint"),
+      source.indexOf("const handleBreakpointBarAdd"),
+    );
+    expect(addHandler).toContain("beginOptimisticBreakpointSetPatch");
+    expect(addHandler.indexOf("optimisticAddBreakpointData")).toBeLessThan(
+      addHandler.indexOf("addBreakpointMutation"),
+    );
+    expect(addHandler).toContain("id: optimisticId");
+    const removeHandler = source.slice(
+      source.indexOf("const handleBreakpointBarRemove"),
+      source.indexOf("const handleBreakpointChangeWidth"),
+    );
+    expect(removeHandler).toContain("optimisticRemoveBreakpointData");
+    expect(
+      removeHandler.indexOf("optimisticRemoveBreakpointData"),
+    ).toBeLessThan(removeHandler.indexOf("removeBreakpointMutation"));
   });
 
   it("stamps the active breakpoint scope onto pending gesture edits", () => {
@@ -660,8 +679,6 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       frameActionStart,
       source.indexOf("  useEffect(() => {", frameActionStart),
     );
-    expect(frameAction).toContain('if (mode === "interact")');
-    expect(frameAction).toContain("enterSingleScreenInteract(screenId)");
     expect(frameAction).toContain(
       'handleModeChange("interact", { targetFileId: screenId })',
     );

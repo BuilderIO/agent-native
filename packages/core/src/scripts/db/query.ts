@@ -7,8 +7,13 @@
 
 import path from "node:path";
 
-import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";
+import { getRuntimeDatabaseUrl, toPostgresParams } from "../../db/client.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
+import { tryForwardDbQueryToDevServer } from "./dev-query-proxy.js";
 import { createPostgresScriptClient } from "./postgres-client.js";
 import {
   assertNoSchemaQualifiedTables,
@@ -68,6 +73,82 @@ function printTable(
   }
 }
 
+export interface RunDbQueryOptions {
+  sql: string;
+  sqlArgs?: unknown[];
+  limit?: number;
+  databaseUrl?: string;
+}
+
+export interface RunDbQueryResult {
+  rows: Record<string, unknown>[];
+  sql: string;
+}
+
+/**
+ * Validate, scope, and execute a read-only query. Shared by the CLI's
+ * in-process path and the dev-server forward route (`dev-action-bridge.ts`)
+ * so a forwarded read goes through the exact same checks and row scoping as
+ * running `pnpm action db-query` locally, not a separate, unscoped path.
+ */
+export async function runDbQuery(
+  options: RunDbQueryOptions,
+): Promise<RunDbQueryResult> {
+  const sqlArgs = options.sqlArgs ?? [];
+  const stripped = options.sql
+    .replace(/^\s*--[^\n]*\n/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim();
+  const upper = stripped.toUpperCase();
+  if (
+    !upper.startsWith("SELECT") &&
+    !upper.startsWith("WITH") &&
+    !upper.startsWith("EXPLAIN")
+  ) {
+    fail(
+      "Only SELECT, WITH, and EXPLAIN queries are allowed. Use db-exec for writes.",
+    );
+  }
+  assertNoSensitiveFrameworkTables(stripped, "read");
+  assertNoSchemaQualifiedTables(stripped, "read");
+
+  let query = options.sql;
+  if (
+    options.limit &&
+    (upper.startsWith("SELECT") || upper.startsWith("WITH")) &&
+    !/\bLIMIT\b/i.test(stripped)
+  ) {
+    query = `${options.sql} LIMIT ${options.limit}`;
+  }
+
+  // Must match the resolver `tryForwardDbQueryToDevServer` hashes for its
+  // forward-eligibility check (dev-query-proxy.ts) — otherwise the same
+  // command reads a different database depending on whether forwarding
+  // happened to succeed.
+  const url =
+    options.databaseUrl ?? getRuntimeDatabaseUrl("pglite:./data/pglite");
+  const client = await createPostgresScriptClient(url);
+  try {
+    let rows: Record<string, unknown>[] = [];
+    const finalSql = toPostgresParams(query);
+    await client.begin(async (tx) => {
+      const scoping = await buildScopingPostgres(tx);
+      for (const statement of scoping.setup) await tx.unsafe(statement);
+      try {
+        const result = await tx.unsafe(finalSql, sqlArgs);
+        rows = Array.from(result);
+      } finally {
+        for (const statement of scoping.teardown) {
+          await tx.unsafe(statement).catch(() => {});
+        }
+      }
+    });
+    return { rows, sql: finalSql };
+  } finally {
+    await client.end();
+  }
+}
+
 export default async function dbQuery(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
   if (parsed.help === "true") {
@@ -86,57 +167,43 @@ Options:
   const sql = parsed.sql;
   if (!sql) fail('--sql is required. Example: --sql "SELECT * FROM forms"');
   const sqlArgs = parseSqlArgs(parsed.args);
-  const stripped = sql
-    .replace(/^\s*--[^\n]*\n/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .trim();
-  const upper = stripped.toUpperCase();
-  if (
-    !upper.startsWith("SELECT") &&
-    !upper.startsWith("WITH") &&
-    !upper.startsWith("EXPLAIN")
-  ) {
-    fail(
-      "Only SELECT, WITH, and EXPLAIN queries are allowed. Use db-exec for writes.",
-    );
-  }
-  assertNoSensitiveFrameworkTables(stripped, "read");
-  assertNoSchemaQualifiedTables(stripped, "read");
 
-  let query = sql;
-  if (
-    parsed.limit &&
-    (upper.startsWith("SELECT") || upper.startsWith("WITH")) &&
-    !/\bLIMIT\b/i.test(stripped)
-  ) {
-    const limit = Number.parseInt(parsed.limit, 10);
+  let limit: number | undefined;
+  if (parsed.limit) {
+    limit = Number.parseInt(parsed.limit, 10);
     if (!Number.isInteger(limit) || limit < 1) {
       fail("--limit must be a positive integer");
     }
-    query = `${sql} LIMIT ${limit}`;
   }
 
-  const url = parsed.db
-    ? `pglite:${path.resolve(parsed.db)}`
-    : getDatabaseUrl("pglite:./data/pglite");
-  const client = await createPostgresScriptClient(url);
-  try {
-    let rows: Record<string, unknown>[] = [];
-    const finalSql = toPostgresParams(query);
-    await client.begin(async (tx) => {
-      const scoping = await buildScopingPostgres(tx);
-      for (const statement of scoping.setup) await tx.unsafe(statement);
-      try {
-        const result = await tx.unsafe(finalSql, sqlArgs);
-        rows = Array.from(result);
-      } finally {
-        for (const statement of scoping.teardown) {
-          await tx.unsafe(statement).catch(() => {});
-        }
-      }
+  // A custom --db points at a specific PGlite directory (e.g. a snapshot),
+  // which the running dev server almost never matches — never forward that
+  // case, or a query could silently run against the wrong database.
+  if (!parsed.db) {
+    // Runner.ts's dispatch already wraps this call in `runWithRequestContext`
+    // before falling back to a core script, so the CLI's own resolved
+    // identity is available here — forward it so the server applies the
+    // same row scoping the local path would, instead of running unscoped.
+    const forwarded = await tryForwardDbQueryToDevServer({
+      sql,
+      params: sqlArgs,
+      limit,
+      format: parsed.format,
+      userEmail: getRequestUserEmail(),
+      orgId: getRequestOrgId() ?? undefined,
+      print: printTable,
     });
-    printTable(rows, finalSql, parsed.format);
-  } finally {
-    await client.end();
+    if (forwarded) return;
   }
+
+  const databaseUrl = parsed.db
+    ? `pglite:${path.resolve(parsed.db)}`
+    : undefined;
+  const { rows, sql: finalSql } = await runDbQuery({
+    sql,
+    sqlArgs,
+    limit,
+    databaseUrl,
+  });
+  printTable(rows, finalSql, parsed.format);
 }

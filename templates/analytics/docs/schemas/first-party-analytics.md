@@ -104,6 +104,21 @@ Events are stored in `analytics_events`. Common query columns include:
 | `url`, `path`, `hostname`, `referrer` | Page context                                           |
 | `properties`, `context`               | Original JSON objects                                  |
 
+### Action response telemetry
+
+`event_name = 'action.response'` records one browser transport attempt, not a
+user-level operation. Its `success` and `outcome` properties describe whether
+that attempt completed, timed out, was cancelled, or failed at the network or
+HTTP layer. Query retries and background polling are separate attempts.
+
+The client always records errors, slow responses, 4xx responses, and startup
+responses. Fast successes may be sampled. Those rows include `sample_rate`,
+`sampled`, and `sample_weight = 1 / sample_rate`; use the weight for aggregate
+counts instead of treating sampled rows as a complete request census. Keep
+`outcome = 'cancelled'` separate from failures, and split GET reads from
+mutations before presenting an action success rate. This metric is not a
+substitute for user-operation success or task completion.
+
 ## LLM observability events
 
 Core emits LLM usage, explicit user feedback, and optional inferred message

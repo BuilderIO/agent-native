@@ -20,6 +20,7 @@ import { getThemeInitScript } from "@agent-native/core/client/ui";
 import {
   IconArrowsMaximize,
   IconHierarchy2,
+  IconHistory,
   IconSun,
   IconMoon,
 } from "@tabler/icons-react";
@@ -41,10 +42,14 @@ import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
-import { requestDesignUiToggle } from "@/lib/design-ui-events";
+import {
+  requestDesignHistoryOpen,
+  requestDesignUiToggle,
+} from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
@@ -61,6 +66,8 @@ configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "design",
+    app_name: "design",
+    template_name: "design",
   }),
 });
 
@@ -70,6 +77,7 @@ export const links: LinksFunction = () => [
 
 const THEME_INIT_SCRIPT = getThemeInitScript();
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+const DESIGN_WEBMCP_EXCLUDED_ACTIONS = ["open-visual-edit"] as const;
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -154,13 +162,31 @@ function DesignCommandMenu({
       changelogKey="design"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
+        {isDesignEditor ||
+        location.pathname.startsWith("/templates") ||
+        location.pathname.startsWith("/design-systems") ? (
+          <CommandMenu.Item onSelect={() => navigate("/home")}>
+            {t("navigation.designs")}
+          </CommandMenu.Item>
+        ) : null}
+        {location.pathname === "/home" ? (
+          <CommandMenu.Item onSelect={() => navigate("/templates")}>
+            {t("navigation.templates")}
+          </CommandMenu.Item>
+        ) : null}
         <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
           <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
-        <CommandMenu.Item onSelect={() => {}}>
-          {t("root.commandSearch")}
-        </CommandMenu.Item>
+        {isDesignEditor ? (
+          <CommandMenu.Item
+            onSelect={requestDesignHistoryOpen}
+            keywords={["history", "versions", "restore", "checkpoints"]}
+          >
+            <IconHistory size={16} />
+            {"Version history" /* i18n-ignore */}
+          </CommandMenu.Item>
+        ) : null}
       </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.commandAppearance")}>
         {isDesignEditor ? (
@@ -197,8 +223,17 @@ function DesignToaster() {
 
 function RootContent() {
   const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
+  if (location.pathname === "/") return <MarketingRootContent />;
   return <PrivateRootContent />;
+}
+
+function MarketingRootContent() {
+  return (
+    <>
+      <OpenVisualEditWebMcp />
+      <Outlet />
+    </>
+  );
 }
 
 function PrivateRootContent() {
@@ -224,6 +259,7 @@ function PrivateRootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
+      <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
@@ -244,6 +280,7 @@ export default function Root() {
         queryClient={queryClient}
         isPublicPath={isPublicPath}
         sessionBypass={isEmbedAuthActive()}
+        webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
         toaster={<DesignToaster />}
       >

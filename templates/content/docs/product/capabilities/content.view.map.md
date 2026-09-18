@@ -39,7 +39,7 @@ the pin updates after the canonical change.
 
 ## Product contract
 
-- Map consumes a canonical Database or Query result and a declared typed location field.
+- Map consumes a canonical Collection or Query result and a declared typed location field.
 - Markers, clusters, viewport filters, previews, and counts are access-scoped.
 - Selecting a pin opens or edits the canonical record through shared View Actions.
 - Missing, invalid, stale, and provider-unavailable locations report honestly.

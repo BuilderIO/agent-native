@@ -32,6 +32,8 @@ import {
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
   _getToolkitDependencyVersion,
+  _getAgentKitDependencyVersion,
+  _ensureLocalPackageBuildOutputs,
   _getCorePackageVersion,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
@@ -292,9 +294,10 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     }
   });
 
-  it("includes the Postgres runtime for hosted SQL databases", async () => {
+  it("includes local and hosted SQL runtimes", async () => {
     await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
+    expect(pkg.dependencies?.["@electric-sql/pglite"]).toBeDefined();
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
 
@@ -310,7 +313,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     }
   });
 
-  it("allows Tesseract builds through pnpm-workspace.yaml", async () => {
+  it("allows required native builds through pnpm-workspace.yaml", async () => {
     await createApp("test-app", { template: "chat" });
     const root = path.join(tmpDir, "test-app");
     const pkg = readPkg(root);
@@ -321,6 +324,9 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
 
     expect(pkg.pnpm).toBeUndefined();
     expect(workspaceYaml).toContain("allowBuilds:");
+    expect(workspaceYaml).toContain("node-pty: true");
+    expect(workspaceYaml).toContain("node-pty@*:");
+    expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
     expect(workspaceYaml).toContain("tesseract.js: true");
     expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
   });
@@ -849,6 +855,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         coreDependencyVersion: _getCoreDependencyVersion(),
         dispatchDependencyVersion: _getDispatchDependencyVersion(),
         toolkitDependencyVersion: _getToolkitDependencyVersion(),
+        agentKitDependencyVersion: _getAgentKitDependencyVersion(),
       });
       _fixPackageJsonName(appDir, t);
       _renameGitignore(appDir);
@@ -864,6 +871,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const schedDir = path.join(wsDir, "packages", "scheduling");
     expect(fs.existsSync(schedDir)).toBe(true);
     expect(fs.existsSync(path.join(schedDir, "package.json"))).toBe(true);
+    expect(readPkg(wsDir).packageManager).toBe("pnpm@10.29.1");
   });
 
   it("does not scaffold the optional pinpoint package with design", async () => {
@@ -997,6 +1005,59 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     );
   });
 
+  it("resolves @agent-native/agentkit in workspacified Chat apps", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
+    expect(appPkg.dependencies["@agent-native/agentkit"]).toBe(
+      _getAgentKitDependencyVersion(),
+    );
+    expect(appPkg.dependencies["@agent-native/agentkit"]).not.toMatch(
+      /^workspace:/,
+    );
+    expect(appPkg.dependencies["@agent-native/agentkit"]).not.toBe("latest");
+  });
+
+  it("builds missing local package exports before packing", () => {
+    const packageDir = path.join(tmpDir, "clean-local-package");
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "@agent-native/clean-local-package",
+          type: "module",
+          main: "./dist/index.js",
+          types: "./dist/index.d.ts",
+          exports: {
+            ".": {
+              types: "./dist/index.d.ts",
+              import: "./dist/index.js",
+            },
+          },
+          scripts: { build: "node build.mjs" },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(
+      path.join(packageDir, "build.mjs"),
+      [
+        'import fs from "node:fs";',
+        'fs.mkdirSync("dist", { recursive: true });',
+        'fs.writeFileSync("dist/index.js", "export {};\\n");',
+        'fs.writeFileSync("dist/index.d.ts", "export {};\\n");',
+      ].join("\n"),
+    );
+
+    expect(fs.existsSync(path.join(packageDir, "dist"))).toBe(false);
+    _ensureLocalPackageBuildOutputs(packageDir);
+    expect(fs.existsSync(path.join(packageDir, "dist", "index.js"))).toBe(true);
+    expect(fs.existsSync(path.join(packageDir, "dist", "index.d.ts"))).toBe(
+      true,
+    );
+  });
+
   it("overrides toolkit for standalone installs during local core development", async () => {
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
@@ -1005,6 +1066,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       const pkg = readPkg(path.join(tmpDir, "local-chat"));
       expect(pkg.dependencies["@agent-native/core"]).toMatch(/^file:\/\//);
       expect(pkg.dependencies["@agent-native/toolkit"]).toMatch(/^file:\/\//);
+      expect(pkg.dependencies["@agent-native/agentkit"]).toMatch(/^file:\/\//);
 
       const workspaceYaml = fs
         .readFileSync(path.join(tmpDir, "local-chat", "pnpm-workspace.yaml"), {
@@ -1015,6 +1077,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
       expect(workspaceYaml).toContain(".tgz");
+      expect(workspaceYaml).toContain('"@agent-native/agentkit": "file://');
+      expect(workspaceYaml).toContain("agent-native-agentkit-");
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
       expect(workspaceYaml).not.toContain("packages:");
@@ -1045,6 +1109,9 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
           encoding: "utf-8",
         })
         .replaceAll("\\", "/");
+      expect(workspaceYaml).toContain("minimumReleaseAge: 1440");
+      expect(workspaceYaml).toContain('- "@modelcontextprotocol/client"');
+      expect(workspaceYaml).toContain('"@sentry/bundler-plugins": "10.73.0"');
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
@@ -1149,14 +1216,14 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(wsYaml).toContain('"@tiptap/extension-code-block": "3.28.0"');
   });
 
-  it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {
+  it("pins the upgraded Better Auth version in workspace roots", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const wsYaml = fs.readFileSync(
       path.join(wsDir, "pnpm-workspace.yaml"),
       "utf-8",
     );
     expect(wsYaml).toContain("better-auth");
-    expect(wsYaml).toContain("1.6.0");
+    expect(wsYaml).toContain("1.7.4");
   });
 
   it("keeps the default workspace chat app branded as Chat", async () => {
@@ -1416,14 +1483,17 @@ describe("template/core version compatibility", () => {
     }
   });
 
-  it("pins the generated toolkit dependency to latest when unpublished", () => {
-    // In monorepo source, core's own package.json still has the raw
-    // `workspace:^` protocol for toolkit/dispatch, so there is no published
-    // range to trust yet — falling back to `latest` is correct here.
+  it("pins unpublished generated framework dependencies to compatible versions", () => {
+    // Toolkit has no published range in monorepo source, so it falls back to
+    // `latest`. AgentKit falls back to the local package version, so this
+    // must track packages/agentkit/package.json's current version.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
       expect(_getToolkitDependencyVersion()).toBe("latest");
+      expect(_getAgentKitDependencyVersion()).toBe(
+        `^${readPkg(path.join(__dirname, "../../../agentkit")).version}`,
+      );
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
@@ -1433,14 +1503,14 @@ describe("template/core version compatibility", () => {
     }
   });
 
-  it("pins the generated toolkit dependency to the core published range", () => {
+  it("pins generated framework dependencies to core published ranges", () => {
     // Once changesets publishes core, its package.json has the `workspace:`
     // protocol rewritten to a real semver range. Scaffolded apps must use
-    // that exact range instead of `latest`, since toolkit is versioned and
-    // published independently and its `latest` dist-tag can briefly lag or
-    // outrun the core release this CLI shipped with. Dispatch is not listed
-    // as a dependency of core, so it has no published range to read and
-    // stays pinned to `latest`.
+    // those exact ranges instead of `latest`, since Toolkit and AgentKit are
+    // versioned independently and their `latest` dist-tags can briefly lag or
+    // outrun the Core release this CLI shipped with. Dispatch is not listed as
+    // a dependency of Core, so it has no published range to read and stays
+    // pinned to `latest`.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     const originalReadFileSync = fs.readFileSync;
@@ -1451,6 +1521,7 @@ describe("template/core version compatibility", () => {
           return JSON.stringify({
             dependencies: {
               "@agent-native/toolkit": "^0.9.1",
+              "@agent-native/agentkit": "^0.2.3",
             },
           });
         }
@@ -1458,6 +1529,7 @@ describe("template/core version compatibility", () => {
       });
     try {
       expect(_getToolkitDependencyVersion()).toBe("^0.9.1");
+      expect(_getAgentKitDependencyVersion()).toBe("^0.2.3");
       expect(_getDispatchDependencyVersion()).toBe("latest");
     } finally {
       readFileSyncSpy.mockRestore();
@@ -1631,6 +1703,7 @@ describe("workspace scaffold defaults", () => {
 
     const gitignore = fs.readFileSync(path.join(wsDir, ".gitignore"), "utf-8");
     expect(gitignore).toContain("dist/");
+    expect(gitignore).toContain(".agent-native/");
   });
 
   it("does not copy generated Vercel output or legacy Claude settings", async () => {
@@ -1665,6 +1738,7 @@ describe("workspace scaffold defaults", () => {
 
   it("does not copy local agent-native runtime state", () => {
     expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);
+    expect(_shouldSkipScaffoldEntry("pnpm-lock.yaml")).toBe(true);
     expect(
       _shouldSkipScaffoldEntry("pglite", path.join("data", "pglite")),
     ).toBe(true);
@@ -1988,8 +2062,28 @@ describe("build artifacts", () => {
     expect(Object.keys(catalog).length).toBeGreaterThan(0);
   });
 
+  it("dist includes every relative stylesheet imported by agent-native.css", () => {
+    const stylesDir = path.join(coreRoot, "dist", "styles");
+    const entryPath = path.join(stylesDir, "agent-native.css");
+    if (!fs.existsSync(entryPath)) return;
+
+    const entry = fs.readFileSync(entryPath, "utf-8");
+    const imports = Array.from(
+      entry.matchAll(/@import\s+["'](\.\/[^"']+)["']/g),
+      (match) => match[1]!,
+    );
+    expect(imports.length).toBeGreaterThan(0);
+    for (const imported of imports) {
+      expect(
+        fs.existsSync(path.resolve(stylesDir, imported)),
+        `${imported} must be copied beside the published stylesheet that imports it`,
+      ).toBe(true);
+    }
+  });
+
   it("core package.json only uses workspace:* for publishable package deps", () => {
     const publishableWorkspaceDeps = new Set([
+      "@agent-native/agentkit",
       "@agent-native/recap-cli",
       "@agent-native/toolkit",
     ]);

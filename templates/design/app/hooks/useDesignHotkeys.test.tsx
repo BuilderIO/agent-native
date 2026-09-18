@@ -137,15 +137,20 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     expect(onUndo).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves bare Cmd/Ctrl+R native but keeps Shift+Cmd/Ctrl+R paste-to-replace", async () => {
+  it("routes bare Cmd/Ctrl+R to rename and keeps Shift+Cmd/Ctrl+R paste-to-replace", async () => {
     const onRename = vi.fn();
     const onPasteToReplace = vi.fn();
     await withHotkeys({ onRename, onPasteToReplace }, () => {
-      const refreshEvent = dispatchKey("r", { metaKey: true });
+      const renameEvent = dispatchKey("r", { metaKey: true });
+      const altRenameEvent = dispatchKey("r", {
+        metaKey: true,
+        altKey: true,
+      });
       dispatchKey("r", { metaKey: true, shiftKey: true });
-      expect(refreshEvent.defaultPrevented).toBe(false);
+      expect(renameEvent.defaultPrevented).toBe(true);
+      expect(altRenameEvent.defaultPrevented).toBe(false);
     });
-    expect(onRename).not.toHaveBeenCalled();
+    expect(onRename).toHaveBeenCalledTimes(1);
     expect(onPasteToReplace).toHaveBeenCalledTimes(1);
   });
 
@@ -153,14 +158,61 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     const onCopy = vi.fn();
     const onDuplicate = vi.fn();
     const onBringForward = vi.fn();
-    await withHotkeys({ onCopy, onDuplicate, onBringForward }, () => {
-      dispatchKey("c", { metaKey: true });
-      dispatchKey("d", { metaKey: true });
-      dispatchKey("}", { code: "BracketRight", metaKey: true });
-    });
+    const onBringToFront = vi.fn();
+    const onSendBackward = vi.fn();
+    const onSendToBack = vi.fn();
+    await withHotkeys(
+      {
+        onCopy,
+        onDuplicate,
+        onBringForward,
+        onBringToFront,
+        onSendBackward,
+        onSendToBack,
+      },
+      () => {
+        dispatchKey("c", { metaKey: true });
+        dispatchKey("d", { metaKey: true });
+        dispatchKey("}", { code: "BracketRight", metaKey: true });
+        dispatchKey("BracketRight", { code: "BracketRight", metaKey: true });
+        dispatchKey("BracketLeft", { code: "BracketLeft", metaKey: true });
+        dispatchKey("BracketRight", { code: "BracketRight" });
+        dispatchKey("BracketLeft", { code: "BracketLeft" });
+      },
+    );
     expect(onCopy).toHaveBeenCalledTimes(1);
     expect(onDuplicate).toHaveBeenCalledTimes(1);
-    expect(onBringForward).toHaveBeenCalledTimes(1);
+    expect(onBringForward).toHaveBeenCalledTimes(2);
+    expect(onBringToFront).toHaveBeenCalledTimes(1);
+    expect(onSendBackward).toHaveBeenCalledTimes(1);
+    expect(onSendToBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps physical plain arrange keys native inside editable targets", async () => {
+    const onBringToFront = vi.fn();
+    const onSendToBack = vi.fn();
+    const input = document.createElement("input");
+    document.body.append(input);
+    try {
+      await withHotkeys({ onBringToFront, onSendToBack }, () => {
+        const bringToFront = dispatchKey(
+          "BracketRight",
+          { code: "BracketRight" },
+          input,
+        );
+        const sendToBack = dispatchKey(
+          "BracketLeft",
+          { code: "BracketLeft" },
+          input,
+        );
+        expect(bringToFront.defaultPrevented).toBe(false);
+        expect(sendToBack.defaultPrevented).toBe(false);
+      });
+    } finally {
+      input.remove();
+    }
+    expect(onBringToFront).not.toHaveBeenCalled();
+    expect(onSendToBack).not.toHaveBeenCalled();
   });
 
   it("opens keyboard shortcuts with literal Ctrl+Shift+?", async () => {
@@ -213,13 +265,13 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     );
   });
 
-  it("keeps F as Frame and leaves the historical A alias unhandled", async () => {
+  it("selects Frame with both F and A", async () => {
     const onFrameTool = vi.fn();
     await withHotkeys({ onFrameTool }, () => {
       dispatchKey("f");
       dispatchKey("a");
     });
-    expect(onFrameTool).toHaveBeenCalledTimes(1);
+    expect(onFrameTool).toHaveBeenCalledTimes(2);
   });
 
   it("uses Shift+L for Arrow while plain L remains Line", async () => {
@@ -581,6 +633,35 @@ describe("useDesignHotkeys — group/ungroup/frame (Cmd+G family)", () => {
   });
 });
 
+describe("useDesignHotkeys Boolean Subtract", () => {
+  it("handles Alt+Shift+S including Option characters, but preserves typing and other S chords", async () => {
+    const onBooleanSubtract = vi.fn();
+    const input = document.createElement("input");
+    document.body.append(input);
+    try {
+      await withHotkeys({ onBooleanSubtract }, () => {
+        expect(
+          dispatchKey("S", { code: "KeyS", altKey: true, shiftKey: true })
+            .defaultPrevented,
+        ).toBe(true);
+        dispatchKey("Í", { code: "KeyS", altKey: true, shiftKey: true });
+        dispatchKey("S", { code: "KeyS", altKey: true });
+        dispatchKey("S", { code: "KeyS", shiftKey: true });
+        dispatchKey("S", {
+          code: "KeyS",
+          altKey: true,
+          shiftKey: true,
+          ctrlKey: true,
+        });
+        dispatchKey("S", { code: "KeyS", altKey: true, shiftKey: true }, input);
+      });
+      expect(onBooleanSubtract).toHaveBeenCalledTimes(2);
+    } finally {
+      input.remove();
+    }
+  });
+});
+
 describe("useDesignHotkeys — zoom keys", () => {
   it("plain = / + zoom in with no modifiers", async () => {
     const onZoomIn = vi.fn();
@@ -635,12 +716,199 @@ describe("useDesignHotkeys — zoom keys", () => {
     const onZoomIn = vi.fn();
     const onZoomOut = vi.fn();
     const onOpacityChange = vi.fn();
-    await withHotkeys({ onZoomIn, onZoomOut, onOpacityChange }, () => {
-      dispatchKey("5", { code: "Digit5" });
-    });
+    vi.useFakeTimers();
+    try {
+      await withHotkeys({ onZoomIn, onZoomOut, onOpacityChange }, async () => {
+        dispatchKey("5", { code: "Digit5" });
+        await act(async () => {
+          vi.advanceTimersByTime(1000);
+        });
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(onZoomIn).not.toHaveBeenCalled();
     expect(onZoomOut).not.toHaveBeenCalled();
     expect(onOpacityChange).toHaveBeenCalledTimes(1);
+    expect(onOpacityChange).toHaveBeenCalledWith(
+      expect.objectContaining({ opacity: 50 }),
+    );
+  });
+
+  it("applies each digit immediately and combines rapid digits", async () => {
+    vi.useFakeTimers();
+    const onOpacityChange = vi.fn();
+    try {
+      await withHotkeys({ onOpacityChange }, async () => {
+        dispatchKey("2", { code: "Digit2" });
+        dispatchKey("5", { code: "Digit5" });
+        await act(async () => {
+          vi.advanceTimersByTime(1000);
+        });
+      });
+      expect(
+        onOpacityChange.mock.calls.map(([details]) => details.opacity),
+      ).toEqual([20, 25]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("expires a digit sequence after 1.5 seconds", async () => {
+    vi.useFakeTimers();
+    const onOpacityChange = vi.fn();
+    try {
+      await withHotkeys({ onOpacityChange }, async () => {
+        dispatchKey("2", { code: "Digit2" });
+        await act(async () => {
+          vi.advanceTimersByTime(1500);
+        });
+        dispatchKey("5", { code: "Digit5" });
+        await act(async () => {
+          vi.advanceTimersByTime(1000);
+        });
+      });
+      expect(
+        onOpacityChange.mock.calls.map(([details]) => details.opacity),
+      ).toEqual([20, 50]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies a single zero as 100 and a rapid double zero as 0", async () => {
+    vi.useFakeTimers();
+    const onOpacityChange = vi.fn();
+    try {
+      await withHotkeys({ onOpacityChange }, async () => {
+        dispatchKey("0", { code: "Digit0" });
+        await act(async () => {
+          vi.advanceTimersByTime(1500);
+        });
+        dispatchKey("0", { code: "Digit0" });
+        dispatchKey("0", { code: "Digit0" });
+        await act(async () => {
+          vi.advanceTimersByTime(1000);
+        });
+      });
+      expect(
+        onOpacityChange.mock.calls.map(([details]) => details.opacity),
+      ).toEqual([100, 100, 0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses the latest two digits after three rapid presses", async () => {
+    vi.useFakeTimers();
+    const onOpacityChange = vi.fn();
+    try {
+      await withHotkeys({ onOpacityChange }, async () => {
+        dispatchKey("1", { code: "Digit1" });
+        dispatchKey("0", { code: "Digit0" });
+        dispatchKey("0", { code: "Digit0" });
+        await act(async () => {
+          vi.advanceTimersByTime(1500);
+        });
+        dispatchKey("3", { code: "Digit3" });
+        dispatchKey("3", { code: "Digit3" });
+        dispatchKey("3", { code: "Digit3" });
+        await act(async () => {
+          vi.advanceTimersByTime(1000);
+        });
+      });
+      expect(
+        onOpacityChange.mock.calls.map(([details]) => details.opacity),
+      ).toEqual([10, 10, 0, 30, 33, 33]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not consume modified digits as opacity", async () => {
+    const onOpacityChange = vi.fn();
+    const onShowLayersPanel = vi.fn();
+    await withHotkeys({ onOpacityChange, onShowLayersPanel }, () => {
+      const commandDigit = dispatchKey("5", { code: "Digit5", metaKey: true });
+      const altDigit = dispatchKey("¡", { code: "Digit1", altKey: true });
+      expect(commandDigit.defaultPrevented).toBe(false);
+      expect(altDigit.defaultPrevented).toBe(true);
+    });
+    expect(onOpacityChange).not.toHaveBeenCalled();
+    expect(onShowLayersPanel).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears pending digits on pointer, focus, and selection boundaries", async () => {
+    vi.useFakeTimers();
+    const onOpacityChange = vi.fn();
+    const input = document.createElement("input");
+    document.body.append(input);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          <Probe
+            onOpacityChange={onOpacityChange}
+            opacitySelectionKey="screen:a"
+          />,
+        );
+      });
+      dispatchKey("2", { code: "Digit2" });
+      window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      dispatchKey("5", { code: "Digit5" });
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(
+        onOpacityChange.mock.calls.map(([details]) => details.opacity),
+      ).toEqual([20, 50]);
+
+      await act(async () => {
+        root.render(
+          <Probe
+            onOpacityChange={onOpacityChange}
+            opacitySelectionKey="screen:b"
+          />,
+        );
+      });
+      dispatchKey("2", { code: "Digit2" });
+      await act(async () => {
+        root.render(
+          <Probe
+            onOpacityChange={onOpacityChange}
+            opacitySelectionKey="screen:c"
+          />,
+        );
+      });
+      dispatchKey("5", { code: "Digit5" });
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(
+        onOpacityChange.mock.calls.map(([details]) => details.opacity),
+      ).toEqual([20, 50, 20, 50]);
+
+      window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      dispatchKey("2", { code: "Digit2" });
+      input.focus();
+      const editableDigit = dispatchKey("5", { code: "Digit5" }, input);
+      expect(editableDigit.defaultPrevented).toBe(false);
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(
+        onOpacityChange.mock.calls.map(([details]) => details.opacity),
+      ).toEqual([20, 50, 20, 50, 20]);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      vi.useRealTimers();
+      input.remove();
+      container.remove();
+    }
   });
 });
 
@@ -689,14 +957,14 @@ describe("useDesignHotkeys — selection alignment (Alt+A/D/W/S/H/V)", () => {
     },
   );
 
-  it("does not fire align or the historical Frame alias for plain A", async () => {
+  it("selects Frame without aligning for plain A", async () => {
     const onAlignSelection = vi.fn();
     const onFrameTool = vi.fn();
     await withHotkeys({ onAlignSelection, onFrameTool }, () => {
       dispatchKey("a");
     });
     expect(onAlignSelection).not.toHaveBeenCalled();
-    expect(onFrameTool).not.toHaveBeenCalled();
+    expect(onFrameTool).toHaveBeenCalledTimes(1);
   });
 
   it("does not fire align for Cmd+Alt+K (create component) or Cmd+Alt+G (frame selection)", async () => {
@@ -794,13 +1062,13 @@ describe("useDesignHotkeys — Shift+A adds auto layout", () => {
     expect(onFrameTool).not.toHaveBeenCalled();
   });
 
-  it("plain A (no modifiers) no longer selects the frame tool", async () => {
+  it("plain A selects Frame without adding auto layout", async () => {
     const onAddAutoLayout = vi.fn();
     const onFrameTool = vi.fn();
     await withHotkeys({ onAddAutoLayout, onFrameTool }, () => {
       dispatchKey("a");
     });
-    expect(onFrameTool).not.toHaveBeenCalled();
+    expect(onFrameTool).toHaveBeenCalledTimes(1);
     expect(onAddAutoLayout).not.toHaveBeenCalled();
   });
 });
@@ -893,6 +1161,14 @@ describe("useDesignHotkeys — minimize UI and show/hide comments", () => {
     let event: KeyboardEvent | undefined;
     await withHotkeys({ canClaimBoundChords: false }, () => {
       event = dispatchKey("d", { metaKey: true, code: "KeyD" });
+    });
+    expect(event?.defaultPrevented).toBe(false);
+  });
+
+  it("leaves Cmd/Ctrl+R to the browser when a read-only design has no rename handler", async () => {
+    let event: KeyboardEvent | undefined;
+    await withHotkeys({ canClaimBoundChords: false }, () => {
+      event = dispatchKey("r", { metaKey: true, code: "KeyR" });
     });
     expect(event?.defaultPrevented).toBe(false);
   });

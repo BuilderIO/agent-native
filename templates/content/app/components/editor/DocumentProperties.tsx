@@ -170,6 +170,7 @@ interface DocumentPropertiesProps {
   databaseDocumentId: string | null;
   canEdit: boolean;
   popoversPortalled?: boolean;
+  popoverContainer?: HTMLElement | null;
 }
 
 export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
@@ -848,6 +849,7 @@ export function DocumentProperties({
   databaseDocumentId,
   canEdit,
   popoversPortalled = true,
+  popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
   const { data, isLoading } = useDocumentProperties(documentId, databaseId);
@@ -895,6 +897,7 @@ export function DocumentProperties({
               canEditValues={canEditValues}
               canManageSchema={canManageSchema}
               popoversPortalled={popoversPortalled}
+              popoverContainer={popoverContainer}
               t={t}
             />
           ))}
@@ -903,18 +906,22 @@ export function DocumentProperties({
 
       {loaded && canManageSchema && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
+          databaseDocumentId={databaseDocumentId ?? documentId}
           documentId={documentId}
           databaseId={databaseId}
           properties={hiddenProperties}
+          popoverContainer={popoverContainer}
           t={t}
         />
       ) : null}
 
       {loaded && canManageSchema && databaseId ? (
         <AddProperty
+          databaseDocumentId={databaseDocumentId ?? documentId}
           documentId={documentId}
           databaseId={databaseId}
           popoversPortalled={popoversPortalled}
+          popoverContainer={popoverContainer}
         />
       ) : null}
     </div>
@@ -932,16 +939,24 @@ function isPropertyVisible(property: DocumentProperty) {
 
 function HiddenPropertiesMenu({
   documentId,
+  databaseDocumentId = documentId,
   databaseId,
   properties,
+  popoverContainer,
   t,
 }: {
   documentId: string;
+  databaseDocumentId?: string;
   databaseId: string;
   properties: DocumentProperty[];
+  popoverContainer?: HTMLElement | null;
   t: TFunction;
 }) {
-  const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
 
   async function showProperty(property: DocumentProperty) {
     await configure.mutateAsync({
@@ -968,7 +983,11 @@ function HiddenPropertiesMenu({
           </span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      <DropdownMenuContent
+        align="start"
+        className="w-72"
+        container={popoverContainer}
+      >
         {properties.map((property) => {
           const Icon = TYPE_ICONS[property.definition.type];
           return (
@@ -1002,6 +1021,7 @@ function PropertyRow({
   canEditValues,
   canManageSchema,
   popoversPortalled,
+  popoverContainer,
   t,
 }: {
   property: DocumentProperty;
@@ -1010,6 +1030,7 @@ function PropertyRow({
   canEditValues: boolean;
   canManageSchema: boolean;
   popoversPortalled: boolean;
+  popoverContainer?: HTMLElement | null;
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
@@ -1023,10 +1044,12 @@ function PropertyRow({
     <div className="grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
       {canManageSchema && !property.definition.systemRole ? (
         <PropertyManagementPopover
+          databaseDocumentId={databaseDocumentId}
           property={property}
           documentId={documentId}
           databaseId={property.definition.databaseId!}
           icon={Icon}
+          popoverContainer={popoverContainer}
         />
       ) : (
         <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
@@ -1056,6 +1079,7 @@ function PropertyRow({
           documentId={documentId}
           databaseDocumentId={databaseDocumentId}
           portalled={popoversPortalled}
+          container={popoverContainer}
         >
           {value}
         </PropertyValuePopover>
@@ -1089,6 +1113,7 @@ export function propertyTypeForSourceFieldType(
 export function PropertyManagementPopover({
   property,
   documentId,
+  databaseDocumentId = documentId,
   databaseId,
   icon: Icon,
   triggerClassName,
@@ -1105,9 +1130,11 @@ export function PropertyManagementPopover({
   onMoveRight,
   onHide,
   hideDisabled,
+  popoverContainer,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId?: string;
   databaseId: string;
   icon: Icon;
   triggerClassName?: string;
@@ -1124,6 +1151,7 @@ export function PropertyManagementPopover({
   onMoveRight?: () => void | Promise<void>;
   onHide?: () => void | Promise<void>;
   hideDisabled?: boolean;
+  popoverContainer?: HTMLElement | null;
 }) {
   const t = useT();
   const hasColumnMenu = !!(
@@ -1141,7 +1169,11 @@ export function PropertyManagementPopover({
   const quickFilters = databaseQuickFilterOptionsForColumn(
     property.definition.type,
   );
-  const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
   const duplicate = useDuplicateDocumentProperty(documentId, databaseId);
   const remove = useDeleteDocumentProperty(documentId, databaseId);
   const { data: propertiesData } = useDocumentProperties(
@@ -1458,6 +1490,7 @@ export function PropertyManagementPopover({
           ref={menuContentRef}
           align="start"
           collisionPadding={12}
+          container={popoverContainer}
           className="relative z-[300] w-72 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto"
         >
           {view === "quick" && hasColumnMenu ? (
@@ -1480,7 +1513,10 @@ export function PropertyManagementPopover({
                   <IconFilter className="mr-2 size-4 text-muted-foreground" />
                   {t("database.filter")}
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="z-[310] w-56">
+                <DropdownMenuSubContent
+                  className="z-[310] w-56"
+                  container={popoverContainer}
+                >
                   {quickFilters.map((quickFilter) => (
                     <DropdownMenuItem
                       key={quickFilter.operator}
@@ -1525,7 +1561,10 @@ export function PropertyManagementPopover({
                   <IconArrowsSort className="mr-2 size-4 text-muted-foreground" />
                   {t("database.sort")}
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="z-[310] w-56">
+                <DropdownMenuSubContent
+                  className="z-[310] w-56"
+                  container={popoverContainer}
+                >
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -1673,7 +1712,10 @@ export function PropertyManagementPopover({
                     {t(`editor.propertyTypes.${property.definition.type}`)}
                   </span>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="z-[310] max-h-80 w-56 overflow-auto">
+                <DropdownMenuSubContent
+                  className="z-[310] max-h-80 w-56 overflow-auto"
+                  container={popoverContainer}
+                >
                   {CREATABLE_DOCUMENT_PROPERTY_TYPES.map((propertyType) => {
                     const TypeIcon = TYPE_ICONS[propertyType];
                     const selected = property.definition.type === propertyType;
@@ -1712,7 +1754,10 @@ export function PropertyManagementPopover({
                     )}
                   </span>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="z-[310] w-56">
+                <DropdownMenuSubContent
+                  className="z-[310] w-56"
+                  container={popoverContainer}
+                >
                   {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
                     <DropdownMenuItem
                       key={visibility}
@@ -1752,6 +1797,7 @@ export function PropertyManagementPopover({
                             key={option.id}
                             option={option}
                             disabled={configure.isPending}
+                            popoverContainer={popoverContainer}
                             onRename={(name) =>
                               void renameOption(option.id, name)
                             }
@@ -1843,7 +1889,10 @@ export function PropertyManagementPopover({
                           <IconPlus className="mr-1.5 size-3.5 text-muted-foreground" />
                           {t("database.bindAFieldFromASource")}
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="z-[310] max-h-80 w-64 overflow-auto">
+                        <DropdownMenuSubContent
+                          className="z-[310] max-h-80 w-64 overflow-auto"
+                          container={popoverContainer}
+                        >
                           {bindableSourceFields.map(
                             ({ source: src, field }) => (
                               <DropdownMenuItem
@@ -1974,6 +2023,7 @@ function PropertyOptionSettingsRow({
   onDescriptionChange,
   onColorChange,
   onRemove,
+  popoverContainer,
 }: {
   option: DocumentPropertyOption;
   disabled: boolean;
@@ -1981,6 +2031,7 @@ function PropertyOptionSettingsRow({
   onDescriptionChange: (description: string) => void;
   onColorChange: (color: DocumentPropertyOptionColor) => void;
   onRemove: () => void;
+  popoverContainer?: HTMLElement | null;
 }) {
   const t = useT();
   const [draftName, setDraftName] = useState(option.name);
@@ -2045,7 +2096,10 @@ function PropertyOptionSettingsRow({
               className={cn("block size-3 rounded-full", optionClass(option))}
             />
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="z-[310] w-44">
+          <DropdownMenuSubContent
+            className="z-[310] w-44"
+            container={popoverContainer}
+          >
             {OPTION_COLORS.map((color) => (
               <DropdownMenuItem
                 key={color}
@@ -2128,12 +2182,14 @@ export function PropertyValuePopover({
   databaseDocumentId = documentId,
   children,
   portalled = true,
+  container,
 }: {
   property: DocumentProperty;
   documentId: string;
   databaseDocumentId?: string;
   children: React.ReactNode;
   portalled?: boolean;
+  container?: HTMLElement | null;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -2151,7 +2207,12 @@ export function PropertyValuePopover({
           {children}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" portalled={portalled} className="w-80 p-2">
+      <PopoverContent
+        align="start"
+        portalled={portalled}
+        container={container}
+        className="w-80 p-2"
+      >
         <PropertyValueEditor
           property={property}
           documentId={documentId}
@@ -3296,10 +3357,12 @@ function OptionValueEditor({
 
 export function AddProperty({
   documentId,
+  databaseDocumentId = documentId,
   databaseId,
   variant = "default",
   label,
   popoversPortalled = true,
+  popoverContainer,
   source,
   sources,
   onConnectSource,
@@ -3307,10 +3370,12 @@ export function AddProperty({
   onOpenRequestHandled,
 }: {
   documentId: string;
+  databaseDocumentId?: string;
   databaseId: string;
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
+  popoverContainer?: HTMLElement | null;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
   onConnectSource?: () => void;
@@ -3318,7 +3383,11 @@ export function AddProperty({
   onOpenRequestHandled?: (requestId: number) => void;
 }) {
   const t = useT();
-  const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
   const addSourceFieldProperty =
     useAddContentDatabaseSourceFieldProperty(documentId);
   const [open, setOpen] = useState(false);
@@ -3511,6 +3580,7 @@ export function AddProperty({
         align={variant === "default" ? "start" : "end"}
         collisionPadding={12}
         portalled={popoversPortalled}
+        container={popoverContainer}
         className={cn(
           "relative z-[300] w-80 p-2",
           sourceHandoffClosing &&

@@ -10,6 +10,7 @@ import {
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveOAuthRedirectUri,
   encodeOAuthState,
+  wrapNetlifyPreviewGoogleOAuthState,
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
@@ -27,6 +28,7 @@ import {
   safeReturnPath,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
   getHeader,
@@ -242,7 +244,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const redirectUri = resolveOAuthRedirectUri(
       event,
       "/_agent-native/google/callback",
-      { allowRootCallback: true },
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
     );
     if (!redirectUri) {
       setResponseStatus(event, 400);
@@ -328,9 +333,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
     const url = calendarConnect
-      ? await getAuthUrl(undefined, redirectUri, state, owner, orgId)
+      ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId)
       : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
           client_id: credentials.clientId,
           redirect_uri: redirectUri,
@@ -338,7 +344,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
           scope: GOOGLE_IDENTITY_SCOPES.join(" "),
           access_type: "online",
           prompt: "select_account",
-          state,
+          state: oauthState,
         })}`;
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
@@ -433,7 +439,6 @@ export const handleGoogleCallback = defineEventHandler(
             ...(mobile ? { mobile: true } : {}),
             trackSignup: {
               authProvider: "google",
-              authUserId: identity.id,
               name: identity.name,
               isNewUser,
             },
@@ -479,6 +484,16 @@ export const handleGoogleCallback = defineEventHandler(
       // sight of the tokens that were saved under the original owner.
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: isAddAccount,
+        },
+        { userId: owner ?? email },
+      );
       const sessionOwner = isAddAccount ? (owner ?? email) : email;
       const shouldCreateSession =
         !isAddAccount ||
@@ -547,7 +562,10 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri = resolveOAuthRedirectUri(
         event,
         "/_agent-native/google/callback",
-        { allowRootCallback: true },
+        {
+          allowRootCallback: true,
+          useNetlifyPreviewGoogleOAuthRelay: true,
+        },
       );
       if (!redirectUri) {
         setResponseStatus(event, 400);
@@ -592,10 +610,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         desktopVerifierHash,
         desktopBrowserBindingHash,
       });
+      const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
       const url = await getAuthUrl(
         undefined,
         redirectUri,
-        state,
+        oauthState,
         session.email,
         session.orgId,
       );
@@ -679,6 +698,16 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         redirectUri,
         ownerEmail,
         session?.orgId ?? stateOrgId,
+      );
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: true,
+        },
+        { userId: ownerEmail },
       );
       const { sessionToken } =
         (desktop && flowId) || mobile

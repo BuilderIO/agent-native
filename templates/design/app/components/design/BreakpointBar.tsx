@@ -93,8 +93,9 @@ export function parseBreakpointWidthInput(
   raw: string,
   existingWidths: readonly number[],
 ): number | null {
-  const widthPx = Number.parseInt(raw, 10);
-  if (!Number.isFinite(widthPx) || widthPx < 320 || widthPx > 3840) return null;
+  const widthPx = Number(raw);
+  if (!Number.isInteger(widthPx) || widthPx < 320 || widthPx > 3840)
+    return null;
   if (existingWidths.includes(widthPx)) return null;
   return widthPx;
 }
@@ -120,6 +121,8 @@ export interface BreakpointDeviceControlProps {
   baseWidthPx?: number | null;
   /** Gates add/remove/change affordances; selection is allowed read-only. */
   canEdit: boolean;
+  /** Disables breakpoint changes while a mutation is in flight. */
+  mutationPending?: boolean;
   /** Linked side-by-side frames toggle (overview). Hidden when undefined. */
   showAllFrames?: boolean;
   onShowAllFramesChange?: (value: boolean) => void;
@@ -139,6 +142,7 @@ export function BreakpointDeviceControl({
   activeWidthPx,
   baseWidthPx,
   canEdit,
+  mutationPending = false,
   showAllFrames,
   onShowAllFramesChange,
   onSelect,
@@ -149,6 +153,7 @@ export function BreakpointDeviceControl({
 }: BreakpointDeviceControlProps) {
   const t = useT();
   const [addOpen, setAddOpen] = useState(false);
+  const canMutateBreakpoints = canEdit && !mutationPending;
   const [customWidth, setCustomWidth] = useState("");
   /** Which breakpoint's "…" menu is open (id), if any. */
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
@@ -163,10 +168,11 @@ export function BreakpointDeviceControl({
   const baseActive = activeWidthPx === undefined;
 
   const submitCustomWidth = () => {
+    if (mutationPending) return;
     const widthPx = parseBreakpointWidthInput(customWidth, existingWidths);
+    if (widthPx === null) return;
     setAddOpen(false);
     setCustomWidth("");
-    if (widthPx === null) return;
     onAdd?.(widthPx, breakpointLabelForWidth(widthPx));
   };
 
@@ -215,7 +221,9 @@ export function BreakpointDeviceControl({
           const active = activeWidthPx === breakpoint.widthPx;
           const menuOpen = menuOpenFor === breakpoint.id;
           const showMenuAffordance = Boolean(
-            canEdit && (onRemove || onChangeWidth) && (active || menuOpen),
+            canMutateBreakpoints &&
+            (onRemove || onChangeWidth) &&
+            (active || menuOpen),
           );
           return (
             <div key={breakpoint.id} className="relative flex items-center">
@@ -279,7 +287,7 @@ export function BreakpointDeviceControl({
                           onChange={(event) =>
                             setWidthDraft(event.target.value)
                           }
-                          onKeyDown={(event) => {
+                          onKeyDownCapture={(event) => {
                             event.stopPropagation();
                             if (event.key !== "Enter") return;
                             event.preventDefault();
@@ -289,15 +297,21 @@ export function BreakpointDeviceControl({
                                 (width) => width !== breakpoint.widthPx,
                               ),
                             );
+                            if (widthPx === null) return;
                             setMenuOpenFor(null);
-                            if (
-                              widthPx !== null &&
-                              widthPx !== breakpoint.widthPx
-                            ) {
+                            if (widthPx !== breakpoint.widthPx) {
                               onChangeWidth(breakpoint.id, widthPx);
                             }
                           }}
-                          className="h-6 px-1.5 !text-[11px] tabular-nums"
+                          aria-invalid={
+                            parseBreakpointWidthInput(
+                              widthDraft,
+                              existingWidths.filter(
+                                (width) => width !== breakpoint.widthPx,
+                              ),
+                            ) === null
+                          }
+                          className="h-6 px-1.5 !text-[11px] tabular-nums aria-invalid:border-destructive"
                           aria-label={t(
                             "designEditor.breakpointBar.changeWidth",
                           )}
@@ -346,6 +360,7 @@ export function BreakpointDeviceControl({
                   key={preset.widthPx}
                   type="button"
                   className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left !text-[12px] hover:bg-muted"
+                  disabled={mutationPending}
                   onClick={() => {
                     onAdd(
                       preset.widthPx,
@@ -374,6 +389,7 @@ export function BreakpointDeviceControl({
                         key={preset.widthPx}
                         type="button"
                         className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left !text-[12px] hover:bg-muted"
+                        disabled={mutationPending}
                         onClick={() => {
                           onAdd(
                             preset.widthPx,
@@ -411,13 +427,19 @@ export function BreakpointDeviceControl({
                   value={customWidth}
                   onChange={(event) => setCustomWidth(event.target.value)}
                   placeholder={t("designEditor.breakpointBar.customWidth")}
-                  className="h-7 !text-[12px]"
+                  aria-invalid={
+                    customWidth !== "" &&
+                    parseBreakpointWidthInput(customWidth, existingWidths) ===
+                      null
+                  }
+                  className="h-7 !text-[12px] aria-invalid:border-destructive"
                 />
                 <Button
                   type="submit"
                   size="sm"
                   variant="outline"
                   className="h-7 cursor-pointer px-2 !text-[11px]"
+                  disabled={mutationPending}
                 >
                   {t("designEditor.breakpointBar.add")}
                 </Button>

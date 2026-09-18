@@ -1,4 +1,7 @@
-import { configureTracking } from "@agent-native/core/client/analytics";
+import {
+  configureTracking,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
@@ -198,23 +201,56 @@ function PrivateAppShell() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const location = useLocation();
+  const commandMenuOpenRef = useRef(false);
+  const openCommandMenu = useCallback(() => {
+    if (!commandMenuOpenRef.current) {
+      trackEvent("dispatch_command_menu_opened", {
+        app_name: "dispatch",
+        template_name: "dispatch",
+      });
+      commandMenuOpenRef.current = true;
+    }
+    setCmdkOpen(true);
+  }, []);
+  useCommandMenuShortcut(openCommandMenu);
+  const handleCommandMenuOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) openCommandMenu();
+      else commandMenuOpenRef.current = false;
+      setCmdkOpen(open);
+    },
+    [openCommandMenu],
+  );
   return (
     <>
       <DbSyncSetup />
       <CommandMenu
         open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
+        onOpenChange={handleCommandMenuOpenChange}
         changelog={changelog}
         changelogKey="dispatch"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
+          {location.pathname === "/home" ||
+          location.pathname === "/overview" ? (
+            <CommandMenu.Item onSelect={() => navigate("/automations")}>
+              {t("settings.openAutomations")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/automations") ? (
+            <CommandMenu.Item onSelect={() => navigate("/destinations")}>
+              {t("settings.openDelivery")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/destinations") ? (
+            <CommandMenu.Item onSelect={() => navigate("/automations")}>
+              {t("settings.openAutomations")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
             <IconHierarchy2 size={16} />
             {t("root.openAgent")}
-          </CommandMenu.Item>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>

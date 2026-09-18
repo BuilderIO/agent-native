@@ -9,6 +9,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import {
+  actionErrorMessage,
   callAction,
   setClientAppState,
   useAvatarUrl,
@@ -16,8 +17,21 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  useCreateResourceSuggestion,
+  useDecideResourceSuggestion,
+  useResourceSuggestions,
+  useUpdateResourceSuggestion,
+} from "@agent-native/core/client/review";
+import type { ResourceSuggestion } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
+import { canonicalizeNfm } from "@shared/nfm";
+import {
+  SuggestionFormattingMappingError,
+  suggestionMarkedSourceRanges,
+} from "@shared/suggestion-formatting";
+import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
 import {
   IconDatabase,
   IconEye,
@@ -27,7 +41,11 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  type QueryClient,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -37,7 +55,7 @@ import {
   useState,
 } from "react";
 import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -59,7 +77,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
-import { useComments } from "@/hooks/use-comments";
+import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
   useCreateContentDatabase,
   useDeleteContentDatabase,
@@ -79,6 +97,7 @@ import {
   useDocument,
   useDeleteDocument,
   useDocuments,
+  useResolvePreviewDocumentDraft,
   useUpdatePreviewDocumentDraft,
   useUpdateDocument,
 } from "@/hooks/use-documents";
@@ -89,7 +108,15 @@ import {
   useDocumentSyncStatus,
   usePushDocumentToNotion,
 } from "@/hooks/use-notion";
-import { rememberContentLandingDocument } from "@/lib/content-landing";
+import {
+  useOptimisticDocumentTitle,
+  refreshLandingTitleHintCache,
+} from "@/hooks/use-optimistic-document-title";
+import {
+  CONTENT_LANDING_PATH,
+  contentLandingRecoveryTarget,
+  rememberContentLandingDocument,
+} from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import {
@@ -114,20 +141,33 @@ import {
   newDocumentPageChoiceIsDisabled,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
+import { useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   CommentDraftProvider,
   CommentHistoryScrollContainer,
 } from "./comment-drafts";
-import { CommentsSidebar } from "./CommentsSidebar";
+import { observeCommentLane } from "./comment-lane";
+import {
+  CommentsSidebar,
+  preserveCommentReplyEscape,
+  useCommentReplyDrafts,
+  usePendingCommentDraft,
+} from "./CommentsSidebar";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import { createHistorySession } from "./document-history-session";
+import {
+  saveDocumentWithRebase,
+  type DocumentContentBase,
+} from "./document-save-rebase";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentProperties } from "./DocumentProperties";
+import { DocumentReconcileRecovery } from "./DocumentReconcileRecovery";
 import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
+import type { EditorDraftSaveResult } from "./editor-draft-save";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
 import {
@@ -144,16 +184,48 @@ import {
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
 import {
+  canonicalSuggestionRevision,
+  createSuggestionDraftSession,
+  previewSuggestionDraft,
+  editableSuggestionDraft,
+  freshestSavedSuggestions,
+  persistSuggestionDraftOperations,
+  recordSuggestionReplacementIntent,
+  suggestionDraftOperations,
+  suggestionOperationKey,
+  suggestionSessionVisuals,
+  type DraftSuggestion,
+  type SuggestionDraftSession,
+  type SuggestionDraftCaret,
+  unpersistedDraftSuggestions,
+} from "./suggestions/draft-session";
+import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
+import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
+import {
+  useDocumentReconcileRecovery,
+  type DocumentReconcileRecoveryState,
+  type ReconcileRecoveryDraft,
+  type ReconcileSaveBase,
+} from "./useDocumentReconcileRecovery";
 import { VisualEditor } from "./VisualEditor";
 import type {
   NotionPageLink,
+  VisualEditorSuggestion,
   VisualEditorHistoryController,
   VisualEditorHistoryState,
   VisualEditorPersistenceController,
 } from "./VisualEditor";
+
+const NO_COMMENT_THREADS: CommentThread[] = [];
+
+export function documentEditorCommentThreads(
+  threads: CommentThread[] | null | undefined,
+) {
+  return threads ?? NO_COMMENT_THREADS;
+}
 
 const TAB_ID = generateTabId();
 
@@ -187,7 +259,7 @@ interface DocumentEditorProps {
   documentId: string;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
-  requestedViewId?: string | null;
+  viewId?: string | null;
   foreground?: boolean;
 }
 
@@ -205,8 +277,118 @@ export interface PageEditorSurfaceProps extends DocumentEditorProps {
 }
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
-type ContentSaveWatermark = { content: string; updatedAt: string | null };
+type ContentSaveWatermark = {
+  content: string;
+  updatedAt: string | null;
+  revision?: string;
+};
 type DocumentUtilityPanel = "info" | "comments" | null;
+
+export function documentCanonicalMutationsEnabled(
+  editorCanEdit: boolean,
+  isSuggesting: boolean,
+) {
+  return editorCanEdit && !isSuggesting;
+}
+
+export function isSuggestionConflictActionError(error: unknown) {
+  return (
+    (error as { errorCode?: unknown } | null)?.errorCode ===
+    "suggestion_conflict"
+  );
+}
+
+export function suggestionAmendmentTargetIsResolved(
+  editingSuggestionId: string | null,
+  suggestions: Array<Pick<ResourceSuggestion, "id" | "status">>,
+) {
+  if (!editingSuggestionId) return false;
+  const suggestion = suggestions.find(
+    (candidate) => candidate.id === editingSuggestionId,
+  );
+  return !!suggestion && suggestion.status !== "pending";
+}
+
+export function suggestionPresentation(
+  suggestion: Pick<ResourceSuggestion, "id" | "status" | "operations">,
+  currentMarkdown: string,
+): VisualEditorSuggestion | null {
+  if (suggestion.status !== "pending") return null;
+  const operation = suggestion.operations[0];
+  if (!operation) return null;
+  const before = operation.before as {
+    markdown?: unknown;
+    changedText?: unknown;
+  } | null;
+  const after = operation.after as {
+    markdown?: unknown;
+    changedText?: unknown;
+  } | null;
+  const operationAnchor = operation.anchor as {
+    from?: unknown;
+    to?: unknown;
+  } | null;
+  const supportedKinds = [
+    "insert_text",
+    "delete_text",
+    "replace_text",
+    "add_text_block",
+    "set_inline_mark",
+  ] as const;
+  if (
+    !supportedKinds.includes(
+      operation.kind as (typeof supportedKinds)[number],
+    ) ||
+    typeof before?.changedText !== "string" ||
+    typeof before.markdown !== "string" ||
+    typeof after?.changedText !== "string" ||
+    typeof after.markdown !== "string" ||
+    typeof operationAnchor?.from !== "number" ||
+    typeof operationAnchor.to !== "number"
+  ) {
+    return null;
+  }
+  const range = resolveMarkdownSuggestionRange(currentMarkdown, operation);
+  if (!range) return null;
+  const editorMarkdown = canonicalizeNfm(currentMarkdown);
+  const currentText = currentMarkdown.slice(range.from, range.to);
+  const editorRange = resolveMarkdownSuggestionRange(editorMarkdown, {
+    before: { markdown: currentMarkdown, changedText: currentText },
+    after: { markdown: currentMarkdown, changedText: currentText },
+    anchor: {
+      from: range.from,
+      to: range.to,
+      prefix: currentMarkdown.slice(Math.max(0, range.from - 32), range.from),
+      suffix: currentMarkdown.slice(range.to, range.to + 32),
+    },
+  });
+  if (!editorRange) return null;
+  return {
+    id: suggestion.id,
+    kind: operation.kind as VisualEditorSuggestion["kind"],
+    beforeText: before.changedText,
+    afterText: after.changedText,
+    beforePresentation: {
+      source: before.markdown,
+      from: operationAnchor.from,
+      to: operationAnchor.to,
+    },
+    afterPresentation: {
+      source: after.markdown,
+      from: operationAnchor.from,
+      to: operationAnchor.from + after.changedText.length,
+    },
+    anchor: {
+      from: editorRange.from,
+      prefix: editorMarkdown.slice(
+        Math.max(0, editorRange.from - 32),
+        editorRange.from,
+      ),
+      suffix: editorMarkdown.slice(editorRange.to, editorRange.to + 32),
+    },
+    presentation: "canonical",
+  };
+}
 
 export function metadataUpdatesWithPendingTitle<
   T extends {
@@ -236,6 +418,22 @@ export function titleMatchConfirmsSave(args: {
     args.pendingTitle === args.localTitle &&
     args.localTitle !== args.lastSavedTitle
   );
+}
+
+export function refreshUnchangedTitleSaveWatermark(args: {
+  serverTitle: string;
+  serverUpdatedAt: string | null;
+  lastSaved: FieldSaveWatermark;
+}): FieldSaveWatermark {
+  if (
+    args.serverTitle !== args.lastSaved.title ||
+    !args.serverUpdatedAt ||
+    (args.lastSaved.updatedAt &&
+      args.serverUpdatedAt <= args.lastSaved.updatedAt)
+  ) {
+    return args.lastSaved;
+  }
+  return { ...args.lastSaved, updatedAt: args.serverUpdatedAt };
 }
 
 export function refreshUnchangedContentSaveWatermark(args: {
@@ -293,7 +491,11 @@ function adoptConfirmedSaveWatermarks({
     };
   }
   if (updates.content !== undefined) {
-    lastSavedContentRef.current = { content, updatedAt: savedAt };
+    lastSavedContentRef.current = {
+      content,
+      updatedAt: savedAt,
+      revision: saved?.revision,
+    };
   } else if (
     (updates.title !== undefined || updates.icon !== undefined) &&
     saved?.content === lastSavedContentRef.current.content
@@ -305,7 +507,7 @@ function adoptConfirmedSaveWatermarks({
   }
 }
 
-function DocumentUnavailable({ onOpenHome }: { onOpenHome?: () => void }) {
+function DocumentUnavailable() {
   const t = useT();
   const sidebarTrigger = useSidebarTrigger();
 
@@ -327,11 +529,6 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome?: () => void }) {
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t("empty.documentUnavailableDescription")}
           </p>
-          {onOpenHome ? (
-            <Button className="mt-6" variant="outline" onClick={onOpenHome}>
-              {t("empty.goToDocuments")}
-            </Button>
-          ) : null}
         </div>
       </div>
     </div>
@@ -347,7 +544,7 @@ export function DocumentEditor({
   documentId,
   databaseId,
   databaseDocumentId,
-  requestedViewId,
+  viewId,
   foreground = false,
 }: DocumentEditorProps) {
   return (
@@ -355,7 +552,7 @@ export function DocumentEditor({
       documentId={documentId}
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
-      requestedViewId={requestedViewId}
+      viewId={viewId}
       foreground={foreground}
       host="page"
     />
@@ -377,7 +574,7 @@ export function PageEditorSurface({
   documentId,
   databaseId,
   databaseDocumentId,
-  requestedViewId,
+  viewId,
   foreground = false,
   host,
   onSessionChange,
@@ -401,6 +598,14 @@ export function PageEditorSurface({
   } = documentQuery;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const documentQueryKeyValue = documentQueryKey(documentId, {
+    databaseId,
+    databaseDocumentId,
+  });
+  const authoritativeSuccess = useAuthoritativeQuerySuccess(
+    queryClient,
+    documentQueryKeyValue,
+  );
   const [manualRetryDocumentId, setManualRetryDocumentId] = useState<
     string | null
   >(null);
@@ -408,6 +613,12 @@ export function PageEditorSurface({
   const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
+  // While the dedicated get-document response is awaited, a snapshot another
+  // surface seeded into the cache still carries a usable title.
+  const optimisticTitle = useOptimisticDocumentTitle(documentId, {
+    seededTitle:
+      queriedDocument?.id === documentId ? queriedDocument.title : null,
+  });
   const loadFailure = updateDocumentLoadFailureState({
     previous: loadFailureRef.current,
     documentId,
@@ -416,6 +627,7 @@ export function PageEditorSurface({
     errorUpdateCount,
     errorUpdatedAt,
     isError,
+    authoritativeSuccess,
   });
   loadFailureRef.current = loadFailure;
   const loadState = documentEditorLoadState({
@@ -438,7 +650,7 @@ export function PageEditorSurface({
     { documentId },
     foreground &&
       host === "page" &&
-      !requestedViewId &&
+      !viewId &&
       !!document &&
       !document.database &&
       !isError &&
@@ -458,7 +670,9 @@ export function PageEditorSurface({
       });
       loadFailureRef.current = {
         documentId,
+        queryIdentity: authoritativeSuccess.queryIdentity,
         baselineErrorUpdateCount: errorUpdateCount,
+        baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
         failed: false,
       };
       await documentQuery.refetch();
@@ -469,11 +683,27 @@ export function PageEditorSurface({
     }
   }
 
+  const landingRecovery =
+    loadState.view === "unavailable"
+      ? contentLandingRecoveryTarget({ host, documentId })
+      : null;
+  const landingRecoveryDocumentId =
+    landingRecovery?.state.unavailableDocumentId ?? null;
+  useEffect(() => {
+    if (!landingRecoveryDocumentId) return;
+    void navigate(CONTENT_LANDING_PATH, {
+      replace: true,
+      state: { unavailableDocumentId: landingRecoveryDocumentId },
+    });
+  }, [landingRecoveryDocumentId, navigate]);
+
   if (loadState.view === "unavailable") {
-    return (
-      <DocumentUnavailable
-        onOpenHome={host === "page" ? () => navigate("/home") : undefined}
-      />
+    // The redirect above owns the full-page host; showing the skeleton keeps
+    // that one frame from reading as a dead end the user has to click out of.
+    return landingRecovery ? (
+      <DocumentEditorSkeleton />
+    ) : (
+      <DocumentUnavailable />
     );
   }
 
@@ -487,14 +717,14 @@ export function PageEditorSurface({
   }
 
   if (
-    requestedViewId &&
+    viewId &&
     document &&
     (!document.database || document.database.id !== databaseId)
   ) {
-    return (
-      <DocumentUnavailable
-        onOpenHome={host === "page" ? () => navigate("/home") : undefined}
-      />
+    return host === "page" ? (
+      <Navigate to="/home" replace />
+    ) : (
+      <DocumentUnavailable />
     );
   }
 
@@ -507,7 +737,7 @@ export function PageEditorSurface({
   // get-document response; later poll/SSE refetches remain live and reconcile
   // without replacing the editor.
   if (!document || loadState.view === "skeleton") {
-    return <DocumentEditorSkeleton />;
+    return <DocumentEditorSkeleton title={optimisticTitle} />;
   }
 
   const editor = (
@@ -520,12 +750,12 @@ export function PageEditorSurface({
         })}
         documentId={documentId}
         document={document}
-        requestedViewId={requestedViewId}
         foreground={
           foreground && host === "page" && !isError && isFetchedAfterMount
         }
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
+        viewId={viewId}
         host={host}
         onSessionChange={onSessionChange}
         onDelete={onDelete}
@@ -595,10 +825,19 @@ export function documentEditorLoadState({
   const activeAdmittedDocumentId =
     admittedDocumentId === documentId ? admittedDocumentId : null;
 
-  if (
-    hasDocument &&
-    (isDocumentCreationPending || activeAdmittedDocumentId === documentId)
-  ) {
+  if (hasDocument && isDocumentCreationPending) {
+    return {
+      view: "editor" as const,
+      admittedDocumentId: documentId,
+    };
+  }
+  if (!isFetching && isError && isDocumentLoadUnavailableError(error)) {
+    return {
+      view: "unavailable" as const,
+      admittedDocumentId: null,
+    };
+  }
+  if (hasDocument && activeAdmittedDocumentId === documentId) {
     return {
       view: "editor" as const,
       admittedDocumentId: documentId,
@@ -627,9 +866,68 @@ export function documentEditorLoadState({
 
 type DocumentLoadFailureState = {
   documentId: string;
+  queryIdentity: string;
   baselineErrorUpdateCount: number;
+  baselineAuthoritativeSuccessGeneration: number;
   failed: boolean;
 };
+
+export type AuthoritativeQuerySuccess = {
+  queryIdentity: string;
+  generation: number;
+  errorUpdateCount: number;
+};
+
+export function subscribeToAuthoritativeQuerySuccess(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+  onSuccess: (errorUpdateCount: number) => void,
+) {
+  const queryHash = hashKey(queryKey);
+  return queryClient.getQueryCache().subscribe((event) => {
+    if (
+      event.type === "updated" &&
+      event.query.queryHash === queryHash &&
+      event.action.type === "success" &&
+      event.action.manual !== true
+    ) {
+      onSuccess(event.query.state.errorUpdateCount);
+    }
+  });
+}
+
+function useAuthoritativeQuerySuccess(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+): AuthoritativeQuerySuccess {
+  const queryHash = hashKey(queryKey);
+  const [success, setSuccess] = useState({
+    queryHash,
+    generation: 0,
+    errorUpdateCount: 0,
+  });
+
+  useEffect(
+    () =>
+      subscribeToAuthoritativeQuerySuccess(
+        queryClient,
+        queryKey,
+        (errorUpdateCount) => {
+          setSuccess((current) => ({
+            queryHash,
+            generation:
+              current.queryHash === queryHash ? current.generation + 1 : 1,
+            errorUpdateCount,
+          }));
+        },
+      ),
+    [queryClient, queryHash],
+  );
+
+  return success.queryHash === queryHash
+    ? { ...success, queryIdentity: queryHash }
+    : { queryIdentity: queryHash, generation: 0, errorUpdateCount: 0 };
+}
 
 export function updateDocumentLoadFailureState({
   previous,
@@ -639,6 +937,7 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount,
   errorUpdatedAt,
   isError,
+  authoritativeSuccess,
 }: {
   previous: DocumentLoadFailureState | null;
   documentId: string;
@@ -647,18 +946,41 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount: number;
   errorUpdatedAt: number;
   isError: boolean;
+  authoritativeSuccess: AuthoritativeQuerySuccess;
 }): DocumentLoadFailureState {
-  if (previous?.documentId !== documentId) {
+  if (
+    previous?.documentId !== documentId ||
+    previous.queryIdentity !== authoritativeSuccess.queryIdentity
+  ) {
     return {
       documentId,
+      queryIdentity: authoritativeSuccess.queryIdentity,
       baselineErrorUpdateCount: errorUpdateCount,
+      baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
       failed:
         isError || (errorUpdateCount > 0 && errorUpdatedAt > dataUpdatedAt),
     };
   }
+  if (
+    !isError &&
+    authoritativeSuccess.generation >
+      previous.baselineAuthoritativeSuccessGeneration &&
+    authoritativeSuccess.errorUpdateCount >= errorUpdateCount
+  ) {
+    return {
+      ...previous,
+      baselineErrorUpdateCount: errorUpdateCount,
+      baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
+      failed: false,
+    };
+  }
   if (admitted || previous.failed) return previous;
   return errorUpdateCount > previous.baselineErrorUpdateCount
-    ? { ...previous, failed: true }
+    ? {
+        ...previous,
+        baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
+        failed: true,
+      }
     : previous;
 }
 
@@ -735,12 +1057,12 @@ interface DocumentEditorBodyProps {
   document: Document;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
+  viewId?: string | null;
   host: "page" | "preview";
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
   focusTitle: boolean;
   onTitleFocused?: () => void;
-  requestedViewId?: string | null;
   foreground?: boolean;
 }
 
@@ -752,8 +1074,9 @@ type PendingDocumentSave = {
     title: string,
     content: string,
     options?: DocumentSaveOptions,
-  ) => Promise<unknown>;
+  ) => Promise<DocumentSaveResult>;
   canEditWhenQueued: boolean;
+  contentEditVersion: number;
   expectedLocalSourceRevision?: string | null;
   timeout: ReturnType<typeof setTimeout>;
 };
@@ -762,7 +1085,9 @@ type DocumentSaveOptions = {
   historySessionId?: string;
   allowQueuedSave?: boolean;
   expectedLocalSourceRevision?: string | null;
-  adoptCurrentServerBase?: boolean;
+  contentBase?: DocumentContentBase;
+  titleBase?: string;
+  contentEditVersion?: number;
 };
 
 type DocumentUpdates = {
@@ -854,6 +1179,27 @@ export function positionAnchoredCommentCard({
   };
 }
 
+export type AnchoredCommentPosition = {
+  left: number;
+  top: number;
+  width: number;
+  placement: "above" | "below";
+};
+
+export function sameAnchoredCommentPosition(
+  left: AnchoredCommentPosition | null,
+  right: AnchoredCommentPosition | null,
+) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.left === right.left &&
+    left.top === right.top &&
+    left.width === right.width &&
+    left.placement === right.placement
+  );
+}
+
 export function pendingCommentTargetMatches(
   marked: Iterable<Pick<Element, "textContent">>,
   quotedText: string,
@@ -905,6 +1251,12 @@ export function documentEditorShowsInlineComments(args: {
       args.hasSelectedCommentThread ||
       args.hasPendingComment)
   );
+}
+
+export function utilityPanelAfterCommentFocusDismissal(
+  utilityPanel: DocumentUtilityPanel,
+): DocumentUtilityPanel {
+  return utilityPanel === "comments" ? null : utilityPanel;
 }
 
 export function documentEditorTitleRegionClassName(
@@ -996,7 +1348,7 @@ export function documentEditorDefaultIconKind(
 export function databaseMembershipDatabaseTitle(
   membership: Document["databaseMembership"],
 ) {
-  return membership?.databaseTitle?.trim() || "Untitled database";
+  return membership?.databaseTitle?.trim() || "Untitled collection";
 }
 
 export function documentEditorBreadcrumbItems(
@@ -1146,12 +1498,12 @@ function PageEditorSessionBody({
   document: incomingDocument,
   databaseId,
   databaseDocumentId,
+  viewId,
   host,
   onSessionChange,
   onDelete,
   focusTitle,
   onTitleFocused,
-  requestedViewId,
   foreground = false,
 }: DocumentEditorBodyProps) {
   const acknowledgedDocumentRef = useRef<Document | null>(null);
@@ -1175,8 +1527,11 @@ function PageEditorSessionBody({
     void rememberContentLandingDocument(
       {
         documentId,
+        ...(currentDocumentRef.current?.title?.trim()
+          ? { title: currentDocumentRef.current.title }
+          : {}),
         ...(databaseId ? { databaseId } : {}),
-        ...(requestedViewId ? { viewId: requestedViewId } : {}),
+        ...(viewId ? { viewId } : {}),
       },
       document.spaceId ?? undefined,
     ).catch((error) => {
@@ -1191,10 +1546,11 @@ function PageEditorSessionBody({
     document.spaceId,
     documentId,
     host,
-    requestedViewId,
+    viewId,
     t,
   ]);
   const updateDocument = useUpdateDocument();
+  const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
   const updatePreviewDocumentDraftRef = useRef(
     updatePreviewDocumentDraft.mutateAsync,
@@ -1228,15 +1584,8 @@ function PageEditorSessionBody({
   );
   const canEdit = document.canEdit === true;
   const canEditRef = useRef(canEdit);
-  // The block render context (asset/upload resolvers, inline markdown reader,
-  // panel popover) is stable for the editor's lifetime. Created once here and
-  // provided alongside the content block registry so every registry block in the
-  // editor subtree renders through the same wiring.
-  const blockRenderContext = useMemo(
-    () => createContentBlockRenderContext({ documentId, canEdit }),
-    [documentId, canEdit],
-  );
   const navigate = useNavigate();
+  const location = useLocation();
   const documentsQuery = useDocuments();
   const documents: Document[] = documentsQuery.data ?? [];
   const contentSpacesQuery = useContentSpaces();
@@ -1256,6 +1605,59 @@ function PageEditorSessionBody({
         document.accessRole === "admin" ||
         document.accessRole === "editor" ||
         document.accessRole === "commenter"));
+  const createSuggestion = useCreateResourceSuggestion();
+  const updateSuggestion = useUpdateResourceSuggestion();
+  const decideSuggestion = useDecideResourceSuggestion();
+  const suggestionsQuery = useResourceSuggestions(
+    { resourceType: "document", resourceId: documentId },
+    { enabled: !isLocalFileDocument },
+  );
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  // Registry blocks do not yet produce typed suggestion operations. Keep their
+  // canonical child actions read-only while the surrounding body is a draft.
+  const blockRenderContext = useMemo(
+    () =>
+      createContentBlockRenderContext({
+        documentId,
+        canEdit: documentCanonicalMutationsEnabled(canEdit, isSuggesting),
+      }),
+    [documentId, canEdit, isSuggesting],
+  );
+  const [isSubmittingSuggestions, setIsSubmittingSuggestions] = useState(false);
+  const [suggestionAmendmentConflict, setSuggestionAmendmentConflict] =
+    useState(false);
+  const [suggestionDraft, setSuggestionDraft] = useState(document.content);
+  const [anchoredSuggestionIds, setAnchoredSuggestionIds] = useState<
+    string[] | null
+  >(null);
+  const [selectedSuggestionId, setSelectedSuggestionId] = useState<
+    string | null
+  >(null);
+  const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(
+    null,
+  );
+  const [editingSuggestionId, setEditingSuggestionId] = useState<string | null>(
+    null,
+  );
+  const [suggestionInitialSelection, setSuggestionInitialSelection] =
+    useState<SuggestionDraftCaret | null>(null);
+  const suggestionBaseRef = useRef<SuggestionDraftSession | null>(null);
+  const createdSuggestionOperationsRef = useRef(new Map());
+  const suggestionAmendmentKeysRef = useRef(new Map<string, string>());
+  const [suggestionPersistenceRevision, setSuggestionPersistenceRevision] =
+    useState(0);
+  const [locallyCreatedSuggestions, setLocallyCreatedSuggestions] = useState<
+    ResourceSuggestion[]
+  >([]);
+  const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
+  const [lastUtilityPanel, setLastUtilityPanel] =
+    useState<Exclude<DocumentUtilityPanel, null>>("comments");
+  const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
+  const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
+    useState(false);
+  const [showCommentIndicators, setShowCommentIndicators] = useState(true);
+  const canSuggest = canComment && document.canSuggest === true;
+  const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -1358,9 +1760,20 @@ function PageEditorSessionBody({
     diskRevision?: DesktopContentFileRevision;
     unsavedText: string;
   } | null>(null);
-  const [documentReconcileConflict, setDocumentReconcileConflict] = useState<{
-    localDraft: string;
-  } | null>(null);
+  const reconcileRecoveryStateRef =
+    useRef<DocumentReconcileRecoveryState | null>(null);
+  const reconcileSaveRef = useRef<
+    (
+      draft: ReconcileRecoveryDraft,
+      base?: ReconcileSaveBase,
+    ) => Promise<boolean>
+  >(async () => false);
+  const reconcileRetainRef = useRef<
+    (draft: ReconcileRecoveryDraft) => Promise<void>
+  >(async () => undefined);
+  const reportReconcileRef = useRef<
+    (reason: "conflict" | "failed", localDraft: string) => void
+  >(() => undefined);
   const [localSourceMissing, setLocalSourceMissing] = useState(false);
   const [localSourceAccess, setLocalSourceAccess] = useState<
     "checking" | "available" | "unavailable"
@@ -1371,6 +1784,7 @@ function PageEditorSessionBody({
     useState(false);
   const editorHistoryControllerRef =
     useRef<VisualEditorHistoryController | null>(null);
+  const editorEscapeTargetRef = useRef<HTMLButtonElement>(null);
   const editorPersistenceControllerRef =
     useRef<VisualEditorPersistenceController | null>(null);
   const [editorHistoryState, setEditorHistoryState] =
@@ -1430,6 +1844,7 @@ function PageEditorSessionBody({
     onDelete,
     t,
   ]);
+
   const flushRequestKey = `flush-request-${documentId}`;
   const [flushRequestWake, setFlushRequestWake] = useState(0);
   const handleFlushRequestEvent = useCallback(
@@ -1453,6 +1868,7 @@ function PageEditorSessionBody({
   const builderBodyRetryWakeRef = useRef<number | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const activeContentSavesRef = useRef(0);
   const recoveryDraftRef = useRef<{
     version: number;
     title: string;
@@ -1463,16 +1879,49 @@ function PageEditorSessionBody({
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
-  const lastSavedContentRef = useRef<{
-    content: string;
-    updatedAt: string | null;
-  }>({ content: "", updatedAt: null });
+  const lastSavedContentRef = useRef<ContentSaveWatermark>({
+    content: "",
+    updatedAt: null,
+    revision: undefined,
+  });
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
   const localTitleRef = useRef(localTitle);
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
+  const contentEditVersionRef = useRef(0);
   localContentRef.current = localContent;
+  const reconcileRecovery = useDocumentReconcileRecovery({
+    save: (draft, base) => reconcileSaveRef.current(draft, base),
+    retain: (draft) => reconcileRetainRef.current(draft),
+    getDraft: () => localContentRef.current,
+    getTitle: () => localTitleRef.current,
+    getSaveIdentity: () =>
+      JSON.stringify([localTitleRef.current, localContentRef.current]),
+    stateRef: reconcileRecoveryStateRef,
+  });
+  const documentReconcileConflict = reconcileRecovery.state;
+  const {
+    report: reportReconcile,
+    resolve: resolveReconcile,
+    resolveAutomatically: resolveReconcileAutomatically,
+    resolveChoice: resolveReconcileChoice,
+    updateDraft: updateReconcileDraft,
+    reportRetentionFailure,
+  } = reconcileRecovery;
+  const retainActiveRecoveryDraft = useCallback(
+    (draft: ReconcileRecoveryDraft) => {
+      void reconcileRetainRef.current(draft).catch(reportRetentionFailure);
+    },
+    [reportRetentionFailure],
+  );
+  const [acknowledgedLocalSnapshot, setAcknowledgedLocalSnapshot] = useState<{
+    value: string;
+    revision: string;
+    updatedAt: string;
+    sequence: number;
+  } | null>(null);
+  const acknowledgedLocalSnapshotSequenceRef = useRef(0);
   const getLinkedLocalEditorSnapshot = useCallback(
     () => ({
       title: localTitleRef.current,
@@ -1487,6 +1936,10 @@ function PageEditorSessionBody({
   documentUpdatedAtRef.current = document.updatedAt ?? null;
   const documentContentRef = useRef(document.content);
   documentContentRef.current = document.content;
+  const documentTitleRef = useRef(document.title);
+  documentTitleRef.current = document.title;
+  const documentRevisionRef = useRef(document.revision);
+  documentRevisionRef.current = document.revision;
   const handleBackgroundSaveError = useCallback(
     (error: unknown) => {
       toast.error(t("empty.genericError"), {
@@ -1661,6 +2114,7 @@ function PageEditorSessionBody({
     ydoc,
     awareness,
     isSynced: collabSynced,
+    requestSync: requestCollabSync,
     initialization: collabInitialization,
     activeUsers,
     agentActive,
@@ -1693,6 +2147,12 @@ function PageEditorSessionBody({
     collabSynced &&
     collabInitialization.status === "ready" &&
     !collabInitializationFailed;
+  const suggestionEditorIsolation = suggestedEditorIsolation({
+    suggesting: isSuggesting,
+    canSuggest,
+    canEdit: editorCanEdit,
+    collaborationReady: collabEditorEnabled,
+  });
   canEditRef.current = editorCanEdit;
 
   // Viewers intentionally join awareness so they receive live cursors, but
@@ -1736,6 +2196,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? null,
+        revision: document.revision,
       };
       isInitializedRef.current = true;
       if (!document.title) {
@@ -1756,9 +2217,17 @@ function PageEditorSessionBody({
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
     if (isLinkedLocalSourceDocument) return;
+    if (reconcileRecoveryStateRef.current) return;
     const serverTitle = document.title;
     const lastSaved = lastSavedTitleRef.current;
-    if (serverTitle === lastSaved.title) return;
+    if (serverTitle === lastSaved.title) {
+      lastSavedTitleRef.current = refreshUnchangedTitleSaveWatermark({
+        serverTitle,
+        serverUpdatedAt: document.updatedAt ?? null,
+        lastSaved,
+      });
+      return;
+    }
     const adopt =
       localTitle === lastSaved.title ||
       (titleExternalIsNewer && !titleFocusedRef.current);
@@ -1780,6 +2249,13 @@ function PageEditorSessionBody({
     const serverContent = document.content;
     const lastSaved = lastSavedContentRef.current;
     if (serverContent === lastSaved.content) return;
+    if (
+      localContent !== serverContent &&
+      (pendingDocumentSaveRef.current ||
+        activeContentSavesRef.current > 0 ||
+        documentReconcileConflict)
+    )
+      return;
     const staleEmptyLocalOverFreshServer =
       isEffectivelyEmptyDocumentContent(lastSaved.content) &&
       isEffectivelyEmptyDocumentContent(localContent) &&
@@ -1798,6 +2274,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: serverContent,
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
+        revision: document.revision,
       };
     }
   }, [
@@ -1805,6 +2282,7 @@ function PageEditorSessionBody({
     isLinkedLocalSourceDocument,
     contentExternalIsNewer,
     localContent,
+    documentReconcileConflict,
   ]);
 
   // When polling/SSE refetches confirm the server now matches local editor
@@ -1832,6 +2310,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? lastSavedContentRef.current.updatedAt,
+        revision: document.revision,
       };
     }
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
@@ -1964,15 +2443,23 @@ function PageEditorSessionBody({
         // Title/icon-only saves are unaffected (no baseUpdatedAt sent).
         const baseUpdatedAt =
           updates.content !== undefined
-            ? (lastSavedContentRef.current.updatedAt ?? undefined)
+            ? ((options.contentBase ?? lastSavedContentRef.current).updatedAt ??
+              undefined)
+            : undefined;
+        const baseRevision =
+          updates.content !== undefined
+            ? (options.contentBase ?? lastSavedContentRef.current).revision
             : undefined;
         return await updateDocument.mutateAsync({
           id: documentId,
-          loadedUpdatedAt: documentUpdatedAtRef.current ?? undefined,
+          loadedUpdatedAt:
+            options.contentBase?.updatedAt ??
+            documentUpdatedAtRef.current ??
+            undefined,
           loadedContentWasEmpty:
             updates.content !== undefined
               ? isEffectivelyEmptyDocumentContent(
-                  lastSavedContentRef.current.content,
+                  (options.contentBase ?? lastSavedContentRef.current).content,
                 )
               : undefined,
           ...updates,
@@ -1980,6 +2467,12 @@ function PageEditorSessionBody({
             options.historySessionId ??
             historySessionRef.current.activity(documentId),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+          ...(baseRevision !== undefined ? { baseRevision } : {}),
+          ...(updates.title !== undefined
+            ? {
+                baseTitle: options.titleBase ?? lastSavedTitleRef.current.title,
+              }
+            : {}),
         });
       } catch (error) {
         if (updates.title !== undefined) {
@@ -2019,6 +2512,23 @@ function PageEditorSessionBody({
             }
           } else {
             if (
+              updates.content !== undefined &&
+              result.revision &&
+              result.updatedAt
+            ) {
+              const snapshot = {
+                value: result.content,
+                revision: result.revision,
+                updatedAt: result.updatedAt,
+                sequence: ++acknowledgedLocalSnapshotSequenceRef.current,
+              };
+              setAcknowledgedLocalSnapshot((current) =>
+                !current || snapshot.sequence > current.sequence
+                  ? snapshot
+                  : current,
+              );
+            }
+            if (
               result.updatedAt &&
               (!documentUpdatedAtRef.current ||
                 result.updatedAt >= documentUpdatedAtRef.current)
@@ -2030,6 +2540,7 @@ function PageEditorSessionBody({
               }
               if (result.content === lastSavedContentRef.current.content) {
                 lastSavedContentRef.current.updatedAt = result.updatedAt;
+                lastSavedContentRef.current.revision = result.revision;
               }
             }
             for (const field of fields) {
@@ -2186,6 +2697,7 @@ function PageEditorSessionBody({
     lastSavedContentRef.current = {
       content: document.content,
       updatedAt: document.updatedAt,
+      revision: document.revision,
     };
   }, [
     document.content,
@@ -2200,12 +2712,8 @@ function PageEditorSessionBody({
       content: string,
       options: DocumentSaveOptions = {},
     ): Promise<DocumentSaveResult> => {
-      if (options.adoptCurrentServerBase) {
-        lastSavedContentRef.current = {
-          content: documentContentRef.current,
-          updatedAt: documentUpdatedAtRef.current,
-        };
-      }
+      const contentEditVersion =
+        options.contentEditVersion ?? contentEditVersionRef.current;
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
         serverContent: documentContentRef.current,
         serverUpdatedAt: documentUpdatedAtRef.current,
@@ -2216,36 +2724,92 @@ function PageEditorSessionBody({
       // stale — content. Guard per-field using the field's own watermark.
       const titleIsStale =
         !isLinkedLocalSourceDocument &&
+        options.titleBase === undefined &&
         documentUpdatedAtRef.current &&
         lastSavedTitleRef.current.updatedAt &&
         documentUpdatedAtRef.current > lastSavedTitleRef.current.updatedAt;
+      const contentBase = options.contentBase ?? lastSavedContentRef.current;
+      if (
+        options.titleBase !== undefined &&
+        documentTitleRef.current !== options.titleBase
+      ) {
+        return { contentPersisted: false };
+      }
+      if (
+        options.contentBase &&
+        (documentContentRef.current !== options.contentBase.content ||
+          documentUpdatedAtRef.current !== options.contentBase.updatedAt ||
+          documentRevisionRef.current !== options.contentBase.revision)
+      ) {
+        return { contentPersisted: false };
+      }
       const contentIsStale =
         !isLinkedLocalSourceDocument &&
-        documentUpdatedAtRef.current &&
-        lastSavedContentRef.current.updatedAt &&
-        documentUpdatedAtRef.current > lastSavedContentRef.current.updatedAt;
+        !!documentRevisionRef.current &&
+        !!contentBase.revision &&
+        documentRevisionRef.current !== contentBase.revision;
 
       const updates: Record<string, string> = {};
       if (title !== lastSavedTitleRef.current.title && !titleIsStale)
         updates.title = title;
-      const contentChanged = content !== lastSavedContentRef.current.content;
+      const contentChanged = content !== contentBase.content;
       if (contentChanged && !contentIsStale) updates.content = content;
       if (Object.keys(updates).length === 0) {
         return { contentPersisted: !contentChanged };
       }
 
-      const saved = await persistDocumentUpdates(updates, options);
+      let saved: Document | DocumentUpdateConflictResponse;
+      if (
+        updates.content !== undefined &&
+        !isLinkedLocalSourceDocument &&
+        !isLocalFileDocument
+      ) {
+        const savedTitle = lastSavedTitleRef.current.title;
+        activeContentSavesRef.current += 1;
+        let result;
+        try {
+          result = await saveDocumentWithRebase({
+            base: { ...contentBase },
+            content,
+            owner: {
+              version: contentEditVersion,
+              current: () => ({
+                version: contentEditVersionRef.current,
+                content: localContentRef.current,
+              }),
+              confirm: (confirmedContent) => {
+                localContentRef.current = confirmedContent;
+                setLocalContent(confirmedContent);
+              },
+            },
+            canRetry: (winner) =>
+              updates.title === undefined ||
+              winner.title === savedTitle ||
+              winner.title === updates.title,
+            confirmsWrite: (winner) =>
+              updates.title === undefined || winner.title === updates.title,
+            persist: (nextContent, contentBase) =>
+              persistDocumentUpdates(
+                { ...updates, content: nextContent },
+                { ...options, contentBase },
+              ),
+          });
+        } finally {
+          activeContentSavesRef.current -= 1;
+        }
+        if (result.status === "conflict") {
+          reportReconcileRef.current("conflict", result.localDraft);
+          return { contentPersisted: false };
+        }
+        saved = result.document;
+        content = result.content;
+        updates.content = content;
+      } else {
+        saved = await persistDocumentUpdates(updates, options);
+      }
       if (isDocumentUpdateConflict(saved)) {
-        // A concurrent write (e.g. the Notion auto-pull) landed after this
-        // editor's last reconciled content snapshot — the save was rejected,
-        // not applied. Don't adopt watermarks for the content we tried to
-        // send (that would make the editor believe its now-discarded content
-        // is the saved truth) and don't push to Notion below. The conflict
-        // response already lands the winning server document in the
-        // get-document cache (see useUpdateDocument), so the existing
-        // external-change effects above pick it up and reconcile the editor
-        // to it the same way they handle any other out-of-band write —
-        // silently, with no toast.
+        // Local-file saves retain their own conflict flow. Never acknowledge
+        // a rejected SQL write as saved or push it to Notion.
         return { contentPersisted: false };
       }
       // Adopt the server updatedAt per saved field.
@@ -2295,6 +2859,7 @@ function PageEditorSessionBody({
       documentId,
       autoSync,
       isLinkedLocalSourceDocument,
+      isLocalFileDocument,
       persistDocumentUpdates,
       pushDocumentToNotion,
       queryClient,
@@ -2349,6 +2914,21 @@ function PageEditorSessionBody({
     },
     [documentId, t],
   );
+  const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
+  const queueRecoveryDraftRetention = useCallback(
+    (title: string, content: string, deferredReason: "conflict" | null) => {
+      const retain = () => retainRecoveryDraft(title, content, deferredReason);
+      const queued = recoveryDraftRetentionQueueRef.current.then(
+        retain,
+        retain,
+      );
+      recoveryDraftRetentionQueueRef.current = queued.catch(() => undefined);
+      return queued;
+    },
+    [retainRecoveryDraft],
+  );
   const clearRecoveryDraft = useCallback(
     async (persistedTitle: string, persistedContent: string) => {
       const current = recoveryDraftRef.current;
@@ -2376,10 +2956,16 @@ function PageEditorSessionBody({
     [documentId, t],
   );
   const queueDocumentSave = useCallback(
-    (title: string, content: string, options: DocumentSaveOptions = {}) =>
-      enqueueDocumentSave(documentSaveQueueRef, () =>
+    (title: string, content: string, options: DocumentSaveOptions = {}) => {
+      const contentEditVersion =
+        options.contentEditVersion ?? contentEditVersionRef.current;
+      return enqueueDocumentSave(documentSaveQueueRef, () =>
         savePageWithRecovery({
-          save: () => saveDocumentImmediately(title, content, options),
+          save: () =>
+            saveDocumentImmediately(title, content, {
+              ...options,
+              contentEditVersion,
+            }),
           retain: (reason) => retainRecoveryDraft(title, content, reason),
           clear: () =>
             clearRecoveryDraft(
@@ -2387,7 +2973,8 @@ function PageEditorSessionBody({
               lastSavedContentRef.current.content,
             ),
         }),
-      ),
+      );
+    },
     [clearRecoveryDraft, retainRecoveryDraft, saveDocumentImmediately],
   );
   const flushPendingDocumentSave = useCallback(
@@ -2398,13 +2985,26 @@ function PageEditorSessionBody({
           allowQueuedSave: true,
           historySessionId: pending.historySessionId,
           expectedLocalSourceRevision: pending.expectedLocalSourceRevision,
+          contentEditVersion: pending.contentEditVersion,
         }),
-      ).catch(handleBackgroundSaveError);
+      )
+        .then((result) => {
+          if (!result.contentPersisted) {
+            reportReconcileRef.current(
+              "conflict",
+              contentEditVersionRef.current === pending.contentEditVersion
+                ? pending.content
+                : localContentRef.current,
+            );
+          }
+        })
+        .catch(handleBackgroundSaveError);
     },
     [handleBackgroundSaveError],
   );
   const prepareHistoryRestore = useCallback(async (): Promise<string> => {
     if (
+      suggestionBaseRef.current !== null ||
       !isHistoryRestoreReady(
         Boolean(currentDocumentRef.current.database),
         editorHistoryControllerRef.current,
@@ -2447,12 +3047,14 @@ function PageEditorSessionBody({
     }
     return current.updatedAt;
   }, [documentId, queueDocumentSave, t]);
-  const historyRestoreReady = isHistoryRestoreReady(
-    Boolean(document.database),
-    editorHistoryControllerRef.current,
-    editorHistoryControllerDocumentIdRef.current,
-    documentId,
-  );
+  const historyRestoreReady =
+    !isSuggesting &&
+    isHistoryRestoreReady(
+      Boolean(document.database),
+      editorHistoryControllerRef.current,
+      editorHistoryControllerDocumentIdRef.current,
+      documentId,
+    );
   const handleHistoryRestored = useCallback((restored: Document) => {
     if (restored.id !== activeDocumentIdRef.current) {
       return { status: "committed-editor-refresh-required" } as const;
@@ -2484,6 +3086,7 @@ function PageEditorSessionBody({
     lastSavedContentRef.current = {
       content: restored.content,
       updatedAt: restored.updatedAt ?? null,
+      revision: restored.revision,
     };
     historySessionRef.current.reset();
     return editorApplied
@@ -2506,6 +3109,7 @@ function PageEditorSessionBody({
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (!canEditRef.current) return;
+      if (reconcileRecoveryStateRef.current) return;
       const expectedLocalSourceRevision = isLinkedLocalSourceDocument
         ? localSourceRevisionForQueuedEdit(
             pendingDocumentSaveRef.current?.expectedLocalSourceRevision,
@@ -2519,6 +3123,7 @@ function PageEditorSessionBody({
         content,
         save: queueDocumentSave,
         canEditWhenQueued: canEditRef.current,
+        contentEditVersion: contentEditVersionRef.current,
         expectedLocalSourceRevision,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
@@ -2582,9 +3187,9 @@ function PageEditorSessionBody({
         !!lastSavedTitleRef.current.updatedAt &&
         serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
-        !!serverUpdatedAt &&
-        !!lastSavedContentRef.current.updatedAt &&
-        serverUpdatedAt > lastSavedContentRef.current.updatedAt;
+        !!documentRevisionRef.current &&
+        !!lastSavedContentRef.current.revision &&
+        documentRevisionRef.current !== lastSavedContentRef.current.revision;
 
       const updates: Record<string, string> = {};
       if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {
@@ -2614,6 +3219,10 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (lastSavedContentRef.current.updatedAt ?? undefined)
             : undefined;
+        const baseRevision =
+          updates.content !== undefined
+            ? lastSavedContentRef.current.revision
+            : undefined;
         const loadedContentWasEmpty =
           updates.content !== undefined
             ? isEffectivelyEmptyDocumentContent(
@@ -2633,6 +3242,10 @@ function PageEditorSessionBody({
             : {}),
           ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+          ...(baseRevision !== undefined ? { baseRevision } : {}),
+          ...(updates.title !== undefined
+            ? { baseTitle: lastSavedTitleRef.current.title }
+            : {}),
         });
         const ok = fetch(url, {
           method: "POST",
@@ -2657,6 +3270,7 @@ function PageEditorSessionBody({
         }
         if (updates.content !== undefined) {
           lastSavedContentRef.current = {
+            ...lastSavedContentRef.current,
             content: pending.content,
             updatedAt: optimisticAt,
           };
@@ -2834,64 +3448,679 @@ function PageEditorSessionBody({
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {
-      if (!editorCanEdit) return;
+      if (!documentCanonicalMutationsEnabled(editorCanEdit, isSuggesting))
+        return;
       localTitleRef.current = newTitle;
       setLocalTitle(newTitle);
-      patchDocumentCaches(queryClient, documentId, { title: newTitle });
-      debouncedSave(newTitle, localContentRef.current);
-    },
-    [debouncedSave, documentId, editorCanEdit, queryClient],
-  );
-
-  const handleContentChange = useCallback(
-    (newContent: string) => {
-      if (!editorCanEdit) return;
-      localContentRef.current = newContent;
-      setLocalContent(newContent);
-      if (documentReconcileConflict) {
-        setDocumentReconcileConflict({ localDraft: newContent });
+      if (updateReconcileDraft(localContentRef.current, newTitle)) {
+        retainActiveRecoveryDraft({
+          localTitle: newTitle,
+          localDraft: localContentRef.current,
+        });
         return;
       }
-      debouncedSave(localTitleRef.current, newContent);
+      patchDocumentCaches(queryClient, documentId, { title: newTitle });
+      // Renames must not leave a stale optimistic title for the next landing.
+      refreshLandingTitleHintCache(queryClient, documentId, newTitle);
+      // The in-memory refresh dies with a reload; the persisted last-location
+      // hint must carry the rename too or the next cold landing shows the old
+      // title until the editor load corrects it.
+      void rememberContentLandingDocument(documentId, newTitle).catch(() => {});
+      debouncedSave(newTitle, localContentRef.current);
     },
-    [debouncedSave, documentReconcileConflict, editorCanEdit],
+    [
+      debouncedSave,
+      documentId,
+      editorCanEdit,
+      isSuggesting,
+      queryClient,
+      retainActiveRecoveryDraft,
+      updateReconcileDraft,
+    ],
   );
 
+  const savedSuggestions = useMemo(() => {
+    return freshestSavedSuggestions(
+      locallyCreatedSuggestions,
+      suggestionsQuery.data?.suggestions ?? [],
+    );
+  }, [locallyCreatedSuggestions, suggestionsQuery.data?.suggestions]);
+  const amendmentTargetIsResolved = suggestionAmendmentTargetIsResolved(
+    editingSuggestionId,
+    savedSuggestions,
+  );
+  const amendmentDraftIsDirty = Boolean(
+    suggestionBaseRef.current?.existingSuggestion &&
+    suggestionDraft !== suggestionBaseRef.current.initialContent,
+  );
+
+  useEffect(() => {
+    if (!isSuggesting || !amendmentDraftIsDirty || !amendmentTargetIsResolved)
+      return;
+    setSuggestionAmendmentConflict(true);
+    void queryClient.invalidateQueries(documentQueryFilter(documentId));
+  }, [
+    amendmentDraftIsDirty,
+    amendmentTargetIsResolved,
+    documentId,
+    isSuggesting,
+    queryClient,
+  ]);
+
+  const adoptConfirmedSuggestions = useCallback(() => {
+    const confirmed = [...createdSuggestionOperationsRef.current.values()]
+      .map((entry) => entry.suggestion as ResourceSuggestion | undefined)
+      .filter((suggestion): suggestion is ResourceSuggestion => !!suggestion);
+    if (confirmed.length > 0) {
+      setLocallyCreatedSuggestions((current) => {
+        const byId = new Map(
+          current.map((suggestion) => [suggestion.id, suggestion]),
+        );
+        for (const suggestion of confirmed) byId.set(suggestion.id, suggestion);
+        return [...byId.values()];
+      });
+    }
+    setSuggestionPersistenceRevision((revision) => revision + 1);
+  }, []);
+
+  const flushSuggestionDraft = useCallback(async () => {
+    if (!isSuggesting) return null;
+    if (isSubmittingSuggestions) return null;
+    const base = suggestionBaseRef.current;
+    if (!base) return null;
+    if (base.existingSuggestion && suggestionDraft === base.initialContent) {
+      setIsSuggesting(false);
+      suggestionBaseRef.current = null;
+      setEditingSuggestionId(null);
+      setSuggestionInitialSelection(null);
+      setSuggestionAmendmentConflict(false);
+      suggestionAmendmentKeysRef.current.clear();
+      return new Map<string, ResourceSuggestion>();
+    }
+    if (
+      base.existingSuggestion &&
+      (suggestionAmendmentConflict || amendmentTargetIsResolved)
+    ) {
+      setSuggestionAmendmentConflict(true);
+      return null;
+    }
+    if (suggestionDraft === base.baseContent) {
+      if (base.existingSuggestion) {
+        toast.error(t("editor.suggestionAmendmentEmpty"));
+        return null;
+      }
+      setIsSuggesting(false);
+      suggestionBaseRef.current = null;
+      setEditingSuggestionId(null);
+      setSuggestionInitialSelection(null);
+      setSuggestionAmendmentConflict(false);
+      createdSuggestionOperationsRef.current.clear();
+      return new Map<string, ResourceSuggestion>();
+    }
+    setIsSubmittingSuggestions(true);
+    try {
+      const operations = suggestionDraftOperations(base, suggestionDraft);
+      if (operations.length === 0) {
+        if (base.existingSuggestion) {
+          toast.error(t("editor.suggestionAmendmentEmpty"));
+          return null;
+        }
+        setIsSuggesting(false);
+        suggestionBaseRef.current = null;
+        setEditingSuggestionId(null);
+        setSuggestionInitialSelection(null);
+        setSuggestionAmendmentConflict(false);
+        return new Map<string, ResourceSuggestion>();
+      }
+      let persisted: Map<string, ResourceSuggestion>;
+      if (base.existingSuggestion) {
+        const operationKey = JSON.stringify(operations);
+        const idempotencyKey =
+          suggestionAmendmentKeysRef.current.get(operationKey) ??
+          globalThis.crypto.randomUUID();
+        suggestionAmendmentKeysRef.current.set(operationKey, idempotencyKey);
+        const amended = await updateSuggestion.mutateAsync({
+          id: base.existingSuggestion.id,
+          observedRevision: base.existingSuggestion.revision,
+          idempotencyKey,
+          operations,
+          summary: t("editor.toolbar.suggestEdits"),
+        });
+        setLocallyCreatedSuggestions((current) => {
+          const byId = new Map(
+            current.map((suggestion) => [suggestion.id, suggestion]),
+          );
+          byId.set(amended.id, amended);
+          return [...byId.values()];
+        });
+        setSuggestionPersistenceRevision((revision) => revision + 1);
+        persisted = new Map([
+          [suggestionOperationKey(operations[0]!), amended],
+        ]);
+      } else {
+        persisted = await persistSuggestionDraftOperations(
+          operations,
+          createdSuggestionOperationsRef.current,
+          (operation, idempotencyKey) =>
+            createSuggestion.mutateAsync({
+              resourceType: "document",
+              resourceId: documentId,
+              adapterKind: "content.document-markdown",
+              baseRevision: base.baseRevision,
+              summary: t("editor.toolbar.suggestEdits"),
+              idempotencyKey,
+              operations: [operation],
+            }),
+        );
+        adoptConfirmedSuggestions();
+      }
+      setIsSuggesting(false);
+      suggestionBaseRef.current = null;
+      setEditingSuggestionId(null);
+      setSuggestionInitialSelection(null);
+      setSuggestionAmendmentConflict(false);
+      createdSuggestionOperationsRef.current.clear();
+      suggestionAmendmentKeysRef.current.clear();
+      return persisted;
+    } catch (error) {
+      adoptConfirmedSuggestions();
+      if (error instanceof SuggestionFormattingMappingError) {
+        toast.error(t("editor.suggestionFormattingUnsupported"));
+        return null;
+      }
+      if (base.existingSuggestion && isSuggestionConflictActionError(error)) {
+        setSuggestionAmendmentConflict(true);
+        void suggestionsQuery.refetch();
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+        return null;
+      }
+      toast.error(
+        t(
+          base.existingSuggestion
+            ? "editor.suggestionAmendmentFailed"
+            : "editor.suggestionCreateFailed",
+        ),
+        {
+          description: actionErrorMessage(error) ?? t("empty.genericError"),
+        },
+      );
+      return null;
+    } finally {
+      setIsSubmittingSuggestions(false);
+    }
+  }, [
+    createSuggestion,
+    updateSuggestion,
+    adoptConfirmedSuggestions,
+    documentId,
+    isSuggesting,
+    isSubmittingSuggestions,
+    amendmentTargetIsResolved,
+    queryClient,
+    suggestionAmendmentConflict,
+    suggestionDraft,
+    suggestionsQuery,
+    t,
+  ]);
+
+  const startSuggestionDraft = useCallback(
+    (suggestion?: ResourceSuggestion) => {
+      if (!canSuggest || isSuggesting) return false;
+      try {
+        suggestionMarkedSourceRanges(document.content);
+      } catch (error) {
+        if (!(error instanceof SuggestionFormattingMappingError)) throw error;
+        toast.error(t("editor.suggestionFormattingBaselineUnsupported"));
+        return false;
+      }
+      const existing = suggestion
+        ? editableSuggestionDraft({
+            suggestion,
+            currentUserEmail: session?.email,
+            canonicalContent: document.content,
+            canonicalRevision: canonicalSuggestionRevision(
+              document,
+              suggestion,
+            ),
+          })
+        : null;
+      if (suggestion && !existing) return false;
+      createdSuggestionOperationsRef.current.clear();
+      suggestionAmendmentKeysRef.current.clear();
+      setSuggestionAmendmentConflict(false);
+      suggestionBaseRef.current =
+        existing?.session ??
+        createSuggestionDraftSession({
+          id: globalThis.crypto.randomUUID(),
+          baseContent: document.content,
+          baseRevision: canonicalSuggestionRevision(document),
+          startedAt: new Date().toISOString(),
+        });
+      setSuggestionDraft(existing?.content ?? document.content);
+      setSuggestionInitialSelection(existing?.caret ?? null);
+      setEditingSuggestionId(existing?.session.existingSuggestion?.id ?? null);
+      if (existing) setSelectedSuggestionId(null);
+      setIsSuggesting(true);
+      return true;
+    },
+    [
+      canSuggest,
+      document.content,
+      document.revision,
+      document.updatedAt,
+      isSuggesting,
+      session?.email,
+      t,
+    ],
+  );
+
+  const handleSuggestionModeChange = useCallback(
+    async (next: boolean) => {
+      if (next) {
+        const selected = savedSuggestions.find(
+          (suggestion) => suggestion.id === selectedSuggestionId,
+        );
+        if (!selected || !startSuggestionDraft(selected)) {
+          startSuggestionDraft();
+        }
+        return;
+      }
+      await flushSuggestionDraft();
+    },
+    [
+      flushSuggestionDraft,
+      savedSuggestions,
+      selectedSuggestionId,
+      startSuggestionDraft,
+    ],
+  );
+
+  const handleSuggestionReplacementIntent = useCallback(
+    (intent: {
+      beforeText: string;
+      startOffset: number;
+      beforeMarkdown: string;
+    }) => {
+      const session = suggestionBaseRef.current;
+      if (!session) return;
+      if (
+        previewSuggestionDraft(session, intent.beforeMarkdown, null).status !==
+        "ready"
+      )
+        return;
+      if (
+        recordSuggestionReplacementIntent(
+          session,
+          intent,
+          intent.beforeMarkdown,
+        )
+      ) {
+        setSuggestionPersistenceRevision((revision) => revision + 1);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!canSuggest && isSuggesting) setIsSuggesting(false);
+  }, [canSuggest, isSuggesting]);
+
+  useEffect(() => {
+    setLocallyCreatedSuggestions([]);
+    setEditingSuggestionId(null);
+    setSuggestionInitialSelection(null);
+    setSuggestionAmendmentConflict(false);
+  }, [documentId]);
+
+  const discardConflictedSuggestionDraft = useCallback(() => {
+    setIsSuggesting(false);
+    setSuggestionDraft(document.content);
+    suggestionBaseRef.current = null;
+    setEditingSuggestionId(null);
+    setSuggestionInitialSelection(null);
+    createdSuggestionOperationsRef.current.clear();
+    suggestionAmendmentKeysRef.current.clear();
+    setSuggestionAmendmentConflict(false);
+  }, [document.content]);
+
+  const suggestionDraftPreview = useMemo(() => {
+    const draftSession = suggestionBaseRef.current;
+    return isSuggesting && draftSession
+      ? previewSuggestionDraft(
+          draftSession,
+          suggestionDraft,
+          session?.email ?? null,
+        )
+      : { status: "ready" as const, suggestions: [] as DraftSuggestion[] };
+  }, [
+    isSuggesting,
+    session?.email,
+    suggestionDraft,
+    suggestionPersistenceRevision,
+  ]);
+  const sessionDraftSuggestions =
+    suggestionDraftPreview.status === "ready"
+      ? suggestionDraftPreview.suggestions
+      : [];
+  const draftSuggestions = useMemo(() => {
+    if (suggestionBaseRef.current?.existingSuggestion) return [];
+    return unpersistedDraftSuggestions(
+      sessionDraftSuggestions,
+      createdSuggestionOperationsRef.current,
+    );
+  }, [sessionDraftSuggestions, suggestionPersistenceRevision]);
+
+  const visualSuggestions = useMemo<VisualEditorSuggestion[]>(() => {
+    const currentMarkdown = isSuggesting ? suggestionDraft : document.content;
+    const byId = new Map<string, VisualEditorSuggestion>();
+    for (const suggestion of savedSuggestions) {
+      if (suggestion.id === editingSuggestionId) continue;
+      const presentation = suggestionPresentation(suggestion, currentMarkdown);
+      if (presentation) byId.set(presentation.id, presentation);
+    }
+    for (const suggestion of suggestionSessionVisuals(
+      sessionDraftSuggestions,
+      createdSuggestionOperationsRef.current,
+    )) {
+      const operation = suggestion.operations[0]!;
+      const before = operation.before as { changedText: string };
+      const after = operation.after as {
+        markdown: string;
+        changedText: string;
+      };
+      const beforeMarkdown = (operation.before as { markdown: string })
+        .markdown;
+      const operationAnchor = operation.anchor as { from: number; to: number };
+      byId.set(suggestion.id, {
+        id: suggestion.id,
+        kind: operation.kind as VisualEditorSuggestion["kind"],
+        beforeText: before.changedText,
+        afterText: after.changedText,
+        beforePresentation: {
+          source: beforeMarkdown,
+          from: operationAnchor.from,
+          to: operationAnchor.to,
+        },
+        afterPresentation: {
+          source: after.markdown,
+          from: operationAnchor.from,
+          to: operationAnchor.from + after.changedText.length,
+        },
+        anchor: suggestion.anchor,
+        presentation: "draft" as const,
+      });
+    }
+    return [...byId.values()];
+  }, [
+    document.content,
+    editingSuggestionId,
+    isSuggesting,
+    savedSuggestions,
+    sessionDraftSuggestions,
+    suggestionPersistenceRevision,
+    suggestionDraft,
+  ]);
+  const sidebarSuggestions = useMemo(() => {
+    if (!editingSuggestionId || sessionDraftSuggestions.length !== 1) {
+      return savedSuggestions;
+    }
+    return savedSuggestions.map((suggestion) =>
+      suggestion.id === editingSuggestionId
+        ? { ...suggestion, operations: sessionDraftSuggestions[0]!.operations }
+        : suggestion,
+    );
+  }, [editingSuggestionId, savedSuggestions, sessionDraftSuggestions]);
+
+  useEffect(() => {
+    void setClientAppState(
+      "content-suggestion-mode",
+      {
+        documentId,
+        suggesting: isSuggesting,
+        draftChanged: isSuggesting && suggestionDraft !== document.content,
+        pendingCount: savedSuggestions.filter(
+          (suggestion) => suggestion.status === "pending",
+        ).length,
+      },
+      { requestSource: "content-editor" },
+    ).catch(() => {
+      // Suggesting remains usable when best-effort agent context sync fails.
+    });
+  }, [
+    document.content,
+    documentId,
+    isSuggesting,
+    suggestionDraft,
+    savedSuggestions,
+  ]);
+
   const handleContentSaveNow = useCallback(
-    async (newContent: string, adoptCurrentServerBase = false) => {
+    async (
+      recovery: ReconcileRecoveryDraft,
+      reconcileBase?: ReconcileSaveBase,
+    ) => {
       if (!editorCanEdit) return false;
+      contentEditVersionRef.current += 1;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
         pendingDocumentSaveRef.current = null;
       }
-      localContentRef.current = newContent;
-      setLocalContent(newContent);
+      localTitleRef.current = recovery.localTitle;
+      localContentRef.current = recovery.localDraft;
+      setLocalTitle(recovery.localTitle);
+      setLocalContent(recovery.localDraft);
       const result = await queueDocumentSave(
-        localTitleRef.current,
-        newContent,
+        recovery.localTitle,
+        recovery.localDraft,
         {
-          adoptCurrentServerBase,
+          contentBase: reconcileBase
+            ? {
+                content: reconcileBase.content,
+                updatedAt: reconcileBase.updatedAt,
+                revision: reconcileBase.revision,
+              }
+            : undefined,
+          titleBase: reconcileBase?.title,
         },
       );
       return result.contentPersisted;
     },
     [editorCanEdit, queueDocumentSave],
   );
+  reconcileSaveRef.current = handleContentSaveNow;
+  reconcileRetainRef.current = ({ localTitle, localDraft }) =>
+    queueRecoveryDraftRetention(
+      localTitle,
+      localDraft,
+      reconcileRecoveryStateRef.current?.reason === "conflict"
+        ? "conflict"
+        : null,
+    );
+  reportReconcileRef.current = reportReconcile;
 
-  const handleBaseAwareReconcile = useCallback(
-    (result: { status: "merged" | "conflict" | "failed"; content: string }) => {
-      if (result.status === "merged") {
-        void handleContentSaveNow(result.content, true).then((persisted) => {
-          if (persisted) setDocumentReconcileConflict(null);
-          else setDocumentReconcileConflict({ localDraft: result.content });
+  const handleContentChange = useCallback(
+    (newContent: string) => {
+      if (!editorCanEdit) return;
+      contentEditVersionRef.current += 1;
+      localContentRef.current = newContent;
+      setLocalContent(newContent);
+      if (updateReconcileDraft(newContent)) {
+        retainActiveRecoveryDraft({
+          localTitle: localTitleRef.current,
+          localDraft: newContent,
         });
         return;
       }
-      setDocumentReconcileConflict({ localDraft: result.content });
+      debouncedSave(localTitleRef.current, newContent);
     },
-    [handleContentSaveNow],
+    [
+      debouncedSave,
+      editorCanEdit,
+      retainActiveRecoveryDraft,
+      updateReconcileDraft,
+    ],
   );
+
+  const handleImmediateContentChange = useCallback(
+    async (newContent: string): Promise<EditorDraftSaveResult> => {
+      if (!editorCanEdit) return "failed";
+      if (reconcileRecoveryStateRef.current) {
+        handleContentChange(newContent);
+        return "retained";
+      }
+      return (await handleContentSaveNow({
+        localTitle: localTitleRef.current,
+        localDraft: newContent,
+      }))
+        ? "persisted"
+        : "failed";
+    },
+    [editorCanEdit, handleContentChange, handleContentSaveNow],
+  );
+
+  const handleBaseAwareReconcile = useCallback(
+    (result: {
+      status: "merged" | "conflict" | "failed";
+      content: string;
+      serverContent: string;
+      serverRevision: string;
+    }) => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        pendingDocumentSaveRef.current = null;
+      }
+      localContentRef.current = result.content;
+      setLocalContent(result.content);
+      if (result.status === "merged") {
+        if (documentContentRef.current === result.serverContent) {
+          void resolveReconcileAutomatically(
+            {
+              localTitle: localTitleRef.current,
+              localDraft: result.content,
+            },
+            {
+              title: documentTitleRef.current,
+              content: result.serverContent,
+              updatedAt: documentUpdatedAtRef.current,
+              revision: result.serverRevision,
+            },
+          );
+        } else {
+          reportReconcile("failed", result.content);
+          retainActiveRecoveryDraft({
+            localTitle: localTitleRef.current,
+            localDraft: result.content,
+          });
+        }
+        return;
+      }
+      reportReconcile(result.status, result.content);
+      retainActiveRecoveryDraft({
+        localTitle: localTitleRef.current,
+        localDraft: result.content,
+      });
+    },
+    [reportReconcile, resolveReconcileAutomatically, retainActiveRecoveryDraft],
+  );
+
+  const handleResolveReconcile = useCallback(
+    async (base: ReconcileSaveBase) => {
+      const saved = await resolveReconcile(base);
+      if (saved)
+        requestAnimationFrame(() => {
+          documentLayoutRef.current
+            ?.querySelector<HTMLElement>(".ProseMirror")
+            ?.focus({ preventScroll: true });
+        });
+      return saved;
+    },
+    [resolveReconcile],
+  );
+
+  const resolveLiveRecoveryDraft = useCallback(
+    async (
+      choice: "use_saved" | "save_separately",
+      base: ReconcileSaveBase,
+    ) => {
+      let resolvedUrlPath: string | undefined;
+      const resolved = await resolveReconcileChoice(
+        base,
+        async (recovery, reviewedBase) => {
+          await retainRecoveryDraft(
+            recovery.localTitle,
+            recovery.localDraft,
+            documentReconcileConflict?.reason === "conflict"
+              ? "conflict"
+              : null,
+          );
+          const draft = recoveryDraftRef.current;
+          if (!draft || !reviewedBase.updatedAt) return false;
+          const result = await resolvePreviewDocumentDraft.mutateAsync({
+            choice,
+            documentId,
+            expectedDraftVersion: draft.version,
+            expectedDraftTitle: draft.title,
+            expectedDraftContent: draft.content,
+            expectedDocumentUpdatedAt: reviewedBase.updatedAt,
+          });
+          if (result.status === "document_conflict") {
+            await queryClient.refetchQueries(documentQueryFilter(documentId));
+            return false;
+          }
+          if (
+            recoveryDraftRef.current?.version === draft.version &&
+            recoveryDraftRef.current.title === draft.title &&
+            recoveryDraftRef.current.content === draft.content
+          ) {
+            recoveryDraftRef.current = null;
+          }
+          resolvedUrlPath = result.urlPath;
+          return true;
+        },
+      );
+      if (!resolved) return false;
+      if (choice === "save_separately" && resolvedUrlPath) {
+        toast.success(t("editor.previewDraftSavedSeparately"));
+        void navigate(resolvedUrlPath);
+        return true;
+      }
+      if (choice === "use_saved") {
+        localTitleRef.current = base.title ?? document.title;
+        localContentRef.current = base.content;
+        setLocalTitle(base.title ?? document.title);
+        setLocalContent(base.content);
+        await queryClient.refetchQueries(documentQueryFilter(documentId));
+        toast.success(t("editor.previewDraftSavedToHistory"));
+      }
+      return true;
+    },
+    [
+      documentId,
+      documentReconcileConflict?.reason,
+      navigate,
+      queryClient,
+      resolveReconcileChoice,
+      resolvePreviewDocumentDraft,
+      retainRecoveryDraft,
+      t,
+    ],
+  );
+
+  const copyLiveRecoveryDraft = useCallback(async () => {
+    const copied = await writeClipboardText(localContentRef.current);
+    if (copied) toast.success(t("editor.unsavedTextCopied"));
+    else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
+  }, [t]);
+
+  const focusEditorAfterRecoveryReview = useCallback(() => {
+    requestAnimationFrame(() => {
+      documentLayoutRef.current
+        ?.querySelector<HTMLElement>(".ProseMirror")
+        ?.focus({ preventScroll: true });
+    });
+  }, []);
 
   const useDiskVersion = useCallback(() => {
     if (!localSourceConflict) return;
@@ -2920,69 +4149,27 @@ function PageEditorSessionBody({
   }, [localSourceConflict]);
 
   // Comments state — pending comment from text selection
-  const [pendingComment, setPendingComment] = useState<{
-    quotedText: string;
-    offsetTop: number;
-    anchor?: CommentTextAnchor;
-    range?: { from: number; to: number };
-  } | null>(null);
-  const [pendingCommentTargetValid, setPendingCommentTargetValid] =
-    useState(true);
+  const {
+    pendingComment,
+    setPendingComment,
+    changePendingComment,
+    completePendingComment,
+  } = usePendingCommentDraft(documentId);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
-  const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
-  const [lastUtilityPanel, setLastUtilityPanel] =
-    useState<Exclude<DocumentUtilityPanel, null>>("comments");
-  const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
-  const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
-    useState(false);
-  const [showCommentIndicators, setShowCommentIndicators] = useState(true);
+  const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
+    useState<HTMLElement | null>(null);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
-  const { data: threads, isLoading: commentsLoading } = useComments(
-    !isLocalFileDocument ? documentId : null,
-  );
-  const documentLayoutRef = useRef<HTMLDivElement>(null);
-  const commentLaneRef = useRef<HTMLElement>(null);
-  const anchoredCommentRef = useRef<HTMLElement>(null);
-  const [anchoredCommentPosition, setAnchoredCommentPosition] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    placement: "above" | "below";
-  } | null>(null);
-  const [commentLaneOffset, setCommentLaneOffset] = useState(0);
-  const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
-  const showCommentsHistoryDrawer =
-    utilityPanel === "comments" && commentsBrowseOpen;
-  const showDesktopCommentsHistory =
-    showCommentsHistoryDrawer && hasUtilityRailSpace;
-  const hasOpenCommentThreads =
-    threads?.some((thread) => !thread.resolved) ?? false;
-  const hasSelectedCommentThread =
-    !!selectedThreadId &&
-    (threads?.some((thread) => thread.threadId === selectedThreadId) ?? false);
-  const showInlineComments = documentEditorShowsInlineComments({
-    showIndicators: showCommentIndicators,
-    hasUtilityRailSpace,
-    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-    utilityPanel,
-    hasOpenCommentThreads,
-    hasSelectedCommentThread,
-    hasPendingComment: !!pendingComment,
-  });
-  const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
-  const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
-  const showAnchoredCommentPopover =
-    !showCommentsHistoryDrawer &&
-    utilityPanel === "comments" &&
-    !hasUtilityRailSpace &&
-    (!!pendingComment || !!selectedThreadId);
-  const showUtilityPanelSheet =
-    (showCommentsHistoryDrawer && !showDesktopCommentsHistory) ||
-    (utilityPanel === "info" && !showDesktopInfoPanel);
-
+  const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
+  const [pendingCommentTargetValid, setPendingCommentTargetValid] =
+    useState(true);
+  // Keyed by the selection, never by the draft text: re-running this on each
+  // keystroke blanks the target back to invalid for a frame, which shows the
+  // "select text" alert and disables Submit inside the open composer.
+  const pendingCommentTargetId = pendingComment?.id ?? null;
+  const pendingCommentQuotedText = pendingComment?.quotedText ?? null;
   useLayoutEffect(() => {
-    if (!pendingComment) {
+    if (!pendingCommentTargetId || pendingCommentQuotedText === null) {
       setPendingCommentTargetValid(true);
       return;
     }
@@ -3000,7 +4187,7 @@ function PageEditorSessionBody({
           ".comment-highlight--pending",
         );
         setPendingCommentTargetValid(
-          pendingCommentTargetMatches(marked, pendingComment.quotedText),
+          pendingCommentTargetMatches(marked, pendingCommentQuotedText),
         );
       });
     };
@@ -3018,7 +4205,58 @@ function PageEditorSessionBody({
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [pendingComment]);
+  }, [pendingCommentTargetId, pendingCommentQuotedText]);
+  const [focusSuggestionId, setFocusSuggestionId] = useState<string | null>(
+    null,
+  );
+  const appliedSuggestionLinkRef = useRef<string | null>(null);
+  const { data: threads, isLoading: commentsLoading } = useComments(
+    !isLocalFileDocument ? documentId : null,
+  );
+  const documentLayoutRef = useRef<HTMLDivElement>(null);
+  const commentLaneRef = useRef<HTMLElement>(null);
+  const anchoredCommentRef = useRef<HTMLElement>(null);
+  const [anchoredCommentPosition, setAnchoredCommentPosition] =
+    useState<AnchoredCommentPosition | null>(null);
+  const [commentLaneOffset, setCommentLaneOffset] = useState(0);
+  const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
+  const hasInlineCommentSpace = useElementMinWidth(documentLayoutRef, 1088);
+  const showCommentsHistoryDrawer =
+    utilityPanel === "comments" && commentsBrowseOpen;
+  const showDesktopCommentsHistory =
+    showCommentsHistoryDrawer && hasUtilityRailSpace;
+  const hasOpenCommentThreads =
+    threads?.some((thread) => !thread.resolved) ?? false;
+  const hasOpenSuggestions =
+    savedSuggestions.some((suggestion) => suggestion.status === "pending") ||
+    draftSuggestions.length > 0;
+  const hasSelectedCommentThread =
+    !!selectedThreadId &&
+    (threads?.some((thread) => thread.threadId === selectedThreadId) ?? false);
+  const showInlineComments = documentEditorShowsInlineComments({
+    showIndicators: showCommentIndicators,
+    hasUtilityRailSpace: hasInlineCommentSpace,
+    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
+    utilityPanel,
+    hasOpenCommentThreads: hasOpenCommentThreads || hasOpenSuggestions,
+    hasSelectedCommentThread,
+    hasPendingComment: !!pendingComment,
+  });
+  const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
+  const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
+  const showAnchoredCommentPopover =
+    !showCommentsHistoryDrawer &&
+    utilityPanel === "comments" &&
+    !hasInlineCommentSpace &&
+    (!!pendingComment || !!selectedThreadId);
+  const showUtilityPanelSheet =
+    (showCommentsHistoryDrawer && !showDesktopCommentsHistory) ||
+    (utilityPanel === "comments" &&
+      !hasInlineCommentSpace &&
+      !!selectedSuggestionId) ||
+    (utilityPanel === "info" && !showDesktopInfoPanel);
+  const hasFocusedCommentReply =
+    replyDrafts.focus.current?.documentId === documentId;
 
   useEffect(() => {
     if (utilityPanel) setLastUtilityPanel(utilityPanel);
@@ -3034,25 +4272,10 @@ function PageEditorSessionBody({
       return;
     }
     const lane = commentLaneRef.current;
-    const readingColumn =
-      scrollContainerRef.current?.querySelector(".notion-editor");
-    if (!lane || !readingColumn) return;
-    const update = () => {
-      const laneLeft = lane.getBoundingClientRect().left - commentLaneOffset;
-      const readingRight = readingColumn.getBoundingClientRect().right;
-      setCommentLaneOffset(Math.min(0, readingRight - laneLeft));
-    };
-    update();
-    window.addEventListener("resize", update);
-    const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    observer?.observe(lane);
-    observer?.observe(readingColumn);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, [commentLaneOffset, showInlineComments]);
+    const container = scrollContainerRef.current;
+    if (!lane || !container) return;
+    return observeCommentLane(container, lane, setCommentLaneOffset);
+  }, [documentId, showInlineComments]);
 
   const handleComment = useCallback(
     (
@@ -3073,18 +4296,28 @@ function PageEditorSessionBody({
   const clearCommentFocus = useCallback(() => {
     setSelectedThreadId(null);
     setHoveredThreadId(null);
+    setSelectedSuggestionId(null);
+    setHoveredSuggestionId(null);
   }, []);
 
   const dismissCommentFocus = useCallback(() => {
+    replyDrafts.setOpenReply(null);
     clearCommentFocus();
-    if (!hasUtilityRailSpace) {
+    if (!hasInlineCommentSpace) {
       setCommentsBrowseOpen(false);
-      setUtilityPanel(null);
+      setUtilityPanel(utilityPanelAfterCommentFocusDismissal);
     }
-  }, [clearCommentFocus, hasUtilityRailSpace]);
+  }, [clearCommentFocus, hasInlineCommentSpace, replyDrafts.setOpenReply]);
+
+  const handleEditorEscape = useCallback(() => {
+    dismissCommentFocus();
+    editorEscapeTargetRef.current?.focus({ preventScroll: true });
+  }, [dismissCommentFocus]);
 
   const activateCommentThread = useCallback(
     (threadId: string, preserveBrowseContext = false) => {
+      setSelectedSuggestionId(null);
+      setPendingComment(null);
       setHoveredThreadId(null);
       setSelectedThreadId(threadId);
       setCommentsBrowseOpen(preserveBrowseContext);
@@ -3093,8 +4326,64 @@ function PageEditorSessionBody({
     [],
   );
 
+  const activateSuggestion = useCallback((suggestionId: string) => {
+    setPendingComment(null);
+    setHoveredThreadId(null);
+    setSelectedThreadId(null);
+    setSelectedSuggestionId(suggestionId);
+    setCommentsBrowseOpen(false);
+    setUtilityPanel("comments");
+    requestAnimationFrame(() => {
+      const escaped = globalThis.CSS?.escape
+        ? globalThis.CSS.escape(suggestionId)
+        : suggestionId.replace(/["\\]/g, "\\$&");
+      const targets = globalThis.document.querySelectorAll<HTMLElement>(
+        `[data-suggestion-id="${escaped}"]`,
+      );
+      const pageTarget = Array.from(targets).find((target) =>
+        target.closest(".notion-editor"),
+      );
+      if (pageTarget) {
+        const rect = pageTarget.getBoundingClientRect();
+        const viewport = scrollContainerRef.current?.getBoundingClientRect();
+        if (
+          viewport &&
+          (rect.top < viewport.top || rect.bottom > viewport.bottom)
+        ) {
+          pageTarget.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }
+    });
+  }, []);
+
+  const activateInlineSuggestion = useCallback(
+    (suggestionId: string) => {
+      if (
+        isSuggesting &&
+        suggestionBaseRef.current?.existingSuggestion?.id === suggestionId
+      ) {
+        return;
+      }
+      const suggestion = savedSuggestions.find(
+        (candidate) => candidate.id === suggestionId,
+      );
+      if (suggestion && startSuggestionDraft(suggestion)) {
+        setPendingComment(null);
+        setHoveredThreadId(null);
+        setSelectedThreadId(null);
+        setSelectedSuggestionId(null);
+        setHoveredSuggestionId(null);
+        return;
+      }
+      activateSuggestion(suggestionId);
+    },
+    [activateSuggestion, isSuggesting, savedSuggestions, startSuggestionDraft],
+  );
+  const handledCommentDeepLinkRef = useRef<string | null>(null);
+
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
+      if (!nextPanel) replyDrafts.setOpenReply(null);
       setUtilityPanel(nextPanel);
       if (nextPanel === "comments") {
         setCommentsBrowseOpen(true);
@@ -3104,7 +4393,7 @@ function PageEditorSessionBody({
         clearCommentFocus();
       }
     },
-    [clearCommentFocus],
+    [clearCommentFocus, replyDrafts.setOpenReply],
   );
 
   useEffect(() => {
@@ -3112,11 +4401,63 @@ function PageEditorSessionBody({
     setCommentsBrowseOpen(false);
     setUtilityPanel(null);
     clearCommentFocus();
+    setSelectedSuggestionId(null);
   }, [clearCommentFocus, documentId]);
 
   useEffect(() => {
+    const suggestionId = new URLSearchParams(location.search).get("suggestion");
+    const key = `${documentId}:${location.key}:${location.search}`;
+    if (!suggestionId) {
+      appliedSuggestionLinkRef.current = null;
+      return;
+    }
+    if (!suggestionsQuery.data || appliedSuggestionLinkRef.current === key)
+      return;
+    appliedSuggestionLinkRef.current = key;
+    const suggestion = suggestionsQuery.data.suggestions.find(
+      (entry) => entry.id === suggestionId,
+    );
+    if (!suggestion) {
+      toast.error(t("comments.linkUnavailable"));
+      return;
+    }
+    clearCommentFocus();
+    setPendingComment(null);
+    setSelectedSuggestionId(suggestion.id);
+    setUtilityPanel("comments");
+    setCommentsBrowseOpen(true);
+    replyDrafts.setOpenReply(suggestion.threadId, suggestion.id, false);
+    setFocusSuggestionId(suggestion.id);
+  }, [
+    documentId,
+    location.key,
+    location.search,
+    suggestionsQuery.data,
+    clearCommentFocus,
+    replyDrafts.setOpenReply,
+    t,
+  ]);
+
+  useEffect(() => {
+    const threadId = new URLSearchParams(location.search).get("comment");
+    if (!threadId) {
+      handledCommentDeepLinkRef.current = null;
+      return;
+    }
+    const deepLinkKey = `${documentId}:${threadId}`;
+    if (
+      handledCommentDeepLinkRef.current === deepLinkKey ||
+      !threads?.some((thread) => thread.threadId === threadId)
+    ) {
+      return;
+    }
+    handledCommentDeepLinkRef.current = deepLinkKey;
+    activateCommentThread(threadId, true);
+  }, [activateCommentThread, documentId, location.search, threads]);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
       const path = event.composedPath();
       const pathOwner = path.find(
         (node) => node instanceof HTMLElement && node.dataset.pageEditorOwner,
@@ -3146,6 +4487,13 @@ function PageEditorSessionBody({
     ) as HTMLElement | null;
     if (!scrollContainer || !scrollContent) return;
     let frame = 0;
+    // The observers below watch the card itself, and the placement is derived
+    // from the card's own measured height. Committing an unchanged position
+    // would feed that measurement back in as a fresh re-render every frame.
+    const commit = (next: AnchoredCommentPosition) =>
+      setAnchoredCommentPosition((previous) =>
+        sameAnchoredCommentPosition(previous, next) ? previous : next,
+      );
     const update = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
@@ -3154,13 +4502,20 @@ function PageEditorSessionBody({
             ? globalThis.CSS.escape(selectedThreadId)
             : selectedThreadId.replace(/["\\]/g, "\\$&")
           : null;
+        const escapedSuggestionId = selectedSuggestionId
+          ? globalThis.CSS?.escape
+            ? globalThis.CSS.escape(selectedSuggestionId)
+            : selectedSuggestionId.replace(/["\\]/g, "\\$&")
+          : null;
         const marked = scrollContainer.querySelector(
           escapedThreadId
             ? `[data-comment-thread="${escapedThreadId}"]`
-            : ".comment-highlight--pending",
+            : escapedSuggestionId
+              ? `[data-suggestion-id="${escapedSuggestionId}"]`
+              : ".comment-highlight--pending",
         ) as HTMLElement | null;
         if (!marked) {
-          setAnchoredCommentPosition(
+          commit(
             positionUnanchoredCommentCard({
               containerRect: scrollContent.getBoundingClientRect(),
               boundaryRect: scrollContainer.getBoundingClientRect(),
@@ -3176,7 +4531,7 @@ function PageEditorSessionBody({
         const boundaryRect = scrollContainer.getBoundingClientRect();
         const cardHeight =
           anchoredCommentRef.current?.getBoundingClientRect().height ?? 180;
-        setAnchoredCommentPosition(
+        commit(
           positionAnchoredCommentCard({
             anchorRect,
             containerRect,
@@ -3194,7 +4549,7 @@ function PageEditorSessionBody({
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["data-comment-thread", "class"],
+      attributeFilter: ["data-comment-thread", "data-suggestion-id", "class"],
     });
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
@@ -3209,7 +4564,12 @@ function PageEditorSessionBody({
       window.removeEventListener("resize", update);
       scrollContainer.removeEventListener("scroll", update);
     };
-  }, [selectedThreadId, showAnchoredCommentPopover, scrollContainerRef]);
+  }, [
+    selectedSuggestionId,
+    selectedThreadId,
+    showAnchoredCommentPopover,
+    scrollContainerRef,
+  ]);
 
   const focusTitleEnd = useCallback(() => {
     const textarea = titleInputRef.current;
@@ -3223,13 +4583,17 @@ function PageEditorSessionBody({
     if (documentReconcileConflict || localSourceConflict) {
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
+    if (isSuggesting && (await flushSuggestionDraft()) === null) {
+      throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+    }
 
     while (pendingPersistenceRef.current.size > 0) {
       await Promise.allSettled([...pendingPersistenceRef.current]);
     }
 
     const latestBodyPersisted =
-      (await editorPersistenceControllerRef.current?.flushLatest()) ?? true;
+      isSuggesting ||
+      ((await editorPersistenceControllerRef.current?.flushLatest()) ?? true);
     if (!latestBodyPersisted) {
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
@@ -3299,6 +4663,8 @@ function PageEditorSessionBody({
   }, [
     documentId,
     documentReconcileConflict,
+    flushSuggestionDraft,
+    isSuggesting,
     isLinkedLocalSourceDocument,
     localSourceConflict,
     queueDocumentSave,
@@ -3354,7 +4720,8 @@ function PageEditorSessionBody({
 
   const handleTitlePaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
-      if (!editorCanEdit) return;
+      if (!documentCanonicalMutationsEnabled(editorCanEdit, isSuggesting))
+        return;
 
       const pastedText = event.clipboardData.getData("text/plain");
       if (!pastedText) return;
@@ -3375,7 +4742,7 @@ function PageEditorSessionBody({
         titleInputRef.current?.setSelectionRange(nextCaret, nextCaret);
       });
     },
-    [editorCanEdit, handleTitleChange, localTitle],
+    [editorCanEdit, handleTitleChange, isSuggesting, localTitle],
   );
 
   // Auto-focus title on new empty documents once collab finishes loading
@@ -3449,20 +4816,23 @@ function PageEditorSessionBody({
 
   const renderCommentsSidebar = (
     visibleThreadId?: string | null,
-    alignToAnchors = hasUtilityRailSpace,
+    alignToAnchors = hasInlineCommentSpace,
     presentation: "inline" | "history" = "inline",
   ) => (
     <CommentsSidebar
+      compact={!hasInlineCommentSpace}
+      replyDrafts={replyDrafts}
       documentId={documentId}
-      threads={threads ?? []}
+      threads={documentEditorCommentThreads(threads)}
       isLoading={commentsLoading}
       pendingComment={pendingComment}
       pendingTargetValid={pendingCommentTargetValid}
-      onPendingDone={(threadId) => {
-        setPendingComment(null);
+      onPendingChange={changePendingComment}
+      onPendingDone={(id, threadId) => {
+        if (!completePendingComment(id)) return;
         if (threadId) {
           setSelectedThreadId(threadId);
-        } else if (!hasUtilityRailSpace) {
+        } else if (!hasInlineCommentSpace) {
           setUtilityPanel(null);
         }
       }}
@@ -3472,6 +4842,12 @@ function PageEditorSessionBody({
       onActivateThread={(threadId) =>
         activateCommentThread(threadId, presentation === "history")
       }
+      activeSuggestionId={editingSuggestionId ?? selectedSuggestionId}
+      focusSuggestionId={focusSuggestionId}
+      onSuggestionFocused={() => setFocusSuggestionId(null)}
+      hoveredSuggestionId={hoveredSuggestionId ?? editingSuggestionId}
+      anchoredSuggestionIds={anchoredSuggestionIds}
+      onActivateSuggestion={activateSuggestion}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
@@ -3479,9 +4855,65 @@ function PageEditorSessionBody({
       canResolve={canEdit}
       alignToAnchors={alignToAnchors}
       forceVisible
+      suggestions={sidebarSuggestions}
+      draftSuggestions={draftSuggestions}
+      onMaterializeDraft={async (draft) => {
+        const persisted = await flushSuggestionDraft();
+        if (!persisted) return null;
+        const suggestion = persisted.get(
+          suggestionOperationKey(draft.operations[0]!),
+        );
+        if (suggestion) setSelectedSuggestionId(suggestion.id);
+        return suggestion ?? null;
+      }}
+      canDecideSuggestions={canEdit}
+      decidingSuggestion={decideSuggestion.isPending}
+      onDecideSuggestion={async (suggestion, decision) => {
+        if (decideSuggestion.isPending || isSubmittingSuggestions) return;
+        let observedSuggestion = suggestion;
+        if (decision === "accepted" && suggestion.id === editingSuggestionId) {
+          const persisted = await flushSuggestionDraft();
+          if (!persisted) return;
+          observedSuggestion = [...persisted.values()][0] ?? suggestion;
+        }
+        decideSuggestion.mutate(
+          {
+            id: observedSuggestion.id,
+            decision,
+            idempotencyKey: globalThis.crypto.randomUUID(),
+            observedBase: observedSuggestion.baseRevision,
+            observedRevision: observedSuggestion.revision,
+          },
+          {
+            onSuccess: (result) => {
+              if (
+                result.suggestion.id === editingSuggestionId &&
+                result.suggestion.status !== "pending"
+              ) {
+                setIsSuggesting(false);
+                suggestionBaseRef.current = null;
+                setEditingSuggestionId(null);
+                setSuggestionInitialSelection(null);
+                suggestionAmendmentKeysRef.current.clear();
+              }
+              if (result.suggestion.status !== "stale") return;
+              toast.error(t("editor.toolbar.conflict"));
+              setSelectedSuggestionId(result.suggestion.id);
+              setUtilityPanel("comments");
+              setCommentsBrowseOpen(true);
+            },
+            onError: (error) => {
+              toast.error(t("empty.genericError"), {
+                description: error.message,
+              });
+            },
+          },
+        );
+      }}
+      canSuggest={canSuggest}
+      commentAi={commentAi}
       visibleThreadId={visibleThreadId}
       presentation={presentation}
-      compactHistory={!hasUtilityRailSpace}
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -3529,6 +4961,7 @@ function PageEditorSessionBody({
   const renderUtilityPanelContent = (
     panel: Exclude<DocumentUtilityPanel, null>,
     inSheet = false,
+    popoverContainer?: HTMLElement | null,
   ) => {
     const utilityPanelTitle =
       panel === "info" ? t("editor.toolbar.info") : t("comments.title");
@@ -3586,6 +5019,7 @@ function PageEditorSessionBody({
             databaseId={databaseId}
             databaseDocumentId={databaseDocumentId}
             canEdit={editorCanEdit}
+            popoverContainer={popoverContainer}
             onSaveDescription={(description) =>
               persistDocumentUpdates({ description })
             }
@@ -3629,7 +5063,7 @@ function PageEditorSessionBody({
           }
           if (
             target?.closest(
-              "[data-comments-sidebar], [data-comments-history], [data-comment-menu]",
+              "[data-comments-sidebar], [data-comments-history], [data-comment-menu], [data-document-utility-panel]",
             )
           ) {
             return;
@@ -3708,6 +5142,12 @@ function PageEditorSessionBody({
             canRedo={editorHistoryState.canRedo}
             onUndo={() => editorHistoryControllerRef.current?.undo()}
             onRedo={() => editorHistoryControllerRef.current?.redo()}
+            canSuggest={canSuggest}
+            suggesting={isSuggesting}
+            editorEscapeTargetRef={editorEscapeTargetRef}
+            onSuggestingChange={(next) => {
+              void handleSuggestionModeChange(next);
+            }}
           />
 
           {!isLocalFileDocument ? (
@@ -3750,20 +5190,42 @@ function PageEditorSessionBody({
           ) : null}
 
           {documentReconcileConflict ? (
+            <DocumentReconcileRecovery
+              state={documentReconcileConflict}
+              server={{
+                title: document.title,
+                content: document.content,
+                updatedAt: document.updatedAt ?? null,
+                revision: document.revision,
+              }}
+              canEdit={editorCanEdit}
+              onKeepMine={handleResolveReconcile}
+              onUseSaved={(base) => resolveLiveRecoveryDraft("use_saved", base)}
+              onSaveSeparately={(base) =>
+                resolveLiveRecoveryDraft("save_separately", base)
+              }
+              onCopy={copyLiveRecoveryDraft}
+              onClose={focusEditorAfterRecoveryReview}
+            />
+          ) : null}
+
+          {isSuggesting &&
+          amendmentDraftIsDirty &&
+          suggestionAmendmentConflict ? (
             <div
-              className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+              className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
               role="alert"
-              data-document-reconcile-conflict
+              data-suggestion-amendment-conflict
             >
-              <span className="me-auto">{t("editor.toolbar.conflict")}</span>
+              <span className="me-auto">
+                {t("editor.suggestionAmendmentResolved")}
+              </span>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
                 onClick={() => {
-                  void writeClipboardText(
-                    documentReconcileConflict.localDraft,
-                  ).then((copied) => {
+                  void writeClipboardText(suggestionDraft).then((copied) => {
                     if (copied) toast.success(t("editor.unsavedTextCopied"));
                     else
                       toast.error(
@@ -3777,17 +5239,9 @@ function PageEditorSessionBody({
               <Button
                 type="button"
                 size="sm"
-                onClick={() => {
-                  const localDraft = documentReconcileConflict.localDraft;
-                  void handleContentSaveNow(localDraft, true).then(
-                    (persisted) => {
-                      if (persisted) setDocumentReconcileConflict(null);
-                      else setDocumentReconcileConflict({ localDraft });
-                    },
-                  );
-                }}
+                onClick={discardConflictedSuggestionDraft}
               >
-                {t("editor.keepLocalDraft")}
+                {t("editor.discardSuggestionDraft")}
               </Button>
             </div>
           ) : null}
@@ -3828,14 +5282,15 @@ function PageEditorSessionBody({
             <div
               className={cn(
                 "relative flex min-h-full w-full min-w-0",
-                showDesktopRightRail ? "justify-center" : "flex-col",
+                showDesktopInfoPanel ? "justify-center" : "flex-col",
               )}
               data-document-scroll-content
             >
               <div
                 className={cn(
                   "min-w-0",
-                  showDesktopRightRail ? "flex-1" : "w-full",
+                  showDesktopInfoPanel ? "flex-1" : "w-full",
+                  showInlineComments && !isDatabasePage && "pr-80",
                 )}
               >
                 <div
@@ -3846,7 +5301,10 @@ function PageEditorSessionBody({
                 >
                   {document.icon || !isDatabasePage ? (
                     <div className="mb-1">
-                      {editorCanEdit ? (
+                      {documentCanonicalMutationsEnabled(
+                        editorCanEdit,
+                        isSuggesting,
+                      ) ? (
                         <EmojiPicker
                           icon={document.icon}
                           defaultIcon={defaultIcon}
@@ -3854,6 +5312,13 @@ function PageEditorSessionBody({
                             defaultIconKind === "database" ? "database" : "page"
                           }
                           onSelect={(emoji) => {
+                            if (
+                              !documentCanonicalMutationsEnabled(
+                                editorCanEdit,
+                                isSuggesting,
+                              )
+                            )
+                              return;
                             void (async () => {
                               const updates = metadataUpdatesWithPendingTitle(
                                 { icon: emoji },
@@ -3900,9 +5365,10 @@ function PageEditorSessionBody({
                     rows={1}
                     wrap="soft"
                     value={localTitle}
-                    onChange={(e) =>
-                      handleTitleChange(normalizeTitleText(e.target.value))
-                    }
+                    onChange={(e) => {
+                      if (!isSuggesting)
+                        handleTitleChange(normalizeTitleText(e.target.value));
+                    }}
                     onPaste={handleTitlePaste}
                     onFocus={() => {
                       titleFocusedRef.current = true;
@@ -3912,7 +5378,7 @@ function PageEditorSessionBody({
                       titleFocusedRef.current = false;
                     }}
                     onKeyDown={(e) => {
-                      if (!editorCanEdit) return;
+                      if (!editorCanEdit || isSuggesting) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
                         const pm = documentLayoutRef.current?.querySelector(
@@ -3923,7 +5389,7 @@ function PageEditorSessionBody({
                     }}
                     aria-label={t("editor.documentTitle")}
                     placeholder={t("editor.title")}
-                    readOnly={!editorCanEdit}
+                    readOnly={!editorCanEdit || isSuggesting}
                     style={{ fieldSizing: "content" } as any}
                     className={cn(
                       "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
@@ -3958,9 +5424,9 @@ function PageEditorSessionBody({
                   <div className={documentEditorDatabaseRegionClassName()}>
                     <DocumentDatabase
                       document={document}
-                      requestedViewId={requestedViewId}
                       foreground={foreground}
                       canEdit={canEdit}
+                      viewId={viewId}
                       onExportContextChange={handleDatabaseExportContextChange}
                     />
                   </div>
@@ -4081,8 +5547,18 @@ function PageEditorSessionBody({
                               />
                             </div>
                           ) : null}
+                          {suggestionDraftPreview.status ===
+                          "unsupported-formatting" ? (
+                            <div
+                              role="alert"
+                              className="mb-3 text-sm text-destructive"
+                            >
+                              {t("editor.suggestionFormattingUnsupported")}
+                            </div>
+                          ) : null}
                           <VisualEditor
-                            key={visualEditorInstanceKey({
+                            onEscape={handleEditorEscape}
+                            key={`${visualEditorInstanceKey({
                               documentId,
                               documentUpdatedAt: document.updatedAt,
                               isLocalFileDocument,
@@ -4090,12 +5566,14 @@ function PageEditorSessionBody({
                               collabEditorEnabled,
                               hasYDoc: Boolean(ydoc),
                               localFileSyncRevision,
-                            })}
+                            })}:${isSuggesting ? "suggesting" : "canonical"}`}
                             documentId={documentId}
                             content={
                               isLocalFileDocument
                                 ? localContent
-                                : document.content
+                                : isSuggesting
+                                  ? suggestionDraft
+                                  : document.content
                             }
                             contentUpdatedAt={
                               isLocalFileDocument
@@ -4107,29 +5585,70 @@ function PageEditorSessionBody({
                                 ? null
                                 : (document.revision ?? null)
                             }
+                            acknowledgedLocalSnapshot={
+                              acknowledgedLocalSnapshot
+                            }
                             onBaseAwareReconcile={handleBaseAwareReconcile}
-                            onChange={handleContentChange}
-                            onSaveContent={handleContentSaveNow}
-                            ydoc={collabEditorEnabled ? ydoc : null}
+                            collabContentRevision={
+                              isLocalFileDocument || isSuggesting
+                                ? null
+                                : document.collabContentRevision
+                            }
+                            requestCollabSync={requestCollabSync}
+                            onChange={
+                              isSuggesting
+                                ? setSuggestionDraft
+                                : handleContentChange
+                            }
+                            onSaveContent={
+                              suggestionEditorIsolation.persistCanonical
+                                ? handleImmediateContentChange
+                                : undefined
+                            }
+                            ydoc={
+                              suggestionEditorIsolation.bindCanonicalYDoc
+                                ? ydoc
+                                : null
+                            }
                             collabSynced={
                               collabEditorEnabled ? collabSynced : true
                             }
                             awareness={collabEditorEnabled ? awareness : null}
                             user={currentUser}
-                            editable={editorCanEdit}
+                            editable={
+                              suggestionEditorIsolation.editable &&
+                              !isSubmittingSuggestions
+                            }
+                            suggesting={isSuggesting}
                             localFileMode={isLocalFileDocument}
                             localFilePath={
                               isLocalFileDocument ? document.source?.path : null
                             }
                             onComment={canComment ? handleComment : undefined}
                             commentThreads={threads ?? []}
-                            activeThreadId={activeThreadId}
+                            activeThreadId={selectedThreadId}
+                            hoveredThreadId={hoveredThreadId}
                             pendingHighlight={pendingComment?.range ?? null}
                             onActivateThread={
                               !isLocalFileDocument
                                 ? activateCommentThread
                                 : undefined
                             }
+                            suggestions={visualSuggestions}
+                            activeSuggestionId={
+                              hoveredSuggestionId ??
+                              editingSuggestionId ??
+                              selectedSuggestionId
+                            }
+                            onActivateSuggestion={activateInlineSuggestion}
+                            onHoverSuggestion={setHoveredSuggestionId}
+                            onSuggestionReplacementIntent={
+                              isSuggesting
+                                ? handleSuggestionReplacementIntent
+                                : undefined
+                            }
+                            initialSelection={suggestionInitialSelection}
+                            onSuggestionAnchorsChange={setAnchoredSuggestionIds}
                             showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
                             notionPageLinks={notionPageLinks}
@@ -4191,15 +5710,18 @@ function PageEditorSessionBody({
                 showInlineComments ? (
                   <aside
                     ref={commentLaneRef}
-                    className="relative w-80 shrink-0"
+                    className="absolute right-0 top-0 w-80"
                     aria-label={t("comments.title")}
                     data-comments-flow-lane
-                    style={{
-                      transform: `translateX(${commentLaneOffset}px)`,
-                    }}
                   >
-                    <div className="relative min-h-full translate-x-4">
-                      {renderCommentsSidebar()}
+                    <div
+                      style={{
+                        transform: `translateX(${commentLaneOffset}px)`,
+                      }}
+                    >
+                      <div className="relative min-h-full translate-x-4">
+                        {renderCommentsSidebar()}
+                      </div>
                     </div>
                   </aside>
                 ) : (
@@ -4270,9 +5792,34 @@ function PageEditorSessionBody({
           }}
         >
           <SheetContent
+            ref={setUtilityPanelSheetContainer}
             side="right"
+            inert={!showUtilityPanelSheet || undefined}
+            onOpenAutoFocus={(event) => {
+              if (hasFocusedCommentReply) event.preventDefault();
+            }}
+            onCloseAutoFocus={(event) => {
+              if (hasInlineCommentSpace && hasFocusedCommentReply) {
+                event.preventDefault();
+              }
+            }}
             className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
             aria-describedby={undefined}
+            onEscapeKeyDown={(event) => {
+              preserveCommentReplyEscape(event);
+              if (event.defaultPrevented) return;
+              const target = event.target;
+              const nestedPopper =
+                target instanceof Element
+                  ? target.closest("[data-radix-popper-content-wrapper]")
+                  : null;
+              if (
+                nestedPopper &&
+                utilityPanelSheetContainer?.contains(nestedPopper)
+              ) {
+                event.preventDefault();
+              }
+            }}
           >
             <SheetHeader className="sr-only">
               <SheetTitle>
@@ -4283,11 +5830,23 @@ function PageEditorSessionBody({
             </SheetHeader>
             {lastUtilityPanel === "comments" ? (
               <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(lastUtilityPanel, true)}
+                {showUtilityPanelSheet
+                  ? renderUtilityPanelContent(
+                      lastUtilityPanel,
+                      true,
+                      utilityPanelSheetContainer,
+                    )
+                  : null}
               </CommentHistoryScrollContainer>
             ) : (
               <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(lastUtilityPanel, true)}
+                {showUtilityPanelSheet
+                  ? renderUtilityPanelContent(
+                      lastUtilityPanel,
+                      true,
+                      utilityPanelSheetContainer,
+                    )
+                  : null}
               </div>
             )}
           </SheetContent>

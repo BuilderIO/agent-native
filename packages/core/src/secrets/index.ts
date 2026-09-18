@@ -28,6 +28,7 @@ export {
   getAppSecretMeta,
   listAppSecretsForScope,
   last4,
+  VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretRef,
   type WriteSecretArgs,
   type ReadSecretResult,

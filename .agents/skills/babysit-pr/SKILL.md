@@ -222,11 +222,17 @@ cursor, grouped reports, evidence links, and disposition table as part of the
 PR's review state. At the first tick, record that handoff. On every later tick
 before the merge gate, re-read the handoff and check for new Slack replies,
 GitHub feedback, and Sentry findings after its cursor using the configured
-connectors. A new actionable report resets the soak timer and needs a fix, a
-concise reply, or an explicit terminal ledger disposition with the invoking
-  workflow's eye released with `✅` before merge. Silent terminal states need no reply. If
-a connector is unavailable, record it as unavailable in the recap rather than
-treating it as no findings.
+connectors. A new actionable report resets the soak timer and must reach either
+a verified **Fixed** or **Shipped** result with a concise reply and `✅`, a
+verified **Live verified** result with `✅` (reply only when informative), or a
+non-fixed terminal ledger disposition with its marker before merge (`✅` only
+for **Fixed**, **Shipped**, or **Live verified**; `:no_entry_sign:` for other
+terminal closures). An active/evidence-limited disposition, an eye-only item,
+or a reply without one of those outcomes blocks merge.
+Evidence-limited or active dispositions retain the workflow's eye until
+resolved; they are not terminal closure. Silent terminal
+states need no reply. If a connector is unavailable, record it as unavailable
+in the recap rather than treating it as no findings.
 
 **Then proceed with PR checks:**
 
@@ -291,7 +297,9 @@ treating it as no findings.
 
 ## Responding to feedback
 
-**Every human or bot comment must get a reply** — either a fix or an explanation of why you're skipping it.
+Every human or bot review comment must get a reply when it is fixed or skipped;
+a feedback item already closed by a disposition-specific terminal outcome does
+not need a manufactured reply.
 
 ## Feedback precedence
 
@@ -355,7 +363,7 @@ When the user does ask to merge, all of these must be true **simultaneously for 
 2. **No unpushed commits** — the publishable-path `git log` check from Step 0
    must be empty
 3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
-4. **All review comments addressed** — every human/bot inline comment and review-body item has a fix or a reply
+4. **All review comments addressed** — every human/bot inline comment and review-body item has a verified fix and reply, or a disposition-specific terminal outcome; active/evidence-limited items remain blockers
 5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
 
 The 10-minute soak timer **resets to zero** whenever the branch is pushed, CI

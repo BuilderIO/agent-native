@@ -49,6 +49,7 @@ import {
   normalizeSourceFreshness,
   refreshBuilderBodySourceValuesFromStoredLossless,
   serializeBuilderCmsSourceReadMetadataRecord,
+  serializeSourceField,
   serializeSourceMetadataRecord,
   sourceSnapshotValuesJsonProjectionSql,
   sourceSnapshotDocumentSelection,
@@ -308,6 +309,32 @@ describe("database source helpers", () => {
     expect(normalizeSourceFreshness("fresh")).toBe("fresh");
     expect(normalizeSourceFreshness("stale")).toBe("stale");
     expect(normalizeSourceFreshness("mysterious fog")).toBe("unknown");
+  });
+
+  it("rejects unreadable source field write policy during serialization", () => {
+    const row = {
+      id: "field-1",
+      propertyId: "property-1",
+      localFieldKey: "property-1",
+      sourceFieldKey: "field",
+      sourceFieldLabel: "Field",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "unknown",
+      readOnly: 0,
+      provenance: "test",
+      freshness: "fresh",
+      lastSyncedAt: null,
+    };
+    expect(() => serializeSourceField(row as never, "Field")).toThrow(
+      "Invalid Content source field write owner: unknown",
+    );
+    expect(() =>
+      serializeSourceField(
+        { ...row, writeOwner: "local", readOnly: 2 } as never,
+        "Field",
+      ),
+    ).toThrow("Invalid Content source field read-only value: 2");
   });
 
   it("omits heavy Builder body payloads from read snapshots", () => {

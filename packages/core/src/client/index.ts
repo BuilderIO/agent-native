@@ -16,7 +16,10 @@ export {
   AgentNativeI18nProvider,
   LanguagePicker,
   getLocaleInitScript,
+  isLocaleCode,
+  isValidLocaleCode,
   localeDirection,
+  localeMetadataFor,
   normalizeLocaleCode,
   normalizeLocalePreference,
   normalizeLocalizationPreference,
@@ -32,6 +35,7 @@ export {
   SUPPORTED_LOCALES,
   type AgentNativeI18nCatalog,
   type AgentNativeI18nProviderProps,
+  type BuiltinLocaleCode,
   type LocaleCode,
   type LocaleHydrationPayload,
   type LocaleMessages,
@@ -40,6 +44,25 @@ export {
   type LocalizationPreference,
 } from "./i18n.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
+export {
+  AppSidebar,
+  AppSidebarHeader,
+  AppSidebarNavItem,
+  AppSidebarNavGroup,
+  AppSidebarSection,
+  AppSidebarFeedbackButton,
+  AppSidebarFooter,
+  useAppSidebar,
+  type AppSidebarProps,
+  type AppSidebarHeaderProps,
+  type AppSidebarNavItemProps,
+  type AppSidebarNavGroupProps,
+  type AppSidebarSectionProps,
+  type AppSidebarFeedbackButtonProps,
+  type AppSidebarFooterProps,
+  type AppSidebarItemDefinition,
+  type AppSidebarContextValue,
+} from "./ui/AppSidebar.js";
 export {
   FeatureFlagsEditor,
   evaluatedFeatureFlagValues,
@@ -51,6 +74,14 @@ export {
   type FeatureFlagRules,
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
+export {
+  LabsSettings,
+  useLab,
+  useLabState,
+  useLabs,
+  type LabValues,
+  type LabsSettingsProps,
+} from "./labs/index.js";
 export {
   ExperimentsSettings,
   useExperiment,
@@ -151,6 +182,7 @@ export {
   type UseCollaborativeDocResult,
   type CollabInitializationErrorCategory,
   type CollabInitializationState,
+  type CollaborativeDocSyncResult,
   type CollabUser,
 } from "../collab/client.js";
 export { AGENT_CLIENT_ID } from "../collab/agent-identity.js";
@@ -220,6 +252,9 @@ export {
   useCreateReviewComment,
   useDeleteReviewComment,
   useReplyReviewComment,
+  useReactToReviewComment,
+  useSetReviewThreadUnread,
+  useSetReviewThreadMuted,
   useResolveReviewThread,
   useReviewComments,
   useReviewFeedback,
@@ -233,9 +268,13 @@ export {
   type ListReviewCommentsParams,
   type ListReviewCommentsResult,
   type ReplyReviewCommentInput,
+  type ReactToReviewCommentInput,
+  type SetReviewThreadUnreadInput,
+  type SetReviewThreadMutedInput,
   type ResolveReviewThreadInput,
   type ReviewStatusBadgeProps,
   type ReviewCommentComposerProps,
+  type ReviewCommentFilter,
   type ReviewThread,
   type ReviewThreadPanelProps,
   type SetReviewStatusInput,

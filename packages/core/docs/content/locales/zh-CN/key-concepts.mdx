@@ -320,6 +320,7 @@ sendToAgentChat({
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Fetch data from a source API.",
   schema: z.object({
@@ -423,15 +424,6 @@ useDbSync({ queryClient });
 </Diagram>
 
 这在所有部署环境中都有效，包括无服务器和边缘环境，因为它依赖的是数据库，而不是内存状态或文件系统监视器。
-
-## 框架 {#frames}
-
-_frame_ 是在你的应用旁边托管代理的环境。在本地，它是嵌入式面板；在云端，它是 Builder.io 的托管表面。参见 [Frames](/docs/frames)。
-
-Agent-Native 应用都包含一个嵌入式代理面板，在应用 UI 旁边提供 AI 代理。这正是这一架构得以运作的原因：代理需要一台计算机（数据库、浏览器、代码执行），而应用需要代理来完成 AI 工作。
-
-- **嵌入式代理面板：** 内置于每个应用中的聊天和可选 CLI 终端。支持 Claude Code、Codex、Gemini、OpenCode 和 Builder.io。在本地运行，免费且开源。
-- **云：** 部署到任意云端，具备实时协作、可视化编辑、角色和权限管理。最适合团队使用。
 
 ## 上下文感知 {#context-awareness}
 

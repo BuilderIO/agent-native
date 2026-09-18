@@ -21,6 +21,7 @@ This app is not stateless. The Agent-Native runtime uses PostgreSQL-backed store
   action. Leave it in place and add callable primitives as separate
   `actions/<name>.ts` files.
 - There is intentionally no `app/` UI shell in this scaffold. When you need a browser UI, use the Chat template as the UI on-ramp and keep `agent-native add` for integration blueprints.
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 
 ## Framework Docs Lookup
 

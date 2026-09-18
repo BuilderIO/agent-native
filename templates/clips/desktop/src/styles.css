@@ -65,10 +65,8 @@
   box-sizing: border-box;
 }
 
-/* Tauri window is `transparent: true` + `decorations: false`, so the HTML
-   paints the visible shape. The popover window is sized to the rounded panel
-   exactly; macOS derives a native shadow from the panel's alpha, giving us
-   the round-cornered chromeless popover with no transparent apron. */
+/* The main Tauri window is transparent and chromeless, so the HTML paints the
+   visible rounded popover while macOS supplies its shadow. */
 html,
 body {
   margin: 0;
@@ -248,8 +246,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .mode-toggle button.active {
-  background: var(--bg);
-  color: var(--brand);
+  background: var(--brand);
+  color: var(--bg);
   box-shadow: var(--shadow-sm);
 }
 
@@ -519,8 +517,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: hsl(var(--ui-muted) / 0.55);
 }
 
-.row-off .row-icon,
-.row-label-muted {
+.row-on {
+  color: var(--fg);
+}
+
+.row-off {
   color: var(--fg-subtle);
 }
 
@@ -530,13 +531,15 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--fg-muted);
+  color: inherit;
   flex-shrink: 0;
 }
 
-.media-device-row .row {
+.media-device-row .row,
+.system-audio-row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 36px;
+  grid-template-columns: 20px minmax(0, 1fr) 44px;
+  column-gap: 10px;
 }
 
 .row-main {
@@ -545,18 +548,19 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .row-trailing-control {
   display: flex;
-  width: 36px;
+  width: 44px;
   align-items: center;
   justify-content: flex-end;
 }
 
 .system-audio-row {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 36px;
   align-items: center;
-  min-height: 36px;
-  padding: 0 10px 0 0;
-  color: var(--fg-muted);
+  min-height: 30px;
+  padding: 5px 10px;
+}
+
+.system-audio-icon {
+  transform: translateX(2px);
 }
 
 .system-audio-label {
@@ -567,21 +571,16 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-size: 13px;
 }
 
-.row-on .row-icon {
-  color: var(--fg);
-}
-
 /* Radix device picker trigger — the menu owns keyboard and focus behavior. */
 .row-button {
   width: 100%;
-  min-width: 0;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
   border: none;
   background: transparent;
-  color: var(--fg);
+  color: inherit;
   font-size: 13px;
   font-weight: 400;
   padding: 0;
@@ -2446,10 +2445,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-color: #93c5fd;
 }
 
-.pending-upload-retry-spinning svg {
-  animation: readiness-spin 0.8s linear infinite;
-}
-
 .pending-upload-connect:hover {
   background: #dbeafe;
   border-color: #93c5fd;
@@ -2470,12 +2465,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pending-upload-dismiss:disabled {
   cursor: default;
   opacity: 0.6;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pending-upload-retry-spinning svg {
-    animation: none;
-  }
 }
 
 .local-recording-banner,
@@ -3507,8 +3496,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
  * Slots into the top of the popover when an update is in flight or ready.
  * Two visual states:
  *  - pending: subtle inline row, just keeps the user informed.
- *  - ready:   accent color + actions (dismiss / Restart) since clicking
- *             Restart is the thing we actually want them to do.
+ *  - ready:   a neutral inline row with one clear action.
  */
 .update-banner {
   display: flex;
@@ -3516,7 +3504,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   gap: 8px;
   margin: 0;
   min-height: 42px;
-  padding: 8px 10px;
+  padding: 8px;
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.3;
@@ -3556,9 +3544,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .update-banner--ready {
-  border-color: hsl(var(--ui-success) / 0.3);
-  background: hsl(var(--ui-success) / 0.07);
-  color: hsl(var(--ui-success));
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--fg);
 }
 
 .update-banner--error {

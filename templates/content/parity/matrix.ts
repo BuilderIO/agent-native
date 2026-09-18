@@ -88,6 +88,8 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
+      "actions/database-setup.db.test.ts",
+      "actions/database-setup-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
@@ -221,6 +223,28 @@ export const parityMatrix: ParityRow[] = [
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "editor.suggested-edits",
+    surface: "editor",
+    label: "Propose reviewable suggested edits (track changes)",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/ReviewDiscussionTools.tsx",
+      "app/components/editor/CommentsSidebar.tsx",
+    ],
+    durableEffect:
+      "Pending suggestions are stored as authored proposal records; the canonical page body stays unchanged until a reviewer accepts.",
+    uiImplementation:
+      "The editor's suggesting mode creates proposals through the core create-resource-suggestion action with tracked-change operations; agents propose typed find/replace suggestions through suggest-document-edit.",
+    status: "action-backed",
+    actions: ["suggest-document-edit"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/suggest-document-edit.db.test.ts"],
   },
   {
     id: "editor.blocks-field-word-count",
@@ -465,7 +489,11 @@ export const parityMatrix: ParityRow[] = [
     uiImplementation:
       "The database preview uses the shared draft actions to preserve in-progress body edits across hydration and conflict states.",
     status: "action-backed",
-    actions: ["get-preview-document-draft", "update-preview-document-draft"],
+    actions: [
+      "get-preview-document-draft",
+      "resolve-preview-document-draft",
+      "update-preview-document-draft",
+    ],
     exception:
       "These per-user editor-state actions are intentionally hidden from agent tools because preview drafts are a private UI recovery mechanism.",
     reliabilityRisk: "none",
@@ -506,6 +534,7 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: [
+      "actions/database-setup-mcp.db.test.ts",
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
       "actions/resync-content-database-source.db.test.ts",
@@ -814,6 +843,39 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: ["parity/__tests__/matrix-route-gap-classify.test.ts"],
     routePatterns: ["/api/notion/auth-url", "/api/notion/callback"],
+  },
+  {
+    id: "comments.ai-intents",
+    surface: "comments",
+    label:
+      "Ask AI to reply, propose a suggestion, or apply an edit and resolve feedback",
+    uiEntrypoints: [
+      "app/components/editor/CommentsSidebar.tsx",
+      "app/components/editor/comment-ai.tsx",
+    ],
+    durableEffect:
+      "Intent-bound requests retain their feedback and document revisions, dispatch one scoped agent run, and persist the resulting reply, suggestion, or verified edit receipt.",
+    uiImplementation:
+      "Comment thread controls start a request through the shared action surface; the scoped agent can call only the context action and the operation bound to the selected intent.",
+    status: "action-backed",
+    actions: [
+      "apply-comment-ai-request",
+      "create-comment-ai-suggestion",
+      "get-comment-ai-context",
+      "list-comment-ai-requests",
+      "reply-to-comment-ai-request",
+      "start-comment-ai-request",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/comment-ai-flow.test.ts",
+      "app/components/editor/comment-ai.test.tsx",
+      "server/lib/comment-ai-progress.test.ts",
+    ],
   },
   {
     id: "comments.threads",

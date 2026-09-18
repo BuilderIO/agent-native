@@ -4,6 +4,9 @@ const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   getUserSetting: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  implicitServiceOrgRole: vi.fn(),
+  readAppState: vi.fn(),
+  resolveOrgIdForEmail: vi.fn(),
 }));
 
 const tables = vi.hoisted(() => ({
@@ -17,6 +20,10 @@ const tables = vi.hoisted(() => ({
   organizationSettings: {
     organizationId: "organization_settings.workspace_id",
     defaultVisibility: "organization_settings.default_visibility",
+  },
+  workspaces: {
+    id: "workspaces.id",
+    createdAt: "workspaces.created_at",
   },
 }));
 
@@ -44,12 +51,16 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: vi.fn(),
+  readAppState: (...args: unknown[]) => mocks.readAppState(...args),
 }));
 
 vi.mock("@agent-native/core/org", () => ({
-  implicitServiceOrgRole: vi.fn(),
+  implicitServiceOrgRole: (...args: unknown[]) =>
+    mocks.implicitServiceOrgRole(...args),
+  organizations: { id: "organizations.id" },
   orgMembers: { orgId: "org_members.org_id", email: "org_members.email" },
+  resolveOrgIdForEmail: (...args: unknown[]) =>
+    mocks.resolveOrgIdForEmail(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({ getSession: vi.fn() }));
@@ -72,6 +83,7 @@ vi.mock("../db/index.js", () => ({
 import {
   countedViewCondition,
   countRecordingViews,
+  getActiveOrganizationId,
   getDefaultRecordingVisibility,
   requireActiveOrganizationId,
 } from "./recordings.js";
@@ -270,5 +282,94 @@ describe("requireActiveOrganizationId", () => {
     await expect(requireActiveOrganizationId()).rejects.toMatchObject({
       statusCode: 409,
     });
+  });
+});
+
+/**
+ * Both legacy sources outlive the organization they name and neither is scoped
+ * to a caller, so each id they hand back has to be vetted before it becomes an
+ * active org id. `select` is called once per lookup, in order.
+ */
+function stubSelects(...results: unknown[][]) {
+  const calls: unknown[] = [];
+  mocks.getDb.mockReturnValue({
+    select: (columns: unknown) => {
+      calls.push(columns);
+      const result = results.shift() ?? [];
+      const builder = {
+        from: () => builder,
+        where: () => builder,
+        orderBy: () => builder,
+        limit: () => Promise.resolve(result),
+      };
+      return builder;
+    },
+  });
+  return calls;
+}
+
+describe("getActiveOrganizationId legacy fallbacks", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.implicitServiceOrgRole.mockReturnValue(null);
+    mocks.readAppState.mockResolvedValue(null);
+    mocks.getUserSetting.mockResolvedValue(null);
+    // The legacy sources are only consulted when the framework resolver could
+    // not answer at all; a definite answer ends the search before them.
+    mocks.resolveOrgIdForEmail.mockRejectedValue(new Error("unavailable"));
+  });
+
+  it("honors a definite no-org answer instead of reviving a legacy workspace", async () => {
+    // `resolveOrgIdForEmail` returns null both for no membership and for an
+    // explicit Personal selection. Either way it has answered, and the
+    // caller-unscoped legacy sources must not reactivate org scope.
+    mocks.getRequestUserEmail.mockReturnValue("personal@example.test");
+    mocks.resolveOrgIdForEmail.mockResolvedValue(null);
+    mocks.readAppState.mockResolvedValue({ id: "org_legacy" });
+    const calls = stubSelects([{ id: "org_legacy" }]);
+
+    await expect(getActiveOrganizationId()).resolves.toBeNull();
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("ignores a `current-workspace` key naming a deleted organization", async () => {
+    // Deleting an org clears org_members but not this app-state key, so an
+    // unvetted id here resurrects the deleted org as a 403 on every read.
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
+    mocks.readAppState.mockResolvedValue({ id: "org_deleted" });
+    // organizations lookup (gone), then the deprecated workspaces lookup.
+    stubSelects([], []);
+
+    await expect(getActiveOrganizationId()).resolves.toBeNull();
+  });
+
+  it("ignores a surviving workspace the caller is not a member of", async () => {
+    // The workspaces lookup takes the globally newest row, which can belong to
+    // another user entirely. Personal scope is the correct answer, not 403.
+    mocks.getRequestUserEmail.mockReturnValue("nomember@example.test");
+    stubSelects([{ id: "org_someone_else" }], [{ id: "org_someone_else" }], []);
+
+    await expect(getActiveOrganizationId()).resolves.toBeNull();
+  });
+
+  it("still resolves a legacy workspace the caller belongs to", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
+    stubSelects(
+      [{ id: "org_legacy" }],
+      [{ id: "org_legacy" }],
+      [{ role: "admin" }],
+    );
+
+    await expect(getActiveOrganizationId()).resolves.toBe("org_legacy");
+  });
+
+  it("accepts an existing legacy workspace when there is no caller identity", async () => {
+    // CLI and solo dev have no email to scope by, so an existing org is the
+    // best available answer rather than a silent downgrade to personal scope.
+    mocks.getRequestUserEmail.mockReturnValue(null);
+    stubSelects([{ id: "org_solo" }], [{ id: "org_solo" }]);
+
+    await expect(getActiveOrganizationId()).resolves.toBe("org_solo");
   });
 });

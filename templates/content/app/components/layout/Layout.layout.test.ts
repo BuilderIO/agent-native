@@ -59,7 +59,9 @@ describe("app layout", () => {
       "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
-    expect(source).toContain("<DocumentEditorSkeleton />");
+    expect(source).toContain(
+      "<DocumentEditorSkeleton title={pendingDocumentTitle} />",
+    );
   });
 
   it("creates keyboard pages without waiting for persistence before returning", () => {
@@ -72,7 +74,7 @@ describe("app layout", () => {
     const source = readRootSource();
 
     expect(source).toContain("CONTENT_COMMAND_MENU_OPEN_EVENT");
-    expect(source).toContain("commandMenuReturnFocusRef.current =");
+    expect(source).toContain("commandTrigger.current =");
     expect(source).toContain("target.focus()");
     expect(source).not.toContain("setTimeout(() => target.focus");
   });

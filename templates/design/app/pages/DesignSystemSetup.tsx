@@ -99,6 +99,15 @@ interface BuilderIndexInput {
 
 const MAX_INLINE_DESIGN_MD_BYTES = 2 * 1024 * 1024;
 
+function isDesignSystemNameConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errorCode" in error &&
+    error.errorCode === "design_system_name_conflict"
+  );
+}
+
 export default function DesignSystemSetup() {
   const t = useT();
   const navigate = useNavigate();
@@ -636,9 +645,11 @@ export default function DesignSystemSetup() {
         toast.success(t("designSystemSetup.githubIndexStarted"));
       } catch (error) {
         setValidationError(
-          error instanceof Error
-            ? error.message
-            : t("designSystemSetup.errors.githubIndex"),
+          isDesignSystemNameConflict(error)
+            ? t("designSystemSetup.errors.nameConflict")
+            : error instanceof Error
+              ? error.message
+              : t("designSystemSetup.errors.githubIndex"),
         );
       }
       return;
@@ -686,9 +697,11 @@ export default function DesignSystemSetup() {
         toast.success(t("designSystemSetup.designMdIndexStarted"));
       } catch (error) {
         setValidationError(
-          error instanceof Error
-            ? error.message
-            : t("designSystemSetup.errors.designMdIndex"),
+          isDesignSystemNameConflict(error)
+            ? t("designSystemSetup.errors.nameConflict")
+            : error instanceof Error
+              ? error.message
+              : t("designSystemSetup.errors.designMdIndex"),
         );
       }
       return;
@@ -830,7 +843,7 @@ export default function DesignSystemSetup() {
     }
 
     parts.push(
-      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for Builder-indexed Figma/code/design.md sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
+      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for sources Builder indexed successfully. If \`index-design-system-with-builder\` fails or reports Builder DSI unavailable, do not finish with nothing created: call \`create-design-system\` with tokens and guidance derived from those same sources, and tell me Builder indexing was skipped and why. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
           ? " AND the verbatim --customInstructions string from above"
           : ""

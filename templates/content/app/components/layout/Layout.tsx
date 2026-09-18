@@ -31,6 +31,8 @@ import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
+import { useOptimisticDocumentTitle } from "@/hooks/use-optimistic-document-title";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   applyRegisteredDocumentHistoryRestore,
@@ -93,6 +95,7 @@ export function Layout({ children }: LayoutProps) {
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const currentDocumentId = documentPageIdFromPathname(location.pathname);
   const pendingDocumentId = pendingPathname
     ? documentPageIdFromPathname(pendingPathname)
@@ -100,6 +103,11 @@ export function Layout({ children }: LayoutProps) {
   const activeDocumentId = pendingDocumentId ?? currentDocumentId;
   const showPendingDocumentSkeleton =
     !!pendingDocumentId && pendingDocumentId !== currentDocumentId;
+  // The route chunk for the pending page still has to load, so carry the
+  // landing title across this gap instead of flashing a blank title bar.
+  const pendingDocumentTitle = useOptimisticDocumentTitle(pendingDocumentId, {
+    enabled: !!pendingDocumentId,
+  });
   // Bind chat to the currently-open document. Everywhere else (list view,
   // settings) leaves scope null so general chats stay available.
   const documentScope = useMemo(
@@ -290,6 +298,8 @@ export function Layout({ children }: LayoutProps) {
               collapsed={sidebarCollapsed}
               onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
               width={sidebarWidth}
+              minWidth={MIN_SIDEBAR_WIDTH}
+              maxWidth={MAX_SIDEBAR_WIDTH}
               onResize={handleSidebarResize}
             />
           </div>
@@ -307,7 +317,9 @@ export function Layout({ children }: LayoutProps) {
           scope={documentScope}
           chatHistory={documentChatHistory}
           browserTabId={getBrowserTabId()}
-          composerSlot={<CreativeContextComposerChip />}
+          composerSlot={
+            creativeContextEnabled ? <CreativeContextComposerChip /> : undefined
+          }
         >
           <main
             className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
@@ -325,7 +337,7 @@ export function Layout({ children }: LayoutProps) {
             />
             <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
               {showPendingDocumentSkeleton ? (
-                <DocumentEditorSkeleton />
+                <DocumentEditorSkeleton title={pendingDocumentTitle} />
               ) : (
                 children
               )}

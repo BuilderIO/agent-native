@@ -13,10 +13,10 @@ Agent-Native is an open-source TypeScript framework for building agents that pai
 
 ## Quick start
 
-You need [Node.js](https://nodejs.org) 22.22 or later, [pnpm](https://pnpm.io), and an LLM connection.
+You need [Node.js](https://nodejs.org) 22.22 or later, [pnpm](https://pnpm.io) available on your `PATH`, and an LLM connection.
 
 ```bash
-npx @agent-native/core@latest create my-agent --standalone --template chat
+npx --yes @agent-native/core@latest create my-agent --standalone --template chat
 cd my-agent
 pnpm install
 pnpm dev

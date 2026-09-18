@@ -13,6 +13,7 @@ import {
   DOCS_LOCALES,
   DEFAULT_DOCS_LOCALE,
   browserDocsLocale,
+  docsLocaleFromSegment,
   docsLocaleOptionLabel,
   sitePathForLocale,
   type DocsLocale,
@@ -40,7 +41,9 @@ export default function DocsLanguagePicker() {
 
   function localeForPreference(value: string) {
     const nextPreference = normalizeLocalizationPreference(value).locale;
-    return nextPreference === "system" ? systemLocale : nextPreference;
+    return nextPreference === "system"
+      ? systemLocale
+      : (docsLocaleFromSegment(nextPreference) ?? systemLocale);
   }
 
   function hrefForPreference(value: string) {

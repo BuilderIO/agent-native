@@ -205,7 +205,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`background`** — `newTab`를 사용하면 새 스레드에 초점을 맞추지 않고 실행됩니다. 숨겨진 실행은 `RunsTray`에서 추적됩니다.
 - **`openSidebar`** — 백그라운드/무음 전송을 위해 `false`로 설정됩니다. 기본값은 사용자가 응답을 볼 수 있도록 사이드바를 엽니다.
 - **사용자가 시작한 표시 가능한 AI 작업**에는 `openSidebar: true`를 사용하세요. `false`는 명시적으로 조용한 백그라운드 또는 시스템 시작 작업에만 사용하고 후속 작업은 같은 AgentSidebar 스레드에서 계속하세요.
-- **`type`** — `"content"`(기본값)는 앱 도구를 사용하는 임베디드 에이전트에서 작업을 유지합니다. `"code"`는 저장소 소스 변경을 위한 별도의 코드 지원 프레임으로 라우팅합니다. 쓰기는 호스트가 repository/workspace 도구를 의도적으로 부여한 경우에만 사용할 수 있습니다. [Frames](/docs/frames)를 참조하세요.
+- **`type`** — `"content"`(기본값)는 앱 도구를 사용하는 임베디드 에이전트에서 작업을 유지합니다. `"code"`는 저장소 소스 변경을 위한 별도의 코드 지원 호스트로 라우팅합니다. 쓰기는 호스트가 repository/workspace 도구를 의도적으로 부여한 경우에만 사용할 수 있습니다. [Agent-Native 코드 UI](/docs/code-agents-ui)를 참조하세요.
 
 `sendToAgentChat`는 채팅 실행을 추적하는 데 사용할 수 있는 안정적인 `tabId`를 반환합니다.
 

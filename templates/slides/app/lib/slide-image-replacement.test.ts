@@ -6,6 +6,7 @@ import {
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
   hasOptimisticImagePreview,
+  imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
   insertDroppedImageIntoSlideHtml,
   insertImageIntoSlideHtml,
@@ -23,6 +24,12 @@ function firstImage(html: string): HTMLImageElement | null {
 }
 
 describe("slide image replacement", () => {
+  it("accepts SVG drops when the browser omits the MIME type", () => {
+    expect(
+      imageFileLooksSupported(new File(["<svg />"], "logo.svg", { type: "" })),
+    ).toBe(true);
+  });
+
   it("replaces only the optimistic preview image", () => {
     const html = `<div class="fmd-slide"><img src="blob:preview" alt="Preview"><img src="/placeholder.png" alt="Placeholder"><div class="fmd-img-placeholder">Image</div></div>`;
 

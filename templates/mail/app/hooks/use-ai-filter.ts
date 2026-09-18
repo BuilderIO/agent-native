@@ -1,10 +1,17 @@
-import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useActionMutation,
+  useChangeVersions,
+} from "@agent-native/core/client/hooks";
 import type {
   AiFilterDecision,
   AiFilterState,
   AiFilterTarget,
 } from "@shared/ai-filter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
+import { invalidateInboxThreads } from "@/hooks/use-inbox-threads";
 
 export function useAiFilter() {
   const changeVersion = useChangeVersions(["settings", "action"]);
@@ -36,8 +43,26 @@ export function useManageAiFilter() {
       void queryClient.invalidateQueries({ queryKey: ["ai-filter"] });
       void queryClient.invalidateQueries({ queryKey: ["automations"] });
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
-      void queryClient.invalidateQueries({ queryKey: ["labels"] });
+      void queryClient.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      void invalidateInboxThreads(queryClient);
     },
+  });
+}
+
+export function usePreviewAiFilter() {
+  return useActionMutation("preview-ai-filter", {
+    skipActionQueryInvalidation: true,
+    timeoutMs: 15_000,
+  });
+}
+
+export function useRefineAiFilter() {
+  const queryClient = useQueryClient();
+  return useActionMutation("refine-ai-filter", {
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["automations"] });
+    },
+    timeoutMs: 20_000,
   });
 }
 

@@ -25,7 +25,7 @@ you can do in the editor, the agent can do too.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-slides --standalone --template slides
+npx --yes @agent-native/core@latest create my-slides --standalone --template slides
 cd my-slides
 pnpm install
 pnpm dev

@@ -14,7 +14,7 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
 import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
-import { getSession } from "./auth.js";
+import { getSession, isLoopbackRequest } from "./auth.js";
 import { clearProviderCredentialAuthFailure } from "./credential-provider.js";
 import { readBody } from "./h3-helpers.js";
 
@@ -183,6 +183,35 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
   };
 }
 
+export function normalizeAgentEngineApiKeyDeletePayload(
+  body: unknown,
+):
+  | { ok: true; key: string; endpointKey?: string }
+  | { ok: false; statusCode: number; error: string } {
+  const provider =
+    body &&
+    typeof body === "object" &&
+    typeof (body as any).provider === "string"
+      ? (body as any).provider.trim()
+      : "";
+  const key =
+    provider === "ollama"
+      ? OLLAMA_BASE_URL_ENV_VAR
+      : (PROVIDER_TO_ENV_VAR.get(provider) ?? "");
+  if (!key) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "Choose a supported agent engine provider.",
+    };
+  }
+  return {
+    ok: true,
+    key,
+    ...(provider === "openai" ? { endpointKey: OPENAI_BASE_URL_ENV_VAR } : {}),
+  };
+}
+
 export async function resolveAgentEngineApiKeyWriteTarget(
   event: H3Event,
   scope: AgentEngineApiKeyScope,
@@ -222,6 +251,44 @@ export async function resolveAgentEngineApiKeyWriteTarget(
 
 export function createAgentEngineApiKeyHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    if (getMethod(event) === "DELETE") {
+      let body: unknown;
+      try {
+        body = await readBody(event);
+      } catch (error) {
+        console.warn("[agent-engine] malformed delete payload", error);
+        body = undefined;
+      }
+      const payload = normalizeAgentEngineApiKeyDeletePayload(body);
+      if (!payload.ok) {
+        setResponseStatus(event, payload.statusCode);
+        return { error: payload.error };
+      }
+      let session: Awaited<ReturnType<typeof getSession>> | null = null;
+      try {
+        session = await getSession(event);
+      } catch (error) {
+        console.warn("[agent-engine] could not read session for delete", error);
+      }
+      if (!session?.email) {
+        setResponseStatus(event, 401);
+        return { error: "Authentication required" };
+      }
+      await deleteAppSecret({
+        key: payload.key,
+        scope: "user",
+        scopeId: session.email,
+      });
+      if (payload.endpointKey) {
+        await deleteAppSecret({
+          key: payload.endpointKey,
+          scope: "user",
+          scopeId: session.email,
+        });
+      }
+      return { ok: true, key: payload.key, scope: "user" };
+    }
+
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -249,7 +316,8 @@ export function createAgentEngineApiKeyHandler() {
         await validateProviderBaseUrl(payload.baseUrl, {
           allowLocalOllama:
             payload.key === OLLAMA_BASE_URL_ENV_VAR &&
-            process.env.NODE_ENV === "development",
+            process.env.NODE_ENV !== "production" &&
+            isLoopbackRequest(event),
         });
       } catch (err) {
         setResponseStatus(event, 400);
@@ -268,6 +336,9 @@ export function createAgentEngineApiKeyHandler() {
         setResponseStatus(event, keyValidation.statusCode);
         return { error: keyValidation.error };
       }
+    }
+
+    if (payload.value) {
       await writeAppSecret({
         key: payload.key,
         value: payload.value,
@@ -299,6 +370,49 @@ export function createAgentEngineApiKeyHandler() {
         scope: resolved.target.scope,
         scopeId: resolved.target.scopeId,
       });
+    }
+
+    // Organization keys are the only keys the framework UI creates now. Clear
+    // a legacy personal row after the organization write succeeds, otherwise
+    // the resolver's user-first precedence would keep silently shadowing it.
+    if (resolved.target.scope === "org") {
+      let session: Awaited<ReturnType<typeof getSession>> | null = null;
+      try {
+        session = await getSession(event);
+      } catch (error) {
+        console.warn(
+          "[agent-engine] could not read session for legacy-key cleanup",
+          error,
+        );
+      }
+      if (!session?.email) {
+        setResponseStatus(event, 503);
+        return {
+          ok: false,
+          error:
+            "Organization key saved, but the legacy personal key could not be cleared. Retry this save before using the organization key.",
+        };
+      }
+
+      const personalKeys = new Set([payload.key]);
+      if (payload.key === OPENAI_PROVIDER_KEY) {
+        personalKeys.add(OPENAI_BASE_URL_ENV_VAR);
+      }
+      if (payload.key === OPENAI_BASE_URL_ENV_VAR) {
+        personalKeys.add(OPENAI_PROVIDER_KEY);
+      }
+      if (payload.key === OLLAMA_BASE_URL_ENV_VAR) {
+        personalKeys.add(OLLAMA_BASE_URL_ENV_VAR);
+      }
+      await Promise.all(
+        [...personalKeys].map((key) =>
+          deleteAppSecret({
+            key,
+            scope: "user",
+            scopeId: session.email,
+          }),
+        ),
+      );
     }
 
     return {

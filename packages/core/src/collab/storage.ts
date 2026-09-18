@@ -5,7 +5,7 @@
  * state.
  */
 
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -49,7 +49,14 @@ export async function loadYDocRecord(
   docId: string,
 ): Promise<YDocStateRecord | null> {
   await ensureTable();
-  const client = getDbExec();
+  return loadYDocRecordWithClient(getDbExec(), docId);
+}
+
+/** Load through a caller-owned transaction after schema readiness is ensured. */
+export async function loadYDocRecordWithClient(
+  client: DbExec,
+  docId: string,
+): Promise<YDocStateRecord | null> {
   const { rows } = await client.execute({
     sql: `SELECT yjs_state, version FROM _collab_docs WHERE doc_id = ?`,
     args: [docId],
@@ -98,7 +105,23 @@ export async function trySaveYDocState(
   expectedVersion: number | null,
 ): Promise<boolean> {
   await ensureTable();
-  const client = getDbExec();
+  return trySaveYDocStateWithClient(
+    getDbExec(),
+    docId,
+    state,
+    textSnapshot,
+    expectedVersion,
+  );
+}
+
+/** CAS-save through a caller-owned transaction after schema readiness. */
+export async function trySaveYDocStateWithClient(
+  client: DbExec,
+  docId: string,
+  state: Uint8Array,
+  textSnapshot: string,
+  expectedVersion: number | null,
+): Promise<boolean> {
   const b64 = uint8ArrayToBase64(state);
   const nowExpr = "NOW()::text";
   if (expectedVersion === null) {
@@ -144,27 +167,15 @@ export async function saveYDocState(
   });
 }
 
-/** Check if a document has collaborative state. */
+/** Check if a document has non-empty collaborative state. */
 export async function hasCollabState(docId: string): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT 1 FROM _collab_docs WHERE doc_id = ?`,
+    sql: `SELECT 1 FROM _collab_docs WHERE doc_id = ? AND yjs_state <> ''`,
     args: [docId],
   });
   return rows.length > 0;
-}
-
-/** Load all existing document ids in one query for startup reconciliation. */
-export async function listCollabDocIds(): Promise<Set<string>> {
-  await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute("SELECT doc_id FROM _collab_docs");
-  return new Set(
-    rows.flatMap((row) =>
-      typeof row.doc_id === "string" && row.doc_id ? [row.doc_id] : [],
-    ),
-  );
 }
 
 /** Delete collaborative state for a document. */

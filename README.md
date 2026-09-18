@@ -20,7 +20,7 @@ Agent-Native is an open-source TypeScript framework for building agents that pai
 ## Quick start
 
 ```bash
-npx @agent-native/core@latest create my-agent --standalone --template chat
+npx --yes @agent-native/core@latest create my-agent --standalone --template chat
 ```
 
 Follow the [getting started guide](https://agent-native.com/docs/getting-started) for a full intro to the framework.
@@ -47,6 +47,7 @@ Create `actions/hello.ts`:
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({

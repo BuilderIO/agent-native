@@ -131,7 +131,7 @@ export function MediaDeviceRow({
               </DropdownMenuTrigger>
             ) : (
               <span
-                className="row-button row-button-placeholder row-label-muted"
+                className="row-button row-button-placeholder"
                 aria-disabled="true"
               >
                 {label}
@@ -179,8 +179,8 @@ export function MediaDeviceRow({
           <Tooltip>
             <TooltipTrigger asChild>
               <Switch
-                on={on}
-                onChange={onToggle}
+                checked={on}
+                onCheckedChange={onToggle}
                 label={kind === "camera" ? "Camera" : "Microphone"}
               />
             </TooltipTrigger>
@@ -191,8 +191,10 @@ export function MediaDeviceRow({
         </div>
       </div>
       {kind === "mic" && onSystemAudioToggle ? (
-        <div className="system-audio-row">
-          <span className="row-icon" aria-hidden>
+        <div
+          className={`row ${systemAudio ? "row-on" : "row-off"} system-audio-row`}
+        >
+          <span className="row-icon system-audio-icon" aria-hidden>
             <IconVolume2 size={20} stroke={1.75} />
           </span>
           <span className="system-audio-label">Record system audio</span>
@@ -200,8 +202,8 @@ export function MediaDeviceRow({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Switch
-                  on={!!systemAudio}
-                  onChange={onSystemAudioToggle}
+                  checked={!!systemAudio}
+                  onCheckedChange={onSystemAudioToggle}
                   label="Record system audio"
                 />
               </TooltipTrigger>

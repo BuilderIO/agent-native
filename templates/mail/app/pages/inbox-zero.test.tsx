@@ -71,4 +71,13 @@ describe("InboxZero rendering", () => {
     expect(markup).toContain('data-testid="inbox-zero"');
     expect(markup).not.toContain('data-testid="email-list"');
   });
+
+  it("never shows Inbox Zero when an account partially failed to load", () => {
+    const markup = renderToStaticMarkup(
+      <InboxZeroBoundary state={{ ...emptyInbox, hasAccountErrors: true }} />,
+    );
+
+    expect(markup).toContain('data-testid="email-list"');
+    expect(markup).not.toContain('data-testid="inbox-zero"');
+  });
 });

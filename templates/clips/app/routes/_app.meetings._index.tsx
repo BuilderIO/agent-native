@@ -1,8 +1,8 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { useExperimentState } from "@agent-native/core/client/experiments";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { CLIPS_MEETINGS } from "@shared/experiments";
+import { useLabState } from "@agent-native/core/client/labs";
+import { CLIPS_MEETINGS } from "@shared/labs";
 import {
   IconAlertTriangle,
   IconCalendar,
@@ -603,21 +603,8 @@ function MeetingsHeader({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const tagName = target?.tagName.toLowerCase();
-      if (
-        event.key === "/" &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        tagName !== "input" &&
-        tagName !== "textarea" &&
-        !target?.isContentEditable
-      ) {
-        event.preventDefault();
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }
+      if (event.key !== "Escape") return;
+      inputRef.current?.blur();
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -628,7 +615,7 @@ function MeetingsHeader({
     <PageHeader>
       <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_24rem_minmax(0,1fr)]">
         <div className="hidden min-w-0 lg:block">
-          <PageBreadcrumb label={t("meetingsRoute.title")} />
+          <PageBreadcrumb items={[{ label: t("meetingsRoute.title") }]} />
         </div>
         <div className="relative min-w-0 flex-1 lg:w-full">
           <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -660,7 +647,7 @@ function MeetingsHeader({
               aria-hidden="true"
               className="absolute end-1.5 top-1/2 h-5 -translate-y-1/2 px-1 font-mono text-[10px]"
             >
-              {shortcutLabel("/")}
+              {shortcutLabel("cmd+k")}
             </Kbd>
           )}
         </div>
@@ -679,7 +666,7 @@ function MeetingsHeader({
 
 export default function MeetingsIndexRoute() {
   const t = useT();
-  const experiment = useExperimentState(CLIPS_MEETINGS.key);
+  const lab = useLabState(CLIPS_MEETINGS.key);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQ = searchParams.get("q") ?? "";
   const [query, setQuery] = useState(initialQ);
@@ -902,7 +889,7 @@ export default function MeetingsIndexRoute() {
   const nothingAtAll =
     historyMeetings.length === 0 && agendaMeetings.length === 0;
 
-  if (experiment.isSuccess && !experiment.enabled) {
+  if (lab.isSuccess && !lab.enabled) {
     return <Navigate replace to="/library" />;
   }
 

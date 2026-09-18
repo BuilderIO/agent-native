@@ -1,5 +1,9 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
+import {
+  AGENT_SIDEBAR_QUERY_PARAM,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+} from "@agent-native/core/shared";
 
 import { parseTimeParam } from "@/lib/time-param";
 
@@ -100,19 +104,23 @@ export function stateFromLocation(
     const recordingId = decodePathSegment(recordingMatch[1]);
     if (!recordingId) return { view: "library" };
     const panel = params.get("panel");
+    const agentSidebarOpen =
+      params.get(AGENT_SIDEBAR_QUERY_PARAM) === AGENT_SIDEBAR_QUERY_VALUE_OPEN;
     const atParam = params.get("at") ?? params.get("t");
     const atMs = atParam == null ? undefined : parseTimeParam(atParam);
     return {
       view: panel === "insights" ? "insights" : "recording",
       recordingId,
-      ...(panel === "comments" ||
-      panel === "transcript" ||
-      panel === "agent" ||
-      panel === "debug" ||
-      panel === "insights" ||
-      panel === "settings"
-        ? { panel }
-        : {}),
+      ...(agentSidebarOpen
+        ? { panel: "agent" as const }
+        : panel === "comments" ||
+            panel === "transcript" ||
+            panel === "agent" ||
+            panel === "debug" ||
+            panel === "insights" ||
+            panel === "settings"
+          ? { panel }
+          : {}),
       ...(Number.isFinite(atMs) && atMs! >= 0 ? { atMs } : {}),
       ...(searchTerm ? { search: searchTerm } : {}),
     };
@@ -164,11 +172,13 @@ export function stateFromLocation(
     };
   }
 
-  // /dictate (optionally /dictate/:dictationId in the future)
+  // /dictate?dictationId=:dictationId (optionally /dictate/:dictationId in the future)
   const dictateMatch = p.match(/^\/dictate(?:\/([^/]+))?$/);
   if (dictateMatch) {
-    const dictationId = decodePathSegment(dictateMatch[1]);
-    if (dictateMatch[1] && !dictationId) return { view: "library" };
+    const pathDictationId = decodePathSegment(dictateMatch[1]);
+    if (dictateMatch[1] && !pathDictationId) return { view: "library" };
+    const queryDictationId = params.get("dictationId")?.trim() || undefined;
+    const dictationId = pathDictationId ?? queryDictationId;
     return {
       view: "dictate",
       ...(dictationId ? { dictationId } : {}),
@@ -210,7 +220,14 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "recording":
       if (!cmd.recordingId) return "/library";
       const recordingParams = new URLSearchParams();
-      if (cmd.panel) recordingParams.set("panel", cmd.panel);
+      if (cmd.panel === "agent") {
+        recordingParams.set(
+          AGENT_SIDEBAR_QUERY_PARAM,
+          AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+        );
+      } else if (cmd.panel) {
+        recordingParams.set("panel", cmd.panel);
+      }
       if (typeof cmd.atMs === "number" && Number.isFinite(cmd.atMs)) {
         // Viewer routes use the public `at` query parameter in seconds while
         // navigation commands expose timestamps in milliseconds.
@@ -265,7 +282,9 @@ export function pathFromCommand(cmd: NavigateCommand): string {
         ? `/meetings/${encodeURIComponent(cmd.meetingId)}`
         : "/meetings";
     case "dictate":
-      return "/dictate";
+      return cmd.dictationId
+        ? `/dictate?dictationId=${encodeURIComponent(cmd.dictationId)}`
+        : "/dictate";
     case "library":
     default:
       if (cmd.folderId) {

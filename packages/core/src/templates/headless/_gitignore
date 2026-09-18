@@ -29,6 +29,7 @@ dist
 .tmp/
 
 # Runtime data
+**/data/
 data/pglite/
 data/uploads/
 data/settings.json

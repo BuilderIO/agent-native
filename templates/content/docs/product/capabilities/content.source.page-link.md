@@ -57,7 +57,7 @@ Given the linked Source becomes unavailable, when a reader opens the Page, then 
 
 ## Current evidence
 
-Donor evidence: `actions/_document-source.ts`, `shared/content-source.ts`, and source-backed database actions model parts of binding/provenance. No normalized Page binding, ownership UI, or full conflict proof exists; this record remains `exploring`.
+Donor evidence: `actions/_document-source.ts`, `shared/content-source.ts`, and source-backed collection actions model parts of binding/provenance. No normalized Page binding, ownership UI, or full conflict proof exists; this record remains `exploring`.
 
 ## Proof plan
 

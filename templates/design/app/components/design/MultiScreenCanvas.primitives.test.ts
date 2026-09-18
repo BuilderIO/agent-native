@@ -1,4 +1,5 @@
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
+import type { CodeLayerSource } from "@shared/code-layer";
 import {
   hitTestPenAnchor,
   hitTestPenHandle,
@@ -33,6 +34,7 @@ import {
   getDraftPreviewGeometryForTool,
 } from "./multi-screen/draft-primitives";
 import {
+  findTopFrameEntryAtPoint,
   frameStyleLeftTop,
   getBreakpointFrameGeometry,
   getLayerSelectableBounds,
@@ -77,7 +79,12 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-type ScreenStub = { id: string; filename: string; content: string };
+type ScreenStub = {
+  id: string;
+  filename: string;
+  content: string;
+  codeLayerSource?: CodeLayerSource;
+};
 
 function makeGeom(x: number, y: number, w: number, h: number): FrameGeometry {
   return { x, y, width: w, height: h };
@@ -119,8 +126,14 @@ function hashString(s: string): string {
 /** Inject pre-built primitives into the module cache so tests don't need
  *  DOMParser (unavailable in jsdom-less vitest). */
 function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
-  // Cache key mirrors the implementation: id:length:hash(content)
-  const key = `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
+  const source =
+    screen.codeLayerSource ??
+    ({ kind: "design-file", fileId: screen.id } as const);
+  const sourceKey = Object.entries(source)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join("\u0000");
+  const key = `${screen.id}:${sourceKey}:${screen.content.length}:${hashString(screen.content)}`;
   primitiveParseCache.set(key, prims);
 }
 
@@ -1221,7 +1234,7 @@ describe("getPrimitiveDropTargetForPoint", () => {
       overlappingFrames,
       getMeta,
     );
-    expect(result?.nodeId).toBe("other-screen-inner");
+    expect(result).toBeNull();
   });
 
   it("regression: excludes geometric descendants of the dragged node", () => {
@@ -1410,6 +1423,40 @@ describe("cross-screen coord translation (iframeX → boardX consistency)", () =
 
     expect(roundTrip.x).toBeCloseTo(local.x, 8);
     expect(roundTrip.y).toBeCloseTo(local.y, 8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findTopFrameEntryAtPoint: cross-screen drop release resolution
+// (drag-reparent-1)
+// ---------------------------------------------------------------------------
+describe("findTopFrameEntryAtPoint at a cross-screen drop release point", () => {
+  it("picks the source screen over an overlapping destination when foregroundId favors the source", () => {
+    // A dragged element still lives in the source document until commit, so
+    // the source screen's measured (content-fit) geometry can grow mid-drag
+    // to overlap the destination screen it is being dropped into. Both
+    // frames now genuinely contain the release point.
+    const entries = [
+      { id: "source", geometry: makeGeom(0, 0, 900, 1400) },
+      { id: "dest", geometry: makeGeom(0, 1024, 900, 900) },
+    ];
+    const releasePoint = { x: 260, y: 1330 };
+
+    // Unfiltered: the foregroundId tie-break (the active/source screen)
+    // wins the overlap, silently discarding the real cross-screen drop.
+    const naive = findTopFrameEntryAtPoint(entries, releasePoint, {
+      foregroundId: "source",
+    });
+    expect(naive?.id).toBe("source");
+
+    // The fix: exclude the source screen from the candidate set before
+    // hit-testing, so an overlap can never resolve back to it.
+    const excludingSource = findTopFrameEntryAtPoint(
+      entries.filter((entry) => entry.id !== "source"),
+      releasePoint,
+      { foregroundId: "source" },
+    );
+    expect(excludingSource?.id).toBe("dest");
   });
 });
 

@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronLeft,
@@ -289,6 +290,18 @@ export default function PresentationView({
   const navigate = useNavigate();
 
   const isShared = deckId.startsWith("__shared__/");
+
+  const trackedDeckRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (trackedDeckRef.current === deckId) return;
+    trackedDeckRef.current = deckId;
+    trackEvent("presented", {
+      ...(isShared ? {} : { output_id: deckId }),
+      output_type: "deck",
+      slide_count: safeSlides.length,
+      is_shared: isShared,
+    });
+  }, [deckId, isShared, safeSlides.length]);
 
   // `safeSlides` excludes skipped slides, so its index isn't the deck index
   // DeckEditor's `?slide=N` param expects. Map back to the raw position so

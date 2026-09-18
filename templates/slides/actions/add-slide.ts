@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   mergeCreativeContextReuseLabels,
@@ -109,13 +110,13 @@ export default defineAction({
   title: "Add slide to deck",
   description:
     "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
-    "Build decks slide-by-slide — " +
-    "call it once per slide in slide order and wait for each result before adding the next slide. " +
-    "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
+    "Establish a new deck's direction with the first one or two slides slide-by-slide, waiting for each result before continuing. " +
+    "Continue using add-slide for every newly generated slide so each write preserves per-slide Creative Context provenance; never issue independent parallel writes to the same deck. " +
     "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
     "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
-    "For a single-call bulk append, use `patch-deck` with add-slide operations. " +
+    "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, follow one deliberate deck-level visual contract expressed with semantic --deck-* values on every slide; keep the canvas, type system, spacing, surfaces, and accent treatment consistent instead of alternating themes or using a stock provider/brand palette. " +
+    "Use `patch-deck` for edits to existing slides or deck structure, not for appending newly generated slides in this workflow. " +
     "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
@@ -426,6 +427,9 @@ export default defineAction({
 
       const now = nextDeckRevision(row.updatedAt);
       deck.slides = slides;
+      const sourceImportCleared =
+        deck.sourceImport !== undefined && deck.sourceImport !== null;
+      if (sourceImportCleared) delete deck.sourceImport;
       deck.updatedAt = now;
       const currentTitle =
         typeof row.title === "string" && row.title.trim()
@@ -501,6 +505,20 @@ export default defineAction({
         ...(agentChangeId ? { agentChangeId } : {}),
       });
 
+      track(
+        "deck_edited",
+        {
+          app_name: "slides",
+          template_name: "slides",
+          output_id: deckId,
+          output_type: "deck",
+          slide_id: newSlideId,
+          slide_count: slides.length,
+          edit_mode: "add_slide",
+        },
+        ctx,
+      );
+
       const base = {
         deckId,
         slideId: newSlideId,
@@ -512,6 +530,7 @@ export default defineAction({
         contextMode,
         contextPackId: recordedPackId,
         reuseLabels: slideReuseLabels,
+        ...(sourceImportCleared ? { sourceImportCleared: true } : {}),
         layoutFit: {
           status: "pending" as const,
           slideId: newSlideId,

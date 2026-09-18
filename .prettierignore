@@ -2,6 +2,7 @@ node_modules
 dist
 # Root README prose is published alongside the docs homepage.
 /README.md
+docs/plans/
 .netlify
 out
 .video-bakeoff

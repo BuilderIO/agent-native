@@ -15,7 +15,7 @@ export interface SignupTarget {
 }
 
 const DEFAULT_APPS = "all";
-const EMAIL_SIGNUP_UNSUPPORTED_APPS = new Set(["factory", "macros"]);
+const EMAIL_SIGNUP_UNSUPPORTED_APPS = new Set(["factory"]);
 
 function supportsEmailSignup(app: string): boolean {
   // `e2e: false` in the fleet file means "not an app this suite drives" — fw is

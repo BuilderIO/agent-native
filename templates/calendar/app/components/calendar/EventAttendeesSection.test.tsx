@@ -294,6 +294,9 @@ describe("EventAttendeesSection attendee controls", () => {
       end: "2026-07-10T17:00:00.000Z",
       allDay: false,
       source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-two",
+      calendarId: "calendar-two-id",
       recurringEventId: "recurring-1",
       createdAt: "2026-07-10T15:00:00.000Z",
       updatedAt: "2026-07-10T15:00:00.000Z",
@@ -342,13 +345,19 @@ describe("EventAttendeesSection attendee controls", () => {
     });
 
     expect(rsvpMutate).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         id: "event-2",
         status: "tentative",
-        accountEmail: undefined,
+        accountEmail: "me@example.com",
         scope: "single",
         note: "Let's catch up async instead",
-      },
+        cacheEventIdentity: expect.objectContaining({
+          source: "google",
+          accountEmail: "me@example.com",
+          calendarSourceKey: "calendar-two",
+          calendarId: "calendar-two-id",
+        }),
+      }),
       expect.objectContaining({ onError: expect.any(Function) }),
     );
     expect(document.querySelector("textarea")).toBeNull();

@@ -26,11 +26,11 @@ proof_requirements:
 evidence:
   [
     "../../../app/components/sidebar/document-sidebar-sections.test.ts",
+    "../../../app/components/sidebar/DocumentSidebar.layout.test.ts",
     "../../../app/components/editor/database/sidebar.tsx",
     "../../../actions/content-recent.test.ts",
     "../../../actions/content-personal-navigation-patch.test.ts",
     "../../../app/components/editor/database/DatabaseView.recent.test.ts",
-    "../../../app/components/sidebar/DocumentSidebar.layout.test.ts",
     "../../../app/hooks/use-content-database.test.ts",
   ]
 superseded_by: null
@@ -53,7 +53,7 @@ parentage remain unchanged.
 ## Product contract
 
 - Pinned entries are personal References; dynamic sections are access-scoped query results.
-- Personal ordering, expansion, and collapse do not reparent Pages, change Database membership, or grant shared edit authority.
+- Personal ordering, expansion, and collapse do not reparent Pages, change Collection membership, or grant shared edit authority.
 - Intentional references may expand; the sidebar is not a general-purpose object renderer.
 - Missing, deleted, inaccessible, stale, and unavailable entries are handled honestly and recoverably.
 
@@ -111,6 +111,14 @@ recency, legacy Recent migration, personal pin ordering, and navigation patch
 concurrency. These are useful implementation and test evidence, not complete atomic
 contract proof. Local authenticated UI evidence and mounted lifecycle recovery remain
 incomplete, so this Capability remains `approved_shape`.
+
+The September 9, 2026 SB-01–03 controls pass exercised collapsed and expanded
+Search, Escape focus return, accessible control names, keyboard and pointer
+resizing within 240–480px, width persistence after reload, and a 390px mobile
+drawer through the local interface. The command picker uses the shared dialog
+stack so it remains visible above the drawer. This bounded controls evidence
+does not establish the remaining personal-reference, dynamic-section, access,
+or recovery contracts.
 
 ## Proof plan
 

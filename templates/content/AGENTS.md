@@ -1,6 +1,6 @@
 # Documents — Agent Guide
 
-Documents is an agent-native editor for docs, comments, media blocks, databases,
+Documents is an agent-native editor for docs, comments, media blocks, collections,
 sharing, and Notion-connected content; the agent and the UI share the same
 actions and application state.
 
@@ -8,19 +8,25 @@ actions and application state.
 
 Read the relevant skill before deeper work:
 
-- `content` — Markdown/MDX authoring, local folder sources, databases, intake
+- `content` — Markdown/MDX authoring, local folder sources, collections, intake
   forms, and Slack/A2A artifact replies.
-- `document-editing` — document/comment actions, screen context, and databases.
+- `document-editing` — document and comment actions, screen context and IDs,
+  suggestions, common tasks, the data model, and the collections reference.
 - `notion-integration` — connected Notion workflows and the raw Notion provider
   API path.
 - `creative-context` — cross-app reuse, pinned packs, and context opt-out.
 
 ## Core Rules
 
-- Use actions for Content operations. Do not mutate document rows directly.
-  Never use raw HTTP or SQL for document operations.
-- The editor uses live Yjs collaboration. Use `edit-document` for targeted
-  changes and `update-document` for full rewrites.
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
+- Use actions for documents, blocks, comments, media, sharing, navigation, and
+  Notion integration. Do not mutate document rows directly unless a skill says to
+  and access checks are preserved. Never use `curl`, raw HTTP requests, or
+  `db-exec` with raw SQL for document operations.
+- Call these actions directly; `ask_app` only delegates to Content's agent.
+- The live Yjs editor requires actions for body writes. External agents use
+  revisioned `edit-document`, with `initializeContent` only for an empty body.
+  Browser full rewrites use `update-document`.
 - Preserve user-authored content. Prefer targeted edits over wholesale rewrites
   unless requested.
 - Screen context is auto-included as a `<current-screen>` block on every
@@ -57,24 +63,26 @@ Read the relevant skill before deeper work:
 
 | Action | Purpose |
 | --- | --- |
-| `view-screen` | Re-read stale screen context |
-| `navigate` | Move the UI to Content destinations |
-| `list-documents` | List document metadata without bodies |
-| `search-documents` | Search titles and content |
-| `get-document` | Read one full document |
-| `pull-document` | Flush collaboration state, then read |
-| `create-document` | Create a page |
-| `resolve-content-landing` | Resolve the caller's landing page |
+| `view-screen` | Re-read the current screen when `<current-screen>` is stale |
+| `navigate` | Move the UI to a document, comments, media, or settings |
+| `refresh-list` | Repaint the sidebar after an out-of-band mutation |
+| `list-documents` | Document metadata tree, without bodies |
+| `search-documents` | Title and content search with snippets |
+| `get-document` | One document with full content |
+| `pull-document` | Flush live collab state, then read (external edits) |
+| `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
+| `create-document` | Create a page, optionally under a parent |
+| `resolve-content-landing` | Restore the caller's last authorized page in a requested Content space |
 | `get-content-recent` | List personal recent destinations with current access, optionally scoped to a Content space's Files membership |
-| `edit-document` | Make a targeted text change |
-| `update-document` | Replace title, content, or description |
-| `delete-document` | Move a page tree to Trash |
-| `list-content-database-blocks` | List blocks and revisions in a database field |
-| `mutate-content-database-block` | Mutate one stable database block |
-| `migrate-content-database-rows` | Run a bounded row migration |
+| `edit-document` | Revisioned find/replace, or initialize an empty body |
+| `update-document` | Metadata or browser-owned full rewrite |
+| `delete-document` | Move a page and its children to Trash |
+| `list-content-database-blocks` | List stable blocks and revisions in one exact collection row/property |
+| `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
+| `migrate-content-database-rows` | Validate/apply/verify; terminal phases use `manage-content-database-migration` |
 
 Every action carries its own schema, and the rest of the app-specific surface
-(comments, sharing, databases, Notion, local file sources such as
+(comments, sharing, collections, Notion, local file sources such as
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
 

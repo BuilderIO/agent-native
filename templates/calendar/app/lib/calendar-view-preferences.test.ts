@@ -6,7 +6,7 @@ import {
 } from "@shared/calendar-view-preferences";
 import { describe, expect, it } from "vitest";
 
-import { getEventDisplayColor } from "./event-colors";
+import { EVENT_CATEGORY_COLORS, getEventDisplayColor } from "./event-colors";
 
 const googleEvent: CalendarEvent = {
   id: "google-1",
@@ -180,8 +180,20 @@ describe("calendar view preferences", () => {
     });
 
     expect(getEventDisplayColor(googleEvent, preferences)).toBe(
-      getEventDisplayColor(googleEvent),
+      EVENT_CATEGORY_COLORS.internal1on1,
     );
+  });
+
+  it("uses meeting-type colors before the provider calendar color in multi mode", () => {
+    expect(
+      getEventDisplayColor(
+        {
+          ...googleEvent,
+          calendarColor: "#B07CC6",
+        },
+        normalizeCalendarViewPreferences({ colorMode: "multi" }),
+      ),
+    ).toBe(EVENT_CATEGORY_COLORS.internal1on1);
   });
 
   it("uses a canonical calendar override before account and provider colors", () => {

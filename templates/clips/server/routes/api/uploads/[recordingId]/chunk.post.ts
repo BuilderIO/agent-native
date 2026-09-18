@@ -18,7 +18,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { track } from "@agent-native/core/tracking";
+import { classifyTrackingFailure, track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
@@ -198,8 +198,33 @@ function trackUploadBlockingFailure(
   }
 }
 
-export default defineEventHandler(async (event: H3Event) => {
-  const recordingId = getRouterParam(event, "recordingId");
+function finalizeResultFailure(result: unknown): {
+  outcome: "cancelled" | "failed";
+  failure_type: "cancelled" | "storage_error" | "finalize_error";
+} {
+  const record =
+    result && typeof result === "object"
+      ? (result as Record<string, unknown>)
+      : {};
+  if (record.aborted === true || record.cancelled === true) {
+    return { outcome: "cancelled", failure_type: "cancelled" };
+  }
+  if (record.storageSetupRequired === true) {
+    return { outcome: "failed", failure_type: "storage_error" };
+  }
+  return { outcome: "failed", failure_type: "finalize_error" };
+}
+
+export async function handleRecordingChunk(
+  event: H3Event,
+  override?: {
+    recordingId?: string;
+    ownerEmail?: string;
+    orgId?: string;
+  },
+) {
+  const recordingId =
+    override?.recordingId ?? getRouterParam(event, "recordingId");
   if (!recordingId) {
     throw createError({ statusCode: 400, message: "Missing recordingId" });
   }
@@ -264,13 +289,18 @@ export default defineEventHandler(async (event: H3Event) => {
 
   let ownerEmail: string;
   let orgId: string | undefined;
-  try {
-    const context = await getEventOwnerContext(event);
-    ownerEmail = context.userEmail;
-    orgId = context.orgId;
-  } catch (err) {
-    console.error("[chunk] getEventOwnerContext threw:", err);
-    throw createError({ statusCode: 401, message: "Unauthorized" });
+  if (override?.ownerEmail) {
+    ownerEmail = override.ownerEmail;
+    orgId = override.orgId;
+  } else {
+    try {
+      const context = await getEventOwnerContext(event);
+      ownerEmail = context.userEmail;
+      orgId = context.orgId;
+    } catch (err) {
+      console.error("[chunk] getEventOwnerContext threw:", err);
+      throw createError({ statusCode: 401, message: "Unauthorized" });
+    }
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
 
@@ -662,14 +692,25 @@ export default defineEventHandler(async (event: H3Event) => {
           videoUrl: (result as any)?.videoUrl,
         });
         if ((result as any)?.status === "failed") {
-          setResponseStatus(event, 409);
-          return {
-            ok: false,
-            finalized: false,
-            aborted: true,
-            status: "failed",
-            error: "Recording was cancelled before it finished saving.",
-          };
+          const failure = finalizeResultFailure(result);
+          trackUploadBlockingFailure(ownerEmail, {
+            stage: "finalize_recording",
+            outcome: failure.outcome,
+            failure_type: failure.failure_type,
+            upload_mode: "buffered",
+          });
+          if (failure.outcome === "cancelled") {
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              finalized: false,
+              aborted: true,
+              status: "failed",
+              error: "Recording was cancelled before it finished saving.",
+            };
+          }
+          setResponseStatus(event, 500);
+          return { ok: false, finalized: false, ...result };
         }
         const waitingForStorage =
           (result as any)?.status === "waiting_storage" ||
@@ -773,10 +814,9 @@ export default defineEventHandler(async (event: H3Event) => {
         }
         trackUploadBlockingFailure(ownerEmail, {
           stage: "finalize_recording",
-          failureKind: "finalize_error",
-          recordingId,
-          uploadMode: "buffered",
-          errorMessage: err instanceof Error ? err.message : String(err),
+          outcome: "failed",
+          failure_type: classifyTrackingFailure(err),
+          upload_mode: "buffered",
         });
         const failed = await db
           .update(schema.recordings)
@@ -821,7 +861,9 @@ export default defineEventHandler(async (event: H3Event) => {
 
     return { ok: true, finalized: false, index, bytes: bytes.byteLength };
   });
-});
+}
+
+export default defineEventHandler((event) => handleRecordingChunk(event));
 
 function buildFinalizeArgs(
   recordingId: string,
@@ -1230,14 +1272,25 @@ async function handleResumableChunk(
       buildFinalizeArgs(recordingId, mimeType, query, uploadGenerationId),
     );
     if ((result as any)?.status === "failed") {
-      setResponseStatus(event, 409);
-      return {
-        ok: false,
-        finalized: false,
-        aborted: true,
-        status: "failed",
-        error: "Recording was cancelled before it finished saving.",
-      };
+      const failure = finalizeResultFailure(result);
+      trackUploadBlockingFailure(ownerEmail, {
+        stage: "finalize_recording",
+        outcome: failure.outcome,
+        failure_type: failure.failure_type,
+        upload_mode: "resumable",
+      });
+      if (failure.outcome === "cancelled") {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          finalized: false,
+          aborted: true,
+          status: "failed",
+          error: "Recording was cancelled before it finished saving.",
+        };
+      }
+      setResponseStatus(event, 500);
+      return { ok: false, finalized: false, ...result };
     }
     const verificationPending =
       (result as any)?.status === "processing" &&
@@ -1329,10 +1382,9 @@ async function handleResumableChunk(
 
     trackUploadBlockingFailure(ownerEmail, {
       stage: "finalize_recording",
-      failureKind: "finalize_error",
-      recordingId,
-      uploadMode: "resumable",
-      errorMessage: err instanceof Error ? err.message : String(err),
+      outcome: "failed",
+      failure_type: classifyTrackingFailure(err),
+      upload_mode: "resumable",
     });
     const failureReason =
       err instanceof Error ? err.message : "Finalize failed";

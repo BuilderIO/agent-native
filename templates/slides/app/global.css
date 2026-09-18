@@ -326,7 +326,8 @@ button[title="Open agent sidebar"] {
 
 /* Slide content styling */
 .slide-content {
-  font-family: "Poppins", sans-serif;
+  font-family: var(--ds-body-font, "Inter", sans-serif);
+  color: var(--ds-text, #1f2933);
 }
 
 /* Per-element inline text editing — highlight the text layer that is
@@ -334,7 +335,6 @@ button[title="Open agent sidebar"] {
 .slide-content [data-editing-block="true"] {
   outline: 2px solid #609ff8;
   outline-offset: 4px;
-  border-radius: 2px;
   cursor: text;
 }
 .slide-content [data-editing-block="true"]:focus {
@@ -352,27 +352,27 @@ button[title="Open agent sidebar"] {
 }
 .slide-content h1 {
   @apply text-5xl font-bold mb-6 leading-tight tracking-tight;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 .slide-content h2 {
   @apply text-3xl font-semibold mb-4 leading-snug tracking-tight;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 .slide-content h3 {
   @apply text-2xl font-medium mb-3;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 .slide-content p {
   @apply text-xl leading-relaxed mb-4;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--ds-text-muted, #667085);
 }
 .slide-content ul {
   @apply text-lg space-y-3 list-disc list-inside;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--ds-text-muted, #667085);
 }
 .slide-content ol {
   @apply text-lg space-y-3 list-decimal list-inside;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--ds-text-muted, #667085);
 }
 .slide-content code {
   @apply bg-white/10 px-2 py-0.5 rounded text-base font-mono;
@@ -390,7 +390,7 @@ button[title="Open agent sidebar"] {
 }
 .slide-content strong {
   @apply font-bold;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 .slide-content em {
   @apply italic;
@@ -415,18 +415,18 @@ button[title="Open agent sidebar"] {
 }
 .slide-content td {
   @apply py-3 text-base;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--ds-text-muted, #667085);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 .slide-content td:first-child {
   @apply font-semibold;
-  color: #ffffff;
+  color: var(--ds-text, #1f2933);
 }
 
 /* Builder brand hr styling */
 .slide-content hr {
   @apply my-4;
-  border-color: rgba(255, 255, 255, 0.06);
+  border-color: var(--ds-accent, #2457d6);
 }
 
 /* ─── Slide Styles ─── */
@@ -438,11 +438,18 @@ button[title="Open agent sidebar"] {
   height: 100%;
   display: flex;
   flex-direction: column;
-  color: var(--ds-text, #ffffff);
-  background: var(--ds-bg, #0b0b0d);
-  font-family: var(--ds-body-font, "Poppins", sans-serif);
+  padding: 64px 80px;
+  color: var(--ds-text, #1f2933);
+  background: var(--ds-bg, #f5f2ea);
+  font-family: var(--ds-body-font, "Inter", sans-serif);
   box-sizing: border-box;
   overflow: hidden;
+}
+
+/* Imported source slides use absolute source-canvas coordinates. */
+.fmd-slide[data-imported-pptx="true"],
+.fmd-slide[data-imported-pdf="true"] {
+  padding: 0;
 }
 
 /* Semantic slide markup is persisted by the agent. Keep the classes useful
@@ -452,7 +459,7 @@ button[title="Open agent sidebar"] {
   justify-content: center;
   align-items: flex-start;
   gap: 24px;
-  padding: 80px 110px;
+  padding: 64px 80px;
 }
 
 .fmd-slide.fmd-slide--content,
@@ -477,11 +484,8 @@ button[title="Open agent sidebar"] {
 .fmd-slide.fmd-slide--two-column h2,
 .fmd-slide.fmd-slide--statement h1,
 .fmd-slide.fmd-slide--statement h2 {
-  color: var(--ds-text, #ffffff);
-  font-family: var(
-    --ds-heading-font,
-    var(--ds-body-font, "Poppins", sans-serif)
-  );
+  color: var(--ds-text, #1f2933);
+  font-family: var(--ds-heading-font, var(--ds-body-font, "Inter", sans-serif));
   font-weight: 700;
   letter-spacing: -0.03em;
 }
@@ -511,7 +515,7 @@ button[title="Open agent sidebar"] {
 
 .fmd-slide .fmd-subtitle,
 .fmd-slide .fmd-muted {
-  color: var(--ds-text-muted, rgba(255, 255, 255, 0.7));
+  color: var(--ds-text-muted, #667085);
 }
 
 .fmd-slide .fmd-subtitle {
@@ -536,7 +540,7 @@ button[title="Open agent sidebar"] {
 
 .fmd-slide .fmd-accent,
 .fmd-slide .fmd-cyan {
-  color: var(--ds-accent, #00e5ff);
+  color: var(--ds-accent, #2457d6);
 }
 
 .fmd-autofit-scale {
@@ -1098,6 +1102,20 @@ button[title="Open agent sidebar"] {
   color: inherit;
 }
 
+/* The same boundary for type metrics. The fallback paragraph and list sizes
+   are for markdown decks too; a bare-text block the editor wraps in <p> has
+   to render exactly as it did before the edit, while editing and after. */
+.slide-content[data-slide-content-scope] p {
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.slide-content[data-slide-content-scope] :is(ul, ol) {
+  font-size: inherit;
+  line-height: inherit;
+}
+
 /* Prevent slide-content defaults from overriding FMD styles */
 .slide-content .fmd-slide p,
 .slide-content .fmd-slide li {
@@ -1447,67 +1465,53 @@ button[title="Open agent sidebar"] {
   background: rgba(96, 159, 248, 0.35);
 }
 
-/* The shared editor supplies the Content editing behavior. Its surface stays
-   transparent so the slide's own background, geometry, and inherited styles
-   remain the source of truth. */
-.slide-content .slide-rich-editor-host,
-.slide-content .slide-shared-rich-editor,
-.slide-content .slide-shared-rich-editor .an-rich-md-wrapper {
-  width: 100%;
-  min-width: 0;
-  min-height: 100%;
-  background: transparent;
+/* The shared editor supplies the Content editing behavior and renders
+   unstyled, so the slide element's own layout and inherited text styles are
+   the only ones that apply while editing. Nothing in edit mode may restyle
+   text; the element must look identical selected and unselected. */
+.slide-content .slide-rich-editor-host {
+  display: contents;
 }
 
-.slide-content .slide-shared-rich-editor .an-rich-md-prose {
-  min-height: 100%;
-  outline: none;
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  letter-spacing: inherit;
-  text-align: inherit;
-  white-space: pre-wrap;
+/* TipTap's relative editor root must not become the containing block for
+   persisted absolute slide objects when a text layer receives focus. */
+.slide-content .slide-shared-rich-editor .ProseMirror {
+  position: static;
 }
 
-.slide-content
-  .slide-shared-rich-editor
-  .an-rich-md-prose
-  :is(p, h1, h2, h3, h4, blockquote, ul, ol) {
-  margin: 0;
-  min-height: 0;
-  color: inherit;
-  font-family: inherit;
-  letter-spacing: inherit;
+/* An empty paragraph is an intentional line break, not editor-only chrome. */
+.slide-content .fmd-slide p:empty {
+  min-height: 1em;
 }
 
-.slide-content .slide-shared-rich-editor .an-rich-md-prose ul,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose ol {
-  padding-left: 1.5em;
-  list-style-position: outside;
+/* Editing one list item renders it inside its own list, so hide the outer
+   marker and let the inner one take its place. */
+.slide-content .fmd-slide li[data-editing-block="true"] {
+  list-style: none;
 }
 
 .slide-content
-  .slide-shared-rich-editor
-  .an-rich-md-prose
-  ul[style*="--slide-legacy-list"] {
+  .fmd-slide
+  li[data-editing-block="true"]
+  .an-rich-md-unstyled
+  > :is(ul, ol) {
+  padding-left: 0;
+  padding-inline-start: 0;
+}
+
+/* Older decks style bullets as flex rows with a marker span; they are edited
+   as a semantic list that draws the same marker. */
+.slide-content .slide-shared-rich-editor ul[style*="--slide-legacy-list"] {
   padding-left: 0;
   list-style: none;
 }
 
-.slide-content
-  .slide-shared-rich-editor
-  .an-rich-md-prose
-  ul[style*="--slide-legacy-list"]
-  > li {
+.slide-content .slide-shared-rich-editor ul[style*="--slide-legacy-list"] > li {
   list-style: none;
 }
 
 .slide-content
   .slide-shared-rich-editor
-  .an-rich-md-prose
   ul[style*="--slide-legacy-list"]
   > li::before {
   content: var(--slide-legacy-marker-content, "•");
@@ -1518,65 +1522,31 @@ button[title="Open agent sidebar"] {
   flex-shrink: 0;
 }
 
-.slide-content .slide-shared-rich-editor .an-rich-md-prose li {
-  display: list-item;
-  margin: 0;
-  padding: 0;
-}
-
-.slide-content .slide-shared-rich-editor .an-rich-md-prose li p {
-  margin: 0;
-  font-size: inherit;
-}
-
-.slide-content .fmd-slide li[data-editing-block="true"] {
-  list-style: none;
-}
-
-.slide-content
-  .fmd-slide
-  li[data-editing-block="true"]
-  > .slide-rich-editor-host
-  .an-rich-md-prose
-  > :is(ul, ol) {
-  padding-left: 0;
-  padding-inline-start: 0;
-}
-
-.slide-content .fmd-slide h1,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose h1 {
+.slide-content .fmd-slide h1 {
   font-size: 2em;
   font-weight: 700;
   line-height: 1.25;
 }
 
-.slide-content .fmd-slide h2,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose h2 {
+.slide-content .fmd-slide h2 {
   font-size: 1.5em;
   font-weight: 600;
   line-height: 1.375;
 }
 
-.slide-content .fmd-slide h3,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose h3 {
+.slide-content .fmd-slide h3 {
   font-size: 1.25em;
   font-weight: 500;
   line-height: 1.5;
 }
 
-.slide-content .fmd-slide h4,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose h4 {
+.slide-content .fmd-slide h4 {
   font-size: 1em;
   font-weight: 500;
   line-height: 1.5;
 }
 
-.slide-content .slide-shared-rich-editor .an-rich-md-prose code {
-  padding: 0;
-  background: transparent;
-  color: inherit;
-}
-
+/* Slides has its own toolbar; the shared bubble toolbar stays hidden. */
 .slide-content .slide-shared-rich-editor .an-rich-md-bubble-toolbar {
   display: none;
 }

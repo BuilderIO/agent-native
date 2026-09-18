@@ -2,6 +2,7 @@ import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 
+import { normalizeGitHubRepoRef } from "../../shared/source-config-validation.js";
 import type {
   BrainCaptureKind,
   BrainSourceProvider,
@@ -1662,27 +1663,9 @@ async function granolaApi<T>(
   return (await response.json()) as T;
 }
 
-function githubRepoFromValue(value: string): string | null {
-  const trimmed = value.trim().replace(/\.git$/, "");
-  if (!trimmed) return null;
-  const withoutProtocol = trimmed
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/^git@github\.com:/i, "");
-  const [owner, repo] = withoutProtocol.split("/");
-  if (!owner || !repo) return null;
-  const cleanRepo = repo.split(/[?#]/)[0];
-  if (
-    !/^[A-Za-z0-9_.-]+$/.test(owner) ||
-    !/^[A-Za-z0-9_.-]+$/.test(cleanRepo)
-  ) {
-    return null;
-  }
-  return `${owner}/${cleanRepo}`;
-}
-
 function githubReposFromConfig(config: Record<string, unknown>): string[] {
   return configuredList(config, ["repositories", "repos"], "github")
-    .map(githubRepoFromValue)
+    .map(normalizeGitHubRepoRef)
     .filter((repo): repo is string => Boolean(repo));
 }
 
@@ -1790,7 +1773,7 @@ function githubRefsFromText(
   const pattern =
     /https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(issues|pull)\/(\d+)/gi;
   for (const match of text.matchAll(pattern)) {
-    const repo = githubRepoFromValue(`${match[1]}/${match[2]}`);
+    const repo = normalizeGitHubRepoRef(`${match[1]}/${match[2]}`);
     const number = Number(match[4]);
     if (!repo || !Number.isInteger(number) || number <= 0) continue;
     refs.push({

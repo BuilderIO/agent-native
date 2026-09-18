@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -23,7 +24,7 @@ import type {
   CreativeContextElementProvenance,
   CreativeContextReuseLabel,
 } from "@agent-native/creative-context/types";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -33,6 +34,7 @@ import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js"
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
+  withDesignSourceMutationTransaction,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -41,6 +43,7 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import {
   designGenerationSessionKey,
   type DesignGenerationSession,
@@ -53,7 +56,17 @@ import {
   isDesignHtmlIntegrityError,
 } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import { derivePromptTitle } from "../shared/prompt-title.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
+import {
+  getResponsiveBreakpointHeightPx,
+  getResponsiveBreakpointWidths,
+  getResponsiveGroupHeight,
+  getResponsiveGroupRotatedBounds,
+  getResponsiveGroupWidth,
+  getScreenPreviewViewport,
+  visibleBreakpointWidths,
+} from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 /**
@@ -719,6 +732,18 @@ const generateDesignAction = defineAction({
     context,
   ) => {
     await assertAccess("design", designId, "editor");
+    track(
+      "generation_started",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        prompt_type: "ui",
+        has_reference_design_system: Boolean(designSystemId),
+      },
+      context,
+    );
     await snapshotDesignBeforeAgentEdit(designId, context);
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
@@ -886,10 +911,19 @@ const generateDesignAction = defineAction({
             // html -> jsx), matching the original update behavior.
             const nextFileType = file.fileType ?? "html";
             if (nextFileType !== (existing.fileType ?? "html")) {
-              await db
-                .update(schema.designFiles)
-                .set({ fileType: nextFileType, updatedAt: now })
-                .where(eq(schema.designFiles.id, existing.id));
+              await withDesignSourceMutationTransaction(
+                existing.designId,
+                (tx) =>
+                  tx
+                    .update(schema.designFiles)
+                    .set({ fileType: nextFileType, updatedAt: now })
+                    .where(
+                      and(
+                        eq(schema.designFiles.id, existing.id),
+                        eq(schema.designFiles.designId, existing.designId),
+                      ),
+                    ),
+              );
             }
           } finally {
             agentLeaveDocument(existing.id);
@@ -932,18 +966,20 @@ const generateDesignAction = defineAction({
       } else {
         // Create new file
         const fileId = nanoid();
-        await db.insert(schema.designFiles).values({
-          id: fileId,
-          designId,
-          filename: file.filename,
-          fileType: file.fileType ?? "html",
-          content: file.content,
-          contentOperationSource: null,
-          contentOperationRevision: null,
-          contentOperationResultHash: null,
-          createdAt: now,
-          updatedAt: now,
-        });
+        await withDesignSourceMutationTransaction(designId, (tx) =>
+          tx.insert(schema.designFiles).values({
+            id: fileId,
+            designId,
+            filename: file.filename,
+            fileType: file.fileType ?? "html",
+            content: file.content,
+            contentOperationSource: null,
+            contentOperationRevision: null,
+            contentOperationResultHash: null,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        );
 
         // Publish agent presence for the new file before seeding.
         agentEnterDocument(fileId);
@@ -991,6 +1027,11 @@ const generateDesignAction = defineAction({
           frame: CanvasFramePlacement;
         }>
       | undefined;
+    let screenMetadataUpdates: Array<{
+      fileId: string;
+      width: number;
+      height: number;
+    }> = [];
     const normalizedTweaks = tweaks?.map((tweak) => ({
       ...tweak,
       type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
@@ -1043,6 +1084,18 @@ const generateDesignAction = defineAction({
           },
         });
         const viewport = GENERATION_VIEWPORT_SIZES[resolvedPrimaryViewport];
+        const effectiveBreakpointWidths =
+          devices && devices.length > 0
+            ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
+            : classifyBreakpointSet(prevData.breakpointSet) === "present"
+              ? getResponsiveBreakpointWidths(prevData.breakpointSet)
+              : classifyBreakpointSet(prevData.breakpointSet) === "absent"
+                ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
+                : [];
+        const responsiveScreenFileIds = new Set([
+          ...getOverviewScreenFileIds(existingFiles),
+          ...getOverviewScreenFileIds(savedFiles),
+        ]);
         // Frames placed by an earlier call: never moved, and counted as
         // occupied so a new screen is never dropped on top of one.
         const preExistingFrameIds = new Set(
@@ -1050,35 +1103,151 @@ const generateDesignAction = defineAction({
             ? Object.keys(prevData.canvasFrames as Record<string, unknown>)
             : [],
         );
-        const rectOf = (frame: {
-          x?: number;
-          y?: number;
-          width?: number;
-          height?: number;
-          rotation?: number;
-        }) => {
+        // Resize targets before measuring occupancy so later generated frames
+        // clear the geometry the explicit device request will actually leave.
+        if (devices && devices.length > 0) {
+          for (const file of savedFiles) {
+            const current = merged.canvasFrames[file.id];
+            if (
+              preExistingFrameIds.has(file.id) &&
+              current?.x !== undefined &&
+              current.y !== undefined &&
+              current.width !== undefined &&
+              current.height !== undefined
+            ) {
+              merged.canvasFrames[file.id] = {
+                ...current,
+                width: viewport.width,
+                height: viewport.height,
+              };
+            }
+          }
+        }
+        // generate-screens encodes each target's device viewport in its
+        // canvasFrame. Persist that dimension before occupancy math so mixed
+        // batches do not fall back to the unrelated 1280x2560 default.
+        const nextScreenMetadata =
+          prevData.screenMetadata &&
+          typeof prevData.screenMetadata === "object" &&
+          !Array.isArray(prevData.screenMetadata)
+            ? { ...(prevData.screenMetadata as Record<string, unknown>) }
+            : {};
+        screenMetadataUpdates = [];
+        for (const file of savedFiles) {
+          const source = files.find(
+            (candidate) => candidate.filename === file.filename,
+          );
+          if (!source || !isRenderableDesignFile(source)) continue;
+          const rawMetadata = nextScreenMetadata[file.id];
+          const metadata =
+            rawMetadata &&
+            typeof rawMetadata === "object" &&
+            !Array.isArray(rawMetadata)
+              ? (rawMetadata as Record<string, unknown>)
+              : {};
+          const frame = merged.canvasFrames[file.id];
+          // Explicit devices resize existing frames above, so their final
+          // frame dimensions must win over stale persisted metadata.
+          const width =
+            devices && devices.length > 0
+              ? typeof frame?.width === "number" && frame.width > 0
+                ? frame.width
+                : viewport.width
+              : typeof metadata.width === "number" && metadata.width > 0
+                ? metadata.width
+                : typeof frame?.width === "number" && frame.width > 0
+                  ? frame.width
+                  : viewport.width;
+          const height =
+            devices && devices.length > 0
+              ? typeof frame?.height === "number" && frame.height > 0
+                ? frame.height
+                : viewport.height
+              : typeof metadata.height === "number" && metadata.height > 0
+                ? metadata.height
+                : typeof frame?.height === "number" && frame.height > 0
+                  ? frame.height
+                  : viewport.height;
+          if (
+            rawMetadata === undefined ||
+            metadata.width !== width ||
+            metadata.height !== height
+          ) {
+            nextScreenMetadata[file.id] = {
+              ...metadata,
+              width,
+              height,
+            };
+            screenMetadataUpdates.push({ fileId: file.id, width, height });
+          }
+        }
+        const metadataByFileId = nextScreenMetadata;
+        const rectOf = (
+          frame: {
+            x?: number;
+            y?: number;
+            width?: number;
+            height?: number;
+            rotation?: number;
+          },
+          fileId?: string,
+        ) => {
           const x = frame.x ?? 0;
           const y = frame.y ?? 0;
           const width = frame.width ?? 0;
           const height = frame.height ?? 0;
+          const rawMetadata = fileId ? metadataByFileId[fileId] : undefined;
+          const metadata =
+            rawMetadata &&
+            typeof rawMetadata === "object" &&
+            !Array.isArray(rawMetadata)
+              ? (rawMetadata as Record<string, unknown>)
+              : {};
+          const sourceWidth =
+            typeof metadata.width === "number" && metadata.width > 0
+              ? metadata.width
+              : 1280;
+          const sourceHeight =
+            typeof metadata.height === "number" && metadata.height > 0
+              ? metadata.height
+              : 2560;
+          const visibleWidths = visibleBreakpointWidths(
+            responsiveScreenFileIds.has(fileId ?? "")
+              ? effectiveBreakpointWidths
+              : [],
+            typeof metadata.width === "number" ? metadata.width : width,
+          );
+          const scale = getScreenPreviewViewport(
+            { width: sourceWidth, height: sourceHeight },
+            { width, height },
+          ).scale;
+          const groupWidth = getResponsiveGroupWidth({
+            primaryWidth: Math.max(1, width),
+            scale,
+            visibleWidths,
+          });
+          const groupHeight = getResponsiveGroupHeight({
+            primaryHeight: Math.max(1, height),
+            scale,
+            sourceWidth,
+            sourceHeight,
+            visibleWidths,
+            resolveBreakpointHeightPx: (widthPx) =>
+              getResponsiveBreakpointHeightPx(metadata, widthPx),
+          });
           const rotation = frame.rotation ?? 0;
           if (!rotation || width <= 0 || height <= 0) {
-            return { x, y, width, height };
+            return { x, y, width: groupWidth, height: groupHeight };
           }
-          // Existing frames render rotated about their center; use the rotated
-          // rect's axis-aligned bounding box so a new screen isn't dropped over
-          // a rotated frame's real footprint.
-          const radians = (rotation * Math.PI) / 180;
-          const cos = Math.abs(Math.cos(radians));
-          const sin = Math.abs(Math.sin(radians));
-          const aabbWidth = width * cos + height * sin;
-          const aabbHeight = width * sin + height * cos;
-          return {
-            x: x + width / 2 - aabbWidth / 2,
-            y: y + height / 2 - aabbHeight / 2,
-            width: aabbWidth,
-            height: aabbHeight,
-          };
+          return getResponsiveGroupRotatedBounds({
+            x,
+            y,
+            primaryWidth: width,
+            primaryHeight: height,
+            groupWidth,
+            groupHeight,
+            rotation,
+          });
         };
         const framesOverlap = (
           a: ReturnType<typeof rectOf>,
@@ -1095,7 +1264,7 @@ const generateDesignAction = defineAction({
         const occupiedRects: Array<ReturnType<typeof rectOf>> = [];
         for (const id of preExistingFrameIds) {
           const frame = merged.canvasFrames[id];
-          if (frame) occupiedRects.push(rectOf(frame));
+          if (frame) occupiedRects.push(rectOf(frame, id));
         }
         // Keep arg placements for files we're not regenerating; the regenerated
         // ones are (re)placed below, so rebuild their entries here rather than
@@ -1105,7 +1274,7 @@ const generateDesignAction = defineAction({
           (placed) => !regeneratedFileIds.has(placed.fileId),
         );
         for (const placed of generationFrames) {
-          occupiedRects.push(rectOf(placed.frame));
+          occupiedRects.push(rectOf(placed.frame, placed.fileId));
         }
         // Relocate target: right of every occupied (rotation-aware) rect.
         let nextX = occupiedRects.reduce(
@@ -1126,16 +1295,6 @@ const generateDesignAction = defineAction({
             current.width !== undefined &&
             current.height !== undefined
           ) {
-            // An explicit device request resizes the primary frame to the
-            // requested viewport (preserving position/rotation); otherwise a
-            // regenerated screen keeps its exact stored geometry.
-            if (devices && devices.length > 0) {
-              merged.canvasFrames[file.id] = {
-                ...current,
-                width: viewport.width,
-                height: viewport.height,
-              };
-            }
             continue;
           }
           const width = current.width ?? viewport.width;
@@ -1146,18 +1305,55 @@ const generateDesignAction = defineAction({
           // overlaps (e.g. a second screen defaulting to the same origin). The
           // candidate carries its own rotation so a rotated placement is tested
           // by its real footprint, not its unrotated rectangle.
-          const candidateRect = rectOf({
-            x,
-            y,
-            width,
-            height,
-            rotation: current.rotation,
-          });
+          let candidateRect = rectOf(
+            {
+              x,
+              y,
+              width,
+              height,
+              rotation: current.rotation,
+            },
+            file.id,
+          );
           if (
             occupiedRects.some((rect) => framesOverlap(candidateRect, rect))
           ) {
-            x = nextX;
             y = 0;
+            x = Math.max(x, nextX);
+            candidateRect = rectOf(
+              {
+                x,
+                y,
+                width,
+                height,
+                rotation: current.rotation,
+              },
+              file.id,
+            );
+            while (true) {
+              const overlappingRects = occupiedRects.filter((rect) =>
+                framesOverlap(candidateRect, rect),
+              );
+              if (overlappingRects.length === 0) break;
+              const leftOffset = candidateRect.x - x;
+              x = Math.max(
+                x + GENERATED_FRAME_GAP,
+                ...overlappingRects.map(
+                  (rect) =>
+                    rect.x + rect.width + GENERATED_FRAME_GAP - leftOffset,
+                ),
+              );
+              candidateRect = rectOf(
+                {
+                  x,
+                  y,
+                  width,
+                  height,
+                  rotation: current.rotation,
+                },
+                file.id,
+              );
+            }
           }
           const frame = {
             x,
@@ -1175,10 +1371,15 @@ const generateDesignAction = defineAction({
             filename: file.filename,
             frame,
           });
-          occupiedRects.push(rectOf(frame));
-          nextX = Math.max(nextX, frame.x + frame.width + GENERATED_FRAME_GAP);
+          const frameRect = rectOf(frame, file.id);
+          occupiedRects.push(frameRect);
+          nextX = Math.max(
+            nextX,
+            frameRect.x + frameRect.width + GENERATED_FRAME_GAP,
+          );
         }
         mergedData.canvasFrames = merged.canvasFrames;
+        mergedData.screenMetadata = nextScreenMetadata;
         placedFrames = generationFrames;
         // An explicit `devices` request is authoritative: replace the design's
         // breakpoint set with the derived one (or drop it for a single device),
@@ -1237,6 +1438,24 @@ const generateDesignAction = defineAction({
             );
           }),
         );
+        const currentMetadata =
+          current.screenMetadata &&
+          typeof current.screenMetadata === "object" &&
+          !Array.isArray(current.screenMetadata)
+            ? (current.screenMetadata as Record<string, unknown>)
+            : {};
+        const screenMetadataApplied = screenMetadataUpdates.every(
+          ({ fileId, width, height }) => {
+            const metadata = currentMetadata[fileId];
+            return (
+              metadata &&
+              typeof metadata === "object" &&
+              !Array.isArray(metadata) &&
+              (metadata as Record<string, unknown>).width === width &&
+              (metadata as Record<string, unknown>).height === height
+            );
+          },
+        );
         // For an explicit `devices` request, verify the persisted breakpoint
         // widths actually match the requested set (not merely that some set
         // exists), so a partial/stale write is retried rather than accepted.
@@ -1262,13 +1481,28 @@ const generateDesignAction = defineAction({
             ? jsonValuesEqual(currentBreakpointWidths, expectedBreakpointWidths)
             : generatedBreakpointSet.length === 0 ||
               classifyBreakpointSet(current.breakpointSet) !== "absent";
-        return framesApplied && breakpointSetApplied;
+        return framesApplied && screenMetadataApplied && breakpointSetApplied;
       },
     });
 
     // designs.data/updatedAt are helper-owned. Keep the optional static column
     // behavior without writing another whole data snapshot or regressing the
     // helper's monotonic updatedAt revision.
+    const promptTitle = derivePromptTitle(prompt);
+    if (promptTitle !== "Untitled" && promptTitle !== "Untitled Design") {
+      // Keep an agent-created shell's placeholder from surviving generation,
+      // without racing over a real title the user or title helper already set.
+      await db
+        .update(schema.designs)
+        .set({ title: promptTitle })
+        .where(
+          and(
+            eq(schema.designs.id, designId),
+            inArray(schema.designs.title, ["Untitled", "Untitled Design"]),
+          ),
+        );
+    }
+
     const designUpdates: Record<string, unknown> = {};
     if (designSystemId !== undefined) {
       designUpdates.designSystemId = designSystemId;
@@ -1290,6 +1524,19 @@ const generateDesignAction = defineAction({
       creativeContextProvenance,
     );
 
+    track(
+      "design_edited",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        edit_type: "generation",
+        file_count: savedFiles.length,
+      },
+      context,
+    );
+
     // Land on the overview canvas focused on the first renderable screen
     // rather than the bare design (which used to drop into the editor's
     // default single-screen preview instead of the canvas).
@@ -1303,7 +1550,7 @@ const generateDesignAction = defineAction({
     return {
       designId,
       urlPath: firstRenderableSavedFile
-        ? `/design/${encodeURIComponent(designId)}?view=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
+        ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
         : `/design/${encodeURIComponent(designId)}`,
       renderable: true,
       savedFiles,

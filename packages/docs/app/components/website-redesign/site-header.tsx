@@ -2,7 +2,7 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandGithub,
   IconMenu2,
-  IconMessage,
+  IconLayoutSidebarRight,
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
@@ -48,7 +48,7 @@ function AskAiIconButton() {
       aria-label={label}
       title={label}
     >
-      <IconMessage size={18} stroke={1.5} />
+      <IconLayoutSidebarRight size={18} stroke={1.5} />
     </IconButton>
   );
 }
@@ -63,7 +63,14 @@ function GithubStarsButton({ starCount, className }: GithubStarsButtonProps) {
     <Button
       variant="secondary"
       dimBorder
-      className={className}
+      className={[
+        // Keep the cold-cache fallback the same width as the server count so
+        // the one-time client revalidation cannot shift the header.
+        "min-w-[96px]",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noreferrer"

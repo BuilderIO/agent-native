@@ -30,6 +30,8 @@ Chaque application déployée a besoin d'une base PostgreSQL persistante. Défin
 
 Une application autonome a besoin d'un `BETTER_AUTH_SECRET` stable. Un workspace avec des requêtes signées entre applications a besoin de `A2A_SECRET`.
 
+Définissez ces valeurs dans les paramètres d’environnement de l’hébergeur, pas seulement dans le `.env` local. Générez le secret d’authentification avec `openssl rand -hex 32`. Agent-Native ne fournit pas de compte de livraison d’e-mails ; connectez Resend ou SendGrid séparément.
+
 ## L'envoi d'e-mails est facultatif, mais recommandé {#email-provider}
 
 Un fournisseur d'e-mails n'est pas nécessaire pour l'authentification par e-mail et mot de passe. Sans fournisseur, les applications déployées utilisent l'inscription et la connexion par e-mail et mot de passe, ignorent la vérification de l'e-mail à l'inscription et ne proposent pas l'authentification par lien magique.

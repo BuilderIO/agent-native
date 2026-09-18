@@ -19,6 +19,15 @@ import { describe, expect, it } from "vitest";
 
 // Each entry: [primitive filename, template name, reason for deviation]
 const ALLOW_LIST: Array<[string, string, string]> = [
+  // toolkit-provider.tsx — Chat uses the narrow provider entrypoint so the
+  // AgentKit bootstrap does not pull the entire Toolkit root into its client
+  // graph.
+  [
+    "toolkit-provider.tsx",
+    "chat",
+    "AgentKit bootstrap uses the narrow Toolkit provider entrypoint",
+  ],
+
   // popover.tsx — forms keeps a wider collision boundary so form-editor
   // controls remain within the viewport on narrow screens.
   [
@@ -38,14 +47,6 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   // in its dense UI.
   ["input.tsx", "mail", "intentional compact sizing: h-9 vs canonical h-10"],
   ["input.tsx", "factory", "app-specific input sizing and layout behavior"],
-
-  // macros.tsx primitives — macros has a distinct visual system while the
-  // shared canonical primitives re-export toolkit UI.
-  ["button.tsx", "macros", "custom macros visual system"],
-  ["card.tsx", "macros", "custom macros visual system"],
-  ["dialog.tsx", "macros", "custom macros visual system"],
-  ["input.tsx", "macros", "custom macros visual system"],
-  ["tabs.tsx", "macros", "custom macros visual system"],
 
   // scroll-area.tsx — content keeps the local horizontal scrollbar and
   // viewport block override needed by editor/database surfaces.
@@ -80,15 +81,8 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "line-variant tabs with underline active state for Clips surfaces",
   ],
 
-  // textarea.tsx — two intentional variants beyond the canonical version:
-  //   • assets: adds autoGrow behavior for asset prompt/editing forms
-  //   • macros: adds transition-all hover:border-ring/50 custom visual polish
+  // textarea.tsx — assets adds autoGrow behavior for asset prompt/editing forms.
   ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
-  [
-    "textarea.tsx",
-    "macros",
-    "custom: transition-all hover:border-ring/50 animation",
-  ],
   [
     "textarea.tsx",
     "factory",
@@ -122,12 +116,6 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
     "uses wider collision padding for form-editor controls",
   ],
   ["factory", "input.tsx", "factory-specific input implementation"],
-  ["macros", "button.tsx", "part of the custom Macros visual system"],
-  ["macros", "card.tsx", "part of the custom Macros visual system"],
-  ["macros", "dialog.tsx", "part of the custom Macros visual system"],
-  ["macros", "input.tsx", "part of the custom Macros visual system"],
-  ["macros", "tabs.tsx", "part of the custom Macros visual system"],
-  ["macros", "textarea.tsx", "part of the custom Macros visual system"],
   ["factory", "textarea.tsx", "factory-specific textarea implementation"],
   ["mail", "input.tsx", "uses compact sizing for Mail's dense interface"],
   ["mail", "sonner.tsx", "uses Mail-specific toast visuals and actions"],
@@ -168,7 +156,6 @@ const EXPECTED_ACTIVE_TEMPLATES = [
   "dispatch",
   "factory",
   "forms",
-  "macros",
   "mail",
   "plan",
   "slides",

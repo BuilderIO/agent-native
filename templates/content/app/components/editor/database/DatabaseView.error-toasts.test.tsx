@@ -19,6 +19,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
+const databaseRefetchMock = vi.hoisted(() =>
+  vi.fn(
+    async (): Promise<{
+      data: ContentDatabaseResponse | undefined;
+      isError?: boolean;
+    }> => ({ data: undefined }),
+  ),
+);
 const updateViewMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
@@ -47,6 +55,12 @@ const benignMutation = vi.hoisted(() => ({
 }));
 
 const addItemMutation = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn(),
+  isPending: false,
+}));
+
+const createDocumentMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
   isPending: false,
@@ -155,6 +169,7 @@ vi.mock("@/hooks/use-content-database", () => ({
       data: response,
       isLoading: false,
       isFetching: limit !== response.pagination?.limit || Boolean(tableQuery),
+      refetch: () => databaseRefetchMock(),
     };
   },
   useAddDatabaseItem: () => addItemMutation,
@@ -212,11 +227,15 @@ vi.mock("@/hooks/use-content-spaces", () => ({
   useDeleteContentSpace: () => benignMutation,
 }));
 
-vi.mock("@/hooks/use-documents", () => ({
+// Keep the real module for everything the preview editor subtree reaches for
+// (query keys, cache helpers) and override only the hooks these tests drive.
+vi.mock("@/hooks/use-documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
   useDocument: (documentId: string) => ({
     data: documentForId(documentId),
   }),
   seedDatabaseItemDocumentCaches: vi.fn(),
+  useCreateDocument: () => createDocumentMutation,
   useDeleteDocument: () => benignMutation,
   useUpdateDocument: () => benignMutation,
 }));
@@ -311,14 +330,55 @@ const secondFakeDocument = {
   database: secondDatabaseResponse.database,
 };
 
+// The workspace Files collection carries `systemRole: "files"` and, because
+// its rows are the workspace's pages rather than collection-owned rows, the
+// server deliberately returns no `mutationContract` for it.
+const workspaceFilesResponse: ContentDatabaseResponse = {
+  ...databaseResponse,
+  database: {
+    ...databaseResponse.database,
+    id: "database-3",
+    documentId: "document-3",
+    spaceId: "space-foobar",
+    title: "Foobar",
+    systemRole: "files",
+    viewConfig: defaultDatabaseViewConfig(),
+  },
+  mutationContract: undefined,
+};
+
+const workspaceFilesDocument = {
+  ...fakeDocument,
+  id: "document-3",
+  title: "Foobar",
+  database: workspaceFilesResponse.database,
+};
+
+function workspaceFilesItem(documentId: string): ContentDatabaseItem {
+  return {
+    id: `item-${documentId}`,
+    databaseId: "database-3",
+    position: 0,
+    properties: [],
+    document: {
+      ...fakeDocument,
+      id: documentId,
+      title: "",
+      database: undefined,
+    },
+  };
+}
+
 function databaseResponseForDocument(documentId: string) {
-  return documentId === "document-2"
-    ? secondDatabaseResponse
-    : databaseResponse;
+  if (documentId === "document-2") return secondDatabaseResponse;
+  if (documentId === "document-3") return workspaceFilesResponse;
+  return databaseResponse;
 }
 
 function documentForId(documentId: string) {
-  return documentId === "document-2" ? secondFakeDocument : fakeDocument;
+  if (documentId === "document-2") return secondFakeDocument;
+  if (documentId === "document-3") return workspaceFilesDocument;
+  return fakeDocument;
 }
 
 const failedToCreateRow = messagesByLocale["en-US"].database.failedToCreateRow;
@@ -360,6 +420,8 @@ describe("DatabaseView UI regressions", () => {
     toastSuccessMock.mockReset();
     contentDatabaseQueryMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
+    createDocumentMutation.mutateAsync.mockReset();
+    databaseRefetchMock.mockReset().mockResolvedValue({ data: undefined });
     attachSourceMutation.mutateAsync.mockReset();
     changeSourceRoleMutation.mutateAsync
       .mockReset()
@@ -424,6 +486,27 @@ describe("DatabaseView UI regressions", () => {
                 <DatabaseView
                   databaseId="database-1"
                   databaseDocumentId="document-1"
+                />
+              </TooltipProvider>
+            </MemoryRouter>
+          </AppToolkitProvider>
+        </QueryClientProvider>,
+      );
+    });
+  }
+
+  async function renderWorkspaceFilesView() {
+    const { QueryClientProvider } = await import("@tanstack/react-query");
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AppToolkitProvider>
+            <MemoryRouter>
+              <RouteProbe />
+              <TooltipProvider>
+                <DatabaseView
+                  databaseId="database-3"
+                  databaseDocumentId="document-3"
                 />
               </TooltipProvider>
             </MemoryRouter>
@@ -590,6 +673,109 @@ describe("DatabaseView UI regressions", () => {
     expect(document.querySelector("[role=menu]")).toBeTruthy();
   });
 
+  // Regression: the workspace Files table rendered "New"/"+ New page" but had
+  // no row mutation contract, so every click toasted "Failed to create row"
+  // while the sidebar "+" kept working. Both entry points must create the page
+  // in the workspace the table belongs to.
+  it("creates a workspace page from the Files table New button", async () => {
+    createDocumentMutation.mutateAsync.mockResolvedValue({
+      id: "created-document",
+      spaceId: "space-foobar",
+    });
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    expect(newButton).toBeTruthy();
+
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createDocumentMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(createDocumentMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceId: "space-foobar" }),
+    );
+    expect(addItemMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  // Regression: the toolbar New button defaults to openAfterCreate, so the
+  // Files path has to open the created page in the preview exactly like an
+  // ordinary collection row rather than silently creating it in the background.
+  it("opens the created page in the preview from the Files table New button", async () => {
+    createDocumentMutation.mutateAsync.mockResolvedValue({
+      id: "created-document",
+      spaceId: "space-foobar",
+    });
+    const createdItem = workspaceFilesItem("created-document");
+    databaseRefetchMock.mockResolvedValue({
+      data: { ...workspaceFilesResponse, items: [createdItem] },
+      isError: false,
+    });
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    // The preview sheet portals to document.body, so assert there rather than
+    // inside the mounted container.
+    expect(
+      window.document.body.querySelector('[aria-label^="Preview actions for"]'),
+    ).toBeTruthy();
+  });
+
+  // Regression: `refetch` resolves with an error result instead of rejecting,
+  // so a failed refresh after a committed create used to leave the table stale
+  // with no feedback at all.
+  it("reports a failed collection refresh after the page was created", async () => {
+    createDocumentMutation.mutateAsync.mockResolvedValue({
+      id: "created-document",
+      spaceId: "space-foobar",
+    });
+    databaseRefetchMock.mockResolvedValue({ data: undefined, isError: true });
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createDocumentMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      messagesByLocale["en-US"].database.pageCreatedCollectionRefreshFailed,
+    );
+  });
+
+  it("surfaces a create failure from the Files table instead of a bare toast", async () => {
+    createDocumentMutation.mutateAsync.mockRejectedValue(
+      new Error("network down"),
+    );
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      failedToCreateRow,
+      expect.objectContaining({ description: "network down" }),
+    );
+  });
+
   it("shows a toast and does not create a row when addItem.mutateAsync rejects", async () => {
     addItemMutation.mutateAsync.mockRejectedValue(new Error("network down"));
     await renderDatabaseView();
@@ -669,38 +855,38 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     const settingsButton = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Database settings"]',
+      '[aria-label="Collection settings"]',
     );
     expect(settingsButton).toBeTruthy();
     await act(async () => {
       settingsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const sourcesRow = findButtonByText(container, "Sources");
+    const sourcesRow = findButtonByText(document.body, "Sources");
     expect(sourcesRow).toBeTruthy();
     await act(async () => {
       sourcesRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const builderRow = findButtonByText(container, "Builder");
+    const builderRow = findButtonByText(document.body, "Builder");
     expect(builderRow).toBeTruthy();
     await act(async () => {
       builderRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const spaceRow = findButtonByText(container, "Test Space");
+    const spaceRow = findButtonByText(document.body, "Test Space");
     expect(spaceRow).toBeTruthy();
     await act(async () => {
       spaceRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const modelRow = findButtonByText(container, "Article");
+    const modelRow = findButtonByText(document.body, "Article");
     expect(modelRow).toBeTruthy();
     await act(async () => {
       modelRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const attachButton = findButtonByText(container, "Attach");
+    const attachButton = findButtonByText(document.body, "Attach");
     expect(attachButton).toBeTruthy();
 
     await act(async () => {
@@ -720,8 +906,8 @@ describe("DatabaseView UI regressions", () => {
     // nav stack should still be on the model leaf (its Attach button and the
     // model's display name are still showing), not reset back to the Sources
     // root.
-    expect(findButtonByText(container, "Attach")).toBeTruthy();
-    expect(container.textContent).toContain("Article");
+    expect(findButtonByText(document.body, "Attach")).toBeTruthy();
+    expect(document.body.textContent).toContain("Article");
   });
 
   it("shows a toast and keeps the source picker retryable when adding another item source fails", async () => {
@@ -762,7 +948,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -771,17 +957,17 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
     await act(async () => {
       findButtonByText(
-        container,
+        document.body,
         messagesByLocale["en-US"].database.addMoreItemsToThisList,
       )?.click();
       await Promise.resolve();
@@ -793,7 +979,7 @@ describe("DatabaseView UI regressions", () => {
       failedToAttachSource,
       expect.objectContaining({ description: "second attach failed" }),
     );
-    expect(container.textContent).toContain("Article");
+    expect(document.body.textContent).toContain("Article");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -805,7 +991,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     const connectSource = findButtonByText(
       document.body,
@@ -816,7 +1002,7 @@ describe("DatabaseView UI regressions", () => {
     await act(async () => {
       connectSource?.click();
     });
-    expect(container.textContent).toContain("Sources");
+    expect(document.body.textContent).toContain("Sources");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -824,13 +1010,13 @@ describe("DatabaseView UI regressions", () => {
     ).toBeNull();
 
     await act(async () => {
-      container
+      document.body
         .querySelector<HTMLButtonElement>(
           `[aria-label="${messagesByLocale["en-US"].database.closeDatabaseSettings}"]`,
         )
         ?.click();
     });
-    expect(container.textContent).not.toContain("Connected sources");
+    expect(document.body.textContent).not.toContain("Connected sources");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -842,7 +1028,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     const searchInput = document.body.querySelector<HTMLInputElement>(
       'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -862,7 +1048,7 @@ describe("DatabaseView UI regressions", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Sources");
+    expect(document.body.textContent).toContain("Sources");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -893,18 +1079,18 @@ describe("DatabaseView UI regressions", () => {
         )?.click();
       });
 
-      expect(container.textContent).toContain("Sources");
+      expect(document.body.textContent).toContain("Sources");
       await act(async () => {
-        findButtonByText(container, "Builder")?.click();
+        findButtonByText(document.body, "Builder")?.click();
       });
       await act(async () => {
-        findButtonByText(container, "Test Space")?.click();
+        findButtonByText(document.body, "Test Space")?.click();
       });
       await act(async () => {
-        findButtonByText(container, "Article")?.click();
+        findButtonByText(document.body, "Article")?.click();
       });
       await act(async () => {
-        findButtonByText(container, "Attach")?.click();
+        findButtonByText(document.body, "Attach")?.click();
         await Promise.resolve();
         await Promise.resolve();
       });
@@ -928,7 +1114,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -937,20 +1123,20 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Attach")?.click();
+      findButtonByText(document.body, "Attach")?.click();
       await Promise.resolve();
     });
 
-    expect(container.textContent).not.toContain("Database settings");
+    expect(document.body.textContent).not.toContain("Collection settings");
     expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -986,7 +1172,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -995,22 +1181,22 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Attach")?.click();
+      findButtonByText(document.body, "Attach")?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Article");
-    expect(findButtonByText(container, "Attach")).toBeTruthy();
+    expect(document.body.textContent).toContain("Article");
+    expect(findButtonByText(document.body, "Attach")).toBeTruthy();
     expect(toastErrorMock).toHaveBeenCalledWith(failedToAttachSource, {
       description: "Builder attach failed",
     });
@@ -1021,7 +1207,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -1030,25 +1216,25 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      container
+      document.body
         .querySelector<HTMLButtonElement>('[aria-label="Back"]')
         ?.click();
     });
 
     await act(async () => {
-      findButtonByText(container, "Sources")?.click();
+      findButtonByText(document.body, "Sources")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Attach")?.click();
+      findButtonByText(document.body, "Attach")?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1115,7 +1301,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -1124,30 +1310,30 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Article")?.click();
+      findButtonByText(document.body, "Article")?.click();
     });
 
     await act(async () => {
-      findButtonByText(container, "Attach")?.click();
+      findButtonByText(document.body, "Attach")?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
-    expect(
-      document.body.querySelector(
-        'input[aria-label="editor.properties.searchPropertyTypes"]',
-      ),
-    ).toBeTruthy();
+    const reopenedPropertySearch = document.body.querySelector(
+      'input[aria-label="editor.properties.searchPropertyTypes"]',
+    );
+    expect(reopenedPropertySearch).toBeTruthy();
+    expect(document.activeElement).toBe(reopenedPropertySearch);
     expect(document.body.textContent).toContain("editor.properties.fromSource");
     expect(document.body.textContent).toContain("Author");
-    expect(container.textContent).not.toContain("Connected sources");
+    expect(document.body.textContent).not.toContain("Connected sources");
 
     await act(async () => {
       findButtonByText(
@@ -1156,17 +1342,17 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Builder")?.click();
+      findButtonByText(document.body, "Builder")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Test Space")?.click();
+      findButtonByText(document.body, "Test Space")?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Author model")?.click();
+      findButtonByText(document.body, "Author model")?.click();
     });
     await act(async () => {
       findButtonByText(
-        container,
+        document.body,
         messagesByLocale["en-US"].database.addMoreItemsToThisList,
       )?.click();
       await Promise.resolve();
@@ -1234,7 +1420,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     await act(async () => {
-      findButtonByText(container, "Add property")?.click();
+      findButtonByText(document.body, "Add property")?.click();
     });
     await act(async () => {
       findButtonByText(
@@ -1243,11 +1429,11 @@ describe("DatabaseView UI regressions", () => {
       )?.click();
     });
     await act(async () => {
-      findButtonByText(container, "Authors")?.click();
+      findButtonByText(document.body, "Authors")?.click();
     });
     await act(async () => {
       findButtonByText(
-        container,
+        document.body,
         messagesByLocale["en-US"].database.addAsItems,
       )?.click();
       await Promise.resolve();
@@ -1258,7 +1444,7 @@ describe("DatabaseView UI regressions", () => {
       failedToAttachSource,
       expect.objectContaining({ description: "role change failed" }),
     );
-    expect(container.textContent).toContain("Authors");
+    expect(document.body.textContent).toContain("Authors");
     expect(
       document.body.querySelector(
         'input[aria-label="editor.properties.searchPropertyTypes"]',
@@ -1268,7 +1454,7 @@ describe("DatabaseView UI regressions", () => {
     changeSourceRoleMutation.mutateAsync.mockResolvedValue(databaseResponse);
     await act(async () => {
       findButtonByText(
-        container,
+        document.body,
         messagesByLocale["en-US"].database.addAsItems,
       )?.click();
       await Promise.resolve();
@@ -1286,7 +1472,7 @@ describe("DatabaseView UI regressions", () => {
         'input[aria-label="editor.properties.searchPropertyTypes"]',
       ),
     ).toBeTruthy();
-    expect(container.textContent).not.toContain("Connected sources");
+    expect(document.body.textContent).not.toContain("Connected sources");
   });
 
   it("removes the confirmed selection snapshot without clearing newer selections", async () => {

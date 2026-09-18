@@ -54,7 +54,6 @@ import type {
   SubmitContentDatabaseFormResponse,
   SuggestSourceJoinKeyResponse,
   UpdateContentDatabasePersonalViewRequest,
-  UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
 import type { Query, QueryClient } from "@tanstack/react-query";
@@ -710,7 +709,7 @@ export function useContentDatabase(
   documentId: string | null,
   limit?: number,
   tableQuery?: ContentDatabaseTableQuery,
-  options?: { refetchOnMount?: "always" },
+  options?: { refetchOnMount?: "always"; systemRole?: string | null },
 ) {
   const queryClient = useQueryClient();
   const baseQuery = useActionQuery<ContentDatabaseResponse>(
@@ -730,7 +729,8 @@ export function useContentDatabase(
       // Cross-key seeds (e.g. a differently-paginated cached response) render
       // instantly but must refetch immediately, not sit fresh for staleTime.
       initialDataUpdatedAt: 0,
-      ...options,
+      refetchOnMount: options?.refetchOnMount,
+      meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
   const pageQuery = useActionQuery<ContentDatabaseItemsPageResponse>(
@@ -740,6 +740,7 @@ export function useContentDatabase(
       enabled: Boolean(documentId && tableQuery),
       retry: false,
       placeholderData: (previous) => previous,
+      meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
   const page = tableQuery ? pageQuery.data : undefined;
@@ -783,7 +784,12 @@ export function isContentDatabaseByIdQueryEnabled(
 
 export function useContentDatabaseById(
   databaseId: string | null,
-  options?: { enabled?: boolean; limit?: number; contentSpaceId?: string },
+  options?: {
+    enabled?: boolean;
+    limit?: number;
+    contentSpaceId?: string;
+    systemRole?: string | null;
+  },
 ) {
   return useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
@@ -804,6 +810,7 @@ export function useContentDatabaseById(
           databaseId: databaseId ?? undefined,
           contentSpaceId: options?.contentSpaceId,
         }),
+      meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
 }
@@ -836,6 +843,25 @@ export function useCreateContentDatabase(
       },
     },
   );
+}
+
+export function contentDatabaseCreationRequest(args: {
+  newDocumentId: string;
+  parentId?: string | null;
+  spaceId: string | undefined;
+  title: string;
+}): CreateDatabaseRequest {
+  const parentId = args.parentId ?? null;
+  if (!args.spaceId) {
+    throw new Error("Choose a Content space before creating a collection");
+  }
+  return {
+    newDocumentId: args.newDocumentId,
+    idempotencyKey: args.newDocumentId,
+    parentId,
+    spaceId: args.spaceId,
+    title: args.title,
+  };
 }
 
 export function useCreateInlineContentDatabase(hostDocumentId: string | null) {
@@ -1134,13 +1160,43 @@ export function useMoveDatabaseItem(documentId: string) {
   );
 }
 
+export type ContentDatabaseViewSaveResponse =
+  | ContentDatabaseResponse
+  | {
+      receipt: {
+        revisions: {
+          schemaAfter: string;
+          configurationAfter: string;
+        };
+      };
+      value: ContentDatabaseResponse["database"]["viewConfig"];
+    };
+
+export type ContentDatabaseViewSaveRequest =
+  | {
+      operation: "replace";
+      target: {
+        spaceId: string;
+        databaseId: string;
+        databaseDocumentId: string;
+      };
+      expectedSchemaRevision: string;
+      expectedConfigurationRevision: string;
+      idempotencyKey: string;
+      viewConfig: ContentDatabaseResponse["database"]["viewConfig"];
+    }
+  | {
+      databaseId: string;
+      viewConfig: ContentDatabaseResponse["database"]["viewConfig"];
+    };
+
 export function useUpdateContentDatabaseView(documentId: string) {
   const queryClient = useQueryClient();
   const mutationSequences =
     contentDatabaseViewMutationSequencesFor(queryClient);
   return useActionMutation<
-    ContentDatabaseResponse,
-    UpdateContentDatabaseViewRequest
+    ContentDatabaseViewSaveResponse,
+    ContentDatabaseViewSaveRequest
   >("update-content-database-view", {
     skipActionQueryInvalidation: true,
     scope: { id: `content-database-view:${documentId}` },
@@ -1150,11 +1206,19 @@ export function useUpdateContentDatabaseView(documentId: string) {
       await queryClient.cancelQueries(contentDatabaseQueryFilter(documentId));
       return { sequence };
     },
-    onSuccess: (data, _variables, context) => {
+    onSuccess: (data, variables, context) => {
       if (
         (context as { sequence?: number } | undefined)?.sequence !==
         mutationSequences.get(documentId)
       ) {
+        return;
+      }
+      if (!("receipt" in data)) {
+        writeContentDatabaseResponseToCache(queryClient, documentId, data);
+        queryClient.setQueryData(
+          contentDatabaseByIdQueryKey(data.database.id),
+          data,
+        );
         return;
       }
       queryClient.setQueriesData<ContentDatabaseResponse>(
@@ -1163,12 +1227,23 @@ export function useUpdateContentDatabaseView(documentId: string) {
           current
             ? {
                 ...current,
-                database: data.database,
+                configurationRevision:
+                  data.receipt.revisions.configurationAfter,
+                mutationContract: current.mutationContract
+                  ? {
+                      ...current.mutationContract,
+                      schemaRevision: data.receipt.revisions.schemaAfter,
+                    }
+                  : current.mutationContract,
+                database: {
+                  ...current.database,
+                  viewConfig: data.value,
+                },
               }
             : current,
       );
     },
-    onSettled: (_data, _error, _variables, context) => {
+    onSettled: (_data, _error, variables, context) => {
       if (
         (context as { sequence?: number } | undefined)?.sequence !==
         mutationSequences.get(documentId)
@@ -1178,6 +1253,13 @@ export function useUpdateContentDatabaseView(documentId: string) {
       void queryClient.invalidateQueries(
         contentDatabaseQueryFilter(documentId),
       );
+      const databaseId =
+        "target" in variables
+          ? variables.target.databaseId
+          : variables.databaseId;
+      void queryClient.invalidateQueries({
+        queryKey: contentDatabaseByIdQueryKey(databaseId),
+      });
     },
   });
 }

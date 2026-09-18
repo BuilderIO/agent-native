@@ -113,7 +113,7 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
         <CrmSidebar />
       </div>
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-60 p-0">
+        <SheetContent side="left" className="w-[260px] p-0">
           <SheetTitle className="sr-only">
             {t("navigation.navigation")}
           </SheetTitle>

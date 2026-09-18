@@ -16,8 +16,8 @@ Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築
 
 ## 前提条件
 
-- [Node.js](https://nodejs.org) 22以降
-- [pnpm](https://pnpm.io)
+- [Node.js](https://nodejs.org) 22.22以降
+- [pnpm](https://pnpm.io)がインストールされ、`PATH`から実行できること
 - エージェント用のLLM接続: Builder.io、AnthropicまたはOpenAIのAPIキー、またはローカルのOllamaモデル
 
 ## エージェントを作成する
@@ -25,8 +25,9 @@ Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築
 新しいディレクトリでChatテンプレートから始めます。
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
+corepack enable
 pnpm install
 ```
 
@@ -42,13 +43,15 @@ pnpm install
 pnpm dev
 ```
 
-ブラウザUIは`http://localhost:8080`で開きます。自動で開かない場合は、ブラウザでそのURLにアクセスしてください。
+ブラウザUIは自動で開きます。開かない場合は`pnpm dev`が表示するローカルURLを使ってください。8080が使用中ならポート番号が増えます。
 
 <Callout tone="info">
 
 Welcome画面で**Continue as local dev**を選択します。ローカル開発ではメールアドレスやパスワードを入力する必要はありません。
 
 </Callout>
+
+## LLMを接続する
 
 次にLLMを接続します。無料クレジットを使うには**Connect Builder.io**を選択します。あるいは、**Custom keys**を選択してプロバイダーを選び、必要な接続情報を入力します。
 
@@ -68,12 +71,13 @@ Hello, Alex!
 
 ## アクションを確認する
 
-`actions/hello.ts`を開きます。
+ローカルの `my-app` ディレクトリで、コードエディターから `actions/hello.ts` を開きます。
 
 ```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({
@@ -97,7 +101,8 @@ export default defineAction({
 
 ## Reactからアクションを呼び出す
 
-`app/routes/hello.tsx`にルートを追加します。
+テンプレートには`actions/hello.ts`が含まれますが、そのページはありません。
+`app/routes/hello.tsx`を作成します。
 
 ```tsx filename="app/routes/hello.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -127,9 +132,9 @@ export default function HelloRoute() {
 }
 ```
 
-<Callout tone="warning">
+<Callout tone="info">
 
-新しいルートを検出できるように開発サーバーを再起動してから、`http://localhost:8080/hello`を開いてください。
+新しいルートを検出できるように開発サーバーを再起動してから、`http://localhost:<port>/hello`を開いてください。
 
 </Callout>
 
@@ -177,5 +182,9 @@ UIとエージェントがアクション、データ、コンテキストを共
 ### [アクション](/docs/actions-overview)
 
 読み取り、書き込み、承認のアクションを定義し、UI、エージェント、外部クライアントから呼び出します。
+
+### [アプリをデプロイ](/docs/deploy-an-app)
+
+ローカル開発から、永続データベース、本番認証、対応するデプロイ先へ進みます。
 
 </Cards>

@@ -45,13 +45,20 @@ const mockResolvePlayerVideoUrl = vi.hoisted(() =>
 );
 const mockResolvePlayerThumbnailUrl = vi.hoisted(() =>
   vi.fn(
-    (recording: {
-      thumbnailUrl?: string | null;
-      animatedThumbnailUrl?: string | null;
-    }) =>
-      recording.thumbnailUrl || recording.animatedThumbnailUrl
-        ? "/api/thumbnail/rec-1"
-        : null,
+    (
+      recording: {
+        thumbnailUrl?: string | null;
+        animatedThumbnailUrl?: string | null;
+      },
+      options?: { animated?: boolean },
+    ) => {
+      if (!recording.thumbnailUrl && !recording.animatedThumbnailUrl) {
+        return null;
+      }
+      return options?.animated
+        ? "/api/thumbnail/rec-1?animated=1"
+        : "/api/thumbnail/rec-1";
+    },
   ),
 );
 const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
@@ -307,6 +314,27 @@ describe("get-recording-player-data view count", () => {
     });
   });
 
+  it("keeps an owner's expired recording available", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        status: "ready",
+        chaptersJson: "[]",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+        videoSizeBytes: 1234,
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.id).toBe("rec-1");
+  });
+
   it("keeps owner media behind the same-origin video proxy", async () => {
     mockResolveAccess.mockResolvedValueOnce({
       role: "owner",
@@ -321,6 +349,7 @@ describe("get-recording-player-data view count", () => {
         videoUrl: "https://cdn.example.com/rec-1.webm",
         videoSizeBytes: 1234,
         thumbnailUrl: "https://cdn.example.com/rec-1.jpg",
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
       },
     });
 
@@ -343,7 +372,17 @@ describe("get-recording-player-data view count", () => {
         thumbnailUrl: "https://cdn.example.com/rec-1.jpg",
       }),
     );
+    expect(mockResolvePlayerThumbnailUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-1",
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+      }),
+      { animated: true },
+    );
     expect(result.recording.thumbnailUrl).toBe("/api/thumbnail/rec-1");
+    expect(result.recording.animatedThumbnailUrl).toBe(
+      "/api/thumbnail/rec-1?animated=1",
+    );
     expect(result.recording.videoSizeBytes).toBe(1234);
   });
 });

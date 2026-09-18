@@ -16,6 +16,7 @@ const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
   vi.fn(async () => null),
 );
 const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
+const mockHasUiActionCapability = vi.hoisted(() => vi.fn(() => false));
 
 function fakeUnsignedJwt(payload: Record<string, string>): string {
   const encode = (value: Record<string, string>) =>
@@ -92,6 +93,10 @@ vi.mock("../a2a-claims.js", () => ({
 vi.mock("./identity-sso-store.js", () => ({
   consumeOneTimeJti: (...args: unknown[]) => mockConsumeOneTimeJti(...args),
 }));
+vi.mock("./ui-action-capability.js", () => ({
+  hasUiActionCapability: (...args: unknown[]) =>
+    mockHasUiActionCapability(...args),
+}));
 
 describe("mountActionRoutes", () => {
   afterEach(() => {
@@ -116,6 +121,8 @@ describe("mountActionRoutes", () => {
     mockConsumeOneTimeJti.mockResolvedValue(false);
     mockResolveEmbedSessionFromRequest.mockReset();
     mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+    mockHasUiActionCapability.mockReset();
+    mockHasUiActionCapability.mockReturnValue(false);
     vi.restoreAllMocks();
   });
 
@@ -250,6 +257,87 @@ describe("mountActionRoutes", () => {
       expect(run).toHaveBeenCalledOnce();
     },
   );
+
+  it("does not trust the frontend header for UI-only actions", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        "delete-account-data": {
+          run,
+          uiOnly: true,
+          agentTool: false,
+          mcpTool: false,
+          toolCallable: false,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "owner@example.com" },
+    );
+
+    const event = {
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    };
+
+    await expect(mounted[0]!.handler(event)).resolves.toEqual({
+      error: "This action can only be called from the signed-in app UI.",
+      errorCode: "ui_capability_required",
+    });
+    expect(event._status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-origin UI-only actions even with a valid capability", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockHasUiActionCapability.mockReturnValue(true);
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        "delete-account-data": {
+          run,
+          uiOnly: true,
+          agentTool: false,
+          mcpTool: false,
+          toolCallable: false,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "owner@example.com" },
+    );
+
+    const event = {
+      _method: "POST",
+      _headers: {
+        host: "app.example.com",
+        origin: "https://evil.example.com",
+        "x-agent-native-frontend": "1",
+      },
+      req: { json: async () => ({}) },
+    };
+
+    await expect(mounted[0]!.handler(event)).resolves.toEqual({
+      error: "This action can only be called from the signed-in app UI.",
+      errorCode: "ui_capability_required",
+    });
+    expect(event._status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
+  });
 
   it.each(["GET", "HEAD", "OPTIONS"] as const)(
     "does not treat a frontend POST as a %s action call",
@@ -888,6 +976,25 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("registers optional-auth action routes before the auth guard", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const nitroApp = {
+      use: vi.fn(),
+    };
+
+    mountActionRoutes(nitroApp, {
+      "public-metadata": {
+        requiresAuth: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    });
+
+    expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
+      ["/_agent-native/actions/public-metadata"],
+      nitroApp,
+    );
+  });
+
   it("propagates a verified capability to a public action without impersonating its owner", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestAuthCapability, getRequestUserEmail } =
@@ -987,6 +1094,63 @@ describe("mountActionRoutes", () => {
       }),
     ).rejects.toBe(unauthenticated);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("allows a matching capability on a frontend action request", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestAuthCapability } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      caller: context?.caller,
+      userEmail: context?.userEmail,
+      authCapability: getRequestAuthCapability(),
+    }));
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "update-screen-source": {
+          http: { method: "POST" },
+          requiresAuth: true,
+          capabilityScopes: ["visual-edit"],
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/update-screen-source",
+          json: async () => ({ designId: "design_1", fileId: "file_1" }),
+        },
+      }),
+    ).resolves.toEqual({
+      caller: "frontend",
+      userEmail: undefined,
+      authCapability: "capability:visual-edit:design:design_1",
+    });
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("allows HEAD for GET actions", async () => {
@@ -3067,6 +3231,124 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 401 });
     expect(privateRun).not.toHaveBeenCalled();
+  });
+
+  it("filters signed-out WebMCP actions to the matching capability scope", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthorized"), {
+      statusCode: 401,
+    });
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "visual-edit": {
+          tool: { description: "Visual edit", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["visual-edit"],
+        } as any,
+        "other-capability": {
+          tool: { description: "Other capability", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["other"],
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "visual-edit",
+        title: "Visual edit",
+        description: "Visual edit",
+        inputSchema: {},
+        readOnly: false,
+      },
+    ]);
+
+    const otherRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/other-capability",
+    );
+    await expect(
+      otherRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+  });
+
+  it("does not let a bootstrap capability match ordinary visual-edit actions", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "bootstrap-owner@example.com",
+      token: "signed-bootstrap-capability",
+      targetPath: "/visual-edit",
+      scope: `capability:visual-edit-bootstrap:${"a".repeat(32)}`,
+    });
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "open-visual-edit": {
+          tool: { description: "Open visual edit", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["visual-edit-bootstrap"],
+        } as any,
+        "ordinary-visual-edit": {
+          tool: { description: "Ordinary visual edit", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["visual-edit"],
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+        },
+      },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "open-visual-edit",
+        title: "Open visual edit",
+        description: "Open visual edit",
+        inputSchema: {},
+        readOnly: false,
+      },
+    ]);
   });
 
   it("does not treat a synthetic anonymous owner as authenticated", async () => {

@@ -41,6 +41,7 @@ vi.mock("@agent-native/core", async (importOriginal) => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => request.email,
   getRequestUserName: () => request.name,
 }));

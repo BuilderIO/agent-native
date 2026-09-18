@@ -39,6 +39,7 @@ vi.mock("../user-profile/store.js", () => ({
 }));
 
 vi.mock("../tracking/index.js", () => ({
+  classifyTrackingFailure: () => "error",
   track: (...args: any[]) => trackMock(...args),
 }));
 
@@ -260,6 +261,73 @@ describe("onboarding plugin routes", () => {
     });
   });
 
+  it("composes steps, dismissed state, and profile in one summary read", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === "onboarding:dismissed" ? { dismissed: true } : null,
+    );
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      steps: [expect.objectContaining({ id: "llm", complete: true })],
+      dismissed: true,
+      profile: expect.objectContaining({ appId: expect.any(String) }),
+    });
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "onboarding:dismissed",
+    );
+  });
+
+  it("keeps the summary usable when the optional dismissed read throws", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockImplementation(async (_sessionId, key) => {
+      if (key === "onboarding:dismissed") {
+        throw new Error("connection timed out");
+      }
+      return null;
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      steps: [expect.objectContaining({ id: "llm", complete: true })],
+      dismissed: false,
+      profile: expect.objectContaining({ appId: expect.any(String) }),
+    });
+  });
+
+  it("still fails the summary when the credential store is unavailable", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockRejectedValue(new CredentialStoreUnavailableError());
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({
+      error:
+        "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+    });
+  });
+
   it("keeps first-run onboarding tied to the signup cookie and completion state", async () => {
     vi.stubEnv("COOKIE_DOMAIN", ".example.com");
     const nitroApp = createNitroApp();
@@ -365,7 +433,10 @@ describe("onboarding plugin routes", () => {
       nitroApp,
       "/_agent-native/onboarding/first-run/role",
       "POST",
-      { "content-type": "application/json" },
+      {
+        "content-type": "application/json",
+        "x-agent-native-session-id": "session-role-save",
+      },
       { role: "developer" },
     );
 
@@ -377,8 +448,68 @@ describe("onboarding plugin routes", () => {
     );
     expect(trackMock).toHaveBeenCalledWith(
       "onboarding.role_selected",
+      {
+        flow: "first_run",
+        step_id: "role",
+        role: "developer",
+        outcome: "success",
+      },
+      { userId: "alice@example.com", sessionId: "session-role-save" },
+    );
+  });
+
+  it("omits unsafe browser session ids from role telemetry", async () => {
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      {
+        "content-type": "application/json",
+        "x-agent-native-session-id": "unsafe session id",
+      },
       { role: "developer" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding.role_selected",
+      expect.objectContaining({ outcome: "success" }),
       { userId: "alice@example.com" },
+    );
+  });
+
+  it("tracks a bounded category when the role save fails", async () => {
+    const failure = new Error("provider details stay out of analytics");
+    updateUserOnboardingRoleMock.mockRejectedValueOnce(failure);
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      {
+        "content-type": "application/json",
+        "x-agent-native-session-id": "session-role-save",
+      },
+      { role: "developer" },
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: failure.message });
+
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding_role_save_failed",
+      {
+        flow: "first_run",
+        step_id: "role",
+        role: "developer",
+        failure_type: "error",
+      },
+      { userId: "alice@example.com", sessionId: "session-role-save" },
     );
   });
 

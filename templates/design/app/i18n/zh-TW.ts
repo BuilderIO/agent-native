@@ -36,11 +36,10 @@ const messages = {
     languageTitle: "語言",
     languageDescription: "選取 Design 的介面語言。",
     languageLabel: "介面語言",
-    experiments: "實驗功能",
-    experimentsIntro:
-      "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
-    experimentTweaks: "設計微調",
-    experimentTweaksDescription: "試用 AI 設計微調功能。",
+    labs: "Labs",
+    labsIntro: "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
+    labTweaks: "設計微調",
+    labTweaksDescription: "試用 AI 設計微調功能。",
   },
   pages: {
     presentEmpty: "沒有可展示的內容",
@@ -63,6 +62,9 @@ const messages = {
     placeholder: "留下意見…",
     commentingOn: "正在評論 {{name}}",
     emptyState: "目前沒有審閱評論。",
+    filter: "篩選評論",
+    all: "全部",
+    open: "未解決",
     clickToPin: "點選任意位置以固定意見",
     escToExit: "按 Esc 退出",
     newComment: "新增評論",
@@ -82,9 +84,36 @@ const messages = {
     resolving: "正在解決…",
     resolveFailed: "無法解決此討論串",
     deleteComment: "刪除評論",
+    editComment: "編輯評論",
+    save: "儲存",
+    updateFailed: "無法更新評論",
+    commentsInCluster: "群組中的評論：{{count}}",
     moreActions: "更多操作",
+    copyLink: "複製連結",
+    linkCopied: "連結已複製",
+    copyLinkFailed: "無法複製連結",
     resolved: "已解決",
     reviewer: "審閱者",
+    search: "搜尋評論",
+    showResolved: "顯示已解決的評論",
+    onlyYours: "僅你的討論串",
+    currentPage: "僅目前頁面",
+    sort: "排序",
+    sortByDate: "依日期排序",
+    sortByUnread: "依未讀排序",
+    markUnread: "標記為未讀",
+    markRead: "標記為已讀",
+    markAllRead: "全部標記為已讀",
+    addReaction: "新增回應",
+    addEmoji: "新增表情符號",
+    mention: "提及某人",
+    noMentions: "找不到人員",
+    reopen: "重新開啟",
+    reopening: "正在重新開啟…",
+    undo: "復原",
+    deleteCommentTitle: "刪除評論？",
+    deleteCommentDescription: "這會從審閱討論串中移除評論。",
+    cancel: "取消",
     applyFeedback: "套用意見 ({{count}})",
     applyingFeedback: "正在套用意見…",
     applyFeedbackFailed: "無法套用審閱意見",
@@ -94,6 +123,17 @@ const messages = {
     presentComments: "評論",
     presentCommentMode: "評論模式",
     closeComments: "關閉評論",
+    yours: "我的評論",
+    unread: "未讀",
+    confirmDeleteTitle: "刪除評論？",
+    confirmDeleteDescription: "這會從審閱串中移除評論。",
+    cancelDelete: "取消",
+    markedUnread: "已標記為未讀",
+    markUnreadFailed: "無法標記為未讀",
+    attachImage: "附加圖片",
+    searching: "搜尋中…",
+    reactionFailed: "無法更新反應",
+    moveFailed: "無法移動評論",
     status: {
       draft: "草稿",
       in_review: "審閱中",
@@ -135,6 +175,7 @@ const messages = {
     genericError: "出了點問題",
   },
   editPanel: {
+    repeatAffectsAll: "影響全部 {{count}} 個副本",
     colorInputLabel: "顏色",
     properties: "特性",
     pageHelpTitle: "點選畫布上的任意元素",
@@ -379,6 +420,9 @@ const messages = {
       detailsTab: "詳細資料",
       decorationLabel: "文字裝飾",
       caseLabel: "大小寫",
+      truncateText: "截斷文字",
+      maxLines: "最大行數",
+      restoreError: "無法還原原始文字版面配置。",
     },
     flexDirections: {
       row: "排",
@@ -424,6 +468,15 @@ const messages = {
       fixed: "固定",
       sticky: "黏著",
     },
+    screenSource: {
+      title: "來源",
+      url: "URL",
+      urlLabel: "畫面 URL",
+      urlPlaceholder: "/plans 或 http://localhost:5173/plans",
+      update: "更新",
+      chooseLocalApp: "選擇本機應用程式",
+      remove: "移除畫面",
+    },
     borderStyleOptions: {
       none: "無",
       solid: "實線",
@@ -453,6 +506,10 @@ const messages = {
   designEditor: {
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
     ...responsiveInteractOverrides["zh-TW"].designEditor,
+    deepSelectGuidance: {
+      message: "按住 {{modifier}} 並點擊以選取內部圖層。",
+      dismiss: "關閉圖層選取提示",
+    },
     askAgent: "詢問代理",
     commenterRoleLabel: "評論者",
     commenterRoleDescription: "可以檢視並新增審閱評論",
@@ -509,6 +566,7 @@ const messages = {
     componentInstances: {
       selectLayer: "選取圖層",
       goToMain: "前往主要元件",
+      restore: "還原元件",
       swap: "交換實例",
       detach: "卸離實例",
       searchComponents: "搜尋元件…",
@@ -523,6 +581,12 @@ const messages = {
       swappedFor: "已交換為「{{name}}」。",
       openPanelNudge: "請使用「元件」面板中的「交換實例」選擇器。",
       openPanelFailed: "無法開啟元件面板。",
+      linkedStructureUnsupported: "目前尚未支援變更連結元件的圖層結構。",
+      linkedEditScopeUnsupported:
+        "連結元件編輯目前僅適用於基礎斷點和預設互動狀態。",
+      linkedEditSourceUnsupported: "此來源模式目前不支援連結元件編輯。",
+      linkedEditTargetsUnavailable:
+        "無法為所有選取圖層解析此連結編輯。未進行任何變更。",
     },
     makeItRealCard: {
       open: "開啟",
@@ -561,16 +625,6 @@ const messages = {
         firstEditGuidance:
           "響應式編輯預設會影響此中斷點及更小尺寸。可在中斷點控制旁變更範圍。",
       },
-    },
-    screenDeletion: {
-      titleOne: "刪除此畫面？",
-      titleMany: "刪除 {{count}} 個畫面？",
-      descriptionOne:
-        "將刪除「{{filename}}」及其所有響應式變體。編輯器保持開啟時可以復原。",
-      descriptionMany:
-        "將刪除這些畫面及其所有響應式變體。編輯器保持開啟時可以復原。",
-      cancel: "取消",
-      confirm: "刪除",
     },
     motion: {
       dockLabel: "動態面板",
@@ -718,14 +772,29 @@ const messages = {
       figUploadDescription:
         "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 {{max}} MB。",
       figUploadDescriptionShort:
-        "本機匯入 — 不使用 Figma API 配額。包含內嵌圖片。",
+        "本機匯入 — 不使用 Figma API 配額。支援的內嵌圖片會一併匯入。",
+      figUploadImagesSkippedWarning:
+        "為符合瀏覽器上傳限制，已略過 {{count}} 張內嵌圖片。",
       chooseFigFile: "選擇 .fig 檔案",
       figUploadUploading: "上傳中 {{progress}}%",
       figUploadProcessing: "轉換中…",
+      figImportWarningTitle: "大型 .fig 匯入",
+      figImportWarningDescription:
+        "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的畫框。",
+      figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
+      figImportSelectAll: "全選",
+      figImportClearAll: "全部清除",
+      figImportCancel: "取消",
+      figImportSelected: "匯入已選取的 {{count}} 個",
+      figImportAll: "全部匯入",
+      figImportAnalyzing: "分析中…",
       figmaPasteBodyUnlimited:
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:
         "若無權杖，圖片填充可能遺失。上傳 .fig 檔案可包含內嵌圖片。",
+      quotaCooldownTitle: "Design 已暫停此匯入",
+      quotaCooldownBody:
+        "達到配額上限後，Design 正在限制自身的 Figma 請求速率。配額將自動重設。",
       rateLimitTitle: "Figma 已暫停此匯入",
       rateLimitLowSeat:
         "您的座位類型（檢視者/協作者）的 Figma API 檔案匯入配額有限 — 根據官方 Figma 文件，每月最多 6 次請求。",
@@ -964,6 +1033,8 @@ const messages = {
     },
     toasts: {
       annotationSendError: "無法傳送註解。你的繪圖仍保留在這裡，請再試一次。",
+      screenSourceUpdated: "畫面來源已更新",
+      screenSourceUpdateFailed: "無法更新畫面來源",
       componentCreated: "元件已建立",
       componentCreateFailed: "無法建立元件",
       tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",
@@ -1010,8 +1081,11 @@ const messages = {
       propsPasted: "屬性已貼上",
       primitiveInsertFailed: "無法將該圖層新增到畫面",
       layerMoveFailed: "無法移動該圖層",
+      groupFillApplyFailed: "無法將此填色套用至群組中的所有圖層。",
       layerMoveRedirected: "已移至原位置附近——精確的放置目標無法編輯",
       duplicateElementFailed: "無法複製該元素",
+      repeatListNotEditable: "無法更新此重複清單",
+      repeatRowPickOnCanvas: "在畫布上雙擊某一列以編輯其文字",
       eyedropperUnsupported: "此瀏覽器不支援取色器",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",
@@ -1019,6 +1093,10 @@ const messages = {
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       saveConflict: "此畫面已在其他位置變更。上次編輯未儲存。",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
+      booleanSubtractUnsupported:
+        "請選取相鄰且使用純色填滿的矩形或橢圓以執行減法。",
+      booleanSubtractFailed: "無法減去所選圖層。",
+      vectorEditUnsupported: "此形狀或變形目前無法進行向量編輯。",
       reactSourceAnchorsLoading:
         "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
       reactSourceAnchorsUnavailable:
@@ -1030,6 +1108,7 @@ const messages = {
   layersPanel: {
     title: "圖層",
     screens: "畫面",
+    resizeScreens: "調整畫面區段大小",
     allScreens: "所有畫面",
     thumbnail: "縮圖",
     addScreen: "新增畫面",
@@ -1061,6 +1140,8 @@ const messages = {
     frameSelection: "將選取範圍建立畫框",
     flipHorizontal: "水平翻轉",
     flipVertical: "垂直翻轉",
+    booleanOperations: "布林運算",
+    subtract: "減去",
     dragGhostCount: "{{count}} 個圖層",
   },
   designCanvas: {
@@ -1265,6 +1346,8 @@ const messages = {
     untitledDesign: "無標題Design",
     createFirstDesign: "建立您的第一個設計",
     pickStartingPoint: "選取一個起點或編寫您自己的提示。",
+    searchNoResultsTitle: "找不到符合此搜尋的設計",
+    searchNoResultsDescription: "請嘗試其他搜尋。",
     starterSaas: "SaaS 到達頁面",
     starterDashboard: "儀表板",
     starterPricing: "定價頁面",
@@ -1374,6 +1457,7 @@ const messages = {
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
       githubIndex:
         "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
+      nameConflict: "已存在同名設計系統。請更改名稱後再試一次。",
       chooseDesignMd: "請選取 Markdown（.md 或 .mdx）檔案。",
       readDesignMd: "無法讀取該 Markdown 檔案。",
       designMdTooLarge: "Markdown 檔案必須為 2 MB 或更小。",

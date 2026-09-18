@@ -7,7 +7,7 @@ docs/superpowers
 
 # Local bridge and data artifacts
 /bridge/
-/data/
+**/data/
 
 .idea/
 
@@ -36,24 +36,6 @@ node-compile-cache/
 
 # Application state data files (ephemeral, may contain secrets)
 **/application-state/*.json
-
-# Local PGlite databases (never commit)
-**/data/*.db
-**/data/*.db-journal
-**/data/*.db-wal
-**/data/*.db-shm
-**/data/*.lock
-**/data/pglite/
-**/data/e2e-pglite/
-# Ownership lock written next to the directory, not inside it: holds the PID and
-# token of whichever local process has the database open.
-**/data/pglite.*.lock
-
-# Legacy local SQLite artifacts. Nothing reads these since the framework went
-# PostgreSQL-only; a stray one is tens of MB of local state, not a source file.
-**/data/*.db
-**/data/*.db-shm
-**/data/*.db-wal
 
 # React Router generated types
 .react-router/

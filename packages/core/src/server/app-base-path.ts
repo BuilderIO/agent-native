@@ -51,6 +51,9 @@ export function stripAppBasePath(
 ): string {
   if (!basePath) return pathname;
   if (pathname === basePath) return "/";
+  // Mounted deployment adapters use an extra slash to preserve the app root
+  // while handing the request through a function mounted at the base path.
+  if (pathname === `${basePath}//`) return "/";
   if (pathname.startsWith(`${basePath}/`)) {
     return pathname.slice(basePath.length) || "/";
   }

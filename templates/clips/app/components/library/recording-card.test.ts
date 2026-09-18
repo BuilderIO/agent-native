@@ -31,6 +31,22 @@ describe("library recording cards", () => {
     expect(source).not.toContain("onRename");
   });
 
+  it("bulk unarchives selected recordings from the archive view", () => {
+    const toolbarSource = readSource("./bulk-action-toolbar.tsx");
+    const gridSource = readSource("./library-grid.tsx");
+
+    expect(toolbarSource).toContain('archiveAction?: "archive" | "unarchive"');
+    expect(toolbarSource).toContain('archiveAction = "archive"');
+    expect(toolbarSource).toContain('"clipsFinalRaw.unarchive"');
+    expect(gridSource).toContain(
+      'archiveAction={view === "archive" ? "unarchive" : "archive"}',
+    );
+    expect(gridSource).toContain("restoreRecording.mutateAsync({ id })");
+    expect(gridSource).toContain('"trashRoute.clipsRestored"');
+    expect(gridSource).toContain('"trashRoute.clipsRestoreFailed"');
+    expect(gridSource).toContain("Promise.allSettled");
+  });
+
   it("offers folder creation from the move menu", () => {
     const source = readSource("./recording-card.tsx");
 
@@ -49,7 +65,8 @@ describe("library recording cards", () => {
     expect(source).toContain("<ContextMenuSub>");
     expect(source).toContain("<ContextMenuSubContent");
     expect(source).toContain('t("clipsFinalRaw.moveToFolder")');
-    expect(source).toContain('t("navigation.trash")');
+    expect(source).toContain('t("libraryGrid.archiveAction")');
+    expect(source).toContain('t("libraryGrid.moveToTrashAction")');
   });
 
   it("uses the shared vertical overflow affordance", () => {
@@ -82,6 +99,23 @@ describe("library recording cards", () => {
     expect(source).toContain("alt={displayOwnerName}");
     expect(source).toContain("{displayOwnerName}");
     expect(source).toContain("{relative}");
+  });
+
+  it("balances recording metadata across the card width", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain(
+      'className="relative z-10 flex flex-1 flex-col gap-2 p-4 pointer-events-none"',
+    );
+    expect(source).toContain('className="flex items-center gap-3"');
+    expect(source).toContain(
+      'className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground"',
+    );
+    expect(source).toContain('className="flex min-w-0 items-center gap-1.5"');
+    expect(source).toContain(
+      'className="flex items-center justify-self-end gap-x-2 whitespace-nowrap"',
+    );
+    expect(source).toContain('className="whitespace-nowrap"');
   });
 
   it("waits for the delete menu to close before removing a card", () => {

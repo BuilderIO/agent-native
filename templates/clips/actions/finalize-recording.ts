@@ -18,6 +18,7 @@ import {
 import { emit } from "@agent-native/core/event-bus";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq, isNull } from "drizzle-orm";
@@ -139,6 +140,23 @@ function stateString(
 ): string | undefined {
   const raw = value?.[key];
   return typeof raw === "string" && raw.trim() ? raw : undefined;
+}
+
+async function uploadWasAborted(id: string): Promise<boolean | undefined> {
+  try {
+    const state = await readAppState(`recording-upload-${id}`);
+    return (
+      !!state &&
+      typeof state === "object" &&
+      (state as Record<string, unknown>).aborted === true
+    );
+  } catch (error) {
+    console.warn("[finalize] upload abort marker could not be read", {
+      id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
 }
 
 const cliBoolean = z.preprocess((value) => {
@@ -520,9 +538,11 @@ async function leaveRecordingProcessingForMediaVerification(params: {
 }) {
   const persisted = await persistPendingMediaVerification(params);
   if (!persisted) {
+    const aborted = await uploadWasAborted(params.id);
     return {
       id: params.id,
       status: "failed" as const,
+      ...(aborted ? { aborted: true } : {}),
       videoUrl: params.media.videoUrl,
       videoSizeBytes: params.media.videoSizeBytes,
       sourceSizeBytes: params.media.sourceSizeBytes,
@@ -672,12 +692,15 @@ async function markRecordingReady(params: {
         });
       });
     }
+    const aborted =
+      postUpdate?.status === "failed" && (await uploadWasAborted(id));
     return {
       id,
       status:
         postUpdate?.status === "ready"
           ? ("ready" as const)
           : ("failed" as const),
+      ...(aborted ? { aborted: true } : {}),
       transitionedToReady: false,
       videoUrl,
       videoSizeBytes,
@@ -685,6 +708,23 @@ async function markRecordingReady(params: {
       durationMs: finalDurationMs,
     };
   }
+
+  track(
+    "recording_ready",
+    {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: id,
+      output_type: "clip",
+      duration_s: Math.round(finalDurationMs / 1000),
+      video_format: videoFormat,
+      has_audio: finalHasAudio,
+      has_camera: finalHasCamera,
+      width: finalWidth,
+      height: finalHeight,
+    },
+    { userId: ownerEmail },
+  );
 
   await queueReadyRecordingThumbnail(id);
   await reconcileMeetingOnRecordingReady({
@@ -836,12 +876,15 @@ async function retryPendingMediaVerification(params: {
       ),
     );
   if (!recording || recording.status !== "processing") {
+    const aborted =
+      recording?.status === "failed" && (await uploadWasAborted(id));
     return {
       id,
       status:
         recording?.status === "ready"
           ? ("ready" as const)
           : ("failed" as const),
+      ...(aborted ? { aborted: true } : {}),
       videoUrl: recording?.videoUrl ?? media.videoUrl,
       videoSizeBytes: media.videoSizeBytes,
       sourceSizeBytes: media.sourceSizeBytes,
@@ -913,12 +956,15 @@ async function retryPendingMediaVerification(params: {
               ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
             ),
           );
+        const aborted =
+          resolved?.status === "failed" && (await uploadWasAborted(id));
         return {
           id,
           status:
             resolved?.status === "ready"
               ? ("ready" as const)
               : ("failed" as const),
+          ...(aborted ? { aborted: true } : {}),
           videoUrl: resolved?.videoUrl ?? candidate.videoUrl,
           videoSizeBytes: candidate.videoSizeBytes,
           sourceSizeBytes: candidate.sourceSizeBytes,
@@ -956,12 +1002,15 @@ async function retryPendingMediaVerification(params: {
             ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           ),
         );
+      const aborted =
+        resolved?.status === "failed" && (await uploadWasAborted(id));
       return {
         id,
         status:
           resolved?.status === "ready"
             ? ("ready" as const)
             : ("failed" as const),
+        ...(aborted ? { aborted: true } : {}),
         videoUrl: resolved?.videoUrl ?? candidate.videoUrl,
         videoSizeBytes: candidate.videoSizeBytes,
         sourceSizeBytes: candidate.sourceSizeBytes,

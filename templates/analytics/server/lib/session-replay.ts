@@ -264,9 +264,25 @@ const REPLAY_PRIVATE_BLOB_REF_KIND = "agent-native.session-replay.private-blob";
 const REPLAY_PRIVATE_BLOB_REF_VERSION = 1;
 let inlineReplayFallbackWarned = false;
 
-function replayError(message: string, statusCode: number): Error {
-  return Object.assign(new Error(message), { statusCode });
+function replayError(
+  message: string,
+  statusCode: number,
+  retryAfterSeconds?: number,
+): Error {
+  return Object.assign(
+    new Error(message),
+    { statusCode },
+    retryAfterSeconds === undefined ? {} : { retryAfterSeconds },
+  );
 }
+
+/** Seconds a client should wait before retrying an over-quota ingest.
+ *
+ * The recorder cannot tell the per-minute rate limit apart from the rolling
+ * daily byte quota by status alone, and it reacts very differently to the two:
+ * a minute is worth pausing for, a day is not. Always say which one this is. */
+const REPLAY_RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
+const REPLAY_BYTE_QUOTA_RETRY_AFTER_SECONDS = 24 * 60 * 60;
 
 function replayNowIso(): string {
   return new Date().toISOString();
@@ -1164,6 +1180,7 @@ export async function assertReplayKeyBudget(
     throw replayError(
       "Replay ingest byte quota exceeded for this public key",
       429,
+      REPLAY_BYTE_QUOTA_RETRY_AFTER_SECONDS,
     );
   }
 
@@ -1185,6 +1202,7 @@ export async function assertReplayKeyBudget(
     throw replayError(
       "Replay ingest rate limit exceeded for this public key",
       429,
+      REPLAY_RATE_LIMIT_RETRY_AFTER_SECONDS,
     );
   }
 }

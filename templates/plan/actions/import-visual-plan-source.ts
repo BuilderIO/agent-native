@@ -277,6 +277,7 @@ export default defineAction({
       title: bundle.plan.title,
       kind: bundle.plan.kind,
       status: bundle.plan.status,
+      blockCount: bundle.plan.content?.blocks.length ?? 0,
       ownerEmail: bundle.access.ownerEmail,
     });
     const local = isLocalPlanRuntime()

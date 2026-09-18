@@ -5,6 +5,7 @@ import {
   verifyCaptcha,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -1107,10 +1108,13 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   // Parse form fields and build whitelist of valid field IDs. Published forms
   // must pass the same structural checks as forms at write time because the
   // public route is also reachable for legacy rows and direct HTTP clients.
+  // Pattern safety is the one exception: a legacy row carrying an unsafe
+  // pattern gets the field-level reason from validateSubmissionField below,
+  // which names the field, rather than a blanket 500 that names nothing.
   let fields: FormField[];
   try {
     fields = JSON.parse(form.fields);
-    assertValidFields(fields);
+    assertValidFields(fields, { patternSafety: false });
   } catch {
     setResponseStatus(event, 500);
     return { error: "Form configuration is invalid" };
@@ -1260,6 +1264,17 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   } else {
     await db.insert(schema.responses).values(responseValues);
   }
+
+  track("submission_received", {
+    app_name: "forms",
+    template_name: "forms",
+    output_id: responseId,
+    output_type: "submission",
+    form_id: id,
+    field_count: fields.length,
+    anonymous,
+    client_surface: clientSurface,
+  });
 
   return finishResponse({
     responseId,

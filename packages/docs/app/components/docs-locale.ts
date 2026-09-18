@@ -3,11 +3,7 @@ import {
   LOCALE_METADATA,
   localeDirection,
   normalizeLocaleCode,
-  resolveLocaleFromCandidates,
-  type LocaleCode,
 } from "@agent-native/core/client/i18n";
-
-export type DocsLocale = LocaleCode;
 
 export const DEFAULT_DOCS_LOCALE = DEFAULT_LOCALE;
 export const DOCS_LOCALES = [
@@ -22,7 +18,8 @@ export const DOCS_LOCALES = [
   "ko-KR",
   "hi-IN",
   "ar-SA",
-] as const satisfies readonly DocsLocale[];
+] as const;
+export type DocsLocale = (typeof DOCS_LOCALES)[number];
 export const DOCS_LOCALE_METADATA = LOCALE_METADATA;
 export { localeDirection };
 
@@ -79,10 +76,10 @@ export function routeLocaleFromPathname(
   pathname: string,
 ): DocsLocale | undefined {
   const segments = pathSegments(pathname);
-  const prefixLocale = normalizeLocaleCode(segments[0]);
+  const prefixLocale = docsLocaleFromSegment(segments[0]);
   if (prefixLocale) return prefixLocale;
   if (segments[0] === "docs") {
-    return normalizeLocaleCode(segments[1]) ?? undefined;
+    return docsLocaleFromSegment(segments[1]);
   }
   return undefined;
 }
@@ -96,13 +93,13 @@ export function docsLocaleFromPathname(
 
 export function docsSlugFromPathname(pathname: string): string | undefined {
   const segments = pathSegments(pathname);
-  const prefixLocale = normalizeLocaleCode(segments[0]);
+  const prefixLocale = docsLocaleFromSegment(segments[0]);
   const docsIndex = prefixLocale ? 1 : 0;
   if (segments[docsIndex] !== "docs") return undefined;
   if (segments.length === docsIndex + 1) return "getting-started";
 
   if (!prefixLocale) {
-    const legacyLocale = normalizeLocaleCode(segments[1]);
+    const legacyLocale = docsLocaleFromSegment(segments[1]);
     if (legacyLocale) return segments[2] ?? "getting-started";
   }
 
@@ -122,17 +119,21 @@ export function isDocsPath(pathname: string) {
  */
 export function docsPathForSlug(
   slug: string,
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
 ) {
-  const base = docsBasePath(locale);
+  const base = docsBasePath(
+    docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE,
+  );
   return slug === "getting-started" ? `${base}/` : `${base}/${slug}/`;
 }
 
 export function docsMarkdownPathForSlug(
   slug: string,
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
 ) {
-  return `${docsBasePath(locale)}/${slug}.md`;
+  return `${docsBasePath(
+    docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE,
+  )}/${slug}.md`;
 }
 
 export function comparableDocsPath(pathname: string) {
@@ -150,25 +151,26 @@ export function localizedDocsPath(pathname: string, locale: DocsLocale) {
 
 export function sitePathForLocale(
   pathname: string,
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
 ) {
+  const docsLocale = docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE;
   const normalized = normalizePath(pathname);
   if (isFileLikePath(normalized)) return normalized;
 
   const docsSlug = docsSlugFromPathname(normalized);
-  if (docsSlug) return docsPathForSlug(docsSlug, locale);
+  if (docsSlug) return docsPathForSlug(docsSlug, docsLocale);
 
   const segments = pathSegments(normalized);
-  const prefixLocale = normalizeLocaleCode(segments[0]);
+  const prefixLocale = docsLocaleFromSegment(segments[0]);
   const unprefixedSegments = prefixLocale ? segments.slice(1) : segments;
   const unprefixedPath = unprefixedSegments.length
     ? `/${unprefixedSegments.join("/")}/`
     : "/";
 
-  if (locale === DEFAULT_DOCS_LOCALE) return unprefixedPath;
+  if (docsLocale === DEFAULT_DOCS_LOCALE) return unprefixedPath;
   return unprefixedPath === "/"
-    ? `/${localeSegment(locale)}/`
-    : `/${localeSegment(locale)}${unprefixedPath}`;
+    ? `/${localeSegment(docsLocale)}/`
+    : `/${localeSegment(docsLocale)}${unprefixedPath}`;
 }
 
 /**
@@ -209,7 +211,7 @@ export function localizeSiteHref(href: string, locale: DocsLocale): string {
   if (!path || !path.startsWith("/") || isFileLikePath(path)) return href;
 
   const segments = pathSegments(path);
-  const prefixLocale = normalizeLocaleCode(segments[0]);
+  const prefixLocale = docsLocaleFromSegment(segments[0]);
   const unprefixedSegments = prefixLocale ? segments.slice(1) : segments;
   if (!LOCALIZED_POLICY_ROOTS.has(unprefixedSegments[0] ?? "")) return href;
 
@@ -248,7 +250,14 @@ export function localizeDocsMarkdownLinks(
 
 export function browserDocsLocale() {
   if (typeof navigator === "undefined") return DEFAULT_DOCS_LOCALE;
-  return resolveLocaleFromCandidates(
-    navigator.languages?.length ? navigator.languages : [navigator.language],
-  );
+  const candidates = navigator.languages?.length
+    ? navigator.languages
+    : [navigator.language];
+  for (const candidate of candidates) {
+    const locale = docsLocaleFromSegment(
+      normalizeLocaleCode(candidate, DOCS_LOCALES),
+    );
+    if (locale) return locale;
+  }
+  return DEFAULT_DOCS_LOCALE;
 }

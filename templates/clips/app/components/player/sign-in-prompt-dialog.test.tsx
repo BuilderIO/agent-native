@@ -54,11 +54,20 @@ describe("SignInPromptDialog", () => {
 
     const links = Array.from(document.body.querySelectorAll("a"));
     expect(links[0]?.textContent).toContain("signInPrompt.signIn");
+    expect(links[0]?.getAttribute("href")).toContain(
+      "return=%2Fshare%2Fclip-1%3Fat%3D90",
+    );
     expect(links[1]?.textContent).toContain("signInPrompt.createAccount");
     expect(links[1]?.getAttribute("href")).toContain("tab=signup");
-    expect(document.body.textContent).toContain(
+    expect(document.body.querySelector('[role="dialog"] h2')?.textContent).toBe(
       "signInPrompt.title:signInPrompt.commentIntent",
     );
+    expect(document.body.textContent).not.toContain("Welcome");
+    expect(document.body.textContent).not.toContain("signInPrompt.description");
+    expect(links[0]?.className).toContain("h-11");
+    expect(links[0]?.className).toContain("px-8");
+    expect(links[1]?.className).toContain("h-11");
+    expect(links[1]?.className).toContain("px-8");
   });
 
   it("uses the modal callback instead of navigating for account creation", () => {

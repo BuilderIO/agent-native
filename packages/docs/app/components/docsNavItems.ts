@@ -2,6 +2,7 @@ import enUS from "../i18n/en-US";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "./docs-locale";
 
@@ -189,6 +190,16 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "cloneable-saas",
         labelKey: "templatesOverview",
         slug: "cloneable-saas",
+      },
+      {
+        id: "creating-templates",
+        labelKey: "creatingTemplates",
+        slug: "creating-templates",
+      },
+      {
+        id: "syncing-template-changes",
+        labelKey: "syncingTemplateChanges",
+        slug: "syncing-template-changes",
       },
       {
         id: "pure-agent-apps",
@@ -520,24 +531,29 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-dispatch",
           },
           {
-            id: "template-dispatch-messaging-routing",
-            labelKey: "dispatchMessagingRouting",
-            slug: "template-dispatch-messaging-routing",
+            id: "template-dispatch-features",
+            labelKey: "dispatchFeatures",
+            slug: "template-dispatch-features",
           },
           {
-            id: "template-dispatch-operations",
-            labelKey: "dispatchOperations",
-            slug: "template-dispatch-operations",
+            id: "template-dispatch-agent",
+            labelKey: "dispatchAgent",
+            slug: "template-dispatch-agent",
           },
           {
-            id: "template-dispatch-vault-integrations",
-            labelKey: "dispatchVaultIntegrations",
-            slug: "template-dispatch-vault-integrations",
+            id: "template-dispatch-integrations",
+            labelKey: "dispatchIntegrations",
+            slug: "template-dispatch-integrations",
           },
           {
             id: "template-dispatch-developers",
             labelKey: "dispatchDevelopers",
             slug: "template-dispatch-developers",
+          },
+          {
+            id: "template-dispatch-reference",
+            labelKey: "dispatchReference",
+            slug: "template-dispatch-reference",
           },
         ],
       },
@@ -730,6 +746,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "organizations-teams-permissions",
       },
       {
+        id: "administered-deployments",
+        labelKey: "administeredDeployments",
+        slug: "administered-deployments",
+      },
+      {
         id: "security",
         labelKey: "securityDataScoping",
         slug: "security",
@@ -783,9 +804,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "native-chat-ui",
       },
       {
+        id: "agentkit",
+        labelKey: "agentkit",
+        slug: "agentkit",
+      },
+      {
         id: "generative-ui",
         labelKey: "generativeUi",
         slug: "generative-ui",
+      },
+      {
+        id: "embedding-sdk",
+        labelKey: "embeddingSdk",
+        slug: "embedding-sdk",
       },
       {
         id: "real-time-collaboration",
@@ -802,6 +833,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "agent-resources-overview",
         labelKey: "agentResourcesOverview",
         slug: "agent-resources",
+      },
+      {
+        id: "writing-agent-instructions",
+        labelKey: "writingAgentInstructions",
+        slug: "writing-agent-instructions",
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {
@@ -898,29 +934,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "workspaceConnections",
         slug: "workspace-connections",
       },
-    ],
-  },
-  {
-    id: "build-apps",
-    titleKey: "buildApps",
-    items: [
-      {
-        id: "creating-templates",
-        labelKey: "creatingTemplates",
-        slug: "creating-templates",
-      },
-      {
-        id: "syncing-template-changes",
-        labelKey: "syncingTemplateChanges",
-        slug: "syncing-template-changes",
-      },
-      {
-        id: "writing-agent-instructions",
-        labelKey: "writingAgentInstructions",
-        slug: "writing-agent-instructions",
-      },
-      { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
-      { id: "frames", labelKey: "frames", slug: "frames" },
     ],
   },
   {
@@ -1028,6 +1041,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "packageLifecycle",
             slug: "package-lifecycle",
           },
+          {
+            id: "versioning-and-stability",
+            labelKey: "versioningAndStability",
+            slug: "versioning-and-stability",
+          },
         ],
       },
     ],
@@ -1134,14 +1152,15 @@ function toNavItem(
 }
 
 export function getDocsNavSections(
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
   t: Translate = enMessage,
 ): NavSection[] {
+  const docsLocale = docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE;
   return NAV_SECTION_CONFIG_IN_DISPLAY_ORDER.map((section) => ({
     id: section.id,
     title: navLabel(t, section.titleKey),
     items: section.items
-      .map((item) => toNavItem(item, locale, t))
+      .map((item) => toNavItem(item, docsLocale, t))
       .filter((item): item is NavItem => item !== null),
   })).filter((section) => section.items.length > 0);
 }
@@ -1162,7 +1181,7 @@ function flattenItems(items: NavItem[]): NavItem[] {
 }
 
 export function getDocsNavItems(
-  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
   t: Translate = enMessage,
 ): (NavItem & { to: string })[] {
   return getDocsNavSections(locale, t)

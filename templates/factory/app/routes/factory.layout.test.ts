@@ -66,6 +66,30 @@ describe("Factory route factory switching", () => {
     expect(source).toContain("bg-emerald-500");
     expect(source).toContain('title={t("factoryRoute.pastRuns")}');
   });
+
+  it("does not steal the selected automation while the list catches up", () => {
+    const source = readSource();
+    expect(source).toContain("if (selectedId && !automationMissing) return;");
+    expect(source).toContain("mergeListedAutomationDraft");
+    expect(source).toContain("selectAutomation(automationId, listed)");
+    expect(source).toContain("factoryRoute.automationCreateRefreshFailed");
+    expect(source).not.toContain("automationsQuery.refetch().finally(");
+    expect(source).not.toContain(
+      "automations.find((automation) => automation.id === selectedId) ??\n    automations[0]",
+    );
+  });
+
+  it("resyncs the editor after a save and refuses to run a stale config", () => {
+    const source = readSource();
+    // Save normalizes the row, so the draft must stop counting as unsaved or it
+    // never accepts a server update again.
+    expect(source).toMatch(
+      /syncedConfigKeyRef\.current = null;\n\s+await automationsQuery\.refetch\(\);/,
+    );
+    expect(source).toContain("draftHasUnsavedEdits(draft)");
+    expect(source).toContain("factoryRoute.automationRunNeedsSave");
+    expect(source).toContain("factoryRoute.automationNotFound");
+  });
 });
 
 describe("Factory route tabs", () => {
@@ -83,5 +107,28 @@ describe("Factory route tabs", () => {
     expect(source).toContain('activeTab === "overview"');
     expect(source).toContain('activeTab === "map"');
     expect(source).toContain("<FactoryHistoryView");
+  });
+
+  it("wires the Audit refresh trigger to refetch and shows a spinner while fetching", () => {
+    const source = readSource();
+    expect(source).toContain(
+      "onClick={() => setAuditRefreshToken((current) => current + 1)}",
+    );
+    expect(source).toContain("disabled={auditFetching}");
+    expect(source).toContain('<IconLoader2 className="size-4 animate-spin" />');
+    expect(source).toContain("onFetchingChange={setAuditFetching}");
+    expect(source).toContain("refreshToken={auditRefreshToken}");
+    // The spinner branch must live inside the audit refresh button, not just
+    // anywhere in the file.
+    const buttonIdx = source.indexOf(
+      'aria-label={t("factoryRoute.auditRefresh")}',
+    );
+    const spinnerIdx = source.indexOf(
+      '<IconLoader2 className="size-4 animate-spin" />',
+    );
+    const closingButtonIdx = source.indexOf("</Button>", buttonIdx);
+    expect(buttonIdx).toBeGreaterThan(-1);
+    expect(spinnerIdx).toBeGreaterThan(buttonIdx);
+    expect(spinnerIdx).toBeLessThan(closingButtonIdx);
   });
 });

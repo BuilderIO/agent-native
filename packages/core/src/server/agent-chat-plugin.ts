@@ -36,7 +36,10 @@ import {
   createA2AApproval,
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
-import type { Message as A2AMessage } from "../a2a/types.js";
+import type {
+  A2AConnectionRequestMetadata,
+  Message as A2AMessage,
+} from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
 import { clientAbortReason } from "../agent/abort-reasons.js";
 import {
@@ -81,6 +84,7 @@ import {
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortTurnByRefDurably,
   abortTurnDurably,
   subscribeToRun,
   type ActionEntry,
@@ -93,8 +97,7 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import { markTurnAborted, readBackgroundRunClaim } from "../agent/run-store.js";
-import type { UnclaimedBackgroundRunRow } from "../agent/run-store.js";
+import { readBackgroundRunClaim } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -230,6 +233,7 @@ import {
 } from "./agent-teams.js";
 import { getSession, registerAuthPublicPaths } from "./auth.js";
 import { captureError } from "./capture-error.js";
+import { completeText } from "./complete-text.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -714,10 +718,127 @@ export function resolveHostedBuilderHandoff(
   return connectBuilder ? { "connect-builder": connectBuilder } : {};
 }
 
+/** Setup CTAs that must be callable on the very first request.
+ *
+ *  Both are recovery actions: the agent should answer "connect Builder for me"
+ *  or a failed upload by rendering the inline card, not by spending a turn in
+ *  `tool-search` first. `connect-builder` is registered in every registry that
+ *  receives `browserTools`, local dev included, so naming it only through the
+ *  hosted-only handoff left local dev advertising "Connect Builder.io" in the
+ *  UI while the agent was never told the tool existed. Names the registry does
+ *  not have are dropped by `filterInitialEngineTools`, so listing both here is
+ *  safe for lean registries. */
+export function resolveConnectSetupInitialToolNames(
+  browserTools: Record<string, ActionEntry>,
+): string[] {
+  return ["connect-file-storage", "connect-builder"].filter(
+    (name) => browserTools[name],
+  );
+}
+
+type AgentChatPluginCleanup = () => void | Promise<void>;
+
+function createAgentChatPluginLifecycle() {
+  const cleanups = new Set<AgentChatPluginCleanup>();
+  const pendingCleanups = new Set<Promise<void>>();
+  let closed = false;
+
+  const runCleanup = (cleanup: AgentChatPluginCleanup): void => {
+    const pending = Promise.resolve()
+      .then(cleanup)
+      .catch((error: unknown) => {
+        console.warn("[agent-chat] Plugin cleanup failed:", error);
+      });
+    pendingCleanups.add(pending);
+    void pending.finally(() => pendingCleanups.delete(pending));
+  };
+
+  const addCleanup = (cleanup: AgentChatPluginCleanup): void => {
+    if (closed) {
+      runCleanup(cleanup);
+      return;
+    }
+    cleanups.add(cleanup);
+  };
+
+  return {
+    addCleanup,
+    startTimeout(
+      callback: () => void,
+      delayMs: number,
+    ): ReturnType<typeof setTimeout> | undefined {
+      if (closed) return undefined;
+      const timer = setTimeout(callback, delayMs);
+      addCleanup(() => clearTimeout(timer));
+      return timer;
+    },
+    startInterval(
+      callback: () => void,
+      intervalMs: number,
+    ): ReturnType<typeof setInterval> | undefined {
+      if (closed) return undefined;
+      const timer = setInterval(callback, intervalMs);
+      addCleanup(() => clearInterval(timer));
+      return timer;
+    },
+    beginClose(): void {
+      if (closed) return;
+      closed = true;
+      const registered = [...cleanups];
+      cleanups.clear();
+      for (const cleanup of registered) runCleanup(cleanup);
+    },
+    async drainCleanups(): Promise<void> {
+      while (pendingCleanups.size > 0) {
+        await Promise.allSettled([...pendingCleanups]);
+      }
+    },
+  };
+}
+
+export function resolveAgentCheckpointPaths(
+  cwd: string,
+  changedPaths: readonly string[],
+  events: readonly { event: AgentChatEvent }[],
+): Map<string, string> {
+  const reportedPaths = new Map<string, string>();
+  for (const { event } of events) {
+    if (
+      event.type !== "tool_done" ||
+      event.isError === true ||
+      (event.tool !== "edit" && event.tool !== "write") ||
+      typeof event.input?.path !== "string" ||
+      !event.fileMutation
+    ) {
+      continue;
+    }
+    const relative = nodePath
+      .relative(cwd, nodePath.resolve(cwd, event.input.path))
+      .replaceAll("\\", "/");
+    if (
+      relative &&
+      relative !== ".." &&
+      !relative.startsWith("../") &&
+      event.fileMutation.path.replaceAll("\\", "/") === relative &&
+      /^[0-9a-f]{64}$/.test(event.fileMutation.contentSha256)
+    ) {
+      reportedPaths.set(relative, event.fileMutation.contentSha256);
+    }
+  }
+  const resolved = new Map<string, string>();
+  for (const file of changedPaths) {
+    const contentSha256 = reportedPaths.get(file.replaceAll("\\", "/"));
+    if (!contentSha256) return new Map();
+    resolved.set(file, contentSha256);
+  }
+  return resolved;
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
   return (nitroApp: any) => {
+    const lifecycle = createAgentChatPluginLifecycle();
     markDefaultPluginProvided(nitroApp, "agent-chat");
     // Nitro v3 calls plugins synchronously and doesn't await async return
     // values. We track the async init so the framework's readiness gate
@@ -817,7 +938,10 @@ export function createAgentChatPlugin(
           );
         }
         await mcpManager.reconfigure(mcpConfig);
-        startMcpConfigRefresh(mcpManager);
+        const stopMcpConfigRefresh = startMcpConfigRefresh(mcpManager);
+        if (stopMcpConfigRefresh) {
+          lifecycle.addCleanup(stopMcpConfigRefresh);
+        }
       };
       /**
        * Start MCP initialization at most once, and return the run in flight.
@@ -934,6 +1058,8 @@ export function createAgentChatPlugin(
       } catch {
         // Package action registration is optional.
       }
+      const { mergeCoreSharingActions } = await import("./action-discovery.js");
+      await mergeCoreSharingActions(templateScriptsAll);
 
       // Resource, chat, docs, db, and cross-agent scripts are available in both
       // prod and dev modes, unless the app switched the group off through
@@ -1119,6 +1245,7 @@ export function createAgentChatPlugin(
 
               // Fallback: bash-based wrapper for CLI-style scripts
               discoveredActionsAll[name] = {
+                cliWrapper: true,
                 tool: {
                   description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
                   parameters: {
@@ -1136,8 +1263,81 @@ export function createAgentChatPlugin(
                   const bashEntry =
                     devScriptsForA2A.bash ?? devScriptsForA2A.shell;
                   if (!bashEntry) return "Error: bash not available";
+                  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+                    return "Error: invalid action name";
+                  }
+
+                  const tokens: string[] = [];
+                  if (typeof input?.args === "string" && input.args.trim()) {
+                    let current = "";
+                    let inSingle = false;
+                    let inDouble = false;
+                    let escape = false;
+                    for (let i = 0; i < input.args.length; i++) {
+                      const char = input.args[i];
+                      if (escape) {
+                        current += char;
+                        escape = false;
+                        continue;
+                      }
+                      if (char === "\\") {
+                        if (inSingle) {
+                          current += char;
+                        } else {
+                          escape = true;
+                        }
+                        continue;
+                      }
+                      if (char === "'" && !inDouble) {
+                        inSingle = !inSingle;
+                        continue;
+                      }
+                      if (char === '"' && !inSingle) {
+                        inDouble = !inDouble;
+                        continue;
+                      }
+                      if (/\s/.test(char) && !inSingle && !inDouble) {
+                        if (current.length > 0) {
+                          tokens.push(current);
+                          current = "";
+                        }
+                        continue;
+                      }
+                      current += char;
+                    }
+                    if (current.length > 0) {
+                      tokens.push(current);
+                    }
+                  } else if (input && typeof input === "object") {
+                    for (const [k, v] of Object.entries(input)) {
+                      if (k === "args" || v === undefined || v === null)
+                        continue;
+                      const strVal =
+                        typeof v === "object" ? JSON.stringify(v) : String(v);
+                      tokens.push(`--${k}`, strVal);
+                    }
+                  }
+
+                  const BLOCKED_OPERATORS = new Set([
+                    ";",
+                    "&&",
+                    "||",
+                    "|",
+                    "&",
+                    ">",
+                    ">>",
+                    "<",
+                  ]);
+                  if (tokens.some((token) => BLOCKED_OPERATORS.has(token))) {
+                    return "Error: shell operators are not permitted in action arguments";
+                  }
+
+                  const escapedArgs = tokens
+                    .map((arg) => "'" + arg.replace(/'/g, "'\\''") + "'")
+                    .join(" ");
+
                   return bashEntry.run({
-                    command: `pnpm action ${name} ${input.args || ""}`.trim(),
+                    command: `pnpm action ${name} ${escapedArgs}`.trim(),
                   });
                 },
                 ...(httpConfig !== undefined ? { http: httpConfig } : {}),
@@ -1592,12 +1792,10 @@ export function createAgentChatPlugin(
         ...new Set([
           ...templateInitialToolNames,
           ...corpusToolNames,
-          // Attachment setup is a recovery action, but it must be available on
-          // the first request so a missing provider renders the CTA immediately
+          // Setup CTAs are recovery actions, but they must be available on the
+          // first request so a missing provider renders the card immediately
           // instead of spending another turn in tool-search.
-          ...(browserTools["connect-file-storage"]
-            ? ["connect-file-storage"]
-            : []),
+          ...resolveConnectSetupInitialToolNames(browserTools),
           ...Object.keys(hostedBuilderHandoff),
         ]),
       ];
@@ -1743,6 +1941,7 @@ export function createAgentChatPlugin(
         ),
         publicSkillsOnly: true,
         streaming: true,
+        connect: options?.connectApps,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
           const actions = filterDirectA2AActions(
@@ -2408,6 +2607,54 @@ export function createAgentChatPlugin(
             return;
           }
 
+          const connectionRequest = [...a2aEvents]
+            .reverse()
+            .find(
+              (
+                event,
+              ): event is Extract<
+                AgentChatEvent,
+                { type: "connection_required" }
+              > => event.type === "connection_required",
+            );
+          if (connectionRequest) {
+            const requestMetadata: A2AConnectionRequestMetadata = {
+              version: 1,
+              provider: connectionRequest.provider,
+              reason: connectionRequest.reason,
+              ...(connectionRequest.appId
+                ? { appId: connectionRequest.appId }
+                : {}),
+              ...(connectionRequest.detail
+                ? { detail: connectionRequest.detail }
+                : {}),
+            };
+            yield {
+              role: "agent" as const,
+              metadata: {
+                agentNativeTaskState: "input-required",
+                agentNativeConnectionRequest: requestMetadata,
+              },
+              parts: [
+                buildA2AAgentActivityPart(activityState),
+                {
+                  type: "text" as const,
+                  text:
+                    connectionRequest.detail ??
+                    `Connect ${connectionRequest.provider} to continue.`,
+                },
+                {
+                  type: "data" as const,
+                  data: {
+                    kind: "agent-native/connection-required",
+                    ...requestMetadata,
+                  },
+                },
+              ],
+            };
+            return;
+          }
+
           const { responseText, finalText, mutationReceipts } =
             assembleA2AFinalResponse(a2aEvents, a2aToolResults, {
               event: context.event,
@@ -2858,6 +3105,19 @@ export function createAgentChatPlugin(
           actionRouteAuth: options?.actionRouteAuth,
         });
       }
+      // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
+      // have to open the (single-process) local database itself while this
+      // server is already holding it open. Gated internally on deploy
+      // environment, loopback, and a per-process token — see dev-action-bridge.ts.
+      const { mountDevActionForwardRoute, mountDevDbQueryForwardRoute } =
+        await import("./dev-action-bridge.js");
+      mountDevActionForwardRoute(nitroApp, httpActions, {
+        appId: options?.appId,
+      });
+      // `db-query` isn't a registered action, so the route above always 404s
+      // it — this is the dedicated forward target `pnpm action db-query`
+      // uses instead (see dev-query-proxy.ts).
+      mountDevDbQueryForwardRoute(nitroApp);
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
         getOwnerContextFromEvent: resolveOwnerContext,
@@ -2986,7 +3246,7 @@ export function createAgentChatPlugin(
           await updateThreadData(
             threadId,
             JSON.stringify(repo),
-            meta.title || thread.title,
+            thread.title,
             meta.preview || thread.preview,
             repo.messages.length,
           );
@@ -3043,9 +3303,8 @@ export function createAgentChatPlugin(
             try {
               const {
                 createCheckpoint: gitCheckpoint,
+                getChangedPaths,
                 isGitRepo,
-                hasUncommittedChanges,
-                getChangedFileNames,
                 getUncommittedStatus,
               } = await import("../checkpoints/service.js");
               const cwd = process.cwd();
@@ -3058,11 +3317,21 @@ export function createAgentChatPlugin(
               // If the tree was already dirty, a checkpoint commit would sweep
               // up the user's unrelated work when a reconnect/refresh finishes.
               const postRunStatus = getUncommittedStatus(cwd);
+              const changedPaths = getChangedPaths(cwd);
+              // Shell commands can mutate arbitrary files, so an unreported
+              // changed path has no safe per-run provenance. Skip the automatic
+              // checkpoint instead of claiming another process's work.
+              const agentModifiedPaths = resolveAgentCheckpointPaths(
+                cwd,
+                changedPaths,
+                run.events ?? [],
+              );
+              const agentModifiedPathList = [...agentModifiedPaths.keys()];
               if (
                 preRunStatus === "" &&
                 postRunStatus?.trim() &&
-                isGitRepo(cwd) &&
-                hasUncommittedChanges(cwd)
+                agentModifiedPaths.size > 0 &&
+                isGitRepo(cwd)
               ) {
                 let summary = "";
 
@@ -3088,7 +3357,9 @@ export function createAgentChatPlugin(
 
                 // Fall back to listing changed files
                 if (!summary) {
-                  const files = getChangedFileNames(cwd);
+                  const files = agentModifiedPathList.map((file) =>
+                    file.split(/[\\/]/).pop(),
+                  );
                   if (files.length > 0) {
                     summary = `Update ${files.join(", ")}`;
                   }
@@ -3098,7 +3369,12 @@ export function createAgentChatPlugin(
                 if (summary.length > 120)
                   summary = summary.slice(0, 117) + "...";
 
-                const sha = gitCheckpoint(cwd, summary);
+                const sha = gitCheckpoint(
+                  cwd,
+                  summary,
+                  agentModifiedPathList,
+                  agentModifiedPaths,
+                );
                 if (sha) {
                   const { insertCheckpoint } =
                     await import("../checkpoints/store.js");
@@ -3216,7 +3492,7 @@ export function createAgentChatPlugin(
           await updateThreadData(
             threadId,
             JSON.stringify(repo),
-            meta.title || thread.title,
+            thread.title,
             meta.preview || thread.preview,
             Array.isArray(repo.messages)
               ? repo.messages.length
@@ -3493,6 +3769,7 @@ export function createAgentChatPlugin(
       // content is what the token-saving modes strip.
       const prepareRun = async (event: any) => {
         const owner = await getOwnerFromEvent(event);
+        const orgId = await getOrgIdFromEvent(event);
         const { resolveOwnerEngineApiKey } =
           await import("../agent/production-agent.js");
         const userApiKey = await resolveOwnerEngineApiKey({
@@ -3505,6 +3782,23 @@ export function createAgentChatPlugin(
           runCtx.owner = owner;
           runCtx.userApiKey = userApiKey.apiKey;
           runCtx.userApiKeyEnvVar = userApiKey.apiKeyEnvVar;
+          if (options?.appId && orgId) {
+            runCtx.appAuthorization = null;
+            try {
+              const { resolveAppAuthorizationContext } =
+                await import("../org/app-roles.js");
+              const authorization = await resolveAppAuthorizationContext(
+                options.appId,
+                { userEmail: owner, orgId },
+              );
+              runCtx.appAuthorization = authorization;
+            } catch (error) {
+              console.warn(
+                "[agent-chat] app authorization context unavailable",
+                error,
+              );
+            }
+          }
         }
         const extra = await resolveExtraContext(event, owner);
         return { owner, extra };
@@ -3640,7 +3934,18 @@ export function createAgentChatPlugin(
         // server-side (`evaluateSubagentDepth`); this only surfaces it to the
         // model. 0 (the top-level chat) emits no delegation line.
         const delegationDepth = getCurrentDelegationDepth();
-        return buildRuntimeContextPrompt({ timezone, delegationDepth });
+        const authorization = getRequestRunContext()?.appAuthorization;
+        const identityLine = authorization
+          ? `\n\n<agent-identity>\nApp roles: ${authorization.roles.join(", ") || "none"}\nApp permissions: ${
+              Object.entries(authorization.permissions)
+                .filter(([, roles]) =>
+                  roles.some((role) => authorization.roles.includes(role)),
+                )
+                .map(([permission]) => permission)
+                .join(", ") || "none"
+            }\n</agent-identity>`
+          : "";
+        return `${buildRuntimeContextPrompt({ timezone, delegationDepth })}${identityLine}`;
       };
 
       // The app-rendered sidebar must never edit the app's source code
@@ -4008,6 +4313,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const normalizedSurface =
                 normalizeAgentActionSurfaceResolution(surface);
               if (normalizedSurface.mode === "default") return surface;
+              if (normalizedSurface.actionScope) {
+                return {
+                  allowedActionNames: normalizedSurface.allowedActionNames,
+                  actionScope: normalizedSurface.actionScope,
+                };
+              }
               const localActionNames = details.availableActionNames.filter(
                 (name) => localDevActionNames.has(name),
               );
@@ -5240,7 +5551,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const ownerEmail = await getOwnerFromEvent(event);
+          const titleOwnerContext = await resolveOwnerContext(event);
+          if (titleOwnerContext.anonymous) return { title: "" };
+          const ownerEmail = titleOwnerContext.owner;
 
           // Per-user rate limit: 10 calls / 60s. Prevents an authenticated
           // user from spamming the endpoint to exhaust shared Anthropic
@@ -5277,60 +5590,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
+          const orgId = await getOrgIdFromEvent(event);
           // Strip hidden context and mention markup before title generation.
-          // Fallback titles are often direct truncations, so never let injected
-          // prompt context become a visible tab label.
+          // Never let injected prompt context become a visible tab label.
           const cleanMessage = message
             .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
             .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
             .replace(/<\/context>/gi, "")
             .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
             .trim();
-          // Mirror the chat-run resolution so BYO-key users have title
-          // generation billed to their own key instead of the platform key.
-          // This request goes straight to Anthropic, so it needs the owner's
-          // Anthropic key specifically — the active engine may be another
-          // provider, whose key must never be sent here. Owners without one
-          // get the truncated title.
-          const { getOwnerApiKeyForEngine } =
-            await import("../agent/production-agent.js");
-          const { apiKey } = await getOwnerApiKeyForEngine(
-            "anthropic",
-            ownerEmail,
-          );
-          if (!apiKey) {
-            // Fallback: truncate the message
-            return { title: cleanMessage.trim().slice(0, 60) };
-          }
           try {
-            const res = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-api-key": apiKey,
-                "anthropic-version": "2023-06-01",
-              },
-              body: JSON.stringify({
-                model: "claude-haiku-4-5-20251001",
-                max_tokens: 30,
-                messages: [
-                  {
-                    role: "user",
-                    content: `Generate a very short title (3-6 words, no quotes) for a chat that starts with this message:\n\n${cleanMessage.slice(0, 500)}`,
-                  },
-                ],
-              }),
-            });
-            if (!res.ok) {
-              return { title: cleanMessage.trim().slice(0, 60) };
-            }
-            const data = (await res.json()) as {
-              content?: Array<{ type: string; text?: string }>;
-            };
-            const text = data.content?.[0]?.text?.trim();
-            return { title: text || cleanMessage.trim().slice(0, 60) };
+            const result = await runWithRequestContext(
+              { userEmail: ownerEmail, orgId },
+              () =>
+                completeText({
+                  appId: options?.appId,
+                  systemPrompt:
+                    "Create a concise chat tab title for the user's request. Return only 3-6 words, with no quotes, punctuation, or explanation.",
+                  input: cleanMessage.slice(0, 500),
+                  maxOutputTokens: 30,
+                  temperature: 0,
+                  timeoutMs: 10_000,
+                }),
+            );
+            const title = result.text
+              .replace(/^["'`]+|["'`]+$/g, "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 80);
+            return { title };
           } catch {
-            return { title: cleanMessage.trim().slice(0, 60) };
+            return { title: "" };
           }
         }),
       );
@@ -5386,7 +5676,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            await markTurnAborted(threadId, turnId, reason);
+            const outcome = await abortTurnByRefDurably(
+              threadId,
+              turnId,
+              reason,
+            );
+            if (outcome === "already_terminal") {
+              setResponseStatus(event, 409);
+              return { error: "Turn is already terminal" };
+            }
             return { ok: true };
           }
 
@@ -5573,6 +5871,44 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runClaim?.dispatchMode ?? "foreground",
             );
             return stream;
+          }
+
+          // Route: GET /runs/latest?threadId=X
+          if (method === "GET" && url.includes("/runs/latest")) {
+            const query = getQuery(event);
+            const threadId = query.threadId ? String(query.threadId) : null;
+            const turnId = query.turnId ? String(query.turnId) : undefined;
+            if (!threadId) {
+              setResponseStatus(event, 400);
+              return { error: "threadId query parameter is required" };
+            }
+            if (!(await canViewThread(threadId))) {
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
+            const { getRunByThread } = await import("../agent/run-store.js");
+            const run = await getRunByThread(threadId, {
+              includeTerminal: true,
+              ...(turnId ? { turnId } : {}),
+            });
+            if (!run) {
+              if (turnId) {
+                setResponseStatus(event, 404);
+                return { error: "Run not found" };
+              }
+              return { threadId, status: "queued" };
+            }
+            return {
+              runId: run.id,
+              threadId: run.threadId,
+              turnId: run.turnId ?? null,
+              status: run.status,
+              heartbeatAt: run.heartbeatAt,
+              completedAt: run.completedAt,
+              lastProgressAt: run.lastProgressAt,
+              dispatchMode: run.dispatchMode,
+              terminalReason: run.terminalReason,
+            };
           }
 
           // Route: GET /runs/active?threadId=X
@@ -6017,7 +6353,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   nextTitle,
                   nextPreview,
                   newMessageCount,
-                  { ignoreConflicts: true },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.
@@ -6649,9 +6984,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 : null;
             if (preparedMarkerRecord?.payloadRef === true) {
               const runStore = await import("../agent/run-store.js");
-              const rawPayload = await runStore
-                .readRunDispatchPayload(prepared.runId)
-                .catch(() => null);
+              const rawPayload = await runStore.readRunDispatchPayload(
+                prepared.runId,
+              );
               let parsedPayload: Record<string, unknown> | null = null;
               if (rawPayload) {
                 try {
@@ -6917,13 +7252,51 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const { sweepUnclaimedBackgroundRuns } =
+              await import("./unclaimed-background-runs.js");
+            const unclaimedBackgroundRuns = await sweepUnclaimedBackgroundRuns({
+              reapExpired: true,
+            }).catch((error: unknown) => {
+              console.error(
+                "[agent-chat] durable unclaimed-run sweep failed:",
+                error,
+              );
+              return null;
+            });
+            const triggerAvailability = scheduledTriggerAvailability();
+            if (unclaimedBackgroundRuns === null) {
+              setResponseStatus(event, 500);
+              return {
+                ok: false,
+                staleRunsReaped,
+                chatHealth,
+                unclaimedBackgroundRuns,
+                jobsSkipped: true,
+                jobsSkippedReason: "unclaimed-background-sweep-failed",
+              };
+            }
+            if (!triggerAvailability.available) {
+              return {
+                ok: true,
+                staleRunsReaped,
+                chatHealth,
+                unclaimedBackgroundRuns,
+                jobsSkipped: true,
+                jobsSkippedReason: triggerAvailability.reason,
+              };
+            }
             try {
               // Jobs may request MCP tools, and `getActions` is synchronous —
               // hydrate before the sweep so a serverless container that never
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
-              return { ok: true, staleRunsReaped, chatHealth };
+              return {
+                ok: true,
+                staleRunsReaped,
+                chatHealth,
+                unclaimedBackgroundRuns,
+              };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
               setResponseStatus(event, 500);
@@ -6931,6 +7304,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
                 chatHealth,
+                unclaimedBackgroundRuns,
               };
             }
           }),
@@ -6950,8 +7324,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
         } else {
           // Start after a 10-second delay to let the server fully initialize
-          setTimeout(() => {
-            setInterval(() => {
+          lifecycle.startTimeout(() => {
+            lifecycle.startInterval(() => {
               processRecurringJobs(schedulerDeps).catch((err) => {
                 console.error(
                   "[recurring-jobs] Scheduler error:",
@@ -6996,8 +7370,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               inFlight = false;
             }
           };
-          setTimeout(() => void sweep(), 15_000);
-          setInterval(() => void sweep(), 30_000);
+          lifecycle.startTimeout(() => void sweep(), 15_000);
+          lifecycle.startInterval(() => void sweep(), 30_000);
         })();
       }
 
@@ -7027,8 +7401,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
-        setTimeout(() => {
-          setInterval(() => {
+        lifecycle.startTimeout(() => {
+          lifecycle.startInterval(() => {
             const now = Date.now();
             if (now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
@@ -7111,89 +7485,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // edit one site without the others (producer: chainServerDrivenContinuation
       // in production-agent.ts; guard + wire signal: run-manager.ts; recovery
       // actors: here).
-      const attemptUnclaimedBackgroundRunRedispatch = async (row: {
-        id: string;
-        startedAt: number;
-        hasDispatchPayload: boolean;
-      }): Promise<void> => {
-        // Eligibility for this sweep does not mean the row is redispatchable.
-        // The marker below asserts `payloadRef: true`, and a worker that then
-        // finds no payload fails the run as `dispatch_payload_missing` — so
-        // redispatching a payload-less row does not recover it, it destroys it.
-        // Leave it for the slow sweep's reap, which reports the true cause
-        // (`background_worker_never_started`) and is client-recoverable.
-        if (!row.hasDispatchPayload) return;
-        const { updateRunHeartbeat } = await import("../agent/run-store.js");
-        const { resolveAgentChatProcessRunDispatchPath } =
-          await import("../agent/durable-background.js");
-        const { fireInternalDispatch } = await import("./self-dispatch.js");
-        // Bump liveness BEFORE attempting the redispatch so the row doesn't
-        // look freshly-stale again the instant this tick returns —
-        // best-effort, the CAS is what actually matters for correctness, not
-        // this timing.
-        await updateRunHeartbeat(row.id).catch(() => {});
-        try {
-          // DELIBERATE: this marker omits `continuationCount`.
-          // `chainServerDrivenContinuation` (production-agent.ts) reads
-          // `backgroundRunMarker.continuationCount` to compute
-          // `backgroundContinuationCount`, defaulting to 0 when absent — so a
-          // chunk recovered here always starts a fresh nested-dispatch
-          // segment at depth 0, regardless of how deep the chain was before
-          // this sweep picked it up. This is what makes the sweep a genuine
-          // CHAIN BREAK, not just a retry: this redispatch fires from an
-          // unrelated, timer-driven invocation rather than from inside the
-          // prior chain's own live execution, so starting its nested-depth
-          // count over at 0 here is correct — see
-          // `MAX_NESTED_SELF_DISPATCH_DEPTH` in production-agent.ts for why
-          // nested depth is bounded and how this reset keeps a long turn
-          // progressing past Netlify's undocumented self-invocation
-          // loop-protection limit instead of dying at it. Do not "fix" this
-          // by adding `continuationCount` back without re-reading that
-          // constant's doc comment.
-          await fireInternalDispatch({
-            path: resolveAgentChatProcessRunDispatchPath(),
-            taskId: row.id,
-            body: {
-              internalContinuation: true,
-              [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-                runId: row.id,
-                payloadRef: true,
-              },
-            },
-            awaitResponse: true,
-            responseTimeoutMs: 15_000,
-          });
-          console.error(
-            "[agent-chat] redispatched unclaimed background run (handoff recovery):",
-            row.id,
-          );
-        } catch (redispatchErr) {
-          console.error(
-            "[agent-chat] unclaimed background run redispatch attempt failed (retrying until the redispatch bound, then reaping):",
-            row.id,
-            redispatchErr instanceof Error
-              ? redispatchErr.message
-              : redispatchErr,
-          );
-        }
-      };
-
       // FAST sweep — redispatch-only, tight cadence. See the invariant
       // comment above for why this exists and the timing budget in
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
       (() => {
         if (isBackgroundRuntime || sweepsDisabled) return;
-        setTimeout(() => {
+        lifecycle.startTimeout(() => {
           (async () => {
             const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
               await import("../agent/run-store.js");
-            startIntervalJob(
+            const job = startIntervalJob(
               async () => {
-                const {
-                  listUnclaimedBackgroundRunRows,
-                  shouldRedispatchUnclaimedBackgroundRun,
-                  reapAllStaleRuns,
-                } = await import("../agent/run-store.js");
+                const { reapAllStaleRuns } =
+                  await import("../agent/run-store.js");
                 // The unclaimed-background sweep below only matches
                 // dispatch_mode='background' — handoffs a worker never
                 // claimed. Once a worker CLAIMS a row nothing periodic looked
@@ -7216,24 +7520,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     error,
                   );
                 });
-                let rows: UnclaimedBackgroundRunRow[];
-                try {
-                  rows = await listUnclaimedBackgroundRunRows();
-                } catch {
-                  return; // Table may not exist yet on first boot
-                }
-                for (const row of rows) {
-                  if (!shouldRedispatchUnclaimedBackgroundRun(row)) continue;
-                  await attemptUnclaimedBackgroundRunRedispatch(row).catch(
-                    () => {},
+                const { sweepUnclaimedBackgroundRuns } =
+                  await import("./unclaimed-background-runs.js");
+                await sweepUnclaimedBackgroundRuns({
+                  reapExpired: false,
+                }).catch((error: unknown) => {
+                  console.error(
+                    "[agent-chat] in-process unclaimed-run redispatch sweep failed:",
+                    error,
                   );
-                }
+                });
               },
               { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
             );
-          })().catch(() => {
-            // best-effort — if run-store fails to load, the slow sweep below
-            // still provides eventual (loud) recovery.
+            lifecycle.addCleanup(() => job.stop());
+          })().catch((error: unknown) => {
+            console.error(
+              "[agent-chat] in-process unclaimed-run redispatch sweep initialization failed:",
+              error,
+            );
           });
         }, 10_000); // Start 10s after init — before the slow sweep's first tick.
       })();
@@ -7249,53 +7554,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
-        setTimeout(() => {
-          setInterval(() => {
+        lifecycle.startTimeout(() => {
+          lifecycle.startInterval(() => {
             const now = Date.now();
             if (now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
 
             (async () => {
-              const {
-                listUnclaimedBackgroundRunRows,
-                reapUnclaimedBackgroundRun,
-                shouldRedispatchUnclaimedBackgroundRun,
-              } = await import("../agent/run-store.js");
-              let rows: UnclaimedBackgroundRunRow[];
-              try {
-                rows = await listUnclaimedBackgroundRunRows();
-              } catch {
-                return; // Table may not exist yet on first boot
-              }
-              for (const row of rows) {
-                try {
-                  // A row with no `dispatch_payload` can never be rehydrated by
-                  // a redispatched worker, so waiting out the redispatch bound
-                  // buys nothing — fall straight through to the reap below and
-                  // fail it loudly with its real cause.
-                  if (
-                    row.hasDispatchPayload &&
-                    shouldRedispatchUnclaimedBackgroundRun(row)
-                  ) {
-                    await attemptUnclaimedBackgroundRunRedispatch(row);
-                    continue;
-                  }
-                  // Redispatch bound exceeded — this handoff is not
-                  // recovering. Fall back to the pre-existing loud reap so
-                  // the turn fails loud instead of retrying forever.
-                  const reaped = await reapUnclaimedBackgroundRun(row.id);
-                  if (reaped) {
-                    console.error(
-                      "[agent-chat] swept unclaimed background run (handoff lost, redispatch bound exceeded):",
-                      row.id,
-                    );
-                  }
-                } catch {
-                  // best-effort per run
-                }
-              }
-            })().catch(() => {
-              // best-effort — never break the server
+              const { sweepUnclaimedBackgroundRuns } =
+                await import("./unclaimed-background-runs.js");
+              await sweepUnclaimedBackgroundRuns({
+                reapExpired: true,
+              }).catch((error: unknown) => {
+                console.error(
+                  "[agent-chat] in-process unclaimed-run sweep failed:",
+                  error,
+                );
+              });
+            })().catch((error: unknown) => {
+              console.error(
+                "[agent-chat] in-process unclaimed-run sweep initialization failed:",
+                error,
+              );
             });
           }, 30_000); // Check every 30s but only sweep once per 2min
         }, 20_000); // Start 20s after init (after the agent-teams sweep)
@@ -7374,6 +7654,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/.well-known/agent-card.json",
         "/_agent-native/a2a",
       ],
+    });
+    nitroApp.hooks?.hook?.("close", async () => {
+      lifecycle.beginClose();
+      await initPromise;
+      await lifecycle.drainCleanups();
     });
   };
 }

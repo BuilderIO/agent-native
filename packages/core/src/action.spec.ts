@@ -6,7 +6,9 @@ import {
   ActionContractError,
   isActionContractError,
   AgentActionStopError,
+  AgentConnectionRequiredError,
   isAgentActionStopError,
+  isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
   validateActionArgs,
@@ -259,6 +261,9 @@ describe("defineAction", () => {
     // an external caller is not on — unless `mcpTool: true` is explicit.
     expect(isActionExposedToExternalAgents({ endsTurn: true })).toBe(false);
     expect(
+      isActionExposedToExternalAgents({ uiOnly: true, mcpTool: true }),
+    ).toBe(false);
+    expect(
       isActionExposedToExternalAgents({ endsTurn: true, agentTool: true }),
     ).toBe(false);
     expect(
@@ -274,6 +279,24 @@ describe("defineAction", () => {
       isActionHiddenFromEveryAgentSurface({ agentTool: false, mcpTool: true }),
     ).toBe(false);
     expect(isActionHiddenFromEveryAgentSurface({ mcpTool: false })).toBe(false);
+    expect(isActionHiddenFromEveryAgentSurface({ uiOnly: true })).toBe(true);
+  });
+
+  it("requires the frontend caller for UI-only actions", async () => {
+    const run = vi.fn(async () => "ok");
+    const action = defineAction({
+      description: "delete data",
+      parameters: {},
+      uiOnly: true,
+      run,
+    });
+
+    await expect(action.run({}, { caller: "tool" })).rejects.toMatchObject({
+      errorCode: "ui_only_action",
+      statusCode: 403,
+    });
+    await expect(action.run({}, { caller: "frontend" })).resolves.toBe("ok");
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("preserves valid MCP Apps resource metadata", () => {
@@ -1153,6 +1176,28 @@ describe("AgentActionStopError", () => {
     expect(isAgentActionStopError({ agentNativeStop: false })).toBe(false);
     expect(isAgentActionStopError(null)).toBe(false);
     expect(isAgentActionStopError("agentNativeStop")).toBe(false);
+  });
+});
+
+describe("AgentConnectionRequiredError", () => {
+  it("carries only a trusted provider reference and resumable reason", () => {
+    const error = new AgentConnectionRequiredError("Slack must be connected.", {
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+    });
+
+    expect(isAgentConnectionRequiredError(error)).toBe(true);
+    expect(error).toMatchObject({
+      agentNativeStop: true,
+      agentConnectionRequired: true,
+      errorCode: "connection_required",
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+    });
+    expect(error).not.toHaveProperty("url");
+    expect(error).not.toHaveProperty("scopes");
   });
 });
 

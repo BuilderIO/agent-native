@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-09
+
+### Improved
+
+- Collaborator avatars use a slimmer border.
+
 ## 2026-09-02
 
 ### Improved

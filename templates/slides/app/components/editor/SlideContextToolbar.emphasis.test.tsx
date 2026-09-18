@@ -205,4 +205,18 @@ describe("contextual toolbar font family", () => {
       fontFamily: "'Inter', sans-serif",
     });
   });
+
+  it("sorts an unknown current font with the built-in families", () => {
+    renderToolbar(textSnapshot({ fontFamily: "'Brand Sans', sans-serif" }));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Font family" }));
+
+    const labels = screen
+      .getAllByRole("option")
+      .map((option) => option.textContent?.trim());
+    expect(labels.indexOf("Default")).toBeLessThan(
+      labels.indexOf("Brand Sans"),
+    );
+    expect(labels.indexOf("Brand Sans")).toBeLessThan(labels.indexOf("Inter"));
+  });
 });
