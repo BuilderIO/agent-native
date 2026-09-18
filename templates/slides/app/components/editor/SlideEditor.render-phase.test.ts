@@ -161,6 +161,13 @@ describe("SlideEditor render-phase safety", () => {
       "activeOriginalStyle: string | null | undefined = undefined",
     );
     expect(serializeBody).toContain("if (activeOriginalStyle !== undefined)");
+    expect(serializeBody).toContain(
+      'activeClone.style.removeProperty("visibility")',
+    );
+    expect(serializeBody).toContain('getPropertyValue("visibility")');
+    expect(serializeBody).not.toContain(
+      'activeClone.setAttribute("style", activeOriginalStyle)',
+    );
     expect(disposeBody).toContain("session.originalStyle,");
   });
 

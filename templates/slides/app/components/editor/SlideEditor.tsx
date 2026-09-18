@@ -2074,10 +2074,21 @@ export default function SlideEditor({
             activeSourceContent ?? undefined,
           );
           if (activeOriginalStyle !== undefined) {
-            if (activeOriginalStyle === null) {
-              activeClone.removeAttribute("style");
+            const originalStyleElement =
+              clone.ownerDocument.createElement("div");
+            if (activeOriginalStyle !== null) {
+              originalStyleElement.setAttribute("style", activeOriginalStyle);
+            }
+            const originalVisibility =
+              originalStyleElement.style.getPropertyValue("visibility");
+            if (originalVisibility) {
+              activeClone.style.setProperty(
+                "visibility",
+                originalVisibility,
+                originalStyleElement.style.getPropertyPriority("visibility"),
+              );
             } else {
-              activeClone.setAttribute("style", activeOriginalStyle);
+              activeClone.style.removeProperty("visibility");
             }
           }
         }
