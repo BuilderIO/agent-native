@@ -13820,6 +13820,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     placeholder.style.order = "0";
   }
 
+  function resetFlowDuplicateGridPlacement(duplicate: HTMLElement): void {
+    var parent = duplicate.parentElement;
+    if (!parent) return;
+    var parentStyles = window.getComputedStyle(parent);
+    if (
+      parentStyles.display !== "grid" &&
+      parentStyles.display !== "inline-grid"
+    ) {
+      return;
+    }
+    // A late Alt duplicate enters the source grid as a new auto-flow item.
+    // Carrying the source's authored slot would paint the clone over its
+    // source and make the eventual persisted insertion disagree with the
+    // held preview.
+    duplicate.style.gridArea = "auto";
+    duplicate.style.gridColumn = "auto";
+    duplicate.style.gridRow = "auto";
+    duplicate.style.order = "0";
+  }
+
   function gridCellInsertionTarget(
     container: Element,
     clientX: number,
@@ -16553,6 +16573,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    clearGridProjectionCaches();
     var moveGestureId = ++dragGestureSequence;
     // Real creation time of the mousedown that started this gesture, not the
     // moment this handler happened to run — see cancelActiveBridgeDragOrPendingCommit.
@@ -16579,6 +16600,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
       clone.setAttribute("data-agent-native-clone-root", "true");
       selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
+      resetFlowDuplicateGridPlacement(clone as HTMLElement);
       publishSourceDocumentProvenance(undefined, true);
       selectedEl = clone;
       duplicatedForDrag = true;
@@ -16867,8 +16889,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         prevTransform: string;
         authoredTransform: string;
         prevTransition: string;
+        previewTransform: string;
+        previewTransition: string;
       }[] = [];
       var reflowKey: string | null = null;
+      var reflowGuideRect: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+      } | null = null;
+      var reflowGuideMode: string | null = null;
       function reorderMainAxis(target): "x" | "y" {
         return target && target.axis === "y" ? "y" : "x";
       }
@@ -16894,6 +16925,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         });
         reflowSiblings = [];
         reflowKey = null;
+        reflowGuideRect = null;
+        reflowGuideMode = null;
+      }
+      function clearReorderReflowForHitTest(): void {
+        reflowSiblings.forEach(function (s) {
+          s.el.style.transform = s.prevTransform;
+          s.el.style.transition = s.prevTransition;
+        });
+      }
+      function restoreReorderReflowPreview(): void {
+        reflowSiblings.forEach(function (s) {
+          s.el.style.transition = s.previewTransition;
+          s.el.style.transform = s.previewTransform;
+        });
       }
       var reorderLastMoveEvent: any = null;
       var reorderMoved = false;
@@ -16948,6 +16993,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (sourceEl.parentElement) {
           sourceEl.parentElement.insertBefore(clone, sourceEl.nextSibling);
         }
+        resetFlowDuplicateGridPlacement(clone);
         publishSourceDocumentProvenance(undefined, true);
         duplicatedForDrag = true;
         selectedEl = clone;
@@ -17202,7 +17248,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         var axis = reorderMainAxis(target);
         var key = axis + ":" + slotInfo.slot;
-        if (key === reflowKey) return;
+        if (key === reflowKey) {
+          // The target resolver returns a fresh object on every pointer event.
+          // Preserve the wrapped-slot projection that was computed when the
+          // same-slot fast path first ran so the guide does not fall back to
+          // the anchor's full card rect on subsequent events.
+          restoreReorderReflowPreview();
+          if (reflowGuideRect) target.guideRect = { ...reflowGuideRect };
+          if (reflowGuideMode) target.guideMode = reflowGuideMode;
+          return;
+        }
         clearReorderReflow();
         reflowKey = key;
         var originalNextSibling = reorderEl.nextSibling;
@@ -17244,13 +17299,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             containerStyles.flexWrap === "wrap-reverse"
           ) {
             var projectedGuide = placeholder.getBoundingClientRect();
-            target.guideRect = {
+            reflowGuideRect = {
               left: projectedGuide.left,
               top: projectedGuide.top,
               width: projectedGuide.width,
               height: projectedGuide.height,
             };
-            target.guideMode = "wrapped-slot";
+            target.guideRect = { ...reflowGuideRect };
+            reflowGuideMode = "wrapped-slot";
+            target.guideMode = reflowGuideMode;
           }
           placeholder.remove();
           if (
@@ -17269,22 +17326,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
             var prevTransform = el.style.transform;
             var authoredTransform = authoredTransformOf(el);
-            reflowSiblings.push({
-              el: el,
-              prevTransform: prevTransform,
-              authoredTransform: authoredTransform,
-              prevTransition: el.style.transition,
-            });
-            el.style.transition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
-            // Translate FIRST (screen space) composed with the sibling's own
-            // transform so an authored rotate/scale survives the reflow shift.
-            el.style.transform =
+            var previewTransition =
+              "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+            var previewTransform =
               "translate(" +
               dx +
               "px, " +
               dy +
               "px)" +
               (authoredTransform ? " " + authoredTransform : "");
+            reflowSiblings.push({
+              el: el,
+              prevTransform: prevTransform,
+              authoredTransform: authoredTransform,
+              prevTransition: el.style.transition,
+              previewTransform: previewTransform,
+              previewTransition: previewTransition,
+            });
+            el.style.transition = previewTransition;
+            // Translate FIRST (screen space) composed with the sibling's own
+            // transform so an authored rotate/scale survives the reflow shift.
+            el.style.transform = previewTransform;
           });
         } catch (error) {
           // A layout read or DOM insertion can fail if the editor is tearing
@@ -17421,7 +17483,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // Resolve against the source layout, not transforms from the prior
           // projected slot. The next call reapplies the fresh projection, so
           // wrapped rows remain hit-testable while siblings animate.
-          clearReorderReflow();
+          clearReorderReflowForHitTest();
           if (!rawTarget) {
             rawTarget = resolveReorderOrFreeTarget(
               cx,

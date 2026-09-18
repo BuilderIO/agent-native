@@ -31,6 +31,17 @@ const CONTROL_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
+const GRID_FLOW_ALT_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115;color:#fff">
+  <section data-agent-native-node-id="grid-flow" data-agent-native-layer-name="Grid Flow"
+    style="position:absolute;left:360px;top:80px;width:300px;height:220px;padding:12px;display:grid;grid-template-columns:repeat(2,120px);grid-auto-rows:56px;gap:16px;background:#1f2937;box-sizing:border-box">
+    <div data-agent-native-node-id="grid-flow-source" data-agent-native-layer-name="Grid Flow Source"
+      style="grid-column:1;grid-row:1;width:120px;height:56px;background:#6366f1">Source</div>
+    <div data-agent-native-node-id="grid-flow-peer" data-agent-native-layer-name="Grid Flow Peer"
+      style="width:120px;height:56px;background:#a855f7">Peer</div>
+  </section>
+</body></html>`;
+
 const COPY_FIXTURE = `<!doctype html>
 <html><body style="margin:0;position:relative;width:900px;height:900px;background:#0f1115;color:#fff">
   <div data-agent-native-node-id="copy-source" data-agent-native-layer-name="Copy Source"
@@ -562,6 +573,77 @@ test("late Alt flow reorder duplicates without moving the source and Escape is b
     await page.mouse.up();
     await page.keyboard.up("Alt");
     await expect.poll(() => indexHtml(page, designId)).toBe(beforeEscape);
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("late Alt grid reorder clears authored placement on the duplicate", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, GRID_FLOW_ALT_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "grid-flow-source");
+    const source = (await node(page, "grid-flow-source").boundingBox())!;
+    const peer = (await node(page, "grid-flow-peer").boundingBox())!;
+    const start = {
+      x: source.x + source.width / 2,
+      y: source.y + source.height / 2,
+    };
+    const destination = {
+      x: peer.x + peer.width / 2,
+      y: peer.y + peer.height / 2,
+    };
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 5, start.y + 4, { steps: 2 });
+    await page.keyboard.down("Alt");
+    await page.mouse.move(destination.x, destination.y, { steps: 18 });
+    await page.waitForTimeout(120);
+
+    const held = await preview(page)
+      .locator('[data-agent-native-clone-root="true"]')
+      .evaluate((element) => {
+        const node = element as HTMLElement;
+        const rect = node.getBoundingClientRect();
+        return {
+          gridColumn: node.style.gridColumn,
+          gridRow: node.style.gridRow,
+          left: rect.left,
+          top: rect.top,
+        };
+      });
+    expect(held).toMatchObject({ gridColumn: "auto", gridRow: "auto" });
+
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+    await expect
+      .poll(() =>
+        indexHtml(page, designId).then((html) =>
+          htmlNodeCount(html, "Grid Flow Source"),
+        ),
+      )
+      .toBe(2);
+    await openEditor(page, designId);
+    const placements = await preview(page)
+      .locator('[data-agent-native-layer-name="Grid Flow Source"]')
+      .evaluateAll((elements) =>
+        elements.map((element) => {
+          const node = element as HTMLElement;
+          return {
+            gridColumn: node.style.gridColumn,
+            gridRow: node.style.gridRow,
+          };
+        }),
+      );
+    expect(placements).toEqual(
+      expect.arrayContaining([
+        { gridColumn: "1", gridRow: "1" },
+        { gridColumn: "auto", gridRow: "auto" },
+      ]),
+    );
   } finally {
     await deleteDesign(page, designId);
   }

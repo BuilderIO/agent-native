@@ -10023,6 +10023,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       placeholder.style.gridRow = "auto";
       placeholder.style.order = "0";
     }
+    function resetFlowDuplicateGridPlacement(duplicate) {
+      var parent = duplicate.parentElement;
+      if (!parent) return;
+      var parentStyles = window.getComputedStyle(parent);
+      if (parentStyles.display !== "grid" && parentStyles.display !== "inline-grid") {
+        return;
+      }
+      duplicate.style.gridArea = "auto";
+      duplicate.style.gridColumn = "auto";
+      duplicate.style.gridRow = "auto";
+      duplicate.style.order = "0";
+    }
     function gridCellInsertionTarget(container, clientX, clientY, children, excluded) {
       var styles = window.getComputedStyle(container);
       if (styles.display !== "grid" && styles.display !== "inline-grid") {
@@ -11652,6 +11664,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      clearGridProjectionCaches();
       var moveGestureId = ++dragGestureSequence;
       var gestureStartedAt = performance.timeOrigin + e.timeStamp;
       var events = dragEventNames(e);
@@ -11665,6 +11678,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
         clone.setAttribute("data-agent-native-clone-root", "true");
         selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
+        resetFlowDuplicateGridPlacement(clone);
         publishSourceDocumentProvenance(void 0, true);
         selectedEl = clone;
         duplicatedForDrag = true;
@@ -11809,6 +11823,18 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
           reflowSiblings = [];
           reflowKey = null;
+          reflowGuideRect = null;
+          reflowGuideMode = null;
+        }, clearReorderReflowForHitTest2 = function() {
+          reflowSiblings.forEach(function(s) {
+            s.el.style.transform = s.prevTransform;
+            s.el.style.transition = s.prevTransition;
+          });
+        }, restoreReorderReflowPreview2 = function() {
+          reflowSiblings.forEach(function(s) {
+            s.el.style.transition = s.previewTransition;
+            s.el.style.transform = s.previewTransform;
+          });
         }, activateReorderControlOverride2 = function() {
           if (reorderIgnoresAutoLayout) return;
           reorderIgnoresAutoLayout = true;
@@ -11850,6 +11876,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (sourceEl.parentElement) {
             sourceEl.parentElement.insertBefore(clone2, sourceEl.nextSibling);
           }
+          resetFlowDuplicateGridPlacement(clone2);
           publishSourceDocumentProvenance(void 0, true);
           duplicatedForDrag = true;
           selectedEl = clone2;
@@ -12031,7 +12058,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           var axis = reorderMainAxis2(target);
           var key = axis + ":" + slotInfo.slot;
-          if (key === reflowKey) return;
+          if (key === reflowKey) {
+            restoreReorderReflowPreview2();
+            if (reflowGuideRect) target.guideRect = { ...reflowGuideRect };
+            if (reflowGuideMode) target.guideMode = reflowGuideMode;
+            return;
+          }
           clearReorderReflow2();
           reflowKey = key;
           var originalNextSibling = reorderEl.nextSibling;
@@ -12066,13 +12098,15 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
             if (containerStyles.flexWrap === "wrap" || containerStyles.flexWrap === "wrap-reverse") {
               var projectedGuide = placeholder.getBoundingClientRect();
-              target.guideRect = {
+              reflowGuideRect = {
                 left: projectedGuide.left,
                 top: projectedGuide.top,
                 width: projectedGuide.width,
                 height: projectedGuide.height
               };
-              target.guideMode = "wrapped-slot";
+              target.guideRect = { ...reflowGuideRect };
+              reflowGuideMode = "wrapped-slot";
+              target.guideMode = reflowGuideMode;
             }
             placeholder.remove();
             if (originalNextSibling && originalNextSibling.parentNode === container) {
@@ -12088,14 +12122,18 @@ export const editorChromeBridgeScript: string = `"use strict";
               if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
               var prevTransform = el.style.transform;
               var authoredTransform = authoredTransformOf2(el);
+              var previewTransition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+              var previewTransform = "translate(" + dx + "px, " + dy + "px)" + (authoredTransform ? " " + authoredTransform : "");
               reflowSiblings.push({
                 el,
                 prevTransform,
                 authoredTransform,
-                prevTransition: el.style.transition
+                prevTransition: el.style.transition,
+                previewTransform,
+                previewTransition
               });
-              el.style.transition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
-              el.style.transform = "translate(" + dx + "px, " + dy + "px)" + (authoredTransform ? " " + authoredTransform : "");
+              el.style.transition = previewTransition;
+              el.style.transform = previewTransform;
             });
           } catch (error) {
             clearReorderReflow2();
@@ -12189,7 +12227,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               cy
             );
           } else {
-            clearReorderReflow2();
+            clearReorderReflowForHitTest2();
             if (!rawTarget) {
               rawTarget = resolveReorderOrFreeTarget2(
                 cx,
@@ -12418,7 +12456,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           resetReorderModifierState2();
         };
-        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, clearReorderReflow = clearReorderReflow2, activateReorderControlOverride = activateReorderControlOverride2, releaseReorderMetaOverride = releaseReorderMetaOverride2, resetReorderModifierState = resetReorderModifierState2, activateLateReorderDuplicate = activateLateReorderDuplicate2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, hasMetaFlowTarget = hasMetaFlowTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
+        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, clearReorderReflow = clearReorderReflow2, clearReorderReflowForHitTest = clearReorderReflowForHitTest2, restoreReorderReflowPreview = restoreReorderReflowPreview2, activateReorderControlOverride = activateReorderControlOverride2, releaseReorderMetaOverride = releaseReorderMetaOverride2, resetReorderModifierState = resetReorderModifierState2, activateLateReorderDuplicate = activateLateReorderDuplicate2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, hasMetaFlowTarget = hasMetaFlowTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
           return dragGrabRect(member);
@@ -12485,6 +12523,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reorderPendingAt = 0;
         var reflowSiblings = [];
         var reflowKey = null;
+        var reflowGuideRect = null;
+        var reflowGuideMode = null;
         var reorderLastMoveEvent = null;
         var reorderMoved = false;
         document.addEventListener(events.move, onReorderMove2, true);
