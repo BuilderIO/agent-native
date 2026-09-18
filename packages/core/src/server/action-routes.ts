@@ -456,6 +456,21 @@ function allowsWebMcpCapability(
   );
 }
 
+function allowsWebMcpCapabilityResource(
+  authCapability: string | undefined,
+  params: Record<string, unknown>,
+): boolean {
+  const prefix = "capability:visual-edit:";
+  if (!authCapability?.startsWith(prefix)) return true;
+  const match = /^design:([^:]+)$/.exec(authCapability.slice(prefix.length));
+  if (!match || typeof params.designId !== "string") return false;
+  try {
+    return decodeURIComponent(match[1]) === params.designId;
+  } catch {
+    return false;
+  }
+}
+
 async function resolveRequestAuthCapability(
   event: any,
 ): Promise<string | undefined> {
@@ -848,6 +863,16 @@ function mountActionRoutesInternal(
                 throw new ActionContractError(paramsError, {
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
+                });
+              }
+              if (
+                capabilityAllowed &&
+                !userEmail &&
+                !allowsWebMcpCapabilityResource(authCapability, params)
+              ) {
+                throw createError({
+                  statusCode: 401,
+                  statusMessage: "Unauthorized",
                 });
               }
               const caller =
