@@ -102,6 +102,8 @@ configuration portion of `agent-native.json`:
 | `runtime.database.required`    | `boolean`                                                         | Declares whether production needs a persistent remote PostgreSQL database.                                                                                                                |
 | `runtime.environment.required` | `string[]`                                                        | Declares additional required environment variable names. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values do not belong in the config.                                                   |
 | `deployment.environment`       | `"local"`, `"beta"`, `"production"`, or `"preview"`               | Records the release lane that produced the current client bundle.                                                                                                                         |
+| `deployment.workspace.appsDirectory` | `string`                                                       | Relative directory containing app packages for a workspace deploy. Defaults to `apps/`; set `"."` for a workspace whose apps live at its root. |
+| `deployment.workspace.authMode` | `"shared"` or `"isolated"`                                  | Controls whether apps mounted by a workspace deploy share auth. Defaults to `"shared"`; `"isolated"` keeps one login per app. |
 | `diagnostics.failOnBuild`      | `boolean`                                                         | When `true`, a production Vite build throws on runtime configuration issues. When absent or `false`, it reports them without failing the build.                                           |
 | `instructions.runtime`         | `string`                                                          | Optional relative Markdown path for the in-app runtime agent. Defaults to `AGENTS.md`.                                                                                                    |
 | `instructions.development`     | `string`                                                          | Optional relative Markdown path for development/coding agents. Defaults to `AGENTS.md`.                                                                                                   |
@@ -125,6 +127,9 @@ upper snake case and join segments with underscores:
 | `runtime.database.required`    | `AGENT_NATIVE_CONFIG_RUNTIME_DATABASE_REQUIRED`    |
 | `runtime.environment.required` | `AGENT_NATIVE_CONFIG_RUNTIME_ENVIRONMENT_REQUIRED` |
 | `deployment.environment`       | `AGENT_NATIVE_CONFIG_DEPLOYMENT_ENVIRONMENT`       |
+| `deployment.workspace`         | `AGENT_NATIVE_CONFIG_DEPLOYMENT_WORKSPACE`         |
+| `deployment.workspace.appsDirectory` | `AGENT_NATIVE_CONFIG_DEPLOYMENT_WORKSPACE_APPS_DIRECTORY` |
+| `deployment.workspace.authMode` | `AGENT_NATIVE_CONFIG_DEPLOYMENT_WORKSPACE_AUTH_MODE` |
 | `diagnostics.failOnBuild`      | `AGENT_NATIVE_CONFIG_DIAGNOSTICS_FAIL_ON_BUILD`    |
 | `instructions.runtime`         | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_RUNTIME`         |
 | `instructions.development`     | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_DEVELOPMENT`     |

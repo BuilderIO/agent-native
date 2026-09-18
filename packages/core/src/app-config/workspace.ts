@@ -24,6 +24,16 @@ export const workspaceConfig = z.object({
       env: ["AGENT_NATIVE_WORKSPACE", "VITE_AGENT_NATIVE_WORKSPACE"],
       doc: "Whether this app is mounted inside a shared workspace gateway.",
     }),
+  authMode: z
+    .enum(["shared", "isolated"])
+    .optional()
+    .meta({
+      env: [
+        "AGENT_NATIVE_WORKSPACE_AUTH_MODE",
+        "VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE",
+      ],
+      doc: "Whether mounted workspace apps share auth or keep per-app sessions.",
+    }),
   appsJson: z
     .string()
     .min(1)

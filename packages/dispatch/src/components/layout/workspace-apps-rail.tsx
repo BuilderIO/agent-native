@@ -3,6 +3,10 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconApps } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 
+import {
+  filterOtherApps,
+  type ConnectedAppSummary,
+} from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
 import {
   isWorkspaceAppVisibleInDefaultLaunchers,
@@ -37,15 +41,32 @@ export function WorkspaceAppsRail({
       includeAgentCards: false,
     },
   );
+  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
+    "list-connected-agents",
+    {},
+  );
   if (appsQuery.isError || !appsQuery.data) return null;
 
-  const apps = appsQuery.data
+  const workspaceApps = appsQuery.data;
+  const apps = workspaceApps
     .filter(
       (app) =>
         isWorkspaceAppVisibleInDefaultLaunchers(app) &&
         !app.archived &&
         app.status !== "pending" &&
         !!workspaceAppHref(app),
+    )
+    .concat(
+      filterOtherApps(connectedAppsQuery.data ?? [], workspaceApps).map(
+        (app) => ({
+          id: app.id,
+          name: app.name,
+          description: app.description,
+          path: "",
+          url: app.homeUrl ?? app.url,
+          status: "ready" as const,
+        }),
+      ),
     )
     .sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
 

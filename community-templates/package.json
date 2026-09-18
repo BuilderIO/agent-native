@@ -1,0 +1,8 @@
+{
+  "name": "@agent-native/community-templates",
+  "private": true,
+  "type": "module",
+  "agent-native": {
+    "workspaceCore": "@agent-native/core"
+  }
+}
