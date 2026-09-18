@@ -443,6 +443,12 @@ describe("shouldShowDeepSelectGuidance", () => {
       }),
     ).toBe(false);
     expect(
+      shouldShowDeepSelectGuidance(container, {
+        ctrlKey: true,
+        source: "pointer",
+      }),
+    ).toBe(false);
+    expect(
       shouldShowDeepSelectGuidance(
         { ...container, childElementCount: 0 },
         { source: "pointer" },
