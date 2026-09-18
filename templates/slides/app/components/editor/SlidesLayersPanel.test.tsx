@@ -144,4 +144,36 @@ describe("SlidesLayersPanel", () => {
     expect(dataTransfer.setData).toHaveBeenCalledTimes(1);
     expect(dataTransfer.setData).toHaveBeenCalledWith("text/plain", "child");
   });
+
+  it("reports the hovered layer without changing selection", () => {
+    const onHoverLayer = vi.fn();
+    const onLeaveLayer = vi.fn();
+    const { container } = render(
+      <SlidesLayersPanel
+        layers={[{ id: "layer", label: "Layer", kind: "shape" }]}
+        selectedIds={[]}
+        onHoverLayer={onHoverLayer}
+        onLeaveLayer={onLeaveLayer}
+        onSelectLayer={vi.fn()}
+        onMoveLayer={vi.fn()}
+        onClose={vi.fn()}
+        labels={{
+          title: "Layers",
+          close: "Close layers panel",
+          expand: "Expand layer",
+          collapse: "Collapse layer",
+        }}
+      />,
+    );
+
+    const row = container.querySelector<HTMLElement>(
+      '[data-layer-node-id="layer"]',
+    );
+    expect(row).not.toBeNull();
+    fireEvent.mouseEnter(row!);
+    fireEvent.mouseLeave(row!);
+
+    expect(onHoverLayer).toHaveBeenCalledWith("layer");
+    expect(onLeaveLayer).toHaveBeenCalledWith("layer");
+  });
 });

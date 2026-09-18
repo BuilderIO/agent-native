@@ -64,6 +64,11 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(editorSource).toContain(
       "isSelectedElementDraggable && selectedElementFrame",
     );
+    expect(editorSource).toContain("data-slide-move-handle");
+    expect(editorSource).toContain(
+      "selectedElementRect && !multiSelectionBounds",
+    );
+    expect(editorSource).toContain("richTextEditorRevision,");
   });
 
   it("keeps drag chrome and snap guides in the object coordinate root", () => {
