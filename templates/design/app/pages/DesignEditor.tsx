@@ -20862,7 +20862,8 @@ function DesignEditor() {
         setActiveTool("move");
         setMode("edit");
         setExpandedLayerIds((current) => {
-          const next = new Set(current);
+          const currentIds = new Set(current);
+          const next = new Set(currentIds);
           for (const target of targets) {
             const owner = ownerForTarget(target);
             if (!owner) continue;
@@ -20871,7 +20872,7 @@ function DesignEditor() {
               (ancestorId) => next.add(ancestorId),
             );
           }
-          return next.size === current.length ? current : Array.from(next);
+          return next.size === currentIds.size ? current : Array.from(next);
         });
         if (viewModeRef.current === "overview") {
           window.requestAnimationFrame(() => handleZoomToSelectionFit());
