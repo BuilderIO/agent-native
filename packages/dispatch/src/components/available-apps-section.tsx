@@ -1,6 +1,13 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconCircleCheck, IconLoader2, IconPlus } from "@tabler/icons-react";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
+import {
+  IconCircleCheck,
+  IconLoader2,
+  IconPencil,
+  IconPlus,
+} from "@tabler/icons-react";
 import { toast } from "sonner";
 
 import {
@@ -18,6 +25,13 @@ import {
   AppListRow,
 } from "./app-list-row";
 import { Button } from "./ui/button";
+
+interface CustomizeAppResult {
+  mode: "builder" | "local-agent" | "builder-unavailable" | "coming-soon";
+  message: string;
+  prompt?: string;
+  url?: string;
+}
 
 export function AvailableAppsSection({
   connectedApps,
@@ -82,6 +96,51 @@ function AvailableAppRow({
   onConnected?: () => void;
 }) {
   const t = useT();
+  const customize = useActionMutation<
+    CustomizeAppResult,
+    { appId: string; description: string; prompt: string }
+  >("start-workspace-app-creation", {
+    onSuccess: (result) => {
+      if (result.mode === "builder" && result.url) {
+        const builderUrl = withBuilderUtmTrackingParams(result.url, {
+          campaign: "product",
+          content: "available_app_customize",
+        });
+        toast.success(
+          t("dispatch.pages.customizeStarted", {
+            defaultValue: "Builder customization started",
+          }),
+          {
+            action: {
+              label: t("dispatch.pages.openInBuilder", {
+                defaultValue: "Open in Builder",
+              }),
+              onClick: () =>
+                window.open(builderUrl, "_blank", "noopener,noreferrer"),
+            },
+          },
+        );
+        return;
+      }
+      if (result.mode === "local-agent" && result.prompt) {
+        sendToAgentChat({
+          message: result.prompt,
+          submit: true,
+          type: "code",
+          newTab: true,
+          reuseEmptyTab: true,
+        });
+        toast.success(
+          t("dispatch.pages.customizeSent", {
+            defaultValue: "Sent to the local agent",
+          }),
+        );
+        return;
+      }
+      toast.error(result.message);
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const connect = useActionMutation("connect-external-agent", {
     onSuccess: () => {
       toast.success(
@@ -91,6 +150,18 @@ function AvailableAppRow({
     },
     onError: (error) => toast.error(error.message),
   });
+
+  function customizeApp() {
+    customize.mutate({
+      appId: `${app.id}-custom`,
+      description: `A customized version of ${app.name}.`,
+      prompt: [
+        `Create a private customized copy of ${app.name}.`,
+        `Use ${availableAppUrl(app.id)} as the source app to clone.`,
+        "Preserve its core workflow and visual shell, use synthetic data only, and keep the new app independent.",
+      ].join(" "),
+    });
+  }
 
   return (
     <AppListRow className={className}>
@@ -103,39 +174,55 @@ function AvailableAppRow({
           {app.description}
         </div>
       </div>
-      {connected ? (
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-xs text-primary">
-            <IconCircleCheck size={13} />
-            {t("dispatch.pages.appAdded", { defaultValue: "Added" })}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {t("dispatch.pages.appPersonal", { defaultValue: "Personal" })}
-          </span>
-        </div>
-      ) : (
+      <div className="flex shrink-0 items-center gap-2">
         <Button
           type="button"
           size="sm"
-          variant="outline"
-          disabled={connect.isPending}
-          onClick={() =>
-            connect.mutate({
-              url: availableAppUrl(app.id),
-              name: app.name,
-              description: app.description,
-              scope: "personal",
-            })
-          }
+          variant="ghost"
+          disabled={customize.isPending}
+          onClick={customizeApp}
         >
-          {connect.isPending ? (
+          {customize.isPending ? (
             <IconLoader2 size={15} className="mr-1.5 animate-spin" />
           ) : (
-            <IconPlus size={15} className="mr-1.5" />
+            <IconPencil size={15} className="mr-1.5" />
           )}
-          {t("dispatch.pages.addApp", { defaultValue: "Add" })}
+          {t("dispatch.pages.customizeApp", { defaultValue: "Customize" })}
         </Button>
-      )}
+        {connected ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-xs text-primary">
+              <IconCircleCheck size={13} />
+              {t("dispatch.pages.appAdded", { defaultValue: "Added" })}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {t("dispatch.pages.appPersonal", { defaultValue: "Personal" })}
+            </span>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={connect.isPending}
+            onClick={() =>
+              connect.mutate({
+                url: availableAppUrl(app.id),
+                name: app.name,
+                description: app.description,
+                scope: "personal",
+              })
+            }
+          >
+            {connect.isPending ? (
+              <IconLoader2 size={15} className="mr-1.5 animate-spin" />
+            ) : (
+              <IconPlus size={15} className="mr-1.5" />
+            )}
+            {t("dispatch.pages.addApp", { defaultValue: "Add" })}
+          </Button>
+        )}
+      </div>
     </AppListRow>
   );
 }

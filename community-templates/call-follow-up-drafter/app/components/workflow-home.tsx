@@ -11,7 +11,7 @@ import {
   IconClock,
   IconSparkles,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -43,8 +43,12 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
   const [selectedId, setSelectedId] = useState(
     currentWorkflow.items[0]?.id ?? "",
   );
+  const selectedIdRef = useRef(selectedId);
   useEffect(() => {
-    if (data?.selectedId) setSelectedId(data.selectedId);
+    if (data?.selectedId) {
+      selectedIdRef.current = data.selectedId;
+      setSelectedId(data.selectedId);
+    }
   }, [data?.selectedId]);
   const selected =
     currentWorkflow.items.find((item) => item.id === selectedId) ??
@@ -106,12 +110,15 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
                       key={item.id}
                       type="button"
                       onClick={() => {
-                        const previousSelectedId = selectedId;
+                        const previousSelectedId = selectedIdRef.current;
+                        selectedIdRef.current = item.id;
                         setSelectedId(item.id);
                         selectItem.mutate(
                           { id: item.id },
                           {
                             onError: () => {
+                              if (selectedIdRef.current !== item.id) return;
+                              selectedIdRef.current = previousSelectedId;
                               setSelectedId(previousSelectedId);
                               toast.error("Could not save selection.");
                             },
