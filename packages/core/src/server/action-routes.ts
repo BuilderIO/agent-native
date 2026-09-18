@@ -467,6 +467,7 @@ function allowsWebMcpCapabilityResource(
   try {
     return decodeURIComponent(match[1]) === params.designId;
   } catch {
+    // coercion-ok: malformed capability scope is invalid and must fail closed.
     return false;
   }
 }
