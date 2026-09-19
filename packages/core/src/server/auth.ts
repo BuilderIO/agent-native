@@ -6737,11 +6737,6 @@ async function mountBetterAuthRoutes(
         setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {
-        console.error("[agent-native][auth] signup failed", {
-          message: e?.message,
-          code: e?.code,
-          stack: e?.stack,
-        });
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
