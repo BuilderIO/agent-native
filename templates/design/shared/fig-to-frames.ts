@@ -451,7 +451,9 @@ function validateRenderedFrames(
     );
   }
   if (rendered.frames.length > MAX_FIG_FRAMES) {
-    throw new Error(".fig document has too many top-level frames (max 200).");
+    throw new Error(
+      `.fig document has too many top-level frames (max ${MAX_FIG_FRAMES}).`,
+    );
   }
   let total = 0;
   for (const frame of rendered.frames) {

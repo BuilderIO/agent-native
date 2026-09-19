@@ -146,14 +146,14 @@ describe("bounded .fig decoding", () => {
   });
 
   it("allows the hex expansion of bounded binary fields during the safety re-check", () => {
-    const fieldNames = Array.from({ length: 9 }, (_, index) => `blob${index}`);
+    const fieldNames = ["blob"];
     const schema = parseSchema(
       `message Message { ${fieldNames.map((name, index) => `byte[] ${name} = ${index + 1};`).join(" ")} }`,
     );
     const compiled = compileSchema(schema) as {
       encodeMessage(value: Record<string, Uint8Array>): Uint8Array;
     };
-    const blob = new Uint8Array(2 * 1024 * 1024);
+    const blob = new Uint8Array(3 * 1024 * 1024);
     const document = Object.fromEntries(
       fieldNames.map((name) => [name, blob]),
     ) as Record<string, Uint8Array>;
@@ -167,11 +167,26 @@ describe("bounded .fig decoding", () => {
     expect(() => assertSafeDecodedFigDocument(decoded.document)).not.toThrow();
     expect(() =>
       assertSafeDecodedFigDocument({
-        blobs: Array.from({ length: fieldNames.length }, () => ({
-          bytes: "00".repeat(2 * 1024 * 1024),
-        })),
+        blobs: [{ bytes: "00".repeat(3 * 1024 * 1024) }],
       }),
     ).toThrow(/too much string data/i);
+  });
+
+  it("counts bigint serialization against the decoded string budget", () => {
+    const schema = parseSchema("message Message { uint64[] values = 1; }");
+    const compiled = compileSchema(schema) as {
+      encodeMessage(value: { values: bigint[] }): Uint8Array;
+    };
+    const values = new Array(1_700_000).fill(18_446_744_073_709_551_615n);
+    const decoded = decodeFig(
+      kiwiContainer([
+        Buffer.from(encodeBinarySchema(schema)),
+        Buffer.from(compiled.encodeMessage({ values })),
+      ]),
+    );
+
+    expect(decoded.document).toBeNull();
+    expect(decoded.decodeError).toMatch(/too much string data/i);
   });
 
   it("lets browser-local decoding skip only the raw upload ceiling", () => {
