@@ -253,7 +253,11 @@ async function bridgeResponse(
     );
   }
 
-  if (response.status >= 300 && response.status < 400) {
+  if (
+    response.type === "opaqueredirect" ||
+    response.status === 0 ||
+    (response.status >= 300 && response.status < 400)
+  ) {
     return jsonResponse(
       {
         error: "The local visual-edit bridge returned an unexpected redirect.",

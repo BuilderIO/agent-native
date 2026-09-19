@@ -291,6 +291,35 @@ describe("localhost bridge browser relay", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("rejects an opaque browser redirect without constructing status zero", async () => {
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        if (url.startsWith(pageOrigin)) {
+          return Response.json(relay("read-file", { path: "src/App.tsx" }));
+        }
+        return {
+          ok: false,
+          status: 0,
+          type: "opaqueredirect",
+        } as Response;
+      },
+    );
+    const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+      origin: pageOrigin,
+    });
+
+    const response = await proxy(
+      `${pageOrigin}/_agent-native/actions/read-local-file?designId=design_1&connectionId=conn_1&path=src%2FApp.tsx`,
+      { method: "GET" },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "The local visual-edit bridge returned an unexpected redirect.",
+    });
+  });
+
   it("notifies the caller when the bridge rejects the cached token", async () => {
     const onBridgeTokenRejected = vi.fn();
     const fetchImpl = vi.fn(
