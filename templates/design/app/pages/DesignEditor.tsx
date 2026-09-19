@@ -3750,7 +3750,8 @@ function DesignEditor() {
 
   const {
     data: designResult,
-    isError: designQueryError,
+    error: designQueryError,
+    isError: designQueryFailed,
     isLoading: designLoading,
     refetch: refetchDesign,
   } = useActionQuery<DesignData | string>(
@@ -3854,10 +3855,19 @@ function DesignEditor() {
   const designAccessRole = design?.accessRole;
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
-  const canEditDesign =
-    !isVisualEditSurface || !designQueryError
-      ? canShareDesign || designAccessRole === "editor"
-      : false;
+  const designQueryErrorStatus =
+    designQueryError && typeof designQueryError === "object"
+      ? (designQueryError as { status?: unknown }).status
+      : undefined;
+  const designQueryAuthFailed =
+    designQueryErrorStatus === 401 || designQueryErrorStatus === 403;
+  const visualEditAccessLost =
+    isVisualEditSurface &&
+    designQueryFailed &&
+    (designResult === undefined || designQueryAuthFailed);
+  const canEditDesign = !visualEditAccessLost
+    ? canShareDesign || designAccessRole === "editor"
+    : false;
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
   const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
@@ -3871,6 +3881,9 @@ function DesignEditor() {
   const visualEditAccessAttemptRef = useRef<string | null>(null);
   const visualEditCanEditRef = useRef<boolean | null>(null);
   const visualEditAccessRequestRef = useRef(0);
+  const visualEditBootstrapRetryCountRef = useRef(0);
+  const [visualEditBootstrapRetryTick, setVisualEditBootstrapRetryTick] =
+    useState(0);
   const [visualEditBootstrapFailed, setVisualEditBootstrapFailed] =
     useState(false);
 
@@ -3878,6 +3891,7 @@ function DesignEditor() {
     const previousCanEdit = visualEditCanEditRef.current;
     visualEditCanEditRef.current = canEditDesign;
     let active = true;
+    let retryTimeout: number | undefined;
 
     // Wait for the server-backed design result. It is the authority for both
     // signed-in editor access and the scoped visual-edit capability ticket.
@@ -3886,14 +3900,22 @@ function DesignEditor() {
       !id ||
       !sessionResolved ||
       shellMode ||
-      designResult === undefined
+      (designResult === undefined && !designQueryFailed)
     ) {
+      return () => {
+        active = false;
+      };
+    }
+    if (designQueryFailed && designResult === undefined) {
+      visualEditAccessAttemptRef.current = null;
+      setVisualEditBootstrapFailed(true);
       return () => {
         active = false;
       };
     }
     if (canEditDesign) {
       visualEditAccessAttemptRef.current = null;
+      visualEditBootstrapRetryCountRef.current = 0;
       setVisualEditBootstrapFailed(false);
       visualEditAccessRequestRef.current += 1;
       return () => {
@@ -3934,10 +3956,25 @@ function DesignEditor() {
         ) {
           visualEditAccessAttemptRef.current = null;
           setVisualEditBootstrapFailed(true);
+          if (visualEditBootstrapRetryCountRef.current < 1) {
+            visualEditBootstrapRetryCountRef.current += 1;
+            retryTimeout = window.setTimeout(() => {
+              if (
+                active &&
+                visualEditAccessRequestRef.current === requestId &&
+                visualEditAccessAttemptRef.current === null
+              ) {
+                setVisualEditBootstrapRetryTick((tick) => tick + 1);
+              }
+            }, 1000);
+          }
         }
       });
     return () => {
       active = false;
+      if (retryTimeout !== undefined) {
+        window.clearTimeout(retryTimeout);
+      }
       if (visualEditAccessRequestRef.current === requestId) {
         visualEditAccessRequestRef.current += 1;
         if (visualEditAccessAttemptRef.current === id) {
@@ -3947,11 +3984,13 @@ function DesignEditor() {
     };
   }, [
     canEditDesign,
+    designQueryFailed,
     designResult,
     id,
     isVisualEditSurface,
     sessionResolved,
     shellMode,
+    visualEditBootstrapRetryTick,
   ]);
   const showVisualEditAccessFailureBanner =
     isVisualEditSurface && visualEditBootstrapFailed;
