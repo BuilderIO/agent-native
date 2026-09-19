@@ -159,6 +159,20 @@ const messages = {
       saveFailed: "تعذر تحديث حالة المراجعة",
     },
   },
+  designSystems: {
+    ...messagesByLocale["ar-SA"].designSystems,
+    tierLimitTitle: "تم الوصول إلى الحد الأقصى لأنظمة التصميم",
+    tierLimitDescription:
+      "لقد وصلت إلى الحد الأقصى لأنظمة التصميم في خطتك. قم بالترقية لإنشاء نظام آخر.",
+    tierLimitDescriptionWithCount:
+      "أنت تستخدم {{current}} من {{max}} أنظمة تصميم في خطة {{plan}}. قم بالترقية لإنشاء نظام آخر.",
+    tierLimitUpgrade: "ترقية الخطة",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["ar-SA"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Enterprise",
+  },
 };
 
 export default messages;

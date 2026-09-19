@@ -135,6 +135,7 @@
     "./client/collab": "./dist/client/collab/index.js",
     "./client/composer": "./dist/client/composer/index.js",
     "./client/conversation": "./dist/client/conversation/index.js",
+    "./client/design-system-tier-limit": "./dist/client/design-system-tier-limit.js",
     "./client/dev-overlay": "./dist/client/dev-overlay/index.js",
     "./client/editor": "./dist/client/tombstone/editor.js",
     "./client/rich-markdown-editor": "./dist/client/tombstone/rich-markdown-editor.js",

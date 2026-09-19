@@ -186,6 +186,12 @@ const messages = {
     emptyTitle: "Markenidentität einrichten",
     emptyDescription:
       "Erstelle ein Designsystem mit Markenfarben, Typografie und Logos. Jedes neue Deck folgt deiner visuellen Identität.",
+    tierLimitTitle: "Limit für Designsysteme erreicht",
+    tierLimitDescription:
+      "Du hast das Limit für Designsysteme deines Plans erreicht. Upgrade deinen Plan, um ein weiteres zu erstellen.",
+    tierLimitDescriptionWithCount:
+      "Du nutzt {{current}} von {{max}} Designsystemen im Plan {{plan}}. Upgrade deinen Plan, um ein weiteres zu erstellen.",
+    tierLimitUpgrade: "Plan upgraden",
   },
   editorToolbar: {
     layoutTitle: "Titel",
@@ -767,6 +773,8 @@ const messages = {
     websitePlaceholder: "example.com oder Nike",
     add: "Hinzufügen",
     githubRepository: "Code verbinden: GitHub-Repository",
+    codeIndexingEnterpriseOnly:
+      "Code- und Repository-Indizierung erfordert einen Enterprise-Plan",
     githubRef: "Branch, Tag oder Commit (optional)",
     githubPaths: "Dateien oder Ordner, durch Kommas getrennt (optional)",
     codeFiles: "Code-Dateien verbinden",

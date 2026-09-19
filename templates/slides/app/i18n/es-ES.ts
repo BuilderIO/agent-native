@@ -185,6 +185,12 @@ const messages = {
     emptyTitle: "Configura la identidad de tu marca",
     emptyDescription:
       "Crea un sistema de diseño con los colores, la tipografía y los logotipos de tu marca. Cada nueva presentación seguirá tu identidad visual.",
+    tierLimitTitle: "Se alcanzó el límite de sistemas de diseño",
+    tierLimitDescription:
+      "Has alcanzado el límite de sistemas de diseño de tu plan. Mejora tu plan para crear otro.",
+    tierLimitDescriptionWithCount:
+      "Estás usando {{current}} de {{max}} sistemas de diseño en el plan {{plan}}. Mejora tu plan para crear otro.",
+    tierLimitUpgrade: "Mejorar plan",
   },
   editorToolbar: {
     layoutTitle: "Título",
@@ -771,6 +777,8 @@ const messages = {
     websitePlaceholder: "example.com o Nike",
     add: "Añadir",
     githubRepository: "Conectar código: repositorio de GitHub",
+    codeIndexingEnterpriseOnly:
+      "La indexación de código y repositorios requiere un plan Enterprise",
     githubRef: "Rama, etiqueta o commit (opcional)",
     githubPaths: "Archivos o carpetas, separados por comas (opcional)",
     codeFiles: "Conectar archivos de código",
