@@ -15271,10 +15271,17 @@ function DesignEditor() {
               movedSourceMatches.map(([layerId]) => layerId),
             );
             const selectedElement = selectedElementRef.current;
+            const selectedElementSourceScreenId =
+              selectedElement?.sourceLayerIdentity?.screenId?.trim() ||
+              undefined;
+            const selectedElementBelongsToSource =
+              selectedElementSourceScreenId === undefined ||
+              selectedElementSourceScreenId === arg0.sourceScreenId;
             // Removing the source can legitimately clear its pre-drop
             // selection before the two saves settle.
             const selectedMovedSource =
               selectedElement !== null &&
+              selectedElementBelongsToSource &&
               movedSourceOwner !== undefined &&
               (sourceIdMatches.length === 1
                 ? selectedElement.sourceId?.trim() === movedSourceId

@@ -565,9 +565,7 @@ async function expandLayers(page: Page): Promise<void> {
     timeout: 30_000,
   });
   for (let index = 0; index < 128; index += 1) {
-    const expand = tree
-      .getByRole("button", { name: "Expand layer" })
-      .first();
+    const expand = tree.getByRole("button", { name: "Expand layer" }).first();
     if ((await expand.count()) === 0) return;
     const row = expand.locator('xpath=ancestor::*[@role="treeitem"][1]');
     const rowIndex = await row.evaluate((element) => {
