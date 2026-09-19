@@ -329,6 +329,58 @@ test.describe.serial("public visual edit", () => {
           tool: "list-localhost-connections",
           result: { count: 1 },
         });
+
+      const direct = await openSignedOutPage(
+        browser,
+        `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview`,
+      );
+      try {
+        await expect(direct.page).toHaveURL(
+          /\/visual-edit\/[^?]+\?.*__an_embed_token=/,
+          { timeout: 30_000 },
+        );
+        await expect(direct.page.locator("[data-design-editor]")).toBeVisible({
+          timeout: 30_000,
+        });
+        await expect(
+          direct.page.locator("[data-read-only-design-banner]"),
+        ).toHaveCount(0);
+        await expect(
+          direct.page
+            .locator("iframe[data-design-preview-iframe]")
+            .last()
+            .contentFrame()
+            .getByRole("heading", { name: "Local visual edit" }),
+        ).toBeVisible({ timeout: 30_000 });
+        await expect
+          .poll(
+            () =>
+              direct.page.evaluate(async (designId) => {
+                const helper = (
+                  window as typeof window & {
+                    __agentNativeWebMcp?: {
+                      call(
+                        name: string,
+                        args?: Record<string, unknown>,
+                      ): Promise<unknown>;
+                    };
+                  }
+                ).__agentNativeWebMcp;
+                if (!helper) throw new Error("WebMCP page helper missing");
+                return helper.call("list-localhost-connections", { designId });
+              }, preflightResult?.designId),
+            { timeout: 15_000 },
+          )
+          .toMatchObject({
+            state: "done",
+            ok: true,
+            result: { count: 1 },
+          });
+        await assertNoRuntimeErrors(direct);
+      } finally {
+        await direct.close();
+      }
+
       const consentRequest = await signedOut.page.evaluate(
         async ({ designId, connectionId }) => {
           const helper = (
