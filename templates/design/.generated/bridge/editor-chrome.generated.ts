@@ -12602,7 +12602,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             return target;
           }
           var crect = container.getBoundingClientRect();
-          var drect = reorderEl.getBoundingClientRect();
+          var drect = reorderGestureStartRect;
           if (crect.width >= drect.width && crect.height >= drect.height) {
             return target;
           }

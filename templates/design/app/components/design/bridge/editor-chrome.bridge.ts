@@ -17941,7 +17941,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return target;
         }
         var crect = container.getBoundingClientRect();
-        var drect = (reorderEl as HTMLElement).getBoundingClientRect();
+        // The live reflow preview can temporarily shrink a flex item before
+        // the release-time guard runs. Compare against the gesture baseline so
+        // a source layer wider/taller than the destination cannot slip into
+        // a too-small frame just because its projected box was compressed.
+        var drect = reorderGestureStartRect;
         if (crect.width >= drect.width && crect.height >= drect.height) {
           return target;
         }
