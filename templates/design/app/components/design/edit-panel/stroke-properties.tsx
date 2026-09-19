@@ -1,11 +1,17 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  canvasVectorMarkerFromCssValue,
+  canvasVectorMarkerUrl,
+  type CanvasVectorMarker,
+} from "@shared/canvas-vector-marker";
+import {
   parseCssColor,
   rgbaToCss,
   withColorOpacity,
 } from "@shared/color-utils";
 import {
   IconAdjustments,
+  IconArrowsLeftRight,
   IconBorderStyle,
   IconEye,
   IconEyeOff,
@@ -14,6 +20,7 @@ import {
   IconPlus,
   IconSquare,
 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 
 import {
   Select,
@@ -80,6 +87,28 @@ const DEFAULT_STROKE_COLOR = "#000000";
 
 type StrokeLayerKind = "border" | "outline";
 type StrokePosition = "inside" | "outside" | "center";
+
+const VECTOR_MARKER_OPTIONS: Array<{
+  value: CanvasVectorMarker;
+  key:
+    | "markerNone"
+    | "markerRound"
+    | "markerSquare"
+    | "markerLineArrow"
+    | "markerTriangleArrow"
+    | "markerReversedTriangle"
+    | "markerCircleArrow"
+    | "markerDiamondArrow";
+}> = [
+  { value: "none", key: "markerNone" },
+  { value: "round", key: "markerRound" },
+  { value: "square", key: "markerSquare" },
+  { value: "line", key: "markerLineArrow" },
+  { value: "triangle", key: "markerTriangleArrow" },
+  { value: "reversed-triangle", key: "markerReversedTriangle" },
+  { value: "circle", key: "markerCircleArrow" },
+  { value: "diamond", key: "markerDiamondArrow" },
+];
 
 function StrokeLayerControl({
   kind,
@@ -800,6 +829,65 @@ function VectorStrokeProperties({
   )
     ? (styles["--an-vector-stroke-position"] as StrokePosition)
     : "center";
+  const lineLike =
+    element.primitiveKind === "line" || element.primitiveKind === "arrow";
+  const markerNodeId =
+    element.sourceId ||
+    element.runtimeSourceId ||
+    element.pendingNodeId ||
+    "vector";
+  const [markerOverride, setMarkerOverride] = useState<{
+    key: string;
+    start: CanvasVectorMarker;
+    end: CanvasVectorMarker;
+  } | null>(null);
+  useEffect(() => {
+    setMarkerOverride((previous) =>
+      previous?.key === markerNodeId ? previous : null,
+    );
+  }, [markerNodeId]);
+  const markerStartValue =
+    element.inlineStyles?.markerStart ??
+    element.inlineStyles?.["marker-start"] ??
+    styles.markerStart ??
+    styles["marker-start"] ??
+    "none";
+  const markerEndValue =
+    element.inlineStyles?.markerEnd ??
+    element.inlineStyles?.["marker-end"] ??
+    styles.markerEnd ??
+    styles["marker-end"] ??
+    "none";
+  const derivedMarkerStart = canvasVectorMarkerFromCssValue(
+    markerStartValue,
+    "start",
+  );
+  const derivedMarkerEnd = canvasVectorMarkerFromCssValue(
+    markerEndValue,
+    "end",
+  );
+  const markerStart =
+    markerOverride?.key === markerNodeId
+      ? markerOverride.start
+      : derivedMarkerStart;
+  const markerEnd =
+    markerOverride?.key === markerNodeId
+      ? markerOverride.end
+      : derivedMarkerEnd;
+  const markerOptions = VECTOR_MARKER_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`editPanel.labels.${option.key}`),
+  }));
+  const markerPatch = (
+    endpoint: "start" | "end",
+    marker: CanvasVectorMarker,
+  ) => ({
+    [endpoint === "start" ? "markerStart" : "markerEnd"]: canvasVectorMarkerUrl(
+      markerNodeId,
+      endpoint,
+      marker,
+    ),
+  });
 
   return (
     <PanelSection
@@ -977,6 +1065,81 @@ function VectorStrokeProperties({
               />
             </InspectorGridCell>
           </InspectorGrid>
+          {lineLike ? (
+            <div className="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-1.5">
+              {(["start", "end"] as const).map((endpoint) => {
+                const marker = endpoint === "start" ? markerStart : markerEnd;
+                const label =
+                  endpoint === "start"
+                    ? t("editPanel.labels.startPoint")
+                    : t("editPanel.labels.endPoint");
+                return (
+                  <div key={endpoint} className="min-w-0 space-y-1">
+                    <SubsectionLabel>{label}</SubsectionLabel>
+                    <Select
+                      value={marker}
+                      onValueChange={(next) => {
+                        if (
+                          markerOptions.some((option) => option.value === next)
+                        ) {
+                          const nextMarker = next as CanvasVectorMarker;
+                          setMarkerOverride({
+                            key: markerNodeId,
+                            start:
+                              endpoint === "start" ? nextMarker : markerStart,
+                            end: endpoint === "end" ? nextMarker : markerEnd,
+                          });
+                          const patch = markerPatch(endpoint, nextMarker);
+                          const property =
+                            endpoint === "start" ? "markerStart" : "markerEnd";
+                          onStyleChange(property, patch[property]);
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label={label}
+                        className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {markerOptions.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            className="!text-[11px]"
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                );
+              })}
+              <SectionIconButton
+                label={t("editPanel.labels.swapStartEnd")}
+                onClick={() => {
+                  setMarkerOverride({
+                    key: markerNodeId,
+                    start: markerEnd,
+                    end: markerStart,
+                  });
+                  const patch = {
+                    ...markerPatch("start", markerEnd),
+                    ...markerPatch("end", markerStart),
+                  };
+                  if (onStylesChange) onStylesChange(patch);
+                  else
+                    Object.entries(patch).forEach(([property, value]) =>
+                      onStyleChange(property, value),
+                    );
+                }}
+              >
+                <IconArrowsLeftRight className="size-3.5" />
+              </SectionIconButton>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </PanelSection>

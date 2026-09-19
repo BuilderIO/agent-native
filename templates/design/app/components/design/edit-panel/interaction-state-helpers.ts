@@ -47,6 +47,8 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "borderTopRightRadius",
   "borderBottomRightRadius",
   "borderBottomLeftRadius",
+  "markerStart",
+  "markerEnd",
 ] as const;
 
 /** Patch authored values onto an existing inline-style snapshot. A commit that

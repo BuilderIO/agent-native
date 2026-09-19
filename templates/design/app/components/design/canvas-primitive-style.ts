@@ -40,6 +40,18 @@
 
 import type * as React from "react";
 
+export {
+  canvasVectorMarkerId,
+  canvasVectorMarkerSpec,
+  canvasVectorMarkerUrl,
+  canvasVectorMarkerFromCssValue,
+} from "@shared/canvas-vector-marker";
+export type {
+  CanvasVectorMarker,
+  CanvasVectorMarkerEndpoint,
+  CanvasVectorMarkerSpec,
+} from "@shared/canvas-vector-marker";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import {
   appendCanvasPrimitiveToHtml,
   blankScreenHtml,
   extractCanvasPrimitiveHtml,
+  reassignDuplicatedNodeIds,
 } from "./canvas-primitive-insert";
 import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
 import { cssStyleAliases, parseInlineStyleAttribute } from "./code-layer-state";
@@ -895,6 +896,51 @@ describe("arrow paint target", () => {
     );
     expect(shaft?.getAttribute("marker-end")).toBe("url(#arrow-1-arrow)");
     expect(svg.querySelector("defs path")).not.toBe(shaft);
+  });
+
+  it("persists independent start and end marker definitions", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "arrow",
+      nodeId: "arrow-markers",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      markerStart: "diamond",
+      markerEnd: "circle",
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg[data-an-primitive='arrow']");
+    const shaft = svg?.querySelector(":scope > path");
+
+    expect(shaft?.getAttribute("marker-start")).toBe(
+      "url(#arrow-markers-arrow-start-diamond)",
+    );
+    expect(shaft?.getAttribute("marker-end")).toBe(
+      "url(#arrow-markers-arrow-end-circle)",
+    );
+    expect(
+      svg
+        ?.querySelector('marker[id="arrow-markers-arrow-start-diamond"] path')
+        ?.getAttribute("d"),
+    ).toBe("M 5 0 L 10 5 L 5 10 L 0 5 Z");
+    expect(
+      svg
+        ?.querySelector('marker[id="arrow-markers-arrow-end-circle"] path')
+        ?.getAttribute("d"),
+    ).toBe("M 5 0 A 5 5 0 1 1 5 10 A 5 5 0 1 1 5 0");
+  });
+
+  it("remints marker ids when an arrow is duplicated", () => {
+    const duplicated = reassignDuplicatedNodeIds(
+      '<svg data-agent-native-node-id="arrow-1"><defs><marker id="arrow-1-arrow-end-diamond"><path/></marker></defs><path marker-end="url(#arrow-1-arrow-end-diamond)"/></svg>',
+    );
+    expect(duplicated).not.toContain("arrow-1-arrow");
+    expect(duplicated).toMatch(
+      /id="copy-[^"]+-arrow-end-diamond"[^>]*>.*marker-end="url\(#copy-[^"]+-arrow-end-diamond\)"/s,
+    );
   });
 });
 

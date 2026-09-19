@@ -5,6 +5,7 @@ import type {
   EqualGapGuide,
   FrameBounds,
 } from "@shared/canvas-math";
+import type { CanvasVectorMarker } from "@shared/canvas-vector-marker";
 import type { CodeLayerProjection, CodeLayerSource } from "@shared/code-layer";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
@@ -123,6 +124,8 @@ export interface CanvasPrimitiveInsert {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  markerStart?: CanvasVectorMarker;
+  markerEnd?: CanvasVectorMarker;
   autoSize?: boolean;
 }
 
@@ -848,6 +851,8 @@ export interface DraftPrimitive {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  markerStart?: CanvasVectorMarker;
+  markerEnd?: CanvasVectorMarker;
   autoSize?: boolean;
 }
 

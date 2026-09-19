@@ -104,6 +104,8 @@ import { cn } from "@/lib/utils";
 import { parseBreakpointWidthInput } from "./BreakpointBar";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import {
+  canvasVectorMarkerId,
+  canvasVectorMarkerSpec,
   canvasPrimitiveReactStyle,
   canvasVectorPaint,
 } from "./canvas-primitive-style";
@@ -11243,7 +11245,6 @@ function DraftPrimitiveContent({
     draft.kind === "line" ||
     draft.kind === "arrow"
   ) {
-    const markerId = `arrow-${draft.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
     const pathData =
       draft.pathData ??
       (draft.penPath
@@ -11258,24 +11259,43 @@ function DraftPrimitiveContent({
     // The arrowhead marker takes the resolved stroke color (not
     // `currentColor`) so it never disagrees with the shaft.
     const resolvedStroke = paint.stroke;
+    const markerStart = draft.markerStart ?? "none";
+    const markerEnd =
+      draft.markerEnd ?? (draft.kind === "arrow" ? "triangle" : "none");
+    const markerEntries = [
+      ["start", markerStart],
+      ["end", markerEnd],
+    ] as const;
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
         viewBox={`${draft.geometry.x} ${draft.geometry.y} ${draft.geometry.width} ${draft.geometry.height}`}
       >
-        {draft.kind === "arrow" ? (
+        {markerEntries.some(([, marker]) => marker !== "none") ? (
           <defs>
-            <marker
-              id={markerId}
-              markerWidth="10"
-              markerHeight="10"
-              refX="8"
-              refY="5"
-              orient="auto"
-              markerUnits="strokeWidth"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill={resolvedStroke} />
-            </marker>
+            {markerEntries.map(([endpoint, marker]) => {
+              if (marker === "none") return null;
+              const markerId = canvasVectorMarkerId(draft.id, endpoint, marker);
+              const markerSpec = canvasVectorMarkerSpec(marker);
+              return (
+                <marker
+                  key={markerId}
+                  id={markerId ?? undefined}
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX={markerSpec.refX}
+                  refY="5"
+                  orient="auto-start-reverse"
+                  markerUnits="strokeWidth"
+                >
+                  <path
+                    d={markerSpec.d}
+                    fill={marker === "line" ? "none" : resolvedStroke}
+                    stroke={resolvedStroke}
+                  />
+                </marker>
+              );
+            })}
           </defs>
         ) : null}
         <path
@@ -11285,7 +11305,16 @@ function DraftPrimitiveContent({
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={paint.strokeWidth}
-          markerEnd={draft.kind === "arrow" ? `url(#${markerId})` : undefined}
+          markerStart={
+            markerStart !== "none"
+              ? `url(#${canvasVectorMarkerId(draft.id, "start", markerStart)})`
+              : undefined
+          }
+          markerEnd={
+            markerEnd !== "none"
+              ? `url(#${canvasVectorMarkerId(draft.id, "end", markerEnd)})`
+              : undefined
+          }
         />
       </svg>
     );

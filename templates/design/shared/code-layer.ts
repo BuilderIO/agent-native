@@ -7,6 +7,10 @@ import {
   removeBreakpointMediaDeclaration,
   setBreakpointMediaDeclaration,
 } from "./breakpoint-media.js";
+import {
+  canvasVectorMarkerSpec,
+  type CanvasVectorMarker,
+} from "./canvas-vector-marker";
 import { parseCssColorExtended } from "./color-utils";
 import {
   linkedComponentRootForNode,
@@ -158,6 +162,8 @@ export type VisualStyleProperty =
   | "border-bottom-right-radius"
   | "stroke"
   | "stroke-width"
+  | "marker-start"
+  | "marker-end"
   | "stroke-opacity"
   | "stroke-dasharray"
   | "stroke-dashoffset"
@@ -873,6 +879,8 @@ const STYLE_PROPERTIES = [
   "border-bottom-right-radius",
   "stroke",
   "stroke-width",
+  "marker-start",
+  "marker-end",
   "stroke-opacity",
   "stroke-dasharray",
   "stroke-dashoffset",
@@ -1997,6 +2005,9 @@ function isSafeStyleValue(
   if (!trimmed) return false;
   if (property === "--an-vector-stroke-position") {
     return ["inside", "center", "outside"].includes(trimmed);
+  }
+  if (property === "marker-start" || property === "marker-end") {
+    return trimmed === "none" || /^url\(#[A-Za-z0-9_.:-]+\)$/.test(trimmed);
   }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
@@ -4175,6 +4186,8 @@ const VECTOR_PAINT_PROPERTIES = [
   "fill-opacity",
   "stroke",
   "stroke-width",
+  "marker-start",
+  "marker-end",
   "stroke-opacity",
 ] as const;
 
@@ -4769,7 +4782,15 @@ function vectorPaintChild(
   property: string,
   parsedElements?: ParsedElement[],
 ): ParsedElement | null {
-  if (!property.startsWith("fill") && !property.startsWith("stroke")) {
+  const normalized = property
+    .replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)
+    .toLowerCase();
+  if (
+    !normalized.startsWith("fill") &&
+    !normalized.startsWith("stroke") &&
+    normalized !== "marker-start" &&
+    normalized !== "marker-end"
+  ) {
     return null;
   }
   const elements = parsedElements ?? parseHtmlElements(html);
@@ -4777,13 +4798,72 @@ function vectorPaintChild(
   // element came from; a shifted index would repaint an unrelated element.
   const parsed = elements[element.index];
   if (!parsed || parsed.start !== element.start) return null;
-  if (property.startsWith("stroke")) {
+  if (normalized === "marker-start" || normalized === "marker-end") {
+    return vectorShapeChild(parsed, elements);
+  }
+  if (normalized.startsWith("stroke")) {
     return (
       vectorStrokeOverlay(parsed, elements) ??
       vectorShapeChild(parsed, elements)
     );
   }
   return vectorShapeChild(parsed, elements);
+}
+
+function markerKindFromId(
+  id: string,
+): Exclude<CanvasVectorMarker, "none"> | null {
+  if (id.endsWith("-arrow")) return "triangle";
+  const match = id.match(/-arrow-(?:start|end)-(.+)$/);
+  const marker = match?.[1];
+  const allowed = new Set<Exclude<CanvasVectorMarker, "none">>([
+    "round",
+    "square",
+    "line",
+    "triangle",
+    "reversed-triangle",
+    "circle",
+    "diamond",
+  ]);
+  return marker && allowed.has(marker as Exclude<CanvasVectorMarker, "none">)
+    ? (marker as Exclude<CanvasVectorMarker, "none">)
+    : null;
+}
+
+function markerIdFromCssValue(value: string): string | null {
+  return value.match(/^url\(#([A-Za-z0-9_.:-]+)\)$/)?.[1] ?? null;
+}
+
+function ensureVectorMarkerDefinition(
+  html: string,
+  element: ParsedElement,
+  value: string,
+): string {
+  const markerId = markerIdFromCssValue(value);
+  const markerKind = markerId ? markerKindFromId(markerId) : null;
+  if (!markerId || !markerKind || element.parentIndex === undefined)
+    return html;
+  const elements = parseHtmlElements(html);
+  const shape = elements[element.index];
+  const wrapper =
+    shape?.parentIndex === undefined ? undefined : elements[shape.parentIndex];
+  if (!wrapper || wrapper.tag !== "svg") return html;
+  const markerPattern = new RegExp(
+    `<marker\\b[^>]*\\bid=["']${markerId}['"]`,
+    "i",
+  );
+  if (
+    markerPattern.test(html.slice(wrapper.contentStart, wrapper.contentEnd))
+  ) {
+    return html;
+  }
+  const marker = canvasVectorMarkerSpec(markerKind);
+  const markup =
+    `<defs><marker id="${markerId}" markerWidth="10" markerHeight="10" ` +
+    `refX="${marker.refX}" refY="5" orient="auto-start-reverse" markerUnits="strokeWidth">` +
+    `<path d="${marker.d}" fill="context-stroke" stroke="context-stroke"/>` +
+    `</marker></defs>`;
+  return `${html.slice(0, wrapper.contentEnd)}${markup}${html.slice(wrapper.contentEnd)}`;
 }
 
 type StyleEditTargetRoute =
@@ -4864,6 +4944,9 @@ function applyStyleEdit(
     storedValue,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (property === "marker-start" || property === "marker-end") {
+    content = ensureVectorMarkerDefinition(content, element, value);
+  }
   if (alignedOverlay && property === "stroke-width") {
     const current = parseHtmlElements(content)[element.index];
     if (!current) return "unsupported";

@@ -1121,6 +1121,17 @@ export function prepareClonedHtmlLayer(
       if (previousChildId) nodeIdMap.set(previousChildId, nextChildId);
     },
   );
+  for (const element of [clone, ...Array.from(clone.querySelectorAll("*"))]) {
+    for (const attribute of Array.from(element.attributes)) {
+      let value = attribute.value;
+      nodeIdMap.forEach((nextId, previousId) => {
+        value = value.split(`${previousId}-arrow`).join(`${nextId}-arrow`);
+      });
+      if (value !== attribute.value) {
+        element.setAttribute(attribute.name, value);
+      }
+    }
+  }
   // U14: also regenerate plain `id="..."` attributes on the clone (root +
   // descendants). Without this, duplicating/pasting an element that (or
   // whose descendants) carries an authored id="..." produces two elements

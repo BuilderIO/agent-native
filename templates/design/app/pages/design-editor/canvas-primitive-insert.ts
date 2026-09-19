@@ -3,6 +3,8 @@ import { normalizedDesignFileType } from "@shared/design-files";
 import { isClosedPathData } from "@shared/pen-path";
 
 import {
+  canvasVectorMarkerId,
+  canvasVectorMarkerSpec,
   canvasPrimitiveVisual,
   canvasVectorPaint,
 } from "@/components/design/canvas-primitive-style";
@@ -103,9 +105,19 @@ export function uniqueLayerId(prefix: string): string {
  * projection.
  */
 export function reassignDuplicatedNodeIds(content: string): string {
-  return content.replace(
-    /data-agent-native-node-id="[^"]*"/g,
-    () => `data-agent-native-node-id="${uniqueLayerId("copy")}"`,
+  const nodeIds: Array<[string, string]> = [];
+  const reassigned = content.replace(
+    /data-agent-native-node-id="([^"]*)"/g,
+    (_match, oldId: string) => {
+      const nextId = uniqueLayerId("copy");
+      nodeIds.push([oldId, nextId]);
+      return `data-agent-native-node-id="${nextId}"`;
+    },
+  );
+  return nodeIds.reduce(
+    (nextContent, [oldId, newId]) =>
+      nextContent.split(`${oldId}-arrow`).join(`${newId}-arrow`),
+    reassigned,
   );
 }
 
@@ -390,7 +402,10 @@ export function appendCanvasPrimitiveToHtml(
     ) {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-      const markerId = `${nodeId}-arrow`;
+      const markerStart = primitive.markerStart ?? "none";
+      const markerEnd =
+        primitive.markerEnd ??
+        (primitive.kind === "arrow" ? "triangle" : "none");
       const explicitPathData = primitive.pathData?.trim()
         ? primitive.pathData
         : null;
@@ -433,29 +448,45 @@ export function appendCanvasPrimitiveToHtml(
       path.setAttribute("stroke-width", String(paint.strokeWidth));
       path.setAttribute("stroke-linecap", "round");
       path.setAttribute("stroke-linejoin", "round");
-      if (primitive.kind === "arrow") {
+      if (markerStart !== "none" || markerEnd !== "none") {
         const defs = doc.createElementNS("http://www.w3.org/2000/svg", "defs");
-        const marker = doc.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "marker",
-        );
-        const arrowHead = doc.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "path",
-        );
-        marker.setAttribute("id", markerId);
-        marker.setAttribute("markerWidth", "10");
-        marker.setAttribute("markerHeight", "10");
-        marker.setAttribute("refX", "8");
-        marker.setAttribute("refY", "5");
-        marker.setAttribute("orient", "auto");
-        marker.setAttribute("markerUnits", "strokeWidth");
-        arrowHead.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-        arrowHead.setAttribute("fill", paint.stroke);
-        marker.appendChild(arrowHead);
-        defs.appendChild(marker);
+        for (const [endpoint, markerKind] of [
+          ["start", markerStart],
+          ["end", markerEnd],
+        ] as const) {
+          if (markerKind === "none") continue;
+          const marker = doc.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "marker",
+          );
+          const markerPath = doc.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path",
+          );
+          const markerId = canvasVectorMarkerId(nodeId, endpoint, markerKind);
+          if (!markerId) continue;
+          const markerSpec = canvasVectorMarkerSpec(markerKind);
+          marker.setAttribute("id", markerId);
+          marker.setAttribute("markerWidth", "10");
+          marker.setAttribute("markerHeight", "10");
+          marker.setAttribute("refX", String(markerSpec.refX));
+          marker.setAttribute("refY", "5");
+          marker.setAttribute("orient", "auto-start-reverse");
+          marker.setAttribute("markerUnits", "strokeWidth");
+          markerPath.setAttribute("d", markerSpec.d);
+          markerPath.setAttribute(
+            "fill",
+            markerKind === "line" ? "none" : paint.stroke,
+          );
+          markerPath.setAttribute("stroke", paint.stroke);
+          marker.appendChild(markerPath);
+          defs.appendChild(marker);
+          path.setAttribute(
+            endpoint === "start" ? "marker-start" : "marker-end",
+            `url(#${markerId})`,
+          );
+        }
         svg.appendChild(defs);
-        path.setAttribute("marker-end", `url(#${markerId})`);
       }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);

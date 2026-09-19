@@ -617,6 +617,46 @@ describe("applyVisualEdit vector paint", () => {
     expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
   });
 
+  it("persists marker paint and materializes its local marker definition", () => {
+    const arrow =
+      '<body><svg data-agent-native-node-id="arrow-1" data-an-primitive="arrow">' +
+      '<defs><marker id="arrow-1-arrow"><path d="M 0 0 L 10 5 L 0 10 Z"/></marker></defs>' +
+      '<path d="M 0 5 L 80 5" stroke="#000" marker-end="url(#arrow-1-arrow)"/></svg></body>';
+    const end = applyVisualEdit(arrow, {
+      kind: "style",
+      target: { nodeId: "arrow-1" },
+      property: "marker-end",
+      value: "url(#arrow-1-arrow-end-diamond)",
+    });
+    const start = applyVisualEdit(end.content, {
+      kind: "style",
+      target: { nodeId: "arrow-1" },
+      property: "marker-start",
+      value: "url(#arrow-1-arrow-start-circle)",
+    });
+
+    expect(end.result.status).toBe("applied");
+    expect(start.result.status).toBe("applied");
+    expect(start.content).toContain(
+      "marker-end: url(#arrow-1-arrow-end-diamond)",
+    );
+    expect(start.content).toContain(
+      "marker-start: url(#arrow-1-arrow-start-circle)",
+    );
+    expect(start.content).toContain('id="arrow-1-arrow-end-diamond"');
+    expect(start.content).toContain('id="arrow-1-arrow-start-circle"');
+    expect(start.content).toContain("M 5 0 L 10 5 L 5 10 L 0 5 Z");
+    expect(start.content).toContain("M 5 0 A 5 5 0 1 1 5 10 A 5 5 0 1 1 5 0");
+    expect(
+      applyVisualEdit(arrow, {
+        kind: "style",
+        target: { nodeId: "arrow-1" },
+        property: "marker-end",
+        value: "url(https://example.com/marker.svg)",
+      }).result.status,
+    ).toBe("unsupported");
+  });
+
   it("persists inside and outside vector strokes with logical weight", () => {
     const overflowHidden = html.replace(
       'style="position:absolute;',

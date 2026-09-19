@@ -246,6 +246,13 @@ function screenShell(page: Page, name = "Home"): Locator {
   return page.locator("[data-screen-shell]").filter({ hasText: name }).first();
 }
 
+function inspectorSection(page: Page, title: RegExp): Locator {
+  return page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: title }) })
+    .first();
+}
+
 async function dragBetween(
   page: Page,
   from: { x: number; y: number },
@@ -2018,6 +2025,182 @@ test("rectangle insertion keeps the new primitive selected", async ({
       .last(),
   ).toHaveCSS("border-radius", "0px");
   await restoreHome(page);
+});
+
+test("arrow markers survive drawing, inspector edits, reload, and duplication", async ({
+  page,
+}) => {
+  const card = await homeScreenCard(page);
+  const cardBox = await card.boundingBox();
+  if (!cardBox) throw new Error("no home screen card box");
+  const start = {
+    x: cardBox.x + cardBox.width * 0.58,
+    y: cardBox.y + cardBox.height * 0.56,
+  };
+  const middle = {
+    x: cardBox.x + cardBox.width * 0.7,
+    y: cardBox.y + cardBox.height * 0.64,
+  };
+  const end = {
+    x: cardBox.x + cardBox.width * 0.82,
+    y: cardBox.y + cardBox.height * 0.72,
+  };
+  const before = await primitiveNodeIdsInDesign(page);
+
+  await toolButton(page, "Rectangle options").click();
+  await page.getByRole("menuitem", { name: /^Arrow/ }).click();
+  await expect(toolButton(page, "Arrow")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(middle.x, middle.y, { steps: 4 });
+  await expect(
+    page.locator("[data-draft-id] svg > path").first(),
+  ).toHaveAttribute("marker-end", /url\(#/);
+  await page.mouse.move(end.x, end.y, { steps: 6 });
+  await page.mouse.up();
+  await expect(toolButton(page, "Move")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(selectedLayerRow(page)).toContainText("Arrow");
+  await expect
+    .poll(
+      async () =>
+        (await primitiveNodeIdsInDesign(page)).some(
+          (id) => !before.includes(id),
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+
+  const frame = screenShell(page).frameLocator("iframe[data-screen-iframe-id]");
+  const arrowPath = frame
+    .locator('svg[data-an-primitive="arrow"] > path')
+    .last();
+  await expect(arrowPath).toBeVisible();
+  const initialContent = await fileContent(page, "index.html");
+  expect(initialContent).toContain('data-an-primitive="arrow"');
+  expect(initialContent).toContain('marker-end="url(#');
+  expect(initialContent).toContain("<marker");
+
+  const strokeSection = inspectorSection(page, /^Stroke$/i);
+  await expect(strokeSection).toBeVisible();
+  const endPoint = strokeSection.getByRole("combobox", { name: "End point" });
+  const startPoint = strokeSection.getByRole("combobox", {
+    name: "Start point",
+  });
+  await expect(endPoint).toBeVisible();
+  await endPoint.click();
+  await page
+    .getByRole("option", { name: "Diamond arrow", exact: true })
+    .click();
+  await expect
+    .poll(async () => fileContent(page, "index.html"), { timeout: 20_000 })
+    .toContain("arrow-end-diamond");
+  await startPoint.click();
+  await page.getByRole("option", { name: "Circle arrow", exact: true }).click();
+  await expect
+    .poll(async () => fileContent(page, "index.html"), { timeout: 20_000 })
+    .toContain("arrow-start-circle");
+  let editedContent = await fileContent(page, "index.html");
+  expect(editedContent).toContain("arrow-end-diamond");
+  expect(editedContent).toContain("arrow-start-circle");
+  await expect
+    .poll(async () =>
+      arrowPath.evaluate((element) => ({
+        start: getComputedStyle(element).markerStart,
+        end: getComputedStyle(element).markerEnd,
+      })),
+    )
+    .toMatchObject({ start: expect.stringContaining("arrow-start-circle") });
+  await strokeSection
+    .getByRole("button", { name: "Swap start and end points" })
+    .click();
+  await expect
+    .poll(async () => fileContent(page, "index.html"), { timeout: 20_000 })
+    .toContain("arrow-end-circle");
+  editedContent = await fileContent(page, "index.html");
+  expect(editedContent).toContain("arrow-start-diamond");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const reloadedFrame = screenShell(page).frameLocator(
+    "iframe[data-screen-iframe-id]",
+  );
+  const reloadedArrow = reloadedFrame.locator(
+    'svg[data-an-primitive="arrow"] > path',
+  );
+  await expect(reloadedArrow).toBeVisible();
+  expect(await fileContent(page, "index.html")).toContain("arrow-end-circle");
+  await expect
+    .poll(async () =>
+      reloadedArrow.evaluate((element) => getComputedStyle(element).markerEnd),
+    )
+    .toContain("arrow-end-circle");
+
+  const reloadedBox = await reloadedArrow.boundingBox();
+  if (!reloadedBox) throw new Error("reloaded arrow has no bounds");
+  await page.mouse.click(
+    reloadedBox.x + reloadedBox.width / 2,
+    reloadedBox.y + reloadedBox.height / 2,
+  );
+  await expect(selectedLayerRow(page)).toContainText("Arrow");
+  const countBeforePaste = await primitiveCount(page, "index.html", "arrow");
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+C" : "Control+C",
+  );
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+V" : "Control+V",
+  );
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "arrow"), {
+      timeout: 20_000,
+    })
+    .toBe(countBeforePaste + 1);
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+D" : "Control+D",
+  );
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "arrow"), {
+      timeout: 20_000,
+    })
+    .toBe(countBeforePaste + 2);
+
+  const markerRefs = await page.evaluate(
+    async (html) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      return Array.from(doc.querySelectorAll('svg[data-an-primitive="arrow"]'))
+        .map((svg) => {
+          const path = svg.querySelector(":scope > path");
+          const svgPath = path as SVGPathElement | null;
+          return (
+            svgPath?.style.getPropertyValue("marker-end") ||
+            svgPath?.getAttribute("marker-end") ||
+            ""
+          );
+        })
+        .filter(Boolean);
+    },
+    await fileContent(page, "index.html"),
+  );
+  expect(new Set(markerRefs).size).toBe(markerRefs.length);
+
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+z" : "Control+z",
+  );
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "arrow"), {
+      timeout: 20_000,
+    })
+    .toBe(countBeforePaste + 1);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "arrow"), {
+      timeout: 20_000,
+    })
+    .toBe(countBeforePaste + 2);
 });
 
 test("creating a layer does not restore a layer deleted immediately before it", async ({

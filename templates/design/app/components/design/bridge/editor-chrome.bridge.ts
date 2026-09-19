@@ -3924,6 +3924,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "borderTopRightRadius",
     "borderBottomRightRadius",
     "borderBottomLeftRadius",
+    "markerStart",
+    "markerEnd",
   ];
 
   function collectInlineStyles(el: Element): Record<string, string> {
@@ -3938,8 +3940,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? "-webkit-line-clamp"
             : property;
       var value =
-        property.indexOf("--") === 0 || property.indexOf("webkit") === 0
-          ? inline.getPropertyValue(cssProperty)
+        property.indexOf("--") === 0 ||
+        property.indexOf("webkit") === 0 ||
+        property === "markerStart" ||
+        property === "markerEnd"
+          ? inline.getPropertyValue(
+              property === "markerStart"
+                ? "marker-start"
+                : property === "markerEnd"
+                  ? "marker-end"
+                  : cssProperty,
+            )
           : (inline[property as never] as unknown as string);
       if (typeof value === "string" && value !== "") {
         styles[property] = value;
@@ -4123,6 +4134,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       strokeLinecap: strokeCs.strokeLinecap,
       strokeLinejoin: strokeCs.strokeLinejoin,
       strokeMiterlimit: strokeCs.strokeMiterlimit,
+      markerStart: strokeCs.getPropertyValue("marker-start"),
+      markerEnd: strokeCs.getPropertyValue("marker-end"),
       vectorOpacity: paintCs.opacity,
       vectorTransform: paintCs.transform,
       vectorTransformOrigin: paintCs.transformOrigin,
@@ -12399,6 +12412,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
     if (authoredFill) styles.fill = authoredFill;
+    ["markerStart", "markerEnd"].forEach(function (property) {
+      var cssProperty =
+        property === "markerStart" ? "marker-start" : "marker-end";
+      var value = (paintTarget as HTMLElement).style.getPropertyValue(
+        cssProperty,
+      );
+      if (!value) value = paintTarget.getAttribute(cssProperty) || "";
+      if (value) styles[property] = value;
+    });
     return styles;
   }
 
@@ -12652,8 +12674,73 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function isVectorPaintProperty(cssProperty: string): boolean {
     return (
-      cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0
+      cssProperty.indexOf("fill") === 0 ||
+      cssProperty.indexOf("stroke") === 0 ||
+      cssProperty === "marker-start" ||
+      cssProperty === "marker-end"
     );
+  }
+
+  function runtimeMarkerSpec(
+    marker: string,
+  ): { d: string; refX: string } | null {
+    switch (marker) {
+      case "round":
+        return {
+          d: "M 5 0 A 5 5 0 1 0 5 10 A 5 5 0 1 0 5 0 Z",
+          refX: "5",
+        };
+      case "square":
+        return { d: "M 0 0 H 10 V 10 H 0 Z", refX: "10" };
+      case "line":
+        return { d: "M 0 0 L 10 5 L 0 10", refX: "10" };
+      case "reversed-triangle":
+        return { d: "M 10 0 L 0 5 L 10 10 Z", refX: "10" };
+      case "circle":
+        return {
+          d: "M 5 0 A 5 5 0 1 1 5 10 A 5 5 0 1 1 5 0",
+          refX: "5",
+        };
+      case "diamond":
+        return { d: "M 5 0 L 10 5 L 5 10 L 0 5 Z", refX: "10" };
+      case "triangle":
+        return { d: "M 0 0 L 10 5 L 0 10 Z", refX: "10" };
+      default:
+        return null;
+    }
+  }
+
+  function ensureRuntimeMarkerDefinition(el: Element, value: string): void {
+    var match = /^url\(#([A-Za-z0-9_.:-]+)\)$/.exec(value.trim());
+    if (!match || !el || el.tagName.toLowerCase() !== "svg") return;
+    var markerId = match[1];
+    var markerKind = /-arrow$/.test(markerId)
+      ? "triangle"
+      : (/-arrow-(?:start|end)-(.+)$/.exec(markerId) || [])[1];
+    var spec = markerKind ? runtimeMarkerSpec(markerKind) : null;
+    if (!spec || el.querySelector('marker[id="' + markerId + '"]')) return;
+    var defs = el.querySelector(":scope > defs");
+    if (!defs) {
+      defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      el.insertBefore(defs, el.firstChild);
+    }
+    var marker = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "marker",
+    );
+    marker.setAttribute("id", markerId);
+    marker.setAttribute("markerWidth", "10");
+    marker.setAttribute("markerHeight", "10");
+    marker.setAttribute("refX", spec.refX);
+    marker.setAttribute("refY", "5");
+    marker.setAttribute("orient", "auto-start-reverse");
+    marker.setAttribute("markerUnits", "strokeWidth");
+    var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", spec.d);
+    path.setAttribute("fill", "context-stroke");
+    path.setAttribute("stroke", "context-stroke");
+    marker.appendChild(path);
+    defs.appendChild(marker);
   }
 
   /**
@@ -12719,6 +12806,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     (target as HTMLElement).style.setProperty(cssProperty, String(value));
+    if (cssProperty === "marker-start" || cssProperty === "marker-end") {
+      ensureRuntimeMarkerDefinition(el, String(value));
+    }
     var strokePosition = el.getAttribute("data-an-vector-stroke-position");
     if (
       useOverlay &&
