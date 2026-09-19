@@ -393,6 +393,8 @@ export function createLocalhostBridgeFetchProxy(
 }
 
 let activeProxyDisposer: (() => void) | undefined;
+let nextProxyGeneration = 0;
+let activeProxyGeneration = 0;
 
 function invalidatePersistedLocalhostBridgeTransport(
   context: LocalhostBridgeTransport,
@@ -425,8 +427,11 @@ export function installLocalhostBridgeFetchProxy(
     return () => {};
   }
   activeProxyDisposer?.();
+  const generation = ++nextProxyGeneration;
+  activeProxyGeneration = generation;
   const originalFetch = window.fetch.bind(window);
   const onBridgeTokenRejected = () => {
+    if (activeProxyGeneration !== generation) return;
     invalidatePersistedLocalhostBridgeTransport(context);
     options?.onBridgeTokenRejected?.();
     clearLocalhostBridgeFetchProxy();
@@ -441,7 +446,10 @@ export function installLocalhostBridgeFetchProxy(
     if (disposed) return;
     disposed = true;
     if (window.fetch === proxiedFetch) window.fetch = originalFetch;
-    if (activeProxyDisposer === dispose) activeProxyDisposer = undefined;
+    if (activeProxyDisposer === dispose) {
+      activeProxyDisposer = undefined;
+      if (activeProxyGeneration === generation) activeProxyGeneration = 0;
+    }
   };
   activeProxyDisposer = dispose;
   return dispose;

@@ -23,12 +23,13 @@ const transport: LocalhostBridgeTransport = {
 function relay(
   operation: LocalhostBridgeRelay["operation"],
   extra: Partial<LocalhostBridgeRelay> = {},
+  context: LocalhostBridgeTransport = transport,
 ): LocalhostBridgeRelay {
   return {
     __agentNativeLocalhostBridge: LOCALHOST_BRIDGE_RELAY_MARKER,
     operation,
-    designId: transport.designId,
-    connectionId: transport.connectionId,
+    designId: context.designId,
+    connectionId: context.connectionId,
     ...extra,
   };
 }
@@ -379,5 +380,68 @@ describe("localhost bridge browser relay", () => {
       window.sessionStorage.getItem("agent-native:visual-edit-bridge-v1"),
     ).toBeNull();
     expect(window.fetch).not.toBe(proxiedFetch);
+  });
+
+  it("does not let an old relay rejection tear down the newer proxy", async () => {
+    const transportA = {
+      ...transport,
+      designId: "design-a",
+      bridgeUrl: "http://127.0.0.1:7666",
+    };
+    const transportB = {
+      ...transport,
+      designId: "design-b",
+      bridgeUrl: "http://127.0.0.1:7667",
+    };
+    const onRejectedA = vi.fn();
+    let resolveA!: (response: Response) => void;
+    const pendingA = new Promise<Response>((resolve) => {
+      resolveA = resolve;
+    });
+    const originalFetch = vi.fn(
+      async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        if (url.startsWith(window.location.origin)) {
+          return url.includes("design-a")
+            ? Response.json(
+                relay("read-file", { path: "src/App.tsx" }, transportA),
+              )
+            : Response.json(
+                relay("read-file", { path: "src/App.tsx" }, transportB),
+              );
+        }
+        if (url === `${transportA.bridgeUrl}/read-file`) return pendingA;
+        return Response.json({ content: "new", versionHash: "hash-b" });
+      },
+    );
+    window.fetch = originalFetch as typeof window.fetch;
+
+    installLocalhostBridgeFetchProxy(transportA, {
+      onBridgeTokenRejected: onRejectedA,
+    });
+    const requestA = window.fetch(
+      `${window.location.origin}/_agent-native/actions/read-local-file?designId=design-a&connectionId=conn_1&path=src%2FApp.tsx`,
+      { method: "GET" },
+    );
+    await Promise.resolve();
+
+    const disposeB = installLocalhostBridgeFetchProxy(transportB);
+    resolveA(
+      Response.json({ error: "Invalid bridge token." }, { status: 401 }),
+    );
+    await requestA;
+
+    expect(onRejectedA).not.toHaveBeenCalled();
+    expect(window.fetch).not.toBe(originalFetch);
+    const responseB = await window.fetch(
+      `${window.location.origin}/_agent-native/actions/read-local-file?designId=design-b&connectionId=conn_1&path=src%2FApp.tsx`,
+      { method: "GET" },
+    );
+    expect(responseB.status).toBe(200);
+    await expect(responseB.json()).resolves.toMatchObject({
+      designId: "design-b",
+      content: "new",
+    });
+    disposeB();
   });
 });

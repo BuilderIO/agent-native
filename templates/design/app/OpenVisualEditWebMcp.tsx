@@ -467,7 +467,9 @@ export function createOpenVisualEditWebMcpActions(options?: {
             bridgeToken: relayToken,
           };
           persistLocalhostBridgeTransport(transport);
-          installLocalhostBridgeFetchProxy(transport);
+          installLocalhostBridgeFetchProxy(transport, {
+            onBridgeTokenRejected,
+          });
         }
         // The same-origin page transport invokes this call, but cannot start a
         // local process. A host may pass a token it used to start that process;
