@@ -59,7 +59,7 @@ const NESTED_DROP_BOARD_FIXTURE = `<!doctype html>
   <head><meta charset="utf-8"><title>Beta Design board drag source</title></head>
   <body style="margin:0;position:relative;width:1800px;height:900px;background:transparent">
     <div data-agent-native-node-id="board-source" data-agent-native-layer-name="Board source" data-an-primitive="frame"
-         style="position:absolute;left:960px;top:140px;width:60px;height:30px;box-sizing:border-box;background:#f97316"></div>
+         style="position:absolute;left:840px;top:140px;width:60px;height:30px;box-sizing:border-box;background:#f97316"></div>
   </body>
 </html>`;
 
