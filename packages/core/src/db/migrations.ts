@@ -53,7 +53,10 @@ let migrationExecRefCount = 0;
 
 async function acquireMigrationExec(): Promise<DbExec> {
   if (!migrationExecPromise) {
-    const opened = createDbExec({ url: getMigrationDatabaseUrl() });
+    const opened = createDbExec({
+      url: getMigrationDatabaseUrl(),
+      maxConnections: 1,
+    });
     migrationExecPromise = opened;
     opened.catch(() => {
       if (migrationExecPromise === opened) {

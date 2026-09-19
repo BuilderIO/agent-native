@@ -421,7 +421,10 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     await plugin(null);
 
     // Direct exec must have been created (for DDL)
-    expect(createDbExec).toHaveBeenCalledWith({ url: "postgres://direct" });
+    expect(createDbExec).toHaveBeenCalledWith({
+      url: "postgres://direct",
+      maxConnections: 1,
+    });
     // And migrations applied
     const calls = directExec.execute.mock.calls.map((c) =>
       typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
@@ -449,7 +452,10 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     });
     await plugin(null);
 
-    expect(createDbExec).toHaveBeenCalledWith({ url: "postgres://direct" });
+    expect(createDbExec).toHaveBeenCalledWith({
+      url: "postgres://direct",
+      maxConnections: 1,
+    });
     const calls = directExec.execute.mock.calls.map((c) =>
       typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
     );
@@ -794,7 +800,10 @@ describe("runMigrations – name-based tracking", () => {
     });
     await plugin(null);
 
-    expect(createDbExec).toHaveBeenCalledWith({ url: "postgres://direct" });
+    expect(createDbExec).toHaveBeenCalledWith({
+      url: "postgres://direct",
+      maxConnections: 1,
+    });
     expect(directExec.insertedNames).toContain("pg-alert-rules-table");
   });
 });
