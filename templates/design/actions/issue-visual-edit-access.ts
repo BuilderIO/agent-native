@@ -4,10 +4,6 @@ import {
   buildEmbedStartPath,
   createEmbedSessionTicket,
 } from "@agent-native/core/server";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -61,10 +57,9 @@ export default defineAction({
       });
     }
 
-    const ownerEmail = getRequestUserEmail()?.trim() || design.ownerEmail;
     const ticket = await createEmbedSessionTicket({
-      ownerEmail,
-      orgId: getRequestOrgId() ?? design.orgId,
+      ownerEmail: design.ownerEmail,
+      orgId: design.orgId,
       targetPath: visualEditPath(design.id),
       scope: `capability:visual-edit:design:${encodeURIComponent(design.id)}`,
       ttlSeconds: VISUAL_EDIT_ACCESS_TTL_SECONDS,

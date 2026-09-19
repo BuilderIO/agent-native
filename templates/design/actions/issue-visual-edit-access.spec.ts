@@ -113,7 +113,7 @@ describe("issue-visual-edit-access", () => {
     });
   });
 
-  it("uses the current signed-in identity when present", async () => {
+  it("keeps the localhost connection owner partition for signed-in viewers", async () => {
     mocks.getRequestUserEmail.mockReturnValue("viewer@example.com");
     mocks.getRequestOrgId.mockReturnValue("viewer-org");
 
@@ -121,8 +121,8 @@ describe("issue-visual-edit-access", () => {
 
     expect(mocks.createEmbedSessionTicket).toHaveBeenCalledWith(
       expect.objectContaining({
-        ownerEmail: "viewer@example.com",
-        orgId: "viewer-org",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
       }),
     );
   });
