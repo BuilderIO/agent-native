@@ -7,6 +7,7 @@ import { TAB_ID } from "@/lib/tab-id";
 interface NavigationState {
   view: string;
   dashboardId?: string;
+  dataSourceId?: string;
   analysisId?: string;
   extensionId?: string;
   recordingId?: string;
@@ -19,13 +20,17 @@ interface NavigationState {
   filters?: Record<string, string>;
 }
 
+interface NavigateCommand extends NavigationState {
+  path?: string;
+}
+
 const SESSION_FILTER_KEYS = ["range", "app", "q"] as const;
 const DASHBOARD_PATH_RE = /^\/(?:adhoc|dashboards)\/([^/]+)\/?$/;
 
 export function useNavigationState() {
   const location = useLocation();
 
-  useAgentRouteState<NavigationState>({
+  useAgentRouteState<NavigationState, NavigateCommand>({
     browserTabId: TAB_ID,
     getNavigationState: ({ pathname, searchParams }) => {
       const state: NavigationState = { view: "ask" };
@@ -99,7 +104,7 @@ export function useNavigationState() {
           }
         }
       } else if (pathname === "/data-sources") {
-        state.view = "data-sources";
+        Object.assign(state, dataSourcesNavigationState(searchParams));
       } else if (pathname === "/data-dictionary") {
         state.view = "data-dictionary";
       } else if (
@@ -120,7 +125,8 @@ export function useNavigationState() {
   });
 }
 
-function commandPathForNavigation(cmd: NavigationState): string {
+export function commandPathForNavigation(cmd: NavigateCommand): string {
+  if (cmd.path) return cmd.path;
   if (cmd.view === "adhoc" && cmd.dashboardId)
     return `/dashboards/${cmd.dashboardId}`;
   if (cmd.view === "analyses" && cmd.analysisId)
@@ -158,6 +164,10 @@ function commandPathForNavigation(cmd: NavigationState): string {
     const qs = params.toString();
     return qs ? `/monitoring?${qs}` : "/monitoring";
   }
+  if (cmd.view === "data-sources" && cmd.dataSourceId) {
+    const params = new URLSearchParams({ source: cmd.dataSourceId });
+    return `/data-sources?${params.toString()}`;
+  }
   if (cmd.view === "data-sources") return "/data-sources";
   if (cmd.view === "data-dictionary") return "/data-dictionary";
   if (cmd.view === "ask") return "/ask";
@@ -191,6 +201,15 @@ export function preserveActiveDashboardTab(
 
 function dashboardIdFromPath(pathname: string): string | undefined {
   return pathname.match(DASHBOARD_PATH_RE)?.[1];
+}
+
+export function dataSourcesNavigationState(
+  searchParams: URLSearchParams,
+): NavigationState {
+  const state: NavigationState = { view: "data-sources" };
+  const dataSourceId = searchParams.get("source");
+  if (dataSourceId) state.dataSourceId = dataSourceId;
+  return state;
 }
 
 function sessionFilters(

@@ -622,44 +622,45 @@ describe("McpIntegrationDialog", () => {
     ).toBe("org");
   });
 
-  it("never offers a personal connection for an org-only integration", () => {
-    const builder = DEFAULT_MCP_INTEGRATIONS.find(
-      (integration) => integration.id === "builder-cms",
-    )!;
-    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+  it.each(["builder-cms", "dbt"])(
+    "never offers a personal connection for the org-only %s integration",
+    (integrationId) => {
+      const integration = DEFAULT_MCP_INTEGRATIONS.find(
+        (candidate) => candidate.id === integrationId,
+      )!;
+      const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
 
-    expect(builder.organizationScopeOnly).toBe(true);
+      expect(integration.organizationScopeOnly).toBe(true);
 
-    // A brand-new account with no workspace is the reported case: the old code
-    // sent scope=user here and the server answered with a personal-scope error.
-    act(() => {
-      root.render(
-        <TooltipProvider>
-          <McpIntegrationDialog
-            open
-            onOpenChange={() => {}}
-            connectIntegrationId="builder-cms"
-            defaultScope="user"
-            canCreateOrgMcp={false}
-            hasOrg={false}
-            onCreateMcpServer={onCreateMcpServer}
-            integrations={[builder]}
-          />
-        </TooltipProvider>,
+      act(() => {
+        root.render(
+          <TooltipProvider>
+            <McpIntegrationDialog
+              open
+              onOpenChange={() => {}}
+              connectIntegrationId={integrationId}
+              defaultScope="user"
+              canCreateOrgMcp={false}
+              hasOrg={false}
+              onCreateMcpServer={onCreateMcpServer}
+              integrations={[integration]}
+            />
+          </TooltipProvider>,
+        );
+      });
+
+      const personal = [...document.body.querySelectorAll("button")].find(
+        (button) => button.textContent === "Connect for me",
       );
-    });
-
-    const personal = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "Connect for me",
-    );
-    expect(personal).toBeUndefined();
-    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
-    expect(onCreateMcpServer).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain(
-      "cannot be connected to just your account",
-    );
-    expect(document.body.textContent).toContain("Join a workspace first.");
-  });
+      expect(personal).toBeUndefined();
+      expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+      expect(onCreateMcpServer).not.toHaveBeenCalled();
+      expect(document.body.textContent).toContain(
+        "cannot be connected to just your account",
+      );
+      expect(document.body.textContent).toContain("Join a workspace first.");
+    },
+  );
 
   it("routes the suggestion quick-connect away from the personal form", () => {
     const builder = DEFAULT_MCP_INTEGRATIONS.find(

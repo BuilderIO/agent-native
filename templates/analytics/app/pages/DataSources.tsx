@@ -94,6 +94,7 @@ import {
   dataSources,
   categoryLabels,
   categoryOrder,
+  type CredentialDataSource,
   type DataSource,
   type WalkthroughStep,
 } from "@/lib/data-sources";
@@ -103,6 +104,7 @@ import {
   type ConnectionTestResult,
 } from "../components/ConnectionTestStatus";
 import { CustomApiCard } from "../components/CustomApiCard";
+import { DbtMcpDataSourceCard } from "../components/data-sources/DbtMcpDataSourceCard";
 
 interface AnalyticsPublicKeyRow {
   id: string;
@@ -348,7 +350,9 @@ async function deleteCredentials(keys: string[]): Promise<void> {
   await callAction("delete-data-source-credentials", { keys });
 }
 
-async function disconnectDataSource(source: DataSource): Promise<void> {
+async function disconnectDataSource(
+  source: CredentialDataSource,
+): Promise<void> {
   if (source.id === "github") {
     const res = await fetch(
       agentNativePath("/_agent-native/oauth/github/disconnect"),
@@ -771,7 +775,7 @@ function ConnectedView({
   onSaved,
   envStatus,
 }: {
-  source: DataSource;
+  source: CredentialDataSource;
   onSaved: () => void;
   envStatus: EnvKeyStatus[];
 }) {
@@ -842,7 +846,10 @@ function ConnectedView({
   }
   const sharedCredentialKeys = source.envKeys.filter((key) =>
     dataSources.some(
-      (other) => other.id !== source.id && other.envKeys.includes(key),
+      (other) =>
+        other.connectionKind !== "mcp" &&
+        other.id !== source.id &&
+        other.envKeys.includes(key),
     ),
   );
   const sharedSourceNames = Array.from(
@@ -850,6 +857,7 @@ function ConnectedView({
       dataSources
         .filter(
           (other) =>
+            other.connectionKind !== "mcp" &&
             other.id !== source.id &&
             other.envKeys.some((key) => source.envKeys.includes(key)),
         )
@@ -1205,7 +1213,7 @@ function DataSourceCard({
   showAskContinuation,
   onSaved,
 }: {
-  source: DataSource;
+  source: CredentialDataSource;
   locallyConfigured: boolean;
   ready: boolean;
   sharedConnectionStatus: SharedConnectionStatus | null;
@@ -2169,33 +2177,46 @@ export default function DataSources() {
         filteredSources.length > 0 || firstPartyAnalyticsMatchesSearch ? (
           <div className="data-sources-grid">
             {firstPartyAnalyticsMatchesSearch && <FirstPartyAnalyticsCard />}
-            {filteredSources.map((source) => (
-              <DataSourceCard
-                key={source.id}
-                source={source}
-                locallyConfigured={isSourceLocallyConfigured(
-                  source,
-                  statusData,
-                  envStatus,
-                )}
-                ready={isSourceReady(source, statusData, envStatus)}
-                sharedConnectionStatus={getSharedConnectionStatus(
-                  source,
-                  statusData,
-                  envStatus,
-                )}
-                envStatus={envStatus}
-                isStatusLoading={isStatusLoading}
-                statusUnknown={statusUnknown}
-                canManageOrg={canManageOrg}
-                orgLoaded={!isOrgRoleLoading}
-                hasOrg={Boolean(org?.orgId)}
-                focused={source.id === focusedSourceId}
-                oauthReturnPath={oauthReturnPath}
-                showAskContinuation={showAskContinuation}
-                onSaved={handleSaved}
-              />
-            ))}
+            {filteredSources.map((source) =>
+              source.connectionKind === "mcp" ? (
+                <DbtMcpDataSourceCard
+                  key={source.id}
+                  status={statusData?.dbt}
+                  isLoading={isStatusLoading}
+                  canManageOrg={canManageOrg}
+                  hasOrg={Boolean(org?.orgId)}
+                  focused={source.id === focusedSourceId}
+                  showAskContinuation={showAskContinuation}
+                  onSaved={handleSaved}
+                />
+              ) : (
+                <DataSourceCard
+                  key={source.id}
+                  source={source}
+                  locallyConfigured={isSourceLocallyConfigured(
+                    source,
+                    statusData,
+                    envStatus,
+                  )}
+                  ready={isSourceReady(source, statusData, envStatus)}
+                  sharedConnectionStatus={getSharedConnectionStatus(
+                    source,
+                    statusData,
+                    envStatus,
+                  )}
+                  envStatus={envStatus}
+                  isStatusLoading={isStatusLoading}
+                  statusUnknown={statusUnknown}
+                  canManageOrg={canManageOrg}
+                  orgLoaded={!isOrgRoleLoading}
+                  hasOrg={Boolean(org?.orgId)}
+                  focused={source.id === focusedSourceId}
+                  oauthReturnPath={oauthReturnPath}
+                  showAskContinuation={showAskContinuation}
+                  onSaved={handleSaved}
+                />
+              ),
+            )}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground py-4">
@@ -2213,33 +2234,46 @@ export default function DataSources() {
               </h3>
               <div className="data-sources-grid">
                 {category === "analytics" && <FirstPartyAnalyticsCard />}
-                {sources.map((source) => (
-                  <DataSourceCard
-                    key={source.id}
-                    source={source}
-                    locallyConfigured={isSourceLocallyConfigured(
-                      source,
-                      statusData,
-                      envStatus,
-                    )}
-                    ready={isSourceReady(source, statusData, envStatus)}
-                    sharedConnectionStatus={getSharedConnectionStatus(
-                      source,
-                      statusData,
-                      envStatus,
-                    )}
-                    envStatus={envStatus}
-                    isStatusLoading={isStatusLoading}
-                    statusUnknown={statusUnknown}
-                    canManageOrg={canManageOrg}
-                    orgLoaded={!isOrgRoleLoading}
-                    hasOrg={Boolean(org?.orgId)}
-                    focused={source.id === focusedSourceId}
-                    oauthReturnPath={oauthReturnPath}
-                    showAskContinuation={showAskContinuation}
-                    onSaved={handleSaved}
-                  />
-                ))}
+                {sources.map((source) =>
+                  source.connectionKind === "mcp" ? (
+                    <DbtMcpDataSourceCard
+                      key={source.id}
+                      status={statusData?.dbt}
+                      isLoading={isStatusLoading}
+                      canManageOrg={canManageOrg}
+                      hasOrg={Boolean(org?.orgId)}
+                      focused={source.id === focusedSourceId}
+                      showAskContinuation={showAskContinuation}
+                      onSaved={handleSaved}
+                    />
+                  ) : (
+                    <DataSourceCard
+                      key={source.id}
+                      source={source}
+                      locallyConfigured={isSourceLocallyConfigured(
+                        source,
+                        statusData,
+                        envStatus,
+                      )}
+                      ready={isSourceReady(source, statusData, envStatus)}
+                      sharedConnectionStatus={getSharedConnectionStatus(
+                        source,
+                        statusData,
+                        envStatus,
+                      )}
+                      envStatus={envStatus}
+                      isStatusLoading={isStatusLoading}
+                      statusUnknown={statusUnknown}
+                      canManageOrg={canManageOrg}
+                      orgLoaded={!isOrgRoleLoading}
+                      hasOrg={Boolean(org?.orgId)}
+                      focused={source.id === focusedSourceId}
+                      oauthReturnPath={oauthReturnPath}
+                      showAskContinuation={showAskContinuation}
+                      onSaved={handleSaved}
+                    />
+                  ),
+                )}
               </div>
             </div>
           );

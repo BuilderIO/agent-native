@@ -8,9 +8,10 @@ analyses remain readable.
 
 Read the relevant skill before deeper work:
 
-- `data-querying` for source inspection, SQL generation, result handling, and
-  `/chart` embeds; `bigquery`, `hubspot`, `gong`, `prometheus` for provider
-  specifics.
+- `data-querying` for source inspection, SQL, result handling, and `/chart` embeds.
+- `dbt` for governed model metadata, lineage, freshness, and model health.
+  Read provider skills such as `bigquery`, `hubspot`, `gong`, and `prometheus`
+  for provider specifics.
 - `account-health` for named customer health, QBR, renewal, contract usage,
   identity, and product adoption.
 - `cross-source-analysis` for questions spanning sources (identity stitching,
@@ -23,6 +24,9 @@ Read the relevant skill before deeper work:
   refreshable data sources.
 - `creative-context` for governed contexts and immutable dashboard revisions.
 - `admin-surfaces` for the `/agents` fleet flags, usage audit, and connected DBs.
+
+Before building common workspace or agent UI, read `agent-native-toolkit` and use
+`customizing-agent-native` to follow the customization ladder.
 
 ## How To Answer A Data Question
 
@@ -60,12 +64,12 @@ certified ones); label figures "Unverified" when no live query ran.
 - Delegation: choose defaults; label partial.
 - Never invent data or source semantics; include source, window, filters, sample
   size, join method, and caveats.
+- dbt is authoritative for model metadata and lineage. When connected, discover
+  its dynamic metadata tools with `tool-search`; read `dbt` before using them.
 - Use actions for data and sharing; don't bypass ownable-resource access checks
   with raw SQL.
 - Provider actions are bounded shortcuts, not limits. For broad or
-  absence-sensitive Gong work, stage raw API data and use `query-staged-dataset`
-  or a Data Program; see `provider-api`, `data-programs`, and `gong` for secure
-  provider and hosted-endpoint boundaries.
+  absence-sensitive work, read `provider-api` and `data-programs`.
 - Create dashboards, panels, or saved artifacts only when explicitly asked;
   suggest and wait otherwise. Scope them to the question, avoid decorative
   metrics, and never modify existing dashboards without a directive.
@@ -93,19 +97,12 @@ certified ones); label figures "Unverified" when no live query ran.
 | `search-dashboard-references` | Find dashboards to replicate. |
 | `get-sql-dashboard` | Read the dashboard and exact panel SQL. |
 | `certify-dashboard` | Admin-only approval of its current version. |
-| DB | `list-db-admin-connections`, `list-connected-database-tables`, `db-admin-federated-read`: registry, schema, bounded joins. |
+| DB | Registry, schema, and bounded federated reads. |
 
 ## Application State
 
 - `navigation` exposes the current dashboard, analysis, source, chart, and
-  selection. `navigate` moves the user between supported Analytics surfaces,
-  `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
-  active context is unclear.
+  selection. Use `view-screen` when active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`
   with `type="dashboard-panel"`. Read `dashboard-management` for the
   `/dashboards` overview and folder actions.
-
-## Shared UI
-
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.

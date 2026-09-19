@@ -11,6 +11,18 @@ const accountHealthSkill = readFileSync(
   new URL("../../.agents/skills/account-health/SKILL.md", import.meta.url),
   "utf8",
 );
+const dbtSkill = readFileSync(
+  new URL("../../.agents/skills/dbt/SKILL.md", import.meta.url),
+  "utf8",
+);
+const bigquerySkill = readFileSync(
+  new URL("../../.agents/skills/bigquery/SKILL.md", import.meta.url),
+  "utf8",
+);
+const dataQueryingSkill = readFileSync(
+  new URL("../../.agents/skills/data-querying/SKILL.md", import.meta.url),
+  "utf8",
+);
 
 const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
   () => ({
@@ -88,12 +100,14 @@ import {
 } from "../lib/real-data-actions";
 import {
   analyticsDataDictionaryRoutingContext,
+  analyticsDbtRoutingContext,
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
   ANALYTICS_CROSS_APP_ROUTING_GUIDANCE,
   ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   ANALYTICS_ACCOUNT_HEALTH_GUIDANCE,
+  ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE,
   INTERNAL_PRODUCT_USAGE_GUIDANCE,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
   DASHBOARD_REFERENCE_GUIDANCE,
@@ -126,6 +140,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain("<data-source-guidance>");
     expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE);
+    expect(guidance).toContain(ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
@@ -252,6 +267,96 @@ describe("Analytics agent Plan mode policy", () => {
     expect(context.length).toBeLessThan(1_000);
   });
 
+  it("keeps dbt routing bounded and distinguishes connection errors", () => {
+    const connected = analyticsDbtRoutingContext({
+      available: true,
+      configured: true,
+      capabilities: {
+        discovery: true,
+        lineage: true,
+        healthAndFreshness: true,
+      },
+      toolCount: 8,
+      setupLink: "/data-sources?source=dbt&returnTo=ask",
+    });
+    const unreadable = analyticsDbtRoutingContext({
+      available: false,
+      configured: null,
+      error: "MCP client is not configured.",
+      capabilities: {
+        discovery: false,
+        lineage: false,
+        healthAndFreshness: false,
+      },
+      toolCount: 0,
+      setupLink: "/data-sources?source=dbt&returnTo=ask",
+    });
+
+    expect(connected).toContain("dynamic dbt metadata tools");
+    expect(connected).toContain("never call dbt SQL tools");
+    expect(connected).toContain("separate BigQuery operations");
+    expect(unreadable).toContain("status is unreadable");
+    expect(unreadable).toContain("Do not infer that dbt is disconnected");
+    expect(connected).toContain(
+      "visible health/freshness capability does not mean the underlying data is fresh",
+    );
+    expect(connected.length).toBeLessThan(900);
+    expect(unreadable.length).toBeLessThan(500);
+  });
+
+  it("guides the agent away from restricted schemas unless explicitly requested", () => {
+    for (const skill of [dbtSkill, bigquerySkill]) {
+      expect(skill).toMatch(/dbt_dev/);
+      expect(skill).toMatch(/dbt_backup/);
+      expect(skill).toMatch(/dbt_cloud_pr_\*/);
+      expect(skill).toMatch(/latest end-user request explicitly names/i);
+      expect(skill).toMatch(
+        /Never infer permission from (?:SQL|agent-generated SQL)/i,
+      );
+      expect(skill).not.toContain("restrictedSchemaAccess");
+    }
+  });
+
+  it("requires caveats for material uncertainty and important external decisions", () => {
+    const guidance = ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE;
+
+    expect(guidance).toContain(
+      "Do not present analytics results as guaranteed correct",
+    );
+    expect(guidance).toContain("relevant source and scope details");
+    expect(guidance).toContain("whenever material uncertainty exists");
+    expect(guidance).toContain("important external decision");
+    expect(guidance).toContain("explicitly reports");
+    expect(guidance).toContain("does not prove that data is fresh or stale");
+    expect(guidance).toContain("client-facing, board, investor, QBR");
+    expect(guidance).toContain("join was inferred");
+    expect(guidance).toContain("Documented joins need no generic hedge");
+    expect(guidance).toContain("Combine multiple applicable caveats");
+
+    expect(dataQueryingSkill).toContain(
+      "Do not present analytics results as guaranteed correct",
+    );
+    expect(dataQueryingSkill).toMatch(/Known stale data/);
+    expect(dataQueryingSkill).toMatch(/High-stakes distribution/);
+    expect(dataQueryingSkill).toMatch(/Complex inferred joins/);
+  });
+
+  it("documents metadata-only dbt discovery", () => {
+    for (const toolName of [
+      "get_node_details",
+      "get_lineage",
+      "get_model_health",
+      "get_model_performance",
+      "get_all_sources",
+    ]) {
+      expect(dbtSkill).toContain(`\`${toolName}\``);
+    }
+    expect(dbtSkill).toContain("This integration is metadata-only");
+    expect(dbtSkill).toContain("Never use dbt `execute_sql` or `text_to_sql`");
+    expect(dbtSkill).toContain("keep it unknown");
+    expect(dbtSkill).toContain("dbt Cloud service-token identity");
+  });
+
   it("leaves representative read-only Analytics tools available to the shared Plan-mode policy", () => {
     const pluginActions = agentChatPluginOptions[0]?.actions as Record<
       string,
@@ -295,6 +400,18 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
+  it("keeps dynamic dbt MCP tools off the initial tool surface", () => {
+    expect(INITIAL_TOOL_NAMES).not.toEqual(
+      expect.arrayContaining([
+        "get_node_details",
+        "get_lineage",
+        "get_model_health",
+        "get_model_performance",
+        "get_all_sources",
+      ]),
+    );
+  });
+
   it("keeps named-session incident evidence on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
@@ -320,6 +437,7 @@ describe("Analytics agent Plan mode policy", () => {
       | (() => Promise<string>)
       | undefined;
     const context = await extraContext?.();
+    expect(context).toContain("<dbt-routing>");
     expect(context).toContain("EXPORT DELIVERY");
     expect(context).toContain("call `show-workspace-file`");
     expect(context).toContain("Never save an error or failed response");

@@ -14,6 +14,7 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import { credentialProviderConfigs } from "../lib/credential-keys";
+import { readDbtMcpStatus, type DbtMcpStatus } from "../lib/dbt-mcp-status";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import {
   deriveGroundingActionNames,
@@ -277,6 +278,9 @@ export const ANALYTICS_ACCOUNT_HEALTH_GUIDANCE =
 export const DASHBOARD_REFERENCE_GUIDANCE =
   "DASHBOARD REFERENCE DISCOVERY — When the user asks to replicate, clone, or adapt an existing dashboard, this branch takes precedence over the ordinary metric fast path: call `search-dashboard-references` with focused terms before creating, editing, or querying anything. It searches accessible active saved dashboard ids, names, descriptions, and serialized config with bounded SQL wildcard matches, including legacy saved dashboards. Treat each result as a reference to inspect with `get-sql-dashboard` when `kind` is `sql` or `get-explorer-dashboard` when `kind` is `explorer`, not as proof that its source is authoritative for the new request. Do not automatically route a replication request to first-party Analytics or copy its source semantics without checking the user's requested provider and scope. ";
 
+export const ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE =
+  "CONDITIONAL CAVEATS — Do not present analytics results as guaranteed correct. Include relevant source and scope details, and add a concise verification warning whenever material uncertainty exists or the output will inform an important external decision. Treat data as stale only when dbt health/source freshness or another authoritative source explicitly reports that it is beyond its expected refresh window; include the observed refresh timestamp or window when available. A freshness-capable tool, query-cache age, or unknown freshness does not prove that data is fresh or stale. Mention unverified freshness when it materially affects the requested answer. For explicitly client-facing, board, investor, QBR, or executive-distribution output, recommend verifying figures against the source of record before distribution. When an undocumented relationship or grain requires an inferred, email-only, ID-only, fuzzy, or row-multiplying join, say that the join was inferred and the result is lower confidence. If the ambiguity could materially change the answer, clarify instead of merely hedging. Documented joins need no generic hedge. Combine multiple applicable caveats into one concise note. ";
+
 export const BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE =
   "BUILT-IN FIRST-PARTY SOURCE — Analytics always provides one built-in first-party source alongside connected external providers such as BigQuery, HubSpot, Gong, Slack, and the other configured integrations. This does not replace or restrict external sources. When `search-analytics-query-catalog` identifies a first-party dashboard/chart definition, preserve its event semantics and use `query-agent-native-analytics` over `analytics_events` or `session_recordings` as appropriate. When the user names an external provider, or the catalog identifies one as authoritative, query that provider instead. Do not report the first-party source as disconnected merely because an external provider is not configured. If the authoritative query returns no rows, report that grounded result with its scope and time window. ";
 
@@ -329,6 +333,7 @@ export function analyticsSourceGuidanceOpening(): string {
     BOUNDED_STRUCTURED_LOOKUP_GUIDANCE +
     INTERNAL_PRODUCT_USAGE_GUIDANCE +
     ANALYTICS_ACCOUNT_HEALTH_GUIDANCE +
+    ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE +
     BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE +
     ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE +
     `DATA-SOURCE SETUP UX — Chat remains available when no external data source is connected. For a live-data request that needs an unavailable external provider, explain what is missing in the context of the user's question and guide them naturally to [Connect data sources](${ANALYTICS_DATA_SOURCES_LINK}). Use that real link from the app; do not emit a generic canned no-data sentence. For general conversation, conceptual questions, and questions the built-in first-party source can answer, continue helping normally. ` +
@@ -349,6 +354,28 @@ export function analyticsDataDictionaryRoutingContext(): string {
   return `<data-dictionary-routing>
 Data-dictionary definitions are available through \`search-analytics-query-catalog\`, which combines focused dictionary lookup with a search over existing dashboard/chart SQL. Use that combined catalog search as the normal preflight for a bounded metric lookup. Call \`list-data-dictionary\` separately when the catalog has no usable match or when the user asks to browse definitions or filter them by department. Treat approved entries as canonical, verify unreviewed human entries when stakes are high, and treat AI-generated unapproved entries as suggestions only. After the catalog identifies one source and query shape, query that source once and stop on success. If no matching definition or chart exists, inspect the most likely source schema before asking a clarification about business meaning. Never ask the user to supply internal dataset, table, column, or SQL identifiers that the configured Analytics actions can discover.
 </data-dictionary-routing>`;
+}
+
+export function analyticsDbtRoutingContext(status: DbtMcpStatus): string {
+  if (status.configured === null) {
+    return `<dbt-routing>
+dbt capability status is unreadable. Do not infer that dbt is disconnected or that no dbt models exist. For a dbt-backed request, read the dbt skill and use tool-search to look for the official dynamic dbt tools; preserve a real connection error if discovery fails.
+</dbt-routing>`;
+  }
+  if (!status.configured) {
+    return `<dbt-routing>
+No dynamic dbt capability was visible in a successful connection check. This is a connection capability gap, not evidence that no governed models exist. If the request requires dbt semantics, explain the missing connection and link to ${status.setupLink}.
+</dbt-routing>`;
+  }
+
+  const capabilities = [
+    status.capabilities.discovery ? "Discovery" : null,
+    status.capabilities.lineage ? "lineage" : null,
+    status.capabilities.healthAndFreshness ? "health/freshness" : null,
+  ].filter((capability): capability is string => Boolean(capability));
+  return `<dbt-routing>
+  dbt is connected with these visible metadata capabilities: ${capabilities.join(", ") || "none classified"}. Read the dbt skill, then discover the exact dynamic dbt metadata tools with tool-search. Use dbt only for model metadata, lineage, and health/freshness; never call dbt SQL tools. Warehouse schema discovery and querying are separate BigQuery operations. A visible health/freshness capability does not mean the underlying data is fresh; use the returned status and timestamps.
+</dbt-routing>`;
 }
 
 export { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
@@ -1333,6 +1360,7 @@ export default createAgentChatPlugin({
     // Always inject compact source-routing guidance. Dictionary definitions
     // stay behind list-data-dictionary so prompt assembly does not read and
     // render every organization metric before the model request starts.
+    const dbtRouting = analyticsDbtRoutingContext(await readDbtMcpStatus());
     const sourceGuidance =
       analyticsSourceGuidanceOpening() +
       "DASHBOARD CREATION RULE — You may create dashboard artifacts, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'save this analysis', 'add a chart for...'). Treat a requested saved analysis or deep-dive report as a dashboard request. Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
@@ -1359,7 +1387,7 @@ export default createAgentChatPlugin({
       "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions; use `search-bigquery-schema` for BigQuery metadata before inventing datasets, tables, or columns. " +
       "Before finalizing any analytics answer, make the evidence trail explicit enough to audit: answer the user's question, name the source(s), time window, sample size or row count, filters, join/match method, caveats/gaps, and recommended next action when useful. Never substitute fabricated numbers for a failed query or unavailable provider. It is fine to ask a clarifying question, provide a plan, or say exactly which source is unavailable as long as you do not present metrics or source-record conclusions without evidence.\n" +
       "</data-source-guidance>";
-    return `${sourceGuidance}\n\n${ANALYTICS_CUSTOM_BLOCK_GUIDANCE}\n\n${analyticsDataDictionaryRoutingContext()}`;
+    return `${sourceGuidance}\n\n${ANALYTICS_CUSTOM_BLOCK_GUIDANCE}\n\n${analyticsDataDictionaryRoutingContext()}\n\n${dbtRouting}`;
   },
   mentionProviders: {
     dashboards: {

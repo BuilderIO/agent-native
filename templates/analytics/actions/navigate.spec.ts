@@ -68,6 +68,20 @@ describe("navigate action", () => {
     expect(writeAppStateForCurrentTab).not.toHaveBeenCalled();
   });
 
+  it("opens a focused data source with a same-origin encoded path", async () => {
+    const result = await navigateAction.run({
+      view: "data-sources",
+      dataSourceId: "dbt/core",
+    } as never);
+
+    expect(writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "data-sources",
+      dataSourceId: "dbt/core",
+      path: "/data-sources?source=dbt%2Fcore",
+    });
+    expect(result).toBe("Navigating to data-sources data-source:dbt/core");
+  });
+
   it("routes a monitoring subview to the monitoring tab", async () => {
     await navigateAction.run({ monitoringView: "errors" } as never);
     expect(writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {

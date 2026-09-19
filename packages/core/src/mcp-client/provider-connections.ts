@@ -2,10 +2,15 @@ import {
   hasMcpProviderMatchRules,
   mcpServerUrlMatchesProvider,
 } from "../shared/mcp-provider-hosts.js";
-import { listRemoteServers, type RemoteMcpScope } from "./remote-store.js";
+import {
+  listRemoteServers,
+  mergedConfigKey,
+  type RemoteMcpScope,
+} from "./remote-store.js";
 
 export interface ConnectedMcpProviderServer {
   id: string;
+  mergedId: string;
   name: string;
   url: string;
   scope: RemoteMcpScope;
@@ -68,6 +73,7 @@ export async function findConnectedMcpServersForProvider(options: {
       }
       servers.push({
         id: server.id,
+        mergedId: mergedConfigKey(scope, server, scopeId),
         name: server.name,
         url: server.url,
         scope,

@@ -15,6 +15,7 @@
       "catalog": "remote-mcp-presets",
       "catalogItems": [
         "context7",
+        "dbt",
         "sentry",
         "notion",
         "granola",

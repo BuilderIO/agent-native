@@ -45,17 +45,27 @@ export interface WalkthroughStep {
   inputAcceptFile?: string;
 }
 
-export interface DataSource {
+interface DataSourceDescriptor {
   id: string;
   name: string;
   description: string;
   category: DataSourceCategory;
   icon: ComponentType<Record<string, unknown>>;
+  docsUrl: string;
+}
+
+export interface CredentialDataSource extends DataSourceDescriptor {
+  connectionKind?: "credentials";
   envKeys: string[];
   credentialRequirementMode?: "all" | "any";
   walkthroughSteps: WalkthroughStep[];
-  docsUrl: string;
 }
+
+export interface McpDataSource extends DataSourceDescriptor {
+  connectionKind: "mcp";
+}
+
+export type DataSource = CredentialDataSource | McpDataSource;
 
 export const categoryLabels: Record<DataSourceCategory, string> = {
   analytics: "Analytics & Product",
@@ -202,6 +212,15 @@ export const dataSources: DataSource[] = [
         optional: true,
       },
     ],
+  },
+  {
+    id: "dbt",
+    name: "dbt",
+    description: "Governed metadata, lineage, model health, and metrics",
+    category: "analytics",
+    icon: IconDatabase,
+    connectionKind: "mcp",
+    docsUrl: "https://docs.getdbt.com/docs/dbt-ai/mcp-quickstart-remote",
   },
   {
     id: "amplitude",

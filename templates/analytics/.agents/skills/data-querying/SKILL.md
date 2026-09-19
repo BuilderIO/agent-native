@@ -13,7 +13,7 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 0. **Orient catalog-first** — before querying, consult what already exists: the injected `<data-dictionary>` and data-source status tell you which sources are configured and which table/columns/join paths to use. Use them to pick the one source that owns the fact instead of fanning out blind queries.
 1. **Route named account health deliberately** — for a customer/org health, QBR, renewal, contract-utilization, risk, or adoption request, read `account-health` before writing SQL. It adds identity-lock and metric-definition checks that an ordinary lookup does not need.
-2. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas. For BigQuery, read `.agents/skills/bigquery/SKILL.md` and use `search-bigquery-schema` before guessing table or column names.
+2. **Read the relevant source skill first** — for dbt-backed models or metrics, read `.agents/skills/dbt/SKILL.md` before deciding semantics, lineage, grain, or SQL. Otherwise check `.agents/skills/<provider>/SKILL.md` for source-specific mappings and gotchas. For BigQuery, read `.agents/skills/bigquery/SKILL.md` and use `search-bigquery-schema` before guessing table or column names.
 3. **Clarify if ambiguous** — if the metric definition, date range, or grain is unclear and a wrong guess would change the numbers, use the `ask-question` clarifying tool (multiple-choice) before querying. Ask at most once per turn; skip it when the dictionary or the user already answered.
 4. **Use existing actions or connected provider MCP tools** — call the provider action/tool with structured arguments, then filter or aggregate the returned records in your answer
 5. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
@@ -195,6 +195,17 @@ resources(action: "write", path: "LEARNINGS.md", content: "<updated content>")
 Keep each entry short and actionable: what to do, what not to do, and why.
 This is the learnings flywheel — discoveries persist across sessions and improve
 future analyses.
+
+## Conditional Caveats
+
+Do not present analytics results as guaranteed correct. Include relevant source and scope details, and add a concise verification warning whenever material uncertainty exists or the output will inform an important external decision:
+
+- **Known stale data:** warn only when authoritative source metadata explicitly reports data beyond its expected refresh window. Include the observed refresh timestamp or window when available. Query-cache age and availability of freshness tools do not establish freshness.
+- **Unknown freshness:** do not claim that data is current. Mention unverified freshness only when it materially affects the answer.
+- **High-stakes distribution:** when the user explicitly says the output is for a client, board, investor, QBR, or executive distribution, recommend verifying figures against the source of record before distribution.
+- **Complex inferred joins:** if an undocumented relationship or grain requires an inferred, email-only, ID-only, fuzzy, or row-multiplying join, label the join as inferred and the result as lower confidence. If the ambiguity could materially change the answer, clarify instead of merely hedging. Documented joins need no generic warning.
+
+Combine applicable caveats into one short note rather than stacking repetitive warnings.
 
 ## Important Notes
 

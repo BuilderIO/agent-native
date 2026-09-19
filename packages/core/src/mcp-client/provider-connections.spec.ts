@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./remote-store.js", () => ({
   listRemoteServers: mocks.listRemoteServers,
+  mergedConfigKey: (scope: string, server: { name: string }, ownerId: string) =>
+    `${scope}_${ownerId}_${server.name}`,
 }));
 
 import { findConnectedMcpServersForProvider } from "./provider-connections.js";
@@ -37,6 +39,7 @@ describe("findConnectedMcpServersForProvider", () => {
     expect(result.servers).toEqual([
       {
         id: "mcps_1",
+        mergedId: "user_alice@example.com_Notion",
         name: "Notion",
         url: "https://mcp.notion.com/mcp",
         scope: "user",
@@ -57,7 +60,10 @@ describe("findConnectedMcpServersForProvider", () => {
     });
 
     expect(result.servers).toHaveLength(1);
-    expect(result.servers[0]?.scope).toBe("org");
+    expect(result.servers[0]).toMatchObject({
+      mergedId: "org_org_1_Notion",
+      scope: "org",
+    });
   });
 
   it("ignores servers belonging to a different provider", async () => {

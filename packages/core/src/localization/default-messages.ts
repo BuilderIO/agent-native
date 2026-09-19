@@ -1582,6 +1582,13 @@ const messages = {
         setupNote:
           "Grafana Cloud MCP is in public preview and requires Grafana Cloud Assistant MCP access. It is hosted Grafana Cloud only; self-hosted Grafana needs the local MCP server.",
       },
+      dbt: {
+        description:
+          "Explore dbt model metadata, sources, lineage, and health.",
+        useCase: "Metadata for models, sources, lineage, and model health",
+        setupNote:
+          "A workspace owner or admin must enter the account-specific MCP endpoint, dbt Cloud service token, and production environment ID. This is a header-based organization connection, not user OAuth, so individual users do not need personal dbt Cloud accounts.",
+      },
       gitlab: {
         description:
           "Read and manage GitLab projects, issues, and merge requests.",

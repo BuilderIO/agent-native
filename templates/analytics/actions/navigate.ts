@@ -67,6 +67,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Analysis ID to open (used with view=analyses)"),
+    dataSourceId: z
+      .string()
+      .optional()
+      .describe("Data source ID to focus (used with view=data-sources)"),
     extensionId: z
       .string()
       .optional()
@@ -119,6 +123,7 @@ export default defineAction({
       !args.dashboardId &&
       !args.dashboardName &&
       !args.analysisId &&
+      !args.dataSourceId &&
       !args.extensionId &&
       !args.recordingId &&
       !args.agentsView &&
@@ -129,7 +134,7 @@ export default defineAction({
       !args.errorIssueId
     ) {
       throw new Error(
-        "At least --view, --dashboardId, --dashboardName, --analysisId, --extensionId, --recordingId, --agentsView, --dbAdminConnectionId, --monitoringView, --monitorId, --statusPageId, or --errorIssueId is required.",
+        "At least --view, --dashboardId, --dashboardName, --analysisId, --dataSourceId, --extensionId, --recordingId, --agentsView, --dbAdminConnectionId, --monitoringView, --monitorId, --statusPageId, or --errorIssueId is required.",
       );
     }
     const dashboardId =
@@ -146,6 +151,14 @@ export default defineAction({
     if (args.analysisId) {
       nav.analysisId = args.analysisId;
       if (!args.view) nav.view = "analyses";
+    }
+    if (args.dataSourceId) {
+      nav.dataSourceId = args.dataSourceId;
+      if (!args.view) nav.view = "data-sources";
+    }
+    if (nav.view === "data-sources" && nav.dataSourceId) {
+      const params = new URLSearchParams({ source: nav.dataSourceId });
+      nav.path = `/data-sources?${params.toString()}`;
     }
     if (args.extensionId) {
       nav.extensionId = args.extensionId;
@@ -192,6 +205,7 @@ export default defineAction({
     if (nav.view) parts.push(nav.view);
     if (nav.dashboardId) parts.push(`dashboard:${nav.dashboardId}`);
     if (nav.analysisId) parts.push(`analysis:${nav.analysisId}`);
+    if (nav.dataSourceId) parts.push(`data-source:${nav.dataSourceId}`);
     if (nav.extensionId) parts.push(`extension:${nav.extensionId}`);
     if (nav.recordingId) parts.push(`recording:${nav.recordingId}`);
     if (nav.agentsView) parts.push(`agents:${nav.agentsView}`);

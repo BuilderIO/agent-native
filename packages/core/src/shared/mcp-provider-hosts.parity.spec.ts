@@ -60,6 +60,18 @@ describe("shared MCP provider matcher parity with the catalog", () => {
     expect(unanswerable).toEqual([]);
   });
 
+  it("matches account-specific dbt Cloud endpoints", () => {
+    expect(
+      mcpServerUrlMatchesProvider(
+        "dbt",
+        "https://acct.us1.dbt.com/api/ai/v1/mcp/",
+      ),
+    ).toBe(true);
+    expect(mcpServerUrlMatchesProvider("dbt", "https://example.com/mcp")).toBe(
+      false,
+    );
+  });
+
   it("does not cross-match one provider's endpoint to another provider", () => {
     const notion = integrations.find(
       (integration) => integration.id === "notion",

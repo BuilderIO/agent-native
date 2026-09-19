@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  allowsMcpIntegrationPersonalScope,
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   DEFAULT_MCP_INTEGRATIONS,
@@ -146,6 +147,49 @@ describe("MCP integration catalog", () => {
     ).toEqual(["sentry"]);
   });
 
+  it("registers an editable organization-scoped dbt hosted MCP preset", () => {
+    const dbt = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "dbt",
+    )!;
+
+    for (const query of ["dbt", "metadata", "lineage", "model health"]) {
+      expect(filterMcpIntegrations(query).map((item) => item.id)).toContain(
+        "dbt",
+      );
+    }
+    expect(dbt).toMatchObject({
+      url: "https://<dbt-host>/api/ai/v1/mcp/",
+      authMode: "headers",
+      connectionMode: "manual",
+      availability: "provider-setup",
+      verification: "restricted",
+      supportsOrganizationScope: true,
+      organizationScopeOnly: true,
+      docsUrl: "https://docs.getdbt.com/docs/dbt-ai/mcp-quickstart-remote",
+      setupNoteKey: "mcpIntegrations.catalog.dbt.setupNote",
+      headerPlaceholder:
+        "Authorization: Token <DBT_SERVICE_TOKEN>\nx-dbt-prod-environment-id: <DBT_PROD_ENVIRONMENT_ID>",
+    });
+    expect(createMcpIntegrationFormDefaults(dbt)).toEqual({
+      name: "dbt",
+      url: "https://<dbt-host>/api/ai/v1/mcp/",
+      description: "Explore dbt model metadata, sources, lineage, and health.",
+      headersText: "",
+    });
+    expect(supportsMcpIntegrationOrganizationScope(dbt)).toBe(true);
+    expect(allowsMcpIntegrationPersonalScope(dbt)).toBe(false);
+    expect(shouldOfferMcpIntegrationOrganizationScope(dbt, true, true)).toBe(
+      true,
+    );
+    expect(shouldOfferMcpIntegrationOrganizationScope(dbt, true, false)).toBe(
+      false,
+    );
+    expect(
+      isMcpIntegrationUrl(dbt, "https://acct.us1.dbt.com/api/ai/v1/mcp/"),
+    ).toBe(true);
+    expect(isMcpIntegrationUrl(dbt, "https://example.com/mcp")).toBe(false);
+  });
+
   it("prefills form values from a selected preset without fabricating headers", () => {
     const sentry = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "sentry",
@@ -261,11 +305,11 @@ describe("MCP integration catalog", () => {
     });
     expect(getMcpIntegrationApiFallback(figma, "analytics")).toBeNull();
     expect(getMcpIntegrationApiFallback(figma, null)).toBeNull();
-    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(36);
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(37);
     expect(
       new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
         .size,
-    ).toBe(36);
+    ).toBe(37);
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       expect(integration.logoUrl).toMatch(
         /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon)(?:;base64,|,)/,
@@ -390,6 +434,9 @@ describe("MCP integration catalog", () => {
         "Please read https://www.notion.so/acme/Project-123",
       )?.id,
     ).toBe("notion");
+    expect(
+      findMcpIntegrationForText("https://acct.us1.dbt.com/api/ai/v1/mcp/")?.id,
+    ).toBe("dbt");
     expect(
       findMcpIntegrationForText("Canva link: https://canva.com/design/abc")?.id,
     ).toBe("canva");
