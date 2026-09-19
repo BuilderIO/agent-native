@@ -7,6 +7,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 import {
+  getAuthEmailForUserId,
   getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
   setRequiredAuthProvider,
@@ -34,6 +35,28 @@ describe("organization auth policy", () => {
     await expect(
       isGoogleSignInRequiredForEmail("person@example.com"),
     ).resolves.toBe(false);
+  });
+
+  it("reads a user from Better Auth's transaction adapter before the global DB", async () => {
+    const findUserById = vi.fn().mockResolvedValue({
+      id: "new-user",
+      email: "new@example.com",
+    });
+
+    await expect(
+      getAuthEmailForUserId("new-user", { findUserById }),
+    ).resolves.toBe("new@example.com");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("keeps missing user rows as an error when the transaction lookup is empty", async () => {
+    execute.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      getAuthEmailForUserId("missing-user", {
+        findUserById: vi.fn().mockResolvedValue(null),
+      }),
+    ).rejects.toThrow("Better Auth user email not found: missing-user");
   });
 
   it("resolves an organization-specific SSO provider requirement", async () => {

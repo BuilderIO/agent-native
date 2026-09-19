@@ -134,7 +134,19 @@ export async function isGoogleSignInRequiredForEmail(
 }
 
 /** Resolve the email used by Better Auth's session lifecycle hook. */
-export async function getAuthEmailForUserId(userId: string): Promise<string> {
+export async function getAuthEmailForUserId(
+  userId: string,
+  transactionAdapter?: {
+    findUserById?: (
+      id: string,
+    ) => Promise<{ email?: unknown } | null | undefined>;
+  },
+): Promise<string> {
+  const transactionUser = await transactionAdapter?.findUserById?.(userId);
+  if (typeof transactionUser?.email === "string" && transactionUser.email) {
+    return transactionUser.email;
+  }
+
   const result = await getDbExec().execute({
     sql: 'SELECT email FROM "user" WHERE id = ? LIMIT 1',
     args: [userId],
