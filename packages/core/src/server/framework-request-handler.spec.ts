@@ -7,6 +7,7 @@ import {
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { createTrackingEventScope } from "../observability/tracing.js";
 import {
+  FRAMEWORK_AUTH_BOOTSTRAP_PATHS,
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
   markDefaultPluginProvided,
@@ -625,6 +626,54 @@ describe("framework request handler", () => {
     ).resolves.toEqual({ ok: true });
 
     release();
+  });
+
+  it("holds auth APIs for scoped schema dependencies while session stays early", async () => {
+    const nitroApp = createNitroApp();
+    let releaseCore!: () => void;
+    let releaseOrg!: () => void;
+    const coreReady = new Promise<void>((resolve) => {
+      releaseCore = resolve;
+    });
+    const orgReady = new Promise<void>((resolve) => {
+      releaseOrg = resolve;
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp).use("/_agent-native/auth/session", () => ({
+      session: true,
+    }));
+    getH3App(nitroApp).use("/_agent-native/auth/register", () => ({
+      registered: true,
+    }));
+    trackPluginInit(nitroApp, coreReady, {
+      paths: [...FRAMEWORK_AUTH_BOOTSTRAP_PATHS],
+    });
+    trackPluginInit(nitroApp, orgReady, {
+      paths: [...FRAMEWORK_AUTH_BOOTSTRAP_PATHS],
+    });
+
+    let settled = false;
+    const registration = dispatch(
+      nitroApp,
+      "/_agent-native/auth/register",
+    ).then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/auth/session"),
+    ).resolves.toEqual({ session: true });
+
+    releaseCore();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    releaseOrg();
+    await expect(registration).resolves.toEqual({ registered: true });
   });
 
   it("does not wait for unscoped plugin initialization on an early route", async () => {
