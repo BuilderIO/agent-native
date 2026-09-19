@@ -86,7 +86,12 @@ jobs:
           E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
         run: |
           mkdir -p .react-router/types
+          set +e
           pnpm exec playwright test --shard=${{ matrix.shard }}/4
+          status=$?
+          echo "Postgres schema after shard ${{ matrix.shard }}"
+          psql "$E2E_DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT current_database(), current_schema(), current_setting('search_path'); SELECT schemaname, tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY schemaname, tablename;" || true
+          exit "$status"
 
       - name: Upload report on failure
         if: ${{ failure() }}
