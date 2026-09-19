@@ -27,6 +27,12 @@ const SHAPE_NAME = "Layered Shape";
 const HEADING_NAME = "Beta Heading";
 const BODY_NAME = "Beta Body";
 const FINAL_TEXT_SIZE = "28";
+const SELECTION_COLOR_FRAME_ID = "selection-color-frame";
+const SELECTION_COLOR_FRAME_NAME = "Selection Color Frame";
+const SELECTION_COLOR_MATCHING_ID = "selection-color-matching";
+const SELECTION_COLOR_OTHER_ID = "selection-color-other";
+const SELECTION_COLOR_MATCHING_NAME = "Matching";
+const SELECTION_COLOR_OTHER_NAME = "Other";
 
 const FIXTURE = `<!doctype html>
 <html lang="en">
@@ -51,6 +57,17 @@ const NESTED_DROP_FIXTURE = `<!doctype html>
       <div data-agent-native-node-id="nested-anchor" data-agent-native-layer-name="Existing child"
            style="position:absolute;left:16px;top:16px;width:80px;height:40px;background:#2563eb"></div>
     </div>
+  </body>
+</html>`;
+
+const SELECTION_COLOR_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Beta Design selection colors</title></head>
+  <body style="margin:0;background:#ffffff;color:#111827">
+    <main data-agent-native-node-id="${SELECTION_COLOR_FRAME_ID}" data-agent-native-layer-name="${SELECTION_COLOR_FRAME_NAME}" style="width:900px;height:700px;background:#101010">
+      <div data-agent-native-node-id="${SELECTION_COLOR_MATCHING_ID}" data-agent-native-layer-name="${SELECTION_COLOR_MATCHING_NAME}" style="width:120px;height:80px;background:#101010"></div>
+      <div data-agent-native-node-id="${SELECTION_COLOR_OTHER_ID}" data-agent-native-layer-name="${SELECTION_COLOR_OTHER_NAME}" style="width:120px;height:80px;background:#ffffff"></div>
+    </main>
   </body>
 </html>`;
 
@@ -306,6 +323,7 @@ async function openAuthedPage(browser: Browser): Promise<AuthedPage> {
 async function createFixture(
   page: Page,
   onCreated: (designId: string) => void,
+  content = FIXTURE,
 ): Promise<string> {
   const created = await postAction(page, "create-design", {
     title: runMarker(`Design interactions ${Date.now()}`),
@@ -320,7 +338,7 @@ async function createFixture(
     await postAction(page, "create-file", {
       designId,
       filename: "index.html",
-      content: FIXTURE,
+      content,
       fileType: "html",
     });
   } catch (error) {
@@ -1069,6 +1087,112 @@ test.describe("authenticated beta Design interactions", () => {
       expect(reloadedRowText[0]).toMatch(/Image 1/);
       expect(reloadedRowText[1]).toMatch(/Radial gradient 2/);
       expect(reloadedRowText[2]).toMatch(/Linear gradient 3/);
+    } catch (error) {
+      primaryFailure = true;
+      throw error;
+    } finally {
+      await cleanupTest({
+        context,
+        page,
+        designId,
+        appErrors,
+        primaryFailure,
+      });
+    }
+  });
+
+  test("report path: authored #101010 selection color finds only matching layers after reload", async ({
+    browser,
+  }) => {
+    const { context, page, appErrors } = await openAuthedPage(browser);
+    let designId = "";
+    let primaryFailure = false;
+    try {
+      designId = await createFixture(
+        page,
+        (id) => {
+          designId = id;
+        },
+        SELECTION_COLOR_FIXTURE,
+      );
+      await openEditor(page, designId, SELECTION_COLOR_FRAME_ID);
+      await expandLayers(page);
+      await selectLayer(page, SELECTION_COLOR_FRAME_NAME);
+
+      const tree = page.getByRole("tree", { name: "Layers" });
+      const selectionColors = page
+        .locator("section")
+        .filter({
+          has: page.getByRole("heading", {
+            name: "Selection colors",
+            exact: true,
+          }),
+        })
+        .first();
+      await selectionColors
+        .getByRole("button", { name: "Show selection colors" })
+        .click();
+      await expect(
+        selectionColors.locator('button[aria-label^="#"]'),
+      ).toHaveAttribute("aria-label", "#101010");
+      await expect(
+        selectionColors.locator('button[aria-label^="#"]'),
+      ).toHaveCount(1);
+      await selectionColors
+        .locator('button[aria-label="Find layers: #101010"]')
+        .click();
+
+      await expect(
+        tree
+          .getByRole("button", {
+            name: SELECTION_COLOR_MATCHING_NAME,
+            exact: true,
+          })
+          .locator('xpath=ancestor::*[@role="treeitem"][1]'),
+      ).toHaveAttribute("aria-selected", "true");
+      await expect(
+        tree
+          .getByRole("button", {
+            name: SELECTION_COLOR_OTHER_NAME,
+            exact: true,
+          })
+          .locator('xpath=ancestor::*[@role="treeitem"][1]'),
+      ).toHaveAttribute("aria-selected", "false");
+      await expect(
+        tree.locator('[role="treeitem"][aria-selected="true"]'),
+      ).toHaveCount(2);
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await waitForEditor(page, SELECTION_COLOR_FRAME_ID);
+      await enterDirectMode(page);
+      await expandLayers(page);
+      await selectLayer(page, SELECTION_COLOR_FRAME_NAME);
+      const reloadedSelectionColors = page
+        .locator("section")
+        .filter({
+          has: page.getByRole("heading", {
+            name: "Selection colors",
+            exact: true,
+          }),
+        })
+        .first();
+      await reloadedSelectionColors
+        .getByRole("button", { name: "Show selection colors" })
+        .click();
+      await expect(
+        reloadedSelectionColors.locator('button[aria-label^="#"]'),
+      ).toHaveAttribute("aria-label", "#101010");
+      await expect(
+        reloadedSelectionColors.locator('button[aria-label^="#"]'),
+      ).toHaveCount(1);
+      await reloadedSelectionColors
+        .locator('button[aria-label="Find layers: #101010"]')
+        .click();
+      await expect(
+        page
+          .getByRole("tree", { name: "Layers" })
+          .locator('[role="treeitem"][aria-selected="true"]'),
+      ).toHaveCount(2);
     } catch (error) {
       primaryFailure = true;
       throw error;
