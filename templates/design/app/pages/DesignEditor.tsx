@@ -575,6 +575,7 @@ import {
   codeLayerSourceNodeIdAttrs,
   codeLayerNodeLooksLikeComponent,
   codeLayerSelectorAliases,
+  codeLayerSelectorMatches,
   codeLayerTreeToPanelNodes,
   collectCodeLayerAncestors,
   collectEffectiveCodeLayerState,
@@ -15239,20 +15240,48 @@ function DesignEditor() {
           designSourceType,
           fileSaveOperationRevisionRef,
           getCurrentSelectionFingerprint: () => {
-            const movedSourceId = arg0.sourceNodeId;
+            const movedSourceId =
+              arg0.sourceProvenance?.uniqueNodeId?.trim() ||
+              arg0.sourceNodeId?.trim() ||
+              undefined;
+            const movedSourceSelector = arg0.sourceSelector.trim() || undefined;
+            const sourceOwners = Array.from(
+              codeLayerOwnerByNodeIdRef.current.entries(),
+            ).filter(([, owner]) => owner.fileId === arg0.sourceScreenId);
+            const sourceIdMatches = movedSourceId
+              ? sourceOwners.filter(
+                  ([, owner]) =>
+                    bridgeSourceIdForCodeLayerNode(owner.node).trim() ===
+                    movedSourceId,
+                )
+              : [];
+            const selectorMatches = movedSourceSelector
+              ? sourceOwners.filter(([, owner]) =>
+                  codeLayerSelectorMatches(owner.node, movedSourceSelector),
+                )
+              : [];
+            const movedSourceLayerIds = new Set(
+              (sourceIdMatches.length === 1
+                ? sourceIdMatches
+                : selectorMatches.length === 1
+                  ? selectorMatches
+                  : []
+              ).map(([layerId]) => layerId),
+            );
             const selectedElement = selectedElementRef.current;
             // Removing the source can legitimately clear its pre-drop
             // selection before the two saves settle.
             const selectedMovedSource =
-              movedSourceId !== undefined &&
-              selectedElement?.sourceId === movedSourceId;
+              selectedElement !== null &&
+              ((movedSourceId !== undefined &&
+                selectedElement.sourceId?.trim() === movedSourceId) ||
+                (movedSourceSelector !== undefined &&
+                  selectedElement.selector === movedSourceSelector));
             const selectedLayerIds = selectedLayerIdsStateRef.current.filter(
               (layerId) => {
                 const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
                 if (owner) {
-                  return (
-                    bridgeSourceIdForCodeLayerNode(owner.node) !== movedSourceId
-                  );
+                  return !movedSourceLayerIds.has(layerId);
                 }
                 return !selectedMovedSource;
               },
