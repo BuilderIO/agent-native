@@ -1459,6 +1459,11 @@ button[title="Open agent sidebar"] {
   display: contents;
 }
 
+/* The body-mounted editing context needs a real box for its fixed host. */
+.slide-content.slide-rich-editor-context .slide-rich-editor-host {
+  display: block;
+}
+
 /* TipTap's relative editor root must not become the containing block for
    persisted absolute slide objects when a text layer receives focus. */
 .slide-content .slide-shared-rich-editor .ProseMirror {

@@ -297,9 +297,7 @@ describe("responsive Interact wiring", () => {
     expect(source).toContain("container.clientWidth - 48");
     expect(source).toContain("new ResizeObserver(updateZoomToFit)");
     expect(source).toContain("responsiveInteractActive ? interactZoom : zoom");
-    expect(source).toContain(
-      "responsiveInteractActive ? setInteractZoom : setZoom",
-    );
+    expect(source).toContain("responsiveInteractActive ? undefined : setZoom");
     expect(source).toContain("? interactDeviceSize.width");
     expect(source).toContain("? interactDeviceSize.height");
     const canvas = readFileSync(
@@ -320,7 +318,7 @@ describe("responsive Interact wiring", () => {
     // Close button. A dedicated window listener (not useDesignHotkeys, which
     // stays disabled above) now exits Interact on Escape whenever the event
     // reaches the parent window un-intercepted — i.e. never while a Radix
-    // layer (the device Select, zoom Popover) or the iframe itself has
+    // layer (the device Select) or the iframe itself has
     // already handled it, matching DesignColorPicker.escape.test.tsx's
     // documented ordering.
     const escapeExitEffect = source.slice(
@@ -344,8 +342,9 @@ describe("responsive Interact wiring", () => {
       "app/components/design/ResponsiveInteractBar.tsx",
       "utf8",
     );
-    expect(bar).toContain("formatInteractZoom(zoom)");
     expect(bar).toContain("w-[88px]");
     expect(bar).toContain("appearance:textfield");
+    expect(bar).not.toContain("zoomIn");
+    expect(bar).not.toContain("zoomOut");
   });
 });
