@@ -5875,23 +5875,19 @@ export function DesignCanvas({
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
   const embeddedFrameFluid = embeddedFrame?.fluid === true;
-  // Non-fluid responsive previews scale their iframe viewport up to the
-  // displayed breakpoint card before the overview world applies its own
-  // camera transform. Retention must account for that inner scale; use the
-  // larger axis conservatively because one oversized axis is enough to stress
-  // Chromium's backing surface.
-  const embeddedFramePaintScale = embeddedFrame
-    ? Math.max(
-        1,
-        embeddedFrame.displayWidth / Math.max(1, embeddedFrame.viewportWidth),
-        embeddedFrame.displayHeight / Math.max(1, embeddedFrame.viewportHeight),
-      )
-    : 1;
-  const embeddedEditorPaintScale = Math.max(
-    1,
-    editorChromeScaleX,
-    editorChromeScaleY,
-  );
+  const embeddedFramePaintScaleX =
+    embeddedFrame && !embeddedFrameFluid
+      ? embeddedFrame.displayWidth / Math.max(1, embeddedFrame.viewportWidth)
+      : 1;
+  const embeddedFramePaintScaleY =
+    embeddedFrame && !embeddedFrameFluid
+      ? embeddedFrame.displayHeight / Math.max(1, embeddedFrame.viewportHeight)
+      : 1;
+  // One oversized axis can force the whole iframe backing surface onto the
+  // compositor path, so use the larger inner and editor scale conservatively.
+  const embeddedPaintScale =
+    Math.max(1, embeddedFramePaintScaleX, embeddedFramePaintScaleY) *
+    Math.max(1, editorChromeScaleX, editorChromeScaleY);
   const iframeBackgroundColor = getEmbeddedIframeBackgroundColor({
     embeddedFrameBackground,
     transparentBackground,
@@ -6218,17 +6214,20 @@ export function DesignCanvas({
             backgroundColor: iframeBackgroundColor,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             ...getIframePaintRetentionStyle({
-              viewportWidth: embeddedFrame
-                ? embeddedFrame.viewportWidth
-                : (previewWidthPx ?? Number.parseFloat(iframeWidth)),
-              viewportHeight: embeddedFrame
-                ? embeddedFrame.viewportHeight
-                : (previewHeightPx ??
-                  Number.parseFloat(iframeHeight ?? "900px")),
+              viewportWidth:
+                embeddedFrame?.viewportWidth ??
+                previewWidthPx ??
+                Number.parseFloat(iframeWidth),
+              viewportHeight:
+                embeddedFrame?.viewportHeight ??
+                previewHeightPx ??
+                Number.parseFloat(iframeHeight ?? "900px"),
               effectiveScale: embeddedFrame
-                ? embeddedFramePaintScale * embeddedEditorPaintScale
-                : (zoom / 100) *
-                  Math.max(editorChromeScaleX, editorChromeScaleY),
+                ? embeddedPaintScale
+                : (zoom / 100) * editorChromeScaleX,
+              effectiveScaleY: embeddedFrame
+                ? embeddedPaintScale
+                : (zoom / 100) * editorChromeScaleY,
             }),
           }}
           title={t("designEditor.designPreview")}

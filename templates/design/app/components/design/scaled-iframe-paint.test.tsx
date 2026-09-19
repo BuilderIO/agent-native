@@ -54,6 +54,7 @@ async function renderEmbeddedDesignCanvas({
   zoom = 100,
   effectiveScale = 0.29,
   effectiveScaleY = effectiveScale,
+  embeddedFrame,
 }: {
   viewportWidth?: number;
   viewportHeight?: number;
@@ -63,7 +64,21 @@ async function renderEmbeddedDesignCanvas({
   zoom?: number;
   effectiveScale?: number;
   effectiveScaleY?: number;
+  embeddedFrame?: {
+    viewportWidth: number;
+    viewportHeight: number;
+    displayWidth: number;
+    displayHeight: number;
+    fluid?: boolean;
+  };
 } = {}) {
+  const resolvedEmbeddedFrame = embeddedFrame ?? {
+    viewportWidth,
+    viewportHeight,
+    displayWidth,
+    displayHeight,
+    fluid,
+  };
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -80,13 +95,7 @@ async function renderEmbeddedDesignCanvas({
         interactMode={false}
         editMode
         registerRuntimeBridge={false}
-        embeddedFrame={{
-          viewportWidth,
-          viewportHeight,
-          displayWidth,
-          displayHeight,
-          fluid,
-        }}
+        embeddedFrame={resolvedEmbeddedFrame}
         onElementSelect={() => {}}
         onElementHover={() => {}}
         tweakValues={{}}
@@ -187,6 +196,26 @@ describe("canvas iframe paint retention", () => {
       );
       expect(iframe).not.toBeNull();
       expect(iframe!.style.backfaceVisibility).toBe("hidden");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("uses the non-uniform embedded-frame height when limiting paint retention", async () => {
+    const { container, cleanup } = await renderEmbeddedDesignCanvas({
+      embeddedFrame: {
+        viewportWidth: 1440,
+        viewportHeight: 1440,
+        displayWidth: 1440,
+        displayHeight: 5000,
+      },
+      zoom: 100,
+    });
+    try {
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe?.style.backfaceVisibility).toBe("visible");
     } finally {
       await cleanup();
     }
@@ -334,5 +363,30 @@ describe("canvas iframe paint retention", () => {
         effectiveScale: boardScale * 0.02,
       }).backfaceVisibility,
     ).toBe("hidden");
+  });
+
+  it("does not promote a large painted iframe into one GPU surface", () => {
+    expect(
+      getIframePaintRetentionStyle({
+        viewportWidth: 1440,
+        viewportHeight: MAX_RETAINED_IFRAME_PAINT_AXIS_PX + 1,
+        effectiveScale: 1,
+      }).backfaceVisibility,
+    ).toBe("visible");
+    expect(
+      getIframePaintRetentionStyle({
+        viewportWidth: 1440,
+        viewportHeight: MAX_RETAINED_IFRAME_PAINT_AXIS_PX + 1,
+        effectiveScale: 0.25,
+      }).backfaceVisibility,
+    ).toBe("visible");
+    expect(
+      getIframePaintRetentionStyle({
+        viewportWidth: 1440,
+        viewportHeight: 1440,
+        effectiveScale: 1,
+        effectiveScaleY: 3,
+      }).backfaceVisibility,
+    ).toBe("visible");
   });
 });
