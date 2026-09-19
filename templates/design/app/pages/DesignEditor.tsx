@@ -15260,23 +15260,28 @@ function DesignEditor() {
                   codeLayerSelectorMatches(owner.node, movedSourceSelector),
                 )
               : [];
-            const movedSourceLayerIds = new Set(
-              (sourceIdMatches.length === 1
+            const movedSourceMatches =
+              sourceIdMatches.length === 1
                 ? sourceIdMatches
                 : selectorMatches.length === 1
                   ? selectorMatches
-                  : []
-              ).map(([layerId]) => layerId),
+                  : [];
+            const movedSourceOwner = movedSourceMatches[0]?.[1];
+            const movedSourceLayerIds = new Set(
+              movedSourceMatches.map(([layerId]) => layerId),
             );
             const selectedElement = selectedElementRef.current;
             // Removing the source can legitimately clear its pre-drop
             // selection before the two saves settle.
             const selectedMovedSource =
               selectedElement !== null &&
-              ((movedSourceId !== undefined &&
-                selectedElement.sourceId?.trim() === movedSourceId) ||
-                (movedSourceSelector !== undefined &&
-                  selectedElement.selector === movedSourceSelector));
+              movedSourceOwner !== undefined &&
+              (sourceIdMatches.length === 1
+                ? selectedElement.sourceId?.trim() === movedSourceId
+                : codeLayerSelectorMatches(
+                    movedSourceOwner.node,
+                    selectedElement.selector,
+                  ));
             const selectedLayerIds = selectedLayerIdsStateRef.current.filter(
               (layerId) => {
                 const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
