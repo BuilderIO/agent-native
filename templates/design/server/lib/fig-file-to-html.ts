@@ -4470,7 +4470,7 @@ export interface RenderHtmlOptions {
   maxTotalOutputBytes?: number;
 }
 
-const DEFAULT_MAX_RENDER_FRAMES = 200;
+const DEFAULT_MAX_RENDER_FRAMES = 300;
 const DEFAULT_MAX_RENDERED_NODES = 250_000;
 const DEFAULT_MAX_TREE_DEPTH = 256;
 const DEFAULT_MAX_FRAME_OUTPUT_BYTES = 4 * 1024 * 1024;

@@ -24,7 +24,7 @@ import { utf8ByteLength } from "./fig-bytes.js";
 
 const MAX_FIG_NODES = 75_000;
 const MAX_FIG_IMAGES = 1_024;
-const MAX_FIG_FRAMES = 200;
+const MAX_FIG_FRAMES = 300;
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
 /** The browser action transport accepts smaller per-frame payloads. */
 export const MAX_FIG_FRAME_HTML_BYTES = 2 * 1024 * 1024;

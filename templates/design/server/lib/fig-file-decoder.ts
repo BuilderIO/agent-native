@@ -43,6 +43,12 @@ const MAX_DECODE_READS = 64 * 1024 * 1024;
 const MAX_SANITIZED_BINARY_BYTES = 32 * 1024 * 1024;
 const MAX_DECODED_STRING_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_STRING_BYTES = 32 * 1024 * 1024;
+// `sanitizeForJson` represents bounded binary fields as two hex characters per
+// byte, so the re-check needs room for that representation without relaxing
+// the raw string or binary budgets enforced during decoding.
+const MAX_POST_SANITIZATION_STRING_BYTES =
+  MAX_TOTAL_STRING_BYTES + MAX_SANITIZED_BINARY_BYTES * 2;
+const sanitizedDocuments = new WeakSet<object>();
 const ZSTD_MAGIC = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd]);
 const FIG_KIWI_MAGIC = asciiBytes("fig-kiwi");
 const FIGJAM_KIWI_MAGIC = asciiBytes("fig-jam.");
@@ -528,6 +534,10 @@ function sanitizeForJson(
 export function assertSafeDecodedFigDocument(value: unknown): void {
   const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
   const seen = new WeakSet<object>();
+  const maxStringBytes =
+    value !== null && typeof value === "object" && sanitizedDocuments.has(value)
+      ? MAX_POST_SANITIZATION_STRING_BYTES
+      : MAX_TOTAL_STRING_BYTES;
   let objects = 0;
   let items = 0;
   let binaryBytes = 0;
@@ -547,10 +557,7 @@ export function assertSafeDecodedFigDocument(value: unknown): void {
     if (typeof current.value === "string") {
       const bytes = utf8ByteLength(current.value);
       stringBytes += bytes;
-      if (
-        bytes > MAX_DECODED_STRING_BYTES ||
-        stringBytes > MAX_TOTAL_STRING_BYTES
-      ) {
+      if (bytes > MAX_DECODED_STRING_BYTES || stringBytes > maxStringBytes) {
         throw new Error("Decoded .fig document contains too much string data.");
       }
       continue;
@@ -765,14 +772,18 @@ function decodeKiwiDocument(
     );
     const bb = new BudgetByteBuffer(view);
     const document = decoder.call(compiled, bb);
+    const sanitizedDocument = sanitizeForJson(document, {
+      objects: 0,
+      items: 0,
+      binaryBytes: 0,
+      stringBytes: 0,
+      active: new WeakSet(),
+    });
+    if (sanitizedDocument !== null && typeof sanitizedDocument === "object") {
+      sanitizedDocuments.add(sanitizedDocument);
+    }
     return {
-      document: sanitizeForJson(document, {
-        objects: 0,
-        items: 0,
-        binaryBytes: 0,
-        stringBytes: 0,
-        active: new WeakSet(),
-      }),
+      document: sanitizedDocument,
     };
   } catch (e) {
     return {
