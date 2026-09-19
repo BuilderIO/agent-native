@@ -1,4 +1,3 @@
-import { fail } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
@@ -16,7 +15,6 @@ export default defineAction({
     "Record the user's explicit consent to allow the agent to write local files " +
     "for a specific design + localhost connection. The grant scopes writes to the " +
     "connection's rootPath and expires after 8 hours. Requires editor access on the design. " +
-    "Signed-out visual-edit capabilities cannot grant local writes. " +
     "The LocalhostWriteConsentDialog calls this after the user clicks 'Allow writes'.",
   // This action persists the real bridgeToken that unlocks the local
   // bridge's unrestricted /read-file, /write-file, and /apply-edit. It must
@@ -37,13 +35,7 @@ export default defineAction({
       .string()
       .describe("Localhost connection ID (from list-localhost-connections)."),
   }),
-  run: async ({ designId, connectionId }, ctx) => {
-    if (!ctx?.userEmail) {
-      fail("Localhost write consent requires a signed-in Design account.", {
-        errorCode: "visual_edit_write_consent_auth_required",
-      });
-    }
-
+  run: async ({ designId, connectionId }) => {
     await assertAccess("design", designId, "editor");
 
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({

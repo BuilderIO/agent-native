@@ -47,8 +47,6 @@ let mockExistingGrant: GrantRow | null = null;
 let insertedValues: Record<string, unknown> | null = null;
 let updatedSet: Record<string, unknown> | null = null;
 
-const AUTH_CONTEXT = { userEmail: "user@example.com", orgId: "org_1" };
-
 function makeSelectChain(rows: unknown[]) {
   return {
     from: () => ({
@@ -110,16 +108,6 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("grant-localhost-write-consent", () => {
-  it("rejects signed-out capability callers before granting local writes", async () => {
-    await expect(
-      action.run(
-        { designId: "design_1", connectionId: "conn_1" },
-        { caller: "frontend", requestHeaders: new Headers() },
-      ),
-    ).rejects.toThrow(/signed-in Design account/);
-    expect(mockConnection).toBeNull();
-  });
-
   it("is available to the capability-scoped visual-edit editor", () => {
     expect(action.capabilityScopes).toEqual(["visual-edit"]);
     expect(action.agentTool).toBe(false);
@@ -133,13 +121,10 @@ describe("grant-localhost-write-consent", () => {
       bridgeToken: "bridge_real_token_xyz",
     };
 
-    const result = await action.run(
-      {
-        designId: "design_1",
-        connectionId: "conn_1",
-      },
-      AUTH_CONTEXT,
-    );
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+    });
 
     expect(result).not.toHaveProperty("bridgeToken");
     // The server-side grant still retains the token write-local-file needs.
@@ -155,17 +140,11 @@ describe("grant-localhost-write-consent", () => {
     };
 
     await expect(
-      action.run(
-        { designId: "design_1", connectionId: "conn_1" },
-        AUTH_CONTEXT,
-      ),
+      action.run({ designId: "design_1", connectionId: "conn_1" }),
     ).rejects.toThrow(/no bridge token/);
 
     await expect(
-      action.run(
-        { designId: "design_1", connectionId: "conn_1" },
-        AUTH_CONTEXT,
-      ),
+      action.run({ designId: "design_1", connectionId: "conn_1" }),
     ).rejects.toThrow(/design connect/);
   });
 
@@ -173,10 +152,7 @@ describe("grant-localhost-write-consent", () => {
     mockConnection = null;
 
     await expect(
-      action.run(
-        { designId: "design_1", connectionId: "conn_missing" },
-        AUTH_CONTEXT,
-      ),
+      action.run({ designId: "design_1", connectionId: "conn_missing" }),
     ).rejects.toThrow(/not found/);
   });
 
@@ -189,10 +165,7 @@ describe("grant-localhost-write-consent", () => {
     };
 
     await expect(
-      action.run(
-        { designId: "design_1", connectionId: "conn_1" },
-        AUTH_CONTEXT,
-      ),
+      action.run({ designId: "design_1", connectionId: "conn_1" }),
     ).rejects.toThrow(/rootPath/);
   });
 
@@ -205,13 +178,10 @@ describe("grant-localhost-write-consent", () => {
     };
     mockExistingGrant = null;
 
-    const result = await action.run(
-      {
-        designId: "design_1",
-        connectionId: "conn_1",
-      },
-      AUTH_CONTEXT,
-    );
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+    });
 
     expect(insertedValues).not.toBeNull();
     expect(insertedValues?.id).toBe("fixed_grant_id");
@@ -232,13 +202,10 @@ describe("grant-localhost-write-consent", () => {
     };
     mockExistingGrant = { id: "existing_grant_id" };
 
-    const result = await action.run(
-      {
-        designId: "design_1",
-        connectionId: "conn_1",
-      },
-      AUTH_CONTEXT,
-    );
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+    });
 
     expect(updatedSet).not.toBeNull();
     expect(updatedSet?.bridgeToken).toBe("bridge_token_refreshed");
@@ -255,13 +222,10 @@ describe("grant-localhost-write-consent", () => {
     };
 
     const before = Date.now();
-    const result = await action.run(
-      {
-        designId: "design_1",
-        connectionId: "conn_1",
-      },
-      AUTH_CONTEXT,
-    );
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+    });
     const after = Date.now();
 
     expect(result.rootPath).toBe("/home/user/my-app");
