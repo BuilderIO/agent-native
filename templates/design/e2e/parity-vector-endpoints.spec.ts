@@ -201,6 +201,7 @@ async function liveEndpoints(page: Page, nodeId: string) {
         markerIds: defs.map((marker) => marker.id).sort(),
         markerShapes: defs.map((marker) => ({
           id: marker.id,
+          refX: marker.getAttribute("refX"),
           fill: marker.firstElementChild?.getAttribute("fill") ?? null,
           stroke: marker.firstElementChild?.getAttribute("stroke") ?? null,
         })),
@@ -275,6 +276,50 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
         ),
       ).toBe(true);
     }
+
+    await chooseEndpoint(page, "Start", "Reversed triangle");
+    await chooseEndpoint(page, "End", "Reversed triangle");
+    await expect
+      .poll(async () => liveEndpoints(page, "endpoint-line"))
+      .toMatchObject({
+        style: { start: "reversed-triangle", end: "reversed-triangle" },
+      });
+    const reversedLive = await liveEndpoints(page, "endpoint-line");
+    expect(reversedLive.markerShapes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expectedMarkerId("endpoint-line", "start"),
+          refX: "0",
+        }),
+        expect.objectContaining({
+          id: expectedMarkerId("endpoint-line", "end"),
+          refX: "0",
+        }),
+      ]),
+    );
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(async () => liveEndpoints(page, "endpoint-line"), {
+        timeout: 40_000,
+      })
+      .toMatchObject({
+        style: { start: "reversed-triangle", end: "reversed-triangle" },
+      });
+    const reloadedReversed = await liveEndpoints(page, "endpoint-line");
+    expect(reloadedReversed.markerShapes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expectedMarkerId("endpoint-line", "start"),
+          refX: "0",
+        }),
+        expect.objectContaining({
+          id: expectedMarkerId("endpoint-line", "end"),
+          refX: "0",
+        }),
+      ]),
+    );
+    await selectVector(page, "endpoint-line");
 
     // The swap is one batched inspector action. Undo/redo must move only the
     // endpoint pair while retaining the same selected source identity.
