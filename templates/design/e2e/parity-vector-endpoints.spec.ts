@@ -166,10 +166,8 @@ async function chooseEndpoint(
     name: `${side} point`,
   });
   await expect(trigger).toBeVisible();
-  const listboxId = await trigger.getAttribute("aria-controls");
-  if (!listboxId) throw new Error(`${side} point listbox is not mounted`);
   await trigger.click();
-  const listbox = page.locator(`[id="${listboxId}"][role="listbox"]`);
+  const listbox = page.getByRole("listbox").last();
   await expect(listbox).toBeVisible();
   await listbox.getByRole("option", { name: label, exact: true }).click();
   await expect(trigger).toHaveText(label);
