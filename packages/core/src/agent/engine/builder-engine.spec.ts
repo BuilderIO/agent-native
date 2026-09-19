@@ -2485,6 +2485,37 @@ describe("createBuilderEngine", () => {
     expect(body.tools).toHaveLength(1);
   });
 
+  it("sends the real reasoning_effort for a GPT model with tools once the gateway Responses lane is enabled", async () => {
+    vi.stubEnv("AGENT_BUILDER_GATEWAY_GPT_RESPONSES_LANE", "true");
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "gpt-5-6-luna",
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.tools).toHaveLength(1);
+  });
+
   it("preserves explicit none for a GPT model when tools are present", async () => {
     const fetchSpy = vi
       .fn()

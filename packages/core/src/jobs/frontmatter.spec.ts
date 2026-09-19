@@ -47,6 +47,7 @@ describe("job resource frontmatter", () => {
       deliveryThreadRef: "1785343277.030909",
       deliveryTenantId: "T012345",
       model: "claude-sonnet-4-5",
+      reasoningEffort: "high",
       maxIterations: 32,
       maxRunInputTokens: 1_000_000,
       mcpTools: ["mcp__calendar__list_events"],
@@ -62,6 +63,20 @@ describe("job resource frontmatter", () => {
       hasExplicitTriggerType: true,
       triggerType: "schedule",
     });
+  });
+
+  it("drops an unrecognized stored reasoningEffort value instead of parsing it", () => {
+    const content = [
+      "---",
+      'schedule: "0 * * * *"',
+      "enabled: true",
+      "reasoningEffort: extreme",
+      "---",
+      "",
+      "Run it.",
+    ].join("\n");
+    const parsed = parseJobResource(content);
+    expect(parsed.meta.reasoningEffort).toBeUndefined();
   });
 
   it("rejects unbounded execution targets and delegated policy IDs", () => {
