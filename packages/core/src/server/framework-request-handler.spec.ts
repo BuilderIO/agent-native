@@ -694,18 +694,29 @@ describe("framework request handler", () => {
     getH3App(nitroApp).use("/_agent-native/auth/register", () => ({
       registered: true,
     }));
+    getH3App(nitroApp).use("/_agent-native/auth/login", () => ({
+      loggedIn: true,
+    }));
 
-    let settled = false;
+    let registrationSettled = false;
+    let loginSettled = false;
     const registration = dispatch(
       nitroApp,
       "/_agent-native/auth/register",
     ).then((result) => {
-      settled = true;
+      registrationSettled = true;
       return result;
     });
+    const login = dispatch(nitroApp, "/_agent-native/auth/login").then(
+      (result) => {
+        loginSettled = true;
+        return result;
+      },
+    );
     await Promise.resolve();
     await Promise.resolve();
-    expect(settled).toBe(false);
+    expect(registrationSettled).toBe(false);
+    expect(loginSettled).toBe(false);
 
     await expect(
       dispatch(nitroApp, "/_agent-native/auth/session"),
@@ -713,6 +724,7 @@ describe("framework request handler", () => {
 
     release();
     await expect(registration).resolves.toEqual({ registered: true });
+    await expect(login).resolves.toEqual({ loggedIn: true });
   });
 
   it("does not wait for unscoped plugin initialization on an early route", async () => {
