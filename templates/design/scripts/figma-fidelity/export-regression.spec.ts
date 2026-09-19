@@ -17,6 +17,10 @@ import {
  * share those accounts. The deterministic gate still catches the regressions
  * the historical loops found: page-evaluated exporter errors, wrong canvas
  * dimensions, silent omissions, broken assets, and pixel drift.
+ * Typography has a wider reviewed pixel ceiling because HTML and SVG glyph
+ * rasterization differs between the macOS developer environment and Linux CI;
+ * its 6.218% ceiling is the observed 5.407% Linux result plus the CLI's
+ * standard 15% calibration headroom. Other loss signals stay exact.
  */
 describe("Figma export fidelity corpus", () => {
   let browser: Browser;
