@@ -336,9 +336,9 @@ describe("OpenVisualEditWebMcp", () => {
       },
       { signal: undefined },
     );
-    const installOptions = mocks.installProxy.mock.calls.at(-1)?.[1] as
-      | { onBridgeTokenRejected?: () => void }
-      | undefined;
+    const installOptions = mocks.installProxy.mock.calls[
+      mocks.installProxy.mock.calls.length - 1
+    ]?.[1] as { onBridgeTokenRejected?: () => void } | undefined;
     expect(installOptions?.onBridgeTokenRejected).toEqual(expect.any(Function));
     installOptions?.onBridgeTokenRejected?.();
 
