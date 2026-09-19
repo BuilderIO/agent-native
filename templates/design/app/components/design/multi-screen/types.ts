@@ -1,5 +1,6 @@
 import type { ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+import type { ArrowMarkerType } from "@shared/arrow-markers";
 import type {
   DistanceGuideBand,
   EqualGapGuide,
@@ -123,6 +124,8 @@ export interface CanvasPrimitiveInsert {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  markerStart?: ArrowMarkerType;
+  markerEnd?: ArrowMarkerType;
   autoSize?: boolean;
 }
 
@@ -848,6 +851,8 @@ export interface DraftPrimitive {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  markerStart?: ArrowMarkerType;
+  markerEnd?: ArrowMarkerType;
   autoSize?: boolean;
 }
 

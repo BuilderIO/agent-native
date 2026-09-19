@@ -398,6 +398,26 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
     expect(fragment).toContain("marker-end");
   });
 
+  it("persists both configured endpoint markers on a board line", () => {
+    const entry: BoardObjectEntry = {
+      id: "line-markers",
+      kind: "line",
+      geometry: { x: 0, y: 0, width: 150, height: 10 },
+      markerStart: "round",
+      markerEnd: "diamond-arrow",
+      createdAt: "2024-01-01T00:00:00.000Z",
+    };
+    const fragment = boardObjectEntryToHtmlFragment(entry);
+    expect(fragment).toContain('data-an-marker-start="round"');
+    expect(fragment).toContain('data-an-marker-end="diamond-arrow"');
+    expect(fragment).toContain(
+      'marker-start="url(#line-markers-marker-round)"',
+    );
+    expect(fragment).toContain(
+      'marker-end="url(#line-markers-marker-diamond-arrow)"',
+    );
+  });
+
   it("defaults an arrow's stroke and arrowhead marker fill to solid black at 1px", () => {
     const entry: BoardObjectEntry = {
       id: "arrow-default",

@@ -896,6 +896,55 @@ describe("arrow paint target", () => {
     expect(shaft?.getAttribute("marker-end")).toBe("url(#arrow-1-arrow)");
     expect(svg.querySelector("defs path")).not.toBe(shaft);
   });
+
+  it("gives arrows Figma's default end marker and lets lines opt into both ends", () => {
+    const arrowHtml = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+      kind: "arrow",
+      nodeId: "arrow-defaults",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+    });
+    const lineHtml = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+      kind: "line",
+      nodeId: "line-markers",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      markerStart: "round",
+      markerEnd: "diamond-arrow",
+    });
+    const arrowDoc = new DOMParser().parseFromString(
+      arrowHtml ?? "",
+      "text/html",
+    );
+    const lineDoc = new DOMParser().parseFromString(
+      lineHtml ?? "",
+      "text/html",
+    );
+    const arrow = arrowDoc.querySelector("svg[data-an-primitive='arrow']");
+    const line = lineDoc.querySelector("svg[data-an-primitive='line']");
+    expect(arrow?.getAttribute("data-an-marker-start")).toBe("none");
+    expect(arrow?.getAttribute("data-an-marker-end")).toBe("line-arrow");
+    expect(
+      arrow?.querySelector(":scope > path")?.getAttribute("marker-start"),
+    ).toBeNull();
+    expect(
+      arrow?.querySelector(":scope > path")?.getAttribute("marker-end"),
+    ).toBe("url(#arrow-defaults-arrow)");
+    expect(line?.getAttribute("data-an-marker-start")).toBe("round");
+    expect(line?.getAttribute("data-an-marker-end")).toBe("diamond-arrow");
+    expect(
+      line?.querySelector(":scope > path")?.getAttribute("marker-start"),
+    ).toBe("url(#line-markers-marker-round)");
+    expect(
+      line?.querySelector(":scope > path")?.getAttribute("marker-end"),
+    ).toBe("url(#line-markers-marker-diamond-arrow)");
+  });
 });
 
 // search-icon-2: a freshly drawn shape must expose a `backgroundColor` the

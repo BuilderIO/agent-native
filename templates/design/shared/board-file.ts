@@ -14,6 +14,11 @@
 
 import { parseFragment } from "parse5";
 
+import {
+  arrowMarkerDefinitionsHtml,
+  arrowMarkerUrl,
+  arrowMarkerTypesForPrimitive,
+} from "./arrow-markers";
 import type { BoardObjectEntry } from "./board-objects.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
 
@@ -170,13 +175,22 @@ export function boardObjectEntryToHtmlFragment(
     const strokeColor = stroke ?? DEFAULT_LINE_STROKE;
     const sw = strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX;
 
-    let markerDefs = "";
-    let markerEnd = "";
-    if (kind === "arrow") {
-      const markerId = `${nodeId}-arrow`;
-      markerDefs = `<defs><marker id="${escapeAttr(markerId)}" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10 z" fill="${escapeAttr(strokeColor)}"/></marker></defs>`;
-      markerEnd = ` marker-end="url(#${escapeAttr(markerId)})"`;
-    }
+    const markers = arrowMarkerTypesForPrimitive(
+      kind,
+      entry.markerStart,
+      entry.markerEnd,
+    );
+    const markerDefs =
+      kind === "line" || kind === "arrow"
+        ? arrowMarkerDefinitionsHtml(nodeId, strokeColor)
+        : "";
+    const markerStart = arrowMarkerUrl(nodeId, markers.start);
+    const markerEnd = arrowMarkerUrl(nodeId, markers.end);
+    const markerAttrs = `${markerStart ? ` marker-start="${escapeAttr(markerStart)}"` : ""}${markerEnd ? ` marker-end="${escapeAttr(markerEnd)}"` : ""}`;
+    const markerDataAttrs =
+      kind === "line" || kind === "arrow"
+        ? ` data-an-marker-start="${escapeAttr(markers.start)}" data-an-marker-end="${escapeAttr(markers.end)}"`
+        : "";
 
     // Pen-authored paths (pathData present) serialize anchors in absolute
     // canvas/geometry space, not relative to the fragment's own 0,0 origin
@@ -190,7 +204,7 @@ export function boardObjectEntryToHtmlFragment(
       ? ` viewBox="${x} ${y} ${width} ${height}"`
       : "";
 
-    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="${escapeAttr(fill ?? "none")}" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerEnd}/></svg>`;
+    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr}${markerDataAttrs} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="${escapeAttr(fill ?? "none")}" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerAttrs}/></svg>`;
   }
 
   // Ellipse kind uses a <div> with border-radius.

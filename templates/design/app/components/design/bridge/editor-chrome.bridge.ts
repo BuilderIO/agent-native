@@ -4123,6 +4123,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       strokeLinecap: strokeCs.strokeLinecap,
       strokeLinejoin: strokeCs.strokeLinejoin,
       strokeMiterlimit: strokeCs.strokeMiterlimit,
+      markerStart: strokeCs.getPropertyValue("marker-start"),
+      markerEnd: strokeCs.getPropertyValue("marker-end"),
       vectorOpacity: paintCs.opacity,
       vectorTransform: paintCs.transform,
       vectorTransformOrigin: paintCs.transformOrigin,
@@ -4371,6 +4373,48 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    var primitiveKind = el.getAttribute("data-an-primitive") || "";
+    if (primitiveKind === "line" || primitiveKind === "arrow") {
+      var markerNodeId = el.getAttribute("data-agent-native-node-id") || "";
+      var markerTypeFromPaint = function (
+        value: string,
+        fallback: string,
+      ): string {
+        var normalized = (value || "").trim();
+        if (normalized === "none") return "none";
+        var markerTypes = [
+          "round",
+          "square",
+          "line-arrow",
+          "triangle-arrow",
+          "reversed-triangle",
+          "circle-arrow",
+          "diamond-arrow",
+        ];
+        for (
+          var markerIndex = 0;
+          markerIndex < markerTypes.length;
+          markerIndex += 1
+        ) {
+          var markerType = markerTypes[markerIndex]!;
+          var markerId =
+            markerType === "line-arrow"
+              ? markerNodeId + "-arrow"
+              : markerNodeId + "-marker-" + markerType;
+          if (normalized === "url(#" + markerId + ")") return markerType;
+        }
+        return fallback;
+      };
+      computed.markerStart =
+        el.getAttribute("data-an-marker-start") ||
+        markerTypeFromPaint(strokeCs.getPropertyValue("marker-start"), "none");
+      computed.markerEnd =
+        el.getAttribute("data-an-marker-end") ||
+        markerTypeFromPaint(
+          strokeCs.getPropertyValue("marker-end"),
+          primitiveKind === "arrow" ? "line-arrow" : "none",
+        );
+    }
     if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
       computed.strokeWidth =
         strokeTarget.getAttribute("data-an-vector-logical-width") ||
@@ -4543,7 +4587,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       computedStyles: collectElementComputedStyles(el, cs, paintCs),
       inlineStyles: collectElementInlineStyles(el),
       authoredSizeStyles: authoredSizeStyles,
-      primitiveKind: el.getAttribute("data-an-primitive") || undefined,
+      primitiveKind: primitiveKind || undefined,
       isGroup: el.getAttribute("data-agent-native-group") === "true",
       vectorStrokeCanAlign: vectorStrokeCanAlign(el),
       portableStyleSnapshot:
@@ -12399,6 +12443,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
     if (authoredFill) styles.fill = authoredFill;
+    var authoredMarkerStart = (
+      paintTarget as HTMLElement
+    ).style.getPropertyValue("marker-start");
+    var authoredMarkerEnd = (paintTarget as HTMLElement).style.getPropertyValue(
+      "marker-end",
+    );
+    if (authoredMarkerStart) styles.markerStart = authoredMarkerStart;
+    if (authoredMarkerEnd) styles.markerEnd = authoredMarkerEnd;
     return styles;
   }
 
@@ -12652,7 +12704,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function isVectorPaintProperty(cssProperty: string): boolean {
     return (
-      cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0
+      cssProperty.indexOf("fill") === 0 ||
+      cssProperty.indexOf("stroke") === 0 ||
+      cssProperty === "marker-start" ||
+      cssProperty === "marker-end"
     );
   }
 
@@ -12719,6 +12774,46 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     (target as HTMLElement).style.setProperty(cssProperty, String(value));
+    if (
+      (cssProperty === "marker-start" || cssProperty === "marker-end") &&
+      el.getAttribute("data-an-primitive") &&
+      (el.getAttribute("data-an-primitive") === "line" ||
+        el.getAttribute("data-an-primitive") === "arrow")
+    ) {
+      var markerValue = String(value).trim();
+      var markerType = markerValue === "none" ? "none" : "";
+      var markerNodeId = el.getAttribute("data-agent-native-node-id") || "";
+      [
+        "round",
+        "square",
+        "line-arrow",
+        "triangle-arrow",
+        "reversed-triangle",
+        "circle-arrow",
+        "diamond-arrow",
+      ].some(function (type) {
+        if (
+          markerValue ===
+          "url(#" +
+            (type === "line-arrow"
+              ? markerNodeId + "-arrow"
+              : markerNodeId + "-marker-" + type) +
+            ")"
+        ) {
+          markerType = type;
+          return true;
+        }
+        return false;
+      });
+      if (markerType) {
+        el.setAttribute(
+          cssProperty === "marker-start"
+            ? "data-an-marker-start"
+            : "data-an-marker-end",
+          markerType,
+        );
+      }
+    }
     var strokePosition = el.getAttribute("data-an-vector-stroke-position");
     if (
       useOverlay &&

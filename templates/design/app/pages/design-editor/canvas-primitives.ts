@@ -1,4 +1,9 @@
 import {
+  DEFAULT_ARROW_END_MARKER,
+  DEFAULT_ARROW_START_MARKER,
+  DEFAULT_LINE_MARKER,
+} from "@shared/arrow-markers";
+import {
   getPenPathGeometry,
   serializePenPath,
   type PenNode,
@@ -43,6 +48,12 @@ export function createPrimitiveInsertFromSpec(
       nodeId,
       geometry: { x: left, y: top, width, height },
       points,
+      markerStart:
+        spec.tool === "arrow"
+          ? DEFAULT_ARROW_START_MARKER
+          : DEFAULT_LINE_MARKER,
+      markerEnd:
+        spec.tool === "arrow" ? DEFAULT_ARROW_END_MARKER : DEFAULT_LINE_MARKER,
     };
   }
 

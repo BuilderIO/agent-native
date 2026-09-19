@@ -5,6 +5,14 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { constrainCanvasDragDelta } from "@agent-native/toolkit/canvas-interactions";
 import {
+  ARROW_MARKER_TYPES,
+  arrowMarkerId,
+  arrowMarkerShape,
+  arrowMarkerUrl,
+  arrowMarkerTypesForPrimitive,
+  type ArrowMarkerType,
+} from "@shared/arrow-markers";
+import {
   CANVAS_FIT_PADDING_PX,
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM,
@@ -11243,7 +11251,12 @@ function DraftPrimitiveContent({
     draft.kind === "line" ||
     draft.kind === "arrow"
   ) {
-    const markerId = `arrow-${draft.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+    const markerNodeId = draft.id.replace(/[^a-zA-Z0-9_-]/g, "");
+    const markers = arrowMarkerTypesForPrimitive(
+      draft.kind,
+      draft.markerStart,
+      draft.markerEnd,
+    );
     const pathData =
       draft.pathData ??
       (draft.penPath
@@ -11263,19 +11276,50 @@ function DraftPrimitiveContent({
         className={cn("block size-full overflow-visible", muted)}
         viewBox={`${draft.geometry.x} ${draft.geometry.y} ${draft.geometry.width} ${draft.geometry.height}`}
       >
-        {draft.kind === "arrow" ? (
+        {draft.kind === "line" || draft.kind === "arrow" ? (
           <defs>
-            <marker
-              id={markerId}
-              markerWidth="10"
-              markerHeight="10"
-              refX="8"
-              refY="5"
-              orient="auto"
-              markerUnits="strokeWidth"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill={resolvedStroke} />
-            </marker>
+            {ARROW_MARKER_TYPES.filter((type) => type !== "none").map(
+              (type) => {
+                const markerType = type as Exclude<ArrowMarkerType, "none">;
+                const shape = arrowMarkerShape(markerType, resolvedStroke);
+                return (
+                  <marker
+                    key={markerType}
+                    id={arrowMarkerId(markerNodeId, markerType)}
+                    markerWidth="10"
+                    markerHeight="10"
+                    refX="8"
+                    refY="5"
+                    orient="auto-start-reverse"
+                    markerUnits="strokeWidth"
+                  >
+                    {shape.path ? (
+                      <path
+                        d={shape.path}
+                        fill={shape.fill}
+                        stroke={shape.stroke}
+                        strokeWidth={shape.strokeWidth}
+                      />
+                    ) : shape.circle ? (
+                      <circle
+                        cx={shape.circle.cx}
+                        cy={shape.circle.cy}
+                        r={shape.circle.r}
+                        fill={shape.fill}
+                      />
+                    ) : (
+                      <rect
+                        x={shape.rect?.x}
+                        y={shape.rect?.y}
+                        width={shape.rect?.width}
+                        height={shape.rect?.height}
+                        fill={shape.fill}
+                      />
+                    )}
+                  </marker>
+                );
+              },
+            )}
           </defs>
         ) : null}
         <path
@@ -11285,7 +11329,16 @@ function DraftPrimitiveContent({
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={paint.strokeWidth}
-          markerEnd={draft.kind === "arrow" ? `url(#${markerId})` : undefined}
+          markerStart={
+            draft.kind === "line" || draft.kind === "arrow"
+              ? arrowMarkerUrl(markerNodeId, markers.start)
+              : undefined
+          }
+          markerEnd={
+            draft.kind === "line" || draft.kind === "arrow"
+              ? arrowMarkerUrl(markerNodeId, markers.end)
+              : undefined
+          }
         />
       </svg>
     );

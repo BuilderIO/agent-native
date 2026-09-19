@@ -3,6 +3,12 @@ import CssSyntaxError from "postcss/lib/css-syntax-error";
 import parseCss from "postcss/lib/parse";
 
 import {
+  ARROW_MARKER_TYPES,
+  arrowMarkerDefinitionHtml,
+  arrowMarkerId,
+  isArrowMarkerType,
+} from "./arrow-markers";
+import {
   isSafeCssUrlReference,
   removeBreakpointMediaDeclaration,
   setBreakpointMediaDeclaration,
@@ -164,6 +170,8 @@ export type VisualStyleProperty =
   | "stroke-linecap"
   | "stroke-linejoin"
   | "stroke-miterlimit"
+  | "marker-start"
+  | "marker-end"
   | "--an-vector-stroke-position"
   | "outline"
   | "outline-width"
@@ -879,6 +887,8 @@ const STYLE_PROPERTIES = [
   "stroke-linecap",
   "stroke-linejoin",
   "stroke-miterlimit",
+  "marker-start",
+  "marker-end",
   "--an-vector-stroke-position",
   "outline",
   "outline-width",
@@ -1997,6 +2007,11 @@ function isSafeStyleValue(
   if (!trimmed) return false;
   if (property === "--an-vector-stroke-position") {
     return ["inside", "center", "outside"].includes(trimmed);
+  }
+  if (property === "marker-start" || property === "marker-end") {
+    return (
+      trimmed === "none" || /^url\(\s*#[-A-Za-z0-9_.:]+\s*\)$/.test(trimmed)
+    );
   }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
@@ -4769,7 +4784,12 @@ function vectorPaintChild(
   property: string,
   parsedElements?: ParsedElement[],
 ): ParsedElement | null {
-  if (!property.startsWith("fill") && !property.startsWith("stroke")) {
+  if (
+    !property.startsWith("fill") &&
+    !property.startsWith("stroke") &&
+    property !== "marker-start" &&
+    property !== "marker-end"
+  ) {
     return null;
   }
   const elements = parsedElements ?? parseHtmlElements(html);
@@ -4784,6 +4804,80 @@ function vectorPaintChild(
     );
   }
   return vectorShapeChild(parsed, elements);
+}
+
+function ensureVectorMarkerDefinition(
+  html: string,
+  element: ParsedElement,
+  property: "marker-start" | "marker-end",
+  value: string,
+): string {
+  const parentIndex = element.parentIndex;
+  if (parentIndex === undefined) return html;
+  const elements = parseHtmlElements(html);
+  const paintElement = elements[element.index];
+  const svg =
+    paintElement && paintElement.start === element.start
+      ? paintElement.parentIndex === undefined
+        ? undefined
+        : elements[paintElement.parentIndex]
+      : undefined;
+  if (
+    !svg ||
+    svg.tag !== "svg" ||
+    !["line", "arrow"].includes(attributeValue(svg, "data-an-primitive") ?? "")
+  ) {
+    return html;
+  }
+  const nodeId = attributeValue(svg, "data-agent-native-node-id");
+  if (!nodeId) return html;
+  const type =
+    value.trim() === "none"
+      ? "none"
+      : ARROW_MARKER_TYPES.find(
+          (candidate) =>
+            candidate !== "none" &&
+            value.trim() === `url(#${arrowMarkerId(nodeId, candidate)})`,
+        );
+  if (!type || !isArrowMarkerType(type)) return html;
+
+  const dataAttribute =
+    property === "marker-start" ? "data-an-marker-start" : "data-an-marker-end";
+  let next = patchElementAttributes(html, [
+    { element: svg, attributes: { [dataAttribute]: type } },
+  ]);
+  if (type === "none") return next;
+
+  const markerId = arrowMarkerId(nodeId, type);
+  const updatedElements = parseHtmlElements(next);
+  const updatedSvg = updatedElements.find(
+    (candidate) => candidate.start === svg.start && candidate.tag === "svg",
+  );
+  if (!updatedSvg) return next;
+  const markerExists = updatedElements.some(
+    (candidate) =>
+      candidate.tag === "marker" &&
+      attributeValue(candidate, "id") === markerId,
+  );
+  if (markerExists) return next;
+  const paint = updatedElements.find(
+    (candidate) => candidate.start === element.start,
+  );
+  const stroke =
+    attributeValue(paint ?? updatedSvg, "stroke") ||
+    parseStyle(attributeValue(paint ?? updatedSvg, "style")).stroke ||
+    // guard:allow-raw-color — SVG marker definitions need a concrete paint fallback.
+    "#000000";
+  const definition = arrowMarkerDefinitionHtml(nodeId, type, stroke);
+  const defs = updatedSvg.childIndexes
+    .map((index) => updatedElements[index])
+    .find((candidate) => candidate?.tag === "defs");
+  if (defs) {
+    next = `${next.slice(0, defs.contentEnd)}${definition}${next.slice(defs.contentEnd)}`;
+  } else {
+    next = `${next.slice(0, updatedSvg.contentStart)}<defs>${definition}</defs>${next.slice(updatedSvg.contentStart)}`;
+  }
+  return next;
 }
 
 type StyleEditTargetRoute =
@@ -4864,6 +4958,9 @@ function applyStyleEdit(
     storedValue,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (property === "marker-start" || property === "marker-end") {
+    content = ensureVectorMarkerDefinition(content, element, property, value);
+  }
   if (alignedOverlay && property === "stroke-width") {
     const current = parseHtmlElements(content)[element.index];
     if (!current) return "unsupported";
@@ -4954,6 +5051,14 @@ function applyStyleRemoveEdit(
   let content = nextStyle.trim()
     ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
     : removeAttributeFromHtml(html, styleElement, "style");
+  if (property === "marker-start" || property === "marker-end") {
+    content = ensureVectorMarkerDefinition(
+      content,
+      styleElement,
+      property,
+      "none",
+    );
+  }
   if (route.kind === "vector-paint") {
     content = clearVectorWrapperPaint(content, element);
   }

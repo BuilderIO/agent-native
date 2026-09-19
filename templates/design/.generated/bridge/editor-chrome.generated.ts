@@ -3654,6 +3654,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         strokeLinecap: strokeCs.strokeLinecap,
         strokeLinejoin: strokeCs.strokeLinejoin,
         strokeMiterlimit: strokeCs.strokeMiterlimit,
+        markerStart: strokeCs.getPropertyValue("marker-start"),
+        markerEnd: strokeCs.getPropertyValue("marker-end"),
         vectorOpacity: paintCs.opacity,
         vectorTransform: paintCs.transform,
         vectorTransformOrigin: paintCs.transformOrigin,
@@ -3848,6 +3850,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
       var computed = collectComputedStyles(cs, paintCs, strokeCs);
+      var primitiveKind2 = el.getAttribute("data-an-primitive") || "";
+      if (primitiveKind2 === "line" || primitiveKind2 === "arrow") {
+        var markerNodeId = el.getAttribute("data-agent-native-node-id") || "";
+        var markerTypeFromPaint = function(value, fallback) {
+          var normalized = (value || "").trim();
+          if (normalized === "none") return "none";
+          var markerTypes = [
+            "round",
+            "square",
+            "line-arrow",
+            "triangle-arrow",
+            "reversed-triangle",
+            "circle-arrow",
+            "diamond-arrow"
+          ];
+          for (var markerIndex = 0; markerIndex < markerTypes.length; markerIndex += 1) {
+            var markerType = markerTypes[markerIndex];
+            var markerId = markerType === "line-arrow" ? markerNodeId + "-arrow" : markerNodeId + "-marker-" + markerType;
+            if (normalized === "url(#" + markerId + ")") return markerType;
+          }
+          return fallback;
+        };
+        computed.markerStart = el.getAttribute("data-an-marker-start") || markerTypeFromPaint(strokeCs.getPropertyValue("marker-start"), "none");
+        computed.markerEnd = el.getAttribute("data-an-marker-end") || markerTypeFromPaint(
+          strokeCs.getPropertyValue("marker-end"),
+          primitiveKind2 === "arrow" ? "line-arrow" : "none"
+        );
+      }
       if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
         computed.strokeWidth = strokeTarget.getAttribute("data-an-vector-logical-width") || strokeCs.strokeWidth;
       }
@@ -3972,7 +4002,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         computedStyles: collectElementComputedStyles(el, cs, paintCs),
         inlineStyles: collectElementInlineStyles(el),
         authoredSizeStyles,
-        primitiveKind: el.getAttribute("data-an-primitive") || void 0,
+        primitiveKind: primitiveKind || void 0,
         isGroup: el.getAttribute("data-agent-native-group") === "true",
         vectorStrokeCanAlign: vectorStrokeCanAlign(el),
         portableStyleSnapshot: portableStyleSnapshot === null ? void 0 : portableStyleSnapshot,
@@ -9114,6 +9144,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
       }
       if (authoredFill) styles.fill = authoredFill;
+      var authoredMarkerStart = paintTarget.style.getPropertyValue("marker-start");
+      var authoredMarkerEnd = paintTarget.style.getPropertyValue(
+        "marker-end"
+      );
+      if (authoredMarkerStart) styles.markerStart = authoredMarkerStart;
+      if (authoredMarkerEnd) styles.markerEnd = authoredMarkerEnd;
       return styles;
     }
     function vectorStrokeTarget(el) {
@@ -9316,7 +9352,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return true;
     }
     function isVectorPaintProperty(cssProperty) {
-      return cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0;
+      return cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0 || cssProperty === "marker-start" || cssProperty === "marker-end";
     }
     function clearVectorWrapperPaint(el) {
       var style = el.style;
@@ -9367,6 +9403,32 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       target.style.setProperty(cssProperty, String(value));
+      if ((cssProperty === "marker-start" || cssProperty === "marker-end") && el.getAttribute("data-an-primitive") && (el.getAttribute("data-an-primitive") === "line" || el.getAttribute("data-an-primitive") === "arrow")) {
+        var markerValue = String(value).trim();
+        var markerType = markerValue === "none" ? "none" : "";
+        var markerNodeId = el.getAttribute("data-agent-native-node-id") || "";
+        [
+          "round",
+          "square",
+          "line-arrow",
+          "triangle-arrow",
+          "reversed-triangle",
+          "circle-arrow",
+          "diamond-arrow"
+        ].some(function(type) {
+          if (markerValue === "url(#" + (type === "line-arrow" ? markerNodeId + "-arrow" : markerNodeId + "-marker-" + type) + ")") {
+            markerType = type;
+            return true;
+          }
+          return false;
+        });
+        if (markerType) {
+          el.setAttribute(
+            cssProperty === "marker-start" ? "data-an-marker-start" : "data-an-marker-end",
+            markerType
+          );
+        }
+      }
       var strokePosition = el.getAttribute("data-an-vector-stroke-position");
       if (useOverlay && (cssProperty === "stroke-width" || cssProperty === "stroke-miterlimit" && strokePosition === "outside")) {
         return applyVectorStrokePosition(el, strokePosition || "center");
@@ -9895,8 +9957,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || el === document.documentElement) return false;
       if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
       if (el === document.body) return true;
-      var primitiveKind = el.getAttribute("data-an-primitive");
-      if (primitiveKind && primitiveKind !== "frame") return false;
+      var primitiveKind2 = el.getAttribute("data-an-primitive");
+      if (primitiveKind2 && primitiveKind2 !== "frame") return false;
       var tag = (el.tagName || "").toLowerCase();
       if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1)
         return false;

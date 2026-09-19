@@ -1,3 +1,4 @@
+import { isArrowMarkerType } from "@shared/arrow-markers";
 import {
   LINKED_COMPONENT_STRUCTURE_REFUSAL,
   buildCodeLayerProjection,
@@ -1023,6 +1024,22 @@ export function canonicalElementInfoForCodeLayerNode(
   const hasGridTemplateOverlay =
     gridTemplateOverlay.gridTemplateColumns !== undefined ||
     gridTemplateOverlay.gridTemplateRows !== undefined;
+  const primitiveKind = node.dataAttributes["data-an-primitive"];
+  const sourceMarkerStyles =
+    primitiveKind === "line" || primitiveKind === "arrow"
+      ? {
+          ...(isArrowMarkerType(node.dataAttributes["data-an-marker-start"])
+            ? { markerStart: node.dataAttributes["data-an-marker-start"] }
+            : {}),
+          ...(isArrowMarkerType(node.dataAttributes["data-an-marker-end"])
+            ? { markerEnd: node.dataAttributes["data-an-marker-end"] }
+            : {}),
+        }
+      : {};
+  const hasSourceMarkerOverlay = Object.keys(sourceMarkerStyles).length > 0;
+  const computedStyles = hasSourceMarkerOverlay
+    ? { ...info.computedStyles, ...sourceMarkerStyles }
+    : info.computedStyles;
   const inlineStyles = hasGridTemplateOverlay
     ? {
         ...info.inlineStyles,
@@ -1036,6 +1053,7 @@ export function canonicalElementInfoForCodeLayerNode(
     : info.inlineStyles;
   return {
     ...info,
+    computedStyles,
     inlineStyles,
     vectorStrokeCanAlign:
       info.vectorStrokeCanAlign ||

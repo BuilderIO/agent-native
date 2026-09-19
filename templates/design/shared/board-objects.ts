@@ -11,6 +11,8 @@
  * can be reused for the visual output in BoardObjectLayer.
  */
 
+import { isArrowMarkerType, type ArrowMarkerType } from "./arrow-markers";
+
 export type CanvasPrimitiveKindLike =
   | "frame"
   | "rectangle"
@@ -44,6 +46,10 @@ export interface BoardObjectEntry {
   stroke?: string;
   /** Stroke width in pixels. */
   strokeWidth?: number;
+  /** Marker painted at the first path point. */
+  markerStart?: ArrowMarkerType;
+  /** Marker painted at the final path point. */
+  markerEnd?: ArrowMarkerType;
   /** Text content — only meaningful when kind === "text". */
   text?: string;
   /**
@@ -150,6 +156,8 @@ export interface DraftPrimitiveLike {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  markerStart?: ArrowMarkerType;
+  markerEnd?: ArrowMarkerType;
   autoSize?: boolean;
 }
 
@@ -172,6 +180,8 @@ export function draftToBoardObjectEntry(
   if (draft.fill !== undefined) entry.fill = draft.fill;
   if (draft.stroke !== undefined) entry.stroke = draft.stroke;
   if (draft.strokeWidth !== undefined) entry.strokeWidth = draft.strokeWidth;
+  if (draft.markerStart !== undefined) entry.markerStart = draft.markerStart;
+  if (draft.markerEnd !== undefined) entry.markerEnd = draft.markerEnd;
   if (draft.text !== undefined) entry.text = draft.text;
   if (draft.pathData !== undefined) entry.pathData = draft.pathData;
   if (draft.points !== undefined) entry.points = draft.points;
@@ -279,6 +289,12 @@ function isValidEntry(entry: unknown): entry is BoardObjectEntry {
     return false;
   }
   const g = geo as Record<string, unknown>;
+  if (
+    (e["markerStart"] !== undefined && !isArrowMarkerType(e["markerStart"])) ||
+    (e["markerEnd"] !== undefined && !isArrowMarkerType(e["markerEnd"]))
+  ) {
+    return false;
+  }
   return (
     typeof g["x"] === "number" &&
     typeof g["y"] === "number" &&

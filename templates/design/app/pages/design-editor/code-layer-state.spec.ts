@@ -1370,6 +1370,29 @@ describe("canonicalElementInfoForCodeLayerNode grid-template source overlay", ()
   });
 });
 
+describe("canonicalElementInfoForCodeLayerNode marker source overlay", () => {
+  it("refreshes stale bridge marker values from the persisted primitive attrs", () => {
+    const sourceNode = makeNode({
+      tag: "svg",
+      dataAttributes: {
+        "data-agent-native-node-id": "arrow-a",
+        "data-an-primitive": "arrow",
+        "data-an-marker-start": "round",
+        "data-an-marker-end": "triangle-arrow",
+      },
+    });
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      makeElementInfo({
+        computedStyles: { markerStart: "none", markerEnd: "line-arrow" },
+      }),
+      sourceNode,
+    );
+
+    expect(canonical.computedStyles.markerStart).toBe("round");
+    expect(canonical.computedStyles.markerEnd).toBe("triangle-arrow");
+  });
+});
+
 describe("pending Layers selection runtime info", () => {
   const runtimeInfo = makeElementInfo({
     tagName: "button",

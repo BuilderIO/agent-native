@@ -12033,7 +12033,23 @@ function DesignEditor() {
         styles,
         options,
       );
-      invalidateRenderedElementInfo();
+      // Endpoint marker writes do not change geometry or the layer target. A
+      // full metadata rehydrate immediately after the source commit can race
+      // the in-place preview patch and replace the inspector's optimistic
+      // marker value with the pre-commit bridge snapshot. Keep the current
+      // selection stable for this paint-only edit; the next selection or
+      // reload still reads the persisted marker from the bridge.
+      if (
+        !Object.keys(styles).some(
+          (property) =>
+            property === "marker-start" ||
+            property === "marker-end" ||
+            property === "markerStart" ||
+            property === "markerEnd",
+        )
+      ) {
+        invalidateRenderedElementInfo();
+      }
     },
     [
       activeFile,

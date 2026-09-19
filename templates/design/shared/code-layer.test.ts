@@ -602,6 +602,37 @@ describe("applyVisualEdit vector paint", () => {
     ).not.toContain("fill");
   });
 
+  it("persists endpoint markers on the shaft and materializes a selected marker", () => {
+    const arrow =
+      `<body><svg data-agent-native-node-id="arrow-1" data-an-primitive="arrow" ` +
+      `data-an-marker-start="none" data-an-marker-end="line-arrow"><defs>` +
+      `<marker id="arrow-1-arrow"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>` +
+      `</defs><path d="M 0 5 L 100 5" stroke="#111827"/></svg></body>`;
+    const selected = applyVisualEdit(arrow, {
+      kind: "style",
+      target: { nodeId: "arrow-1" },
+      property: "marker-start",
+      value: "url(#arrow-1-marker-round)",
+    });
+
+    expect(selected.result.status).toBe("applied");
+    expect(selected.content).toContain('data-an-marker-start="round"');
+    expect(selected.content).toContain(
+      'style="marker-start: url(#arrow-1-marker-round)"',
+    );
+    expect(selected.content).toContain('id="arrow-1-marker-round"');
+
+    const cleared = applyVisualEdit(selected.content, {
+      kind: "style",
+      target: { nodeId: "arrow-1" },
+      property: "marker-end",
+      value: "none",
+    });
+    expect(cleared.result.status).toBe("applied");
+    expect(cleared.content).toContain('data-an-marker-end="none"');
+    expect(cleared.content).toContain("marker-end: none");
+  });
+
   it("wins over the child's own fill presentation attribute", () => {
     const patch = applyVisualEdit(html, {
       kind: "style",
