@@ -1151,6 +1151,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   /** Ref kept in sync with state so the message handler can read without closures. */
   const crossScreenTargetRef = useRef<CrossScreenDragTarget | null>(null);
   const crossScreenHitTestSeqRef = useRef(0);
+  const crossScreenPreviewGenerationRef = useRef(0);
   /** Bumped when a cross-screen gesture starts, is abandoned, or the canvas
    *  unmounts. A commit hit-test can outlive its gesture, and persisting its
    *  reply afterwards moves a layer the user is no longer dragging. */
@@ -1198,7 +1199,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  fall back to the previous guide instead of resolving empty and making
    *  the drop guide flicker away every time a single hit-test is slow. */
   const crossScreenLastHitResultRef = useRef<
-    Map<string, { requestSeq: number; result: CrossScreenHitTestResult }>
+    Map<
+      string,
+      {
+        generation: number;
+        requestSeq: number;
+        result: CrossScreenHitTestResult;
+      }
+    >
   >(new Map());
   const onCrossScreenElementDropRef = useRef(onCrossScreenElementDrop);
   const onBoardDrawPrimitiveRef = useRef(onBoardDrawPrimitive);
@@ -2651,6 +2659,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
 
     const clearCrossScreenDrag = () => {
+      crossScreenPreviewGenerationRef.current += 1;
       stopParentCrossScreenDrag();
       clearCrossScreenPreviewGuide();
       const previousClaim = crossScreenClaimSentRef.current;
@@ -2691,6 +2700,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       options: {
         preview?: boolean;
         timeoutMs?: number;
+        previewGeneration?: number;
         previewRequestSeq?: number;
       } = {},
     ): Promise<CrossScreenHitTestResult> => {
@@ -2748,7 +2758,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           // resolved at a different pointer position, and placing against it
           // puts the layer somewhere the user never released.
           resolve(
-            options.preview
+            options.preview &&
+              crossScreenLastHitResultRef.current.get(candidate.id)
+                ?.generation === crossScreenPreviewGenerationRef.current
               ? (crossScreenLastHitResultRef.current.get(candidate.id)
                   ?.result ?? {})
               : {},
@@ -2802,12 +2814,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               ? ev.data.anchorRect
               : undefined,
           };
-          if (options.preview && options.previewRequestSeq !== undefined) {
+          if (
+            options.preview &&
+            options.previewGeneration ===
+              crossScreenPreviewGenerationRef.current &&
+            options.previewRequestSeq !== undefined
+          ) {
             const previous = crossScreenLastHitResultRef.current.get(
               candidate.id,
             );
             if (!previous || options.previewRequestSeq > previous.requestSeq) {
               crossScreenLastHitResultRef.current.set(candidate.id, {
+                generation: options.previewGeneration,
                 requestSeq: options.previewRequestSeq,
                 result,
               });
@@ -2858,11 +2876,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       candidate: CrossScreenDragTarget,
       boardPoint: Point,
     ) => {
+      const previewGeneration = crossScreenPreviewGenerationRef.current;
       const requestSeq = ++crossScreenHitTestSeqRef.current;
       void runHitTest(candidate, boardPoint, {
         preview: true,
+        previewGeneration,
         previewRequestSeq: requestSeq,
       }).then((hit) => {
+        if (crossScreenPreviewGenerationRef.current !== previewGeneration) {
+          return;
+        }
         if (crossScreenHitTestSeqRef.current !== requestSeq) return;
         if (crossScreenTargetRef.current?.id !== candidate.id) return;
         const targetScreen = screensRef.current.find(
@@ -3397,6 +3420,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // A new gesture invalidates any commit hit-test still in flight from
         // the previous one. Only a start does — the bridge posts "cancel"
         // immediately after "end", so clearing must not count.
+        crossScreenPreviewGenerationRef.current += 1;
         crossScreenDropSeqRef.current += 1;
         crossScreenEndSeenRef.current = false;
         crossScreenHostCommittedRef.current = false;
