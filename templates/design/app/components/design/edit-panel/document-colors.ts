@@ -838,18 +838,31 @@ export function selectionColorValues(
 ): SelectionColorValue[] {
   const elements = Array.isArray(element) ? element : [element];
   const values = new Map<string, SelectionColorValue>();
-  const rangesByFile = selectionColorScopeRanges(scopes);
 
   // Source ranges are the authoritative selection-wide scan. They include
   // every literal in descendants, including nodes beyond the bridge's compact
-  // runtime payload. Computed values fill in colors supplied by shared CSS.
-  for (const [fileId, ranges] of rangesByFile) {
-    const scope = scopes.find((candidate) => candidate.fileId === fileId);
-    if (!scope) continue;
+  // runtime payload. Keep snapshots separate: a file can briefly expose a
+  // fresh active selection beside a stale non-active selection during a local
+  // write, and using the first file snapshot for every range leaks unrelated
+  // colors into the current selection.
+  const scopesByContent = new Map<
+    string,
+    { content: string; scopes: SelectionColorScope[] }
+  >();
+  for (const scope of scopes) {
+    const key = `${scope.fileId}\u0000${scope.content}`;
+    const group = scopesByContent.get(key);
+    if (group) {
+      group.scopes.push(scope);
+    } else {
+      scopesByContent.set(key, { content: scope.content, scopes: [scope] });
+    }
+  }
+  for (const { content, scopes: contentScopes } of scopesByContent.values()) {
+    const ranges = mergedScopeRanges(contentScopes) ?? [];
     for (const range of ranges) {
-      const content = scope.content.slice(range.start, range.end);
-      colorTokenSpansInHtml(content).forEach(({ value: token }) =>
-        addColorValue(values, "color", token),
+      colorTokenSpansInHtml(content.slice(range.start, range.end)).forEach(
+        ({ value: token }) => addColorValue(values, "color", token),
       );
     }
   }
@@ -869,6 +882,23 @@ export function selectionColorValues(
   }
 
   return Array.from(values.values());
+}
+
+export function selectionColorNodeIds(
+  content: string,
+  nodes: readonly Pick<CodeLayerNode, "id" | "source">[],
+  color: string,
+): string[] {
+  const target = colorKey(color);
+  return nodes
+    .filter((node) => {
+      const source = node.source;
+      if (!source) return false;
+      return colorTokenSpansInHtml(
+        content.slice(source.openStart, source.openEnd),
+      ).some(({ value }) => colorKey(value) === target);
+    })
+    .map((node) => node.id);
 }
 
 export function selectionFillColorValues(

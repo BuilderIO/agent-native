@@ -19,6 +19,7 @@ import {
   selectionFillColorValues,
   selectionFillInspectorStyles,
   selectionFillModel,
+  selectionColorNodeIds,
   selectionColorValues,
 } from "./edit-panel/document-colors";
 import { extractDocumentColorPalette } from "./EditPanel";
@@ -589,6 +590,20 @@ describe("selectionColorValues", () => {
     ).toEqual([{ property: "color", value: "#0066ff" }]);
   });
 
+  it("keeps a selected body range free of unused document style colors", () => {
+    const content = [
+      "<style>.unused { color:#ef4444; background:#22c55e; }</style>",
+      '<html><body data-agent-native-node-id="frame" style="background:#101010"></body></html>',
+    ].join("");
+
+    expect(
+      selectionColorValues(
+        [],
+        [{ fileId: "screen", content, sourceId: "frame" }],
+      ),
+    ).toEqual([{ property: "color", value: "#101010" }]);
+  });
+
   it("scans every descendant in a selected source range and counts reuse", () => {
     const content = [
       '<section data-agent-native-node-id="root" style="color:#0066ff">',
@@ -608,6 +623,34 @@ describe("selectionColorValues", () => {
       { property: "color", value: "#0066ff", count: 3 },
       { property: "color", value: "#ff0000" },
     ]);
+  });
+
+  it("returns every source node whose own declaration uses the located color", () => {
+    const content = [
+      "<style>.unused { color:#101010; }</style>",
+      '<div data-agent-native-node-id="first" style="color:#101010">',
+      '<span data-agent-native-node-id="second" style="background:#101010"></span>',
+      "</div>",
+      '<aside data-agent-native-node-id="other" style="color:#ef4444"></aside>',
+    ].join("");
+    const projection = buildCodeLayerProjection(content);
+    const nodeFor = (stableId: string) =>
+      projection.nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === stableId,
+      );
+
+    expect(
+      selectionColorNodeIds(content, projection.nodes, "#101010").map(
+        (nodeId) =>
+          projection.nodes.find((node) => node.id === nodeId)?.dataAttributes[
+            "data-agent-native-node-id"
+          ],
+      ),
+    ).toEqual(
+      [nodeFor("first"), nodeFor("second")].map(
+        (node) => node?.dataAttributes["data-agent-native-node-id"],
+      ),
+    );
   });
 
   it("replaces a color throughout selected descendants but not outside them", () => {

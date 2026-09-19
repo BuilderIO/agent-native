@@ -259,7 +259,11 @@ import {
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import { componentInstanceHasLocalOverrides } from "@/components/design/edit-panel/component-section";
-import { rewriteSelectionFillStyles } from "@/components/design/edit-panel/document-colors";
+import {
+  rewriteSelectionFillStyles,
+  selectionColorNodeIds,
+  type SelectionColorValue,
+} from "@/components/design/edit-panel/document-colors";
 import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
@@ -20542,15 +20546,30 @@ function DesignEditor() {
       ];
     }
     if (viewMode !== "overview") return [];
-    return overviewSelectedScreenIds.flatMap((screenId) => {
-      const content = getProjectionContentForScreen(screenId);
-      return content && externalPreviewUrlForContent(content) === null
-        ? [{ fileId: screenId, content, wholeDocument: true }]
-        : [];
-    });
+    return overviewSelectedScreenIds.flatMap(
+      (screenId): SelectionColorScope[] => {
+        const content = getProjectionContentForScreen(screenId);
+        if (!content || externalPreviewUrlForContent(content) !== null)
+          return [];
+        const body = getCodeLayerProjectionForScreen(screenId)?.nodes.find(
+          (node) => node.tag === "body",
+        );
+        return body
+          ? [
+              {
+                fileId: screenId,
+                content,
+                sourceId: bridgeSourceIdForCodeLayerNode(body),
+                selector: body.selector,
+              },
+            ]
+          : [{ fileId: screenId, content, wholeDocument: true }];
+      },
+    );
   }, [
     activeContent,
     activeFile?.id,
+    getCodeLayerProjectionForScreen,
     getProjectionContentForScreen,
     getScreenContent,
     overviewSelectedScreenIds,
@@ -22093,6 +22112,63 @@ function DesignEditor() {
       recordSelectionHistoryAroundChange,
       selectedElement,
       layerSelectionHydrationRevisionRef,
+      hydrateRenderedLayerInfoForIds,
+    ],
+  );
+
+  const handleLocateSelectionColor = useCallback(
+    (color: SelectionColorValue) => {
+      const matches = codeLayerModelsByFile.flatMap((model) => {
+        if (model.runtimeOnly) return [];
+        const nodeIds = selectionColorNodeIds(
+          model.sourceContent,
+          model.sourceProjection.nodes,
+          color.value,
+        );
+        return nodeIds
+          .map((nodeId) => {
+            const owner = codeLayerOwnerByNodeId.get(nodeId);
+            return owner?.fileId === model.fileId ? owner : null;
+          })
+          .filter(
+            (owner): owner is NonNullable<typeof owner> => owner !== null,
+          );
+      });
+      const selectedIds = Array.from(
+        new Set(matches.map((owner) => owner.node.id)),
+      );
+      const selectedOwner = matches[matches.length - 1];
+      if (!selectedOwner || selectedIds.length === 0) return;
+
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
+      viewModeRef.current = "overview";
+      setViewMode("overview");
+      setMode("edit");
+      setActiveTool("move");
+      setActiveFileId(selectedOwner.fileId);
+      setOverviewSelectedScreenIds(
+        Array.from(new Set(matches.map((owner) => owner.fileId))),
+      );
+      setSelectedLayerIdsState(selectedIds);
+      setSelectedElement(
+        elementInfoForOwnedCodeLayerNode({
+          info: null,
+          node: selectedOwner.node,
+          ownerFileId: selectedOwner.fileId,
+        }),
+      );
+      focusDesignInspectorForSelection();
+      hydrateRenderedLayerInfoForIds(selectedIds);
+      queueMicrotask(() => hydrateRenderedLayerInfoForIds(selectedIds));
+    },
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      codeLayerModelsByFile,
+      codeLayerOwnerByNodeId,
+      focusDesignInspectorForSelection,
       hydrateRenderedLayerInfoForIds,
     ],
   );
@@ -24500,6 +24576,7 @@ function DesignEditor() {
     onSelectionColorChange: canEditDesign
       ? handleSelectionColorChange
       : undefined,
+    onSelectionColorLocate: handleLocateSelectionColor,
     onSelectionColorPickerOpenChange: canEditDesign
       ? handleSelectionColorPickerOpenChange
       : undefined,

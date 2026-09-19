@@ -370,6 +370,39 @@ it("closes the idle picker before Undo and Redo reach the editor", async () => {
   expect(onRedo).toHaveBeenCalledTimes(1);
 });
 
+it("locates every layer using a selection color", async () => {
+  const onLocate = vi.fn();
+  await act(() =>
+    root.render(
+      <TooltipProvider>
+        <SelectionColorsProperties
+          colors={[{ property: "color", value: "#dadada" }]}
+          elements={[]}
+          onLocate={onLocate}
+        />
+      </TooltipProvider>,
+    ),
+  );
+
+  await act(() =>
+    Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "Show selection colors")!
+      .click(),
+  );
+  await act(() =>
+    container
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="Locate all layers using #dadada"]',
+      )!
+      .click(),
+  );
+
+  expect(onLocate).toHaveBeenCalledWith({
+    property: "color",
+    value: "#dadada",
+  });
+});
+
 it("cancels an active opacity drag without closing or late-committing it", async () => {
   const onColorChange = vi.fn();
   await act(() =>

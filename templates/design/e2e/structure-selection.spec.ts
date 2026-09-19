@@ -26,6 +26,18 @@ const SELECTION_COLOR_ALPHA_COLLISION_FIXTURE = `<!doctype html>
   <div data-agent-native-node-id="blue-opaque" data-agent-native-layer-name="Blue 100" style="box-sizing:border-box;position:absolute;left:20px;top:100px;width:120px;height:80px;background:#3b82f6"></div>
   <div data-agent-native-node-id="blue-alpha" data-agent-native-layer-name="Blue 50" style="box-sizing:border-box;position:absolute;left:160px;top:100px;width:120px;height:80px;background:rgba(59,130,246,0.5)"></div>
 </body></html>`;
+const SCREEN_SELECTION_COLOR_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Screen Selection Colors</title>
+    <style>.unused { color: #ef4444; background: #22c55e; }</style>
+  </head>
+  <body style="margin:0;min-height:${PAGE_H}px;background:#101010">
+    <div data-agent-native-node-id="same-a" data-agent-native-layer-name="Same A" style="position:absolute;left:20px;top:100px;width:120px;height:80px;background:#101010"></div>
+    <div data-agent-native-node-id="same-b" data-agent-native-layer-name="Same B" style="position:absolute;left:160px;top:100px;width:120px;height:80px;background:#101010"></div>
+  </body>
+</html>`;
 const GROUP_RICH_TEXT_FIXTURE = GROUP_FILL_FIXTURE.replace(
   ">Paint</div>",
   '>Paint <strong style="color:#c026d3">this</strong></div>',
@@ -456,6 +468,48 @@ test.describe("keyboard selection traversal", () => {
       `double-click should drill into the child; selection is "${name}".`,
     ).toMatch(/Kid One/);
   });
+});
+
+test("screen Selection colors only shows authored colors and locates every match", async ({
+  page,
+}) => {
+  const id = await newDesign(page, SCREEN_SELECTION_COLOR_FIXTURE);
+  try {
+    await openEditor(page, id);
+    await page.locator("[data-frame-label]").first().click();
+    const selectionColors = page
+      .locator("section")
+      .filter({
+        has: page.getByRole("heading", {
+          name: "Selection colors",
+          exact: true,
+        }),
+      })
+      .first();
+    await expect(selectionColors).toBeVisible();
+    await selectionColors
+      .getByRole("button", { name: "Show selection colors" })
+      .click();
+    await expect(
+      selectionColors.getByRole("button", { name: /^#101010$/i }),
+    ).toHaveCount(1);
+    await expect(
+      selectionColors.getByRole("button", { name: /^#(?:ef4444|22c55e)$/i }),
+    ).toHaveCount(0);
+    await selectionColors
+      .getByRole("button", { name: "Locate all layers using #101010" })
+      .click();
+    await expect(layerRow(page, "Same A")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(layerRow(page, "Same B")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  } finally {
+    await postAction(page, "delete-design", { id });
+  }
 });
 
 test.describe("groups", () => {

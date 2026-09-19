@@ -12,6 +12,7 @@ import {
   IconChevronRight,
   IconCode,
   IconComponents,
+  IconCrosshair,
   IconDeviceMobile,
   IconExternalLink,
   IconFrame,
@@ -356,6 +357,7 @@ interface EditPanelProps {
    *  replacement. Multiple scopes may belong to one file or several screens. */
   selectionColorScopes?: SelectionColorScope[];
   onSelectionColorChange?: SelectionColorChangeHandler;
+  onSelectionColorLocate?: (color: SelectionColorValue) => void;
   onSelectionColorPickerOpenChange?: (from: string, open: boolean) => void;
   onGroupFillStylesChange?: (
     styles: Record<string, string>,
@@ -2070,6 +2072,7 @@ export function SelectionColorsProperties({
   elements,
   scopes,
   onColorChange,
+  onLocate,
   onColorPickerOpenChange,
   colors: providedColors,
   title,
@@ -2077,6 +2080,7 @@ export function SelectionColorsProperties({
   elements: ElementInfo[];
   scopes?: SelectionColorScope[];
   onColorChange?: SelectionColorChangeHandler;
+  onLocate?: (color: SelectionColorValue) => void;
   onColorPickerOpenChange?: (from: string, open: boolean) => void;
   colors?: SelectionColorValue[];
   title?: string;
@@ -2220,59 +2224,73 @@ export function SelectionColorsProperties({
             const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
             return (
               <InspectorGridCell key={index} span={28}>
-                <DesignColorPicker
-                  trigger={
-                    <button
-                      type="button"
-                      className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-                      aria-label={value}
+                <div className="flex min-w-0 items-center gap-1">
+                  <div className="min-w-0 flex-1">
+                    <DesignColorPicker
+                      trigger={
+                        <button
+                          type="button"
+                          className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                          aria-label={value}
+                          disabled={!onColorChange}
+                        >
+                          <span
+                            className="size-4 shrink-0 rounded-[3px] border border-border/60"
+                            style={swatchStyle(value)}
+                          />
+                          <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
+                            {selectionDisplayHex(value)}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-muted-foreground">
+                            {opacity}%
+                          </span>
+                          {color.count && color.count > 1 ? (
+                            <span className="shrink-0 tabular-nums text-muted-foreground">
+                              ×{color.count}
+                            </span>
+                          ) : null}
+                        </button>
+                      }
+                      value={cssColorOrFallback(value, DEFAULT_AUTHORED_COLOR)}
+                      open={
+                        pickerSession?.scopeIdentity === scopeIdentity &&
+                        pickerSession.index === index
+                      }
+                      onOpenChange={(open) =>
+                        setColorPickerOpen(index, color, open)
+                      }
+                      supportedPaintTypes={["solid"]}
+                      // PF12: per-tick drag preview vs. one authoritative
+                      // commit on gesture-end — same split as ColorInput's
+                      // setNext (see its PF12 comment above).
+                      onChange={(next) =>
+                        changeColor(index, color, next, "preview")
+                      }
+                      onChangeComplete={(next) =>
+                        changeColor(index, color, next, "commit")
+                      }
+                      onChangeCancel={(next) =>
+                        changeColor(index, color, next, "cancel")
+                      }
+                      allowDesignHistoryHotkeys
+                      onDesignHistoryHotkey={() => {
+                        if (activeGestureRef.current) return;
+                        setColorPickerOpen(index, color, false);
+                      }}
                       disabled={!onColorChange}
+                    />
+                  </div>
+                  {onLocate ? (
+                    <SectionIconButton
+                      label={
+                        `Locate all layers using ${value}` /* i18n-ignore design inspector action label */
+                      }
+                      onClick={() => onLocate(color)}
                     >
-                      <span
-                        className="size-4 shrink-0 rounded-[3px] border border-border/60"
-                        style={swatchStyle(value)}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
-                        {selectionDisplayHex(value)}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
-                        {opacity}%
-                      </span>
-                      {color.count && color.count > 1 ? (
-                        <span className="shrink-0 tabular-nums text-muted-foreground">
-                          ×{color.count}
-                        </span>
-                      ) : null}
-                    </button>
-                  }
-                  value={cssColorOrFallback(value, DEFAULT_AUTHORED_COLOR)}
-                  open={
-                    pickerSession?.scopeIdentity === scopeIdentity &&
-                    pickerSession.index === index
-                  }
-                  onOpenChange={(open) =>
-                    setColorPickerOpen(index, color, open)
-                  }
-                  supportedPaintTypes={["solid"]}
-                  // PF12: per-tick drag preview vs. one authoritative
-                  // commit on gesture-end — same split as ColorInput's
-                  // setNext (see its PF12 comment above).
-                  onChange={(next) =>
-                    changeColor(index, color, next, "preview")
-                  }
-                  onChangeComplete={(next) =>
-                    changeColor(index, color, next, "commit")
-                  }
-                  onChangeCancel={(next) =>
-                    changeColor(index, color, next, "cancel")
-                  }
-                  allowDesignHistoryHotkeys
-                  onDesignHistoryHotkey={() => {
-                    if (activeGestureRef.current) return;
-                    setColorPickerOpen(index, color, false);
-                  }}
-                  disabled={!onColorChange}
-                />
+                      <IconCrosshair className="size-4" />
+                    </SectionIconButton>
+                  ) : null}
+                </div>
               </InspectorGridCell>
             );
           })}
@@ -2406,6 +2424,7 @@ export const EditPanel = memo(function EditPanel({
   onSelectedScreenStylesChange,
   selectionColorScopes = [],
   onSelectionColorChange: onSelectionColorChangeProp,
+  onSelectionColorLocate,
   onSelectionColorPickerOpenChange,
   onGroupFillStylesChange: onGroupFillStylesChangeProp,
   viewMode,
@@ -3186,6 +3205,7 @@ export const EditPanel = memo(function EditPanel({
                         onColorPickerOpenChange={
                           onSelectionColorPickerOpenChange
                         }
+                        onLocate={onSelectionColorLocate}
                         onColorChange={
                           readOnly || interactionState
                             ? undefined
@@ -3204,6 +3224,7 @@ export const EditPanel = memo(function EditPanel({
                   elements={[]}
                   scopes={selectionColorScopes}
                   onColorPickerOpenChange={onSelectionColorPickerOpenChange}
+                  onLocate={onSelectionColorLocate}
                   onColorChange={
                     readOnly || interactionState
                       ? undefined
@@ -3324,6 +3345,7 @@ export const EditPanel = memo(function EditPanel({
                     elements={effectiveSelectedElements}
                     scopes={selectionColorScopes}
                     onColorPickerOpenChange={onSelectionColorPickerOpenChange}
+                    onLocate={onSelectionColorLocate}
                     onColorChange={
                       readOnly || interactionState
                         ? undefined
