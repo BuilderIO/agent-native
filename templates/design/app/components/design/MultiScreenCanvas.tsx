@@ -5,14 +5,6 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { constrainCanvasDragDelta } from "@agent-native/toolkit/canvas-interactions";
 import {
-  ARROW_MARKER_TYPES,
-  arrowMarkerId,
-  arrowMarkerShape,
-  arrowMarkerUrl,
-  arrowMarkerTypesForPrimitive,
-  type ArrowMarkerType,
-} from "@shared/arrow-markers";
-import {
   CANVAS_FIT_PADDING_PX,
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM,
@@ -74,6 +66,13 @@ import {
   MAX_SANE_FRAME_DIMENSION_PX,
 } from "@shared/responsive-frame-layout";
 import { isRunningAppSourceType } from "@shared/source-mode";
+import {
+  vectorEndpointMarkerId,
+  vectorEndpointMarkerOrientation,
+  vectorEndpointPairForPrimitive,
+  vectorEndpointMarkerRefX,
+  vectorEndpointShape,
+} from "@shared/vector-endpoints";
 import {
   IconCopy,
   IconDots,
@@ -8724,11 +8723,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         getIframePaintRetentionStyle({
           viewportWidth: viewport.width,
           viewportHeight: viewport.height,
-          effectiveScale:
-            Math.max(
-              boardGeometry.width / viewport.width,
-              boardGeometry.height / viewport.height,
-            ) * nextScale,
+          effectiveScale: (boardGeometry.width / viewport.width) * nextScale,
+          effectiveScaleY: (boardGeometry.height / viewport.height) * nextScale,
         }),
       );
     }
@@ -11251,12 +11247,6 @@ function DraftPrimitiveContent({
     draft.kind === "line" ||
     draft.kind === "arrow"
   ) {
-    const markerNodeId = draft.id.replace(/[^a-zA-Z0-9_-]/g, "");
-    const markers = arrowMarkerTypesForPrimitive(
-      draft.kind,
-      draft.markerStart,
-      draft.markerEnd,
-    );
     const pathData =
       draft.pathData ??
       (draft.penPath
@@ -11271,57 +11261,93 @@ function DraftPrimitiveContent({
     // The arrowhead marker takes the resolved stroke color (not
     // `currentColor`) so it never disagrees with the shaft.
     const resolvedStroke = paint.stroke;
+    const endpoints = vectorEndpointPairForPrimitive(
+      draft.kind,
+      draft.startPoint,
+      draft.endPoint,
+    );
+    const renderEndpointShape = (
+      endpoint: typeof endpoints.startPoint,
+    ): ReactNode => {
+      const shape = vectorEndpointShape(endpoint);
+      if (!shape) return null;
+      const attributes = shape.attributes;
+      if (shape.tag === "circle") {
+        return (
+          <circle
+            cx={attributes.cx}
+            cy={attributes.cy}
+            r={attributes.r}
+            fill={attributes.fill}
+            stroke={attributes.stroke}
+            strokeWidth={attributes["stroke-width"]}
+          />
+        );
+      }
+      if (shape.tag === "rect") {
+        return (
+          <rect
+            x={attributes.x}
+            y={attributes.y}
+            width={attributes.width}
+            height={attributes.height}
+            fill={attributes.fill}
+          />
+        );
+      }
+      return (
+        <path
+          d={attributes.d}
+          fill={attributes.fill}
+          stroke={attributes.stroke}
+          strokeWidth={attributes["stroke-width"]}
+          strokeLinecap={
+            attributes["stroke-linecap"] as
+              | "butt"
+              | "inherit"
+              | "round"
+              | "square"
+          }
+          strokeLinejoin={
+            attributes["stroke-linejoin"] as
+              | "bevel"
+              | "inherit"
+              | "miter"
+              | "round"
+          }
+        />
+      );
+    };
+    const endpointMarkers = (
+      [
+        ["start", endpoints.startPoint],
+        ["end", endpoints.endPoint],
+      ] as const
+    ).map(([side, endpoint]) => {
+      if (endpoint === "none") return null;
+      const markerId = vectorEndpointMarkerId(draft.id, side);
+      return (
+        <marker
+          key={markerId}
+          data-an-vector-endpoint-marker={side}
+          id={markerId}
+          markerWidth="10"
+          markerHeight="10"
+          refX={vectorEndpointMarkerRefX(endpoint)}
+          refY="5"
+          orient={vectorEndpointMarkerOrientation(side)}
+          markerUnits="strokeWidth"
+        >
+          {renderEndpointShape(endpoint)}
+        </marker>
+      );
+    });
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
         viewBox={`${draft.geometry.x} ${draft.geometry.y} ${draft.geometry.width} ${draft.geometry.height}`}
       >
-        {draft.kind === "line" || draft.kind === "arrow" ? (
-          <defs>
-            {ARROW_MARKER_TYPES.filter((type) => type !== "none").map(
-              (type) => {
-                const markerType = type as Exclude<ArrowMarkerType, "none">;
-                const shape = arrowMarkerShape(markerType, resolvedStroke);
-                return (
-                  <marker
-                    key={markerType}
-                    id={arrowMarkerId(markerNodeId, markerType)}
-                    markerWidth="10"
-                    markerHeight="10"
-                    refX="8"
-                    refY="5"
-                    orient="auto-start-reverse"
-                    markerUnits="strokeWidth"
-                  >
-                    {shape.path ? (
-                      <path
-                        d={shape.path}
-                        fill={shape.fill}
-                        stroke={shape.stroke}
-                        strokeWidth={shape.strokeWidth}
-                      />
-                    ) : shape.circle ? (
-                      <circle
-                        cx={shape.circle.cx}
-                        cy={shape.circle.cy}
-                        r={shape.circle.r}
-                        fill={shape.fill}
-                      />
-                    ) : (
-                      <rect
-                        x={shape.rect?.x}
-                        y={shape.rect?.y}
-                        width={shape.rect?.width}
-                        height={shape.rect?.height}
-                        fill={shape.fill}
-                      />
-                    )}
-                  </marker>
-                );
-              },
-            )}
-          </defs>
-        ) : null}
+        {endpointMarkers.some(Boolean) ? <defs>{endpointMarkers}</defs> : null}
         <path
           d={pathData}
           fill={paint.fill}
@@ -11330,14 +11356,14 @@ function DraftPrimitiveContent({
           strokeLinejoin="round"
           strokeWidth={paint.strokeWidth}
           markerStart={
-            draft.kind === "line" || draft.kind === "arrow"
-              ? arrowMarkerUrl(markerNodeId, markers.start)
-              : undefined
+            endpoints.startPoint === "none"
+              ? undefined
+              : `url(#${vectorEndpointMarkerId(draft.id, "start")})`
           }
           markerEnd={
-            draft.kind === "line" || draft.kind === "arrow"
-              ? arrowMarkerUrl(markerNodeId, markers.end)
-              : undefined
+            endpoints.endPoint === "none"
+              ? undefined
+              : `url(#${vectorEndpointMarkerId(draft.id, "end")})`
           }
         />
       </svg>
@@ -12250,6 +12276,12 @@ const Screen = memo(function Screen({
           backgroundColor: "white",
           colorScheme: "light",
           ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+          ...getIframePaintRetentionStyle({
+            viewportWidth: previewViewport.viewportWidth,
+            viewportHeight: previewViewport.viewportHeight,
+            effectiveScale:
+              previewViewport.scale / Math.max(chromeScale, 0.001),
+          }),
         }}
         title={`${screen.filename} snapshot`}
       />

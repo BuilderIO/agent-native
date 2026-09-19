@@ -1,15 +1,18 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  ARROW_MARKER_TYPES,
-  arrowMarkerUrl,
-  markerTypeFromStyleValue,
-  type ArrowMarkerType,
-} from "@shared/arrow-markers";
-import {
   parseCssColor,
   rgbaToCss,
   withColorOpacity,
 } from "@shared/color-utils";
+import {
+  isVectorEndpointStyle,
+  isVectorEndpointPrimitiveKind,
+  vectorEndpointPairForPrimitive,
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_ENDPOINT_STYLES,
+  VECTOR_START_ENDPOINT_PROPERTY,
+  type VectorEndpointStyle,
+} from "@shared/vector-endpoints";
 import {
   IconAdjustments,
   IconArrowsLeftRight,
@@ -21,6 +24,7 @@ import {
   IconPlus,
   IconSquare,
 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 
 import {
   Select,
@@ -72,6 +76,7 @@ import type {
   StylesChangeHandler,
 } from "./style-change-types";
 import { STROKE_POSITION_OPTIONS } from "./style-options";
+import { vectorEndpointInspectorIdentity } from "./vector-endpoint-inspector";
 
 /**
  * Paint types allowed for CSS properties with no clean gradient/image
@@ -405,6 +410,7 @@ export function StrokeProperties({
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
+        breakpointOverrideContext={breakpointOverrideContext}
       />
     );
   }
@@ -779,151 +785,169 @@ function TextStrokeProperties({
  * a box border. `vectorPaintChild` (code-layer) and `vectorPaintTarget`
  * (bridge) land these writes on the `<path>`, not on the `<svg>` bounding box.
  */
-function MarkerProperties({
+function VectorEndpointControls({
   element,
+  styles,
   onStyleChange,
   onStylesChange,
 }: {
   element: ElementInfo;
+  styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
-  const styles = element.computedStyles;
-  const nodeId = element.sourceId || element.id || element.pendingNodeId || "";
-  const isArrow = element.primitiveKind === "arrow";
-  const start = markerTypeFromStyleValue(
-    nodeId,
-    styles.markerStart ?? styles["marker-start"],
-    "none",
+  const startStyle = styles[VECTOR_START_ENDPOINT_PROPERTY];
+  const endStyle = styles[VECTOR_END_ENDPOINT_PROPERTY];
+  const endpoints = vectorEndpointPairForPrimitive(
+    element.primitiveKind,
+    startStyle,
+    endStyle,
   );
-  const end = markerTypeFromStyleValue(
-    nodeId,
-    styles.markerEnd ?? styles["marker-end"],
-    isArrow ? "line-arrow" : "none",
-  );
-  const markerOptions = ARROW_MARKER_TYPES.map((value) => ({
-    value,
-    label:
-      value === "none"
-        ? "None"
-        : value === "line-arrow"
-          ? "Line arrow"
-          : value === "triangle-arrow"
-            ? "Triangle arrow"
-            : value === "reversed-triangle"
-              ? "Reversed triangle"
-              : value === "circle-arrow"
-                ? "Circle arrow"
-                : value === "diamond-arrow"
-                  ? "Diamond arrow"
-                  : value[0]!.toUpperCase() + value.slice(1),
-    // i18n-ignore Figma marker names are a closed protocol vocabulary.
+  const endpointIdentity = vectorEndpointInspectorIdentity(element);
+  const [localEndpointState, setLocalEndpointState] = useState(() => ({
+    identity: endpointIdentity,
+    endpoints,
   }));
-  const commitMarker = (
-    property: "marker-start" | "marker-end",
-    type: ArrowMarkerType,
-  ) => {
-    onStyleChange(property, arrowMarkerUrl(nodeId, type) ?? "none");
+  useEffect(() => {
+    setLocalEndpointState((current) => {
+      if (current.identity !== endpointIdentity) {
+        return { identity: endpointIdentity, endpoints };
+      }
+      // Bridge selection updates can omit the authored custom properties while
+      // the source commit is already durable. Preserve the last inspector
+      // values in that gap so a batched action such as swap uses the current
+      // pair instead of silently falling back to none/none.
+      if (
+        !isVectorEndpointStyle(startStyle) &&
+        !isVectorEndpointStyle(endStyle)
+      ) {
+        return current;
+      }
+      const nextEndpoints = {
+        startPoint: isVectorEndpointStyle(startStyle)
+          ? startStyle
+          : current.endpoints.startPoint,
+        endPoint: isVectorEndpointStyle(endStyle)
+          ? endStyle
+          : current.endpoints.endPoint,
+      };
+      if (
+        nextEndpoints.startPoint === current.endpoints.startPoint &&
+        nextEndpoints.endPoint === current.endpoints.endPoint
+      ) {
+        return current;
+      }
+      return { identity: endpointIdentity, endpoints: nextEndpoints };
+    });
+  }, [
+    endpointIdentity,
+    endpoints.endPoint,
+    endpoints.startPoint,
+    endStyle,
+    startStyle,
+  ]);
+  const currentEndpoints =
+    localEndpointState.identity === endpointIdentity
+      ? localEndpointState.endpoints
+      : endpoints;
+  const endpointLabels: Record<VectorEndpointStyle, string> = {
+    none: t("designEditor.vectorEndpoints.options.none"),
+    round: t("designEditor.vectorEndpoints.options.round"),
+    square: t("designEditor.vectorEndpoints.options.square"),
+    line: t("designEditor.vectorEndpoints.options.line"),
+    triangle: t("designEditor.vectorEndpoints.options.triangle"),
+    "reversed-triangle": t(
+      "designEditor.vectorEndpoints.options.reversedTriangle",
+    ),
+    circle: t("designEditor.vectorEndpoints.options.circle"),
+    diamond: t("designEditor.vectorEndpoints.options.diamond"),
   };
-  const swapMarkers = () => {
+  const updateEndpoint = (property: string, value: string): void => {
+    if (!isVectorEndpointStyle(value)) return;
+    setLocalEndpointState((current) => ({
+      identity: endpointIdentity,
+      endpoints: {
+        ...current.endpoints,
+        ...(property === VECTOR_START_ENDPOINT_PROPERTY
+          ? { startPoint: value }
+          : { endPoint: value }),
+      },
+    }));
+    onStyleChange(property, value);
+  };
+  const swapEndpoints = () => {
     const patch = {
-      "marker-start": arrowMarkerUrl(nodeId, end) ?? "none",
-      "marker-end": arrowMarkerUrl(nodeId, start) ?? "none",
+      [VECTOR_START_ENDPOINT_PROPERTY]: currentEndpoints.endPoint,
+      [VECTOR_END_ENDPOINT_PROPERTY]: currentEndpoints.startPoint,
     };
+    setLocalEndpointState({
+      identity: endpointIdentity,
+      endpoints: {
+        startPoint: currentEndpoints.endPoint,
+        endPoint: currentEndpoints.startPoint,
+      },
+    });
     if (onStylesChange) onStylesChange(patch);
     else {
-      onStyleChange("marker-start", patch["marker-start"]);
-      onStyleChange("marker-end", patch["marker-end"]);
+      onStyleChange(VECTOR_START_ENDPOINT_PROPERTY, currentEndpoints.endPoint);
+      onStyleChange(VECTOR_END_ENDPOINT_PROPERTY, currentEndpoints.startPoint);
     }
   };
 
+  const select = (side: "start" | "end", value: VectorEndpointStyle) => (
+    <Select
+      value={value}
+      onValueChange={(next) =>
+        updateEndpoint(
+          side === "start"
+            ? VECTOR_START_ENDPOINT_PROPERTY
+            : VECTOR_END_ENDPOINT_PROPERTY,
+          next,
+        )
+      }
+    >
+      <SelectTrigger
+        aria-label={
+          side === "start"
+            ? t("designEditor.vectorEndpoints.startPoint")
+            : t("designEditor.vectorEndpoints.endPoint")
+        }
+        className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {VECTOR_ENDPOINT_STYLES.map((option) => (
+          <SelectItem key={option} value={option} className="!text-[11px]">
+            {endpointLabels[option]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
   return (
-    <div className="space-y-2 border-t border-[var(--design-editor-control-border)] pt-2">
-      <InspectorGrid className="items-center" layout="stroke-details">
-        <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-          <SubsectionLabel>{t("justifyOptions.start")}</SubsectionLabel>
-        </InspectorGridCell>
-        <InspectorGridCell
-          span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-          ariaHidden
-        />
-        <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-          <SubsectionLabel>{t("justifyOptions.end")}</SubsectionLabel>
-        </InspectorGridCell>
-        <InspectorGridCell span={4} className="flex justify-center">
-          <SectionIconButton
-            label={
-              "Swap start and end points" /* i18n-ignore Figma endpoint action */
-            }
-            onClick={swapMarkers}
-          >
-            <IconArrowsLeftRight className="size-3.5" />
-          </SectionIconButton>
-        </InspectorGridCell>
-      </InspectorGrid>
-      <InspectorGrid className="items-center" layout="stroke-details">
-        <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-          <Select
-            value={start}
-            onValueChange={(next) => {
-              if (markerOptions.some((option) => option.value === next)) {
-                commitMarker("marker-start", next as ArrowMarkerType);
-              }
-            }}
-          >
-            <SelectTrigger
-              aria-label={t("justifyOptions.start")}
-              className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {markerOptions.map((option) => (
-                <SelectItem
-                  key={option.value}
-                  value={option.value}
-                  className="!text-[11px]"
-                >
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </InspectorGridCell>
-        <InspectorGridCell
-          span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-          ariaHidden
-        />
-        <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-          <Select
-            value={end}
-            onValueChange={(next) => {
-              if (markerOptions.some((option) => option.value === next)) {
-                commitMarker("marker-end", next as ArrowMarkerType);
-              }
-            }}
-          >
-            <SelectTrigger
-              aria-label={t("justifyOptions.end")}
-              className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {markerOptions.map((option) => (
-                <SelectItem
-                  key={option.value}
-                  value={option.value}
-                  className="!text-[11px]"
-                >
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </InspectorGridCell>
-      </InspectorGrid>
+    <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-1">
+      <div className="min-w-0 space-y-1">
+        <SubsectionLabel>
+          {t("designEditor.vectorEndpoints.startPoint")}
+        </SubsectionLabel>
+        {select("start", currentEndpoints.startPoint)}
+      </div>
+      <SectionIconButton
+        label={t("designEditor.vectorEndpoints.swap")}
+        onClick={swapEndpoints}
+        className="mb-0.5"
+      >
+        <IconArrowsLeftRight className="size-3.5" />
+      </SectionIconButton>
+      <div className="min-w-0 space-y-1">
+        <SubsectionLabel>
+          {t("designEditor.vectorEndpoints.endPoint")}
+        </SubsectionLabel>
+        {select("end", currentEndpoints.endPoint)}
+      </div>
     </div>
   );
 }
@@ -932,10 +956,12 @@ function VectorStrokeProperties({
   element,
   onStyleChange,
   onStylesChange,
+  breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -956,6 +982,12 @@ function VectorStrokeProperties({
   )
     ? (styles["--an-vector-stroke-position"] as StrokePosition)
     : "center";
+  const supportsEndpointControls =
+    element.tagName?.toLowerCase() === "svg" &&
+    isVectorEndpointPrimitiveKind(element.primitiveKind) &&
+    // Marker choices require a structural SVG rewrite. Keep them out of a
+    // responsive scope until the marker DOM can be scoped with the value.
+    breakpointOverrideContext?.activeWidthPx == null;
 
   return (
     <PanelSection
@@ -984,179 +1016,165 @@ function VectorStrokeProperties({
             "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
           }
         </p>
-      ) : (
-        <>
-          {strokeExists ? (
-            <div className="space-y-2">
-              <InspectorPaintRow>
-                <InspectorGridCell span={20}>
-                  <ColorInput
-                    label=""
-                    value={cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR)}
-                    onChange={(value, meta) =>
-                      onStyleChange("stroke", value, meta)
-                    }
-                    supportedPaintTypes={SOLID_ONLY_PAINT_TYPES}
-                  />
-                </InspectorGridCell>
-                <InspectorGridCell span={4} className="flex justify-center">
-                  <SectionIconButton
-                    label={
-                      visible
-                        ? t("editPanel.labels.hideLayer")
-                        : t("editPanel.labels.showLayer")
-                    }
-                    onClick={() => {
-                      const parsed = parseCssColor(stroke);
-                      if (visible) {
-                        onStyleChange(
-                          "stroke",
-                          parsed
-                            ? rgbaToCss(withColorOpacity(parsed, 0))
-                            : "transparent",
-                        );
-                        return;
-                      }
-                      commitStylePatch(
-                        {
-                          stroke: parsed
-                            ? rgbaToCss(withColorOpacity(parsed, 100))
-                            : DEFAULT_STROKE_COLOR,
-                          strokeWidth:
-                            cssLengthNumber(width) > 0 ? width : "1px",
-                        },
-                        onStyleChange,
-                        onStylesChange,
-                      );
-                    }}
-                  >
-                    {visible ? (
-                      <IconEye className="size-3.5" />
-                    ) : (
-                      <IconEyeOff className="size-3.5" />
-                    )}
-                  </SectionIconButton>
-                </InspectorGridCell>
-                <InspectorGridCell span={4} className="flex justify-center">
-                  <SectionIconButton
-                    label={t("editPanel.labels.removeLayer")}
-                    onClick={() => onStyleChange("stroke", "none")}
-                  >
-                    <IconMinus className="size-3.5" />
-                  </SectionIconButton>
-                </InspectorGridCell>
-              </InspectorPaintRow>
-              <InspectorGrid className="items-center" layout="stroke-details">
-                <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-                  {canAlignStroke ? (
-                    <SubsectionLabel>
-                      {t("editPanel.labels.position")}
-                    </SubsectionLabel>
-                  ) : null}
-                </InspectorGridCell>
-                <InspectorGridCell
-                  span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-                  ariaHidden
-                />
-                <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-                  <SubsectionLabel>
-                    {t("editPanel.labels.weight")}
-                  </SubsectionLabel>
-                </InspectorGridCell>
-              </InspectorGrid>
-              <InspectorGrid className="items-center" layout="stroke-details">
-                <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-                  {canAlignStroke ? (
-                    <Select
-                      value={position}
-                      onValueChange={(next) => {
-                        if (
-                          !STROKE_POSITION_OPTIONS.some((o) => o.value === next)
-                        )
-                          return;
-                        const patch = {
-                          stroke: cssColorOrFallback(
-                            stroke,
-                            DEFAULT_STROKE_COLOR,
-                          ),
-                          strokeWidth: width === "0px" ? "1px" : width,
-                          strokeOpacity: styles.strokeOpacity,
-                          strokeDasharray: styles.strokeDasharray,
-                          strokeDashoffset: styles.strokeDashoffset,
-                          strokeLinecap: styles.strokeLinecap,
-                          strokeLinejoin: styles.strokeLinejoin,
-                          strokeMiterlimit: styles.strokeMiterlimit,
-                          opacity: styles.vectorOpacity,
-                          transform: styles.vectorTransform,
-                          transformOrigin: styles.vectorTransformOrigin,
-                          transformBox: styles.vectorTransformBox,
-                          "--an-vector-stroke-position": next,
-                        };
-                        if (onStylesChange) onStylesChange(patch);
-                        else
-                          Object.entries(patch).forEach(([property, value]) =>
-                            onStyleChange(property, value),
-                          );
-                      }}
-                    >
-                      <SelectTrigger
-                        aria-label={t("editPanel.labels.position")}
-                        className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {positionOptions.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            className="!text-[11px]"
-                          >
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : null}
-                </InspectorGridCell>
-                <InspectorGridCell
-                  span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-                  ariaHidden
-                />
-                <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-                  <ScrubInput
-                    label={t("editPanel.labels.weight")}
-                    ariaLabel={t("editPanel.labels.weight")}
-                    icon={IconBorderStyle}
-                    value={cssLengthNumber(width)}
-                    onChange={(value, meta) =>
-                      onStyleChange(
-                        "strokeWidth",
-                        `${Math.max(0, roundToOneDecimal(value))}px`,
-                        meta,
-                      )
-                    }
-                    unit="px"
-                    min={0}
-                    precision={1}
-                    className="w-full gap-0"
-                    labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
-                    inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-                  />
-                </InspectorGridCell>
-              </InspectorGrid>
-            </div>
-          ) : null}
-          {element.primitiveKind === "line" ||
-          element.primitiveKind === "arrow" ? (
-            <MarkerProperties
+      ) : strokeExists ? (
+        <div className="space-y-2">
+          <InspectorPaintRow>
+            <InspectorGridCell span={20}>
+              <ColorInput
+                label=""
+                value={cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR)}
+                onChange={(value, meta) => onStyleChange("stroke", value, meta)}
+                supportedPaintTypes={SOLID_ONLY_PAINT_TYPES}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell span={4} className="flex justify-center">
+              <SectionIconButton
+                label={
+                  visible
+                    ? t("editPanel.labels.hideLayer")
+                    : t("editPanel.labels.showLayer")
+                }
+                onClick={() => {
+                  const parsed = parseCssColor(stroke);
+                  if (visible) {
+                    onStyleChange(
+                      "stroke",
+                      parsed
+                        ? rgbaToCss(withColorOpacity(parsed, 0))
+                        : "transparent",
+                    );
+                    return;
+                  }
+                  commitStylePatch(
+                    {
+                      stroke: parsed
+                        ? rgbaToCss(withColorOpacity(parsed, 100))
+                        : DEFAULT_STROKE_COLOR,
+                      strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
+                    },
+                    onStyleChange,
+                    onStylesChange,
+                  );
+                }}
+              >
+                {visible ? (
+                  <IconEye className="size-3.5" />
+                ) : (
+                  <IconEyeOff className="size-3.5" />
+                )}
+              </SectionIconButton>
+            </InspectorGridCell>
+            <InspectorGridCell span={4} className="flex justify-center">
+              <SectionIconButton
+                label={t("editPanel.labels.removeLayer")}
+                onClick={() => onStyleChange("stroke", "none")}
+              >
+                <IconMinus className="size-3.5" />
+              </SectionIconButton>
+            </InspectorGridCell>
+          </InspectorPaintRow>
+          {supportsEndpointControls ? (
+            <VectorEndpointControls
               element={element}
+              styles={styles}
               onStyleChange={onStyleChange}
               onStylesChange={onStylesChange}
             />
           ) : null}
-        </>
-      )}
+          <InspectorGrid className="items-center" layout="stroke-details">
+            <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
+              {canAlignStroke ? (
+                <SubsectionLabel>
+                  {t("editPanel.labels.position")}
+                </SubsectionLabel>
+              ) : null}
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
+              <SubsectionLabel>{t("editPanel.labels.weight")}</SubsectionLabel>
+            </InspectorGridCell>
+          </InspectorGrid>
+          <InspectorGrid className="items-center" layout="stroke-details">
+            <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
+              {canAlignStroke ? (
+                <Select
+                  value={position}
+                  onValueChange={(next) => {
+                    if (!STROKE_POSITION_OPTIONS.some((o) => o.value === next))
+                      return;
+                    const patch = {
+                      stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
+                      strokeWidth: width === "0px" ? "1px" : width,
+                      strokeOpacity: styles.strokeOpacity,
+                      strokeDasharray: styles.strokeDasharray,
+                      strokeDashoffset: styles.strokeDashoffset,
+                      strokeLinecap: styles.strokeLinecap,
+                      strokeLinejoin: styles.strokeLinejoin,
+                      strokeMiterlimit: styles.strokeMiterlimit,
+                      opacity: styles.vectorOpacity,
+                      transform: styles.vectorTransform,
+                      transformOrigin: styles.vectorTransformOrigin,
+                      transformBox: styles.vectorTransformBox,
+                      "--an-vector-stroke-position": next,
+                    };
+                    if (onStylesChange) onStylesChange(patch);
+                    else
+                      Object.entries(patch).forEach(([property, value]) =>
+                        onStyleChange(property, value),
+                      );
+                  }}
+                >
+                  <SelectTrigger
+                    aria-label={t("editPanel.labels.position")}
+                    className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {positionOptions.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className="!text-[11px]"
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
+              <ScrubInput
+                label={t("editPanel.labels.weight")}
+                ariaLabel={t("editPanel.labels.weight")}
+                icon={IconBorderStyle}
+                value={cssLengthNumber(width)}
+                onChange={(value, meta) =>
+                  onStyleChange(
+                    "strokeWidth",
+                    `${Math.max(0, roundToOneDecimal(value))}px`,
+                    meta,
+                  )
+                }
+                unit="px"
+                min={0}
+                precision={1}
+                className="w-full gap-0"
+                labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+                inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+              />
+            </InspectorGridCell>
+          </InspectorGrid>
+        </div>
+      ) : null}
     </PanelSection>
   );
 }

@@ -1,4 +1,3 @@
-import { isArrowMarkerType } from "@shared/arrow-markers";
 import {
   LINKED_COMPONENT_STRUCTURE_REFUSAL,
   buildCodeLayerProjection,
@@ -1024,22 +1023,6 @@ export function canonicalElementInfoForCodeLayerNode(
   const hasGridTemplateOverlay =
     gridTemplateOverlay.gridTemplateColumns !== undefined ||
     gridTemplateOverlay.gridTemplateRows !== undefined;
-  const primitiveKind = node.dataAttributes["data-an-primitive"];
-  const sourceMarkerStyles =
-    primitiveKind === "line" || primitiveKind === "arrow"
-      ? {
-          ...(isArrowMarkerType(node.dataAttributes["data-an-marker-start"])
-            ? { markerStart: node.dataAttributes["data-an-marker-start"] }
-            : {}),
-          ...(isArrowMarkerType(node.dataAttributes["data-an-marker-end"])
-            ? { markerEnd: node.dataAttributes["data-an-marker-end"] }
-            : {}),
-        }
-      : {};
-  const hasSourceMarkerOverlay = Object.keys(sourceMarkerStyles).length > 0;
-  const computedStyles = hasSourceMarkerOverlay
-    ? { ...info.computedStyles, ...sourceMarkerStyles }
-    : info.computedStyles;
   const inlineStyles = hasGridTemplateOverlay
     ? {
         ...info.inlineStyles,
@@ -1053,7 +1036,6 @@ export function canonicalElementInfoForCodeLayerNode(
     : info.inlineStyles;
   return {
     ...info,
-    computedStyles,
     inlineStyles,
     vectorStrokeCanAlign:
       info.vectorStrokeCanAlign ||
@@ -1071,6 +1053,11 @@ export function canonicalElementInfoForCodeLayerNode(
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
+    // Source projections are the authority for layer-panel selections. Keep
+    // their primitive marker when canonicalizing a live bridge payload so a
+    // drawn SVG stays on the vector inspector path even when the bridge
+    // payload omitted its optional primitiveKind field.
+    primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
     isGroup: node.dataAttributes["data-agent-native-group"] === "true",
     confidence: node.confidence,
     childElementCount: node.children.length,

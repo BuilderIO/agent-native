@@ -1,12 +1,14 @@
-import {
-  arrowMarkerId,
-  arrowMarkerShape,
-  arrowMarkerUrl,
-  arrowMarkerTypesForPrimitive,
-} from "@shared/arrow-markers";
 import { isBoardFile } from "@shared/board-file";
 import { normalizedDesignFileType } from "@shared/design-files";
 import { isClosedPathData } from "@shared/pen-path";
+import {
+  vectorEndpointAttributesMarkup,
+  vectorEndpointDefsMarkup,
+  vectorEndpointPairForPrimitive,
+  vectorEndpointMarkerId,
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_START_ENDPOINT_PROPERTY,
+} from "@shared/vector-endpoints";
 
 import {
   canvasPrimitiveVisual,
@@ -109,10 +111,49 @@ export function uniqueLayerId(prefix: string): string {
  * projection.
  */
 export function reassignDuplicatedNodeIds(content: string): string {
-  return content.replace(
-    /data-agent-native-node-id="[^"]*"/g,
-    () => `data-agent-native-node-id="${uniqueLayerId("copy")}"`,
+  const nodeIdMap = new Map<string, string>();
+  const withNewNodeIds = content.replace(
+    /data-agent-native-node-id=(['"])([^'"]*)\1/g,
+    (_match, quote: string, oldNodeId: string) => {
+      const nextNodeId = uniqueLayerId("copy");
+      nodeIdMap.set(oldNodeId, nextNodeId);
+      return `data-agent-native-node-id=${quote}${nextNodeId}${quote}`;
+    },
   );
+  if (nodeIdMap.size === 0) return withNewNodeIds;
+
+  const legacyVectorEndpointMarkerId = (
+    nodeId: string,
+    side: "start" | "end",
+  ): string => {
+    const safeNodeId = nodeId.replace(/[^A-Za-z0-9_-]/g, "-") || "vector";
+    return `${safeNodeId}-vector-marker-${side}`;
+  };
+
+  const rewriteReference = (id: string): string => {
+    for (const [oldNodeId, nextNodeId] of nodeIdMap) {
+      if (id === `${oldNodeId}-arrow`) return `${nextNodeId}-arrow`;
+      for (const side of ["start", "end"] as const) {
+        if (
+          id === vectorEndpointMarkerId(oldNodeId, side) ||
+          id === legacyVectorEndpointMarkerId(oldNodeId, side)
+        ) {
+          return vectorEndpointMarkerId(nextNodeId, side);
+        }
+      }
+    }
+    return id;
+  };
+  return withNewNodeIds
+    .replace(
+      /\bid=(['"])([^'"]*)\1/g,
+      (_match, quote: string, id: string) =>
+        `id=${quote}${rewriteReference(id)}${quote}`,
+    )
+    .replace(
+      /url\(#([^)]*)\)/g,
+      (_match, id: string) => `url(#${rewriteReference(id)})`,
+    );
 }
 
 /**
@@ -396,11 +437,6 @@ export function appendCanvasPrimitiveToHtml(
     ) {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-      const markers = arrowMarkerTypesForPrimitive(
-        primitive.kind,
-        primitive.markerStart,
-        primitive.markerEnd,
-      );
       const explicitPathData = primitive.pathData?.trim()
         ? primitive.pathData
         : null;
@@ -443,72 +479,56 @@ export function appendCanvasPrimitiveToHtml(
       path.setAttribute("stroke-width", String(paint.strokeWidth));
       path.setAttribute("stroke-linecap", "round");
       path.setAttribute("stroke-linejoin", "round");
-      if (primitive.kind === "line" || primitive.kind === "arrow") {
+      const endpoints = vectorEndpointPairForPrimitive(
+        primitive.kind,
+        primitive.startPoint,
+        primitive.endPoint,
+      );
+      const endpointDefs = vectorEndpointDefsMarkup(nodeId, endpoints);
+      if (endpointDefs) {
         const defs = doc.createElementNS("http://www.w3.org/2000/svg", "defs");
-        for (const type of [
-          "round",
-          "square",
-          "line-arrow",
-          "triangle-arrow",
-          "reversed-triangle",
-          "circle-arrow",
-          "diamond-arrow",
-        ] as const) {
+        defs.setAttribute("data-an-vector-endpoints", "true");
+        for (const side of ["start", "end"] as const) {
+          const endpoint =
+            endpoints[side === "start" ? "startPoint" : "endPoint"];
+          const shape = endpoint === "none" ? null : endpoint;
+          if (!shape) continue;
           const marker = doc.createElementNS(
             "http://www.w3.org/2000/svg",
             "marker",
           );
-          const shape = arrowMarkerShape(type, paint.stroke);
-          marker.setAttribute("id", arrowMarkerId(nodeId, type));
-          marker.setAttribute("markerWidth", "10");
-          marker.setAttribute("markerHeight", "10");
-          marker.setAttribute("refX", "8");
-          marker.setAttribute("refY", "5");
-          marker.setAttribute("orient", "auto-start-reverse");
-          marker.setAttribute("markerUnits", "strokeWidth");
-          if (shape.path) {
-            const markerPath = doc.createElementNS(
-              "http://www.w3.org/2000/svg",
-              "path",
-            );
-            markerPath.setAttribute("d", shape.path);
-            markerPath.setAttribute("fill", shape.fill);
-            if (shape.stroke) markerPath.setAttribute("stroke", shape.stroke);
-            if (shape.strokeWidth)
-              markerPath.setAttribute(
-                "stroke-width",
-                String(shape.strokeWidth),
-              );
-            marker.appendChild(markerPath);
-          } else if (shape.circle) {
-            const circle = doc.createElementNS(
-              "http://www.w3.org/2000/svg",
-              "circle",
-            );
-            circle.setAttribute("cx", String(shape.circle.cx));
-            circle.setAttribute("cy", String(shape.circle.cy));
-            circle.setAttribute("r", String(shape.circle.r));
-            circle.setAttribute("fill", shape.fill);
-            marker.appendChild(circle);
-          } else if (shape.rect) {
-            const rect = doc.createElementNS(
-              "http://www.w3.org/2000/svg",
-              "rect",
-            );
-            rect.setAttribute("x", String(shape.rect.x));
-            rect.setAttribute("y", String(shape.rect.y));
-            rect.setAttribute("width", String(shape.rect.width));
-            rect.setAttribute("height", String(shape.rect.height));
-            rect.setAttribute("fill", shape.fill);
-            marker.appendChild(rect);
+          const markerMarkup = endpointDefs.match(
+            new RegExp(
+              `<marker[^>]*data-an-vector-endpoint-marker="${side}"[\\s\\S]*?</marker>`,
+            ),
+          )?.[0];
+          if (!markerMarkup) continue;
+          const markerDoc = new DOMParser().parseFromString(
+            `<svg xmlns="http://www.w3.org/2000/svg">${markerMarkup}</svg>`,
+            "image/svg+xml",
+          );
+          const parsedMarker = markerDoc.documentElement.firstElementChild;
+          if (!parsedMarker) continue;
+          for (const attribute of Array.from(parsedMarker.attributes)) {
+            marker.setAttribute(attribute.name, attribute.value);
+          }
+          for (const child of Array.from(parsedMarker.children)) {
+            marker.appendChild(doc.importNode(child, true));
           }
           defs.appendChild(marker);
         }
-        svg.appendChild(defs);
-        const markerStart = arrowMarkerUrl(nodeId, markers.start);
-        const markerEnd = arrowMarkerUrl(nodeId, markers.end);
-        if (markerStart) path.setAttribute("marker-start", markerStart);
-        if (markerEnd) path.setAttribute("marker-end", markerEnd);
+        if (defs.children.length > 0) svg.appendChild(defs);
+      }
+      const endpointAttributes = vectorEndpointAttributesMarkup(
+        nodeId,
+        endpoints,
+      );
+      if (endpointAttributes) {
+        for (const match of endpointAttributes.matchAll(
+          /([\w-]+)="([^"]*)"/g,
+        )) {
+          path.setAttribute(match[1]!, match[2]!);
+        }
       }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
@@ -516,10 +536,6 @@ export function appendCanvasPrimitiveToHtml(
       // this SVG primitive instead of falling through to the rectangle glyph.
       // Read by treeTypeForNode in shared/code-layer.ts.
       svg.setAttribute("data-an-primitive", primitive.kind);
-      if (primitive.kind === "line" || primitive.kind === "arrow") {
-        svg.setAttribute("data-an-marker-start", markers.start);
-        svg.setAttribute("data-an-marker-end", markers.end);
-      }
       svg.setAttribute(
         "viewBox",
         explicitPathData
@@ -542,6 +558,8 @@ export function appendCanvasPrimitiveToHtml(
           `width:${width}px`,
           `height:${height}px`,
           "overflow:visible",
+          `${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint}`,
+          `${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`,
           geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
         ]
           .filter(Boolean)

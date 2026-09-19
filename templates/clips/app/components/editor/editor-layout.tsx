@@ -935,6 +935,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           onOpenChange={setRewindOpen}
           recordingId={recordingId}
           durationMs={durationMs}
+          width={recording.width}
+          height={recording.height}
           videoFormat={videoFormat}
           hasAudio={Boolean(recording.hasAudio)}
           visibility={recording.visibility}

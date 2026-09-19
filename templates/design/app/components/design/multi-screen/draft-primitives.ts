@@ -1,8 +1,3 @@
-import {
-  DEFAULT_ARROW_END_MARKER,
-  DEFAULT_ARROW_START_MARKER,
-  DEFAULT_LINE_MARKER,
-} from "@shared/arrow-markers";
 import { getDraftGeometryFromPoints } from "@shared/canvas-math";
 import {
   clonePenPath,
@@ -164,10 +159,8 @@ export function createDraftPrimitive({
       points: pathPoints,
       stroke: toolProps?.stroke,
       strokeWidth: toolProps?.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
-      markerStart:
-        tool === "arrow" ? DEFAULT_ARROW_START_MARKER : DEFAULT_LINE_MARKER,
-      markerEnd:
-        tool === "arrow" ? DEFAULT_ARROW_END_MARKER : DEFAULT_LINE_MARKER,
+      startPoint: toolProps?.startPoint,
+      endPoint: toolProps?.endPoint,
     };
   }
   const isFrame = tool === "frame";
@@ -327,8 +320,8 @@ export function draftPrimitiveToInsert(
     fill: draft.fill,
     stroke: draft.stroke,
     strokeWidth: draft.strokeWidth,
-    markerStart: draft.markerStart,
-    markerEnd: draft.markerEnd,
+    startPoint: draft.startPoint,
+    endPoint: draft.endPoint,
     autoSize: draft.autoSize,
   };
 }

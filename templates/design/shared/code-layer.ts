@@ -3,12 +3,6 @@ import CssSyntaxError from "postcss/lib/css-syntax-error";
 import parseCss from "postcss/lib/parse";
 
 import {
-  ARROW_MARKER_TYPES,
-  arrowMarkerDefinitionHtml,
-  arrowMarkerId,
-  isArrowMarkerType,
-} from "./arrow-markers";
-import {
   isSafeCssUrlReference,
   removeBreakpointMediaDeclaration,
   setBreakpointMediaDeclaration,
@@ -40,6 +34,15 @@ import {
   utilityStem,
 } from "./responsive-classes.js";
 import type { DesignSourceType } from "./source-mode";
+import {
+  isVectorEndpointProperty,
+  isVectorEndpointStyle,
+  vectorEndpointPairForPrimitive,
+  vectorEndpointMarkerId,
+  vectorEndpointDefsMarkup,
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_START_ENDPOINT_PROPERTY,
+} from "./vector-endpoints.js";
 
 /**
  * Shown when a document transform is handed a URL-backed (localhost/fusion)
@@ -170,9 +173,9 @@ export type VisualStyleProperty =
   | "stroke-linecap"
   | "stroke-linejoin"
   | "stroke-miterlimit"
-  | "marker-start"
-  | "marker-end"
   | "--an-vector-stroke-position"
+  | "--an-vector-start-point"
+  | "--an-vector-end-point"
   | "outline"
   | "outline-width"
   | "outline-style"
@@ -887,9 +890,9 @@ const STYLE_PROPERTIES = [
   "stroke-linecap",
   "stroke-linejoin",
   "stroke-miterlimit",
-  "marker-start",
-  "marker-end",
   "--an-vector-stroke-position",
+  "--an-vector-start-point",
+  "--an-vector-end-point",
   "outline",
   "outline-width",
   "outline-style",
@@ -2008,10 +2011,8 @@ function isSafeStyleValue(
   if (property === "--an-vector-stroke-position") {
     return ["inside", "center", "outside"].includes(trimmed);
   }
-  if (property === "marker-start" || property === "marker-end") {
-    return (
-      trimmed === "none" || /^url\(\s*#[-A-Za-z0-9_.:]+\s*\)$/.test(trimmed)
-    );
+  if (isVectorEndpointProperty(property)) {
+    return isVectorEndpointStyle(trimmed);
   }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
@@ -4784,12 +4785,7 @@ function vectorPaintChild(
   property: string,
   parsedElements?: ParsedElement[],
 ): ParsedElement | null {
-  if (
-    !property.startsWith("fill") &&
-    !property.startsWith("stroke") &&
-    property !== "marker-start" &&
-    property !== "marker-end"
-  ) {
+  if (!property.startsWith("fill") && !property.startsWith("stroke")) {
     return null;
   }
   const elements = parsedElements ?? parseHtmlElements(html);
@@ -4804,80 +4800,6 @@ function vectorPaintChild(
     );
   }
   return vectorShapeChild(parsed, elements);
-}
-
-function ensureVectorMarkerDefinition(
-  html: string,
-  element: ParsedElement,
-  property: "marker-start" | "marker-end",
-  value: string,
-): string {
-  const parentIndex = element.parentIndex;
-  if (parentIndex === undefined) return html;
-  const elements = parseHtmlElements(html);
-  const paintElement = elements[element.index];
-  const svg =
-    paintElement && paintElement.start === element.start
-      ? paintElement.parentIndex === undefined
-        ? undefined
-        : elements[paintElement.parentIndex]
-      : undefined;
-  if (
-    !svg ||
-    svg.tag !== "svg" ||
-    !["line", "arrow"].includes(attributeValue(svg, "data-an-primitive") ?? "")
-  ) {
-    return html;
-  }
-  const nodeId = attributeValue(svg, "data-agent-native-node-id");
-  if (!nodeId) return html;
-  const type =
-    value.trim() === "none"
-      ? "none"
-      : ARROW_MARKER_TYPES.find(
-          (candidate) =>
-            candidate !== "none" &&
-            value.trim() === `url(#${arrowMarkerId(nodeId, candidate)})`,
-        );
-  if (!type || !isArrowMarkerType(type)) return html;
-
-  const dataAttribute =
-    property === "marker-start" ? "data-an-marker-start" : "data-an-marker-end";
-  let next = patchElementAttributes(html, [
-    { element: svg, attributes: { [dataAttribute]: type } },
-  ]);
-  if (type === "none") return next;
-
-  const markerId = arrowMarkerId(nodeId, type);
-  const updatedElements = parseHtmlElements(next);
-  const updatedSvg = updatedElements.find(
-    (candidate) => candidate.start === svg.start && candidate.tag === "svg",
-  );
-  if (!updatedSvg) return next;
-  const markerExists = updatedElements.some(
-    (candidate) =>
-      candidate.tag === "marker" &&
-      attributeValue(candidate, "id") === markerId,
-  );
-  if (markerExists) return next;
-  const paint = updatedElements.find(
-    (candidate) => candidate.start === element.start,
-  );
-  const stroke =
-    attributeValue(paint ?? updatedSvg, "stroke") ||
-    parseStyle(attributeValue(paint ?? updatedSvg, "style")).stroke ||
-    // guard:allow-raw-color — SVG marker definitions need a concrete paint fallback.
-    "#000000";
-  const definition = arrowMarkerDefinitionHtml(nodeId, type, stroke);
-  const defs = updatedSvg.childIndexes
-    .map((index) => updatedElements[index])
-    .find((candidate) => candidate?.tag === "defs");
-  if (defs) {
-    next = `${next.slice(0, defs.contentEnd)}${definition}${next.slice(defs.contentEnd)}`;
-  } else {
-    next = `${next.slice(0, updatedSvg.contentStart)}<defs>${definition}</defs>${next.slice(updatedSvg.contentStart)}`;
-  }
-  return next;
 }
 
 type StyleEditTargetRoute =
@@ -4917,6 +4839,133 @@ function resolveStyleEditTargetRoute(
     : { kind: "ordinary", element };
 }
 
+function removeVectorEndpointMarkup(
+  html: string,
+  wrapper: ParsedElement,
+  nodeId: string,
+): string {
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (!currentWrapper || currentWrapper.start !== wrapper.start) return html;
+  const markerIds = new Set([
+    vectorEndpointMarkerId(nodeId, "start"),
+    vectorEndpointMarkerId(nodeId, "end"),
+    `${nodeId}-arrow`,
+  ]);
+  const spans: Array<{ start: number; end: number }> = [];
+  for (const childIndex of currentWrapper.childIndexes) {
+    const child = elements[childIndex];
+    if (!child || child.tag !== "defs") continue;
+    if (getAttribute(child, "data-an-vector-endpoints")) {
+      spans.push({ start: child.start, end: child.end });
+      continue;
+    }
+    for (const markerIndex of child.childIndexes) {
+      const marker = elements[markerIndex];
+      const markerId = marker ? attributeValue(marker, "id") : null;
+      if (marker?.tag === "marker" && markerId && markerIds.has(markerId)) {
+        spans.push({ start: marker.start, end: marker.end });
+      }
+    }
+  }
+  let result = html;
+  for (const span of spans.sort((a, b) => b.start - a.start)) {
+    result = `${result.slice(0, span.start)}${result.slice(span.end)}`;
+  }
+  return result;
+}
+
+function applyVectorEndpointEdit(
+  html: string,
+  wrapper: ParsedElement,
+  property: string,
+  value: string,
+): string | PatchResultStatus {
+  if (!isVectorEndpointProperty(property) || !isVectorEndpointStyle(value)) {
+    return "unsupported";
+  }
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (
+    !currentWrapper ||
+    currentWrapper.start !== wrapper.start ||
+    currentWrapper.tag !== "svg"
+  ) {
+    return "unsupported";
+  }
+  const kind = attributeValue(currentWrapper, "data-an-primitive");
+  if (!VECTOR_PAINT_PRIMITIVES.has(kind ?? "")) return "unsupported";
+  const nodeId = attributeValue(currentWrapper, "data-agent-native-node-id");
+  const shape = vectorShapeChild(currentWrapper, elements);
+  if (!nodeId || !shape) return "unsupported";
+
+  const currentStyle = parseStyle(attributeValue(currentWrapper, "style"));
+  const endpoints = vectorEndpointPairForPrimitive(
+    kind ?? undefined,
+    currentStyle[VECTOR_START_ENDPOINT_PROPERTY],
+    currentStyle[VECTOR_END_ENDPOINT_PROPERTY],
+  );
+  const nextEndpoints =
+    property === VECTOR_START_ENDPOINT_PROPERTY
+      ? { ...endpoints, startPoint: value }
+      : { ...endpoints, endPoint: value };
+
+  // Remove generated/legacy marker definitions first. Reparse after this
+  // structural splice so every later attribute write uses fresh source spans.
+  let content = removeVectorEndpointMarkup(html, currentWrapper, nodeId);
+  const afterRemoval = parseHtmlElements(content);
+  const nextWrapper = afterRemoval.find(
+    (candidate) =>
+      candidate.tag === "svg" &&
+      attributeValue(candidate, "data-agent-native-node-id") === nodeId,
+  );
+  if (!nextWrapper) return "unsupported";
+  const nextShape = vectorShapeChild(nextWrapper, afterRemoval);
+  if (!nextShape) return "unsupported";
+  const defsMarkup = vectorEndpointDefsMarkup(nodeId, nextEndpoints);
+  if (defsMarkup) {
+    content = `${content.slice(0, nextShape.start)}${defsMarkup}${content.slice(nextShape.start)}`;
+  }
+
+  const finalElements = parseHtmlElements(content);
+  const finalWrapper = finalElements.find(
+    (candidate) =>
+      candidate.tag === "svg" &&
+      attributeValue(candidate, "data-agent-native-node-id") === nodeId,
+  );
+  if (!finalWrapper) return "unsupported";
+  const finalShape = vectorShapeChild(finalWrapper, finalElements);
+  if (!finalShape) return "unsupported";
+  const finalStyle = setStyleValue(
+    setStyleValue(
+      attributeValue(finalWrapper, "style"),
+      VECTOR_START_ENDPOINT_PROPERTY,
+      nextEndpoints.startPoint,
+    ),
+    VECTOR_END_ENDPOINT_PROPERTY,
+    nextEndpoints.endPoint,
+  );
+  return patchElementAttributes(content, [
+    {
+      element: finalWrapper,
+      attributes: { style: finalStyle },
+    },
+    {
+      element: finalShape,
+      attributes: {
+        "marker-start":
+          nextEndpoints.startPoint === "none"
+            ? null
+            : `url(#${vectorEndpointMarkerId(nodeId, "start")})`,
+        "marker-end":
+          nextEndpoints.endPoint === "none"
+            ? null
+            : `url(#${vectorEndpointMarkerId(nodeId, "end")})`,
+      },
+    },
+  ]);
+}
+
 function applyStyleEdit(
   html: string,
   element: ParsedElement,
@@ -4925,6 +4974,18 @@ function applyStyleEdit(
   const normalized = normalizedSafeStyleValue(intent.property, intent.value);
   if (!normalized) return "unsupported";
   const { property, value } = normalized;
+  if (isVectorEndpointProperty(property)) {
+    const content = applyVectorEndpointEdit(html, element, property, value);
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: {
+        kind: "style",
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
   if (property === "--an-vector-stroke-position") {
     const content = applyVectorStrokePositionEdit(html, element, value, intent);
     if (content === "unsupported") return content;
@@ -4958,9 +5019,6 @@ function applyStyleEdit(
     storedValue,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
-  if (property === "marker-start" || property === "marker-end") {
-    content = ensureVectorMarkerDefinition(content, element, property, value);
-  }
   if (alignedOverlay && property === "stroke-width") {
     const current = parseHtmlElements(content)[element.index];
     if (!current) return "unsupported";
@@ -5016,11 +5074,22 @@ function applyStyleRemoveEdit(
   route: StyleEditTargetRoute,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
-  if (
-    !property ||
-    property === "--an-vector-stroke-position" ||
-    (route.kind !== "ordinary" && route.kind !== "vector-paint")
-  ) {
+  if (!property || property === "--an-vector-stroke-position") {
+    return "unsupported";
+  }
+  if (isVectorEndpointProperty(property)) {
+    const content = applyVectorEndpointEdit(html, element, property, "none");
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: {
+        kind: "style",
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
+  if (route.kind !== "ordinary" && route.kind !== "vector-paint") {
     return "unsupported";
   }
 
@@ -5051,14 +5120,6 @@ function applyStyleRemoveEdit(
   let content = nextStyle.trim()
     ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
     : removeAttributeFromHtml(html, styleElement, "style");
-  if (property === "marker-start" || property === "marker-end") {
-    content = ensureVectorMarkerDefinition(
-      content,
-      styleElement,
-      property,
-      "none",
-    );
-  }
   if (route.kind === "vector-paint") {
     content = clearVectorWrapperPaint(content, element);
   }
@@ -5925,6 +5986,11 @@ function applyBreakpointStyleEdit(
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
   if (!property) return "unsupported";
+  // Endpoint choices change SVG marker definitions and shape attributes as a
+  // unit. A media-scoped custom property cannot express that structural
+  // rewrite, so reject the write instead of persisting a value that renders
+  // without its marker DOM.
+  if (isVectorEndpointProperty(property)) return "unsupported";
   if (!Number.isFinite(intent.maxWidthPx) || intent.maxWidthPx <= 0) {
     return "unsupported";
   }

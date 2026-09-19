@@ -14,13 +14,15 @@
 
 import { parseFragment } from "parse5";
 
-import {
-  arrowMarkerDefinitionsHtml,
-  arrowMarkerUrl,
-  arrowMarkerTypesForPrimitive,
-} from "./arrow-markers";
 import type { BoardObjectEntry } from "./board-objects.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
+import {
+  vectorEndpointAttributesMarkup,
+  vectorEndpointDefsMarkup,
+  vectorEndpointPairForPrimitive,
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_START_ENDPOINT_PROPERTY,
+} from "./vector-endpoints.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -117,6 +119,8 @@ export function boardObjectEntryToHtmlFragment(
     fill,
     stroke,
     strokeWidth,
+    startPoint,
+    endPoint,
     text,
     pathData,
     points,
@@ -174,23 +178,14 @@ export function boardObjectEntryToHtmlFragment(
         .join(" ");
     const strokeColor = stroke ?? DEFAULT_LINE_STROKE;
     const sw = strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX;
-
-    const markers = arrowMarkerTypesForPrimitive(
+    const endpoints = vectorEndpointPairForPrimitive(
       kind,
-      entry.markerStart,
-      entry.markerEnd,
+      startPoint,
+      endPoint,
     );
-    const markerDefs =
-      kind === "line" || kind === "arrow"
-        ? arrowMarkerDefinitionsHtml(nodeId, strokeColor)
-        : "";
-    const markerStart = arrowMarkerUrl(nodeId, markers.start);
-    const markerEnd = arrowMarkerUrl(nodeId, markers.end);
-    const markerAttrs = `${markerStart ? ` marker-start="${escapeAttr(markerStart)}"` : ""}${markerEnd ? ` marker-end="${escapeAttr(markerEnd)}"` : ""}`;
-    const markerDataAttrs =
-      kind === "line" || kind === "arrow"
-        ? ` data-an-marker-start="${escapeAttr(markers.start)}" data-an-marker-end="${escapeAttr(markers.end)}"`
-        : "";
+    const endpointStyle = `;${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint};${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`;
+    const markerDefs = vectorEndpointDefsMarkup(nodeId, endpoints);
+    const markerAttributes = vectorEndpointAttributesMarkup(nodeId, endpoints);
 
     // Pen-authored paths (pathData present) serialize anchors in absolute
     // canvas/geometry space, not relative to the fragment's own 0,0 origin
@@ -204,7 +199,7 @@ export function boardObjectEntryToHtmlFragment(
       ? ` viewBox="${x} ${y} ${width} ${height}"`
       : "";
 
-    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr}${markerDataAttrs} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="${escapeAttr(fill ?? "none")}" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerAttrs}/></svg>`;
+    return `<svg style="${baseStyle}${endpointStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="${escapeAttr(fill ?? "none")}" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerAttributes}/></svg>`;
   }
 
   // Ellipse kind uses a <div> with border-radius.
