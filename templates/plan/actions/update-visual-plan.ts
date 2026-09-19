@@ -53,6 +53,7 @@ import {
 import {
   agentPlanIncrementalContentPatchesSchema,
   applyPlanContentPatches,
+  findBlock,
   planContentPatchesSchema,
   planContentSchema,
   type PlanBlock,
@@ -91,22 +92,6 @@ function blockExcerpt(block: PlanBlock | null) {
     summary: block.summary ?? null,
     excerpt: compactExcerpt(blockDataForExcerpt(block)),
   };
-}
-
-function findContentBlock(
-  blocks: PlanBlock[],
-  blockId: string,
-): PlanBlock | null {
-  for (const block of blocks) {
-    if (block.id === blockId) return block;
-    if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
-        const match = findContentBlock(tab.blocks, blockId);
-        if (match) return match;
-      }
-    }
-  }
-  return null;
 }
 
 function contentPatchTargetId(patch: PlanContentPatch) {
@@ -409,11 +394,11 @@ function contentPatchDetails(input: {
     const targetId = contentPatchTargetId(patch);
     const beforeBlock =
       "blockId" in patch && input.before
-        ? findContentBlock(input.before.blocks, patch.blockId)
+        ? findBlock(input.before.blocks, patch.blockId)
         : null;
     const afterBlock =
       "blockId" in patch && input.after
-        ? findContentBlock(input.after.blocks, patch.blockId)
+        ? findBlock(input.after.blocks, patch.blockId)
         : patch.op === "append-block"
           ? patch.block
           : null;
@@ -448,6 +433,55 @@ function contentPatchDetails(input: {
               : null,
     };
   });
+}
+
+function canvasSurfaceProjection(content: PlanContent) {
+  return (content.canvas?.frames ?? []).flatMap((frame) => {
+    const referencedBlock = frame.blockId
+      ? findBlock(content.blocks, frame.blockId)
+      : null;
+    const wireframe =
+      frame.wireframe ??
+      (referencedBlock?.type === "wireframe" ? referencedBlock.data : null);
+    const legacyWireframe =
+      frame.legacyWireframe ??
+      (referencedBlock?.type === "legacy-wireframe"
+        ? referencedBlock.data
+        : null);
+    if (!wireframe && !legacyWireframe) return [];
+    return {
+      label: frame.label ?? referencedBlock?.title ?? null,
+      surface:
+        frame.surface ??
+        wireframe?.surface ??
+        (legacyWireframe?.viewport === "phone" ? "mobile" : undefined) ??
+        "desktop",
+      wireframe,
+      legacyWireframe,
+    };
+  });
+}
+
+function surfaceParityWarnings(
+  before: PlanContent | null,
+  after: PlanContent | null,
+) {
+  const beforeProjection = before ? canvasSurfaceProjection(before) : [];
+  const afterProjection = after ? canvasSurfaceProjection(after) : [];
+  if (beforeProjection.length === 0 && afterProjection.length === 0) {
+    return [];
+  }
+  const prototypeChanged =
+    JSON.stringify(before?.prototype) !== JSON.stringify(after?.prototype);
+  if (
+    !prototypeChanged ||
+    JSON.stringify(beforeProjection) !== JSON.stringify(afterProjection)
+  ) {
+    return [];
+  }
+  return [
+    "This update changes the prototype while leaving the visible canvas unchanged. Patch the matching canvas frame(s) too, or pass allowSurfaceMismatch: true only for an intentional single-surface edit.",
+  ];
 }
 
 const CONTENT_DESCRIPTION =
@@ -511,6 +545,13 @@ const updateVisualPlanSchema = z.object({
     .default(false)
     .describe(
       "Explicit confirmation for a full content replacement or replace-blocks call that removes existing block IDs, collapses a nonempty canvas to zero frames, or collapses a nonempty prototype to zero screens. Keep false for normal rewrites. Set true only after reviewing the latest plan and intentionally accepting those losses; expectedUpdatedAt is still required.",
+    ),
+  allowSurfaceMismatch: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Explicit confirmation for an intentional single-surface prototype edit when a visible canvas also exists. Keep false for normal UI revisions so stale canvas content is rejected before writing.",
     ),
   html: z
     .string()
@@ -581,7 +622,7 @@ export default defineAction({
     isConsequential: true,
     title: "Update Visual Plan",
     description:
-      "Patch structured plan content, add visual sections, record comments, or mark feedback consumed.",
+      "Patch structured plan content, add visual sections, record comments, or mark feedback consumed. When canvas and prototype coexist, patch both visible surfaces; mismatches are rejected before writing unless allowSurfaceMismatch is explicitly true.",
   },
   mcpApp: {
     compactCatalog: true,
@@ -682,6 +723,7 @@ export default defineAction({
       args.content !== undefined || hasReplaceBlocksPatch;
     let nextContent =
       args.content !== undefined ? normalizePlanContent(args.content) : null;
+    let surfaceWarnings: string[] = [];
     let versionAtLoad: string | null = null;
     let bundleAtLoad: Awaited<ReturnType<typeof loadPlanBundle>> | null = null;
 
@@ -734,6 +776,9 @@ export default defineAction({
         args.contentPatches,
       );
     }
+    const normalizedContentAtLoad = bundleAtLoad?.plan.content
+      ? planContentSchema.parse(bundleAtLoad.plan.content)
+      : null;
     if (
       isDestructiveStructuredWrite &&
       !args.allowDestructive &&
@@ -749,6 +794,12 @@ export default defineAction({
           `Destructive structured replacement would ${warnings.join(" and ")}. Reload and review the latest plan, then pass allowDestructive: true with its expectedUpdatedAt only if those losses are intentional.`,
         );
       }
+    }
+    surfaceWarnings = nextContent
+      ? surfaceParityWarnings(normalizedContentAtLoad, nextContent)
+      : [];
+    if (surfaceWarnings.length > 0 && !args.allowSurfaceMismatch) {
+      throw new Error(surfaceWarnings.join(" "));
     }
     const sourceBundleForMarkdown =
       nextContent && args.markdown === undefined
@@ -780,6 +831,14 @@ export default defineAction({
     );
     const nextTitle = args.title ?? metadataPatch?.title;
     const nextBrief = args.brief ?? metadataPatch?.brief;
+    const contentChanged =
+      nextContent !== null &&
+      JSON.stringify(nextContent) !== JSON.stringify(normalizedContentAtLoad);
+    const contentPatchChanged =
+      args.contentPatches.length > 0 &&
+      (contentChanged ||
+        (nextTitle !== undefined && nextTitle !== bundleAtLoad?.plan.title) ||
+        (nextBrief !== undefined && nextBrief !== bundleAtLoad?.plan.brief));
     const planPatch = {
       ...(nextTitle !== undefined ? { title: nextTitle } : {}),
       ...(nextBrief !== undefined ? { brief: nextBrief } : {}),
@@ -933,10 +992,15 @@ export default defineAction({
       args.status !== undefined ||
       args.currentFocus !== undefined ||
       args.html !== undefined ||
-      args.content !== undefined ||
-      args.contentPatches.length > 0 ||
+      (args.content !== undefined && contentChanged) ||
+      contentPatchChanged ||
       args.markdown !== undefined ||
       args.sections.length > 0;
+    const hasPersistedPlanChanges =
+      hasPlanAuthoringChanges ||
+      pendingCommentInserts.length > 0 ||
+      existingCommentUpdates.length > 0 ||
+      args.consumedCommentIds.length > 0;
     const diffCount =
       args.contentPatches.length +
       args.sections.length +
@@ -1129,18 +1193,20 @@ export default defineAction({
           );
       }
 
-      await tx.insert(schema.planEvents).values({
-        id: newId("evt"),
-        planId: args.planId,
-        type: "plan.updated",
-        message:
-          !onlyReviewerCommentWork && args.note
-            ? args.note
-            : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
-        payload: JSON.stringify(reviewEventPayload),
-        createdBy: onlyReviewerCommentWork ? "human" : "agent",
-        createdAt: now,
-      });
+      if (hasPersistedPlanChanges) {
+        await tx.insert(schema.planEvents).values({
+          id: newId("evt"),
+          planId: args.planId,
+          type: "plan.updated",
+          message:
+            !onlyReviewerCommentWork && args.note
+              ? args.note
+              : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
+          payload: JSON.stringify(reviewEventPayload),
+          createdBy: onlyReviewerCommentWork ? "human" : "agent",
+          createdAt: now,
+        });
+      }
     });
 
     // Make an agent content edit visible on the plan-presence doc: light the AI
@@ -1227,16 +1293,18 @@ export default defineAction({
       });
     }
     const local = isLocalPlanRuntime()
-      ? await writePlanLocalFiles({
-          planId: bundle.plan.id,
-          title: bundle.plan.title,
-          brief: bundle.plan.brief,
-          content: bundle.plan.content,
-          url: planPath(bundle.plan.id, bundle.plan.kind),
-          referencedBlockIds: referencedBlockIdsForPlanComments(
-            bundle.comments,
-          ),
-        })
+      ? hasPersistedPlanChanges
+        ? await writePlanLocalFiles({
+            planId: bundle.plan.id,
+            title: bundle.plan.title,
+            brief: bundle.plan.brief,
+            content: bundle.plan.content,
+            url: planPath(bundle.plan.id, bundle.plan.kind),
+            referencedBlockIds: referencedBlockIdsForPlanComments(
+              bundle.comments,
+            ),
+          })
+        : null
       : null;
     if (isAgentCaller) {
       return {
@@ -1246,6 +1314,7 @@ export default defineAction({
           statusChanged: args.status !== undefined,
           contentPatchOps: args.contentPatches.map((patch) => patch.op),
           commentCount: insertedCommentIds.length,
+          ...(surfaceWarnings.length > 0 ? { warnings: surfaceWarnings } : {}),
         }),
         ...(local?.written ? { localFiles: local } : {}),
       };
