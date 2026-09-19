@@ -95,7 +95,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
-    "tsx": "^4.20.3",
+    "tsx": "^4.23.13",
     "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vaul": "^1.1.2",
