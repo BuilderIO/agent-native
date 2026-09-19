@@ -412,7 +412,8 @@ export function buildStandaloneHtml(
     }
 
     .viewport:hover .bottom-bar,
-    .bottom-bar:hover {
+    .bottom-bar:hover,
+    .bottom-bar:focus-within {
       opacity: 1;
     }
 
