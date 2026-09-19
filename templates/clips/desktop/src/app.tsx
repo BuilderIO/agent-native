@@ -148,10 +148,7 @@ import {
   type RestartHandoff,
 } from "./lib/recorder";
 import { notifyRecordingFailure } from "./lib/recording-failure-notifications";
-import {
-  clearResolvedFinalizationError,
-  RECORDING_FINALIZATION_IN_PROGRESS_MESSAGE,
-} from "./lib/recording-finalization-state";
+import { clearResolvedFinalizationError } from "./lib/recording-finalization-state";
 import {
   copyRecordingShareLink,
   recordingShareUrl,
