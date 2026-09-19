@@ -295,6 +295,16 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
         }),
       ]),
     );
+    await expect
+      .poll(async () => source(request, designId, fileId), {
+        timeout: 15_000,
+        intervals: [250, 500, 1_000],
+      })
+      .toMatch(
+        /--an-vector-start-point:\s*reversed-triangle[\s\S]*--an-vector-end-point:\s*reversed-triangle/,
+      );
+    const persistedReversed = await source(request, designId, fileId);
+    expect(persistedReversed).toMatch(/refX=["']0["']/);
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect
