@@ -1,0 +1,404 @@
+---
+title: "Plan प्लगइन और मार्केटप्लेस"
+description: "Agent-Native Plan कौशल (/visual-plan, /visual-recap, /visualize-repo) और होस्टेड Plan MCP कनेक्टर को Claude Code या Codex प्लगइन के रूप में, या यूनिवर्सल CLI के साथ इंस्टॉल करें। अपडेट कैसे काम करते हैं और क्या आपको कुछ सबमिट करने की ज़रूरत है।"
+---
+
+# Plan प्लगइन और मार्केटप्लेस
+
+Agent-Native **Plan** ऐप एक इंस्टॉल करने योग्य बंडल के रूप में आता है। एक ही
+इंस्टॉल Plan स्लैश-कमांड कौशल जोड़ता है **और** होस्टेड Plan MCP कनेक्टर (एक
+रिमोट टूल सर्वर जिससे आपका एजेंट बात करता है) को वायर करता है, ताकि एजेंट
+योजनाएं जेनरेट कर सके और उन्हें एक ही चरण में सीधे Plan ऐप में प्रकाशित कर
+सके। यह पेज उन सभी के लिए है जो कोई इंस्टॉल रूट चुन रहे हैं, किसी इंस्टॉल को
+ट्रबलशूट कर रहे हैं, या यह तय कर रहे हैं कि Plan को किसी क्यूरेटेड प्लगइन
+कैटलॉग में सबमिट करें या नहीं — कौशल वास्तव में क्या करते हैं, इसके लिए
+[विज़ुअल Plans](/docs/template-plan) देखें।
+
+## आपको क्या मिलता है {#what-you-get}
+
+एक इंस्टॉल आपको देता है:
+
+- **तीन कौशल** — `/visual-plan` (कैनॉनिकल एंट्री पॉइंट), `/visual-recap`, और
+  `/visualize-repo`।
+- **Plan MCP कनेक्टर** — `https://plan.agent-native.com` पर होस्टेड ऐप के
+  विरुद्ध रजिस्टर्ड (MCP एंडपॉइंट `https://plan.agent-native.com/mcp`, सर्वर
+  नाम `plan`)।
+
+<Diagram id="doc-block-i1sn3n" title="तीन रूट, एक बंडल" summary="यूनिवर्सल CLI, Claude Code प्लगइन, और Codex प्लगइन — तीनों वही Plan कौशल और होस्टेड Plan कनेक्टर इंस्टॉल करते हैं।">
+
+```html
+<div class="diagram-routes">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      यूनिवर्सल CLI<br /><small class="diagram-muted"
+        >skills add visual-plan</small
+      >
+    </div>
+    <div class="diagram-node">
+      Claude Code प्लगइन<br /><small class="diagram-muted"
+        >/plugin install</small
+      >
+    </div>
+    <div class="diagram-node">
+      Codex प्लगइन<br /><small class="diagram-muted">codex plugin add</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">/visual-plan</span
+    ><span class="diagram-pill accent">/visual-recap</span
+    ><span class="diagram-pill accent">/visualize-repo</span
+    ><small class="diagram-muted">तीन कौशल</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Plan MCP कनेक्टर<br /><small class="diagram-muted"
+      >plan.agent-native.com/mcp</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-routes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-routes .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-routes .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-routes .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-routes .center .diagram-pill {
+  margin: 2px;
+}
+```
+
+</Diagram>
+
+डिफ़ॉल्ट रूप से, `/visual-plan` और `/visual-recap` होस्टेड Plan ऐप में
+प्रकाशित करते हैं — वे MCP कनेक्टर के ज़रिए एक योजना बनाते हैं और समीक्षा के
+लिए आपको एक लिंक या इनलाइन योजना सौंपते हैं। वे कभी भी डिलिवरेबल के रूप में
+किसी इनलाइन Markdown/ASCII योजना को चैट में डंप नहीं करते। अगर कोई Plan टूल
+`needs auth`, `Unauthorized`, या `Session terminated` लौटाता है, तो इनलाइन
+आउटपुट पर वापस जाने के बजाय कनेक्टर को फिर से प्रमाणित करें। एक्सेस टोकन लंबे
+समय तक चलने वाले होते हैं (डिफ़ॉल्ट 30 दिन, स्लाइडिंग 365-दिन रीफ़्रेश), इसलिए
+यह शायद ही कभी होना चाहिए; जब यह होता है, तो हल्का-फुल्का फिक्स यह है:
+
+```bash
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
+```
+
+`reconnect` चुने गए लोकल क्लाइंट के लिए URL से कनेक्टर को ढूंढता और रीफ़्रेश
+करता है — दोबारा इंस्टॉल करने की ज़रूरत नहीं। रीकनेक्ट करने के बाद एक नया
+Codex थ्रेड शुरू करें ताकि टूल रजिस्ट्री रीलोड हो जाए। Claude Code में, इसके
+बराबर `/mcp` → **Authenticate / Reconnect** है, या `--client claude-code` के
+साथ वही कमांड।
+
+इसका अपवाद स्पष्ट **लोकल-फ़ाइलें प्राइवेसी मोड** है। जब आप कोई DB राइट न होने
+के लिए कहते हैं या `AGENT_NATIVE_PLANS_MODE=local-files` सेट करते हैं, तो
+कौशल को Plan MCP कनेक्टर को कॉल नहीं करना चाहिए। वे `plans/<slug>/plan.mdx`
+प्लस वैकल्पिक `canvas.mdx`, `prototype.mdx`, और `.plan-state.json` लिखते हैं,
+फिर इसके साथ लोकल रूप से प्रीव्यू करते हैं:
+
+```bash
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+यह एक छोटा-सा लोकलहोस्ट ब्रिज शुरू करता है और लोकल फ़ोल्डर के विरुद्ध Plan UI
+खोलता है। (`plan local preview` इसके बजाय एक लोकल Plan dev-server रूट चलाता
+है, और `plan local preview --out preview.html` एक लीगेसी एस्केप हैच है जो एक
+स्टैंडअलोन स्टैटिक HTML फ़ाइल लिखता है। `plan serve` को `plan local serve` के
+छोटे उपनाम के रूप में स्वीकार किया जाता है।)
+
+कुछ लोकल-फ़ाइलें-मोड गॉचा जानने लायक हैं:
+
+- **Chromium ब्राउज़र का उपयोग करें।** Safari होस्टेड HTTPS Plan पेज को
+  `http://127.0.0.1` लोकलहोस्ट ब्रिज पढ़ने से रोकता है (मिक्स्ड-कंटेंट /
+  प्राइवेट नेटवर्क), इसलिए पेज "Loading plan." पर अटका रह जाता है। macOS पर
+  `--open` पहले से ही Chrome/Chromium/Edge/Brave को प्राथमिकता देता है; अगर
+  Safari फिर भी खुल जाए, तो प्रिंट किए गए URL को किसी Chromium ब्राउज़र में
+  फिर से खोलें।
+- **सर्व किया गया URL `plans/<slug>/.plan-url` में लिखा जाता है** (`--url-file`
+  से ओवरराइड करें)। कोई बैकग्राउंडेड या हेडलेस एजेंट लंबे समय तक चलने वाले
+  `serve` stdout को स्क्रैप करने के बजाय इस फ़ाइल को पढ़ सकता है। इसे एक लोकल
+  टोकन फ़ाइल मानें और इसे कमिट न करें।
+- जब कोई ब्राउज़र उपलब्ध न हो तो **हेडलेसली वेरिफ़ाई करें**:
+  `npx @agent-native/core@latest plan local verify --dir plans/<slug>` ब्रिज
+  शुरू करता है, प्राइवेट-नेटवर्क प्रीफ़्लाइट और JSON पेलोड की जांच करता है,
+  डायग्नोस्टिक्स प्रिंट करता है, और फ़ेल होने पर नॉन-ज़ीरो के साथ एग्ज़िट करता
+  है — किसी मानव आँख की ज़रूरत नहीं।
+- **पहले `plan local check` चलाएं।** यह MDX को Plan रेंडरर के ब्लॉक स्कीमा के
+  विरुद्ध वैलिडेट करता है (जिसमें `checklist` आइटम `id`/`label` और
+  `question-form` प्रश्न `id`/`title`/`mode` जैसी ज़रूरी फ़ील्ड शामिल हैं),
+  जिससे राइटिंग की गलतियां किसी अटके हुए लोडर के बजाय ब्राउज़र हैंडऑफ़ से
+  पहले सामने आ जाती हैं।
+
+वर्तमान रेपो में मौजूद फ़ोल्डरों के लिए, डायरेक्ट लोकल रूट में `?path=...`
+शामिल होता है ताकि लोकल Plan ऐप ब्राउज़र एडिट को रेपो फ़ोल्डर में सेव करना
+जारी रख सके। Plan ऐप प्रोमोटेड लोकल योजनाओं को सेव करने की डिफ़ॉल्ट जगह के
+रूप में `agent-native.json` में `apps.plan.roots[0].path` का उपयोग करता है,
+और न मिलने पर `plans/` पर वापस चला जाता है।
+
+यह योजना की सामग्री को Agent-Native Plan डेटाबेस से बाहर रखता है। जब तक आप
+बाद में इसे स्पष्ट रूप से प्रकाशित नहीं करते, तब तक होस्टेड शेयरिंग,
+टिप्पणियां, स्क्रीनशॉट, और योजना का इतिहास उपलब्ध नहीं होते।
+
+<Diagram id="doc-block-zctmzc" title="होस्टेड बनाम लोकल-फ़ाइलें मोड" summary={"डिफ़ॉल्ट रूप से कौशल कनेक्टर के ज़रिए प्रकाशित करते हैं; लोकल-फ़ाइलें मोड इसके बजाय MDX को डिस्क पर लिखता है और लोकलहोस्ट ब्रिज के ज़रिए प्रीव्यू करता है।"}>
+
+```html
+<div class="diagram-modes">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">डिफ़ॉल्ट · होस्टेड</span
+    ><strong>Plan ऐप में प्रकाशित करें</strong
+    ><small class="diagram-muted"
+      >MCP कनेक्टर &rarr; होस्टेड DB &rarr; शेयर लिंक, टिप्पणियां, इतिहास,
+      स्क्रीनशॉट</small
+    >
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">लोकल-फ़ाइलें प्राइवेसी</span
+    ><strong>MDX को डिस्क पर लिखें</strong
+    ><small class="diagram-muted"
+      >plan.mdx + canvas.mdx + prototype.mdx &rarr; लोकलहोस्ट ब्रिज &rarr;
+      होस्टेड Plan UI लोकल सोर्स पढ़ता है। <code>publish-visual-plan</code> तक
+      कोई DB राइट नहीं होता।</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-modes {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-modes .diagram-card {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+}
+```
+
+</Diagram>
+
+Agent-Native Desktop में होस्टेड योजनाओं के लिए एक अलग लोकल-फ़ाइल सिंक पाथ है:
+Desktop ऐप किसी होस्टेड योजना को लोकल MDX फ़ाइलों में मिरर कर सकता है और Plan
+ऐप को क्लोन किए या CLI चलाए बिना एडिट को वापस इम्पोर्ट कर सकता है। वह
+वर्कफ़्लो होस्टेड Plan डेटाबेस को सत्य के स्रोत के रूप में बनाए रखता है; जब
+लक्ष्य कोई Plan DB राइट न होना हो, तो लोकल-फ़ाइलें प्राइवेसी मोड का उपयोग
+करें।
+
+> प्लगइन (`agent-native-visual-plans`) में ऐप id `visual-plans` है, यही वजह
+> है कि Claude Code प्लगइन का नाम और Codex प्लगइन का नाम दोनों
+> `agent-native-visual-plans` हैं। Plan ऐप का डिस्प्ले नाम "Agent-Native Plan"
+> है।
+
+## इंस्टॉल रूट्स {#install}
+
+इसमें जाने के तीन तरीके हैं। **यूनिवर्सल CLI रूट** वह है जिसे हम डिफ़ॉल्ट
+रूप से सुझाते हैं, क्योंकि यह कौशल इंस्टॉल करता है **और** आपको एक ही फ़्लो
+में होस्टेड, लोकल-फ़ाइलें, या सेल्फ-होस्टेड मोड चुनने देता है। प्लगइन रूट उन
+होस्ट के लिए हैं जिनके पास फ़र्स्ट-क्लास प्लगइन/मार्केटप्लेस सिस्टम है और
+डिफ़ॉल्ट रूप से होस्टेड Plans का उपयोग करते हैं।
+
+### यूनिवर्सल कौशल रूट (कोई भी MCP होस्ट) {#universal}
+
+किसी भी होस्ट के लिए काम करता है — Claude Code, Codex, Cursor, Cline, Goose,
+ChatGPT कस्टम MCP ऐप्स, Claude Cowork, और कोई भी अन्य MCP-कम्पैटिबल चीज़।
+Agent-Native CLI Plan कौशल इंस्टॉल करता है, होस्टेड Plan MCP कनेक्टर रजिस्टर
+करता है, **और उसी चरण में चुने गए लोकल क्लाइंट(स) के लिए auth चलाता है**,
+ताकि आपकी पहली टूल कॉल किसी OAuth दीवार से न टकराए:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+यह `visual-plan` के साथ इसके साथी कौशल `visual-recap` और `visualize-repo`
+इंस्टॉल करता है, फिर `plan` कनेक्टर रजिस्टर करता है, फिर auth चलाता है
+(होस्टेड/अकाउंट-समर्थित शेयरिंग के लिए OAuth प्रॉम्प्ट)। उपयोगी फ़्लैग:
+
+- `--client codex|claude-code|claude-code-cli|cowork|all` — किन लोकल एजेंट के
+  लिए MCP कॉन्फ़िग लिखनी है (डिफ़ॉल्ट `all`)।
+- `--no-connect` — प्रमाणीकरण के बिना कनेक्टर रजिस्टर करें; बाद में
+  `npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+  चलाएं, या एक ज़्यादा सीमित `--client` चुनें।
+- `--mode hosted|local-files|self-hosted` — होस्टेड शेयरिंग, ऑल-लोकल MDX
+  फ़ाइलें, या अपना खुद का Plan ऐप चुनें।
+- `--mcp-url <url>` — होस्टेड डिफ़ॉल्ट के बजाय कनेक्टर को किसी कस्टम ओरिजिन
+  (एक ngrok टनल, एक लोकल dev सर्वर, या एक सेल्फ-होस्टेड डिप्लॉयमेंट) पर
+  पॉइंट करें।
+- `--with-github-action` — PR विज़ुअल रीकैप GitHub Action भी लिखें
+  ([PR विज़ुअल रीकैप](/docs/pr-visual-recap) देखें)।
+
+जब कोई वर्कफ़्लो मौजूद न हो, तो इंटरैक्टिव इंस्टॉल भी PR विज़ुअल रीकैप
+Action का ऑफ़र देते हैं। कौशल सेटअप के दौरान इसे जोड़ने के लिए हां कहें, या
+बाद में ऊपर दिया गया कमांड `--with-github-action` के साथ चलाएं। वर्कफ़्लो
+लिखे जाने के बाद, चलाएं:
+
+```bash
+npx @agent-native/core@latest recap setup
+npx @agent-native/core@latest recap doctor
+```
+
+`recap setup` जहां संभव हो GitHub Action सीक्रेट और वेरिएबल कॉन्फ़िगर करता
+है, और `recap doctor` वर्कफ़्लो, लोकल पब्लिश टोकन, GitHub रेपो एक्सेस, और
+ज़रूरी Actions कॉन्फ़िगरेशन को वेरिफ़ाई करता है। इंस्टॉल पूरा होने के बाद,
+एजेंट क्लाइंट को रीस्टार्ट या रीलोड करें ताकि नए कौशल और टूल लोड हों, फिर
+`/visual-plan` चलाएं।
+
+> नोट: सिर्फ़ `npx skills@latest add BuilderIO/agent-native --skill visual-plan`
+> (Vercel/ओपन Skills CLI) चलाने से **सिर्फ़ इंस्ट्रक्शन्स** इंस्टॉल होते हैं —
+> यह MCP कनेक्टर रजिस्टर नहीं करता। जब आप कनेक्टर को भी वायर करना चाहें, तो
+> ऊपर दिए गए Agent-Native CLI का उपयोग करें।
+
+### Claude Code (प्लगइन) {#claude-code}
+
+पब्लिक `BuilderIO/agent-native` रेपो खुद एक Claude Code प्लगइन मार्केटप्लेस
+है, इसलिए आप इसे सीधे जोड़ते हैं — कोई बिल्ड स्टेप नहीं। Claude Code के भीतर:
+
+```text
+/plugin marketplace add BuilderIO/agent-native
+/plugin install agent-native-visual-plans@agent-native-apps
+/reload-plugins
+/mcp        # authenticate the Plan connector (one OAuth approval)
+```
+
+`/plugin install` Plan कौशल और एक **URL-only** MCP कॉन्फ़िग जोड़ता है
+(पैकेज में कोई सीक्रेट नहीं); `/mcp` → **Authenticate** OAuth हैंडशेक पूरा
+करता है। जब आपको लोकल-फ़ाइलें या सेल्फ-होस्टेड मोड चाहिए, तो इसके बजाय
+यूनिवर्सल CLI रूट का उपयोग करें।
+
+> मार्केटप्लेस कैटलॉग का नाम `agent-native-apps` है और Plan प्लगइन
+> `agent-native-visual-plans` है, इसलिए इंस्टॉल टारगेट हमेशा
+> `agent-native-visual-plans@agent-native-apps` होता है।
+
+### Codex (प्लगइन) {#codex}
+
+वही रेपो एक Codex प्लगइन मार्केटप्लेस है। इसे जोड़ें, प्लगइन इंस्टॉल करें,
+फिर कनेक्टर को प्रमाणित करें:
+
+```bash
+codex plugin marketplace add BuilderIO/agent-native
+codex plugin add agent-native-visual-plans@agent-native-apps
+codex mcp login plan   # OAuth in the browser
+```
+
+इंस्टॉल के बाद, **एक नया Codex थ्रेड शुरू करें** ताकि कौशल और MCP टूल सेशन में
+लोड हों। प्लगइन एक URL-only कनेक्टर शिप करता है (`[mcp_servers.plan]` →
+`https://plan.agent-native.com/mcp`); `codex mcp login plan` OAuth फ़्लो
+चलाता है। ऊपर दिया गया यूनिवर्सल CLI रूट Codex के लिए भी काम करता है
+(`npx @agent-native/core@latest skills add visual-plan --client codex`) अगर
+आप एक ऐसा कमांड पसंद करते हैं जो इंस्टॉल और ऑथेंटिकेट दोनों साथ में करे, या
+जब आपको लोकल-फ़ाइलें या सेल्फ-होस्टेड मोड चाहिए।
+
+<Callout tone="info">
+
+**पुराने इंस्टॉल:** अगर आपके कॉन्फ़िग में अभी भी वही URL पॉइंट करने वाली एक
+`agent-native-plans` एंट्री है, तो Codex के लिए
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+चलाना, या अपने टारगेट `--client` के साथ वही कमांड चलाना, इसे कैनॉनिकल `plan`
+नाम में समेकित कर देता है।
+
+</Callout>
+
+## अपडेट {#updates}
+
+प्लगइन रूट ऑटो-अपडेट होते हैं — रूटीन कौशल परिवर्तनों के लिए आपको
+मार्केटप्लेस को फिर से पैक या फिर से जोड़ने की ज़रूरत नहीं पड़ती:
+
+- **Claude Code** — मार्केटप्लेस एंट्री `autoUpdate: true` सेट करती है और
+  प्लगइन कमिट-SHA वर्ज़निंग का उपयोग करता है, इसलिए Claude Code स्टार्टअप पर
+  रेपो से नए वर्ज़न खींचता है; एक्टिवेट करने के लिए `/reload-plugins` चलाएं।
+  रेपो की डिफ़ॉल्ट ब्रांच पर हर पुश ऑटोमैटिकली इंस्टॉल किए गए यूज़र्स तक
+  पहुंचता है।
+- **Codex** — प्लगइन `version` में बंडल किए गए कौशल और MCP एंडपॉइंट का एक
+  कंटेंट हैश एम्बेड होता है (जैसे `1.0.0+codex.<hash>`), इसलिए कोई भी कौशल
+  या एंडपॉइंट परिवर्तन एक नया वर्ज़न बनाता है। Codex का स्टार्टअप ऑटो-अपग्रेड
+  कॉन्फ़िगर किए गए git मार्केटप्लेस को अपने-आप फिर से इंस्टॉल करता है; बदलाव
+  पाने के लिए सिर्फ़ **एक नया थ्रेड शुरू करें**। रूटीन अपडेट के लिए किसी
+  मैनुअल `codex plugin marketplace upgrade` की ज़रूरत नहीं।
+- **यूनिवर्सल CLI रूट** — कॉपी किए गए कौशल फ़ोल्डरों की जांच करने के लिए
+  `npx @agent-native/core@latest skills status visual-plan` चलाएं, या उन्हें
+  अपडेट करने के लिए `npx @agent-native/core@latest skills update visual-plan`
+  चलाएं। जब आप कनेक्टर को फिर से रजिस्टर/प्रमाणित भी करना चाहें, तो
+  `skills add visual-plan` को फिर से चलाना भी काम करता है। `@latest` हमेशा
+  पब्लिश्ड `@agent-native/core` पैकेज से मौजूदा कौशल खींचता है।
+
+कनेक्टर एक **होस्टेड** ऐप पर पॉइंट करता है, इसलिए Plan ऐप के actions और लाइव
+टूल सतह हमेशा डिप्लॉय किए गए वर्ज़न को दिखाते हैं चाहे आपने इसे कभी भी इंस्टॉल
+किया हो; सिर्फ़ बंडल किए गए कौशल के इंस्ट्रक्शन्स ऊपर बताए गए अपडेट
+मैकेनिज़्म को फ़ॉलो करते हैं।
+
+<Callout tone="info">
+
+**मेंटेनर्स:** मार्केटप्लेस बंडल (`.claude-plugin/`, `.agents/plugins/`)
+कैनॉनिकल plan कौशल से `pnpm sync:plan-marketplace` द्वारा जेनरेट होता है और
+CI में `pnpm guard:plan-marketplace` द्वारा वेरिफ़ाई होता है, इसलिए पब्लिश्ड
+मार्केटप्लेस हमेशा कैनॉनिकल कौशल से मैच करता है। कौशल एडिट करें,
+`pnpm sync:plan-marketplace` चलाएं, और कमिट करें।
+
+</Callout>
+
+## क्या आपको कुछ भी सबमिट करने की ज़रूरत है? {#submission}
+
+**इसे डिस्ट्रिब्यूट या इंस्टॉल करने के लिए किसी सबमिशन या रिव्यू की ज़रूरत
+नहीं है।** `BuilderIO/agent-native` एक सेल्फ-होस्टेड, पब्लिक git मार्केटप्लेस
+है, इसलिए यूज़र्स इसे ऊपर दिए गए कमांड के साथ सीधे **Claude Code और Codex
+दोनों** पर जोड़ते हैं — कोई एप्लिकेशन या अप्रूवल नहीं। यूनिवर्सल CLI रूट को
+किसी मार्केटप्लेस की ज़रूरत ही नहीं है।
+
+वैकल्पिक डिस्कवरेबिलिटी, अगर आप एक पब्लिक लिस्टिंग चाहते हैं:
+
+- **Claude Code** के पास एक कम्युनिटी मार्केटप्लेस है जिसमें आप लिस्टिंग के
+  लिए _वैकल्पिक रूप से_ सबमिट कर सकते हैं (सबमिशन प्लस एक ऑटोमेटेड रिव्यू)।
+  आधिकारिक, Anthropic-क्यूरेटेड मार्केटप्लेस Anthropic के विवेक पर लिस्ट
+  होता है — इसके लिए कोई ओपन सेल्फ-सर्व एप्लिकेशन नहीं है। ऊपर दिए गए इंस्टॉल
+  कमांड का उपयोग करने के लिए इनमें से किसी की भी ज़रूरत नहीं है।
+- **Codex** के पास एक OpenAI-क्यूरेटेड प्लगइन कैटलॉग है (एक क्लोज़्ड
+  allow-list, जो सेल्फ-सर्व सबमिशन के बजाय पार्टनरशिप के तौर पर सोर्स होता
+  है)। सेल्फ-होस्टेड git मार्केटप्लेस और CLI रूट को काम करने के लिए किसी
+  सबमिशन की ज़रूरत नहीं।
+
+संक्षेप में: इसे एक सेल्फ-होस्टेड/पब्लिक git मार्केटप्लेस के रूप में शिप करें
+और यूज़र्स सीधे इंस्टॉल करते हैं; किसी क्यूरेटेड कैटलॉग में सिर्फ़ तभी सबमिट
+करें जब आप इसे डिस्कवरी के लिए लिस्ट कराना चाहें।
+
+## प्लगइन बनाम कौशल {#plugin-vs-skill}
+
+एक **कौशल** एक सिंगल `SKILL.md` इंस्ट्रक्शन फ़ाइल है जिसे एजेंट किसी टास्क से
+मैच होने पर पढ़ता है। एक **प्लगइन** (Claude Code मार्केटप्लेस प्लगइन या Codex
+प्लगइन) एक पैकेज है जो एक या ज़्यादा कौशल **प्लस** एक MCP कनेक्टर और मेटाडेटा
+को बंडल करता है, ताकि कोई होस्ट सब कुछ एक ही चरण में इंस्टॉल कर सके।
+
+पर्दे के पीछे, सभी तीन रूट `npx @agent-native/core@latest app-skill` CLI
+द्वारा एक ही सोर्स से बनाए जाते हैं: `app-skill pack` मार्केटप्लेस/प्लगइन
+एडेप्टर बनाता है, और `skills add` वह फ्रेंडली वन-स्टेप इंस्टॉलर है जो MCP
+कनेक्टर को रजिस्टर और प्रमाणित भी करता है। app-skill मेनिफ़ेस्ट फ़ॉर्मैट के
+लिए [Skills Guide](/docs/skills-guide) देखें, और किसी भी MCP होस्ट को जोड़ने
+व `npx @agent-native/core@latest connect` फ़्लो के लिए
+[External Agents](/docs/external-agents) देखें।
+
+## आगे क्या है {#whats-next}
+
+- [**विज़ुअल Plans**](/docs/template-plan) — कौशल क्या करते हैं और उनका उपयोग कैसे करें
+- [**PR विज़ुअल रीकैप**](/docs/pr-visual-recap) — हर पुल रिक्वेस्ट पर ऑटोमैटिकली `/visual-recap` चलाएं
+- [**Skills Guide**](/docs/skills-guide) — ऐप-समर्थित कौशल और मेनिफ़ेस्ट फ़ॉर्मैट
+- [**External Agents**](/docs/external-agents) — किसी भी MCP होस्ट को जोड़ें और आर्टिफ़ैक्ट्स को राउंड-ट्रिप करें
+  </content>

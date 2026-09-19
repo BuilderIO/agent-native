@@ -1,0 +1,15 @@
+export {
+  formatScrubValue,
+  getScrubStepFromEvent,
+  normalizeScrubNumber,
+  parseScrubExpression,
+  roundScrubDragValue,
+  scrubSnapsToInteger,
+  SCRUB_DRAG_THRESHOLD_PX,
+  startScrubDrag,
+  updateScrubDrag,
+  type ParsedScrubExpression,
+  type ScrubDragState,
+  type ScrubDragTick,
+  type ScrubExpressionOptions,
+} from "@agent-native/toolkit/design-tweaks";

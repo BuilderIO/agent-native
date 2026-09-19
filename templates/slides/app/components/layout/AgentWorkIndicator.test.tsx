@@ -1,0 +1,215 @@
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { CHAT_STOP_DEBOUNCE_MS } from "@/hooks/use-agent-generating";
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  focusAgentChat: vi.fn(),
+  SIDEBAR_STATE_CHANGE_EVENT: "agent-panel:state-change",
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) =>
+    (
+      ({
+        "raw.agentWorking": "Agent is working",
+        "raw.openChat": "Open chat",
+      }) as Record<string, string>
+    )[key] ?? key,
+}));
+
+import {
+  AgentWorkIndicator,
+  isAgentSidebarVisible,
+} from "./AgentWorkIndicator";
+
+function setVisibleRect(element: HTMLElement) {
+  element.getBoundingClientRect = () =>
+    ({
+      width: 360,
+      height: 640,
+      top: 0,
+      left: 0,
+      right: 360,
+      bottom: 640,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+}
+
+function dispatchRunning(
+  isRunning: boolean,
+  reason?: string,
+  tabId = "slides-chat",
+) {
+  act(() => {
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: { isRunning, tabId, ...(reason ? { reason } : {}) },
+      }),
+    );
+  });
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  cleanup();
+  document.body.innerHTML = "";
+  vi.clearAllMocks();
+});
+
+describe("AgentWorkIndicator", () => {
+  it("detects a visible agent sidebar panel", () => {
+    expect(isAgentSidebarVisible()).toBe(false);
+
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.style.display = "flex";
+    setVisibleRect(panel);
+    document.body.append(panel);
+
+    expect(isAgentSidebarVisible()).toBe(true);
+
+    panel.setAttribute("aria-hidden", "true");
+    expect(isAgentSidebarVisible()).toBe(false);
+  });
+
+  it("shows while the agent is working when the sidebar is hidden", () => {
+    render(<AgentWorkIndicator />);
+
+    dispatchRunning(true);
+
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+  });
+
+  it("hides when the agent sidebar becomes visible", async () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.style.display = "flex";
+    setVisibleRect(panel);
+    document.body.append(panel);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Agent is working")).toBeNull();
+    });
+  });
+
+  it("uses the authoritative sidebar state while the panel is mounting", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:state-change", {
+          detail: { open: true, source: "app", mode: "app" },
+        }),
+      );
+    });
+
+    expect(screen.queryByText("Agent is working")).toBeNull();
+  });
+
+  it("hides when the portal wrapper becomes inaccessible", async () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+
+    const wrapper = document.createElement("div");
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.style.display = "flex";
+    setVisibleRect(panel);
+    wrapper.append(panel);
+    document.body.append(wrapper);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Agent is working")).toBeNull();
+    });
+
+    wrapper.setAttribute("aria-hidden", "true");
+    await waitFor(() => {
+      expect(screen.getByText("Agent is working")).toBeTruthy();
+    });
+  });
+
+  it("keeps Open chat behavior when the banner is shown", () => {
+    const modeListener = vi.fn();
+    window.addEventListener("agent-panel:set-mode", modeListener);
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /open chat/i }));
+
+    expect(modeListener).toHaveBeenCalledTimes(1);
+    expect(modeListener.mock.calls[0][0]).toMatchObject({
+      detail: { mode: "chat" },
+    });
+    expect(focusAgentChat).toHaveBeenCalledTimes(1);
+    window.removeEventListener("agent-panel:set-mode", modeListener);
+  });
+
+  it("hides immediately when the user explicitly stops the run", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    dispatchRunning(false, "stopped");
+
+    expect(screen.queryByText("Agent is working")).toBeNull();
+  });
+
+  it("does not let another chat stop the active indicator", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true, undefined, "slides-chat");
+    dispatchRunning(true, undefined, "other-chat");
+
+    dispatchRunning(false, "stopped", "other-chat");
+
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+  });
+
+  it("ignores an unscoped stop while a scoped chat is active", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true, undefined, "slides-chat");
+    dispatchRunning(false, "stopped", "");
+
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+  });
+  it("stays visible across brief continuation gaps", () => {
+    vi.useFakeTimers();
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    dispatchRunning(false);
+
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS - 1);
+    });
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    dispatchRunning(true);
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
+    });
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    dispatchRunning(false);
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
+    });
+    expect(screen.queryByText("Agent is working")).toBeNull();
+  });
+});

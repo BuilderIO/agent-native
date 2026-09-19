@@ -1,0 +1,103 @@
+---
+title: "Design en un espacio de trabajo con varias apps"
+description: "Cómo se conecta Design con Dispatch, y cómo agentes externos como Claude Code y Claude Desktop pueden crear y editar diseños directamente a través de MCP."
+---
+
+# Design en un espacio de trabajo con varias apps
+
+Design es una app entre muchas en un espacio de trabajo de
+[Dispatch](/docs/template-dispatch), y también se puede acceder a él
+directamente desde agentes que viven completamente fuera de ese espacio de
+trabajo. Esta página cubre ambos casos: cómo funciona la conexión con
+Dispatch, y cómo un agente externo puede llamar a las propias acciones de
+Design a través de MCP. Consulta [Design](/docs/template-design) para ver la
+visión general.
+
+## Cómo se conecta Design con Dispatch
+
+Que esto sea automático depende de cómo se configuraron juntos Design y
+Dispatch, no de si alguno de los dos está alojado o ejecutándose localmente.
+
+### Mismo espacio de trabajo: automático
+
+Si Design y Dispatch se generaron o se añadieron juntos en un mismo espacio
+de trabajo de Agent-Native (mediante `create` o `add-app`) y se
+desplegaron como una sola unidad, ya comparten un `.env`, un `A2A_SECRET` y
+un registro de espacio de trabajo. Tanto el descubrimiento como las
+llamadas A2A autenticadas simplemente funcionan, sin nada que configurar, ya
+sea que ese espacio de trabajo se ejecute en tu máquina o en producción.
+
+### Despliegues separados: un paso manual
+
+Si Design y Dispatch son dos proyectos de Agent-Native creados de forma
+independiente, no comparten un secreto y todavía no pueden llamarse entre
+sí. Conectarlos requiere un paso manual en cada lado: añade un recurso
+`remote-agents/<id>.json` con un secreto compartido, desde Configuración →
+Agentes conectados, la pestaña Conexiones de la página del Agent, o Dispatch
+→ Agentes → Añadir agente externo. Consulta [Protocolo A2A](/docs/a2a-protocol)
+para ver el recorrido completo.
+
+Para comprobar en qué situación estás, pregúntale al agente de cualquiera de
+las dos apps "¿qué apps puedes ver?" Si Design falta en la respuesta de
+Dispatch, estás en el segundo caso.
+
+## Llamar a Design desde fuera del espacio de trabajo
+
+Design también funciona como un servidor MCP alojado al que otros agentes
+pueden conectarse directamente, formen parte o no de tu espacio de trabajo
+de Dispatch. Claude, Claude Code, Claude Desktop, Codex y otros hosts
+compatibles con MCP pueden conectarse todos a:
+
+```
+https://design.agent-native.com/mcp
+```
+
+Claude y Claude Desktop añaden esto como un conector personalizado e inician
+sesión para aprobar el acceso. Claude Code añade la misma URL y luego
+ejecuta `/mcp` para autenticarse. Codex y otros clientes CLI o stdio en
+cambio ejecutan `npx @agent-native/core@latest connect
+https://design.agent-native.com`, lo que abre una pestaña del navegador para
+autorizar y genera un token por usuario, revocable, sin ningún secreto
+compartido implicado.
+
+Una vez conectado, el agente externo obtiene el mismo flujo de trabajo
+principal cubierto en [Hablar con el Agent](/docs/template-design-agent):
+crear un diseño, generar algunas direcciones para comparar, extraer el
+estado actual de una pantalla, hacer una edición acotada y exportar un
+paquete de transferencia de código cuando llegue el momento de convertir el
+resultado en código real. El agente muestra una vista previa en línea o un
+enlace de "Abrir diseño" que regresa al editor real, en lugar de pegar HTML
+sin procesar en la conversación.
+
+<Callout tone="info">
+
+Si una llamada a una herramienta de Design en tu agente externo empieza a
+devolver un error de sesión o autenticación, no sigas reintentándola.
+Ejecuta `/mcp` en Claude Code y vuelve a conectar, o ejecuta `npx -y
+@agent-native/core@latest reconnect https://design.agent-native.com` desde
+cualquier terminal. Ambos vuelven a autenticarse sin reinstalar nada.
+
+</Callout>
+
+## Delegar en Design a través de Dispatch
+
+Una app hermana no necesita una integración especial para trabajar con
+Design. Puede pasarle al agente de Design una solicitud en lenguaje sencillo,
+como "hazme una página de destino para esta nueva función," de la misma
+forma en que lo harías en el chat, y Design responde o actúa directamente
+sobre ella.
+
+Design nunca necesita conocer las credenciales de la app que hace la
+solicitud, ni al revés, para nada de esto. Solo tiene que responder a una
+solicitud real. No necesita saber quién pregunta, ni por qué.
+
+## Qué sigue
+
+- [**Design**](/docs/template-design) — la visión general y los pasos para empezar
+- [**Funciones**](/docs/template-design-features) — Diseños, Editar un diseño, Plantillas y Sistemas de diseño
+- [**Hablar con el Agent**](/docs/template-design-agent) — peticiones por tarea y cómo ve el agente tu pantalla
+- [**Guía para desarrolladores**](/docs/template-design-developers) — inicio rápido, acciones, el modelo de datos y las rutas
+- [**Dispatch**](/docs/template-dispatch) — el plano de control del espacio de trabajo bajo el que se ejecutan estos patrones
+- [**Protocolo A2A**](/docs/a2a-protocol) — cómo las apps se descubren, se autentican y se llaman entre sí
+- [**Agentes externos**](/docs/external-agents) — conectar Claude Code, Claude Desktop y otros hosts MCP a una app nativa del agente
+- [**Espacio de trabajo con varias apps**](/docs/multi-app-workspace) — el patrón general de componer apps propias en lugar de anidarlas

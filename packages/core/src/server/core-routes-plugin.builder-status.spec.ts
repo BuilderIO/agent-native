@@ -1,0 +1,140 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS,
+  BUILDER_STATUS_ROUTE_SUFFIXES,
+  getBuilderConnectErrorDisposition,
+  getBuilderConnectErrorKey,
+  mountBuilderStatusRouteAliases,
+  resolveOAuthCustodyBuilderKeyStatus,
+} from "./core-routes-plugin.js";
+
+describe("Builder status route aliases", () => {
+  it("shares Content's intentional legacy private-key aliases", () => {
+    expect(BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS).toEqual([
+      "BUILDER_PRIVATE_KEY",
+      "BUILDER_CMS_PRIVATE_KEY",
+    ]);
+  });
+
+  it("retains the legacy path and mounts the neutral connection-status alias", () => {
+    expect(BUILDER_STATUS_ROUTE_SUFFIXES).toEqual([
+      "/builder/status",
+      "/connection-status/builder",
+    ]);
+  });
+
+  it("mounts both aliases with the exact same handler", () => {
+    const handler = () => ({ configured: false });
+    const mounted: Array<{ path: string; handler: typeof handler }> = [];
+
+    mountBuilderStatusRouteAliases(
+      (path, mountedHandler) => {
+        mounted.push({ path, handler: mountedHandler });
+      },
+      "/_agent-native",
+      handler,
+    );
+
+    expect(mounted.map(({ path }) => path)).toEqual([
+      "/_agent-native/builder/status",
+      "/_agent-native/connection-status/builder",
+    ]);
+    expect(mounted[0]?.handler).toBe(handler);
+    expect(mounted[1]?.handler).toBe(handler);
+  });
+});
+
+describe("Builder connect error correlation", () => {
+  it("surfaces only a matching attempt-bound error", () => {
+    expect(
+      getBuilderConnectErrorDisposition(
+        { message: "denied", attemptId: "attempt-1" },
+        "attempt-1",
+      ),
+    ).toBe("correlated");
+    expect(
+      getBuilderConnectErrorDisposition(
+        { message: "denied", attemptId: "attempt-1" },
+        "attempt-2",
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps one-shot consumption for legacy errors without an attempt", () => {
+    expect(getBuilderConnectErrorDisposition({ message: "denied" }, null)).toBe(
+      "legacy",
+    );
+  });
+
+  it("keeps concurrent attempt errors isolated when writes complete out of order", () => {
+    const rows = new Map<string, { message: string; attemptId: string }>();
+    const write = (attemptId: string, message: string) => {
+      rows.set(getBuilderConnectErrorKey("user@example.com", attemptId), {
+        message,
+        attemptId,
+      });
+    };
+
+    write("attempt-2", "second");
+    write("attempt-1", "first");
+
+    expect(
+      rows.get(getBuilderConnectErrorKey("user@example.com", "attempt-1")),
+    ).toEqual({
+      message: "first",
+      attemptId: "attempt-1",
+    });
+    expect(
+      rows.get(getBuilderConnectErrorKey("user@example.com", "attempt-2")),
+    ).toEqual({
+      message: "second",
+      attemptId: "attempt-2",
+    });
+    expect(getBuilderConnectErrorKey("user@example.com")).toBe(
+      "builder-connect-error:user@example.com",
+    );
+  });
+});
+
+describe("resolveOAuthCustodyBuilderKeyStatus", () => {
+  it("reports confirmed-absent keys distinctly from a failed key lookup", async () => {
+    const confirmedAbsent = await resolveOAuthCustodyBuilderKeyStatus({
+      resolveCredentialsDetailed: async () => ({
+        privateKey: null,
+        publicKey: null,
+        orgName: null,
+        lookupFailed: false,
+      }),
+    });
+    expect(confirmedAbsent.privateKeyConfigured).toBe(false);
+    expect(confirmedAbsent.publicKeyConfigured).toBe(false);
+    expect(confirmedAbsent).toMatchObject({ keyLookupFailed: false });
+
+    // The store can also fail "softly" — resolving with lookupFailed: true
+    // rather than throwing (e.g. an org-membership lookup error swallowed
+    // inside resolveScopedBuilderCredentials). No `try/catch` around the
+    // call would ever see this one; it has to come through on the field.
+    const softFailure = await resolveOAuthCustodyBuilderKeyStatus({
+      resolveCredentialsDetailed: async () => ({
+        privateKey: null,
+        publicKey: null,
+        orgName: null,
+        lookupFailed: true,
+      }),
+    });
+    expect(softFailure).toMatchObject({ keyLookupFailed: true });
+
+    const thrown = await resolveOAuthCustodyBuilderKeyStatus({
+      resolveCredentialsDetailed: async () => {
+        throw new Error("credential store unavailable");
+      },
+    });
+    // A transient failure to read the key pair must not read the same as
+    // "the user never configured Builder keys" — the two states need a
+    // caller-visible flag, not just an identical pair of `false`s.
+    expect(thrown.privateKeyConfigured).toBe(false);
+    expect(thrown.publicKeyConfigured).toBe(false);
+    expect(thrown).toMatchObject({ keyLookupFailed: true });
+  });
+});

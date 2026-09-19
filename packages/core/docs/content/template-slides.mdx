@@ -1,0 +1,91 @@
+---
+title: "Slides"
+description: "An open-source deck editor that replaces Google Slides, Pitch, and PowerPoint. Generate a deck from a prompt, edit it visually, and present full-screen, with import/export, design systems, and real-time collaboration built in."
+---
+
+# Slides
+
+Slides is an agent-powered deck editor. Ask the agent for a deck and it generates one from a prompt, streaming slides into the editor as it builds them, then edits, restyles, or exports the deck whenever you ask, in plain English or with a click. It replaces Google Slides, Pitch, and PowerPoint with one app, so generating, editing, presenting, and exporting a deck are never separate tools you have to switch between.
+
+<Cards columns={1}>
+
+### [Try it out now →](https://slides.agent-native.com)
+
+See Slides live and generate a real deck.
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9815f38535264c09985a25a2accd3ea3?alt=media&token=9d3a37f9-fd8a-43bd-852a-760b304ec488&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A brief tour of the slides application."
+  caption="A brief tour of the slides application."
+  autoplay={true}
+  loop={true}
+/>
+
+## What it replaces
+
+<Comparison>
+
+### Before
+
+- Google Slides, Pitch, or PowerPoint for building the deck itself
+- A per-seat subscription just to keep editing and presenting
+- Copy-pasting your brand colors, fonts, and logo onto every new deck by hand
+- Manually converting files to share a deck with people using a different tool
+
+### After
+
+- One editor: generate from a prompt, edit visually, and present, all in the same deck
+- Own the whole stack end to end, with no subscription
+- A saved design system applies your brand automatically to every new deck
+- Import PPTX, DOCX, PDF, or Google Docs, and export back to PPTX, Google Slides, or HTML anytime
+
+</Comparison>
+
+## Slides in a multi-app workspace
+
+If you're running Slides alongside other apps under [Dispatch](/docs/template-dispatch), a deck stops being just a page you open by hand. The agent can submit a deck to a Library other apps can reuse, or answer a plain-English request from a sibling app the same way it answers you in chat. See [Slides in a Multi-App Workspace](/docs/template-slides-integrations) for how the connection actually works and the real mechanisms behind it.
+
+## What you can do with it
+
+- **Generate decks from a prompt.** "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors." See [Features](/docs/template-slides-features).
+- **Edit slides visually.** Double-click text to edit, click a block for the bubble menu, use `/` for the slash menu to insert blocks. See [Features](/docs/template-slides-features).
+- **Present full-screen**, comment, collaborate in real time, and share a deck with specific teammates or publicly. See [Features](/docs/template-slides-features).
+- **Bring in existing content.** Import a PPTX, DOCX, PDF, or Google Doc as a starting point. Export to PPTX, Google Slides, or a standalone HTML file. See [Features](/docs/template-slides-features).
+- **Apply a design system built from your brand.** Save colors, type, and logos once and reuse them on every new deck. Set one up from a Figma file, a connected codebase, or a website. See [Features](/docs/template-slides-features).
+- **Restore earlier versions.** Every change is snapshotted. List or restore any prior version. See [Features](/docs/template-slides-features).
+
+## Getting started
+
+When you open the app:
+
+1. Click **New deck**.
+2. Ask the agent: "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
+3. Watch slides stream in. Click any slide to edit, or keep asking the agent to refine. Select text and click **Revise with AI** in the bubble menu to hand the agent that exact selection.
+
+### Useful prompts
+
+- "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
+- "Add a pricing slide after slide 3."
+- "Make the title on this slide bigger and change the accent color to green."
+- "Summarize this PDF as a 6-slide deck." (attach the PDF)
+
+To scaffold your own copy of Slides:
+
+```bash
+npx --yes @agent-native/core@latest create my-slides --standalone --template slides
+```
+
+See [Getting started](/docs/getting-started) for the rest of the setup (`cd`, `pnpm install`, `pnpm dev`) and the framework fundamentals.
+
+## What's next
+
+- [**Features**](/docs/template-slides-features) — prompts, visual editing, presenting, comments, sharing, version history, design systems, and import/export
+- [**Talk to the Agent**](/docs/template-slides-agent) — what the agent sees and prompts by task
+- [**Slides in a Multi-App Workspace**](/docs/template-slides-integrations) — integration strategies and connecting to Dispatch
+- [**Developer Guide**](/docs/template-slides-developers) — data model, action inventory, routes, and how to extend the template
+- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model, and every other domain template to start from
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — the Yjs pipeline decks share with other collaborative surfaces
+- [**Sharing**](/docs/sharing) — the share-grant model decks and design systems build on

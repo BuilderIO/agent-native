@@ -1,0 +1,15 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm use 24
+        - corepack enable
+        - pnpm install
+    build:
+      commands:
+        - NITRO_PRESET=aws_amplify pnpm build
+  artifacts:
+    baseDirectory: .amplify-hosting
+    files:
+      - "**/*"
