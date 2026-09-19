@@ -288,6 +288,85 @@ describe("grid track controls reorder complete tracks", () => {
     }
   });
 
+  it("includes hidden grid items and preserves auto-placed children", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(
+        gridDocument("row")
+          .replace(
+            "grid-row:2;grid-column:1;background:#bbf7d0",
+            "grid-row:2;grid-column:1;visibility:hidden;background:#bbf7d0",
+          )
+          .replace(
+            "grid-row:2;grid-column:2;background:#fde68a",
+            "grid-column:2;background:#fde68a",
+          ),
+      );
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        (window as any).__gridTrackBatches = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-style-batch-change") {
+            (window as any).__gridTrackBatches.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="grid"]',
+          },
+          "*",
+        );
+      });
+      const handle = page.locator(
+        '[data-agent-native-grid-track="row"][data-grid-track-index="0"]',
+      );
+      await handle.waitFor();
+      const gridBox = await page
+        .locator('[data-agent-native-node-id="grid"]')
+        .boundingBox();
+      const handleBox = await handle.boundingBox();
+      expect(gridBox).not.toBeNull();
+      expect(handleBox).not.toBeNull();
+      await page.mouse.move(
+        handleBox!.x + handleBox!.width / 2,
+        handleBox!.y + 30,
+      );
+      await page.mouse.down();
+      await page.mouse.move(gridBox!.x + gridBox!.width / 2, gridBox!.y + 160, {
+        steps: 8,
+      });
+      await page.mouse.up();
+      await page.waitForFunction(
+        () => (window as any).__gridTrackBatches.length === 1,
+      );
+
+      const batch = await page.evaluate(
+        () => (window as any).__gridTrackBatches[0],
+      );
+      const changes = new Map<string, Record<string, string>>(
+        batch.changes.map(
+          (change: { selector: string; styles: Record<string, string> }) =>
+            [change.selector, change.styles] as const,
+        ),
+      );
+      expect(changes.get('[data-agent-native-node-id="first"]')?.gridRow).toBe(
+        "1 / 2",
+      );
+      expect(changes.has('[data-agent-native-node-id="second"]')).toBe(false);
+      expect(
+        await page
+          .locator('[data-agent-native-node-id="second"]')
+          .evaluate((element) => (element as HTMLElement).style.gridRow),
+      ).toBe("");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("preserves named track placements instead of rewriting them numerically", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

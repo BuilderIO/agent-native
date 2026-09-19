@@ -5656,6 +5656,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         return rect.width > 0 && rect.height > 0;
       });
     }
+    function gridTrackParticipants(el) {
+      if (!el || !el.children) return [];
+      return Array.prototype.slice.call(el.children).filter(function(child) {
+        if (!child || child.nodeType !== 1 || isOverlayElement(child) || isLayerInteractionBlocked(child))
+          return false;
+        var cs = window.getComputedStyle(child);
+        return cs.display !== "none" && cs.position !== "fixed" && cs.position !== "absolute";
+      });
+    }
     function spacingColor(kind) {
       return kind === "gap" ? "#ff4fd8" : "var(--design-editor-accent-color)";
     }
@@ -6746,10 +6755,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       drag.originalStyles.forEach(function(item) {
         if (item.property !== property) return;
         var authoredRange = authoredGridTrackRange(item.value);
-        if (item.value.trim() && !authoredRange) {
+        if (!item.value.trim() || !authoredRange) {
           return;
         }
-        var range = authoredRange || item.range;
+        var range = authoredRange;
         var mapped = [];
         for (var original = range.start; original < range.end; original += 1) {
           if (originalToNext[original] !== void 0) {
@@ -6905,7 +6914,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       event.stopPropagation();
       if (event.stopImmediatePropagation) event.stopImmediatePropagation();
       var property = axis === "row" ? "gridRow" : "gridColumn";
-      var children = visibleLayoutChildren(selectedEl);
+      var children = gridTrackParticipants(selectedEl);
       var cssProperty = gridTrackCssProperty(property);
       if (children.some(function(child) {
         return child.style.getPropertyPriority(cssProperty) === "important";

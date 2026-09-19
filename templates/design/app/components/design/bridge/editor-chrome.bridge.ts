@@ -7414,6 +7414,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
   }
 
+  function gridTrackParticipants(el: Element | null): Element[] {
+    if (!el || !el.children) return [];
+    return Array.prototype.slice.call(el.children).filter(function (child) {
+      if (
+        !child ||
+        child.nodeType !== 1 ||
+        isOverlayElement(child) ||
+        isLayerInteractionBlocked(child)
+      )
+        return false;
+      var cs = window.getComputedStyle(child);
+      return (
+        cs.display !== "none" &&
+        cs.position !== "fixed" &&
+        cs.position !== "absolute"
+      );
+    });
+  }
+
   function spacingColor(kind: string): string {
     return kind === "gap" ? "#ff4fd8" : "var(--design-editor-accent-color)";
   }
@@ -9017,11 +9036,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     drag.originalStyles.forEach(function (item) {
       if (item.property !== property) return;
       var authoredRange = authoredGridTrackRange(item.value);
-      if (item.value.trim() && !authoredRange) {
-        // ponytail: preserve named/span placements until line remapping exists.
+      if (!item.value.trim() || !authoredRange) {
+        // ponytail: preserve authored placement semantics until remapping exists.
         return;
       }
-      var range = authoredRange || item.range;
+      var range = authoredRange;
       var mapped: number[] = [];
       for (var original = range.start; original < range.end; original += 1) {
         if (originalToNext[original] !== undefined) {
@@ -9214,7 +9233,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     event.stopPropagation();
     if (event.stopImmediatePropagation) event.stopImmediatePropagation();
     var property = axis === "row" ? "gridRow" : "gridColumn";
-    var children = visibleLayoutChildren(selectedEl);
+    var children = gridTrackParticipants(selectedEl);
     var cssProperty = gridTrackCssProperty(property);
     if (
       children.some(function (child) {

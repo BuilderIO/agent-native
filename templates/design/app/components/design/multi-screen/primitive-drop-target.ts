@@ -312,6 +312,7 @@ function parseAuthoredLength(value: string | undefined, reference: number) {
   ) {
     return null;
   }
+  if (/^[+-]?0(?:\.0+)?$/.test(normalized)) return 0;
   const px = normalized.match(/^(-?\d+(?:\.\d+)?)px$/);
   if (px?.[1]) return Number(px[1]);
   const percent = normalized.match(/^(-?\d+(?:\.\d+)?)%$/);
@@ -345,17 +346,16 @@ function flexBasis(element: Element, reference: number) {
   if (tokens.length === 1) {
     return parseAuthoredLength(tokens[0], reference) ?? 0;
   }
-  const lengthToken = tokens.find((token, index) => {
-    return parseAuthoredLength(token, reference) !== null;
-  });
-  if (lengthToken) return parseAuthoredLength(lengthToken, reference);
+  if (tokens.length >= 3) {
+    return parseAuthoredLength(tokens[2], reference);
+  }
   if (
     tokens.length === 2 &&
     tokens.every((token) => /^-?\d+(?:\.\d+)?$/.test(token))
   ) {
     return 0;
   }
-  return null;
+  return parseAuthoredLength(tokens[1], reference);
 }
 
 function flexGrow(element: Element) {

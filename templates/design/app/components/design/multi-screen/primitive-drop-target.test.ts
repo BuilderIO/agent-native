@@ -123,6 +123,24 @@ describe("primitive drop target authored layout fallback", () => {
     ).toMatchObject({ localLeft: 90, localWidth: 210 });
   });
 
+  it("keeps unitless zero sizes collapsed in the overview fallback", () => {
+    const screen = {
+      id: "zero-size-screen",
+      filename: "zero-size-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex">
+          <div data-agent-native-node-id="collapsed" data-an-primitive="frame" style="width:0;height:-0;flex:1 1 auto">
+            <div style="width:80px;height:20px"></div>
+          </div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).map((primitive) => primitive.nodeId),
+    ).toEqual(["parent"]);
+  });
+
   it("uses the row flex gap for both positioning and Fill allocation", () => {
     const screen = {
       id: "axis-gap-screen",
