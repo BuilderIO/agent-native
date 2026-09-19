@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
   createRegistration: vi.fn(),
+  locationPathname: "/visual-edit/design-1",
+  clearProxy: vi.fn(),
+  installProxy: vi.fn(),
+  readPersistedTransport: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -20,6 +24,17 @@ vi.mock("@agent-native/core/client/host", () => ({
 
 vi.mock("@agent-native/core/client/webmcp", () => ({
   createAgentNativeWebMcpRegistration: mocks.createRegistration,
+}));
+
+vi.mock("react-router", () => ({
+  useLocation: () => ({ pathname: mocks.locationPathname }),
+}));
+
+vi.mock("./localhost-bridge-proxy.js", () => ({
+  clearLocalhostBridgeFetchProxy: mocks.clearProxy,
+  installLocalhostBridgeFetchProxy: mocks.installProxy,
+  persistLocalhostBridgeTransport: vi.fn(),
+  readPersistedLocalhostBridgeTransport: mocks.readPersistedTransport,
 }));
 
 vi.mock("@/components/ui/alert-dialog", () => {
@@ -56,6 +71,10 @@ describe("OpenVisualEditWebMcp", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.callAction.mockReset();
+    mocks.locationPathname = "/visual-edit/design-1";
+    mocks.clearProxy.mockReset();
+    mocks.installProxy.mockReset();
+    mocks.readPersistedTransport.mockReset();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -95,6 +114,28 @@ describe("OpenVisualEditWebMcp", () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
 
+    expect(mocks.createRegistration).toHaveBeenCalledTimes(2);
+    expect(registrations[0].stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a stale relay when same-tab navigation changes the design", async () => {
+    mocks.readPersistedTransport.mockReturnValue({
+      designId: "design-1",
+      connectionId: "connection-1",
+      bridgeUrl: "http://127.0.0.1:7331",
+      bridgeToken: "bridge-token",
+    });
+
+    act(() => root.render(<OpenVisualEditWebMcp />));
+    expect(mocks.readPersistedTransport).toHaveBeenCalled();
+    expect(mocks.installProxy).toHaveBeenCalledTimes(1);
+    expect(mocks.createRegistration).toHaveBeenCalledTimes(1);
+
+    mocks.locationPathname = "/visual-edit/design-2";
+    act(() => root.render(<OpenVisualEditWebMcp />));
+
+    expect(mocks.clearProxy).toHaveBeenCalled();
+    expect(mocks.installProxy).toHaveBeenCalledTimes(1);
     expect(mocks.createRegistration).toHaveBeenCalledTimes(2);
     expect(registrations[0].stop).toHaveBeenCalledTimes(1);
   });

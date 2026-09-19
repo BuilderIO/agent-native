@@ -172,7 +172,7 @@ describe("localhost bridge browser relay", () => {
     });
   });
 
-  it.each(["read-file", "list-files", "write-file"] as const)(
+  it.each(["read-file", "list-files", "write-file", "apply-edit"] as const)(
     "rejects a successful %s response without its required payload",
     async (operation) => {
       const fetchImpl = vi.fn(
@@ -182,7 +182,7 @@ describe("localhost bridge browser relay", () => {
             return Response.json(
               relay(operation, {
                 ...(operation === "read-file" ? { path: "src/App.tsx" } : {}),
-                ...(operation === "write-file"
+                ...(operation === "write-file" || operation === "apply-edit"
                   ? { relPath: "src/App.tsx" }
                   : {}),
               }),
@@ -201,14 +201,20 @@ describe("localhost bridge browser relay", () => {
             ? `${pageOrigin}/_agent-native/actions/list-local-files?designId=design_1&connectionId=conn_1`
             : `${pageOrigin}/_agent-native/actions/write-local-file`;
       const response = await proxy(request, {
-        method: operation === "write-file" ? "POST" : "GET",
-        ...(operation === "write-file"
+        method:
+          operation === "write-file" || operation === "apply-edit"
+            ? "POST"
+            : "GET",
+        ...(operation === "write-file" || operation === "apply-edit"
           ? {
               body: JSON.stringify({
                 designId: "design_1",
                 connectionId: "conn_1",
                 relPath: "src/App.tsx",
                 content: "new",
+                ...(operation === "apply-edit"
+                  ? { patch: { search: "old", replace: "new" } }
+                  : {}),
               }),
             }
           : {}),

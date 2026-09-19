@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useLocation } from "react-router";
 
 import {
   AlertDialog,
@@ -134,9 +135,15 @@ export function normalizeBrowserBridgeUrl(value: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
-function isCurrentVisualEditDesign(designId: string): boolean {
-  if (typeof window === "undefined") return false;
-  const match = /\/visual-edit\/([^/]+)(?:\/|$)/.exec(window.location.pathname);
+function isCurrentVisualEditDesign(
+  designId: string,
+  pathname?: string,
+): boolean {
+  const currentPathname =
+    pathname ??
+    (typeof window === "undefined" ? undefined : window.location.pathname);
+  if (!currentPathname) return false;
+  const match = /\/visual-edit\/([^/]+)(?:\/|$)/.exec(currentPathname);
   if (!match) return false;
   return match[1] === encodeURIComponent(designId);
 }
@@ -505,6 +512,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
  */
 export function OpenVisualEditWebMcp() {
   const { session, isLoading: sessionLoading } = useSession();
+  const location = useLocation();
   const isAuthenticated = Boolean(session?.email);
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(null);
@@ -551,12 +559,15 @@ export function OpenVisualEditWebMcp() {
       return;
     }
     const persisted = readPersistedLocalhostBridgeTransport();
-    if (persisted && isCurrentVisualEditDesign(persisted.designId)) {
+    if (
+      persisted &&
+      isCurrentVisualEditDesign(persisted.designId, location.pathname)
+    ) {
       installLocalhostBridgeFetchProxy(persisted);
     } else {
       clearLocalhostBridgeFetchProxy();
     }
-  }, [isAuthenticated, sessionLoading]);
+  }, [isAuthenticated, location.pathname, sessionLoading]);
 
   useEffect(() => {
     let disposed = false;
@@ -612,7 +623,13 @@ export function OpenVisualEditWebMcp() {
       registration?.stop();
       resolveApproval(false);
     };
-  }, [isAuthenticated, requestApproval, resolveApproval, sessionLoading]);
+  }, [
+    isAuthenticated,
+    location.pathname,
+    requestApproval,
+    resolveApproval,
+    sessionLoading,
+  ]);
 
   const approval = pendingApproval
     ? (pendingApproval.request.action.approval ??
