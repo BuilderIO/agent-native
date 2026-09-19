@@ -209,6 +209,45 @@ describe("resolveMarkdownSuggestionRange", () => {
     ).toEqual({ from: 0, to: 5 });
   });
 
+  it.each([
+    [
+      "# Heading\n\nFirst paragraph.\n\n- List item\n- Other item",
+      "First paragraph",
+      "# Heading\nFirst paragraph.\n- List item\n- Other item",
+    ],
+    [
+      "## Heading\r\n\r\nSentence with CRLF.\r\n\r\nLast.",
+      "Sentence with CRLF",
+      "## Heading\nSentence with CRLF.\nLast.",
+    ],
+  ])(
+    "maps a target through independent surrounding canonicalization: %s",
+    (saved, target, canonical) => {
+      const from = saved.indexOf(target);
+      const expectedFrom = canonical.indexOf(target);
+      expect(
+        resolveMarkdownSuggestionRange(
+          canonical,
+          change(saved, from, from + target.length, "Replacement"),
+        ),
+      ).toEqual({
+        from: expectedFrom,
+        to: expectedFrom + target.length,
+      });
+    },
+  );
+
+  it("does not treat canonicalization as permission to attach changed text", () => {
+    const saved = "# Heading\n\nFirst paragraph.\n\n- List item";
+    const from = saved.indexOf("First paragraph");
+    expect(
+      resolveMarkdownSuggestionRange(
+        "# Heading\nDifferent paragraph.\n- List item",
+        change(saved, from, from + "First paragraph".length, "Replacement"),
+      ),
+    ).toBeNull();
+  });
+
   it("does not highlight an overlapping canonical replacement", () => {
     expect(
       resolveMarkdownSuggestionRange(
