@@ -15238,20 +15238,39 @@ function DesignEditor() {
           contentHistorySelectionAfterRef,
           designSourceType,
           fileSaveOperationRevisionRef,
-          getCurrentSelectionFingerprint: () =>
-            JSON.stringify({
+          getCurrentSelectionFingerprint: () => {
+            const movedSourceId = arg0.sourceNodeId;
+            const selectedElement = selectedElementRef.current;
+            // Removing the source can legitimately clear its pre-drop
+            // selection before the two saves settle.
+            const selectedMovedSource =
+              movedSourceId !== undefined &&
+              selectedElement?.sourceId === movedSourceId;
+            const selectedLayerIds =
+              selectedLayerIdsStateRef.current.filter((layerId) => {
+                const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+                if (owner) {
+                  return (
+                    bridgeSourceIdForCodeLayerNode(owner.node) !== movedSourceId
+                  );
+                }
+                return !selectedMovedSource;
+              });
+            return JSON.stringify({
               activeFileId: activeFileIdRef.current,
-              selectedLayerIds: selectedLayerIdsStateRef.current,
+              selectedLayerIds,
               overviewSelectedScreenIds: overviewSelectedScreenIdsRef.current,
-              selectedElement: selectedElementRef.current
-                ? {
-                    id: selectedElementRef.current.id ?? null,
-                    selector: selectedElementRef.current.selector ?? null,
-                    sourceId: selectedElementRef.current.sourceId ?? null,
-                  }
-                : null,
+              selectedElement:
+                selectedElement && !selectedMovedSource
+                  ? {
+                      id: selectedElement.id ?? null,
+                      selector: selectedElement.selector ?? null,
+                      sourceId: selectedElement.sourceId ?? null,
+                    }
+                  : null,
               viewMode: viewModeRef.current,
-            }),
+            });
+          },
           getScreenContent,
           id,
           overviewScreens,
