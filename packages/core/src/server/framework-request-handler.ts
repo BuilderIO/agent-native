@@ -73,6 +73,14 @@ export const FRAMEWORK_AUTH_EARLY_PATHS = [
   "/signup",
 ] as const;
 
+/** Auth API paths that read framework-owned tables during signup/signin. */
+export const FRAMEWORK_AUTH_BOOTSTRAP_PATHS = [
+  `${FRAMEWORK_PREFIX}/auth/register`,
+  `${FRAMEWORK_PREFIX}/auth/login`,
+  `${FRAMEWORK_PREFIX}/auth/sign-up/email`,
+  `${FRAMEWORK_PREFIX}/auth/sign-in/email`,
+] as const;
+
 interface PluginReadyEntry {
   promise: Promise<void>;
   paths?: string[];
