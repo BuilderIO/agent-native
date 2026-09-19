@@ -495,9 +495,9 @@ export default (nitroApp: any): Promise<void> => {
   // this app's schema is ready, otherwise a fresh Postgres database can serve
   // the first signup while design migrations are still creating its tables.
   const initPromise = (async () => {
-    // guard:allow-boot-data-work — auth registration requires the Design schema.
+    // guard:allow-boot-data-work — pre-existing schema init is tracked because auth registration requires the Design schema.
     await runDesignMigrations(nitroApp);
-    // guard:allow-boot-data-work — auth registration requires indexes ready.
+    // guard:allow-boot-data-work — pre-existing index init is tracked because auth registration requires indexes ready.
     await ensureDesignFilesUniqueIndex();
     try {
       const summary = await ensureAdditiveColumns({
