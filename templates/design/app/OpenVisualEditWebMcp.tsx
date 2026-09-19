@@ -4,7 +4,13 @@ import {
   createAgentNativeWebMcpRegistration,
   type AgentNativeWebMcpApprovalRequest,
 } from "@agent-native/core/client/webmcp";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   AlertDialog,
@@ -16,6 +22,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+import {
+  clearLocalhostBridgeFetchProxy,
+  installLocalhostBridgeFetchProxy,
+  persistLocalhostBridgeTransport,
+  readPersistedLocalhostBridgeTransport,
+} from "./localhost-bridge-proxy.js";
 
 /**
  * Safe browser-visible subset of the `open-visual-edit` action result.
@@ -119,6 +132,13 @@ export function normalizeBrowserBridgeUrl(value: string): string {
   }
   parsed.pathname = "";
   return parsed.toString().replace(/\/$/, "");
+}
+
+function isCurrentVisualEditDesign(designId: string): boolean {
+  if (typeof window === "undefined") return false;
+  const match = /\/visual-edit\/([^/]+)(?:\/|$)/.exec(window.location.pathname);
+  if (!match) return false;
+  return match[1] === encodeURIComponent(designId);
 }
 
 async function derivePreviewToken(bridgeToken: string): Promise<string> {
@@ -225,6 +245,16 @@ export function createOpenVisualEditWebMcpActions(options?: {
   type BootstrapCapability = { token: string; challenge: string };
   let sessionBridgeToken: string | undefined;
   let sessionBridgeUrl: string | undefined;
+  if (isAuthenticated) {
+    clearLocalhostBridgeFetchProxy();
+  } else {
+    const persisted = readPersistedLocalhostBridgeTransport();
+    if (persisted && isCurrentVisualEditDesign(persisted.designId)) {
+      sessionBridgeToken = persisted.bridgeToken;
+      sessionBridgeUrl = persisted.bridgeUrl;
+      installLocalhostBridgeFetchProxy(persisted);
+    }
+  }
   let bootstrapCapabilityPromise: Promise<BootstrapCapability> | undefined;
   let bootstrapCapabilityExpiresAt = 0;
   const clearBootstrapCapability = () => {
@@ -412,6 +442,20 @@ export function createOpenVisualEditWebMcpActions(options?: {
       },
       run: async (input, runtime) => {
         const result = await runOpenVisualEdit(input, runtime);
+        const relayToken = !isAuthenticated ? sessionBridgeToken : undefined;
+        const relayUrl = !isAuthenticated
+          ? (result.bridgeUrl ?? sessionBridgeUrl)
+          : undefined;
+        if (relayToken && relayUrl) {
+          const transport = {
+            designId: result.designId,
+            connectionId: result.connectionId,
+            bridgeUrl: relayUrl,
+            bridgeToken: relayToken,
+          };
+          persistLocalhostBridgeTransport(transport);
+          installLocalhostBridgeFetchProxy(transport);
+        }
         // The same-origin page transport invokes this call, but cannot start a
         // local process. A host may pass a token it used to start that process;
         // do not expose bridge credentials in the result.
@@ -495,6 +539,20 @@ export function OpenVisualEditWebMcp() {
     },
     [resolveApproval],
   );
+
+  // Install the relay during the layout phase so editor children can issue
+  // their first source queries through the browser transport after a full
+  // signed-out embed reload.
+  useLayoutEffect(() => {
+    if (sessionLoading || isAuthenticated) {
+      if (isAuthenticated) clearLocalhostBridgeFetchProxy();
+      return;
+    }
+    const persisted = readPersistedLocalhostBridgeTransport();
+    if (persisted && isCurrentVisualEditDesign(persisted.designId)) {
+      installLocalhostBridgeFetchProxy(persisted);
+    }
+  }, [isAuthenticated, sessionLoading]);
 
   useEffect(() => {
     let disposed = false;
