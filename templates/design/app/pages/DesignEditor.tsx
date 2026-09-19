@@ -2879,11 +2879,11 @@ function DesignEditor() {
     useRef<GeometryHistorySelection | null>(null);
   const marqueeSelectedElementBeforeRef = useRef<ElementInfo | null>(null);
   const recordSelectionHistoryAroundChange = useCallback(
-    (run: () => void) => {
+    (run: () => void, options: { force?: boolean } = {}) => {
       marqueeSelectionHistoryBeforeRef.current = null;
       marqueeSelectedElementBeforeRef.current = null;
       lastMarqueeSelectionSignatureRef.current = null;
-      if (viewModeRef.current !== "overview") {
+      if (viewModeRef.current !== "overview" && options.force !== true) {
         run();
         return;
       }
@@ -20551,19 +20551,49 @@ function DesignEditor() {
         const content = getProjectionContentForScreen(screenId);
         if (!content || externalPreviewUrlForContent(content) !== null)
           return [];
-        const body = getCodeLayerProjectionForScreen(screenId)?.nodes.find(
-          (node) => node.tag === "body",
+        const projection = getCodeLayerProjectionForScreen(screenId);
+        if (!projection) return [];
+        const body = projection.nodes.find((node) => node.tag === "body");
+        if (body) {
+          return [
+            {
+              fileId: screenId,
+              content,
+              sourceId: bridgeSourceIdForCodeLayerNode(body),
+              selector: body.selector,
+            },
+          ];
+        }
+        const nodesById = new Map(
+          projection.nodes.map((node) => [node.id, node]),
         );
-        return body
-          ? [
-              {
-                fileId: screenId,
-                content,
-                sourceId: bridgeSourceIdForCodeLayerNode(body),
-                selector: body.selector,
-              },
-            ]
-          : [{ fileId: screenId, content, wholeDocument: true }];
+        const roots = projection.nodes.filter(
+          (node) =>
+            (projection.rootNodeIds.includes(node.id) || !node.parentId) &&
+            node.tag !== "style",
+        );
+        const visibleRoots: CodeLayerNode[] = [];
+        const visitedRootIds = new Set<string>();
+        const visitRoot = (node: CodeLayerNode) => {
+          if (visitedRootIds.has(node.id)) return;
+          visitedRootIds.add(node.id);
+          if (node.tag === "style") return;
+          if (node.tag === "html" || node.tag === "head") {
+            node.children.forEach((childId) => {
+              const child = nodesById.get(childId);
+              if (child) visitRoot(child);
+            });
+            return;
+          }
+          visibleRoots.push(node);
+        };
+        roots.forEach(visitRoot);
+        return visibleRoots.map((node) => ({
+          fileId: screenId,
+          content,
+          sourceId: bridgeSourceIdForCodeLayerNode(node),
+          selector: node.selector,
+        }));
       },
     );
   }, [
@@ -22118,51 +22148,80 @@ function DesignEditor() {
 
   const handleLocateSelectionColor = useCallback(
     (color: SelectionColorValue) => {
+      const selectedScreenIds = new Set<string>();
       const matches = codeLayerModelsByFile.flatMap((model) => {
-        if (model.runtimeOnly) return [];
+        if (!overviewScreenById.has(model.fileId)) return [];
+        const sourceNodesById = new Map(
+          model.sourceProjection.nodes.map((node) => [node.id, node]),
+        );
         const nodeIds = selectionColorNodeIds(
           model.sourceContent,
           model.sourceProjection.nodes,
           color.value,
         );
-        return nodeIds
-          .map((nodeId) => {
-            const owner = codeLayerOwnerByNodeId.get(nodeId);
-            return owner?.fileId === model.fileId ? owner : null;
-          })
-          .filter(
-            (owner): owner is NonNullable<typeof owner> => owner !== null,
+        return nodeIds.flatMap((nodeId) => {
+          const sourceNode = sourceNodesById.get(nodeId);
+          if (!sourceNode) return [];
+          if (sourceNode.tag === "html" || sourceNode.tag === "body") {
+            selectedScreenIds.add(model.fileId);
+            return [];
+          }
+          const runtimeNode = resolveCodeLayerNodeFromBridge(
+            model.projection,
+            preferredCodeLayerSelector(sourceNode),
+            bridgeSourceIdForCodeLayerNode(sourceNode),
           );
+          const owner = runtimeNode
+            ? codeLayerOwnerByNodeId.get(runtimeNode.id)
+            : null;
+          if (!owner || owner.fileId !== model.fileId || owner.runtimeOnly) {
+            return [];
+          }
+          return [owner];
+        });
       });
-      const selectedIds = Array.from(
-        new Set(matches.map((owner) => owner.node.id)),
+      const visibleMatches = matches.filter(
+        (owner) => owner.node.tag !== "html" && owner.node.tag !== "body",
       );
-      const selectedOwner = matches[matches.length - 1];
-      if (!selectedOwner || selectedIds.length === 0) return;
+      visibleMatches.forEach((owner) => selectedScreenIds.add(owner.fileId));
+      const selectedOwner = visibleMatches[visibleMatches.length - 1];
+      const screenIds = Array.from(selectedScreenIds);
+      const selectedIds = [
+        ...screenIds,
+        ...new Set(visibleMatches.map((owner) => owner.node.id)),
+      ];
+      if (selectedIds.length === 0) return;
 
-      pendingOverviewScreenSelectionRef.current = null;
-      pendingOverviewLayerSelectionRef.current = null;
-      clearPendingOverviewLayerSelectionTimer();
-      setCreatedOverviewLayerSelection(null);
-      viewModeRef.current = "overview";
-      setViewMode("overview");
-      setMode("edit");
-      setActiveTool("move");
-      setActiveFileId(selectedOwner.fileId);
-      setOverviewSelectedScreenIds(
-        Array.from(new Set(matches.map((owner) => owner.fileId))),
+      recordSelectionHistoryAroundChange(
+        () => {
+          pendingOverviewScreenSelectionRef.current = null;
+          pendingOverviewLayerSelectionRef.current = null;
+          clearPendingOverviewLayerSelectionTimer();
+          setCreatedOverviewLayerSelection(null);
+          viewModeRef.current = "overview";
+          setViewMode("overview");
+          setMode("edit");
+          setActiveTool("move");
+          setActiveFileId(
+            selectedOwner?.fileId ?? screenIds[screenIds.length - 1] ?? null,
+          );
+          setOverviewSelectedScreenIds(screenIds);
+          setSelectedLayerIdsState(selectedIds);
+          setSelectedElement(
+            selectedOwner
+              ? elementInfoForOwnedCodeLayerNode({
+                  info: null,
+                  node: selectedOwner.node,
+                  ownerFileId: selectedOwner.fileId,
+                })
+              : null,
+          );
+          focusDesignInspectorForSelection();
+          hydrateRenderedLayerInfoForIds(selectedIds);
+          queueMicrotask(() => hydrateRenderedLayerInfoForIds(selectedIds));
+        },
+        { force: true },
       );
-      setSelectedLayerIdsState(selectedIds);
-      setSelectedElement(
-        elementInfoForOwnedCodeLayerNode({
-          info: null,
-          node: selectedOwner.node,
-          ownerFileId: selectedOwner.fileId,
-        }),
-      );
-      focusDesignInspectorForSelection();
-      hydrateRenderedLayerInfoForIds(selectedIds);
-      queueMicrotask(() => hydrateRenderedLayerInfoForIds(selectedIds));
     },
     [
       clearPendingOverviewLayerSelectionTimer,
@@ -22170,6 +22229,8 @@ function DesignEditor() {
       codeLayerOwnerByNodeId,
       focusDesignInspectorForSelection,
       hydrateRenderedLayerInfoForIds,
+      overviewScreenById,
+      recordSelectionHistoryAroundChange,
     ],
   );
 
