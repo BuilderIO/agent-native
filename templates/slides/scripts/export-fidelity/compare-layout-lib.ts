@@ -52,12 +52,17 @@ function parseGoogleRows(googleFile: string): GoogleRow[] {
       if (fields.length < 5) {
         throw new Error(`Malformed row in ${googleFile}: ${line}`);
       }
-      const [slide, x, base, right, ...text] = fields;
+      const [slideText, xText, baseText, rightText, ...text] = fields;
+      if (
+        [slideText, xText, baseText, rightText].some((value) => !value.trim())
+      ) {
+        throw new Error(`Malformed row in ${googleFile}: ${line}`);
+      }
       const row = {
-        slide: Number(slide),
-        x: Number(x),
-        base: Number(base),
-        right: Number(right),
+        slide: Number(slideText),
+        x: Number(xText),
+        base: Number(baseText),
+        right: Number(rightText),
         text: norm(text.join("|")),
         used: false,
       };
