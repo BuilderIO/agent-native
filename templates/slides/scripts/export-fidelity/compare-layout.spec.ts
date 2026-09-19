@@ -117,6 +117,11 @@ describe("Google Slides layout comparator", () => {
       /Malformed row/,
     );
 
+    const truncated = googleFile("1|10|50|100|Title\ncorrupt readback\n");
+    expect(() => compareLayoutFiles(dir, truncated, 1)).toThrow(
+      /Malformed row/,
+    );
+
     const incomplete = mkdtempSync(join(tmpdir(), "slides-layout-incomplete-"));
     tempDirs.push(incomplete);
     writeFileSync(join(incomplete, "slide-02.json"), "{}");

@@ -46,9 +46,13 @@ export interface LayoutComparisonResult {
 function parseGoogleRows(googleFile: string): GoogleRow[] {
   return readFileSync(googleFile, "utf8")
     .split("\n")
-    .filter((line) => line.includes("|"))
+    .filter((line) => line.trim().length > 0)
     .map((line) => {
-      const [slide, x, base, right, ...text] = line.split("|");
+      const fields = line.split("|");
+      if (fields.length < 5) {
+        throw new Error(`Malformed row in ${googleFile}: ${line}`);
+      }
+      const [slide, x, base, right, ...text] = fields;
       const row = {
         slide: Number(slide),
         x: Number(x),
