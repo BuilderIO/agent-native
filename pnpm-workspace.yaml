@@ -81,7 +81,7 @@ catalog:
   tailwind-merge: ^3.5.0
   tailwindcss: ^4.2.4
   tiptap-markdown: ^0.9.0
-  tsx: ^4.20.3
+  tsx: ^4.23.13
   typescript: npm:@typescript/typescript6@^6.0.2
   "typescript-7": npm:typescript@^7.0.2
   vite: 8.1.0

@@ -103,7 +103,7 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
     "tiptap-markdown": "catalog:",
-    "tsx": "^4.20.3",
+    "tsx": "^4.23.13",
     "typescript-7": "catalog:",
     "vaul": "^1.1.2",
     "vite": "catalog:",
