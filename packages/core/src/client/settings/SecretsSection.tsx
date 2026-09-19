@@ -250,6 +250,7 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 const TILE_PRIORITY = [
   "OPENAI_API_KEY",
   "ANTHROPIC_API_KEY",
+  "JEV_API_KEY",
   "OPENROUTER_API_KEY",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GITHUB_TOKEN",

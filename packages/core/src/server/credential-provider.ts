@@ -244,6 +244,7 @@ export function resolveVercelDeploymentProtectionHeaders(
 
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "ANTHROPIC_API_KEY",
+  "JEV_API_KEY",
   // The Builder-credits pair pays for the deployed app's own model calls and
   // carries no end-user identity — the token is scoped to ['gateway'] and can
   // make no identity-bearing Builder call. The legacy BUILDER_PRIVATE_KEY /
@@ -262,6 +263,10 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   // OAuth client ids identify the deployment; user identity remains in scoped tokens.
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
+  // The Slack bot belongs to the deployed app, not the signed-in webhook
+  // actor. The adapter still pins it to the incoming team and app via
+  // auth.test + bots.info before using it.
+  "SLACK_BOT_TOKEN",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GROQ_API_KEY",
   "MISTRAL_API_KEY",

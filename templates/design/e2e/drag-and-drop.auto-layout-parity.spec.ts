@@ -121,6 +121,7 @@ async function dragCanvasNode(
   target: { x: number; y: number },
   feedback?: "inside" | "line" | "ghost",
   modifier?: "Meta" | "Control",
+  onHeld?: () => Promise<void>,
 ): Promise<void> {
   const beforeHtml = await indexHtml(page, designId);
   const source = (await node(page, sourceId).boundingBox())!;
@@ -152,6 +153,7 @@ async function dragCanvasNode(
       )
       .toBe(true);
   }
+  if (onHeld) await onHeld();
   await page.mouse.up();
   if (modifier) await page.keyboard.up(modifier);
   await expect
@@ -174,10 +176,67 @@ test("physical vertical auto-layout reorder keeps parent, order, and geometry", 
     await openEditor(page, designId);
     await selectCanvasNode(page, "v1");
     const v3 = (await node(page, "v3").boundingBox())!;
-    await dragCanvasNode(page, designId, "v1", {
-      x: v3.x + v3.width / 2,
-      y: v3.y + v3.height * 0.8,
-    });
+    await dragCanvasNode(
+      page,
+      designId,
+      "v1",
+      {
+        x: v3.x + v3.width / 2,
+        y: v3.y + v3.height * 0.8,
+      },
+      "line",
+      undefined,
+      async () => {
+        const held = await preview(page).evaluate(() => {
+          const parent = document.querySelector(
+            '[data-agent-native-node-id="vertical"]',
+          );
+          const source = document.querySelector(
+            '[data-agent-native-node-id="v1"]',
+          ) as HTMLElement | null;
+          const target = document.querySelector(
+            '[data-agent-native-node-id="v3"]',
+          ) as HTMLElement | null;
+          const guide = document.querySelector(
+            "[data-agent-native-insertion-guide]",
+          ) as HTMLElement | null;
+          const guideRect = guide?.getBoundingClientRect();
+          const targetRect = target?.getBoundingClientRect();
+          return {
+            order: parent
+              ? Array.from(parent.children).map((child) =>
+                  child.getAttribute("data-agent-native-node-id"),
+                )
+              : [],
+            sourceParent: source?.parentElement?.getAttribute(
+              "data-agent-native-node-id",
+            ),
+            guideDisplay: guide ? getComputedStyle(guide).display : "none",
+            guideWidth: guideRect?.width ?? 0,
+            guideHeight: guideRect?.height ?? 0,
+            guideTop: guideRect?.top ?? 0,
+            targetTop: targetRect?.top ?? 0,
+            targetBottom: targetRect?.bottom ?? 0,
+            siblingTransforms: ["v2", "v3"].map((id) => {
+              const element = document.querySelector(
+                `[data-agent-native-node-id="${id}"]`,
+              );
+              return element ? getComputedStyle(element).transform : "none";
+            }),
+          };
+        });
+        expect(held.order).toEqual(["v1", "v2", "v3"]);
+        expect(held.sourceParent).toBe("vertical");
+        expect(held.guideDisplay).toBe("block");
+        expect(held.guideWidth).toBeGreaterThan(0);
+        expect(held.guideHeight).toBeGreaterThan(0);
+        expect(held.guideTop).toBeGreaterThanOrEqual(held.targetTop);
+        expect(held.guideTop).toBeLessThanOrEqual(held.targetBottom + 8);
+        expect(
+          held.siblingTransforms.some((transform) => transform !== "none"),
+        ).toBe(true);
+      },
+    );
 
     await openEditor(page, designId);
     const html = await indexHtml(page, designId);

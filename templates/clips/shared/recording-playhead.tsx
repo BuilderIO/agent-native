@@ -536,6 +536,19 @@ export function RecordingPlayhead({
               <IconPlayerPauseFilled size={14} aria-hidden />
             )}
           </button>
+          <span aria-hidden className="recording-playhead__divider" />
+          <button
+            type="button"
+            data-recording-playhead-button
+            onClick={() => openConfirm("restart")}
+            disabled={controlsDisabled}
+            tabIndex={isConfirming ? -1 : 0}
+            aria-label={labels.restart}
+            title={labels.restartShortcut}
+            className="recording-playhead__button recording-playhead__restart"
+          >
+            <IconRefresh size={14} stroke={2} aria-hidden />
+          </button>
         </span>
       </span>
       <span
@@ -583,18 +596,6 @@ export function RecordingPlayhead({
       >
         <span className="recording-playhead__inline">
           <span aria-hidden className="recording-playhead__divider" />
-          <button
-            type="button"
-            data-recording-playhead-button
-            onClick={() => openConfirm("restart")}
-            disabled={!enabled || pendingAction !== null}
-            tabIndex={isConfirming || !expanded ? -1 : 0}
-            aria-label={labels.restart}
-            title={labels.restartShortcut}
-            className="recording-playhead__button recording-playhead__extras-restart"
-          >
-            <IconRefresh size={14} stroke={2} aria-hidden />
-          </button>
           <button
             type="button"
             data-recording-playhead-button

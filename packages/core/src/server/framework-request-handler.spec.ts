@@ -5,6 +5,7 @@ import {
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
+import { createTrackingEventScope } from "../observability/tracing.js";
 import {
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
@@ -12,6 +13,7 @@ import {
   trackPluginInit,
 } from "./framework-request-handler.js";
 import {
+  getRequestContext,
   getRequestUserEmail,
   hasRequestContext,
   runWithRequestContext,
@@ -128,6 +130,25 @@ describe("framework request handler", () => {
 
     await dispatch(nitroApp, "/api/coach/users");
     expect(sawEmail).toBe("alice@example.com");
+  });
+
+  it("installs a fresh tracking scope for nested requests", async () => {
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp);
+
+    let nestedScope: unknown;
+    nitroApp.h3["~middleware"].push((_event: any, next: () => unknown) => {
+      nestedScope = getRequestContext()?.trackingScope;
+      return next();
+    });
+
+    const parentScope = createTrackingEventScope();
+    await runWithRequestContext({ trackingScope: parentScope }, () =>
+      dispatch(nitroApp, "/api/nested"),
+    );
+
+    expect(nestedScope).toBeDefined();
+    expect(nestedScope).not.toBe(parentScope);
   });
 
   it("dispatches bare framework routes with a mount-relative pathname", async () => {

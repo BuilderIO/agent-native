@@ -67,6 +67,7 @@ const ROOT_FRAME_ID = "root-frame";
 const ROOT_FRAME_NAME = "Root frame";
 const NESTED_FRAME_ID = "nested-frame";
 const BOARD_SOURCE_ID = "board-source";
+const URL_BACKED_TARGET_URL = "https://example.com/beta-design-target";
 
 interface StyleSnapshot {
   backgroundColor: string;
@@ -136,6 +137,35 @@ async function readSource(
   return result.content;
 }
 
+async function readScreenMetadata(
+  page: Page,
+  designId: string,
+  screenId: string,
+): Promise<Record<string, unknown>> {
+  const response = await page.request.get(
+    `${ORIGIN}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) {
+    throw new Error(`get-design failed: HTTP ${response.status()}`);
+  }
+  const record = (await response.json()) as { data?: unknown };
+  const data =
+    typeof record.data === "string"
+      ? JSON.parse(record.data || "{}")
+      : record.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("get-design returned invalid design data");
+  }
+  const metadata = (
+    data as {
+      screenMetadata?: Record<string, Record<string, unknown>>;
+    }
+  ).screenMetadata?.[screenId];
+  if (!metadata)
+    throw new Error(`get-design returned no metadata for ${screenId}`);
+  return metadata;
+}
+
 async function directChildIds(
   page: Page,
   source: string,
@@ -154,6 +184,15 @@ async function directChildIds(
     },
     { html: source, id: parentId },
   );
+}
+
+async function topLevelNodeIds(page: Page, source: string): Promise<string[]> {
+  return page.evaluate((html) => {
+    const document = new DOMParser().parseFromString(html, "text/html");
+    return Array.from(document.body.children)
+      .map((child) => child.getAttribute("data-agent-native-node-id"))
+      .filter((nodeId): nodeId is string => Boolean(nodeId));
+  }, source);
 }
 
 async function parseSource(
@@ -367,6 +406,45 @@ async function createNestedDropFixture(
   }
 
   return designId;
+}
+
+async function addUrlBackedDropTarget(
+  page: Page,
+  designId: string,
+): Promise<string> {
+  const created = await postAction(page, "create-file", {
+    designId,
+    filename: "url-target.html",
+    content: URL_BACKED_TARGET_URL,
+    fileType: "html",
+  });
+  const screenId = String(created?.id ?? created?.data?.id ?? "");
+  if (!screenId) throw new Error("create-file returned no URL target id");
+
+  await postAction(page, "update-design", {
+    id: designId,
+    dataOperations: [
+      {
+        op: "set",
+        path: ["screenMetadata", screenId],
+        value: {
+          sourceType: "localhost",
+          previewState: "live",
+          url: URL_BACKED_TARGET_URL,
+          previewUrl: URL_BACKED_TARGET_URL,
+          title: "URL-backed target",
+          width: 800,
+          height: 600,
+        },
+      },
+      {
+        op: "set",
+        path: ["canvasFrames", screenId],
+        value: { x: 1900, y: 0, width: 800, height: 600, z: 2 },
+      },
+    ],
+  });
+  return screenId;
 }
 
 async function cleanupTest(options: {
@@ -648,6 +726,113 @@ test.describe("authenticated beta Design interactions", () => {
     }
   });
 
+  test("report path: URL-backed target keeps its route and source ownership bounded", async ({
+    browser,
+  }) => {
+    const { context, page, appErrors } = await openAuthedPage(browser);
+    let designId = "";
+    let primaryFailure = false;
+    try {
+      await page.route(URL_BACKED_TARGET_URL, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: `<!doctype html><html><body style="margin:0;width:800px;height:600px;background:#e2e8f0"><section data-agent-native-node-id="external-target" style="position:absolute;left:80px;top:80px;width:360px;height:240px;background:#94a3b8"></section></body></html>`,
+        });
+      });
+      designId = await createNestedDropFixture(page, (id) => {
+        designId = id;
+      });
+      const urlTargetId = await addUrlBackedDropTarget(page, designId);
+      await openEditor(page, designId, ROOT_FRAME_ID);
+      await page.keyboard.press("Shift+1");
+
+      const source = boardFrame(page).locator(
+        `[data-agent-native-node-id="${BOARD_SOURCE_ID}"]`,
+      );
+      const urlTarget = page.locator(
+        `${PREVIEW}[data-screen-iframe-id="${urlTargetId}"]`,
+      );
+      await expect(source).toBeVisible({ timeout: 30_000 });
+      await expect(urlTarget).toBeVisible({ timeout: 30_000 });
+      await expect(
+        urlTarget
+          .contentFrame()
+          .locator('[data-agent-native-node-id="external-target"]'),
+      ).toBeVisible({ timeout: 30_000 });
+      const sourceBox = (await source.boundingBox())!;
+      const targetBox = (await urlTarget.boundingBox())!;
+      const beforeBoard = await readSource(page, designId, "__board__.html");
+      const beforeInline = await readSource(page, designId);
+      const beforeBoardOrder = await topLevelNodeIds(page, beforeBoard);
+      const beforeInlineNestedOrder = await directChildIds(
+        page,
+        beforeInline,
+        NESTED_FRAME_ID,
+      );
+
+      await page.mouse.move(sourceBox.x + 18, sourceBox.y + 11);
+      await page.mouse.down();
+      await page.mouse.move(sourceBox.x + 6, sourceBox.y + 11, { steps: 4 });
+      await page.mouse.move(
+        targetBox.x + targetBox.width / 2,
+        targetBox.y + targetBox.height / 2,
+        { steps: 24 },
+      );
+      await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
+        timeout: 10_000,
+      });
+      await page.mouse.up();
+      await expect(
+        urlTarget
+          .contentFrame()
+          .locator('[data-agent-native-node-id="external-target"]'),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect
+        .poll(() => readScreenMetadata(page, designId, urlTargetId), {
+          timeout: 20_000,
+        })
+        .toMatchObject({
+          sourceType: "localhost",
+          previewState: "live",
+          url: URL_BACKED_TARGET_URL,
+          previewUrl: URL_BACKED_TARGET_URL,
+        });
+
+      await expect
+        .poll(async () => {
+          const afterBoard = await readSource(page, designId, "__board__.html");
+          return topLevelNodeIds(page, afterBoard);
+        })
+        .toEqual(beforeBoardOrder);
+      await expect
+        .poll(async () =>
+          directChildIds(
+            page,
+            await readSource(page, designId),
+            NESTED_FRAME_ID,
+          ),
+        )
+        .toEqual(beforeInlineNestedOrder);
+      await expect
+        .poll(() => readSource(page, designId, "url-target.html"), {
+          timeout: 20_000,
+        })
+        .toBe(URL_BACKED_TARGET_URL);
+    } catch (error) {
+      primaryFailure = true;
+      throw error;
+    } finally {
+      await cleanupTest({
+        context,
+        page,
+        designId,
+        appErrors,
+        primaryFailure,
+      });
+    }
+  });
+
   test("report path: Option-dragging a root frame preserves source and selects the copy", async ({
     browser,
   }) => {
@@ -679,23 +864,30 @@ test.describe("authenticated beta Design interactions", () => {
         rootBefore.y + rootBefore.height / 2,
       );
       // Playwright calls the browser-level Option key Alt on Linux CI.
-      await page.keyboard.down("Alt");
-      await page.mouse.down();
-      await page.mouse.move(
-        rootBefore.x + rootBefore.width / 2 + 6,
-        rootBefore.y + rootBefore.height / 2 + 3,
-        { steps: 2 },
-      );
-      await expect(
-        screen.locator("[data-agent-native-transform-badge]"),
-      ).toHaveText("Duplicate layer");
-      await page.mouse.move(
-        rootBefore.x + rootBefore.width / 2 + 120,
-        rootBefore.y + rootBefore.height / 2 + 60,
-        { steps: 12 },
-      );
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
+      let mouseHeld = false;
+      let modifierHeld = false;
+      try {
+        modifierHeld = true;
+        await page.keyboard.down("Alt");
+        mouseHeld = true;
+        await page.mouse.down();
+        await page.mouse.move(
+          rootBefore.x + rootBefore.width / 2 + 6,
+          rootBefore.y + rootBefore.height / 2 + 3,
+          { steps: 2 },
+        );
+        await expect(
+          screen.locator("[data-agent-native-transform-badge]"),
+        ).toHaveText("Duplicate layer");
+        await page.mouse.move(
+          rootBefore.x + rootBefore.width / 2 + 120,
+          rootBefore.y + rootBefore.height / 2 + 60,
+          { steps: 12 },
+        );
+      } finally {
+        if (mouseHeld) await page.mouse.up();
+        if (modifierHeld) await page.keyboard.up("Alt");
+      }
 
       const roots = screen.locator(
         `[data-agent-native-layer-name="${ROOT_FRAME_NAME}"]`,
@@ -814,23 +1006,22 @@ test.describe("authenticated beta Design interactions", () => {
       const afterImages = splitCssList(afterRendered.backgroundImage);
       expect(afterRendered.backgroundColor).toBe("rgba(0, 0, 0, 0)");
       expect(afterImages.slice(0, 2)).toEqual(beforeImages);
-      expect(afterImages.at(-1)).toMatch(/^linear-gradient/i);
+      expect(afterImages[afterImages.length - 1]).toMatch(/^linear-gradient/i);
       expect(splitCssList(afterRendered.backgroundSize).slice(0, 2)).toEqual(
         splitCssList(beforeRendered.backgroundSize),
       );
-      expect(splitCssList(afterRendered.backgroundSize).at(-1)).toBe("auto");
+      const afterSizes = splitCssList(afterRendered.backgroundSize);
+      expect(afterSizes[afterSizes.length - 1]).toBe("auto");
       expect(splitCssList(afterRendered.backgroundRepeat).slice(0, 2)).toEqual(
         splitCssList(beforeRendered.backgroundRepeat),
       );
-      expect(splitCssList(afterRendered.backgroundRepeat).at(-1)).toBe(
-        "no-repeat",
-      );
+      const afterRepeats = splitCssList(afterRendered.backgroundRepeat);
+      expect(afterRepeats[afterRepeats.length - 1]).toBe("no-repeat");
       expect(
         splitCssList(afterRendered.backgroundPosition).slice(0, 2),
       ).toEqual(splitCssList(beforeRendered.backgroundPosition));
-      expect(splitCssList(afterRendered.backgroundPosition).at(-1)).toBe(
-        "0% 0%",
-      );
+      const afterPositions = splitCssList(afterRendered.backgroundPosition);
+      expect(afterPositions[afterPositions.length - 1]).toBe("0% 0%");
 
       await expect
         .poll(async () => {

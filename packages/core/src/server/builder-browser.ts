@@ -108,9 +108,12 @@ export class BuilderAccountProvisioningError extends Error {
 }
 
 export function isBuilderAccountAlreadyExistsError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { name?: unknown; code?: unknown };
   return (
-    error instanceof BuilderAccountProvisioningError &&
-    (error.code === "account_incomplete" || error.code === "account_exists")
+    candidate.name === "BuilderAccountProvisioningError" &&
+    (candidate.code === "account_incomplete" ||
+      candidate.code === "account_exists")
   );
 }
 

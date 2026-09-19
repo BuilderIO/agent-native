@@ -194,6 +194,7 @@ function workspacePackages() {
   for (const dir of [
     ...packageDirsUnder("packages"),
     ...packageDirsUnder("templates"),
+    ...packageDirsUnder("community-templates"),
   ]) {
     const pkg = readJson(`${dir}/package.json`);
 
@@ -219,8 +220,10 @@ function targetPackage(packages, name) {
     return packages.get(name);
   }
 
-  const templateDir = `templates/${name}`;
-  const match = [...packages.values()].find(({ dir }) => dir === templateDir);
+  const templateDirs = [`templates/${name}`, `community-templates/${name}`];
+  const match = [...packages.values()].find(({ dir }) =>
+    templateDirs.includes(dir),
+  );
 
   return match ?? null;
 }

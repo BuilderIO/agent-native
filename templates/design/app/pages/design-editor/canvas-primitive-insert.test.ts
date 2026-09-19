@@ -2,6 +2,12 @@
 
 import { applyVisualEdit } from "@shared/code-layer";
 import { createCornerNode, type PenPath } from "@shared/pen-path";
+import {
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_START_ENDPOINT_PROPERTY,
+  isVectorEndpointPrimitiveKind,
+  vectorEndpointMarkerId,
+} from "@shared/vector-endpoints";
 import { describe, expect, it } from "vitest";
 
 import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/types";
@@ -893,9 +899,152 @@ describe("arrow paint target", () => {
     const shaft = svg.querySelector(
       ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
     );
-    expect(shaft?.getAttribute("marker-end")).toBe("url(#arrow-1-arrow)");
+    expect(shaft?.getAttribute("marker-end")).toBe(
+      "url(#arrow-1-vector-marker-end)",
+    );
     expect(svg.querySelector("defs path")).not.toBe(shaft);
   });
+
+  it("renders independent endpoint markers and keeps their style values on the wrapper", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: "line-1",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      startPoint: "diamond",
+      endPoint: "circle",
+      stroke: "#12ab34",
+      strokeWidth: 3,
+    });
+    const doc = new DOMParser().parseFromString(html ?? "", "text/html");
+    const svg = doc.querySelector("svg[data-agent-native-node-id='line-1']");
+    const path = svg?.querySelector(":scope > path");
+    expect(svg?.getAttribute("style")).toContain(
+      `${VECTOR_START_ENDPOINT_PROPERTY}:diamond`,
+    );
+    expect(svg?.getAttribute("style")).toContain(
+      `${VECTOR_END_ENDPOINT_PROPERTY}:circle`,
+    );
+    expect(path?.getAttribute("marker-start")).toBe(
+      "url(#line-1-vector-marker-start)",
+    );
+    expect(path?.getAttribute("marker-end")).toBe(
+      "url(#line-1-vector-marker-end)",
+    );
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start'] path")
+        ?.getAttribute("stroke"),
+    ).toBe("context-stroke");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end'] circle")
+        ?.getAttribute("stroke"),
+    ).toBe("context-stroke");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("orient"),
+    ).toBe("auto-start-reverse");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("refX"),
+    ).toBe("8");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("orient"),
+    ).toBe("auto");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("refX"),
+    ).toBe("8");
+  });
+
+  it.each([
+    "none",
+    "round",
+    "square",
+    "line",
+    "triangle",
+    "reversed-triangle",
+    "circle",
+    "diamond",
+  ] as const)("renders the %s endpoint style", (endpoint) => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: `line-${endpoint}`,
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      startPoint: endpoint,
+      endPoint: endpoint,
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg");
+    const path = svg?.querySelector(":scope > path");
+    if (endpoint === "none") {
+      expect(path?.hasAttribute("marker-start")).toBe(false);
+      expect(path?.hasAttribute("marker-end")).toBe(false);
+      return;
+    }
+    expect(svg?.querySelectorAll("marker")).toHaveLength(2);
+    expect(path?.getAttribute("marker-start")).toContain("vector-marker-start");
+    expect(path?.getAttribute("marker-end")).toContain("vector-marker-end");
+  });
+
+  it("reassigns node IDs and marker URL references together on duplication", async () => {
+    const { reassignDuplicatedNodeIds } =
+      await import("./canvas-primitive-insert");
+    const copied = reassignDuplicatedNodeIds(
+      '<svg data-agent-native-node-id="line-1"><defs><marker id="line-1-vector-marker-end"/></defs><path marker-end="url(#line-1-vector-marker-end)"/></svg>',
+    );
+    const nextId = /data-agent-native-node-id="([^"]+)"/.exec(copied)?.[1];
+    expect(nextId).toBeTruthy();
+    expect(copied).toContain(`id="${nextId}-vector-marker-end"`);
+    expect(copied).toContain(`url(#${nextId}-vector-marker-end)`);
+  });
+
+  it("rekeys sanitized marker IDs when duplicating a punctuated node ID", async () => {
+    const { reassignDuplicatedNodeIds } =
+      await import("./canvas-primitive-insert");
+    const copied = reassignDuplicatedNodeIds(
+      '<svg data-agent-native-node-id="line.1"><defs><marker id="line-1-vector-marker-end"/></defs><path marker-end="url(#line-1-vector-marker-end)"/></svg>',
+    );
+    const nextId = /data-agent-native-node-id="([^"]+)"/.exec(copied)?.[1];
+    expect(nextId).toBeTruthy();
+    expect(copied).not.toContain('id="line-1-vector-marker-end"');
+    expect(copied).toContain(`id="${nextId}-vector-marker-end"`);
+    expect(copied).toContain(`url(#${nextId}-vector-marker-end)`);
+  });
+
+  it("keeps marker IDs distinct when node IDs sanitize to the same value", () => {
+    expect(vectorEndpointMarkerId("a.b", "end")).not.toBe(
+      vectorEndpointMarkerId("a-b", "end"),
+    );
+  });
+
+  it.each(["path", "line", "arrow"] as const)(
+    "recognizes %s as a live endpoint primitive",
+    (kind) => {
+      expect(isVectorEndpointPrimitiveKind(kind)).toBe(true);
+    },
+  );
+
+  it.each(["polygon", "star", "rect", "ellipse", "circle", "boolean"])(
+    "keeps %s out of live endpoint primitives",
+    (kind) => {
+      expect(isVectorEndpointPrimitiveKind(kind)).toBe(false);
+    },
+  );
 });
 
 // search-icon-2: a freshly drawn shape must expose a `backgroundColor` the

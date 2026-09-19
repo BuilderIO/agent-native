@@ -584,10 +584,12 @@ export async function syncInboxAccount(
         }),
       );
       const labelsUpdatedAt = Date.now();
-      await patchSyncAccount(ownerEmail, accountEmail, {
-        labels,
-        labelsUpdatedAt,
-      });
+      await patchSyncAccount(
+        ownerEmail,
+        accountEmail,
+        { labels, labelsUpdatedAt },
+        { claimId: claim.claimId },
+      );
       row = { ...row, labels, labelsUpdatedAt };
     }
 

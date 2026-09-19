@@ -167,6 +167,30 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
+  if (!getRequiredSecret("JEV_API_KEY")) {
+    registerRequiredSecret({
+      key: "JEV_API_KEY",
+      label: "System one model (Jev)",
+      description:
+        "Optional TypeSafe Jev key for semantic tool selection before the agent's first model request.",
+      docsUrl: "https://docs.typesafe.ai/",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+      validator: async (value) => {
+        const response = await fetch("https://api.typesafe.ai/v1/models", {
+          headers: { Authorization: `Bearer ${value}` },
+        });
+        return response.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              error: `Jev rejected the key (HTTP ${response.status}).`,
+            };
+      },
+    });
+  }
+
   // The other AI SDK providers the engine can run on. Registering them here
   // is what makes them show up in Settings → API keys, so bringing your own
   // OpenRouter or Gemini key is the same flow as OpenAI or Anthropic.

@@ -19,6 +19,7 @@ import {
   IconPhoto,
   IconPlus,
   IconRefresh,
+  IconTarget,
   IconTrash,
   IconVector,
 } from "@tabler/icons-react";
@@ -356,6 +357,8 @@ interface EditPanelProps {
    *  replacement. Multiple scopes may belong to one file or several screens. */
   selectionColorScopes?: SelectionColorScope[];
   onSelectionColorChange?: SelectionColorChangeHandler;
+  onSelectionColorTarget?: (color: string) => void;
+  canSelectSelectionColorTarget?: (color: string) => boolean;
   onSelectionColorPickerOpenChange?: (from: string, open: boolean) => void;
   onGroupFillStylesChange?: (
     styles: Record<string, string>,
@@ -2070,6 +2073,8 @@ export function SelectionColorsProperties({
   elements,
   scopes,
   onColorChange,
+  onColorTarget,
+  canSelectColorTarget,
   onColorPickerOpenChange,
   colors: providedColors,
   title,
@@ -2077,6 +2082,8 @@ export function SelectionColorsProperties({
   elements: ElementInfo[];
   scopes?: SelectionColorScope[];
   onColorChange?: SelectionColorChangeHandler;
+  onColorTarget?: (color: string) => void;
+  canSelectColorTarget?: (color: string) => boolean;
   onColorPickerOpenChange?: (from: string, open: boolean) => void;
   colors?: SelectionColorValue[];
   title?: string;
@@ -2085,6 +2092,7 @@ export function SelectionColorsProperties({
   // affordance, expanding to one editable [swatch · hex · opacity] row per
   // unique color — matching the Fill row grammar instead of a swatch strip.
   const [expanded, setExpanded] = useState(false);
+  const t = useT();
   const colors = providedColors ?? selectionColorValues(elements, scopes);
   const onColorPickerOpenChangeRef = useRef(onColorPickerOpenChange);
   onColorPickerOpenChangeRef.current = onColorPickerOpenChange;
@@ -2220,59 +2228,79 @@ export function SelectionColorsProperties({
             const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
             return (
               <InspectorGridCell key={index} span={28}>
-                <DesignColorPicker
-                  trigger={
-                    <button
-                      type="button"
-                      className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-                      aria-label={value}
-                      disabled={!onColorChange}
-                    >
-                      <span
-                        className="size-4 shrink-0 rounded-[3px] border border-border/60"
-                        style={swatchStyle(value)}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
-                        {selectionDisplayHex(value)}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
-                        {opacity}%
-                      </span>
-                      {color.count && color.count > 1 ? (
-                        <span className="shrink-0 tabular-nums text-muted-foreground">
-                          ×{color.count}
+                <div className="flex w-full items-center gap-1">
+                  <DesignColorPicker
+                    className="min-w-0 flex-1"
+                    trigger={
+                      <button
+                        type="button"
+                        className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                        aria-label={value}
+                        disabled={!onColorChange}
+                      >
+                        <span
+                          className="size-4 shrink-0 rounded-[3px] border border-border/60"
+                          style={swatchStyle(value)}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
+                          {selectionDisplayHex(value)}
                         </span>
-                      ) : null}
-                    </button>
-                  }
-                  value={cssColorOrFallback(value, DEFAULT_AUTHORED_COLOR)}
-                  open={
-                    pickerSession?.scopeIdentity === scopeIdentity &&
-                    pickerSession.index === index
-                  }
-                  onOpenChange={(open) =>
-                    setColorPickerOpen(index, color, open)
-                  }
-                  supportedPaintTypes={["solid"]}
-                  // PF12: per-tick drag preview vs. one authoritative
-                  // commit on gesture-end — same split as ColorInput's
-                  // setNext (see its PF12 comment above).
-                  onChange={(next) =>
-                    changeColor(index, color, next, "preview")
-                  }
-                  onChangeComplete={(next) =>
-                    changeColor(index, color, next, "commit")
-                  }
-                  onChangeCancel={(next) =>
-                    changeColor(index, color, next, "cancel")
-                  }
-                  allowDesignHistoryHotkeys
-                  onDesignHistoryHotkey={() => {
-                    if (activeGestureRef.current) return;
-                    setColorPickerOpen(index, color, false);
-                  }}
-                  disabled={!onColorChange}
-                />
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {opacity}%
+                        </span>
+                        {color.count && color.count > 1 ? (
+                          <span className="shrink-0 tabular-nums text-muted-foreground">
+                            ×{color.count}
+                          </span>
+                        ) : null}
+                      </button>
+                    }
+                    value={cssColorOrFallback(value, DEFAULT_AUTHORED_COLOR)}
+                    open={
+                      pickerSession?.scopeIdentity === scopeIdentity &&
+                      pickerSession.index === index
+                    }
+                    onOpenChange={(open) =>
+                      setColorPickerOpen(index, color, open)
+                    }
+                    supportedPaintTypes={["solid"]}
+                    // PF12: per-tick drag preview vs. one authoritative
+                    // commit on gesture-end — same split as ColorInput's
+                    // setNext (see its PF12 comment above).
+                    onChange={(next) =>
+                      changeColor(index, color, next, "preview")
+                    }
+                    onChangeComplete={(next) =>
+                      changeColor(index, color, next, "commit")
+                    }
+                    onChangeCancel={(next) =>
+                      changeColor(index, color, next, "cancel")
+                    }
+                    allowDesignHistoryHotkeys
+                    onDesignHistoryHotkey={() => {
+                      if (activeGestureRef.current) return;
+                      setColorPickerOpen(index, color, false);
+                    }}
+                    disabled={!onColorChange}
+                  />
+                  {onColorTarget && (canSelectColorTarget?.(value) ?? true) ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                          aria-label={`${t("designEditor.keyboardShortcuts.commands.find")}: ${value}`}
+                          onClick={() => onColorTarget(value)}
+                        >
+                          <IconTarget className="size-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        {t("designEditor.keyboardShortcuts.commands.find")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </div>
               </InspectorGridCell>
             );
           })}
@@ -2406,6 +2434,8 @@ export const EditPanel = memo(function EditPanel({
   onSelectedScreenStylesChange,
   selectionColorScopes = [],
   onSelectionColorChange: onSelectionColorChangeProp,
+  onSelectionColorTarget,
+  canSelectSelectionColorTarget,
   onSelectionColorPickerOpenChange,
   onGroupFillStylesChange: onGroupFillStylesChangeProp,
   viewMode,
@@ -3183,6 +3213,8 @@ export const EditPanel = memo(function EditPanel({
                       <SelectionColorsProperties
                         elements={[selectedScreenElement]}
                         scopes={selectionColorScopes}
+                        onColorTarget={onSelectionColorTarget}
+                        canSelectColorTarget={canSelectSelectionColorTarget}
                         onColorPickerOpenChange={
                           onSelectionColorPickerOpenChange
                         }
@@ -3203,6 +3235,8 @@ export const EditPanel = memo(function EditPanel({
                 <SelectionColorsProperties
                   elements={[]}
                   scopes={selectionColorScopes}
+                  onColorTarget={onSelectionColorTarget}
+                  canSelectColorTarget={canSelectSelectionColorTarget}
                   onColorPickerOpenChange={onSelectionColorPickerOpenChange}
                   onColorChange={
                     readOnly || interactionState
@@ -3323,6 +3357,8 @@ export const EditPanel = memo(function EditPanel({
                   <SelectionColorsProperties
                     elements={effectiveSelectedElements}
                     scopes={selectionColorScopes}
+                    onColorTarget={onSelectionColorTarget}
+                    canSelectColorTarget={canSelectSelectionColorTarget}
                     onColorPickerOpenChange={onSelectionColorPickerOpenChange}
                     onColorChange={
                       readOnly || interactionState

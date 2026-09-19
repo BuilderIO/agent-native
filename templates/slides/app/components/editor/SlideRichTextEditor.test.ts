@@ -89,6 +89,22 @@ describe("slide rich text normalization", () => {
     expect(html).toContain("<p></p>");
   });
 
+  it("keeps legacy bullet row layout while editing", () => {
+    const html = contentForSlideTextContainer(
+      "DIV",
+      '<div style="display:flex;align-items:baseline;gap:20px;font-size:22px"><span style="font-size:8px">●</span><span>First point</span></div>',
+    );
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    const paragraph = wrapper.querySelector("p") as HTMLElement;
+
+    expect(paragraph).toBeTruthy();
+    expect(paragraph.style.display).toBe("flex");
+    expect(paragraph.style.alignItems).toBe("baseline");
+    expect(paragraph.style.gap).toBe("20px");
+    expect(paragraph.textContent).toBe("●First point");
+  });
+
   it("preserves explicit blank paragraphs as line breaks", () => {
     expect(
       normalizeSlideEditorContent("<p>First</p><p></p><p>Second</p>"),
@@ -151,6 +167,99 @@ describe("slide rich text normalization", () => {
       "8px",
     );
     expect((rows[0] as HTMLElement).style.gap).toBe("20px");
+  });
+
+  it("restores a single legacy bullet row after editing", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul><li style="display:flex;gap:20px"><p>Updated point</p></li></ul>',
+      source,
+    );
+
+    expect(element.querySelector(":scope > span")?.textContent).toBe("●");
+    expect(element.querySelectorAll(":scope > span")).toHaveLength(2);
+    expect(element.textContent).toBe("●Updated point");
+  });
+
+  it("preserves single legacy bullet row formatting after editing", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul><li style="color:red;font-size:24px;display:flex;gap:16px"><p>Updated point</p></li></ul>',
+      source,
+    );
+
+    expect(element.style.color).toBe("red");
+    expect(element.style.fontSize).toBe("24px");
+    expect(element.style.display).toBe("flex");
+    expect(element.style.gap).toBe("16px");
+  });
+
+  it("unwraps ordinary single-row bullet edits back into the row template", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<p><strong>Updated point</strong></p>",
+      source,
+    );
+
+    expect(element.querySelector(":scope > p")).toBeNull();
+    expect(element.querySelector(":scope > li")).toBeNull();
+    expect(element.querySelector(":scope > span")?.textContent).toBe("●");
+    expect(element.querySelectorAll(":scope > span")).toHaveLength(2);
+    expect(
+      element.querySelector(":scope > span:nth-child(2) strong")?.textContent,
+    ).toBe("Updated point");
+  });
+
+  it("preserves every item when a legacy bullet becomes a multi-item list", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<ul><li><p>First point</p></li><li><p>Second point</p></li></ul>",
+      source,
+    );
+
+    expect(element.querySelectorAll(":scope > ul > li")).toHaveLength(2);
+    expect(element.textContent).toContain("First point");
+    expect(element.textContent).toContain("Second point");
+  });
+
+  it("preserves sibling editor blocks after a legacy bullet", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<ul><li><p>First point</p></li></ul><p>Second paragraph</p>",
+      source,
+    );
+
+    expect(element.querySelector(":scope > ul > li")?.textContent).toBe(
+      "First point",
+    );
+    expect(element.querySelector(":scope > p")?.textContent).toBe(
+      "Second paragraph",
+    );
   });
 
   it("keeps persisted semantic lists styled without an editor marker", () => {

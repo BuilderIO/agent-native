@@ -75,6 +75,9 @@ describe("OAuth popup waiting route", () => {
     expect(response.headers.get("content-security-policy")).toBe(
       "default-src 'none'; frame-ancestors 'none'",
     );
+    expect(response.headers.get("cross-origin-opener-policy")).toBe(
+      "same-origin",
+    );
     expect(await response.text()).not.toContain("script");
   });
 

@@ -3663,6 +3663,7 @@ describe("server/auth", () => {
 
     it("serves the public home with the same cached auth document and head handoff", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_BASE_PATH", "/starter");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       defineAppConfig({ app: { homePath: "/home" } });
@@ -3681,16 +3682,18 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      const result = await guard(createMockEvent({ path: "/" }));
+      for (const path of ["/", "/starter//"]) {
+        const result = await guard(createMockEvent({ path }));
 
-      expect(result).toBeInstanceOf(Response);
-      const response = result as Response;
-      expectLoginHtmlCacheHeaders(response);
-      const html = await response.text();
-      const handoff = html.indexOf("data-agent-native-auth-redirect");
-      expect(handoff).toBeGreaterThan(html.indexOf("<head>"));
-      expect(handoff).toBeLessThan(html.indexOf("</head>"));
-      expect(handoff).toBeLessThan(html.indexOf("<body>"));
+        expect(result).toBeInstanceOf(Response);
+        const response = result as Response;
+        expectLoginHtmlCacheHeaders(response);
+        const html = await response.text();
+        const handoff = html.indexOf("data-agent-native-auth-redirect");
+        expect(handoff).toBeGreaterThan(html.indexOf("<head>"));
+        expect(handoff).toBeLessThan(html.indexOf("</head>"));
+        expect(handoff).toBeLessThan(html.indexOf("<body>"));
+      }
       expect(getSession).not.toHaveBeenCalled();
     });
 
@@ -4651,6 +4654,8 @@ describe("server/auth", () => {
       });
       expect(signInEmail).toHaveBeenCalledWith({
         body: { email: "user@example.com", password: "secret-password" },
+        headers: expect.any(Headers),
+        returnHeaders: true,
       });
       expect(event.res.headers.get("set-cookie")).toContain(
         "agent-native-first-run=1",

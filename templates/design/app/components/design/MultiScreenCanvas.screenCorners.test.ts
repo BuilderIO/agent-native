@@ -22,4 +22,13 @@ describe("screen selection chrome", () => {
   it("keeps no hardcoded chrome radius anywhere in the canvas", () => {
     expect(source).not.toContain("borderRadius: 13 * chromeScale");
   });
+
+  it("keeps draft vector endpoint marker reference points symmetric", () => {
+    const start = source.indexOf("function DraftPrimitiveContent(");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, start + 10_000);
+    expect(body).toContain('refX="8"');
+    expect(body).not.toContain('refX={side === "start" ? "2" : "8"}');
+    expect(body).toContain("orient={vectorEndpointMarkerOrientation(side)}");
+  });
 });

@@ -109,6 +109,36 @@ pub fn set_capture_included(window: &WebviewWindow) {
     set_window_capture_excluded(window, false);
 }
 
+/// Keep the popover's WebKit page alive without leaving a visible pinhole or
+/// intercepting clicks while recording chrome owns the interaction.
+#[cfg(target_os = "macos")]
+pub fn set_window_opacity(window: &WebviewWindow, opacity: f64) {
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] set_window_opacity({label}): ns_window() failed: {err}");
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] set_window_opacity({label}): ns_window is null");
+            return;
+        }
+        unsafe {
+            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+            let _: () = objc2::msg_send![&*obj, setAlphaValue: opacity];
+        }
+    }) {
+        eprintln!("[clips-tray] set_window_opacity: run_on_main_thread failed: {err}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_window_opacity(_window: &WebviewWindow, _opacity: f64) {}
+
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
     let app_handle = app.handle().clone();
     // The window is sized to the visible panel exactly. The HTML paints the

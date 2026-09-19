@@ -982,6 +982,7 @@ describe("calendar event listing", () => {
               email: "guest@example.com",
               displayName: "Guest Person",
               responseStatus: "needsAction",
+              additionalGuests: 2,
             },
           ],
           organizer: {
@@ -1016,6 +1017,7 @@ describe("calendar event listing", () => {
           email: "guest@example.com",
           displayName: "Guest Person",
           responseStatus: "needsAction",
+          additionalGuests: 2,
         },
       ],
       organizer: {

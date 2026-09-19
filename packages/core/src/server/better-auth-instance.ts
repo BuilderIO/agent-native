@@ -28,6 +28,7 @@ import {
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 import { magicLink } from "better-auth/plugins/magic-link";
+import { twoFactor } from "better-auth/plugins/two-factor";
 import {
   pgTable,
   text as pgText,
@@ -832,7 +833,9 @@ export interface BetterAuthInstance {
     } | null>;
     signInEmail: (opts: {
       body: { email: string; password: string };
-    }) => Promise<{ token?: string; user?: any } | null>;
+      headers?: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
     signInMagicLink: (opts: {
       body: {
         email: string;
@@ -865,6 +868,21 @@ export interface BetterAuthInstance {
       headers?: Headers;
     }) => Promise<any>;
     signOut: (opts: {
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
+    enableTwoFactor: (opts: {
+      body: { method: "totp"; password?: string };
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
+    disableTwoFactor: (opts: {
+      body: { password?: string };
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
+    verifyTOTP: (opts: {
+      body: { code: string; trustDevice?: boolean };
       headers: Headers;
       returnHeaders?: boolean;
     }) => Promise<any>;
@@ -914,10 +932,25 @@ const pgAuthSchema = {
     name: pgText("name").notNull(),
     email: pgText("email").notNull().unique(),
     emailVerified: pgBoolean("email_verified").notNull().default(false),
+    twoFactorEnabled: pgBoolean("two_factor_enabled").notNull().default(false),
     onboardingRole: pgText("onboarding_role"),
     image: pgText("image"),
     createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  twoFactor: pgTable("twoFactor", {
+    id: pgText("id").primaryKey(),
+    secret: pgText("secret").notNull(),
+    backupCodes: pgText("backup_codes").notNull(),
+    // guard:allow-identity-column — immutable Better Auth user id owned by the auth plugin
+    userId: pgText("user_id").notNull(),
+    verified: pgBoolean("verified").notNull().default(true),
+    failedVerificationCount: pgBigint("failed_verification_count", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    lockedUntil: pgTimestamp("locked_until", { withTimezone: true }),
   }),
   session: pgTable("session", {
     id: pgText("id").primaryKey(),
@@ -2176,6 +2209,11 @@ async function createBetterAuthInstance(
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
 
+  const configuredPlugins = config?.plugins ?? [];
+  const hasConfiguredTwoFactor = configuredPlugins.some(
+    (plugin) => plugin.id === "two-factor",
+  );
+
   const enterprisePlugins: BetterAuthPlugin[] = [];
   if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
     const { sso } = await import("@better-auth/sso");
@@ -2688,8 +2726,19 @@ async function createBetterAuthInstance(
       ),
       // Bearer: accept Bearer tokens on API requests
       bearer(),
+      // TOTP is opt-in per account. The plugin adds no sign-in step until a
+      // user enables it from account settings.
+      ...(hasConfiguredTwoFactor
+        ? []
+        : [
+            twoFactor({
+              issuer: getAppConfig().app.name || "Agent-Native",
+              allowPasswordless: true,
+              accountLockout: { enabled: true },
+            }),
+          ]),
       ...enterprisePlugins,
-      ...(config?.plugins ?? []),
+      ...configuredPlugins,
     ],
   });
 

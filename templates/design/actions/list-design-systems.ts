@@ -1,16 +1,31 @@
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import {
   accessFilter,
-  resolveAccess,
+  ROLE_RANK,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { desc } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { canManageDesignSystemRole } from "../server/lib/design-system-access.js";
 import { resolveDefaultDesignSystemId } from "../server/lib/design-system-defaults.js";
+
+type EffectiveRole = "owner" | ShareRole;
+
+function normalizeEmail(email: string | undefined): string | null {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || null;
+}
+
+function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
+  if (!current || ROLE_RANK[next] > ROLE_RANK[current]) return next;
+  return current;
+}
 
 export default defineAction({
   description:
@@ -30,8 +45,23 @@ export default defineAction({
   mcpApp: { compactCatalog: true },
   run: async (args) => {
     const db = getDb();
+    const userEmail = normalizeEmail(getRequestUserEmail());
+    const orgId = getRequestOrgId();
     const rows = await db
-      .select()
+      .select({
+        id: schema.designSystems.id,
+        title: schema.designSystems.title,
+        description: schema.designSystems.description,
+        data: schema.designSystems.data,
+        assets: schema.designSystems.assets,
+        customInstructions: schema.designSystems.customInstructions,
+        isDefault: schema.designSystems.isDefault,
+        visibility: schema.designSystems.visibility,
+        ownerEmail: schema.designSystems.ownerEmail,
+        orgId: schema.designSystems.orgId,
+        createdAt: schema.designSystems.createdAt,
+        updatedAt: schema.designSystems.updatedAt,
+      })
       .from(schema.designSystems)
       .where(accessFilter(schema.designSystems, schema.designSystemShares))
       .orderBy(desc(schema.designSystems.updatedAt));
@@ -43,48 +73,73 @@ export default defineAction({
     // The row-level isDefault column is per-owner, so a shared system owned by
     // someone else can carry isDefault: true for them. Compute the caller's
     // own effective default once and report that instead of the raw column.
-    const userEmail = getRequestUserEmail();
     const effectiveDefaultId = userEmail
       ? await resolveDefaultDesignSystemId(userEmail)
       : null;
 
-    const accessById = new Map<
-      string,
-      { role: "owner" | ShareRole; canManage: boolean }
-    >();
-    await Promise.all(
-      rows.map(async (row) => {
-        const access = await resolveAccess("design-system", row.id);
-        if (!access) {
-          // accessFilter admitted this row but resolveAccess cannot name a
-          // role, so create-design's assertAccess will reject the same id the
-          // picker just offered.
-          console.warn(
-            `[design] list-design-systems: no resolvable access for ` +
-              `design-system ${row.id} ("${row.title}") that accessFilter ` +
-              `admitted; create-design will reject it.`,
-          );
-        }
-        const role = access?.role ?? "viewer";
-        accessById.set(row.id, {
-          role,
-          canManage: canManageDesignSystemRole(role),
-        });
-      }),
-    );
+    // Resolve every row's role from one batched shares query. Calling
+    // resolveAccess() per row reloads the resource and its shares (N+1) and
+    // fans out an unbounded Promise.all as the catalog grows.
+    const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
+    if (userEmail) {
+      principalClauses.push(
+        and(
+          eq(schema.designSystemShares.principalType, "user"),
+          sql`lower(${schema.designSystemShares.principalId}) = ${userEmail}`,
+        )!,
+      );
+    }
+    if (orgId) {
+      principalClauses.push(
+        and(
+          eq(schema.designSystemShares.principalType, "org"),
+          eq(schema.designSystemShares.principalId, orgId),
+        )!,
+      );
+    }
+
+    const shareRoleById = new Map<string, ShareRole>();
+    if (principalClauses.length > 0) {
+      const shareRows = await db
+        .select({
+          resourceId: schema.designSystemShares.resourceId,
+          role: schema.designSystemShares.role,
+        })
+        .from(schema.designSystemShares)
+        .where(
+          and(
+            inArray(
+              schema.designSystemShares.resourceId,
+              rows.map((row) => row.id),
+            ),
+            or(...principalClauses),
+          ),
+        );
+      for (const share of shareRows) {
+        shareRoleById.set(
+          share.resourceId,
+          strongerRole(shareRoleById.get(share.resourceId) ?? null, share.role),
+        );
+      }
+    }
 
     const items = rows.map((row) => {
-      const access = accessById.get(row.id) ?? {
-        role: "viewer" as const,
-        canManage: false,
-      };
+      let role: EffectiveRole = shareRoleById.get(row.id) ?? "viewer";
+      if (
+        userEmail &&
+        normalizeEmail(row.ownerEmail) === userEmail &&
+        (!row.orgId || row.orgId === orgId)
+      ) {
+        role = "owner";
+      }
+      const canManage = canManageDesignSystemRole(role);
       if (args.compact === "true") {
         return {
           id: row.id,
           title: row.title,
           isDefault: row.id === effectiveDefaultId,
-          accessRole: access.role,
-          canManage: access.canManage,
+          accessRole: role,
+          canManage,
         };
       }
       return {
@@ -96,8 +151,8 @@ export default defineAction({
         customInstructions: row.customInstructions ?? "",
         isDefault: row.id === effectiveDefaultId,
         visibility: row.visibility,
-        accessRole: access.role,
-        canManage: access.canManage,
+        accessRole: role,
+        canManage,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
