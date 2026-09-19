@@ -518,7 +518,10 @@ function sanitizeForJson(
     }
     budget.binaryStringBytes += hexBytes;
     recordBinaryField(budget, parent, key);
-    return bytesToHexString(value);
+    const hex = bytesToHexString(value);
+    // Box a root binary string so its safety metadata has an object identity;
+    // JSON.stringify unboxes String objects back to the expected primitive.
+    return parent === undefined && key === undefined ? new String(hex) : hex;
   }
   if (typeof value === "string") {
     accountDecodedStringBytes(utf8ByteLength(value), budget);
@@ -586,6 +589,27 @@ function sanitizeForJson(
   return value;
 }
 
+export function sanitizeDecodedFigDocument(value: unknown): unknown {
+  const budget: ObjectBudget = {
+    objects: 0,
+    items: 0,
+    binaryBytes: 0,
+    binaryStringBytes: 0,
+    stringBytes: 0,
+    active: new WeakSet(),
+    binaryFields: new WeakMap(),
+    rootIsBinary: false,
+  };
+  const sanitizedDocument = sanitizeForJson(value, budget);
+  if (sanitizedDocument !== null && typeof sanitizedDocument === "object") {
+    sanitizedDocumentMetadata.set(sanitizedDocument, {
+      binaryFields: budget.binaryFields,
+      rootIsBinary: budget.rootIsBinary,
+    });
+  }
+  return sanitizedDocument;
+}
+
 /** Re-check decoded/direct-test documents before renderer traversal. */
 export function assertSafeDecodedFigDocument(value: unknown): void {
   const stack: Array<{
@@ -616,8 +640,14 @@ export function assertSafeDecodedFigDocument(value: unknown): void {
       }
       continue;
     }
-    if (typeof current.value === "string") {
-      const bytes = utf8ByteLength(current.value);
+    const stringValue =
+      typeof current.value === "string"
+        ? current.value
+        : current.value instanceof String
+          ? current.value.valueOf()
+          : undefined;
+    if (stringValue !== undefined) {
+      const bytes = utf8ByteLength(stringValue);
       const isGeneratedBinaryString =
         metadata !== undefined &&
         (current.parent === undefined
@@ -887,25 +917,8 @@ function decodeKiwiDocument(
     );
     const bb = new BudgetByteBuffer(view);
     const document = decoder.call(compiled, bb);
-    const budget: ObjectBudget = {
-      objects: 0,
-      items: 0,
-      binaryBytes: 0,
-      binaryStringBytes: 0,
-      stringBytes: 0,
-      active: new WeakSet(),
-      binaryFields: new WeakMap(),
-      rootIsBinary: false,
-    };
-    const sanitizedDocument = sanitizeForJson(document, budget);
-    if (sanitizedDocument !== null && typeof sanitizedDocument === "object") {
-      sanitizedDocumentMetadata.set(sanitizedDocument, {
-        binaryFields: budget.binaryFields,
-        rootIsBinary: budget.rootIsBinary,
-      });
-    }
     return {
-      document: sanitizedDocument,
+      document: sanitizeDecodedFigDocument(document),
     };
   } catch (e) {
     return {
