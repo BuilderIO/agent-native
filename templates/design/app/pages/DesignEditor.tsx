@@ -3757,7 +3757,13 @@ function DesignEditor() {
     { id: id! },
     {
       enabled: !shellMode,
-      refetchInterval: pendingGenerationActive || generating ? 1000 : false,
+      refetchInterval: isVisualEditSurface
+        ? pendingGenerationActive || generating
+          ? 1000
+          : 30_000
+        : pendingGenerationActive || generating
+          ? 1000
+          : false,
     },
   );
   const {
@@ -3859,10 +3865,16 @@ function DesignEditor() {
       designAccessRole === "commenter");
   const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
   const visualEditAccessAttemptRef = useRef<string | null>(null);
+  const visualEditCanEditRef = useRef<boolean | null>(null);
+  const visualEditAccessRequestRef = useRef(0);
   const [visualEditBootstrapFailed, setVisualEditBootstrapFailed] =
     useState(false);
 
   useEffect(() => {
+    const previousCanEdit = visualEditCanEditRef.current;
+    visualEditCanEditRef.current = canEditDesign;
+    let active = true;
+
     // Wait for the server-backed design result. It is the authority for both
     // signed-in editor access and the scoped visual-edit capability ticket.
     if (
@@ -3872,21 +3884,37 @@ function DesignEditor() {
       shellMode ||
       designResult === undefined
     ) {
-      return;
+      return () => {
+        active = false;
+      };
     }
     if (canEditDesign) {
-      visualEditAccessAttemptRef.current = id;
+      visualEditAccessAttemptRef.current = null;
       setVisualEditBootstrapFailed(false);
-      return;
+      visualEditAccessRequestRef.current += 1;
+      return () => {
+        active = false;
+      };
     }
-    if (visualEditAccessAttemptRef.current === id) return;
+    if (
+      previousCanEdit === false &&
+      visualEditAccessAttemptRef.current !== null
+    ) {
+      return () => {
+        active = false;
+      };
+    }
 
     visualEditAccessAttemptRef.current = id;
+    const requestId = ++visualEditAccessRequestRef.current;
     setVisualEditBootstrapFailed(false);
     void callAction<{ startUrl?: string }>("issue-visual-edit-access", {
       designId: id,
     })
       .then((result) => {
+        if (!active || visualEditAccessRequestRef.current !== requestId) {
+          return;
+        }
         if (!result?.startUrl) {
           throw new Error("Visual-edit access did not return a start URL.");
         }
@@ -3895,11 +3923,21 @@ function DesignEditor() {
         );
       })
       .catch(() => {
-        if (visualEditAccessAttemptRef.current === id) {
+        if (
+          active &&
+          visualEditAccessRequestRef.current === requestId &&
+          visualEditAccessAttemptRef.current === id
+        ) {
           visualEditAccessAttemptRef.current = null;
           setVisualEditBootstrapFailed(true);
         }
       });
+    return () => {
+      active = false;
+      if (visualEditAccessRequestRef.current === requestId) {
+        visualEditAccessRequestRef.current += 1;
+      }
+    };
   }, [
     canEditDesign,
     designResult,
