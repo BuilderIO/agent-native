@@ -1233,6 +1233,30 @@ function DesignEditor() {
   // so every `embedded` behaviour below would otherwise read as a standalone
   // Design page and put our own chrome and agent inside Builder's.
   const embedded = shellMode || isEmbedAuthActive();
+  const isVisualEditSurface = location.pathname.startsWith("/visual-edit/");
+  const visualEditAccessAttemptRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isVisualEditSurface || !id || !sessionResolved || embedded) return;
+    if (visualEditAccessAttemptRef.current === id) return;
+
+    visualEditAccessAttemptRef.current = id;
+    void callAction<{ startUrl?: string }>("issue-visual-edit-access", {
+      designId: id,
+    })
+      .then((result) => {
+        if (!result?.startUrl) {
+          throw new Error("Visual-edit access did not return a start URL.");
+        }
+        window.location.replace(
+          new URL(result.startUrl, window.location.href).toString(),
+        );
+      })
+      .catch(() => {
+        if (visualEditAccessAttemptRef.current === id) {
+          visualEditAccessAttemptRef.current = null;
+        }
+      });
+  }, [embedded, id, isVisualEditSurface, sessionResolved]);
   const embedChromeRequested = isEmbedChromeRequested();
   // The shell keeps our rails and hands the host only the chat, so it must not
   // depend on `embedChrome` surviving in the URL Builder builds.
