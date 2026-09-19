@@ -5,7 +5,17 @@ import {
   withColorOpacity,
 } from "@shared/color-utils";
 import {
+  isVectorEndpointStyle,
+  isVectorEndpointPrimitiveKind,
+  vectorEndpointPairForPrimitive,
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_ENDPOINT_STYLES,
+  VECTOR_START_ENDPOINT_PROPERTY,
+  type VectorEndpointStyle,
+} from "@shared/vector-endpoints";
+import {
   IconAdjustments,
+  IconArrowsLeftRight,
   IconBorderStyle,
   IconEye,
   IconEyeOff,
@@ -14,6 +24,7 @@ import {
   IconPlus,
   IconSquare,
 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 
 import {
   Select,
@@ -65,6 +76,7 @@ import type {
   StylesChangeHandler,
 } from "./style-change-types";
 import { STROKE_POSITION_OPTIONS } from "./style-options";
+import { vectorEndpointInspectorIdentity } from "./vector-endpoint-inspector";
 
 /**
  * Paint types allowed for CSS properties with no clean gradient/image
@@ -398,6 +410,7 @@ export function StrokeProperties({
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
+        breakpointOverrideContext={breakpointOverrideContext}
       />
     );
   }
@@ -772,14 +785,183 @@ function TextStrokeProperties({
  * a box border. `vectorPaintChild` (code-layer) and `vectorPaintTarget`
  * (bridge) land these writes on the `<path>`, not on the `<svg>` bounding box.
  */
-function VectorStrokeProperties({
+function VectorEndpointControls({
   element,
+  styles,
   onStyleChange,
   onStylesChange,
 }: {
   element: ElementInfo;
+  styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+}) {
+  const t = useT();
+  const startStyle = styles[VECTOR_START_ENDPOINT_PROPERTY];
+  const endStyle = styles[VECTOR_END_ENDPOINT_PROPERTY];
+  const endpoints = vectorEndpointPairForPrimitive(
+    element.primitiveKind,
+    startStyle,
+    endStyle,
+  );
+  const endpointIdentity = vectorEndpointInspectorIdentity(element);
+  const [localEndpointState, setLocalEndpointState] = useState(() => ({
+    identity: endpointIdentity,
+    endpoints,
+  }));
+  useEffect(() => {
+    setLocalEndpointState((current) => {
+      if (current.identity !== endpointIdentity) {
+        return { identity: endpointIdentity, endpoints };
+      }
+      // Bridge selection updates can omit the authored custom properties while
+      // the source commit is already durable. Preserve the last inspector
+      // values in that gap so a batched action such as swap uses the current
+      // pair instead of silently falling back to none/none.
+      if (
+        !isVectorEndpointStyle(startStyle) &&
+        !isVectorEndpointStyle(endStyle)
+      ) {
+        return current;
+      }
+      const nextEndpoints = {
+        startPoint: isVectorEndpointStyle(startStyle)
+          ? startStyle
+          : current.endpoints.startPoint,
+        endPoint: isVectorEndpointStyle(endStyle)
+          ? endStyle
+          : current.endpoints.endPoint,
+      };
+      if (
+        nextEndpoints.startPoint === current.endpoints.startPoint &&
+        nextEndpoints.endPoint === current.endpoints.endPoint
+      ) {
+        return current;
+      }
+      return { identity: endpointIdentity, endpoints: nextEndpoints };
+    });
+  }, [
+    endpointIdentity,
+    endpoints.endPoint,
+    endpoints.startPoint,
+    endStyle,
+    startStyle,
+  ]);
+  const currentEndpoints =
+    localEndpointState.identity === endpointIdentity
+      ? localEndpointState.endpoints
+      : endpoints;
+  const endpointLabels: Record<VectorEndpointStyle, string> = {
+    none: t("designEditor.vectorEndpoints.options.none"),
+    round: t("designEditor.vectorEndpoints.options.round"),
+    square: t("designEditor.vectorEndpoints.options.square"),
+    line: t("designEditor.vectorEndpoints.options.line"),
+    triangle: t("designEditor.vectorEndpoints.options.triangle"),
+    "reversed-triangle": t(
+      "designEditor.vectorEndpoints.options.reversedTriangle",
+    ),
+    circle: t("designEditor.vectorEndpoints.options.circle"),
+    diamond: t("designEditor.vectorEndpoints.options.diamond"),
+  };
+  const updateEndpoint = (property: string, value: string): void => {
+    if (!isVectorEndpointStyle(value)) return;
+    setLocalEndpointState((current) => ({
+      identity: endpointIdentity,
+      endpoints: {
+        ...current.endpoints,
+        ...(property === VECTOR_START_ENDPOINT_PROPERTY
+          ? { startPoint: value }
+          : { endPoint: value }),
+      },
+    }));
+    onStyleChange(property, value);
+  };
+  const swapEndpoints = () => {
+    const patch = {
+      [VECTOR_START_ENDPOINT_PROPERTY]: currentEndpoints.endPoint,
+      [VECTOR_END_ENDPOINT_PROPERTY]: currentEndpoints.startPoint,
+    };
+    setLocalEndpointState({
+      identity: endpointIdentity,
+      endpoints: {
+        startPoint: currentEndpoints.endPoint,
+        endPoint: currentEndpoints.startPoint,
+      },
+    });
+    if (onStylesChange) onStylesChange(patch);
+    else {
+      onStyleChange(VECTOR_START_ENDPOINT_PROPERTY, currentEndpoints.endPoint);
+      onStyleChange(VECTOR_END_ENDPOINT_PROPERTY, currentEndpoints.startPoint);
+    }
+  };
+
+  const select = (side: "start" | "end", value: VectorEndpointStyle) => (
+    <Select
+      value={value}
+      onValueChange={(next) =>
+        updateEndpoint(
+          side === "start"
+            ? VECTOR_START_ENDPOINT_PROPERTY
+            : VECTOR_END_ENDPOINT_PROPERTY,
+          next,
+        )
+      }
+    >
+      <SelectTrigger
+        aria-label={
+          side === "start"
+            ? t("designEditor.vectorEndpoints.startPoint")
+            : t("designEditor.vectorEndpoints.endPoint")
+        }
+        className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {VECTOR_ENDPOINT_STYLES.map((option) => (
+          <SelectItem key={option} value={option} className="!text-[11px]">
+            {endpointLabels[option]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  return (
+    <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-1">
+      <div className="min-w-0 space-y-1">
+        <SubsectionLabel>
+          {t("designEditor.vectorEndpoints.startPoint")}
+        </SubsectionLabel>
+        {select("start", currentEndpoints.startPoint)}
+      </div>
+      <SectionIconButton
+        label={t("designEditor.vectorEndpoints.swap")}
+        onClick={swapEndpoints}
+        className="mb-0.5"
+      >
+        <IconArrowsLeftRight className="size-3.5" />
+      </SectionIconButton>
+      <div className="min-w-0 space-y-1">
+        <SubsectionLabel>
+          {t("designEditor.vectorEndpoints.endPoint")}
+        </SubsectionLabel>
+        {select("end", currentEndpoints.endPoint)}
+      </div>
+    </div>
+  );
+}
+
+function VectorStrokeProperties({
+  element,
+  onStyleChange,
+  onStylesChange,
+  breakpointOverrideContext,
+}: {
+  element: ElementInfo;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -800,6 +982,12 @@ function VectorStrokeProperties({
   )
     ? (styles["--an-vector-stroke-position"] as StrokePosition)
     : "center";
+  const supportsEndpointControls =
+    element.tagName?.toLowerCase() === "svg" &&
+    isVectorEndpointPrimitiveKind(element.primitiveKind) &&
+    // Marker choices require a structural SVG rewrite. Keep them out of a
+    // responsive scope until the marker DOM can be scoped with the value.
+    breakpointOverrideContext?.activeWidthPx == null;
 
   return (
     <PanelSection
@@ -885,6 +1073,14 @@ function VectorStrokeProperties({
               </SectionIconButton>
             </InspectorGridCell>
           </InspectorPaintRow>
+          {supportsEndpointControls ? (
+            <VectorEndpointControls
+              element={element}
+              styles={styles}
+              onStyleChange={onStyleChange}
+              onStylesChange={onStylesChange}
+            />
+          ) : null}
           <InspectorGrid className="items-center" layout="stroke-details">
             <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
               {canAlignStroke ? (

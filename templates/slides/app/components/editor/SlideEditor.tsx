@@ -37,7 +37,10 @@ import {
 } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
-import { ZERO_WIDTH_SPACE } from "@/components/editor/bullet-editing";
+import {
+  isBulletRow,
+  ZERO_WIDTH_SPACE,
+} from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -1233,6 +1236,7 @@ function ElementSelectionOutline({
   viewportRect,
   onResizeStart,
   onMoveStart,
+  allowBodyMove = true,
   onRotateStart,
 }: {
   rect: DOMRect;
@@ -1240,6 +1244,7 @@ function ElementSelectionOutline({
   viewportRect: DOMRect | null;
   onResizeStart?: (handle: ResizeHandle, e: React.PointerEvent) => void;
   onMoveStart?: (e: React.PointerEvent) => void;
+  allowBodyMove?: boolean;
   onRotateStart?: (e: React.PointerEvent) => void;
 }) {
   const pad = 2;
@@ -1251,6 +1256,12 @@ function ElementSelectionOutline({
   const edgeHandleClass =
     "absolute flex touch-none items-center justify-center bg-transparent p-0";
   const edgeBarClass = "rounded-sm";
+  const moveHandleStyles = [
+    ["n", { top: -4, left: 7, right: 7, height: 8 }],
+    ["e", { top: 7, right: -4, bottom: 7, width: 8 }],
+    ["s", { right: 7, bottom: -4, left: 7, height: 8 }],
+    ["w", { bottom: 7, left: -4, top: 7, width: 8 }],
+  ] as const;
   return (
     <SelectionOverlayPortal viewportRect={viewportRect} zIndex={51}>
       <div
@@ -1272,7 +1283,22 @@ function ElementSelectionOutline({
             : undefined,
         }}
       >
-        {onMoveStart && (
+        {onMoveStart &&
+          moveHandleStyles.map(([edge, style]) => (
+            <span
+              key={edge}
+              data-slide-move-handle={edge}
+              onPointerDown={onMoveStart}
+              className="absolute touch-none"
+              style={{
+                ...style,
+                pointerEvents: "auto",
+                cursor: "move",
+                zIndex: 0,
+              }}
+            />
+          ))}
+        {onMoveStart && allowBodyMove && (
           <span
             data-slide-group-move-handle="true"
             onPointerDown={onMoveStart}
@@ -1389,6 +1415,43 @@ function ElementSelectionOutline({
           <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
         </span>
       </div>
+    </SelectionOverlayPortal>
+  );
+}
+
+function ElementHoverOutline({
+  rect,
+  frame,
+  viewportRect,
+}: {
+  rect: DOMRect;
+  frame?: SelectionOverlayMeasurement["frame"];
+  viewportRect: DOMRect | null;
+}) {
+  const pad = 2;
+  const left = frame?.left ?? rect.left;
+  const top = frame?.top ?? rect.top;
+  const width = frame?.width ?? rect.width;
+  const height = frame?.height ?? rect.height;
+
+  return (
+    <SelectionOverlayPortal viewportRect={viewportRect} zIndex={49}>
+      <div
+        data-slide-layer-hover-outline="true"
+        style={{
+          position: "absolute",
+          top: top - pad,
+          left: left - pad,
+          width: width + pad * 2,
+          height: height + pad * 2,
+          pointerEvents: "none",
+          borderRadius: 3,
+          transform: frame?.transform,
+          transformOrigin: frame
+            ? `${frame.transformOrigin.x + pad}px ${frame.transformOrigin.y + pad}px`
+            : undefined,
+        }}
+      />
     </SelectionOverlayPortal>
   );
 }
@@ -1627,6 +1690,12 @@ export default function SlideEditor({
   >(null);
   const [selectedElementMeasurement, setSelectedElementMeasurement] =
     useState<SelectionOverlayMeasurement | null>(null);
+  const [hoveredLayerId, setHoveredLayerId] = useState<string | null>(null);
+  const [hoveredLayerMeasurement, setHoveredLayerMeasurement] = useState<{
+    id: string;
+    rect: DOMRect;
+    frame: SelectionOverlayMeasurement["frame"];
+  } | null>(null);
   const [selectionMeasurementRevision, setSelectionMeasurementRevision] =
     useState(0);
   const canvasAutofitKey = createSelectionOverlayAutofitKey(slide.id, content);
@@ -2705,17 +2774,18 @@ export default function SlideEditor({
         el.contains(nativeRange.endContainer)
           ? selectionOffsetsWithin(el, nativeRange)
           : null;
-      const initialHtml = isSlideTextContainerTag(el.tagName)
-        ? contentForSlideTextContainer(
-            el.tagName,
-            el.outerHTML,
-            el.tagName === "LI" &&
-              (el.parentElement?.tagName === "OL" ||
-                el.parentElement?.tagName === "UL")
-              ? (el.parentElement.tagName as "OL" | "UL")
-              : undefined,
-          )
-        : el.innerHTML;
+      const initialHtml =
+        isSlideTextContainerTag(el.tagName) || isBulletRow(el)
+          ? contentForSlideTextContainer(
+              el.tagName,
+              el.outerHTML,
+              el.tagName === "LI" &&
+                (el.parentElement?.tagName === "OL" ||
+                  el.parentElement?.tagName === "UL")
+                ? (el.parentElement.tagName as "OL" | "UL")
+                : undefined,
+            )
+          : el.innerHTML;
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;
       const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
@@ -3074,9 +3144,47 @@ export default function SlideEditor({
     canvasAutofitKey,
     settledAutofitKey,
     selectionOverlayMeasurementKey,
+    editingEl,
+    richTextEditorRevision,
     slide.content,
     slide.id,
   ]);
+
+  useLayoutEffect(() => {
+    if (!layersOpen || !hoveredLayerId) {
+      setHoveredLayerMeasurement(null);
+      return;
+    }
+
+    const update = () => {
+      const slideContent = getSlideContent();
+      const element = slideContent?.querySelector<HTMLElement>(
+        `[data-builder-id="${hoveredLayerId}"]`,
+      );
+      if (!element) {
+        setHoveredLayerMeasurement(null);
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      setHoveredLayerMeasurement({
+        id: hoveredLayerId,
+        rect,
+        frame: readSlideObjectSelectionFrame(element, rect),
+      });
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [canvasZoom, getSlideContent, hoveredLayerId, layersOpen, slide.content]);
+
+  useEffect(() => {
+    if (!layersOpen) setHoveredLayerId(null);
+  }, [layersOpen]);
 
   // Deselect when clicking outside
   useEffect(() => {
@@ -8287,8 +8395,7 @@ export default function SlideEditor({
 
   // Flow objects are promoted for the resize gesture and restored when a
   // press does not become a resize.
-  const selectedForDrag =
-    selectedElementRect && !editingEl ? resolveSelectedElement() : null;
+  const selectedForDrag = selectedElementRect ? resolveSelectedElement() : null;
   const isSelectedElementDraggable = selectedForDrag
     ? !isSlideCanvasShell(selectedForDrag)
     : false;
@@ -8520,6 +8627,10 @@ export default function SlideEditor({
     <SlidesLayersPanel
       layers={layerNodes}
       selectedIds={selectedLayerIds}
+      onHoverLayer={setHoveredLayerId}
+      onLeaveLayer={(id) =>
+        setHoveredLayerId((current) => (current === id ? null : current))
+      }
       contextMenuContent={readOnly ? undefined : slideElementContextMenuContent}
       onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}
       onContextMenuClose={clearContextMenuState}
@@ -8778,11 +8889,27 @@ export default function SlideEditor({
           viewportRect={selectionViewportRect}
         />
       )}
-      {selectedElementRect && !editingEl && !multiSelectionBounds && (
+      {hoveredLayerMeasurement &&
+        !selectedLayerIds.has(hoveredLayerMeasurement.id) && (
+          <ElementHoverOutline
+            rect={hoveredLayerMeasurement.rect}
+            frame={hoveredLayerMeasurement.frame}
+            viewportRect={selectionViewportRect}
+          />
+        )}
+      {selectedElementRect && !multiSelectionBounds && (
         <ElementSelectionOutline
           rect={selectedElementRect}
           frame={selectedElementFrame}
           viewportRect={selectionViewportRect}
+          allowBodyMove={Boolean(
+            selectedForDrag && !isRichTextBlock(selectedForDrag),
+          )}
+          onMoveStart={
+            !readOnly && isSelectedElementDraggable && selectedForDrag
+              ? (e) => startElementDrag(e, selectedForDrag)
+              : undefined
+          }
           onResizeStart={
             !readOnly && isSelectedElementDraggable && selectedElementFrame
               ? startElementResize

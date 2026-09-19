@@ -1183,7 +1183,7 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "新建空间",
-    description: "在当前组织中创建空间。",
+    description: "空间是组织用来整理录制内容的共享场所。",
     name: "名称",
     color: "颜色",
     useColor: "使用颜色 {{color}}",
@@ -1377,7 +1377,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app (已本地化)",
     surfaceBrowser: "Browser tab (已本地化)",
     surfaceBrowserDescription: "Choose an open tab (已本地化)",
-    surfaceScreen: "Screen (已本地化)",
+    surfaceScreen: "全屏",
     surfaceScreenDescription: "Capture everything (已本地化)",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection. (已本地化)",
@@ -1496,7 +1496,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app (已本地化)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (已本地化)",
+    recordOnDesktop: "在桌面端录制",
     downloadDesktopApp: "Download desktop app (已本地化)",
+    getChromeExtension: "获取 Chrome 扩展",
     technicalDetails: "Technical details (已本地化)",
     whatToCheck: "What to check (已本地化)",
     downloadRecording: "Download (已本地化)",

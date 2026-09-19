@@ -18,14 +18,29 @@ describe("screen height modes", () => {
     expect(isImportedStaticScreenSource("figma-import")).toBe(true);
     expect(isImportedStaticScreenSource("html-upload")).toBe(true);
     expect(isImportedStaticScreenSource("fig-frame")).toBe(true);
+    expect(isImportedStaticScreenSource("creative-context")).toBe(true);
     expect(isImportedStaticScreenSource("creative-context-native-clone")).toBe(
       true,
     );
     expect(isImportedStaticScreenSource("inline")).toBe(false);
+    expect(resolveScreenHeightMode(undefined, false, "fig-frame")).toBe(
+      "fixed",
+    );
+    expect(resolveScreenHeightMode(undefined, false, "creative-context")).toBe(
+      "fixed",
+    );
+    expect(
+      resolveScreenHeightMode(
+        undefined,
+        false,
+        "creative-context-native-clone",
+      ),
+    ).toBe("fixed");
     expect(resolveScreenHeightMode(undefined, false, "figma-import")).toBe(
       "fixed",
     );
     expect(resolveScreenHeightMode("hug", false, "figma-import")).toBe("hug");
+    expect(resolveScreenHeightMode("auto", false, "fig-frame")).toBe("auto");
     expect(resolveScreenHeightMode("auto", false, "figma-import")).toBe("auto");
   });
 

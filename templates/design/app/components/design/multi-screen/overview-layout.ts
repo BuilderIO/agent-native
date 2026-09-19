@@ -126,6 +126,44 @@ export function getBoardSurfaceStaticPreviewViewport(
   };
 }
 
+/** Clip the inert 4k board replica to the camera window before the world scale. */
+export function getBoardSurfaceStaticPreviewClip(args: {
+  logicalGeometry: FrameGeometry;
+  viewportGeometry?: FrameGeometry | null;
+}) {
+  const { logicalGeometry, viewportGeometry } = args;
+  if (!viewportGeometry) return undefined;
+
+  const width = Math.max(1, logicalGeometry.width);
+  const height = Math.max(1, logicalGeometry.height);
+  const left = Math.min(
+    width,
+    Math.max(0, viewportGeometry.x - logicalGeometry.x),
+  );
+  const top = Math.min(
+    height,
+    Math.max(0, viewportGeometry.y - logicalGeometry.y),
+  );
+  const right = Math.min(
+    width,
+    Math.max(
+      0,
+      logicalGeometry.x + width - (viewportGeometry.x + viewportGeometry.width),
+    ),
+  );
+  const bottom = Math.min(
+    height,
+    Math.max(
+      0,
+      logicalGeometry.y +
+        height -
+        (viewportGeometry.y + viewportGeometry.height),
+    ),
+  );
+
+  return `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+}
+
 export function getBoardSurfaceStaticPreviewTransform(args: {
   logicalGeometry: FrameGeometry;
   viewport: { width: number; height: number };

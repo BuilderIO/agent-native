@@ -116,6 +116,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       "iframe[data-design-preview-iframe]",
     );
     expect(liveIframe?.hasAttribute("srcdoc")).toBe(false);
+    expect(liveIframe?.style.pointerEvents).toBe("");
 
     await act(async () => {
       liveIframe?.dispatchEvent(new Event("load"));
@@ -180,6 +181,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       ).toHaveLength(1);
       expect(container.textContent).toContain("Reconnect this screen");
     });
+    expect(
+      container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      )?.style.pointerEvents,
+    ).toBe("none");
 
     await new Promise((resolve) => window.setTimeout(resolve, 1800));
     expect(
@@ -192,6 +198,47 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         requestInfoUrl(input).includes("/snapshot?"),
       ),
     ).toHaveLength(1);
+  });
+
+  it("keeps a failed-bridge Interact preview interactive", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestInfoUrl(input);
+      if (url.endsWith("/live-edit-bridge") || url.includes("/snapshot?")) {
+        return Promise.resolve(new Response("Unauthorized", { status: 401 }));
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken="stale-preview-token"
+          onExternalContentSnapshot={() => {}}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Reconnect this screen");
+    });
+    expect(
+      container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      )?.style.pointerEvents,
+    ).toBe("");
   });
 
   it("allows Chrome local-network access on the raw localhost fallback", async () => {

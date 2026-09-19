@@ -1,4 +1,5 @@
 import { findEnclosingList } from "./bullet-editing";
+import { detectSlideListKind } from "./list-editing";
 
 type EditingTarget = EventTarget | Element | null;
 
@@ -305,7 +306,7 @@ function hasUnsafeRichTextDescendant(element: HTMLElement): boolean {
 function canEnterRichTextEdit(element: HTMLElement): boolean {
   if (!isRichTextBlock(element)) return false;
   // A single text layer keeps its outer style while its contents are edited.
-  if (isTextLeaf(element)) return true;
+  if (isTextLeaf(element) || detectSlideListKind(element)) return true;
   return !hasUnsafeRichTextDescendant(element);
 }
 

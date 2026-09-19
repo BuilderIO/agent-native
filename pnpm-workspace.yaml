@@ -4,7 +4,7 @@ packages:
   - templates/*/desktop
   - templates/*/chrome-extension
   - community-templates
-  - community-templates/toolkit
+  - community-templates/*
 
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:

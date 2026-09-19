@@ -2,6 +2,7 @@
   color-scheme: light dark;
   --background: #ffffff;
   --foreground: hsl(0 0% 10%);
+  --toggle-thumb: var(--foreground);
   --card: #ffffff;
   --primary: hsl(0 0% 15%);
   --primary-foreground: #ffffff;
@@ -43,6 +44,7 @@
   :root {
     --background: hsl(0 0% 13%);
     --foreground: hsl(0 0% 96%);
+    --toggle-thumb: var(--foreground);
     --card: hsl(0 0% 15%);
     --primary: hsl(0 0% 96%);
     --primary-foreground: hsl(0 0% 10%);
@@ -97,7 +99,7 @@ svg {
 }
 
 .popup-page {
-  width: 360px;
+  width: 320px;
   background: var(--bg);
 }
 
@@ -105,13 +107,26 @@ svg {
   display: flex;
   width: 100%;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   overflow: visible;
-  padding: 14px;
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 14px;
   background: var(--bg);
   color: var(--fg);
+}
+
+.recorder-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+#idle-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .popup-header {
@@ -122,7 +137,8 @@ svg {
 .desktop-header {
   position: relative;
   justify-content: center;
-  min-height: 30px;
+  min-height: 36px;
+  padding: 0 14px;
 }
 
 .header-feedback,
@@ -136,7 +152,7 @@ svg {
 
 .header-feedback {
   position: absolute;
-  left: 0;
+  left: 14px;
   height: 28px;
   padding: 0 9px;
   font-size: 12px;
@@ -145,7 +161,7 @@ svg {
 
 .header-close {
   position: absolute;
-  right: 0;
+  right: 14px;
 }
 
 .icon-button {
@@ -184,8 +200,8 @@ svg {
 .mode-option {
   position: relative;
   display: inline-flex;
-  width: 34px;
-  min-width: 34px;
+  width: 64px;
+  min-width: 64px;
   height: 28px;
   cursor: pointer;
   align-items: center;
@@ -270,22 +286,33 @@ svg {
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .row {
   position: relative;
   display: flex;
-  min-height: 42px;
+  min-height: 30px;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   transition:
     background 120ms,
     border-color 120ms;
+}
+
+.row:hover {
+  background: var(--surface-hover);
+}
+
+#camera-row,
+#microphone-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 44px;
+  column-gap: 10px;
 }
 
 .row[hidden] {
@@ -417,24 +444,42 @@ svg {
 }
 
 .toggle {
+  position: relative;
   display: inline-flex;
-  height: 22px;
+  width: 32px;
+  height: 18px;
   align-items: center;
   border: 0;
   border-radius: var(--radius-pill);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 0;
   line-height: 1;
-  padding: 4px 12px;
+  padding: 0;
   transition:
     background 120ms,
     color 120ms;
 }
 
+.toggle::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--toggle-thumb);
+  box-shadow: var(--shadow-sm);
+  content: "";
+  transition: transform 120ms ease-out;
+}
+
 .toggle-on {
   background: #16a34a;
   color: #ffffff;
+}
+
+.toggle-on::after {
+  transform: translateX(14px);
 }
 
 .toggle-on:hover {
@@ -485,6 +530,14 @@ svg {
 .primary:disabled {
   cursor: wait;
   opacity: 0.68;
+}
+
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--danger);
 }
 
 .secondary-action {
@@ -649,19 +702,24 @@ svg {
 }
 
 .bottom-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 7px 14px 10px;
+  border-top: 1px solid var(--border);
 }
 
 .bottom-button {
-  display: inline-flex;
-  min-height: 44px;
-  flex-direction: column;
+  display: flex;
+  min-height: 30px;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
+  width: 100%;
+  gap: 10px;
+  padding: 5px 8px;
   border-radius: var(--radius-sm);
+  color: var(--fg);
+  text-align: left;
   font-size: 11px;
   font-weight: 500;
   transition:
@@ -671,6 +729,22 @@ svg {
 
 .bottom-button:hover {
   background: var(--surface-hover);
+}
+
+.bottom-button svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+.bottom-button:hover svg {
+  color: var(--fg);
+}
+
+.bottom-button span {
+  flex: 1;
+  text-align: left;
 }
 
 .feedback-popover-content {

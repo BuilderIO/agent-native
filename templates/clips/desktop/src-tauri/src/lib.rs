@@ -1,7 +1,8 @@
 //! Clips menu-bar tray app.
 //!
 //! The app is a single always-on-top popover window. Clicking the tray icon
-//! toggles it. Pressing Cmd/Ctrl+Shift+L also toggles it. The popover itself
+//! toggles it. Pressing the platform recording shortcut starts or stops a take;
+//! the popover itself
 //! is served by the Vite-built React UI (see `../dist`).
 
 mod accessibility;
@@ -50,8 +51,9 @@ use tauri::{Emitter, Manager};
 use clips::{position_popover, toggle_popover};
 use state::{
     ActiveMeetingId, DictationActive, DictationEnabled, LastTranscript, MeetingActive,
-    PopoverShownAt, RecordingActive, SelectedRecordingDisplay, TrayAnchor, TrayMeetings,
-    VoiceTargetBundle, VoiceWakePopover,
+    PopoverParked, PopoverShownAt, RecordingActive, SelectedRecordingDisplay,
+    SelectedRecordingWindow, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceTargetTextField,
+    VoiceWakePopover,
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
@@ -117,9 +119,7 @@ pub fn run() {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
                         let app = window.app_handle();
-                        let _ = window.hide();
-                        clips::close_bubble_if_idle(&app);
-                        let _ = app.emit("clips:popover-visible", false);
+                        clips::hide_popover(&app);
                     }
                     tauri::WindowEvent::Destroyed => {
                         clips::close_bubble_if_idle(window.app_handle());
@@ -205,6 +205,8 @@ pub fn run() {
             native_speech::native_speech_request_permission,
             // native full-screen recording (macOS screencapture, no picker)
             native_screen::native_fullscreen_recording_available,
+            native_screen::show_window_picker,
+            native_screen::cancel_native_window_picker,
             native_screen::native_fullscreen_take_upload_finished,
             native_screen::native_fullscreen_claim_upload_open,
             native_screen::native_fullscreen_prefetch_capture_content,
@@ -331,6 +333,7 @@ pub fn run() {
         .manage(TrayAnchor::default())
         .manage(TrayMeetings::default())
         .manage(PopoverShownAt::default())
+        .manage(PopoverParked::default())
         .manage(RecordingActive::default())
         .manage(MeetingActive::default())
         .manage(ActiveMeetingId::default())
@@ -338,8 +341,10 @@ pub fn run() {
         .manage(DictationActive::default())
         .manage(VoiceWakePopover::default())
         .manage(VoiceTargetBundle::default())
+        .manage(VoiceTargetTextField::default())
         .manage(LastTranscript::default())
         .manage(SelectedRecordingDisplay::default())
+        .manage(SelectedRecordingWindow::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(screen_memory::ScreenMemoryState::default())
         .manage(capture_graph::CaptureGraphState::default())
@@ -502,14 +507,14 @@ pub fn run() {
                 // Element if they need devtools.
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        // Don't auto-hide while a recording is active or
-                        // mid-setup — the macOS screen-picker, devtools,
-                        // and other transient windows all steal focus
-                        // from the popover during that flow. Hiding
-                        // would also kill the RecordingRow UI the user
-                        // is relying on to stop.
-                        if is_recording_active(&app_handle) {
-                            dlog!("[clips-tray] popover blur ignored — recording active");
+                        // A parked popover is still alive for WebKit, but it
+                        // is intentionally not a user-facing menu. Ignore
+                        // its blur while native capture owns the handoff;
+                        // a full-size visible popover must still dismiss even
+                        // if an earlier start flow left the recording flag
+                        // latched.
+                        if is_recording_active(&app_handle) && clips::popover_is_parked(&app_handle) {
+                            dlog!("[clips-tray] popover blur ignored — popover parked");
                             return;
                         }
                         if !config::auto_hide_popover_enabled(&app_handle) {
@@ -539,20 +544,17 @@ pub fn run() {
                                     })
                                     .unwrap_or(false);
                                 if !still_current
-                                    || is_recording_active(&delayed_app_handle)
+                                    || (is_recording_active(&delayed_app_handle)
+                                        && clips::popover_is_parked(&delayed_app_handle))
                                     || !config::auto_hide_popover_enabled(&delayed_app_handle)
                                     || delayed_handle.is_focused().unwrap_or(true)
                                 {
                                     return;
                                 }
-                                let _ = delayed_handle.hide();
-                                clips::close_bubble_if_idle(&delayed_app_handle);
-                                let _ = delayed_app_handle.emit("clips:popover-visible", false);
+                                clips::hide_popover(&delayed_app_handle);
                             });
                         } else {
-                            let _ = handle.hide();
-                            clips::close_bubble_if_idle(&app_handle);
-                            let _ = app_handle.emit("clips:popover-visible", false);
+                            clips::hide_popover(&app_handle);
                         }
                     }
                 });
@@ -584,7 +586,7 @@ pub fn run() {
             // Reopen is macOS-only — gated behind cfg so Windows compiles.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
-                if is_recording_active(_app_handle) {
+                if is_recording_active(_app_handle) && clips::popover_is_parked(_app_handle) {
                     clips::force_show_popover(_app_handle);
                 } else {
                     toggle_popover(_app_handle);

@@ -21,6 +21,10 @@ export default defineAction({
         .where(eq(schema.designShares.resourceId, id));
 
       await tx
+        .delete(schema.designAccessRequests)
+        .where(eq(schema.designAccessRequests.designId, id));
+
+      await tx
         .delete(schema.componentIndex)
         .where(eq(schema.componentIndex.designId, id));
 

@@ -33,6 +33,8 @@ interface RewindExtensionRequest {
     | "failed";
   preRollRecordingId?: string;
   actualDurationMs?: number;
+  preRollWidth?: number;
+  preRollHeight?: number;
   error?: string;
 }
 
@@ -41,6 +43,8 @@ interface RewindExtensionDialogProps {
   onOpenChange: (open: boolean) => void;
   recordingId: string;
   durationMs: number;
+  width: number;
+  height: number;
   videoFormat: "webm" | "mp4";
   hasAudio: boolean;
   visibility: "private" | "org" | "public";
@@ -73,6 +77,8 @@ export function RewindExtensionDialog({
   onOpenChange,
   recordingId,
   durationMs,
+  width: recordingWidth,
+  height: recordingHeight,
   videoFormat,
   hasAudio,
   visibility,
@@ -166,17 +172,21 @@ export function RewindExtensionDialog({
         }
 
         setStatus("Combining the selected history with this Clip…");
-        const blob = await exportConcat(
+        const { blob, width, height } = await exportConcat(
           [
             {
               url: `${appBasePath()}/api/video/${encodeURIComponent(request.preRollRecordingId)}`,
               format: "mp4",
               hasAudio,
+              width: request.preRollWidth,
+              height: request.preRollHeight,
             },
             {
               url: `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}`,
               format: videoFormat,
               hasAudio,
+              width: recordingWidth,
+              height: recordingHeight,
             },
           ],
           (next) => mounted.current && setProgress(next.progress),
@@ -195,6 +205,8 @@ export function RewindExtensionDialog({
           videoUrl: upload.url,
           durationMs: durationMs + request.actualDurationMs,
           addedMs: request.actualDurationMs,
+          width,
+          height,
         });
         if (hasAudio) {
           void requestTranscript
@@ -224,12 +236,14 @@ export function RewindExtensionDialog({
       applyExtension,
       durationMs,
       hasAudio,
+      recordingHeight,
       onApplied,
       onOpenChange,
       recordingId,
       requestExtension,
       requestTranscript,
       videoFormat,
+      recordingWidth,
     ],
   );
 
