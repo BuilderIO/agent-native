@@ -414,6 +414,7 @@ export {
   getH3App,
   awaitBootstrap,
   markDefaultPluginProvided,
+  trackPluginInit,
   type H3AppShim,
 } from "./framework-request-handler.js";
 export {
