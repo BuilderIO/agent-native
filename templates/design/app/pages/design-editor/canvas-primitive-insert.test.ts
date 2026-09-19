@@ -896,6 +896,33 @@ describe("arrow paint target", () => {
     expect(shaft?.getAttribute("marker-end")).toBe("url(#arrow-1-arrow)");
     expect(svg.querySelector("defs path")).not.toBe(shaft);
   });
+
+  it("commits separate start and end markers for an inline line", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: "line-points",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      startPoint: "triangle-arrow",
+      endPoint: "diamond-arrow",
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg[data-an-primitive='line']");
+    const shaft = svg?.querySelector(":scope > path");
+    expect(shaft?.getAttribute("marker-start")).toBe(
+      "url(#line-points-endpoint-triangle-arrow)",
+    );
+    expect(shaft?.getAttribute("marker-end")).toBe(
+      "url(#line-points-endpoint-diamond-arrow)",
+    );
+    expect(
+      svg?.querySelector("defs #line-points-endpoint-triangle-arrow"),
+    ).not.toBeNull();
+  });
 });
 
 // search-icon-2: a freshly drawn shape must expose a `backgroundColor` the

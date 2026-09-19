@@ -164,6 +164,8 @@ export type VisualStyleProperty =
   | "stroke-linecap"
   | "stroke-linejoin"
   | "stroke-miterlimit"
+  | "marker-start"
+  | "marker-end"
   | "--an-vector-stroke-position"
   | "outline"
   | "outline-width"
@@ -879,6 +881,8 @@ const STYLE_PROPERTIES = [
   "stroke-linecap",
   "stroke-linejoin",
   "stroke-miterlimit",
+  "marker-start",
+  "marker-end",
   "--an-vector-stroke-position",
   "outline",
   "outline-width",
@@ -961,6 +965,8 @@ const STYLE_PROPERTY_ALIASES: Record<string, VisualStyleProperty> = {
 // checked individually against isSafeCssUrlReference.
 const URL_IN_VALUE_RE =
   /\burl\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/gi;
+
+const LOCAL_FRAGMENT_URL_RE = /^url\(\s*["']?#[-A-Za-z0-9_:.]+["']?\s*\)$/i;
 
 const VOID_TAGS = new Set([
   "area",
@@ -1997,6 +2003,9 @@ function isSafeStyleValue(
   if (!trimmed) return false;
   if (property === "--an-vector-stroke-position") {
     return ["inside", "center", "outside"].includes(trimmed);
+  }
+  if (property === "marker-start" || property === "marker-end") {
+    return trimmed === "none" || LOCAL_FRAGMENT_URL_RE.test(trimmed);
   }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
@@ -4176,6 +4185,8 @@ const VECTOR_PAINT_PROPERTIES = [
   "stroke",
   "stroke-width",
   "stroke-opacity",
+  "marker-start",
+  "marker-end",
 ] as const;
 
 const VECTOR_STROKE_POSITION = "data-an-vector-stroke-position";
@@ -4769,7 +4780,13 @@ function vectorPaintChild(
   property: string,
   parsedElements?: ParsedElement[],
 ): ParsedElement | null {
-  if (!property.startsWith("fill") && !property.startsWith("stroke")) {
+  const normalizedProperty = normalizeStyleProperty(property) ?? property;
+  if (
+    !normalizedProperty.startsWith("fill") &&
+    !normalizedProperty.startsWith("stroke") &&
+    normalizedProperty !== "marker-start" &&
+    normalizedProperty !== "marker-end"
+  ) {
     return null;
   }
   const elements = parsedElements ?? parseHtmlElements(html);
@@ -4777,7 +4794,7 @@ function vectorPaintChild(
   // element came from; a shifted index would repaint an unrelated element.
   const parsed = elements[element.index];
   if (!parsed || parsed.start !== element.start) return null;
-  if (property.startsWith("stroke")) {
+  if (normalizedProperty.startsWith("stroke")) {
     return (
       vectorStrokeOverlay(parsed, elements) ??
       vectorShapeChild(parsed, elements)

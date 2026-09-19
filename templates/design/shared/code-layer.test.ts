@@ -617,6 +617,33 @@ describe("applyVisualEdit vector paint", () => {
     expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
   });
 
+  it("writes endpoint markers onto the vector shaft and projects them back", () => {
+    const marked = html.replace(
+      '<path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="none"/>',
+      '<defs><marker id="pen-1-arrow"/></defs><path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="#000000" marker-end="url(#pen-1-arrow)"/>',
+    );
+    const patch = applyVisualEdit(marked, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "markerStart",
+      value: "url(#pen-1-endpoint-triangle-arrow)",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      "marker-start: url(#pen-1-endpoint-triangle-arrow)",
+    );
+    expect(
+      patch.content.slice(0, patch.content.indexOf("<path")),
+    ).not.toContain("marker-start");
+    const projected = buildCodeLayerProjection(patch.content).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+    );
+    expect(projected?.style).toMatchObject({
+      "marker-start": "url(#pen-1-endpoint-triangle-arrow)",
+      "marker-end": "url(#pen-1-arrow)",
+    });
+  });
+
   it("persists inside and outside vector strokes with logical weight", () => {
     const overflowHidden = html.replace(
       'style="position:absolute;',

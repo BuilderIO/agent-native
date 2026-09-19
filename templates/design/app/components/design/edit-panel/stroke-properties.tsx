@@ -5,7 +5,15 @@ import {
   withColorOpacity,
 } from "@shared/color-utils";
 import {
+  defaultVectorEndpoint,
+  vectorEndpointFromMarkerValue,
+  vectorEndpointMarkerUrl,
+  VECTOR_ENDPOINT_OPTIONS,
+  type VectorEndpoint,
+} from "@shared/vector-endpoints";
+import {
   IconAdjustments,
+  IconArrowsLeftRight,
   IconBorderStyle,
   IconEye,
   IconEyeOff,
@@ -14,6 +22,7 @@ import {
   IconPlus,
   IconSquare,
 } from "@tabler/icons-react";
+import { useRef } from "react";
 
 import {
   Select,
@@ -80,6 +89,17 @@ const DEFAULT_STROKE_COLOR = "#000000";
 
 type StrokeLayerKind = "border" | "outline";
 type StrokePosition = "inside" | "outside" | "center";
+
+const VECTOR_ENDPOINT_LABEL_KEYS: Record<VectorEndpoint, string> = {
+  none: "editPanel.labels.endpointNone",
+  round: "editPanel.labels.endpointRound",
+  square: "editPanel.labels.endpointSquare",
+  "line-arrow": "editPanel.labels.endpointLineArrow",
+  "triangle-arrow": "editPanel.labels.endpointTriangleArrow",
+  "reversed-triangle": "editPanel.labels.endpointReversedTriangle",
+  "circle-arrow": "editPanel.labels.endpointCircleArrow",
+  "diamond-arrow": "editPanel.labels.endpointDiamondArrow",
+};
 
 function StrokeLayerControl({
   kind,
@@ -800,6 +820,81 @@ function VectorStrokeProperties({
   )
     ? (styles["--an-vector-stroke-position"] as StrokePosition)
     : "center";
+  const primitiveKind = element.primitiveKind?.toLowerCase();
+  const supportsEndpointControls =
+    primitiveKind === "line" ||
+    primitiveKind === "arrow" ||
+    (primitiveKind === "path" && !canAlignStroke);
+  const endpointNodeId =
+    element.sourceId || element.pendingNodeId || element.id || "";
+  const startPoint = vectorEndpointFromMarkerValue(
+    styles.markerStart,
+    endpointNodeId,
+    defaultVectorEndpoint(primitiveKind, "start"),
+  );
+  const endPoint = vectorEndpointFromMarkerValue(
+    styles.markerEnd,
+    endpointNodeId,
+    defaultVectorEndpoint(primitiveKind, "end"),
+  );
+  const endpointSelectionKey = `${element.id}\u0000${endpointNodeId}\u0000${primitiveKind ?? ""}`;
+  const endpointValuesRef = useRef<{
+    selectionKey: string;
+    start: VectorEndpoint;
+    end: VectorEndpoint;
+  } | null>(null);
+  if (endpointValuesRef.current?.selectionKey !== endpointSelectionKey) {
+    endpointValuesRef.current = {
+      selectionKey: endpointSelectionKey,
+      start: startPoint,
+      end: endPoint,
+    };
+  }
+  const displayedStartPoint = endpointValuesRef.current.start;
+  const displayedEndPoint = endpointValuesRef.current.end;
+  const endpointOptions = VECTOR_ENDPOINT_OPTIONS.map((value) => ({
+    value,
+    label: t(VECTOR_ENDPOINT_LABEL_KEYS[value]),
+  }));
+  const setEndpoint = (side: "start" | "end", value: string) => {
+    if (!VECTOR_ENDPOINT_OPTIONS.includes(value as VectorEndpoint)) return;
+    if (value !== "none" && !endpointNodeId) return;
+    const current = endpointValuesRef.current;
+    if (!current) return;
+    endpointValuesRef.current = {
+      ...current,
+      selectionKey: endpointSelectionKey,
+      start: side === "start" ? (value as VectorEndpoint) : current.start,
+      end: side === "end" ? (value as VectorEndpoint) : current.end,
+    };
+    onStyleChange(
+      side === "start" ? "markerStart" : "markerEnd",
+      vectorEndpointMarkerUrl(endpointNodeId, value as VectorEndpoint),
+    );
+  };
+  const swapEndpoints = () => {
+    const current = endpointValuesRef.current;
+    if (!current) return;
+    if (
+      !endpointNodeId &&
+      (current.start !== "none" || current.end !== "none")
+    ) {
+      return;
+    }
+    endpointValuesRef.current = {
+      ...current,
+      start: current.end,
+      end: current.start,
+    };
+    commitStylePatch(
+      {
+        markerStart: vectorEndpointMarkerUrl(endpointNodeId, current.end),
+        markerEnd: vectorEndpointMarkerUrl(endpointNodeId, current.start),
+      },
+      onStyleChange,
+      onStylesChange,
+    );
+  };
 
   return (
     <PanelSection
@@ -977,6 +1072,80 @@ function VectorStrokeProperties({
               />
             </InspectorGridCell>
           </InspectorGrid>
+          {supportsEndpointControls ? (
+            <div className="mt-2 space-y-1.5 border-t border-[var(--design-editor-control-border)] pt-2">
+              <InspectorGrid className="items-center" layout="stroke-details">
+                <InspectorGridCell span={8}>
+                  <SubsectionLabel>
+                    {t("editPanel.labels.startPoint")}
+                  </SubsectionLabel>
+                </InspectorGridCell>
+                <InspectorGridCell span={16}>
+                  <Select
+                    value={displayedStartPoint}
+                    onValueChange={(value) => setEndpoint("start", value)}
+                  >
+                    <SelectTrigger
+                      aria-label={t("editPanel.labels.startPoint")}
+                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {endpointOptions.map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          className="!text-[11px]"
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </InspectorGridCell>
+              </InspectorGrid>
+              <InspectorGrid className="items-center" layout="stroke-details">
+                <InspectorGridCell span={8}>
+                  <SubsectionLabel>
+                    {t("editPanel.labels.endPoint")}
+                  </SubsectionLabel>
+                </InspectorGridCell>
+                <InspectorGridCell span={16}>
+                  <Select
+                    value={displayedEndPoint}
+                    onValueChange={(value) => setEndpoint("end", value)}
+                  >
+                    <SelectTrigger
+                      aria-label={t("editPanel.labels.endPoint")}
+                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {endpointOptions.map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          className="!text-[11px]"
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </InspectorGridCell>
+              </InspectorGrid>
+              <div className="flex justify-end">
+                <SectionIconButton
+                  label={t("editPanel.labels.swapPoints")}
+                  onClick={swapEndpoints}
+                >
+                  <IconArrowsLeftRight className="size-3.5" />
+                </SectionIconButton>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </PanelSection>

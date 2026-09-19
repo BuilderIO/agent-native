@@ -349,8 +349,8 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     await expect(selectedLayerRow(page)).toContainText(/Vector/i);
   });
 
-  // Step 5: stroke weight 2 on the handle; Figma's "endpoints: Round" cap.
-  await test.step("stroke weight 2 applies to the handle; Round line-cap has no control (finding)", async () => {
+  // Step 5: stroke weight 2 on the handle; Figma-style endpoint markers.
+  await test.step("stroke weight 2 applies to the handle; endpoint markers persist and swap", async () => {
     const strokeSection = inspectorSection(page, /^Stroke$/i);
     await strokeSection.getByRole("button", { name: "Add stroke" }).click();
     const weightField = strokeSection.getByLabel("Weight").first();
@@ -370,9 +370,55 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
         }, content);
       })
       .toMatch(/2px/);
-    // No cap/endpoint control exists anywhere in the Stroke section.
-    const capControl = strokeSection.getByRole("button", { name: /round/i });
-    await expect(capControl).toHaveCount(0);
+    const startPoint = strokeSection.getByRole("combobox", {
+      name: "Start point",
+    });
+    const endPoint = strokeSection.getByRole("combobox", {
+      name: "End point",
+    });
+    await expect(startPoint).toBeVisible();
+    await expect(endPoint).toBeVisible();
+    await expect(
+      strokeSection.getByRole("button", {
+        name: "Swap start and end points",
+      }),
+    ).toBeVisible();
+
+    await startPoint.click();
+    await page.getByRole("option", { name: "Triangle arrow" }).click();
+    await expect
+      .poll(async () => {
+        const content = await fileContent(page, "index.html");
+        return page.evaluate((html) => {
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          return (
+            doc
+              .querySelector('svg[data-agent-native-layer-name="Vector"] path')
+              ?.getAttribute("style") ?? ""
+          );
+        }, content);
+      })
+      .toMatch(/marker-start:\s*url\(#.*endpoint-triangle-arrow/);
+
+    await strokeSection
+      .getByRole("button", { name: "Swap start and end points" })
+      .click();
+    await expect
+      .poll(async () => {
+        const content = await fileContent(page, "index.html");
+        const style = await page.evaluate((html) => {
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          return (
+            doc
+              .querySelector('svg[data-agent-native-layer-name="Vector"] path')
+              ?.getAttribute("style") ?? ""
+          );
+        }, content);
+        return style;
+      })
+      .toMatch(
+        /marker-start:\s*none[\s\S]*marker-end:\s*url\([^)]*endpoint-triangle-arrow/,
+      );
   });
 
   // Step 6: Shift-select lens + handle, "Union selection" — no equivalent.

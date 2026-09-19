@@ -67,6 +67,14 @@ import {
 } from "@shared/responsive-frame-layout";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import {
+  defaultVectorEndpoint,
+  normalizeVectorEndpoint,
+  vectorEndpointMarkerId,
+  vectorEndpointMarkerShape,
+  vectorEndpointMarkerUrl,
+  VECTOR_ENDPOINT_OPTIONS,
+} from "@shared/vector-endpoints";
+import {
   IconCopy,
   IconDots,
   IconHandClick,
@@ -518,7 +526,7 @@ function applyDraftPrimitiveToDom(
     draft.kind === "arrow"
   ) {
     const svgEl = element.querySelector("svg");
-    const pathEl = element.querySelector("path");
+    const pathEl = svgEl?.querySelector(":scope > path");
     svgEl?.setAttribute(
       "viewBox",
       `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
@@ -11243,7 +11251,15 @@ function DraftPrimitiveContent({
     draft.kind === "line" ||
     draft.kind === "arrow"
   ) {
-    const markerId = `arrow-${draft.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+    const markerNodeId = draft.id.replace(/[^a-zA-Z0-9_-]/g, "");
+    const startPoint = normalizeVectorEndpoint(
+      draft.startPoint,
+      defaultVectorEndpoint(draft.kind, "start"),
+    );
+    const endPoint = normalizeVectorEndpoint(
+      draft.endPoint,
+      defaultVectorEndpoint(draft.kind, "end"),
+    );
     const pathData =
       draft.pathData ??
       (draft.penPath
@@ -11263,19 +11279,39 @@ function DraftPrimitiveContent({
         className={cn("block size-full overflow-visible", muted)}
         viewBox={`${draft.geometry.x} ${draft.geometry.y} ${draft.geometry.width} ${draft.geometry.height}`}
       >
-        {draft.kind === "arrow" ? (
+        {startPoint !== "none" || endPoint !== "none" ? (
           <defs>
-            <marker
-              id={markerId}
-              markerWidth="10"
-              markerHeight="10"
-              refX="8"
-              refY="5"
-              orient="auto"
-              markerUnits="strokeWidth"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill={resolvedStroke} />
-            </marker>
+            {VECTOR_ENDPOINT_OPTIONS.filter(
+              (endpoint) => endpoint !== "none",
+            ).map((endpoint) => {
+              const shape = vectorEndpointMarkerShape(endpoint);
+              return (
+                <marker
+                  key={endpoint}
+                  id={vectorEndpointMarkerId(markerNodeId, endpoint)}
+                  viewBox="0 0 10 10"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="8"
+                  refY="5"
+                  orient="auto-start-reverse"
+                  markerUnits="strokeWidth"
+                >
+                  <path
+                    d={shape.d}
+                    fill={shape.fill === "stroke" ? resolvedStroke : "none"}
+                    {...(shape.stroke
+                      ? {
+                          stroke: resolvedStroke,
+                          strokeWidth: 1.5,
+                          strokeLinecap: "round" as const,
+                          strokeLinejoin: "round" as const,
+                        }
+                      : {})}
+                  />
+                </marker>
+              );
+            })}
           </defs>
         ) : null}
         <path
@@ -11285,7 +11321,16 @@ function DraftPrimitiveContent({
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={paint.strokeWidth}
-          markerEnd={draft.kind === "arrow" ? `url(#${markerId})` : undefined}
+          markerStart={
+            startPoint === "none"
+              ? undefined
+              : vectorEndpointMarkerUrl(markerNodeId, startPoint)
+          }
+          markerEnd={
+            endPoint === "none"
+              ? undefined
+              : vectorEndpointMarkerUrl(markerNodeId, endPoint)
+          }
         />
       </svg>
     );

@@ -9,6 +9,7 @@ import {
   translatePenPath,
   type PenPath,
 } from "@shared/pen-path";
+import { defaultVectorEndpoint } from "@shared/vector-endpoints";
 
 import {
   DEFAULT_LINE_STROKE_WIDTH_PX,
@@ -159,6 +160,8 @@ export function createDraftPrimitive({
       points: pathPoints,
       stroke: toolProps?.stroke,
       strokeWidth: toolProps?.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
+      startPoint: defaultVectorEndpoint(tool, "start"),
+      endPoint: defaultVectorEndpoint(tool, "end"),
     };
   }
   const isFrame = tool === "frame";
@@ -213,6 +216,8 @@ export function createPenDraftPrimitive(
     pathData: serializePenPath(penPath),
     stroke,
     strokeWidth: strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
+    startPoint: defaultVectorEndpoint("path", "start"),
+    endPoint: defaultVectorEndpoint("path", "end"),
   };
 }
 
@@ -318,6 +323,8 @@ export function draftPrimitiveToInsert(
     fill: draft.fill,
     stroke: draft.stroke,
     strokeWidth: draft.strokeWidth,
+    startPoint: draft.startPoint,
+    endPoint: draft.endPoint,
     autoSize: draft.autoSize,
   };
 }

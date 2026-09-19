@@ -42,6 +42,8 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "backgroundColor",
   "color",
   "fill",
+  "markerStart",
+  "markerEnd",
   "borderRadius",
   "borderTopLeftRadius",
   "borderTopRightRadius",

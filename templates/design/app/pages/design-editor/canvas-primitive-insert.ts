@@ -1,6 +1,14 @@
 import { isBoardFile } from "@shared/board-file";
 import { normalizedDesignFileType } from "@shared/design-files";
 import { isClosedPathData } from "@shared/pen-path";
+import {
+  defaultVectorEndpoint,
+  normalizeVectorEndpoint,
+  vectorEndpointMarkerId,
+  vectorEndpointMarkerShape,
+  vectorEndpointMarkerUrl,
+  VECTOR_ENDPOINT_OPTIONS,
+} from "@shared/vector-endpoints";
 
 import {
   canvasPrimitiveVisual,
@@ -390,7 +398,6 @@ export function appendCanvasPrimitiveToHtml(
     ) {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-      const markerId = `${nodeId}-arrow`;
       const explicitPathData = primitive.pathData?.trim()
         ? primitive.pathData
         : null;
@@ -433,29 +440,62 @@ export function appendCanvasPrimitiveToHtml(
       path.setAttribute("stroke-width", String(paint.strokeWidth));
       path.setAttribute("stroke-linecap", "round");
       path.setAttribute("stroke-linejoin", "round");
-      if (primitive.kind === "arrow") {
+      const startPoint = normalizeVectorEndpoint(
+        primitive.startPoint,
+        defaultVectorEndpoint(primitive.kind, "start"),
+      );
+      const endPoint = normalizeVectorEndpoint(
+        primitive.endPoint,
+        defaultVectorEndpoint(primitive.kind, "end"),
+      );
+      if (startPoint !== "none" || endPoint !== "none") {
         const defs = doc.createElementNS("http://www.w3.org/2000/svg", "defs");
-        const marker = doc.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "marker",
-        );
-        const arrowHead = doc.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "path",
-        );
-        marker.setAttribute("id", markerId);
-        marker.setAttribute("markerWidth", "10");
-        marker.setAttribute("markerHeight", "10");
-        marker.setAttribute("refX", "8");
-        marker.setAttribute("refY", "5");
-        marker.setAttribute("orient", "auto");
-        marker.setAttribute("markerUnits", "strokeWidth");
-        arrowHead.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-        arrowHead.setAttribute("fill", paint.stroke);
-        marker.appendChild(arrowHead);
-        defs.appendChild(marker);
+        for (const endpoint of VECTOR_ENDPOINT_OPTIONS) {
+          if (endpoint === "none") continue;
+          const shape = vectorEndpointMarkerShape(endpoint);
+          const marker = doc.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "marker",
+          );
+          marker.setAttribute("id", vectorEndpointMarkerId(nodeId, endpoint));
+          marker.setAttribute("viewBox", "0 0 10 10");
+          marker.setAttribute("markerWidth", "10");
+          marker.setAttribute("markerHeight", "10");
+          marker.setAttribute("refX", "8");
+          marker.setAttribute("refY", "5");
+          marker.setAttribute("orient", "auto-start-reverse");
+          marker.setAttribute("markerUnits", "strokeWidth");
+          const markerPath = doc.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path",
+          );
+          markerPath.setAttribute("d", shape.d);
+          markerPath.setAttribute(
+            "fill",
+            shape.fill === "stroke" ? paint.stroke : "none",
+          );
+          if (shape.stroke) {
+            markerPath.setAttribute("stroke", paint.stroke);
+            markerPath.setAttribute("stroke-width", "1.5");
+            markerPath.setAttribute("stroke-linecap", "round");
+            markerPath.setAttribute("stroke-linejoin", "round");
+          }
+          marker.appendChild(markerPath);
+          defs.appendChild(marker);
+        }
         svg.appendChild(defs);
-        path.setAttribute("marker-end", `url(#${markerId})`);
+      }
+      if (startPoint !== "none") {
+        path.setAttribute(
+          "marker-start",
+          vectorEndpointMarkerUrl(nodeId, startPoint),
+        );
+      }
+      if (endPoint !== "none") {
+        path.setAttribute(
+          "marker-end",
+          vectorEndpointMarkerUrl(nodeId, endPoint),
+        );
       }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);

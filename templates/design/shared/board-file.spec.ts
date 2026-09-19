@@ -413,6 +413,25 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
     expect(fragment).toMatch(/<path d="M 0 0 L 10 5 L 0 10 z" fill="#000000"/);
   });
 
+  it("serializes independent start and end endpoint markers", () => {
+    const fragment = boardObjectEntryToHtmlFragment({
+      id: "arrow-points",
+      kind: "arrow",
+      geometry: { x: 0, y: 0, width: 150, height: 10 },
+      startPoint: "triangle-arrow",
+      endPoint: "diamond-arrow",
+      createdAt: "2024-01-01T00:00:00.000Z",
+    });
+    expect(fragment).toContain(
+      'marker-start="url(#arrow-points-endpoint-triangle-arrow)"',
+    );
+    expect(fragment).toContain(
+      'marker-end="url(#arrow-points-endpoint-diamond-arrow)"',
+    );
+    expect(fragment).toContain('id="arrow-points-endpoint-triangle-arrow"');
+    expect(fragment).toContain('id="arrow-points-endpoint-diamond-arrow"');
+  });
+
   it("uses provided pathData when given", () => {
     const entry: BoardObjectEntry = {
       id: "path-1",
@@ -542,6 +561,14 @@ describe("backfillBoardPrimitiveMarkers — SVG vector inference", () => {
   it("infers 'arrow' for an SVG path with marker-end", () => {
     const html = `<!DOCTYPE html><html><head></head><body>
 <svg style="position:absolute;left:0px;top:0px;width:200px;height:10px" data-agent-native-node-id="a1" data-agent-native-layer-name="Arrow" xmlns="http://www.w3.org/2000/svg"><defs><marker id="a1-arrow"><path d="M 0 0 L 10 5 L 0 10 z"/></marker></defs><path d="M 0 5 L 200 5" marker-end="url(#a1-arrow)"/></svg>
+</body></html>`;
+    const out = backfillBoardPrimitiveMarkers(html);
+    expect(out).toContain('data-an-primitive="arrow"');
+  });
+
+  it("infers 'arrow' for an SVG path with only marker-start", () => {
+    const html = `<!doctype html><html><head></head><body>
+<svg style="position:absolute;left:0px;top:0px;width:200px;height:10px" data-agent-native-node-id="a-start" data-agent-native-layer-name="Arrow" xmlns="http://www.w3.org/2000/svg"><path d="M 0 5 L 200 5" marker-start="url(#a-start-endpoint-triangle-arrow)"/></svg>
 </body></html>`;
     const out = backfillBoardPrimitiveMarkers(html);
     expect(out).toContain('data-an-primitive="arrow"');

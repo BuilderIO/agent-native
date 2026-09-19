@@ -57,8 +57,8 @@ describe("reassignClonedAuthoredIds", () => {
           <marker id="arrow"></marker>
         </defs>
         <path id="path" fill="url(#gradient)" clip-path="url('#clip')"
-          filter="url(&quot;#shadow&quot;)" marker-end="url(#arrow)"
-          style="stroke: url(#gradient)"></path>
+          filter="url(&quot;#shadow&quot;)" marker-start="url('#arrow')"
+          marker-end="url(#arrow)" style="stroke: url(#gradient);marker-end:url(#arrow)"></path>
         <animate begin="path.click; icon.mouseenter" end="path.mouseout"></animate>
       </svg>
     `);
@@ -73,9 +73,15 @@ describe("reassignClonedAuthoredIds", () => {
     expect(path.getAttribute("fill")).toBe(`url(#${idMap.get("gradient")})`);
     expect(path.getAttribute("clip-path")).toBe(`url('#${idMap.get("clip")}')`);
     expect(path.getAttribute("filter")).toBe(`url("#${idMap.get("shadow")}")`);
+    expect(path.getAttribute("marker-start")).toBe(
+      `url('#${idMap.get("arrow")}')`,
+    );
     expect(path.getAttribute("marker-end")).toBe(`url(#${idMap.get("arrow")})`);
     expect(path.getAttribute("style")).toContain(
       `url(#${idMap.get("gradient")})`,
+    );
+    expect(path.getAttribute("style")).toContain(
+      `marker-end:url(#${idMap.get("arrow")})`,
     );
     expect(animate.getAttribute("begin")).toBe(
       `${idMap.get("path")}.click; ${idMap.get("icon")}.mouseenter`,

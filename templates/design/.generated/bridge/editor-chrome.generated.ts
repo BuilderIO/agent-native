@@ -3497,6 +3497,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       "backgroundColor",
       "color",
       "fill",
+      "markerStart",
+      "markerEnd",
       "borderRadius",
       "borderTopLeftRadius",
       "borderTopRightRadius",
@@ -3654,6 +3656,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         strokeLinecap: strokeCs.strokeLinecap,
         strokeLinejoin: strokeCs.strokeLinejoin,
         strokeMiterlimit: strokeCs.strokeMiterlimit,
+        markerStart: strokeCs.getPropertyValue("marker-start"),
+        markerEnd: strokeCs.getPropertyValue("marker-end"),
         vectorOpacity: paintCs.opacity,
         vectorTransform: paintCs.transform,
         vectorTransformOrigin: paintCs.transformOrigin,
@@ -9114,6 +9118,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
       }
       if (authoredFill) styles.fill = authoredFill;
+      for (var markerProperty of ["marker-start", "marker-end"]) {
+        var authoredMarker = paintTarget.style.getPropertyValue(
+          markerProperty
+        );
+        if (!authoredMarker) {
+          authoredMarker = paintTarget.getAttribute(markerProperty) || "";
+        }
+        if (authoredMarker) {
+          styles[markerProperty === "marker-start" ? "markerStart" : "markerEnd"] = authoredMarker;
+        }
+      }
       return styles;
     }
     function vectorStrokeTarget(el) {
@@ -9316,7 +9331,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return true;
     }
     function isVectorPaintProperty(cssProperty) {
-      return cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0;
+      return cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0 || cssProperty === "marker-start" || cssProperty === "marker-end";
     }
     function clearVectorWrapperPaint(el) {
       var style = el.style;

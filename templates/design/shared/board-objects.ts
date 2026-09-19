@@ -11,6 +11,8 @@
  * can be reused for the visual output in BoardObjectLayer.
  */
 
+import { isVectorEndpoint, type VectorEndpoint } from "./vector-endpoints.js";
+
 export type CanvasPrimitiveKindLike =
   | "frame"
   | "rectangle"
@@ -44,6 +46,10 @@ export interface BoardObjectEntry {
   stroke?: string;
   /** Stroke width in pixels. */
   strokeWidth?: number;
+  /** Marker shown at the first point of an open vector. */
+  startPoint?: VectorEndpoint;
+  /** Marker shown at the last point of an open vector. */
+  endPoint?: VectorEndpoint;
   /** Text content — only meaningful when kind === "text". */
   text?: string;
   /**
@@ -150,6 +156,8 @@ export interface DraftPrimitiveLike {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpoint;
+  endPoint?: VectorEndpoint;
   autoSize?: boolean;
 }
 
@@ -172,6 +180,8 @@ export function draftToBoardObjectEntry(
   if (draft.fill !== undefined) entry.fill = draft.fill;
   if (draft.stroke !== undefined) entry.stroke = draft.stroke;
   if (draft.strokeWidth !== undefined) entry.strokeWidth = draft.strokeWidth;
+  if (draft.startPoint !== undefined) entry.startPoint = draft.startPoint;
+  if (draft.endPoint !== undefined) entry.endPoint = draft.endPoint;
   if (draft.text !== undefined) entry.text = draft.text;
   if (draft.pathData !== undefined) entry.pathData = draft.pathData;
   if (draft.points !== undefined) entry.points = draft.points;
@@ -283,6 +293,8 @@ function isValidEntry(entry: unknown): entry is BoardObjectEntry {
     typeof g["x"] === "number" &&
     typeof g["y"] === "number" &&
     typeof g["width"] === "number" &&
-    typeof g["height"] === "number"
+    typeof g["height"] === "number" &&
+    (e["startPoint"] === undefined || isVectorEndpoint(e["startPoint"])) &&
+    (e["endPoint"] === undefined || isVectorEndpoint(e["endPoint"]))
   );
 }

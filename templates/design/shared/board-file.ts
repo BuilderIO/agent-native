@@ -16,6 +16,14 @@ import { parseFragment } from "parse5";
 
 import type { BoardObjectEntry } from "./board-objects.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
+import {
+  defaultVectorEndpoint,
+  normalizeVectorEndpoint,
+  vectorEndpointMarkerId,
+  vectorEndpointMarkerShape,
+  vectorEndpointMarkerUrl,
+  VECTOR_ENDPOINT_OPTIONS,
+} from "./vector-endpoints.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -35,6 +43,16 @@ const DEFAULT_SHAPE_STROKE = "rgb(168 168 168)";
 // Keep these two values in sync if either canonical token ever changes.
 const DEFAULT_LINE_STROKE = "#000000";
 const DEFAULT_LINE_STROKE_WIDTH_PX = 1;
+
+function vectorEndpointMarkerDefs(nodeId: string, stroke: string): string {
+  return VECTOR_ENDPOINT_OPTIONS.filter((endpoint) => endpoint !== "none")
+    .map((endpoint) => {
+      const shape = vectorEndpointMarkerShape(endpoint);
+      const markerId = vectorEndpointMarkerId(nodeId, endpoint);
+      return `<marker id="${escapeAttr(markerId)}" viewBox="0 0 10 10" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="${escapeAttr(shape.d)}" fill="${shape.fill === "stroke" ? escapeAttr(stroke) : "none"}"${shape.stroke ? ` stroke="${escapeAttr(stroke)}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"` : ""}/></marker>`;
+    })
+    .join("");
+}
 
 function getHtmlAttributeValue(tag: string, name: string): string {
   const element = parseFragment(tag).childNodes[0];
@@ -169,14 +187,26 @@ export function boardObjectEntryToHtmlFragment(
         .join(" ");
     const strokeColor = stroke ?? DEFAULT_LINE_STROKE;
     const sw = strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX;
-
-    let markerDefs = "";
-    let markerEnd = "";
-    if (kind === "arrow") {
-      const markerId = `${nodeId}-arrow`;
-      markerDefs = `<defs><marker id="${escapeAttr(markerId)}" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10 z" fill="${escapeAttr(strokeColor)}"/></marker></defs>`;
-      markerEnd = ` marker-end="url(#${escapeAttr(markerId)})"`;
-    }
+    const startPoint = normalizeVectorEndpoint(
+      entry.startPoint,
+      defaultVectorEndpoint(kind, "start"),
+    );
+    const endPoint = normalizeVectorEndpoint(
+      entry.endPoint,
+      defaultVectorEndpoint(kind, "end"),
+    );
+    const markerDefs =
+      startPoint === "none" && endPoint === "none"
+        ? ""
+        : `<defs>${vectorEndpointMarkerDefs(nodeId, strokeColor)}</defs>`;
+    const markerStart =
+      startPoint === "none"
+        ? ""
+        : ` marker-start="${escapeAttr(vectorEndpointMarkerUrl(nodeId, startPoint))}"`;
+    const markerEnd =
+      endPoint === "none"
+        ? ""
+        : ` marker-end="${escapeAttr(vectorEndpointMarkerUrl(nodeId, endPoint))}"`;
 
     // Pen-authored paths (pathData present) serialize anchors in absolute
     // canvas/geometry space, not relative to the fragment's own 0,0 origin
@@ -190,7 +220,7 @@ export function boardObjectEntryToHtmlFragment(
       ? ` viewBox="${x} ${y} ${width} ${height}"`
       : "";
 
-    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="${escapeAttr(fill ?? "none")}" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerEnd}/></svg>`;
+    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="${escapeAttr(fill ?? "none")}" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerStart}${markerEnd}/></svg>`;
   }
 
   // Ellipse kind uses a <div> with border-radius.
@@ -602,7 +632,10 @@ function _inferSvgPrimitiveKind(inner: string): string | null {
   // Arrow: a path with a marker-end reference (the arrowhead).  The arrowhead
   // marker itself lives in <defs> as a separate path, so detect the consuming
   // `marker-end="url(...)"` attribute rather than the marker definition.
-  if (/marker-end\s*=/.test(inner)) {
+  if (
+    /marker-end\s*(?:=|:)/.test(inner) ||
+    /marker-start\s*(?:=|:)/.test(inner)
+  ) {
     return "arrow";
   }
 

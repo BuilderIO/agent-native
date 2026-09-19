@@ -3919,6 +3919,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "backgroundColor",
     "color",
     "fill",
+    "markerStart",
+    "markerEnd",
     "borderRadius",
     "borderTopLeftRadius",
     "borderTopRightRadius",
@@ -4123,6 +4125,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       strokeLinecap: strokeCs.strokeLinecap,
       strokeLinejoin: strokeCs.strokeLinejoin,
       strokeMiterlimit: strokeCs.strokeMiterlimit,
+      markerStart: strokeCs.getPropertyValue("marker-start"),
+      markerEnd: strokeCs.getPropertyValue("marker-end"),
       vectorOpacity: paintCs.opacity,
       vectorTransform: paintCs.transform,
       vectorTransformOrigin: paintCs.transformOrigin,
@@ -12399,6 +12403,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
     if (authoredFill) styles.fill = authoredFill;
+    for (var markerProperty of ["marker-start", "marker-end"]) {
+      var authoredMarker = (paintTarget as HTMLElement).style.getPropertyValue(
+        markerProperty,
+      );
+      if (!authoredMarker) {
+        authoredMarker = paintTarget.getAttribute(markerProperty) || "";
+      }
+      if (authoredMarker) {
+        styles[
+          markerProperty === "marker-start" ? "markerStart" : "markerEnd"
+        ] = authoredMarker;
+      }
+    }
     return styles;
   }
 
@@ -12652,7 +12669,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function isVectorPaintProperty(cssProperty: string): boolean {
     return (
-      cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0
+      cssProperty.indexOf("fill") === 0 ||
+      cssProperty.indexOf("stroke") === 0 ||
+      cssProperty === "marker-start" ||
+      cssProperty === "marker-end"
     );
   }
 
