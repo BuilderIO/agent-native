@@ -3750,6 +3750,7 @@ function DesignEditor() {
 
   const {
     data: designResult,
+    isError: designQueryError,
     isLoading: designLoading,
     refetch: refetchDesign,
   } = useActionQuery<DesignData | string>(
@@ -3853,7 +3854,10 @@ function DesignEditor() {
   const designAccessRole = design?.accessRole;
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
-  const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const canEditDesign =
+    !isVisualEditSurface || !designQueryError
+      ? canShareDesign || designAccessRole === "editor"
+      : false;
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
   const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
@@ -3936,6 +3940,9 @@ function DesignEditor() {
       active = false;
       if (visualEditAccessRequestRef.current === requestId) {
         visualEditAccessRequestRef.current += 1;
+        if (visualEditAccessAttemptRef.current === id) {
+          visualEditAccessAttemptRef.current = null;
+        }
       }
     };
   }, [
