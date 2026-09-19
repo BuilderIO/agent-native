@@ -66,7 +66,7 @@ const SELECTION_COLOR_FIXTURE = `<!doctype html>
   <body style="margin:0;background:#ffffff;color:#111827">
     <main data-agent-native-node-id="${SELECTION_COLOR_FRAME_ID}" data-agent-native-layer-name="${SELECTION_COLOR_FRAME_NAME}" style="width:900px;height:700px;background:#101010">
       <div data-agent-native-node-id="${SELECTION_COLOR_MATCHING_ID}" data-agent-native-layer-name="${SELECTION_COLOR_MATCHING_NAME}" style="width:120px;height:80px;background:#101010"></div>
-      <div data-agent-native-node-id="${SELECTION_COLOR_OTHER_ID}" data-agent-native-layer-name="${SELECTION_COLOR_OTHER_NAME}" style="width:120px;height:80px;background:#ffffff"></div>
+      <div data-agent-native-node-id="${SELECTION_COLOR_OTHER_ID}" data-agent-native-layer-name="${SELECTION_COLOR_OTHER_NAME}" style="width:120px;height:80px;background:transparent"></div>
     </main>
   </body>
 </html>`;
