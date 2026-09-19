@@ -125,6 +125,99 @@ describe("localhost bridge browser relay", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("flattens an apply-edit patch before sending it to the bridge", async () => {
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith(pageOrigin)) {
+          return Response.json(relay("apply-edit", { relPath: "src/App.tsx" }));
+        }
+        expect(url).toBe("http://127.0.0.1:7666/apply-edit");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          relPath: "src/App.tsx",
+          search: "old",
+          replace: "new",
+          expectedVersionHash: "hash-1",
+          requireExpectedVersionHash: true,
+        });
+        return Response.json({ versionHash: "hash-2" });
+      },
+    );
+
+    const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+      origin: pageOrigin,
+    });
+    const response = await proxy(
+      `${pageOrigin}/_agent-native/actions/write-local-file`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          designId: "design_1",
+          connectionId: "conn_1",
+          relPath: "src/App.tsx",
+          patch: { search: "old", replace: "new" },
+          expectedVersionHash: "hash-1",
+          requireExpectedVersionHash: true,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      designId: "design_1",
+      relPath: "src/App.tsx",
+      operation: "patch",
+      written: true,
+      versionHash: "hash-2",
+    });
+  });
+
+  it.each(["read-file", "list-files", "write-file"] as const)(
+    "rejects a successful %s response without its required payload",
+    async (operation) => {
+      const fetchImpl = vi.fn(
+        async (input: RequestInfo | URL): Promise<Response> => {
+          const url = String(input);
+          if (url.startsWith(pageOrigin)) {
+            return Response.json(
+              relay(operation, {
+                ...(operation === "read-file" ? { path: "src/App.tsx" } : {}),
+                ...(operation === "write-file"
+                  ? { relPath: "src/App.tsx" }
+                  : {}),
+              }),
+            );
+          }
+          return Response.json({});
+        },
+      );
+      const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+        origin: pageOrigin,
+      });
+      const request =
+        operation === "read-file"
+          ? `${pageOrigin}/_agent-native/actions/read-local-file?designId=design_1&connectionId=conn_1&path=src%2FApp.tsx`
+          : operation === "list-files"
+            ? `${pageOrigin}/_agent-native/actions/list-local-files?designId=design_1&connectionId=conn_1`
+            : `${pageOrigin}/_agent-native/actions/write-local-file`;
+      const response = await proxy(request, {
+        method: operation === "write-file" ? "POST" : "GET",
+        ...(operation === "write-file"
+          ? {
+              body: JSON.stringify({
+                designId: "design_1",
+                connectionId: "conn_1",
+                relPath: "src/App.tsx",
+                content: "new",
+              }),
+            }
+          : {}),
+      });
+
+      expect(response.status).toBe(502);
+    },
+  );
+
   it("passes a cross-design denial through without touching the local bridge", async () => {
     const denied = Response.json(
       { error: "The visual-edit capability does not cover this design." },
@@ -148,5 +241,38 @@ describe("localhost bridge browser relay", () => {
       error: "The visual-edit capability does not cover this design.",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not follow a bridge redirect with the bridge token", async () => {
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith(pageOrigin)) {
+          return Response.json(relay("read-file", { path: "src/App.tsx" }));
+        }
+        expect(new Headers(init?.headers).get("X-Bridge-Token")).toBe(
+          transport.bridgeToken,
+        );
+        expect(init?.redirect).toBe("manual");
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "https://attacker.example/collect" },
+        });
+      },
+    );
+
+    const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+      origin: pageOrigin,
+    });
+    const response = await proxy(
+      `${pageOrigin}/_agent-native/actions/read-local-file?designId=design_1&connectionId=conn_1&path=src%2FApp.tsx`,
+      { method: "GET" },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "The local visual-edit bridge returned an unexpected redirect.",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });

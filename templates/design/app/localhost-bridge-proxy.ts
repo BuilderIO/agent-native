@@ -82,6 +82,13 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function malformedBridgeResponse(): Response {
+  return jsonResponse(
+    { error: "The local visual-edit bridge returned an invalid response." },
+    502,
+  );
+}
+
 function actionNameForUrl(url: URL): string | undefined {
   const match = /\/_agent-native\/(?:actions|webmcp\/actions)\/([^/]+)$/.exec(
     url.pathname,
@@ -185,8 +192,15 @@ function bridgePayload(
     designId: _designId,
     connectionId: _connectionId,
     path: _path,
+    patch: _patch,
     ...payload
   } = request;
+  if (relay.operation === "apply-edit" && request.patch) {
+    const patch = request.patch;
+    if (typeof patch === "object" && patch !== null && !Array.isArray(patch)) {
+      return { ...payload, ...(patch as Record<string, unknown>) };
+    }
+  }
   return payload;
 }
 
@@ -215,6 +229,7 @@ async function bridgeResponse(
   try {
     response = await fetchImpl(`${bridgeUrl}/${relay.operation}`, {
       method: "POST",
+      redirect: "manual",
       headers: {
         "Content-Type": "application/json",
         [LOCALHOST_BRIDGE_TOKEN_HEADER]: context.bridgeToken,
@@ -225,6 +240,15 @@ async function bridgeResponse(
     return jsonResponse(
       {
         error: `The local visual-edit bridge is not reachable at ${bridgeUrl}.`,
+      },
+      502,
+    );
+  }
+
+  if (response.status >= 300 && response.status < 400) {
+    return jsonResponse(
+      {
+        error: "The local visual-edit bridge returned an unexpected redirect.",
       },
       502,
     );
@@ -246,29 +270,38 @@ async function bridgeResponse(
     );
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return jsonResponse(
-      { error: "The local visual-edit bridge returned an invalid response." },
-      502,
-    );
+    return malformedBridgeResponse();
   }
 
   if (relay.operation === "read-file") {
+    if (
+      typeof body.content !== "string" ||
+      typeof body.versionHash !== "string"
+    ) {
+      return malformedBridgeResponse();
+    }
     return jsonResponse({
       designId: context.designId,
       connectionId: context.connectionId,
       path: request.path,
-      content: typeof body.content === "string" ? body.content : "",
+      content: body.content,
       versionHash: body.versionHash,
       readonly: false,
     });
   }
   if (relay.operation === "list-files") {
+    if (!Array.isArray(body.files) || typeof body.truncated !== "boolean") {
+      return malformedBridgeResponse();
+    }
     return jsonResponse({
       designId: context.designId,
       connectionId: context.connectionId,
       files: Array.isArray(body.files) ? body.files : [],
       truncated: body.truncated === true,
     });
+  }
+  if (typeof body.versionHash !== "string") {
+    return malformedBridgeResponse();
   }
   return jsonResponse({
     designId: context.designId,
