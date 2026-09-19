@@ -129,6 +129,12 @@ export function vectorEndpointMarkerId(
   return `${markerNodeId}-vector-marker-${side}`;
 }
 
+export function vectorEndpointMarkerRefX(
+  endpoint: VectorEndpointStyle,
+): "0" | "8" {
+  return endpoint === "reversed-triangle" ? "0" : "8";
+}
+
 export function vectorEndpointShape(
   endpoint: VectorEndpointStyle,
 ): VectorEndpointShape | null {
@@ -224,7 +230,7 @@ function markerMarkup(
   const attributes = Object.entries(shape.attributes)
     .map(([name, value]) => `${name}="${escapeMarkup(value)}"`)
     .join(" ");
-  const refX = "8";
+  const refX = vectorEndpointMarkerRefX(endpoint);
   return `<marker data-an-vector-endpoint-marker="${side}" id="${escapeMarkup(vectorEndpointMarkerId(nodeId, side))}" markerWidth="10" markerHeight="10" refX="${refX}" refY="5" orient="${vectorEndpointMarkerOrientation(side)}" markerUnits="strokeWidth"><${shape.tag} ${attributes}/></marker>`;
 }
 

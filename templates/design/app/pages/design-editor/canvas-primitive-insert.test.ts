@@ -966,6 +966,33 @@ describe("arrow paint target", () => {
     ).toBe("8");
   });
 
+  it("anchors reversed triangles at their tip in source markup", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: "line-reversed",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      startPoint: "reversed-triangle",
+      endPoint: "reversed-triangle",
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("refX"),
+    ).toBe("0");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("refX"),
+    ).toBe("0");
+  });
+
   it.each([
     "none",
     "round",

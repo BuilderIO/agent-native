@@ -13006,6 +13006,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  function vectorEndpointMarkerRefXForRuntime(endpoint: string): string {
+    return endpoint === "reversed-triangle" ? "0" : "8";
+  }
+
   function applyVectorEndpointProperty(
     el: Element,
     cssProperty: string,
@@ -13065,7 +13069,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       marker.setAttribute("id", markerId);
       marker.setAttribute("markerWidth", "10");
       marker.setAttribute("markerHeight", "10");
-      marker.setAttribute("refX", "8");
+      marker.setAttribute("refX", vectorEndpointMarkerRefXForRuntime(endpoint));
       marker.setAttribute("refY", "5");
       marker.setAttribute(
         "orient",
@@ -17937,7 +17941,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return target;
         }
         var crect = container.getBoundingClientRect();
-        var drect = (reorderEl as HTMLElement).getBoundingClientRect();
+        // The live reflow preview can temporarily shrink a flex item before
+        // the release-time guard runs. Compare against the gesture baseline so
+        // a source layer wider/taller than the destination cannot slip into
+        // a too-small frame just because its projected box was compressed.
+        var drect = reorderGestureStartRect;
         if (crect.width >= drect.width && crect.height >= drect.height) {
           return target;
         }

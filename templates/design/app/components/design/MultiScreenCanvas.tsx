@@ -70,6 +70,7 @@ import {
   vectorEndpointMarkerId,
   vectorEndpointMarkerOrientation,
   vectorEndpointPairForPrimitive,
+  vectorEndpointMarkerRefX,
   vectorEndpointShape,
 } from "@shared/vector-endpoints";
 import {
@@ -11362,7 +11363,7 @@ function DraftPrimitiveContent({
           id={markerId}
           markerWidth="10"
           markerHeight="10"
-          refX="8"
+          refX={vectorEndpointMarkerRefX(endpoint)}
           refY="5"
           orient={vectorEndpointMarkerOrientation(side)}
           markerUnits="strokeWidth"

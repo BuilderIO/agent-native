@@ -68,6 +68,17 @@ const META_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
+const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <section data-agent-native-node-id="source-row" data-agent-native-layer-name="Source Row"
+    style="position:absolute;left:60px;top:80px;width:620px;height:150px;padding:16px;display:flex;gap:12px;background:#1f2937">
+    <div data-agent-native-node-id="oversized-source" data-agent-native-layer-name="Oversized Source"
+      style="width:500px;height:110px;flex:0 0 500px;background:#ea580c">Source</div>
+  </section>
+  <section data-agent-native-node-id="plain-target" data-agent-native-layer-name="Plain Target"
+    style="position:absolute;left:760px;top:80px;width:360px;height:180px;background:#374151"></section>
+</body></html>`;
+
 function preview(page: Page): Locator {
   return page
     .locator("iframe[data-design-preview-iframe]")
@@ -412,6 +423,69 @@ test("physical drop into a nested frame in a regular flex row still nests", asyn
     });
     expect(state).toEqual({
       parent: "nested-frame",
+      position: "static",
+    });
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("physical oversized flow child stays beside a smaller plain target", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, OVERSIZED_PLAIN_DROP_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "oversized-source");
+    const sourceBefore = (await node(page, "oversized-source").boundingBox())!;
+    const target = (await node(page, "plain-target").boundingBox())!;
+    expect(sourceBefore.width).toBeGreaterThan(target.width);
+    await page.mouse.move(
+      sourceBefore.x + sourceBefore.width / 2,
+      sourceBefore.y + sourceBefore.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(sourceBefore.x + 12, sourceBefore.y + 8, {
+      steps: 5,
+    });
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 24 },
+    );
+    await expect
+      .poll(() => insertionGuideKind(page), {
+        timeout: 5_000,
+        message: "oversized source must resolve a sibling line, not inside",
+      })
+      .toBe("line");
+    await page.mouse.up();
+
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .toMatch(
+        /data-agent-native-node-id="plain-target"[\s\S]*data-agent-native-node-id="oversized-source"/,
+      );
+    await openEditor(page, designId);
+    const state = await preview(page).evaluate(() => {
+      const source = document.querySelector(
+        '[data-agent-native-node-id="oversized-source"]',
+      ) as HTMLElement | null;
+      const target = document.querySelector(
+        '[data-agent-native-node-id="plain-target"]',
+      );
+      return {
+        sourceParent:
+          source?.parentElement?.tagName === "BODY"
+            ? "BODY"
+            : source?.parentElement?.getAttribute("data-agent-native-node-id"),
+        targetContains: !!target && !!source && target.contains(source),
+        position: source ? getComputedStyle(source).position : null,
+      };
+    });
+    expect(state).toEqual({
+      sourceParent: "BODY",
+      targetContains: false,
       position: "static",
     });
   } finally {

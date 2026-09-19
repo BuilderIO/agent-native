@@ -9604,6 +9604,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           return null;
       }
     }
+    function vectorEndpointMarkerRefXForRuntime(endpoint) {
+      return endpoint === "reversed-triangle" ? "0" : "8";
+    }
     function applyVectorEndpointProperty(el, cssProperty, rawValue) {
       if (el.tagName.toLowerCase() !== "svg" || !["path", "line", "arrow"].includes(
         el.getAttribute("data-an-primitive") || ""
@@ -9649,7 +9652,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         marker.setAttribute("id", markerId);
         marker.setAttribute("markerWidth", "10");
         marker.setAttribute("markerHeight", "10");
-        marker.setAttribute("refX", "8");
+        marker.setAttribute("refX", vectorEndpointMarkerRefXForRuntime(endpoint));
         marker.setAttribute("refY", "5");
         marker.setAttribute(
           "orient",
@@ -12599,7 +12602,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             return target;
           }
           var crect = container.getBoundingClientRect();
-          var drect = reorderEl.getBoundingClientRect();
+          var drect = reorderGestureStartRect;
           if (crect.width >= drect.width && crect.height >= drect.height) {
             return target;
           }
