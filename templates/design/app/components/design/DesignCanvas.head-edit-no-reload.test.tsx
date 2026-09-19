@@ -175,6 +175,16 @@ describe("DesignCanvas runtime replacement", () => {
       {
         selector: '[data-agent-native-node-id="an-main"]',
         sourceId: "an-main",
+        elementInfo: {
+          tagName: "main",
+          sourceId: "an-main",
+          selector: '[data-agent-native-node-id="an-main"]',
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 0, y: 0, width: 100, height: 80 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
         styles: { width: "90px" },
         originalStyles: { width: "60px" },
         preserveSelection: true,
@@ -199,7 +209,11 @@ describe("DesignCanvas runtime replacement", () => {
 
     for (const { label, changes, expectCallback } of cases) {
       const order: string[] = [];
-      const onVisualStyleBatchChange = vi.fn(() => false);
+      const receivedBatches: unknown[] = [];
+      const onVisualStyleBatchChange = vi.fn((received: unknown) => {
+        receivedBatches.push(received);
+        return false;
+      });
       const canvas = await renderCanvas(
         BASE,
         undefined,
@@ -246,6 +260,9 @@ describe("DesignCanvas runtime replacement", () => {
 
         if (expectCallback) {
           expect(onVisualStyleBatchChange, label).toHaveBeenCalledOnce();
+          expect(receivedBatches[0]).toMatchObject([
+            { elementInfo: { sourceId: "an-main" } },
+          ]);
         } else {
           expect(onVisualStyleBatchChange, label).not.toHaveBeenCalled();
         }

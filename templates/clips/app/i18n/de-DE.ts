@@ -1269,7 +1269,8 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "Neuer Bereich",
-    description: "Erstelle einen Bereich in der aktuellen Organisation.",
+    description:
+      "Bereiche sind gemeinsame Orte, an denen deine Organisation Aufnahmen organisieren kann.",
     name: "Name",
     color: "Farbe",
     useColor: "Farbe {{color}} verwenden",
@@ -1472,7 +1473,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app (Lokalisiert)",
     surfaceBrowser: "Browser tab (Lokalisiert)",
     surfaceBrowserDescription: "Choose an open tab (Lokalisiert)",
-    surfaceScreen: "Screen (Lokalisiert)",
+    surfaceScreen: "Vollbild",
     surfaceScreenDescription: "Capture everything (Lokalisiert)",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection. (Lokalisiert)",
@@ -1593,7 +1594,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app (Lokalisiert)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (Lokalisiert)",
+    recordOnDesktop: "Auf dem Desktop aufnehmen",
     downloadDesktopApp: "Download desktop app (Lokalisiert)",
+    getChromeExtension: "Chrome-Erweiterung erhalten",
     technicalDetails: "Technical details (Lokalisiert)",
     whatToCheck: "What to check (Lokalisiert)",
     downloadRecording: "Download (Lokalisiert)",

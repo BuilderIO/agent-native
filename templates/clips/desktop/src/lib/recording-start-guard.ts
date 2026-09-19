@@ -27,12 +27,15 @@ export function guardRecordingStart<T>(
   operation: Promise<T>,
   options: {
     signal?: AbortSignal;
-    timeoutMs?: number;
+    timeoutMs?: number | null;
     onCancel?: () => void;
     onLateResolve?: (value: T) => void;
   } = {},
 ): Promise<T> {
-  const timeoutMs = options.timeoutMs ?? RECORDING_START_TIMEOUT_MS;
+  const timeoutMs =
+    options.timeoutMs === undefined
+      ? RECORDING_START_TIMEOUT_MS
+      : options.timeoutMs;
 
   return new Promise<T>((resolve, reject) => {
     let settled = false;
@@ -65,12 +68,6 @@ export function guardRecordingStart<T>(
       finish(() => reject(new RecordingStartCancelledError()));
     };
 
-    if (options.signal?.aborted) {
-      onAbort();
-      return;
-    }
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-
     operation.then(
       (value) => {
         if (settled) {
@@ -83,10 +80,21 @@ export function guardRecordingStart<T>(
         finish(() => reject(error));
       },
     );
-    timer = setTimeout(() => {
-      notifyCancellation();
-      finish(() => reject(new RecordingStartTimeoutError(timeoutMs)));
-    }, timeoutMs);
+    // Observe already-dispatched work even when cancellation won the race.
+    // Its late value may own a suspension lease or live capture.
+    if (options.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (timeoutMs !== null) {
+      timer = setTimeout(() => {
+        finish(() => {
+          notifyCancellation();
+          reject(new RecordingStartTimeoutError(timeoutMs));
+        });
+      }, timeoutMs);
+    }
   });
 }
 

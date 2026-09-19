@@ -63,6 +63,17 @@ export interface AgentNativeDeploymentConfig {
   environment?: AgentNativeDeploymentEnvironment;
   /** Badge text override shown in the top-left sidebar header badge (e.g. "alpha" or "beta"). Defaults to "alpha". */
   badgeText?: string;
+  /** Workspace deploy settings for multi-app roots that do not use apps/. */
+  workspace?: AgentNativeWorkspaceDeploymentConfig;
+}
+
+export type AgentNativeWorkspaceAuthMode = "shared" | "isolated";
+
+export interface AgentNativeWorkspaceDeploymentConfig {
+  /** Relative directory containing the app package directories. Defaults to apps/. */
+  appsDirectory?: string;
+  /** Whether mounted apps share auth or keep per-app sessions. Defaults to shared. */
+  authMode?: AgentNativeWorkspaceAuthMode;
 }
 
 export interface AgentNativeDiagnosticsConfig {
@@ -198,6 +209,9 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
     path: ["deployment", "environment"],
     kind: "deployment-environment",
   },
+  { path: ["deployment", "workspace"], kind: "object" },
+  { path: ["deployment", "workspace", "appsDirectory"], kind: "string" },
+  { path: ["deployment", "workspace", "authMode"], kind: "string" },
   { path: ["diagnostics"], kind: "object" },
   { path: ["diagnostics", "failOnBuild"], kind: "boolean" },
   { path: ["instructions"], kind: "object" },
@@ -627,6 +641,13 @@ export function mergeAgentNativeConfigs(
         ? {
             ...base.deployment,
             ...override.deployment,
+            workspace:
+              base.deployment?.workspace || override.deployment?.workspace
+                ? {
+                    ...base.deployment?.workspace,
+                    ...override.deployment?.workspace,
+                  }
+                : undefined,
           }
         : undefined,
     badgeText: override.badgeText ?? base.badgeText,
@@ -780,20 +801,57 @@ function normalizeDeploymentConfig(
   }
   const environment = value.environment;
   const badgeText = value.badgeText;
+  const workspace = value.workspace;
   if (badgeText !== undefined && typeof badgeText !== "string") {
     throw new Error(`${source}.badgeText must be a string`);
   }
-  if (environment === undefined) {
-    return badgeText === undefined ? {} : { badgeText };
-  }
-  if (!isAgentNativeDeploymentEnvironment(environment)) {
+  if (
+    environment !== undefined &&
+    !isAgentNativeDeploymentEnvironment(environment)
+  ) {
     throw new Error(
       `${source}.environment must be "local", "beta", "production", or "preview"`,
     );
   }
+
+  let normalizedWorkspace: AgentNativeWorkspaceDeploymentConfig | undefined;
+  if (workspace !== undefined) {
+    if (!isRecord(workspace)) {
+      throw new Error(`${source}.workspace must be an object`);
+    }
+    const appsDirectory = workspace.appsDirectory;
+    const authMode = workspace.authMode;
+    if (appsDirectory !== undefined && typeof appsDirectory !== "string") {
+      throw new Error(`${source}.workspace.appsDirectory must be a string`);
+    }
+    if (
+      authMode !== undefined &&
+      authMode !== "shared" &&
+      authMode !== "isolated"
+    ) {
+      throw new Error(
+        `${source}.workspace.authMode must be "shared" or "isolated"`,
+      );
+    }
+    normalizedWorkspace = {
+      ...(appsDirectory === undefined
+        ? {}
+        : {
+            appsDirectory: normalizeRelativeFilePath(
+              appsDirectory,
+              `${source}.workspace.appsDirectory`,
+            ),
+          }),
+      ...(authMode === undefined ? {} : { authMode }),
+    };
+  }
+
   return {
-    environment,
+    ...(environment === undefined ? {} : { environment }),
     ...(badgeText === undefined ? {} : { badgeText }),
+    ...(normalizedWorkspace === undefined
+      ? {}
+      : { workspace: normalizedWorkspace }),
   };
 }
 

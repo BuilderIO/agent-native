@@ -18,14 +18,14 @@ use tauri::{
 
 use crate::dlog;
 use crate::state::{
-    ActiveMeetingId, DictationActive, LastTranscript, MeetingActive, RecordingActive, TrayAnchor,
-    VoiceTargetBundle, VoiceWakePopover,
+    ActiveMeetingId, DictationActive, LastTranscript, MeetingActive, PopoverParked,
+    RecordingActive, TrayAnchor, VoiceTargetBundle, VoiceTargetTextField, VoiceWakePopover,
 };
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
     mark_popover_shown, present_interactive_window, raise_to_status_level, set_capture_excluded,
-    set_capture_excluded_always, set_capture_included, start_topmost_reassert_loop,
-    tray_monitor_physical_rect,
+    set_capture_excluded_always, set_capture_included, set_window_opacity, show_without_activation,
+    start_topmost_reassert_loop, tray_monitor_physical_rect,
 };
 
 /// Native overlay windows for the recording experience. These render the same
@@ -818,6 +818,10 @@ pub async fn show_region_capture_selector(app: AppHandle) -> Result<(), String> 
 fn close_monitor_picker_windows(app: &AppHandle) {
     for (label, window) in app.webview_windows() {
         if label.starts_with(MONITOR_PICKER_LABEL_PREFIX) {
+            // Hide before requesting destruction. WebKit can take a turn to
+            // tear down a webview; leaving an always-on-top picker visible
+            // during that turn produces the reported ghost card on retries.
+            let _ = window.hide();
             let _ = window.close();
         }
     }
@@ -856,6 +860,7 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
         // recording must never apply here, including the single-monitor
         // early-return below.
         crate::state::SelectedRecordingDisplay::set(&app, None);
+        crate::state::SelectedRecordingWindow::set(&app, None);
         let monitors = app
             .get_webview_window("popover")
             .and_then(|w| w.available_monitors().ok())
@@ -914,7 +919,11 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
                 .resizable(false)
                 .shadow(false)
                 .visible(false)
-                .focused(true)
+                // The last picker is made key once, after every monitor has
+                // been created. Focusing each card during this loop causes
+                // repeated AppKit activation/focus transitions and makes the
+                // native sharing controls stutter on multi-monitor Macs.
+                .focused(false)
                 .accept_first_mouse(true)
                 .build()
             {
@@ -934,7 +943,10 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
             let _ = win.set_ignore_cursor_events(false);
             set_capture_excluded_always(&win);
             configure_overlay_behavior(&win);
-            let _ = win.show();
+            // Keep all but the final card passive while the set is built. A
+            // single activation handoff below is enough to make the cards
+            // clickable without repeatedly stealing key-window status.
+            show_without_activation(&win);
             last_window = Some(win);
         }
         if let Some(win) = last_window {
@@ -959,6 +971,7 @@ pub async fn set_recording_display_override(
     display_id: Option<u32>,
 ) -> Result<(), String> {
     crate::state::SelectedRecordingDisplay::set(&app, display_id);
+    crate::state::SelectedRecordingWindow::set(&app, None);
     Ok(())
 }
 
@@ -1562,6 +1575,7 @@ pub async fn hide_overlays(
 pub async fn hide_recording_chrome(
     app: AppHandle,
     preserve_display_override: Option<bool>,
+    preserve_window_override: Option<bool>,
 ) -> Result<(), String> {
     stop_countdown_control_tracking();
     // The countdown + toolbar always tear down on recording stop. The region
@@ -1592,6 +1606,9 @@ pub async fn hide_recording_chrome(
     // recorder.ts), so the caller passes `preserve_display_override: true`.
     if !preserve_display_override.unwrap_or(false) {
         crate::state::SelectedRecordingDisplay::set(&app, None);
+    }
+    if !preserve_window_override.unwrap_or(false) {
+        crate::state::SelectedRecordingWindow::set(&app, None);
     }
     // If meeting or voice flows showed a recording pill, auto-hide it after
     // recording stops. Bail early if a new recording came up in the meantime.
@@ -2094,15 +2111,11 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
-    // The window is sized to the content EXACTLY — wide + tall enough for a
-    // 5-line transcript preview above the pill. Elevation comes from the
-    // native NSWindow shadow (shadow(true) below), which macOS derives from
-    // the drawn pill/preview alpha. A transparent CSS-shadow apron is never
-    // used here: its invisible margin eats clicks.
-    let w: u32 = (640.0 * scale).round() as u32;
-    let h: u32 = (160.0 * scale).round() as u32;
-    // 32 = the old 14px visible margin + the removed 18px shadow gutter, so
-    // the visible pill keeps its exact on-screen position.
+    // Keep the overlay compact around the Raycast-style pill. The transcript
+    // is intentionally never rendered here, so there is no reason to keep a
+    // large transparent hit surface over the user's app.
+    let w: u32 = (300.0 * scale).round() as u32;
+    let h: u32 = (80.0 * scale).round() as u32;
     let bottom_margin: i32 = (32.0 * scale).round() as i32;
     let x: i32 = (mx + (mw as i32 - w as i32) / 2).max(mx);
     let y: i32 = (my + mh as i32 - h as i32 - bottom_margin).max(my);
@@ -2128,9 +2141,8 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
         .skip_taskbar(true)
         .resizable(false)
         // Native elevation: on a transparent window macOS computes the
-        // shadow from the drawn content's alpha, so the pill and preview
-        // get correctly rounded OS shadows with the window sized to the
-        // content exactly — no transparent CSS-shadow apron eating clicks.
+        // shadow from the drawn content's alpha, so the pill gets a rounded
+        // OS shadow without a transparent shadow apron eating clicks.
         .shadow(true)
         .visible(false)
         .focused(false)
@@ -2223,11 +2235,11 @@ fn strip_trailing_period_for_messaging(text: &str, bundle_id: Option<&str>) -> S
 }
 
 #[tauri::command]
-pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<(), String> {
+pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<String, String> {
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
         eprintln!("[clips-tray] complete_voice_dictation: empty text — nothing to paste");
-        return Ok(());
+        return Ok("inserted".into());
     }
     if let Some(last) = app.try_state::<LastTranscript>() {
         if let Ok(mut g) = last.0.lock() {
@@ -2237,7 +2249,23 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
     // Refresh the tray's "Paste Last Dictation" enabled state now that a
     // transcript exists. Cheap — same pattern as toggle-region-guides.
     crate::tray::rebuild_tray_menu(&app);
-    insert_text_for_frontmost(&app, &trimmed, "complete_voice_dictation")
+    #[cfg(target_os = "macos")]
+    {
+        let had_text_field_at_start = app
+            .try_state::<VoiceTargetTextField>()
+            .and_then(|state| state.0.lock().ok().and_then(|g| *g))
+            .unwrap_or_else(crate::accessibility::focused_text_field_available);
+        if !had_text_field_at_start {
+            write_clipboard(&trimmed)?;
+            eprintln!(
+                "[clips-tray] complete_voice_dictation: no focused text field — copied to clipboard"
+            );
+            return Ok("copied".into());
+        }
+    }
+
+    insert_text_for_frontmost(&app, &trimmed, "complete_voice_dictation")?;
+    Ok("inserted".into())
 }
 
 /// Re-insert the most recent dictation on demand (Wispr's `Cmd+Ctrl+V` /
@@ -2347,9 +2375,15 @@ pub fn remember_voice_target(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
         let target = frontmost_bundle_identifier();
+        let has_text_field = crate::accessibility::focused_text_field_available();
         if let Some(state) = app.try_state::<VoiceTargetBundle>() {
             if let Ok(mut g) = state.0.lock() {
                 *g = target;
+            }
+        }
+        if let Some(state) = app.try_state::<VoiceTargetTextField>() {
+            if let Ok(mut g) = state.0.lock() {
+                *g = Some(has_text_field);
             }
         }
     }
@@ -3095,39 +3129,33 @@ pub async fn show_popover(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Shrink the popover to a 2x2 pinhole anchored on the primary screen WITHOUT
-/// hiding it. Used during recording to hide the popover from the user while
-/// keeping its JS alive.
-///
-/// History: we used to park the window off-screen at (99999,99999). That kept
-/// AppKit's backing surface alive, but on macOS 15+ WKWebView treats a window
-/// with no on-screen pixels as "occluded" and throttles the whole page's JS —
-/// `requestAnimationFrame`, `setInterval`, and (critically) `<video>` playback
-/// + `requestVideoFrameCallback` all stall. The bubble frame pump is owned by
-/// this popover, so the moment we parked it the bubble showed its last frame
-/// and froze.
-///
-/// Fix: anchor the window at a visible coordinate on the primary screen and
-/// shrink it to 2x2 physical pixels. From WKWebView's point of view the
-/// window IS on-screen — no occlusion, no throttling, pump keeps ticking. The
-/// user sees a 2-pixel dot that effectively vanishes against any pixel the
-/// cursor won't touch. NSWindowSharingNone is already set on the popover, so
-/// it stays out of the recording either way.
-///
-/// Call `show_popover` to restore normal size + tray-anchored position when
-/// the recording ends.
+/// Hide the tray popover and close a camera bubble that no longer has an
+/// active recording owner. Keeping this in one native helper makes tray,
+/// blur, and keyboard dismissal agree on the same parked-state bookkeeping.
+pub fn hide_popover(app: &AppHandle) {
+    set_popover_parked(app, false);
+    if let Some(window) = app.get_webview_window("popover") {
+        let _ = window.hide();
+    }
+    close_bubble_if_idle(app);
+    let _ = app.emit("clips:popover-visible", false);
+}
+
+/// Make the popover invisible without hiding or moving its WebKit page. A
+/// 2x2 pinhole kept the page alive but leaked a purple square at the top-left
+/// of the display on some macOS versions.
 #[tauri::command]
 pub async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
+        set_popover_parked(&app, true);
         set_capture_excluded(&window);
-        // Anchor near the top-left of the primary display. We avoid (0,0)
-        // exactly because on some macOS versions that corner falls under the
-        // menu-bar cutout — 2,2 is safely inside every real display's bounds.
-        let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
-        // 2x2 physical px = 1x1 logical on retina — visually a dot that
-        // disappears into the menu-bar shadow. Going smaller than 2x2 has
-        // caused AppKit to treat the window as "empty" on some macOS builds.
-        let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2, 2)));
+        let _ = window.set_ignore_cursor_events(true);
+        // Keep the WebKit page alive, but remove the native window from the
+        // screen entirely. A transparent window at the tray anchor can still
+        // become the AppKit key surface while the native Window picker is up,
+        // which makes Escape depend on where the pointer happens to be.
+        let _ = window.set_position(PhysicalPosition::new(-10_000_i32, -10_000_i32));
+        set_window_opacity(&window, 0.0);
     }
     Ok(())
 }
@@ -3144,6 +3172,18 @@ fn clear_voice_wake_state(app: &AppHandle) {
     }
 }
 
+fn set_popover_parked(app: &AppHandle, parked: bool) {
+    if let Some(state) = app.try_state::<PopoverParked>() {
+        state.0.store(parked, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+pub fn popover_is_parked(app: &AppHandle) -> bool {
+    app.try_state::<PopoverParked>()
+        .map(|state| state.0.load(std::sync::atomic::Ordering::SeqCst))
+        .unwrap_or(false)
+}
+
 fn is_pinhole_popover(window: &WebviewWindow) -> bool {
     window
         .outer_size()
@@ -3152,7 +3192,10 @@ fn is_pinhole_popover(window: &WebviewWindow) -> bool {
 }
 
 fn present_popover(app: &AppHandle, window: &WebviewWindow) {
+    set_popover_parked(app, false);
     clear_voice_wake_state(app);
+    set_window_opacity(window, 1.0);
+    let _ = window.set_ignore_cursor_events(false);
     // Reopening Clips must not silently override the user's capture-visibility
     // preference. `set_capture_excluded` keeps the window private by default
     // and includes it only when "Show Clips in screen captures" is enabled.
@@ -3199,9 +3242,7 @@ pub fn toggle_popover(app: &AppHandle) {
     let user_visible =
         window.is_visible().unwrap_or(false) && !voice_woken && !is_pinhole_popover(&window);
     if user_visible {
-        let _ = window.hide();
-        close_bubble_if_idle(app);
-        let _ = app.emit("clips:popover-visible", false);
+        hide_popover(app);
         return;
     }
     present_popover(app, &window);

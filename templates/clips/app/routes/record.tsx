@@ -121,10 +121,7 @@ import {
 } from "@shared/clip-intake";
 import { toast } from "sonner";
 
-import {
-  CaptureInstallButton,
-  DesktopPlatformIcon,
-} from "@/components/capture-install-options";
+import { CaptureInstallMenu } from "@/components/capture-install-options";
 import { CameraBubble } from "@/components/recorder/camera-bubble";
 import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
 import {
@@ -655,15 +652,13 @@ function DesktopRecorderCallout() {
   const t = useT();
   return (
     <aside className="flex justify-center pt-3">
-      <CaptureInstallButton
+      <CaptureInstallMenu
         size="sm"
         variant="ghost"
         className="h-9 gap-2 px-3 text-sm font-medium"
-        downloadedChildren={t("captureInstall.openDesktopApp")}
       >
-        <DesktopPlatformIcon className="size-4" />
-        {t("recordRoute.downloadDesktopApp")}
-      </CaptureInstallButton>
+        {t("recordRoute.recordOnDesktop")}
+      </CaptureInstallMenu>
     </aside>
   );
 }

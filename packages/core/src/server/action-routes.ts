@@ -460,6 +460,22 @@ function allowsWebMcpCapability(
   );
 }
 
+function allowsWebMcpCapabilityResource(
+  authCapability: string | undefined,
+  params: Record<string, unknown>,
+): boolean {
+  const prefix = "capability:visual-edit:";
+  if (!authCapability?.startsWith(prefix)) return true;
+  const match = /^design:([^:]+)$/.exec(authCapability.slice(prefix.length));
+  if (!match || typeof params.designId !== "string") return false;
+  try {
+    return decodeURIComponent(match[1]) === params.designId;
+  } catch {
+    // coercion-ok: malformed capability scope is invalid and must fail closed.
+    return false;
+  }
+}
+
 async function resolveRequestAuthCapability(
   event: any,
 ): Promise<string | undefined> {
@@ -505,11 +521,15 @@ function mountActionRoutesInternal(
       nitroApp,
     );
 
-    // `requiresAuth: false` is the action's explicit contract that its own
-    // run() can handle an anonymous request. The auth guard runs before this
-    // handler, so register the exact route or the contract is unreachable in
-    // a real app even though the dispatcher below correctly handles 401s.
-    if (entry.requiresAuth === false && !options?.caller) {
+    // Capability-scoped actions authenticate inside this handler so a signed
+    // embed token can authorize the exact action without becoming a session.
+    // Let those routes reach that verifier. Anonymous actions keep their
+    // existing contract for non-WebMCP routes; unrelated actions stay behind
+    // the normal auth guard.
+    if (
+      (entry.requiresAuth === false && !options?.caller) ||
+      (Array.isArray(entry.capabilityScopes) && entry.capabilityScopes.length)
+    ) {
       registerAuthPublicPaths([routePath], app);
     }
 
@@ -858,6 +878,16 @@ function mountActionRoutesInternal(
                 throw new ActionContractError(paramsError, {
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
+                });
+              }
+              if (
+                capabilityAllowed &&
+                !userEmail &&
+                !allowsWebMcpCapabilityResource(authCapability, params)
+              ) {
+                throw createError({
+                  statusCode: 401,
+                  statusMessage: "Unauthorized",
                 });
               }
               const caller =

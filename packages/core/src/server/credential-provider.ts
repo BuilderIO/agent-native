@@ -263,6 +263,10 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   // OAuth client ids identify the deployment; user identity remains in scoped tokens.
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
+  // The Slack bot belongs to the deployed app, not the signed-in webhook
+  // actor. The adapter still pins it to the incoming team and app via
+  // auth.test + bots.info before using it.
+  "SLACK_BOT_TOKEN",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GROQ_API_KEY",
   "MISTRAL_API_KEY",

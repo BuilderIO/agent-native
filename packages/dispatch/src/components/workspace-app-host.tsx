@@ -30,6 +30,7 @@ import {
 import { Link } from "react-router";
 
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
+import { filterOtherApps, type ConnectedAppSummary } from "../lib/other-apps";
 import {
   mergeChatFirstWorkspaceApps,
   isWorkspaceSsoApp,
@@ -625,6 +626,13 @@ export function WorkspaceAppHost({
       enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
     },
   );
+  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
+    "list-connected-agents",
+    {},
+    {
+      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
+    },
+  );
   const apps = useMemo(() => {
     const merged = new Map<string, WorkspaceAppSummary>();
 
@@ -648,9 +656,35 @@ export function WorkspaceAppHost({
         status: "ready",
       });
     }
+    for (const app of filterOtherApps(
+      connectedAppsQuery.data ?? [],
+      visibleWorkspaceApps,
+    )) {
+      const id = app.id.trim();
+      if (
+        !id ||
+        workspaceAppIds.has(id.toLowerCase()) ||
+        merged.has(id.toLowerCase())
+      ) {
+        continue;
+      }
+      merged.set(id.toLowerCase(), {
+        id,
+        name: app.name.trim() || id,
+        description: app.description,
+        path: "",
+        url: app.homeUrl?.trim() || app.url.trim(),
+        status: "ready",
+      });
+    }
 
     return [...merged.values()];
-  }, [grantedAppsQuery.data?.apps, visibleWorkspaceApps, workspaceAppIds]);
+  }, [
+    connectedAppsQuery.data,
+    grantedAppsQuery.data?.apps,
+    visibleWorkspaceApps,
+    workspaceAppIds,
+  ]);
   const app = useMemo(
     () =>
       apps.find(
@@ -658,12 +692,17 @@ export function WorkspaceAppHost({
       ) ?? null,
     [appId, apps],
   );
-  const isLoading = workspaceAppsQuery.isLoading || grantedAppsQuery.isLoading;
+  const isLoading =
+    workspaceAppsQuery.isLoading ||
+    grantedAppsQuery.isLoading ||
+    connectedAppsQuery.isLoading;
   const queryError = workspaceAppsQuery.isError
     ? workspaceAppsQuery.error
     : grantedAppsQuery.isError
       ? grantedAppsQuery.error
-      : null;
+      : connectedAppsQuery.isError
+        ? connectedAppsQuery.error
+        : null;
 
   if (queryError && !app) {
     return (
@@ -674,6 +713,7 @@ export function WorkspaceAppHost({
             onRetry={() => {
               void workspaceAppsQuery.refetch();
               void grantedAppsQuery.refetch();
+              void connectedAppsQuery.refetch();
             }}
           />
         </div>

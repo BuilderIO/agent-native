@@ -7,6 +7,7 @@ import {
 export type ScreenHeightMode = "auto" | "fixed" | "hug";
 
 const IMPORTED_STATIC_SCREEN_SOURCE_TYPES = new Set([
+  "creative-context",
   "creative-context-clone",
   "creative-context-native-clone",
   "fig-frame",

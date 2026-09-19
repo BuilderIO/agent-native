@@ -4,6 +4,20 @@ const messages = {
   ...messagesByLocale["ja-JP"],
   designEditor: {
     ...messagesByLocale["ja-JP"].designEditor,
+    designNotFoundDescription: "このデザインは存在しないか、削除されています。",
+    requestAccessTitle: "このデザインへのアクセスをリクエスト",
+    requestAccessDescription:
+      "このデザインは非公開です。所有者にアクセスをリクエストしてください。",
+    requestAccess: "アクセスをリクエスト",
+    accessRequested: "アクセスをリクエストしました",
+    accessRequestSentDescription:
+      "リクエストを記録しました。アクセスが承認されると、このデザインを開けます。",
+    signInToRequestAccessTitle: "ログインしてアクセスをリクエスト",
+    signInToRequestAccessDescription:
+      "ログインするかアカウントを作成して、所有者にアクセスをリクエストしてください。",
+    signInOrSignUp: "ログインまたは登録",
+    accessCheckFailed: "このデザインへのアクセスを確認できませんでした。",
+    retryAccessCheck: "再試行",
     import: {
       ...messagesByLocale["ja-JP"].designEditor.import,
       figUploadDescriptionShort:

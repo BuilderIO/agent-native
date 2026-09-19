@@ -4,6 +4,20 @@ const messages = {
   ...messagesByLocale["pt-BR"],
   designEditor: {
     ...messagesByLocale["pt-BR"].designEditor,
+    designNotFoundDescription: "Este design não existe ou foi excluído.",
+    requestAccessTitle: "Solicitar acesso a este design",
+    requestAccessDescription:
+      "Este design é privado. Solicite acesso ao proprietário.",
+    requestAccess: "Solicitar acesso",
+    accessRequested: "Acesso solicitado",
+    accessRequestSentDescription:
+      "Sua solicitação foi registrada. Você poderá abrir este design quando o acesso for aprovado.",
+    signInToRequestAccessTitle: "Entre para solicitar acesso",
+    signInToRequestAccessDescription:
+      "Entre ou crie uma conta para solicitar acesso ao proprietário.",
+    signInOrSignUp: "Entrar ou criar conta",
+    accessCheckFailed: "Não foi possível verificar o acesso a este design.",
+    retryAccessCheck: "Tentar novamente",
     import: {
       ...messagesByLocale["pt-BR"].designEditor.import,
       figUploadDescriptionShort:
