@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -6,6 +8,7 @@ import {
 } from "../shared/visual-edit-bridge-relay.js";
 import {
   createLocalhostBridgeFetchProxy,
+  installLocalhostBridgeFetchProxy,
   type LocalhostBridgeTransport,
 } from "./localhost-bridge-proxy.js";
 
@@ -155,7 +158,13 @@ describe("localhost bridge browser relay", () => {
           designId: "design_1",
           connectionId: "conn_1",
           relPath: "src/App.tsx",
-          patch: { search: "old", replace: "new" },
+          patch: {
+            search: "old",
+            replace: "new",
+            relPath: "other.ts",
+            expectedVersionHash: "attacker-hash",
+            requireExpectedVersionHash: false,
+          },
           expectedVersionHash: "hash-1",
           requireExpectedVersionHash: true,
         }),
@@ -280,5 +289,66 @@ describe("localhost bridge browser relay", () => {
       error: "The local visual-edit bridge returned an unexpected redirect.",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("notifies the caller when the bridge rejects the cached token", async () => {
+    const onBridgeTokenRejected = vi.fn();
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        if (url.startsWith(pageOrigin)) {
+          return Response.json(relay("read-file", { path: "src/App.tsx" }));
+        }
+        return Response.json(
+          { error: "Invalid bridge token." },
+          { status: 401 },
+        );
+      },
+    );
+    const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+      origin: pageOrigin,
+      onBridgeTokenRejected,
+    });
+
+    const response = await proxy(
+      `${pageOrigin}/_agent-native/actions/read-local-file?designId=design_1&connectionId=conn_1&path=src%2FApp.tsx`,
+      { method: "GET" },
+    );
+
+    expect(response.status).toBe(401);
+    expect(onBridgeTokenRejected).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a rejected persisted token and restores the original fetch", async () => {
+    window.sessionStorage.setItem(
+      "agent-native:visual-edit-bridge-v1",
+      JSON.stringify(transport),
+    );
+    const originalFetch = vi.fn(
+      async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        if (url.startsWith(window.location.origin)) {
+          return Response.json(relay("read-file", { path: "src/App.tsx" }));
+        }
+        return Response.json(
+          { error: "Invalid bridge token." },
+          { status: 401 },
+        );
+      },
+    );
+    window.fetch = originalFetch as typeof window.fetch;
+
+    installLocalhostBridgeFetchProxy(transport);
+    const proxiedFetch = window.fetch;
+    const response = await window.fetch(
+      `${window.location.origin}/_agent-native/actions/read-local-file?designId=design_1&connectionId=conn_1&path=src%2FApp.tsx`,
+      { method: "GET" },
+    );
+
+    expect(response.status).toBe(401);
+    expect(
+      window.sessionStorage.getItem("agent-native:visual-edit-bridge-v1"),
+    ).toBeNull();
+    expect(window.fetch).not.toBe(proxiedFetch);
   });
 });

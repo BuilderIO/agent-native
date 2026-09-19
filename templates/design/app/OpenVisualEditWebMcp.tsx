@@ -252,6 +252,10 @@ export function createOpenVisualEditWebMcpActions(options?: {
   type BootstrapCapability = { token: string; challenge: string };
   let sessionBridgeToken: string | undefined;
   let sessionBridgeUrl: string | undefined;
+  const onBridgeTokenRejected = () => {
+    sessionBridgeToken = undefined;
+    sessionBridgeUrl = undefined;
+  };
   if (isAuthenticated) {
     clearLocalhostBridgeFetchProxy();
   } else {
@@ -259,7 +263,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
     if (persisted && isCurrentVisualEditDesign(persisted.designId)) {
       sessionBridgeToken = persisted.bridgeToken;
       sessionBridgeUrl = persisted.bridgeUrl;
-      installLocalhostBridgeFetchProxy(persisted);
+      installLocalhostBridgeFetchProxy(persisted, { onBridgeTokenRejected });
     } else {
       clearLocalhostBridgeFetchProxy();
     }

@@ -25,6 +25,7 @@ type FetchImplementation = (
 ) => Promise<Response>;
 
 interface CreateProxyOptions {
+  onBridgeTokenRejected?: () => void;
   origin?: string;
 }
 
@@ -141,7 +142,7 @@ async function readRelayRequest(
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as RelayRequest)
       : undefined;
-  } catch {
+  } catch /* coercion-ok: session storage is optional; the active proxy is still invalidated. */ {
     // coercion-ok: malformed action JSON is an absent relay request.
     return undefined;
   }
@@ -198,7 +199,14 @@ function bridgePayload(
   if (relay.operation === "apply-edit" && request.patch) {
     const patch = request.patch;
     if (typeof patch === "object" && patch !== null && !Array.isArray(patch)) {
-      return { ...payload, ...(patch as Record<string, unknown>) };
+      const patchPayload = patch as Record<string, unknown>;
+      return {
+        relPath: request.relPath,
+        search: patchPayload.search,
+        replace: patchPayload.replace,
+        expectedVersionHash: request.expectedVersionHash,
+        requireExpectedVersionHash: request.requireExpectedVersionHash,
+      };
     }
   }
   return payload;
@@ -369,22 +377,59 @@ export function createLocalhostBridgeFetchProxy(
         403,
       );
     }
-    return bridgeResponse(fetchImpl, context, serverBody, request);
+    const response = await bridgeResponse(
+      fetchImpl,
+      context,
+      serverBody,
+      request,
+    );
+    if (response.status === 401) options?.onBridgeTokenRejected?.();
+    return response;
   };
 }
 
 let activeProxyDisposer: (() => void) | undefined;
 
+function invalidatePersistedLocalhostBridgeTransport(
+  context: LocalhostBridgeTransport,
+): void {
+  if (typeof window === "undefined") return;
+  const persisted = readPersistedLocalhostBridgeTransport();
+  if (
+    !persisted ||
+    persisted.designId !== context.designId ||
+    persisted.connectionId !== context.connectionId ||
+    persisted.bridgeToken !== context.bridgeToken
+  ) {
+    return;
+  }
+  try {
+    window.sessionStorage.removeItem(LOCALHOST_BRIDGE_STORAGE_KEY);
+  } catch (error) {
+    console.warn(
+      "The visual-edit bridge token could not be cleared from session storage.",
+      error,
+    );
+  }
+}
+
 export function installLocalhostBridgeFetchProxy(
   context: LocalhostBridgeTransport,
+  options?: { onBridgeTokenRejected?: () => void },
 ): () => void {
   if (typeof window === "undefined" || typeof window.fetch !== "function") {
     return () => {};
   }
   activeProxyDisposer?.();
   const originalFetch = window.fetch.bind(window);
+  const onBridgeTokenRejected = () => {
+    invalidatePersistedLocalhostBridgeTransport(context);
+    options?.onBridgeTokenRejected?.();
+    clearLocalhostBridgeFetchProxy();
+  };
   const proxiedFetch = createLocalhostBridgeFetchProxy(context, originalFetch, {
     origin: window.location.origin,
+    onBridgeTokenRejected,
   });
   window.fetch = proxiedFetch as typeof window.fetch;
   let disposed = false;
