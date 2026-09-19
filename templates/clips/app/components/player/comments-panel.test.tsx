@@ -363,12 +363,16 @@ describe("CommentsPanel reply composer", () => {
     expect(composerDock?.className).toContain("bg-transparent");
     expect(composerDock?.className).toContain("-mt-16");
     expect(composerDock?.className).toContain("pt-16");
+    expect(composerDock?.className).toContain("pointer-events-none");
     const fade = composerDock?.querySelector('[aria-hidden="true"]');
     expect(fade?.className).toContain("absolute");
     expect(fade?.className).toContain("top-0");
     expect(fade?.className).toContain("z-0");
     expect(fade?.className).toContain("bg-gradient-to-b");
     expect(fade?.className).toContain("lg:to-background");
+    expect(composerDock?.lastElementChild?.className).toContain(
+      "pointer-events-auto",
+    );
     expect(composerDock?.lastElementChild?.className).toContain(
       "relative z-10",
     );
