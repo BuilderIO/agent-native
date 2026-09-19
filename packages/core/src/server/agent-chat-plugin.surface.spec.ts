@@ -526,7 +526,7 @@ describe("interactive agent run options — wiring guards", () => {
 
     // Three interactive handlers are created today (prod, anonymous
     // read-only, dev). If this count changes, a new call site was added or
-    // removed — update this guard alongside it, and confirm the new/changed
+    // removed - update this guard alongside it, and confirm the new/changed
     // site still includes both required options.
     expect(handlerCallSites).toHaveLength(3);
     for (const handlerBlock of handlerBlocks) {

@@ -8716,11 +8716,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         getIframePaintRetentionStyle({
           viewportWidth: viewport.width,
           viewportHeight: viewport.height,
-          effectiveScale:
-            Math.max(
-              boardGeometry.width / viewport.width,
-              boardGeometry.height / viewport.height,
-            ) * nextScale,
+          effectiveScale: (boardGeometry.width / viewport.width) * nextScale,
+          effectiveScaleY: (boardGeometry.height / viewport.height) * nextScale,
         }),
       );
     }
@@ -12197,6 +12194,12 @@ const Screen = memo(function Screen({
           backgroundColor: "white",
           colorScheme: "light",
           ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+          ...getIframePaintRetentionStyle({
+            viewportWidth: previewViewport.viewportWidth,
+            viewportHeight: previewViewport.viewportHeight,
+            effectiveScale:
+              previewViewport.scale / Math.max(chromeScale, 0.001),
+          }),
         }}
         title={`${screen.filename} snapshot`}
       />

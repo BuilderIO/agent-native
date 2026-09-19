@@ -20282,6 +20282,7 @@ function DesignEditor() {
       const previousMode = resolveScreenHeightMode(
         screenMetadata.heightMode,
         screenMetadata.heightPinned === true,
+        screenMetadata.sourceType,
       );
       const operations: DesignDataOperation[] = [];
       if (mode === "auto") {
