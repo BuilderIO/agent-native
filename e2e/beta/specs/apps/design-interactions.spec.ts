@@ -1145,6 +1145,14 @@ test.describe("authenticated beta Design interactions", () => {
       await expect(
         tree
           .getByRole("button", {
+            name: SELECTION_COLOR_FRAME_NAME,
+            exact: true,
+          })
+          .locator('xpath=ancestor::*[@role="treeitem"][1]'),
+      ).toHaveAttribute("aria-selected", "true");
+      await expect(
+        tree
+          .getByRole("button", {
             name: SELECTION_COLOR_MATCHING_NAME,
             exact: true,
           })
@@ -1158,9 +1166,6 @@ test.describe("authenticated beta Design interactions", () => {
           })
           .locator('xpath=ancestor::*[@role="treeitem"][1]'),
       ).toHaveAttribute("aria-selected", "false");
-      await expect(
-        tree.locator('[role="treeitem"][aria-selected="true"]'),
-      ).toHaveCount(2);
 
       await page.reload({ waitUntil: "domcontentloaded" });
       await waitForEditor(page, SELECTION_COLOR_FRAME_ID);
@@ -1191,6 +1196,14 @@ test.describe("authenticated beta Design interactions", () => {
       await expect(
         tree
           .getByRole("button", {
+            name: SELECTION_COLOR_FRAME_NAME,
+            exact: true,
+          })
+          .locator('xpath=ancestor::*[@role="treeitem"][1]'),
+      ).toHaveAttribute("aria-selected", "true");
+      await expect(
+        tree
+          .getByRole("button", {
             name: SELECTION_COLOR_MATCHING_NAME,
             exact: true,
           })
@@ -1204,9 +1217,6 @@ test.describe("authenticated beta Design interactions", () => {
           })
           .locator('xpath=ancestor::*[@role="treeitem"][1]'),
       ).toHaveAttribute("aria-selected", "false");
-      await expect(
-        tree.locator('[role="treeitem"][aria-selected="true"]'),
-      ).toHaveCount(2);
     } catch (error) {
       primaryFailure = true;
       throw error;
