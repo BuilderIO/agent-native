@@ -637,6 +637,31 @@ describe("editable .fig conversion", () => {
     expect(renderHtmlTemplates({ nodeChanges: nodes }).frames).toHaveLength(
       201,
     );
+
+    const tooManyNodes = [
+      ...nodes,
+      ...Array.from({ length: 100 }, (_, index) => ({
+        guid: { sessionID: 1, localID: index + 204 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 2 },
+          position: String(index + 201).padStart(3, "0"),
+        },
+        type: "FRAME",
+        name: `Frame ${index + 202}`,
+        size: { x: 320, y: 200 },
+        transform: {
+          m00: 1,
+          m01: 0,
+          m02: (index + 201) * 320,
+          m10: 0,
+          m11: 1,
+          m12: 0,
+        },
+      })),
+    ];
+    expect(() => renderHtmlTemplates({ nodeChanges: tooManyNodes })).toThrow(
+      /max 300/i,
+    );
   });
 
   it("summarizes the document and warns before an oversized import", () => {
