@@ -193,7 +193,6 @@ const LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN =
   "local.visual-edit.agent-native.invalid";
 const VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX =
   "capability:visual-edit-bootstrap:";
-const VISUAL_EDIT_ACCESS_MARKER = "#__an_visual_edit_access";
 
 /**
  * Stable owner partition for local visual-edit calls when no account session
@@ -354,10 +353,6 @@ async function attestAnonymousBridge(args: {
 
 function localVisualEditPath(designId: string): string {
   return `/visual-edit/${encodeURIComponent(designId)}?editorView=overview&embedChrome=1`;
-}
-
-function localVisualEditAccessPath(path: string): string {
-  return `${path}${VISUAL_EDIT_ACCESS_MARKER}`;
 }
 
 function localVisualEditDeepLink(designId: string): string {
@@ -718,11 +713,7 @@ export default defineAction({
       }
       const deepLink = localVisualEditDeepLink(designId);
       const embedStartUrl = isLoopbackUrl(devServerUrl)
-        ? await createCallerHandoff(
-            localVisualEditAccessPath(urlPath),
-            ownerEmail,
-            designId,
-          )
+        ? await createCallerHandoff(urlPath, ownerEmail, designId)
         : undefined;
 
       const result = {

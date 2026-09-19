@@ -46,6 +46,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import {
   getBuilderParentOrigin,
+  getEmbedAuthToken,
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -59,10 +60,7 @@ import {
 } from "@agent-native/core/client/review";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
-import {
-  EMBED_TOKEN_QUERY_PARAM,
-  normalizeDocumentTitle,
-} from "@agent-native/core/shared";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareTab,
   parseCreativeContexts,
@@ -1160,6 +1158,41 @@ function readRenderedLayerInfo(
   return null;
 }
 
+function hasActiveVisualEditEmbedToken(
+  token: string | null,
+  pathname: string,
+): boolean {
+  if (typeof window === "undefined" || !token) return false;
+  const [encodedPayload] = token.split(".", 1);
+  if (!encodedPayload) return false;
+
+  try {
+    const base64 = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(
+      base64.length + ((4 - (base64.length % 4)) % 4),
+      "=",
+    );
+    const binary = window.atob(padded);
+    const bytes = Uint8Array.from(binary, (character) =>
+      character.charCodeAt(0),
+    );
+    const claims = JSON.parse(new TextDecoder().decode(bytes)) as {
+      exp?: unknown;
+      targetPath?: unknown;
+    };
+    if (typeof claims.exp !== "number" || claims.exp <= Date.now() / 1000) {
+      return false;
+    }
+    if (typeof claims.targetPath !== "string") return false;
+    return (
+      new URL(claims.targetPath, window.location.origin).pathname === pathname
+    );
+  } catch {
+    // coercion-ok: malformed embed tokens are treated as absent and reissued.
+    return false;
+  }
+}
+
 // ── Route wrapper — remounts editor state per design id ──────────────────────
 /**
  * React Router reuses the same route component when only `:id` changes. Key
@@ -1237,21 +1270,20 @@ function DesignEditor() {
   // Design page and put our own chrome and agent inside Builder's.
   const embedded = shellMode || isEmbedAuthActive();
   const isVisualEditSurface = location.pathname.startsWith("/visual-edit/");
-  const hasVisualEditUrlToken = new URLSearchParams(location.search).has(
-    EMBED_TOKEN_QUERY_PARAM,
+  const hasActiveVisualEditAccess = hasActiveVisualEditEmbedToken(
+    getEmbedAuthToken(),
+    location.pathname,
   );
-  const hasVisualEditAccessMarker =
-    location.hash === "#__an_visual_edit_access";
   const visualEditAccessAttemptRef = useRef<string | null>(null);
   useEffect(() => {
     // `embedded=1` is also a presentation marker. It can survive after the
     // one-time capability token was stripped or lost in a private browser
     // context, so it must not suppress the signed-out visual-edit bootstrap.
     if (!isVisualEditSurface || !id || !sessionResolved || shellMode) return;
-    if (hasVisualEditUrlToken || hasVisualEditAccessMarker) {
+    if (hasActiveVisualEditAccess) {
       // The embed auth bootstrap strips the one-time token from the URL after
-      // storing it. Keep this route instance marked as authenticated so the
-      // signed-out visual-edit bootstrap does not immediately reissue access.
+      // storing it. Validate that stored capability before suppressing the
+      // public route bootstrap so expired or copied links renew access.
       visualEditAccessAttemptRef.current = id;
       return;
     }
@@ -1275,8 +1307,7 @@ function DesignEditor() {
         }
       });
   }, [
-    hasVisualEditAccessMarker,
-    hasVisualEditUrlToken,
+    hasActiveVisualEditAccess,
     id,
     isVisualEditSurface,
     sessionResolved,

@@ -337,6 +337,9 @@ export function createEmbedStartRouteHandler(
       // target app can represent the same signed-in person with different
       // ids. Bind an existing target session to the ticket owner instead.
       expectedOwnerEmail: existingSession?.email ?? null,
+      // Resource-scoped capabilities authorize the public target, not the
+      // account currently signed into the browser.
+      allowCapabilityIdentityMismatch: true,
       onResult: (diagnostic) => {
         consumeDiagnostic = diagnostic;
       },
