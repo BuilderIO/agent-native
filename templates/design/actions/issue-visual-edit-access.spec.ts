@@ -107,7 +107,8 @@ describe("issue-visual-edit-access", () => {
     expect(mocks.createEmbedSessionTicket).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       orgId: "org-1",
-      targetPath: "/visual-edit/design-1?editorView=overview&embedChrome=1",
+      targetPath:
+        "/visual-edit/design-1?editorView=overview&embedChrome=1#__an_visual_edit_access",
       scope: "capability:visual-edit:design:design-1",
       ttlSeconds: 300,
     });

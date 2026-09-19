@@ -1240,19 +1240,21 @@ function DesignEditor() {
   const hasVisualEditUrlToken = new URLSearchParams(location.search).has(
     EMBED_TOKEN_QUERY_PARAM,
   );
+  const hasVisualEditAccessMarker =
+    location.hash === "#__an_visual_edit_access";
   const visualEditAccessAttemptRef = useRef<string | null>(null);
   useEffect(() => {
     // `embedded=1` is also a presentation marker. It can survive after the
     // one-time capability token was stripped or lost in a private browser
     // context, so it must not suppress the signed-out visual-edit bootstrap.
-    if (
-      !isVisualEditSurface ||
-      !id ||
-      !sessionResolved ||
-      shellMode ||
-      hasVisualEditUrlToken
-    )
+    if (!isVisualEditSurface || !id || !sessionResolved || shellMode) return;
+    if (hasVisualEditUrlToken || hasVisualEditAccessMarker) {
+      // The embed auth bootstrap strips the one-time token from the URL after
+      // storing it. Keep this route instance marked as authenticated so the
+      // signed-out visual-edit bootstrap does not immediately reissue access.
+      visualEditAccessAttemptRef.current = id;
       return;
+    }
     if (visualEditAccessAttemptRef.current === id) return;
 
     visualEditAccessAttemptRef.current = id;
@@ -1273,6 +1275,7 @@ function DesignEditor() {
         }
       });
   }, [
+    hasVisualEditAccessMarker,
     hasVisualEditUrlToken,
     id,
     isVisualEditSurface,

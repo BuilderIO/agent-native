@@ -503,7 +503,8 @@ describe("open-visual-edit", () => {
     expect(mocks.createEmbedSessionTicket).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       orgId: "org_1",
-      targetPath: "/visual-edit/design_1?editorView=overview&embedChrome=1",
+      targetPath:
+        "/visual-edit/design_1?editorView=overview&embedChrome=1#__an_visual_edit_access",
       scope: "capability:visual-edit:design:design_1",
       ttlSeconds: 300,
     });
@@ -577,7 +578,7 @@ describe("open-visual-edit", () => {
       ),
       orgId: undefined,
       targetPath:
-        "/visual-edit/design_created?editorView=overview&embedChrome=1",
+        "/visual-edit/design_created?editorView=overview&embedChrome=1#__an_visual_edit_access",
       scope: "capability:visual-edit:design:design_created",
       ttlSeconds: 300,
     });

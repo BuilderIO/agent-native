@@ -14,7 +14,7 @@ import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-requ
 const VISUAL_EDIT_ACCESS_TTL_SECONDS = 5 * 60;
 
 function visualEditPath(designId: string): string {
-  return `/visual-edit/${encodeURIComponent(designId)}?editorView=overview&embedChrome=1`;
+  return `/visual-edit/${encodeURIComponent(designId)}?editorView=overview&embedChrome=1#__an_visual_edit_access`;
 }
 
 export default defineAction({

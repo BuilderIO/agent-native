@@ -245,18 +245,10 @@ test.describe.serial("public visual edit", () => {
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: /open visual edit/i }).click();
 
-      await expect
-        .poll(
-          () => {
-            const url = new URL(signedOut.page.url());
-            return {
-              editorPath: url.pathname.startsWith("/visual-edit/"),
-              hasCapability: url.searchParams.has("__an_embed_token"),
-            };
-          },
-          { timeout: 30_000 },
-        )
-        .toEqual({ editorPath: true, hasCapability: true });
+      await signedOut.page.waitForURL(
+        /\/visual-edit\/[^?]+\?.*__an_embed_token=/,
+        { timeout: 30_000, waitUntil: "domcontentloaded" },
+      );
       await expect(signedOut.page.locator("[data-design-editor]")).toBeVisible({
         timeout: 30_000,
       });
