@@ -149,6 +149,10 @@ import {
 } from "./lib/recorder";
 import { notifyRecordingFailure } from "./lib/recording-failure-notifications";
 import {
+  clearResolvedFinalizationError,
+  RECORDING_FINALIZATION_IN_PROGRESS_MESSAGE,
+} from "./lib/recording-finalization-state";
+import {
   copyRecordingShareLink,
   recordingShareUrl,
 } from "./lib/recording-link";
@@ -391,18 +395,6 @@ type VideoStorageStatus = "checking" | "configured" | "missing";
 
 const STORAGE_SETUP_HELP_TEXT =
   "Clips is 100% free and open source, so you need to hook up a way to store your clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.";
-export const RECORDING_FINALIZATION_IN_PROGRESS_MESSAGE =
-  "Still finishing the last recording. Wait a moment, then try again.";
-
-export function clearResolvedFinalizationError(
-  message: string | null,
-  finalizing: boolean,
-): string | null {
-  return !finalizing && message === RECORDING_FINALIZATION_IN_PROGRESS_MESSAGE
-    ? null
-    : message;
-}
-
 const DEFAULT_SCREEN_MEMORY_CONFIG = {
   enabled: false,
   paused: false,

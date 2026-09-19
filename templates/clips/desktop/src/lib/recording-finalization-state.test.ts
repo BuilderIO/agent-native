@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   clearResolvedFinalizationError,
   RECORDING_FINALIZATION_IN_PROGRESS_MESSAGE,
-} from "../app";
+} from "./recording-finalization-state";
 
 describe("clearResolvedFinalizationError", () => {
   it("keeps the retry message while finalization is still active", () => {
