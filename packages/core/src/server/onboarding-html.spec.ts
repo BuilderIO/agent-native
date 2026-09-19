@@ -445,13 +445,11 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("text-align: start;");
     expect(html).toContain('id="use-password-link"');
     expect(html).toContain('class="link-button auth-mode-link"');
-    expect(html).toContain(
-      'style="margin-top:0.75rem;font-size:0.75rem;text-align:start"',
-    );
+    expect(html).toContain('class="auth-mode-switch"');
     expect(html).toContain('id="back-to-magic-link"');
     expect(html).toContain('id="auth-tabs"');
     expect(html).toContain('data-i18n="magicLinkTitle">Welcome</h1>');
-    expect(html).toContain("Continue to sign in or create your account");
+    expect(html).toContain("Sign in or create your account");
     expect(html).toContain("Continue with email");
     expect(html).not.toContain("onclick=");
   });
@@ -586,6 +584,12 @@ describe("getOnboardingHtml", () => {
     expect(pageData.marketingLocales["zh-CN"]?.tagline).toContain(
       "构建、发布和分析表单",
     );
+    expect(pageData.marketingLocales["zh-CN"]?.authHeadline).toContain(
+      "构建、发布和分析表单",
+    );
+    expect(pageData.marketingLocales["zh-CN"]?.authHeadline).not.toContain(
+      "Ask it. See it.",
+    );
     expect(pageData.marketingLocales["zh-CN"]?.features?.[0]).toContain(
       "用一句话创建完整表单",
     );
@@ -597,6 +601,9 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(html).toContain("你的 AI 代理会转录、总结并搜索你记录的所有内容。");
+    expect(
+      readAuthPageData(html).marketingLocales["zh-CN"]?.authDescription,
+    ).toBe("Screen recordings built for people and agents.");
   });
 
   it("keeps custom Clips auth marketing copy out of built-in localization", () => {
@@ -618,8 +625,30 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
     );
-    expect(readAuthPageData(html).marketingLocales).toEqual({});
+    const pageData = readAuthPageData(html);
+    expect(pageData.marketingLocales).toEqual({});
+    expect(pageData.marketing?.authHeadline).toBeUndefined();
+    expect(pageData.marketing?.authDescription).toBeUndefined();
     expect(html).not.toContain("var rootLocale =");
+  });
+
+  it("uses the shared presentation copy for first-party template marketing", () => {
+    const html = getOnboardingHtml({
+      marketing: {
+        appName: "Clips",
+        tagline: "The template's existing public tagline.",
+        learnMoreUrl: "https://agent-native.com/apps/clips",
+      },
+    });
+
+    const pageData = readAuthPageData(html);
+    expect(pageData.marketing?.authHeadline).toBe(
+      "Show it. Say it.\nLet your agent take it from here.",
+    );
+    expect(pageData.marketing?.authDescription).toBe(
+      "Screen recordings built for people and agents.",
+    );
+    expect(pageData.marketingLocales).toEqual({});
   });
 
   it("keeps custom marketing that reuses a built-in app name out of built-in localized copy", () => {
@@ -707,7 +736,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "Your AI agent manages secrets, orchestrates other agents",
     );
-    expect(html).toContain("100% free and open source");
+    expect(html).toContain("FREE &amp; OPEN SOURCE");
     expect(html).toContain(
       `${AGENT_NATIVE_SOCIAL_IMAGE_PATH}?v=${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`,
     );

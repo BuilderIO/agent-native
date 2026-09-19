@@ -5,6 +5,7 @@ import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
+import { isVectorEndpointProperty } from "@shared/vector-endpoints";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -298,8 +299,10 @@ export function runCommitVisualStyles(
   }
   // Read through the editor's source boundary so pending linked projections
   // and synchronous local writes compose before this full-document commit.
-  const activeLiveSnapshot = activeFile
-    ? liveScreenSnapshotsById[activeFile.id]
+  const activeLiveSnapshot = isRunningAppSourceType(activeCanvasSourceType)
+    ? activeFile
+      ? liveScreenSnapshotsById[activeFile.id]
+      : undefined
     : undefined;
   const baseContent = getScreenContent(activeFile.id);
   // A localhost screen's stored content IS its route URL, so with no
@@ -352,7 +355,11 @@ export function runCommitVisualStyles(
   // This property rebuilds SVG defs/use markup, so preview it through the
   // committed document replacement below instead of layering a runtime copy.
   const runtimeStyleApplied =
-    !entries.some(([property]) => property === "--an-vector-stroke-position") &&
+    !entries.some(
+      ([property]) =>
+        property === "--an-vector-stroke-position" ||
+        isVectorEndpointProperty(property),
+    ) &&
     !options.runtimeApplied &&
     activeBreakpointUpperBoundPx == null &&
     typeof sendStyleChange === "function";

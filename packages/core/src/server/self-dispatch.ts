@@ -86,9 +86,16 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
     );
   }
 
-  const proto = readHeader(event, "x-forwarded-proto") || "http";
   const host =
     readHeader(event, "host") || `localhost:${process.env.PORT || 3000}`;
+  const hostName = (
+    host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0]
+  ).toLowerCase();
+  const isLoopback =
+    hostName === "localhost" || hostName === "127.0.0.1" || hostName === "::1";
+  const proto = isLoopback
+    ? "http"
+    : readHeader(event, "x-forwarded-proto") || "http";
   return withConfiguredAppBasePath(`${proto}://${host}`);
 }
 

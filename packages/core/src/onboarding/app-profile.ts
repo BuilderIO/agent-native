@@ -11,6 +11,16 @@ const LLM_CAPABILITY: OnboardingCapability = {
   why: "The agent uses a language model to understand requests and produce answers.",
 };
 
+const SYSTEM_ONE_CAPABILITY: OnboardingCapability = {
+  id: "system-one",
+  label: "System one model (Jev)",
+  required: false,
+  suggested: true,
+  builderIncluded: true,
+  keySummary: "Optional direct JEV_API_KEY; Builder-managed Jev when available",
+  why: "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request. Use Builder-managed access when available, or add a direct JEV_API_KEY.",
+};
+
 const DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY: OnboardingCapability = {
   id: "design-system-intelligence",
   label: "Design system intelligence",
@@ -474,6 +484,7 @@ export function getOnboardingAppProfile(appId?: string): OnboardingAppProfile {
       required: true,
       suggested: false,
     },
+    { ...SYSTEM_ONE_CAPABILITY },
     {
       ...(configuredStorage ?? FILE_UPLOAD_STORAGE_CAPABILITY),
       required: storageRequired,

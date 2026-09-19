@@ -1218,7 +1218,7 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("registers capability-scoped action routes before the auth guard", async () => {
+  it("registers only capability-scoped action routes with the auth guard", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const nitroApp = { use: vi.fn() };
     mockRegisterAuthPublicPaths.mockClear();

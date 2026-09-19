@@ -1248,6 +1248,15 @@ describe("canonicalElementInfoForCodeLayerNode runtime identity", () => {
 
     expect(canonical.isGroup).toBe(false);
   });
+
+  it("refreshes a missing primitive kind from the source projection", () => {
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      makeElementInfo({ tagName: "svg" }),
+      makeNode({ tag: "svg", dataAttributes: { "data-an-primitive": "line" } }),
+    );
+
+    expect(canonical.primitiveKind).toBe("line");
+  });
 });
 
 // ── grid-template source overlay (bug fix) ──────────────────────────────

@@ -59,7 +59,10 @@ import {
 } from "@agent-native/core/client/review";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
-import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import {
+  EMBED_TOKEN_QUERY_PARAM,
+  normalizeDocumentTitle,
+} from "@agent-native/core/shared";
 import {
   CreativeContextShareTab,
   parseCreativeContexts,
@@ -259,7 +262,10 @@ import {
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import { componentInstanceHasLocalOverrides } from "@/components/design/edit-panel/component-section";
-import { rewriteSelectionFillStyles } from "@/components/design/edit-panel/document-colors";
+import {
+  rewriteSelectionFillStyles,
+  selectionColorTargets,
+} from "@/components/design/edit-panel/document-colors";
 import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
@@ -386,6 +392,10 @@ import type {
   TextEditingState,
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
+import {
+  DesignAccessState,
+  type DesignAccessStatus,
+} from "@/components/DesignAccessState";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -1051,6 +1061,15 @@ type UpdateScreenSourceActionResult = {
   updatedAt: string | null;
 };
 
+type RequestDesignAccessResult = {
+  ok: boolean;
+  alreadyHasAccess: boolean;
+  alreadyRequested: boolean;
+  notifiedOwner: boolean;
+  requestId?: string;
+  message: string;
+};
+
 /* i18n-ignore */
 /* i18n-ignore */
 /* i18n-ignore */
@@ -1218,9 +1237,22 @@ function DesignEditor() {
   // Design page and put our own chrome and agent inside Builder's.
   const embedded = shellMode || isEmbedAuthActive();
   const isVisualEditSurface = location.pathname.startsWith("/visual-edit/");
+  const hasVisualEditUrlToken = new URLSearchParams(location.search).has(
+    EMBED_TOKEN_QUERY_PARAM,
+  );
   const visualEditAccessAttemptRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!isVisualEditSurface || !id || !sessionResolved || embedded) return;
+    // `embedded=1` is also a presentation marker. It can survive after the
+    // one-time capability token was stripped or lost in a private browser
+    // context, so it must not suppress the signed-out visual-edit bootstrap.
+    if (
+      !isVisualEditSurface ||
+      !id ||
+      !sessionResolved ||
+      shellMode ||
+      hasVisualEditUrlToken
+    )
+      return;
     if (visualEditAccessAttemptRef.current === id) return;
 
     visualEditAccessAttemptRef.current = id;
@@ -1240,7 +1272,13 @@ function DesignEditor() {
           visualEditAccessAttemptRef.current = null;
         }
       });
-  }, [embedded, id, isVisualEditSurface, sessionResolved]);
+  }, [
+    hasVisualEditUrlToken,
+    id,
+    isVisualEditSurface,
+    sessionResolved,
+    shellMode,
+  ]);
   const embedChromeRequested = isEmbedChromeRequested();
   // The shell keeps our rails and hands the host only the chat, so it must not
   // depend on `embedChrome` surviving in the URL Builder builds.
@@ -3755,9 +3793,11 @@ function DesignEditor() {
     (hasPendingGeneration || Boolean(readPendingGeneration(id))) &&
     !pendingQuestionsVisible;
 
-  const { data: designResult, isLoading: designLoading } = useActionQuery<
-    DesignData | string
-  >(
+  const {
+    data: designResult,
+    isLoading: designLoading,
+    refetch: refetchDesign,
+  } = useActionQuery<DesignData | string>(
     "get-design",
     { id: id! },
     {
@@ -3765,6 +3805,49 @@ function DesignEditor() {
       refetchInterval: pendingGenerationActive || generating ? 1000 : false,
     },
   );
+  const {
+    data: designAccessStatus,
+    isLoading: designAccessStatusLoading,
+    isError: designAccessStatusError,
+    refetch: refetchDesignAccessStatus,
+  } = useActionQuery<DesignAccessStatus>(
+    "get-design-access-status",
+    { designId: id! },
+    {
+      enabled: !shellMode && Boolean(id) && !isDesignData(designResult),
+    },
+  );
+  const requestDesignAccessMutation = useActionMutation<
+    RequestDesignAccessResult,
+    { designId: string }
+  >("request-design-access");
+  const [designAccessRequestSent, setDesignAccessRequestSent] = useState(false);
+
+  useEffect(() => {
+    setDesignAccessRequestSent(false);
+  }, [id]);
+
+  const handleRequestDesignAccess = useCallback(async () => {
+    if (!id || requestDesignAccessMutation.isPending) return;
+    try {
+      const result = await requestDesignAccessMutation.mutateAsync({
+        designId: id,
+      });
+      if (result.alreadyHasAccess) {
+        await Promise.all([refetchDesign(), refetchDesignAccessStatus()]);
+      } else if (result.notifiedOwner) {
+        setDesignAccessRequestSent(true);
+      }
+    } catch (error) {
+      toast.error(actionErrorMessage(error) ?? t("common.genericError"));
+    }
+  }, [
+    id,
+    refetchDesign,
+    refetchDesignAccessStatus,
+    requestDesignAccessMutation,
+    t,
+  ]);
 
   /** Rebuilt from the host payload; there is no row behind it to fetch. */
   const shellDesign = useMemo(
@@ -4357,7 +4440,7 @@ function DesignEditor() {
         identityMigrationSourceContent?: string;
       },
     ) => {
-      if (!canEditDesignRef.current) return;
+      if (!canEditDesignRef.current) return Promise.resolve(false);
       const queuedIdentityMigration = pendingFileSavesRef.current[fileId];
       const latestIdentityMigration =
         latestFileSaveForUnloadRef.current[fileId];
@@ -4407,8 +4490,7 @@ function DesignEditor() {
           delete fileSaveTimersRef.current[fileId];
         }
         delete pendingFileSavesRef.current[fileId];
-        saveFileContent(pending);
-        return;
+        return saveFileContent(pending);
       }
       pendingFileSavesRef.current[fileId] = pending;
       const timer = fileSaveTimersRef.current[fileId];
@@ -5671,6 +5753,7 @@ function DesignEditor() {
                 resolveScreenHeightMode(
                   metadata.heightMode,
                   metadata.heightPinned === true,
+                  metadata.sourceType,
                 ) !== "hug"
               ) {
                 if (beforeContent !== afterContent) {
@@ -8155,6 +8238,8 @@ function DesignEditor() {
       metadata?: {
         originalStyles?: Record<string, string>;
         interactionState?: InteractionState;
+        pendingUndoGestureId?: string;
+        preserveSelection?: boolean;
       },
     ) =>
       runRecordPendingVisualStyleEdit(
@@ -9535,6 +9620,7 @@ function DesignEditor() {
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
+        awaitSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
@@ -9628,6 +9714,7 @@ function DesignEditor() {
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
+        awaitSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
@@ -12700,9 +12787,35 @@ function DesignEditor() {
             ? activeCanvasSourceType
             : designSourceType));
       if (isRunningAppSourceType(sourceType)) {
-        changes.forEach(({ selector, styles }) => {
-          recordPendingVisualStyleEdit(screenId, selector, styles);
-        });
+        const pendingUndoGestureId =
+          changes.length > 1
+            ? pendingVisualStyleGestureIdForPhase(
+                pendingLiveStyleGestureStateRef.current,
+                undefined,
+                true,
+              )
+            : undefined;
+        changes.forEach(
+          ({
+            selector,
+            styles,
+            elementInfo,
+            originalStyles,
+            preserveSelection,
+          }) => {
+            recordPendingVisualStyleEdit(
+              screenId,
+              selector,
+              styles,
+              elementInfo,
+              {
+                originalStyles,
+                pendingUndoGestureId,
+                preserveSelection,
+              },
+            );
+          },
+        );
         return true;
       }
       const content =
@@ -12742,6 +12855,7 @@ function DesignEditor() {
       getFreshActiveContent,
       getScreenContent,
       overviewScreens,
+      pendingVisualStyleGestureIdForPhase,
       recordPendingVisualStyleEdit,
       t,
     ],
@@ -15169,6 +15283,21 @@ function DesignEditor() {
           contentUndoStackRef,
           contentHistorySelectionAfterRef,
           designSourceType,
+          fileSaveOperationRevisionRef,
+          getCurrentSelectionFingerprint: () =>
+            JSON.stringify({
+              activeFileId: activeFileIdRef.current,
+              selectedLayerIds: selectedLayerIdsStateRef.current,
+              overviewSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+              selectedElement: selectedElementRef.current
+                ? {
+                    id: selectedElementRef.current.id ?? null,
+                    selector: selectedElementRef.current.selector ?? null,
+                    sourceId: selectedElementRef.current.sourceId ?? null,
+                  }
+                : null,
+              viewMode: viewModeRef.current,
+            }),
           getScreenContent,
           id,
           overviewScreens,
@@ -15779,6 +15908,7 @@ function DesignEditor() {
           resolveScreenHeightMode(
             metadata.heightMode,
             metadata.heightPinned === true,
+            metadata.sourceType,
           ) === "fixed"
         ) {
           locallyPinnedHeightIdsRef.current.add(screenId);
@@ -20288,13 +20418,15 @@ function DesignEditor() {
       const previousMode = resolveScreenHeightMode(
         screenMetadata.heightMode,
         screenMetadata.heightPinned === true,
+        screenMetadata.sourceType,
       );
       const operations: DesignDataOperation[] = [];
       if (mode === "auto") {
-        if (screenMetadata.heightMode !== undefined) {
+        if (screenMetadata.heightMode !== "auto") {
           operations.push({
-            op: "delete",
+            op: "set",
             path: ["screenMetadata", screenId, "heightMode"],
+            value: "auto",
           });
         }
       } else if (screenMetadata.heightMode !== mode) {
@@ -20525,22 +20657,40 @@ function DesignEditor() {
   );
 
   const selectionColorScopes = useMemo<SelectionColorScope[]>(() => {
+    const sourceIsInline = (fileId: string, content: string) =>
+      resolveOverviewScreenSourceType(
+        overviewScreens.find((screen) => screen.id === fileId),
+        designSourceType,
+      ) === "inline" &&
+      externalPreviewUrlForContent(getScreenContent(fileId)) === null &&
+      externalPreviewUrlForContent(content) === null;
+
     if (selectedLayerTargets.length > 0) {
-      return selectedLayerTargets.map((target) => ({
-        fileId: target.fileId,
-        content:
+      return selectedLayerTargets.flatMap((target) => {
+        const content =
           target.fileId === activeFile?.id
             ? activeContent
-            : getScreenContent(target.fileId),
-        sourceId: bridgeSourceIdForCodeLayerNode(target.node),
-        selector: target.node.selector,
-      }));
+            : getScreenContent(target.fileId);
+        return sourceIsInline(target.fileId, content)
+          ? [
+              {
+                fileId: target.fileId,
+                content,
+                source: codeLayerSourceForScreen(target.fileId),
+                sourceId: bridgeSourceIdForCodeLayerNode(target.node),
+                selector: target.node.selector,
+              },
+            ]
+          : [];
+      });
     }
     if (selectedElement && activeFile?.id) {
+      if (!sourceIsInline(activeFile.id, activeContent)) return [];
       return [
         {
           fileId: activeFile.id,
           content: activeContent,
+          source: codeLayerSourceForScreen(activeFile.id),
           sourceId: selectedElement.sourceId,
           selector: selectedElement.selector,
         },
@@ -20549,15 +20699,25 @@ function DesignEditor() {
     if (viewMode !== "overview") return [];
     return overviewSelectedScreenIds.flatMap((screenId) => {
       const content = getProjectionContentForScreen(screenId);
-      return content && externalPreviewUrlForContent(content) === null
-        ? [{ fileId: screenId, content, wholeDocument: true }]
+      return content && sourceIsInline(screenId, content)
+        ? [
+            {
+              fileId: screenId,
+              content,
+              source: codeLayerSourceForScreen(screenId),
+              wholeDocument: true,
+            },
+          ]
         : [];
     });
   }, [
     activeContent,
+    codeLayerSourceForScreen,
+    designSourceType,
     activeFile?.id,
     getProjectionContentForScreen,
     getScreenContent,
+    overviewScreens,
     overviewSelectedScreenIds,
     selectedElement,
     selectedLayerTargets,
@@ -20650,6 +20810,12 @@ function DesignEditor() {
         open,
       );
     },
+    [getFreshSelectionColorScopes],
+  );
+
+  const canSelectSelectionColorTarget = useCallback(
+    (color: string) =>
+      selectionColorTargets(getFreshSelectionColorScopes(), color).length > 0,
     [getFreshSelectionColorScopes],
   );
 
@@ -20764,6 +20930,114 @@ function DesignEditor() {
       canEditDesign,
       getFreshSelectionColorScopes,
       t,
+    ],
+  );
+
+  const handleSelectionColorTarget = useCallback(
+    (color: string) => {
+      const targets = selectionColorTargets(
+        getFreshSelectionColorScopes(),
+        color,
+      );
+      if (targets.length === 0) return;
+
+      recordSelectionHistoryAroundChange(() => {
+        const nextLayerIds: string[] = [];
+        const nextScreenIds: string[] = [];
+        const addUnique = (ids: string[], id: string) => {
+          if (!ids.includes(id)) ids.push(id);
+        };
+        const ownerForTarget = (target: (typeof targets)[number]) =>
+          codeLayerOwnerByNodeId.get(target.nodeId) ??
+          Array.from(codeLayerOwnerByNodeId.values()).find(
+            (candidate) =>
+              candidate.fileId === target.fileId &&
+              candidate.node.tag === target.tag &&
+              candidate.node.selector === target.selector,
+          );
+
+        for (const target of targets) {
+          if (target.tag === "html" || target.tag === "body") {
+            addUnique(nextScreenIds, target.fileId);
+          } else {
+            addUnique(nextLayerIds, target.nodeId);
+          }
+          const owner = ownerForTarget(target);
+          if (owner) {
+            addUnique(nextLayerIds, owner.node.id);
+            addUnique(nextScreenIds, owner.fileId);
+          }
+        }
+
+        if (viewModeRef.current === "overview") {
+          const nextActiveFileId = nextScreenIds[0] ?? targets[0]?.fileId;
+          if (nextActiveFileId) setActiveFileId(nextActiveFileId);
+          setOverviewSelectedScreenIds(nextScreenIds);
+          setSelectedLayerIdsState(
+            nextScreenIds.length > 0
+              ? [...nextScreenIds, ...nextLayerIds]
+              : nextLayerIds,
+          );
+        } else {
+          const fileId = targets[0]?.fileId;
+          if (fileId) setActiveFileId(fileId);
+          setOverviewSelectedScreenIds([]);
+          setSelectedLayerIdsState(nextLayerIds);
+        }
+
+        const lastLayerTarget = [...targets]
+          .reverse()
+          .find((target) => target.tag !== "html" && target.tag !== "body");
+        const lastOwner = lastLayerTarget
+          ? ownerForTarget(lastLayerTarget)
+          : null;
+        const lastRootTarget = [...targets]
+          .reverse()
+          .find((target) => target.tag === "html" || target.tag === "body");
+        const selectedOwner =
+          lastOwner ?? (lastRootTarget ? ownerForTarget(lastRootTarget) : null);
+        if (selectedOwner) {
+          setSelectedElement(
+            elementInfoForOwnedCodeLayerNode({
+              info: selectedElement,
+              node: selectedOwner.node,
+              ownerFileId: selectedOwner.fileId,
+            }),
+          );
+        } else if (lastRootTarget) {
+          // A source/runtime projection can briefly disagree on node ids while
+          // a live snapshot is settling. Keep the current single-screen
+          // selection rather than turning a body-only locate into deselection.
+          setSelectedElement((current) => current);
+        } else {
+          setSelectedElement(null);
+        }
+        setActiveTool("move");
+        setMode("edit");
+        setExpandedLayerIds((current) => {
+          const currentIds = new Set(current);
+          const next = new Set(currentIds);
+          for (const target of targets) {
+            const owner = ownerForTarget(target);
+            if (!owner) continue;
+            next.add(owner.fileId);
+            collectCodeLayerAncestors(owner.tree, owner.node.id).forEach(
+              (ancestorId) => next.add(ancestorId),
+            );
+          }
+          return next.size === currentIds.size ? current : Array.from(next);
+        });
+        if (viewModeRef.current === "overview") {
+          window.requestAnimationFrame(() => handleZoomToSelectionFit());
+        }
+      });
+    },
+    [
+      codeLayerOwnerByNodeId,
+      getFreshSelectionColorScopes,
+      handleZoomToSelectionFit,
+      recordSelectionHistoryAroundChange,
+      selectedElement,
     ],
   );
 
@@ -23469,7 +23743,14 @@ function DesignEditor() {
 
   // A shell with no design yet is waiting for the host's `design:init`, not
   // looking at a design that does not exist.
-  if (designLoading || (!design && (pendingGenerationActive || shellMode))) {
+  if (
+    designLoading ||
+    (!design &&
+      (pendingGenerationActive ||
+        shellMode ||
+        designAccessStatusLoading ||
+        (!designAccessStatus && !designAccessStatusError)))
+  ) {
     return (
       <DesignEditorSkeleton
         embedded={embedded}
@@ -23480,34 +23761,21 @@ function DesignEditor() {
 
   if (!design) {
     return (
-      <div className="relative flex min-h-dvh flex-1 items-center justify-center overflow-hidden bg-[var(--design-editor-canvas-bg)] px-6 py-12">
-        <div
-          aria-hidden="true"
-          className="design-editor-not-found-grid absolute inset-0 opacity-60"
-        />
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 top-0 h-px bg-[var(--design-editor-panel-divider-color)]"
-        />
-        <div className="relative flex w-full max-w-sm flex-col items-center text-center">
-          <div className="mb-2 !text-[11px] font-medium uppercase text-muted-foreground">
-            404
-          </div>
-          <h1 className="text-xl font-semibold text-foreground">
-            {t("designEditor.notFound")}
-          </h1>
-          <Button
-            asChild
-            variant="default"
-            className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-foreground bg-foreground px-3.5 text-background shadow-sm hover:border-foreground/90 hover:bg-foreground/90 hover:text-background focus-visible:ring-foreground"
-          >
-            <Link to="/home">
-              <IconArrowLeft className="size-4 rtl:-scale-x-100" />
-              {t("designEditor.backToDesigns")}
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <DesignAccessState
+        accessStatus={designAccessStatus}
+        accessStatusError={
+          designAccessStatusError ||
+          !designAccessStatus ||
+          designAccessStatus.hasAccess
+        }
+        accessRequestPending={requestDesignAccessMutation.isPending}
+        accessRequestSent={designAccessRequestSent}
+        signInHref={buildSignInHrefForComment()}
+        onRequestAccess={() => void handleRequestDesignAccess()}
+        onRetryAccessCheck={() => {
+          void Promise.all([refetchDesign(), refetchDesignAccessStatus()]);
+        }}
+      />
     );
   }
 
@@ -24092,6 +24360,130 @@ function DesignEditor() {
       </DropdownMenu>
     );
 
+  const publishWaitlistControl = (
+    <Popover
+      open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
+      onOpenChange={(open) => {
+        setPublishWaitlistPopoverOpen(open);
+        setPublishWaitlistPopoverView("actions");
+        if (open) {
+          setPublishWaitlistError(null);
+        }
+      }}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-[var(--design-row-height)] cursor-pointer gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-foreground hover:bg-accent hover:text-foreground",
+                hostEmbeddedEditor && "hidden",
+              )}
+              aria-label={"Preview or publish app" /* i18n-ignore */}
+            >
+              <IconPlayerPlay className="size-5" />
+              <IconChevronDown className="size-3 opacity-70" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Preview or publish app" /* i18n-ignore */}
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="z-[100010] w-72 space-y-3 p-3"
+      >
+        {publishWaitlistPopoverView === "actions" ? (
+          <div className="space-y-1">
+            <Button
+              variant="ghost"
+              className="h-9 w-full justify-start gap-2 px-2 text-sm"
+              onClick={() => {
+                handleOpenDesignPreview();
+                setPublishWaitlistPopoverOpen(false);
+              }}
+              disabled={!activeScreenPreviewUrl && !activeContent.trim()}
+            >
+              <IconPlayerPlay className="size-4" />
+              {t("designEditor.designPreview")}
+            </Button>
+            <Button
+              variant="ghost"
+              className="h-9 w-full justify-start gap-2 px-2 text-sm"
+              onClick={() => setPublishWaitlistPopoverView("waitlist")}
+            >
+              <IconArrowUpRight className="size-4" />
+              {"Publish app" /* i18n-ignore */}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                {
+                  publishWaitlistJoined
+                    ? "You're on the waitlist" /* i18n-ignore */
+                    : "Publish app" /* i18n-ignore */
+                }
+              </p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {
+                  publishWaitlistJoined
+                    ? "We'll follow up when app publishing is ready for your workspace." /* i18n-ignore */
+                    : isSignedIn
+                      ? "Publish directly from Design is opening soon. Want early access?" /* i18n-ignore */
+                      : "Publish directly from Design is opening soon. Sign in to join the waitlist." /* i18n-ignore */
+                }
+              </p>
+            </div>
+            {publishWaitlistError ? (
+              <p role="alert" className="text-xs text-destructive">
+                {publishWaitlistError}
+              </p>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 cursor-pointer"
+                onClick={() => setPublishWaitlistPopoverOpen(false)}
+              >
+                {
+                  publishWaitlistJoined
+                    ? "Done" /* i18n-ignore */
+                    : "Not now" /* i18n-ignore */
+                }
+              </Button>
+              {!publishWaitlistJoined && (
+                <Button
+                  size="sm"
+                  className="h-8 cursor-pointer"
+                  onClick={() => void handleJoinPublishWaitlist()}
+                  disabled={joiningPublishWaitlist}
+                >
+                  {joiningPublishWaitlist ? (
+                    <>
+                      <Spinner className="mr-1.5 size-3.5" />
+                      {"Joining" /* i18n-ignore */}
+                    </>
+                  ) : isSignedIn ? (
+                    "Add me to waitlist" /* i18n-ignore */
+                  ) : (
+                    "Sign in to join" /* i18n-ignore */
+                  )}
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+
   // ── Right sidebar actions ──────────────────────────────────────────────────
   const rightSidebarActions = (
     <div
@@ -24104,24 +24496,27 @@ function DesignEditor() {
       >
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
-            <PresenceBar
-              activeUsers={[
-                ...(currentUser ? [currentUser] : []),
-                ...(activeUsers ?? []),
-              ]}
-              agentPresent={agentPresent}
-              agentActive={agentActive}
-              currentUserEmail={currentUser?.email}
-              showCurrentUser
-              followingEmail={followingEmail}
-              onAvatarClick={handleAvatarClick}
-              disableAgentClick
-              className="shrink-0"
-            />
+            <>
+              <PresenceBar
+                activeUsers={[
+                  ...(currentUser ? [currentUser] : []),
+                  ...(activeUsers ?? []),
+                ]}
+                agentPresent={agentPresent}
+                agentActive={agentActive}
+                currentUserEmail={currentUser?.email}
+                showCurrentUser
+                followingEmail={followingEmail}
+                onAvatarClick={handleAvatarClick}
+                disableAgentClick
+                className="shrink-0"
+              />
+              {sessionResolved && !isSignedIn ? publishWaitlistControl : null}
+            </>
           )}
         </div>
 
-        {/* Not shrink-0: the signed-out CTA ("Sign up free to save") is a
+        {/* Not shrink-0: the signed-out CTA ("Sign up") is a
             nowrap label wide enough to push this row past the right rail's
             edge on its own, and a shrink-0 row has no way to give that space
             back — it just overflows the panel. */}
@@ -24146,127 +24541,7 @@ function DesignEditor() {
                 : t("review.applyFeedback", { count: reviewAgentQueueCount })}
             </Button>
           ) : null}
-          <Popover
-            open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
-            onOpenChange={(open) => {
-              setPublishWaitlistPopoverOpen(open);
-              setPublishWaitlistPopoverView("actions");
-              if (open) {
-                setPublishWaitlistError(null);
-              }
-            }}
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      "h-[var(--design-row-height)] cursor-pointer gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-foreground hover:bg-accent hover:text-foreground",
-                      hostEmbeddedEditor && "hidden",
-                    )}
-                    aria-label={"Preview or publish app" /* i18n-ignore */}
-                  >
-                    <IconPlayerPlay className="size-5" />
-                    <IconChevronDown className="size-3 opacity-70" />
-                  </Button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Preview or publish app" /* i18n-ignore */}
-              </TooltipContent>
-            </Tooltip>
-            <PopoverContent
-              align="end"
-              sideOffset={8}
-              className="z-[100010] w-72 space-y-3 p-3"
-            >
-              {publishWaitlistPopoverView === "actions" ? (
-                <div className="space-y-1">
-                  <Button
-                    variant="ghost"
-                    className="h-9 w-full justify-start gap-2 px-2 text-sm"
-                    onClick={() => {
-                      handleOpenDesignPreview();
-                      setPublishWaitlistPopoverOpen(false);
-                    }}
-                    disabled={!activeScreenPreviewUrl && !activeContent.trim()}
-                  >
-                    <IconPlayerPlay className="size-4" />
-                    {t("designEditor.designPreview")}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    className="h-9 w-full justify-start gap-2 px-2 text-sm"
-                    onClick={() => setPublishWaitlistPopoverView("waitlist")}
-                  >
-                    <IconArrowUpRight className="size-4" />
-                    {"Publish app" /* i18n-ignore */}
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">
-                      {
-                        publishWaitlistJoined
-                          ? "You're on the waitlist" /* i18n-ignore */
-                          : "Publish app" /* i18n-ignore */
-                      }
-                    </p>
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      {
-                        publishWaitlistJoined
-                          ? "We'll follow up when app publishing is ready for your workspace." /* i18n-ignore */
-                          : isSignedIn
-                            ? "Publish directly from Design is opening soon. Want early access?" /* i18n-ignore */
-                            : "Publish directly from Design is opening soon. Sign in to join the waitlist." /* i18n-ignore */
-                      }
-                    </p>
-                  </div>
-                  {publishWaitlistError ? (
-                    <p role="alert" className="text-xs text-destructive">
-                      {publishWaitlistError}
-                    </p>
-                  ) : null}
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 cursor-pointer"
-                      onClick={() => setPublishWaitlistPopoverOpen(false)}
-                    >
-                      {
-                        publishWaitlistJoined
-                          ? "Done" /* i18n-ignore */
-                          : "Not now" /* i18n-ignore */
-                      }
-                    </Button>
-                    {!publishWaitlistJoined && (
-                      <Button
-                        size="sm"
-                        className="h-8 cursor-pointer"
-                        onClick={() => void handleJoinPublishWaitlist()}
-                        disabled={joiningPublishWaitlist}
-                      >
-                        {joiningPublishWaitlist ? (
-                          <>
-                            <Spinner className="mr-1.5 size-3.5" />
-                            {"Joining" /* i18n-ignore */}
-                          </>
-                        ) : isSignedIn ? (
-                          "Add me to waitlist" /* i18n-ignore */
-                        ) : (
-                          "Sign in to join" /* i18n-ignore */
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                </>
-              )}
-            </PopoverContent>
-          </Popover>
+          {!sessionResolved || isSignedIn ? publishWaitlistControl : null}
 
           {hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
             <ShareButton
@@ -24502,6 +24777,8 @@ function DesignEditor() {
       ? handleSelectedScreenStylesChange
       : undefined,
     selectionColorScopes,
+    onSelectionColorTarget: handleSelectionColorTarget,
+    canSelectSelectionColorTarget,
     onSelectionColorChange: canEditDesign
       ? handleSelectionColorChange
       : undefined,
@@ -25326,12 +25603,19 @@ function DesignEditor() {
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.
+                  // A backdrop root must live outside the scaled world. Without
+                  // it, iframe backdrop filters inherit the shell's rounded clip
+                  // and Chrome sizes their masks in inverse-zoom coordinates.
                   style={
-                    canvasBackground
-                      ? ({
-                          "--design-editor-canvas-bg": canvasBackground,
-                        } as React.CSSProperties)
-                      : undefined
+                    {
+                      isolation: "isolate",
+                      willChange: "opacity",
+                      ...(canvasBackground
+                        ? {
+                            "--design-editor-canvas-bg": canvasBackground,
+                          }
+                        : {}),
+                    } as React.CSSProperties
                   }
                   onPointerMove={handleCanvasPointerMove}
                   onClick={handleCanvasBackgroundClick}

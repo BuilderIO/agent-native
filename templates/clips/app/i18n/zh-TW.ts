@@ -1183,7 +1183,7 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "新建空間",
-    description: "在目前組織中建立空間。",
+    description: "空間是組織用來整理錄製內容的共享場所。",
     name: "名稱",
     color: "顏色",
     useColor: "使用顏色 {{color}}",
@@ -1373,7 +1373,7 @@ const messages = {
     surfaceWindowDescription: "最適合投影片或單一應用程式",
     surfaceBrowser: "瀏覽器分頁",
     surfaceBrowserDescription: "選擇開啟中的分頁",
-    surfaceScreen: "螢幕",
+    surfaceScreen: "全螢幕",
     surfaceScreenDescription: "擷取所有內容",
     microphoneSelectionUnsupported: "此瀏覽器不支援選擇麥克風裝置。",
     enumerateFailed: "無法列舉裝置",
@@ -1482,7 +1482,9 @@ const messages = {
     betterInDesktop: "桌面應用程式體驗更好",
     desktopAppDescription:
       "選單列啟動、全域快捷鍵、自動更新，以及更順暢的重複錄製。",
+    recordOnDesktop: "在桌面版錄製",
     downloadDesktopApp: "下載桌面應用程式",
+    getChromeExtension: "取得 Chrome 擴充功能",
     technicalDetails: "技術詳細資料",
     whatToCheck: "檢查項目",
     downloadRecording: "下載",

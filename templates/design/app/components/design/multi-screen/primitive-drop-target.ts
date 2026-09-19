@@ -264,12 +264,26 @@ type InlineNumericProperty =
   | "left"
   | "top"
   | "paddingLeft"
+  | "paddingRight"
   | "paddingTop"
+  | "paddingBottom"
+  | "borderLeftWidth"
+  | "borderRightWidth"
+  | "borderTopWidth"
+  | "borderBottomWidth"
   | "marginLeft"
   | "marginRight"
   | "marginTop"
   | "marginBottom"
-  | "gap";
+  | "gap"
+  | "rowGap"
+  | "columnGap";
+
+type AuthoredSizeAxis = "x" | "y";
+type AuthoredSizeCache = Map<
+  Element,
+  Partial<Record<AuthoredSizeAxis, number>>
+>;
 
 function inlineNumber(element: Element, property: InlineNumericProperty) {
   const value = (element as HTMLElement).style[property];
@@ -277,8 +291,311 @@ function inlineNumber(element: Element, property: InlineNumericProperty) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function elementInlineSize(element: Element, axis: "x" | "y") {
-  return inlineNumber(element, axis === "x" ? "width" : "height");
+function elementInlineSize(
+  element: Element,
+  axis: "x" | "y",
+  cache?: AuthoredSizeCache,
+  visiting?: Set<Element>,
+) {
+  return authoredElementSize(element, axis, cache, visiting);
+}
+
+function parseAuthoredLength(value: string | undefined, reference: number) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (
+    !normalized ||
+    normalized === "auto" ||
+    normalized === "fit-content" ||
+    normalized.startsWith("fit-content(")
+  ) {
+    return null;
+  }
+  if (/^[+-]?0(?:\.0+)?$/.test(normalized)) return 0;
+  const px = normalized.match(/^(-?\d+(?:\.\d+)?)px$/);
+  if (px?.[1]) return Number(px[1]);
+  const percent = normalized.match(/^(-?\d+(?:\.\d+)?)%$/);
+  if (percent?.[1] && reference >= 0) {
+    return (Number(percent[1]) / 100) * reference;
+  }
+  return null;
+}
+
+function isOutOfFlow(element: Element) {
+  const position = (element as HTMLElement).style.position;
+  return position === "absolute" || position === "fixed";
+}
+
+function flexBasis(element: Element, reference: number) {
+  const style = (element as HTMLElement).style;
+  const explicit = parseAuthoredLength(style.flexBasis, reference);
+  if (explicit !== null) return explicit;
+
+  const shorthand = (style.flex || "").trim();
+  if (!shorthand) return null;
+  const tokens = shorthand.split(/\s+/);
+  const shorthandKeyword = tokens[0]?.toLowerCase();
+  if (
+    shorthandKeyword === "auto" ||
+    shorthandKeyword === "initial" ||
+    shorthandKeyword === "none"
+  ) {
+    return null;
+  }
+  if (tokens.length === 1) {
+    return parseAuthoredLength(tokens[0], reference) ?? 0;
+  }
+  if (tokens.length >= 3) {
+    return parseAuthoredLength(tokens[2], reference);
+  }
+  if (
+    tokens.length === 2 &&
+    tokens.every((token) => /^-?\d+(?:\.\d+)?$/.test(token))
+  ) {
+    return 0;
+  }
+  return parseAuthoredLength(tokens[1], reference);
+}
+
+function flexGrow(element: Element) {
+  const style = (element as HTMLElement).style;
+  const explicit = Number.parseFloat(style.flexGrow || "");
+  if (Number.isFinite(explicit)) return Math.max(0, explicit);
+  const shorthand = (style.flex || "").trim().split(/\s+/)[0];
+  const parsed = Number.parseFloat(shorthand || "");
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+function flexMainAxis(parent: Element): AuthoredSizeAxis | null {
+  const style = (parent as HTMLElement).style;
+  if (style.display !== "flex" && style.display !== "inline-flex") return null;
+  return (style.flexDirection || "row").startsWith("column") ? "y" : "x";
+}
+
+function flexMainAxisGap(parent: Element, axis: AuthoredSizeAxis) {
+  const style = (parent as HTMLElement).style;
+  const axisProperty = axis === "x" ? "columnGap" : "rowGap";
+  if (style[axisProperty].trim()) return inlineNumber(parent, axisProperty);
+  const shorthand = style.gap.trim().split(/\s+/).filter(Boolean);
+  const value = shorthand[axis === "x" ? Math.min(1, shorthand.length - 1) : 0];
+  const parsed = Number.parseFloat(value || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parentContentSize(
+  parent: Element,
+  axis: AuthoredSizeAxis,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  const size = authoredElementSize(parent, axis, cache, visiting);
+  const style = (parent as HTMLElement).style;
+  const padding =
+    axis === "x"
+      ? inlineNumber(parent, "paddingLeft") +
+        inlineNumber(parent, "paddingRight") +
+        inlineNumber(parent, "borderLeftWidth") +
+        inlineNumber(parent, "borderRightWidth")
+      : inlineNumber(parent, "paddingTop") +
+        inlineNumber(parent, "paddingBottom") +
+        inlineNumber(parent, "borderTopWidth") +
+        inlineNumber(parent, "borderBottomWidth");
+  return style.boxSizing === "border-box" ? Math.max(0, size - padding) : size;
+}
+
+function flexItemBaseSize(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  reference: number,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  const basis = flexBasis(element, reference);
+  if (basis !== null) return basis;
+  const style = (element as HTMLElement).style;
+  const authored = parseAuthoredLength(
+    style[axis === "x" ? "width" : "height"],
+    reference,
+  );
+  if (authored !== null) return authored;
+  if (
+    (element.getAttribute("data-an-primitive") || "").toLowerCase() === "text"
+  ) {
+    return authoredTextIntrinsicSize(element)[
+      axis === "x" ? "width" : "height"
+    ];
+  }
+  return intrinsicContentSize(element, axis, cache, visiting);
+}
+
+function flexAvailableSize(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  parent: Element,
+  available: number,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  if (flexMainAxis(parent) !== axis) return available;
+  const children = Array.from(parent.children).filter(
+    (child) => !isOutOfFlow(child),
+  );
+  const gap = flexMainAxisGap(parent, axis);
+  let fixed = Math.max(0, children.length - 1) * gap;
+  let growTotal = 0;
+  let growBase = 0;
+  for (const child of children) {
+    const grow = flexGrow(child);
+    const base = flexItemBaseSize(child, axis, available, cache, visiting);
+    const leadingMargin = inlineNumber(
+      child,
+      axis === "x" ? "marginLeft" : "marginTop",
+    );
+    const trailingMargin = inlineNumber(
+      child,
+      axis === "x" ? "marginRight" : "marginBottom",
+    );
+    if (grow > 0) {
+      growTotal += grow;
+      growBase += base + leadingMargin + trailingMargin;
+      continue;
+    }
+    fixed += base + leadingMargin + trailingMargin;
+  }
+  if (growTotal <= 0) return 0;
+  return (
+    flexItemBaseSize(element, axis, available, cache, visiting) +
+    Math.max(0, available - fixed - growBase) * (flexGrow(element) / growTotal)
+  );
+}
+
+function intrinsicContentSize(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  const leading =
+    axis === "x"
+      ? inlineNumber(element, "paddingLeft") +
+        inlineNumber(element, "borderLeftWidth")
+      : inlineNumber(element, "paddingTop") +
+        inlineNumber(element, "borderTopWidth");
+  const trailing =
+    axis === "x"
+      ? inlineNumber(element, "paddingRight") +
+        inlineNumber(element, "borderRightWidth")
+      : inlineNumber(element, "paddingBottom") +
+        inlineNumber(element, "borderBottomWidth");
+  const elementPosition = authoredElementPosition(element, cache, visiting);
+  let extent = leading + trailing;
+  for (const child of Array.from(element.children)) {
+    if (isOutOfFlow(child)) continue;
+    const childPosition = authoredElementPosition(child, cache, visiting);
+    const offset =
+      axis === "x"
+        ? childPosition.x - elementPosition.x
+        : childPosition.y - elementPosition.y;
+    extent = Math.max(
+      extent,
+      Math.max(leading, offset) +
+        authoredElementSize(child, axis, cache, visiting) +
+        trailing,
+    );
+  }
+  return Math.max(0, extent);
+}
+
+function authoredElementSize(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  cache: AuthoredSizeCache = new Map(),
+  visiting: Set<Element> = new Set(),
+): number {
+  const cached = cache.get(element)?.[axis];
+  if (cached !== undefined) return cached;
+  if (visiting.has(element)) return 0;
+  visiting.add(element);
+
+  const style = (element as HTMLElement).style;
+  const parent = element.parentElement;
+  const reference = parent
+    ? parentContentSize(parent, axis, cache, visiting)
+    : 0;
+  const authored = parseAuthoredLength(
+    style[axis === "x" ? "width" : "height"],
+    reference,
+  );
+  let size = authored;
+  const authoredValue = style[axis === "x" ? "width" : "height"]
+    .trim()
+    .toLowerCase();
+
+  if (size === null) {
+    const primitiveKind = (
+      element.getAttribute("data-an-primitive") || ""
+    ).toLowerCase();
+    if (primitiveKind === "text") {
+      size =
+        authoredTextIntrinsicSize(element)[axis === "x" ? "width" : "height"];
+    } else if (
+      authoredValue === "fit-content" ||
+      authoredValue.startsWith("fit-content(")
+    ) {
+      size = intrinsicContentSize(element, axis, cache, visiting);
+    } else if (parent) {
+      const parentStyle = (parent as HTMLElement).style;
+      const parentDisplay = parentStyle.display;
+      const parentIsGrid =
+        parentDisplay === "grid" || parentDisplay === "inline-grid";
+      const mainAxis = flexMainAxis(parent);
+      const isOutOfFlow =
+        style.position === "absolute" || style.position === "fixed";
+      if (!isOutOfFlow && (parentIsGrid || mainAxis !== null)) {
+        if (mainAxis === axis && flexGrow(element) > 0) {
+          size = flexAvailableSize(
+            element,
+            axis,
+            parent,
+            reference,
+            cache,
+            visiting,
+          );
+        } else if (mainAxis === axis) {
+          size = flexItemBaseSize(element, axis, reference, cache, visiting);
+        } else if (mainAxis !== axis || parentIsGrid) {
+          const alignSelf =
+            style.alignSelf || parentStyle.alignItems || "stretch";
+          if (alignSelf === "stretch" || parentIsGrid) size = reference;
+        }
+      } else if (
+        axis === "x" &&
+        !isOutOfFlow &&
+        element.tagName.toLowerCase() === "div"
+      ) {
+        // A block child with width:auto fills its containing block.
+        size = reference;
+      }
+    }
+  }
+
+  const resolved = Math.max(0, size ?? 0);
+  visiting.delete(element);
+  const current = cache.get(element) ?? {};
+  current[axis] = resolved;
+  cache.set(element, current);
+  return resolved;
+}
+
+function hasUnsupportedGridAncestor(element: Element) {
+  let ancestor = element.parentElement;
+  while (ancestor) {
+    const display = (ancestor as HTMLElement).style.display;
+    if (display === "grid" || display === "inline-grid") return true;
+    ancestor = ancestor.parentElement;
+  }
+  return false;
 }
 
 function cssPixelNumber(value: string | null | undefined) {
@@ -374,7 +691,11 @@ export function authoredTextIntrinsicSize(element: Element) {
  * the screen root — see that function's call sites for the nested-container
  * reparent fix this enables).
  */
-export function authoredElementPosition(element: Element): Point {
+export function authoredElementPosition(
+  element: Element,
+  cache: AuthoredSizeCache = new Map(),
+  visiting: Set<Element> = new Set(),
+): Point {
   let x = 0;
   let y = 0;
   let cursor: Element | null = element;
@@ -393,27 +714,36 @@ export function authoredElementPosition(element: Element): Point {
       y += inlineNumber(cursor, "top");
     } else {
       const parentStyle = (parent as HTMLElement).style;
-      x += inlineNumber(parent, "paddingLeft");
-      y += inlineNumber(parent, "paddingTop");
+      x +=
+        inlineNumber(parent, "paddingLeft") +
+        inlineNumber(parent, "borderLeftWidth");
+      y +=
+        inlineNumber(parent, "paddingTop") +
+        inlineNumber(parent, "borderTopWidth");
       const siblings: Element[] = Array.from(parent.children);
       const index = siblings.indexOf(cursor);
+      const display = parentStyle.display;
+      const isFlex = display === "flex" || display === "inline-flex";
+      const isRow =
+        isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
+      const gap = isFlex ? flexMainAxisGap(parent, isRow ? "x" : "y") : 0;
+      if (isFlex) {
+        if (isRow) x += inlineNumber(cursor, "marginLeft");
+        else y += inlineNumber(cursor, "marginTop");
+      }
       if (index > 0) {
         const previous = siblings.slice(0, index);
-        const gap = inlineNumber(parent, "gap");
-        const display = parentStyle.display;
-        const isFlex = display === "flex" || display === "inline-flex";
-        const isRow =
-          isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
         for (const sibling of previous as Element[]) {
+          if (isOutOfFlow(sibling)) continue;
           if (isRow) {
             x +=
-              elementInlineSize(sibling, "x") +
+              elementInlineSize(sibling, "x", cache, visiting) +
               inlineNumber(sibling, "marginLeft") +
               inlineNumber(sibling, "marginRight") +
               gap;
           } else {
             y +=
-              elementInlineSize(sibling, "y") +
+              elementInlineSize(sibling, "y", cache, visiting) +
               inlineNumber(sibling, "marginTop") +
               inlineNumber(sibling, "marginBottom") +
               (isFlex ? gap : 0);
@@ -465,6 +795,7 @@ export function parsePrimitivesFromScreen(
 
   try {
     const doc = new DOMParser().parseFromString(screen.content, "text/html");
+    const sizeCache: AuthoredSizeCache = new Map();
     const projection = buildCodeLayerProjection(screen.content, { source });
     const projectionIdentityByElement = new Map<
       Element,
@@ -496,6 +827,10 @@ export function parsePrimitivesFromScreen(
     nodes.forEach((element) => {
       const nodeId = element.getAttribute("data-agent-native-node-id");
       if (!nodeId) return;
+      // ponytail: grid placement stays in the live bridge; omit descendants
+      // here until authored track parsing exists instead of returning the
+      // entire grid bounds as a false hit target.
+      if (hasUnsupportedGridAncestor(element)) return;
 
       const htmlElement = element as HTMLElement;
       const style = htmlElement.style;
@@ -503,11 +838,9 @@ export function parsePrimitivesFromScreen(
       const primitiveKind = (
         element.getAttribute("data-an-primitive") || ""
       ).toLowerCase();
-      const position = authoredElementPosition(element);
-      const intrinsicTextSize =
-        primitiveKind === "text" ? authoredTextIntrinsicSize(element) : null;
-      const width = parseFloat(style.width) || intrinsicTextSize?.width || 0;
-      const height = parseFloat(style.height) || intrinsicTextSize?.height || 0;
+      const position = authoredElementPosition(element, sizeCache);
+      const width = authoredElementSize(element, "x", sizeCache);
+      const height = authoredElementSize(element, "y", sizeCache);
       if (width <= 0 || height <= 0) return;
 
       const isContainer = isPrimitiveContainer({

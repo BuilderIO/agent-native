@@ -15,6 +15,255 @@ import {
 beforeEach(() => __clearPrimitiveParseCachesForTests());
 
 describe("primitive drop target authored layout fallback", () => {
+  it("resolves percentage sizes against the containing block for overview hits", () => {
+    const screen = {
+      id: "percentage-screen",
+      filename: "percentage-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:400px;height:300px;display:flex;flex-direction:column">
+          <div data-agent-native-node-id="child" data-an-primitive="frame" style="width:100%;height:120px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    const child = parsePrimitivesFromScreen(screen).find(
+      (primitive) => primitive.nodeId === "child",
+    );
+    expect(child).toMatchObject({
+      localLeft: 0,
+      localTop: 0,
+      localWidth: 400,
+      localHeight: 120,
+    });
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 250, y: 60 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 400, height: 300 } },
+        () => ({ width: 400, height: 300 }),
+      )?.nodeId,
+    ).toBe("child");
+  });
+
+  it("resolves flex Fill dimensions before choosing an overview target", () => {
+    const screen = {
+      id: "fill-screen",
+      filename: "fill-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:200px;display:flex;flex-direction:row;gap:10px">
+          <div data-agent-native-node-id="fixed" data-an-primitive="rectangle" style="width:80px;height:100px"></div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="height:100px;flex:1 1 0px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    const fill = parsePrimitivesFromScreen(screen).find(
+      (primitive) => primitive.nodeId === "fill",
+    );
+    expect(fill).toMatchObject({
+      localLeft: 90,
+      localTop: 0,
+      localWidth: 210,
+      localHeight: 100,
+    });
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 200, y: 60 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 300, height: 200 } },
+        () => ({ width: 300, height: 200 }),
+      )?.nodeId,
+    ).toBe("fill");
+  });
+
+  it("subtracts a growing flex child's own main-axis margins", () => {
+    const screen = {
+      id: "fill-margin-screen",
+      filename: "fill-margin-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;gap:10px">
+          <div data-agent-native-node-id="fixed" data-an-primitive="rectangle" style="width:80px;height:20px"></div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="flex:1 1 0px;height:20px;margin-left:10px;margin-right:20px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "fill",
+      ),
+    ).toMatchObject({ localLeft: 100, localWidth: 180 });
+  });
+
+  it("uses an auto flex basis from in-flow content before distributing Fill space", () => {
+    const screen = {
+      id: "auto-basis-screen",
+      filename: "auto-basis-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;gap:10px">
+          <div data-agent-native-node-id="content" data-an-primitive="frame" style="flex:0 1 auto;height:20px">
+            <div data-agent-native-node-id="content-child" data-an-primitive="rectangle" style="width:80px;height:20px"></div>
+          </div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="flex:1 1 0px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "content",
+      ),
+    ).toMatchObject({ localWidth: 80 });
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "fill",
+      ),
+    ).toMatchObject({ localLeft: 90, localWidth: 210 });
+  });
+
+  it("keeps unitless zero sizes collapsed in the overview fallback", () => {
+    const screen = {
+      id: "zero-size-screen",
+      filename: "zero-size-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex">
+          <div data-agent-native-node-id="collapsed" data-an-primitive="frame" style="width:0;height:-0;flex:1 1 auto">
+            <div style="width:80px;height:20px"></div>
+          </div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).map((primitive) => primitive.nodeId),
+    ).toEqual(["parent"]);
+  });
+
+  it("uses the row flex gap for both positioning and Fill allocation", () => {
+    const screen = {
+      id: "axis-gap-screen",
+      filename: "axis-gap-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;gap:10px 20px">
+          <div data-agent-native-node-id="fixed" data-an-primitive="rectangle" style="width:80px;height:20px"></div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="flex:1 1 0px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "fill",
+      ),
+    ).toMatchObject({ localLeft: 100, localWidth: 200 });
+  });
+
+  it("leaves grid descendants to the live bridge instead of using whole-grid bounds", () => {
+    const screen = {
+      id: "grid-fallback-screen",
+      filename: "grid-fallback-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:200px;display:grid;grid-template-columns:100px 200px;grid-template-rows:100px 100px">
+          <div data-agent-native-node-id="grid-child" data-an-primitive="frame" style="grid-column:2;grid-row:1;width:auto;height:auto">
+            <div data-agent-native-node-id="nested" data-an-primitive="rectangle" style="width:20px;height:20px"></div>
+          </div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).map((primitive) => primitive.nodeId),
+    ).toEqual(["grid"]);
+  });
+
+  it("uses flex-basis for fixed items when estimating a Fill sibling", () => {
+    const screen = {
+      id: "basis-screen",
+      filename: "basis-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;gap:10px">
+          <div data-agent-native-node-id="fixed" data-an-primitive="rectangle" style="flex:0 0 80px;height:20px"></div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="flex:1 1 0px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "fixed",
+      ),
+    ).toMatchObject({ localWidth: 80 });
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "fill",
+      ),
+    ).toMatchObject({ localLeft: 90, localWidth: 210 });
+  });
+
+  it("resolves percentage children against a border-box content box", () => {
+    const screen = {
+      id: "border-box-screen",
+      filename: "border-box-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:200px;box-sizing:border-box;border:10px solid #111;padding:10px;display:flex;flex-direction:column">
+          <div data-agent-native-node-id="child" data-an-primitive="frame" style="width:100%;height:100%"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "child",
+      ),
+    ).toMatchObject({
+      localLeft: 20,
+      localTop: 20,
+      localWidth: 260,
+      localHeight: 160,
+    });
+  });
+
+  it("does not let out-of-flow flex children consume Fill space", () => {
+    const screen = {
+      id: "out-of-flow-screen",
+      filename: "out-of-flow-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;gap:10px">
+          <div data-agent-native-node-id="absolute" data-an-primitive="rectangle" style="position:absolute;left:0;top:0;width:100px;height:20px"></div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="flex:1 1 0px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "fill",
+      ),
+    ).toMatchObject({ localLeft: 0, localWidth: 300 });
+  });
+
+  it("resolves non-text Hug containers from their in-flow content", () => {
+    const screen = {
+      id: "hug-screen",
+      filename: "hug-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:400px;height:300px">
+          <div data-agent-native-node-id="hug" data-an-primitive="frame" style="width:fit-content;height:fit-content;display:flex;gap:5px;padding:10px">
+            <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:80px;height:20px"></div>
+            <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:40px;height:30px"></div>
+          </div>
+        </div>
+      </body></html>`,
+    };
+
+    const primitives = parsePrimitivesFromScreen(screen);
+    expect(
+      primitives.find((primitive) => primitive.nodeId === "hug"),
+    ).toMatchObject({ localWidth: 145, localHeight: 50 });
+  });
+
   it("accumulates nested absolute coordinates for frame targets", () => {
     const screen = {
       id: "screen",

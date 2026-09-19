@@ -157,11 +157,8 @@ export function NewDeckReferenceStep({
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
-  // Read inside the open-transition effect below without making it a
-  // dependency — a background list refresh must not re-seed the picker and
-  // discard a selection the user already made explicitly.
-  const designSystemsRef = useRef(designSystems);
-  designSystemsRef.current = designSystems;
+  const designSystemAutoRef = useRef(true);
+  const referenceDeckAutoRef = useRef(true);
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
   const sortedDecks = sortDecksByRecency(decks);
@@ -179,18 +176,28 @@ export function NewDeckReferenceStep({
 
   useEffect(() => {
     if (!open) return;
-    setSelectedDesignSystemId(
-      resolveSelectableDesignSystemId(
-        designSystemsRef.current,
-        defaultDesignSystemId,
-      ),
-    );
+    designSystemAutoRef.current = true;
+    referenceDeckAutoRef.current = true;
+    setSelectedDesignSystemId(null);
     setSelectedReferenceDeckId(defaultReferenceDeckId);
     setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
-  }, [open, defaultDesignSystemId, defaultReferenceDeckId]);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !designSystemAutoRef.current) return;
+    setSelectedDesignSystemId(
+      resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
+    );
+  }, [open, designSystems, defaultDesignSystemId]);
+
+  useEffect(() => {
+    if (!open || !referenceDeckAutoRef.current) return;
+    setSelectedReferenceDeckId(defaultReferenceDeckId);
+    setReferenceDeckTouched(defaultReferenceDeckId !== null);
+  }, [open, decks, defaultReferenceDeckId]);
 
   useEffect(() => {
     if (open) setContinuing(false);
@@ -213,6 +220,8 @@ export function NewDeckReferenceStep({
   };
 
   const applyImportedReference = (imported: ImportedReference) => {
+    designSystemAutoRef.current = false;
+    referenceDeckAutoRef.current = false;
     setSelectedDesignSystemId(null);
     setSelectedReferenceDeckId(imported.id);
     setReferenceDeckTouched(true);
@@ -281,8 +290,10 @@ export function NewDeckReferenceStep({
     }
     setSelectedSource({ kind, value: "" });
     if (kind === "website" || kind === "figma") {
+      designSystemAutoRef.current = false;
       setSelectedDesignSystemId(null);
     } else {
+      referenceDeckAutoRef.current = false;
       setSelectedReferenceDeckId(null);
       setReferenceDeckTouched(true);
       setImportedReference(null);
@@ -347,6 +358,7 @@ export function NewDeckReferenceStep({
               <Select
                 value={selectedDesignSystemId ?? "none"}
                 onValueChange={(value) => {
+                  designSystemAutoRef.current = false;
                   setSelectedDesignSystemId(value === "none" ? null : value);
                   setSelectedSource(null);
                 }}
@@ -443,6 +455,7 @@ export function NewDeckReferenceStep({
                           value={`none ${t("home.none")}`}
                           disabled={busy}
                           onSelect={() => {
+                            referenceDeckAutoRef.current = false;
                             setSelectedReferenceDeckId(null);
                             setReferenceDeckTouched(true);
                             setImportedReference(null);
@@ -466,6 +479,7 @@ export function NewDeckReferenceStep({
                             value={`${deck.title} ${deck.id}`}
                             disabled={busy}
                             onSelect={() => {
+                              referenceDeckAutoRef.current = false;
                               setSelectedReferenceDeckId(deck.id);
                               setReferenceDeckTouched(true);
                               setImportedReference(null);

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => "org_1",
 }));
@@ -109,6 +110,32 @@ describe("write-local-file", () => {
         orgId: "org_1",
       }),
     );
+  });
+
+  it("returns a browser relay marker only after the write-consent gates pass", async () => {
+    const result = await action.run(
+      {
+        designId: "design_1",
+        connectionId: "conn_1",
+        relPath: "src/App.tsx",
+        content: "export default function App() {}\n",
+      },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({
+          "x-agent-native-localhost-bridge": "1",
+        }),
+      } as never,
+    );
+
+    expect(result).toMatchObject({
+      __agentNativeLocalhostBridge: "agent-native-localhost-bridge-browser",
+      operation: "write-file",
+      designId: "design_1",
+      connectionId: "conn_1",
+      relPath: "src/App.tsx",
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each(["src/tool.py", "Dockerfile", ".prettierrc"])(
