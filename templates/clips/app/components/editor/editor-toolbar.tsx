@@ -78,6 +78,7 @@ export interface EditorToolbarProps {
   edits: EditsJson;
   /** Current selection (original ms) — used by "Trim selection". */
   selectionRange?: { startMs: number; endMs: number } | null;
+  onSelectionCut: () => void;
   video: {
     videoUrl: string | null;
     videoFormat?: "webm" | "mp4";
@@ -106,6 +107,7 @@ export function EditorToolbar({
   timelineActive = false,
   edits,
   selectionRange,
+  onSelectionCut,
   video,
   onOpenThumbnailPicker,
   onOpenChapters,
@@ -161,6 +163,7 @@ export function EditorToolbar({
         endMs: Math.round(selectionRange.endMs),
       });
       toast.success(t("editorToolbar.selectionCut"));
+      onSelectionCut();
     } catch (err: any) {
       toast.error(err?.message ?? t("editorToolbar.trimFailed"));
     }
