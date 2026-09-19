@@ -15275,7 +15275,7 @@ function DesignEditor() {
               selectedElement?.sourceLayerIdentity?.screenId?.trim() ||
               undefined;
             const selectedElementBelongsToSource =
-              selectedElementSourceScreenId === undefined ||
+              selectedElementSourceScreenId !== undefined &&
               selectedElementSourceScreenId === arg0.sourceScreenId;
             // Removing the source can legitimately clear its pre-drop
             // selection before the two saves settle.
