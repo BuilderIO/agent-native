@@ -710,6 +710,7 @@ function restoreLegacyBulletRowContent(
     return html;
   }
   const currentDocument = new DOMParser().parseFromString(html, "text/html");
+  if (currentDocument.body.childNodes.length !== 1) return html;
   const currentRoot = currentDocument.body
     .firstElementChild as HTMLElement | null;
   if (!currentRoot) return html;

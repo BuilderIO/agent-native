@@ -242,6 +242,26 @@ describe("slide rich text normalization", () => {
     expect(element.textContent).toContain("Second point");
   });
 
+  it("preserves sibling editor blocks after a legacy bullet", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<ul><li><p>First point</p></li></ul><p>Second paragraph</p>",
+      source,
+    );
+
+    expect(element.querySelector(":scope > ul > li")?.textContent).toBe(
+      "First point",
+    );
+    expect(element.querySelector(":scope > p")?.textContent).toBe(
+      "Second paragraph",
+    );
+  });
+
   it("keeps persisted semantic lists styled without an editor marker", () => {
     document.body.innerHTML = `
       <div class="slide-content">
