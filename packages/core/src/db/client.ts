@@ -56,7 +56,6 @@ export interface DbExec {
 
 export interface DbExecConfig {
   url?: string;
-  maxConnections?: number;
 }
 
 type PgliteTransactionContext = {
@@ -1795,11 +1794,7 @@ async function createDbExecInternal(
     // The foreground and transaction surface keep the WebSocket pool.
     const bgHttp = isBackgroundFunctionPoolContext();
     const makePool = () =>
-      new Pool({
-        connectionString: url,
-        ...neonPoolOptions(),
-        ...(config.maxConnections ? { max: config.maxConnections } : undefined),
-      });
+      new Pool({ connectionString: url, ...neonPoolOptions() });
     // The singleton exec shares the process pool; `createDbExec()` callers own
     // a `close()` and so must not be handed it.
     const pool = trackSingletonResources
@@ -2154,11 +2149,7 @@ async function createDbExecInternal(
     // frozen instances don't exhaust Neon/Postgres' connection limit;
     // idle_timeout also closes idle connections before Neon's ~5min
     // server-side timeout, avoiding ECONNRESET when the server hangs up.
-    const createPool = () =>
-      postgres(url, {
-        ...pgPoolOptions(url),
-        ...(config.maxConnections ? { max: config.maxConnections } : undefined),
-      });
+    const createPool = () => postgres(url, pgPoolOptions(url));
     type PostgresPool = ReturnType<typeof createPool>;
     // Same rule as the Neon path: the singleton exec shares the process pool,
     // `createDbExec()` callers own a `close()` and get a private one.

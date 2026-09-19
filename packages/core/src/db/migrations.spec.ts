@@ -421,10 +421,7 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     await plugin(null);
 
     // Direct exec must have been created (for DDL)
-    expect(createDbExec).toHaveBeenCalledWith({
-      url: "postgres://direct",
-      maxConnections: 1,
-    });
+    expect(createDbExec).toHaveBeenCalledWith({ url: "postgres://direct" });
     // And migrations applied
     const calls = directExec.execute.mock.calls.map((c) =>
       typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
@@ -452,10 +449,7 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     });
     await plugin(null);
 
-    expect(createDbExec).toHaveBeenCalledWith({
-      url: "postgres://direct",
-      maxConnections: 1,
-    });
+    expect(createDbExec).toHaveBeenCalledWith({ url: "postgres://direct" });
     const calls = directExec.execute.mock.calls.map((c) =>
       typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
     );
@@ -590,15 +584,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(maxActiveMigrations).toBe(1);
     expect(createDbExec).toHaveBeenCalledTimes(2);
     expect(directExec.close).toHaveBeenCalledTimes(2);
-    const statements = directExec.execute.mock.calls.map(([sql]) =>
-      typeof sql === "string" ? sql : sql.sql,
-    );
-    expect(
-      statements.filter((sql) => /pg_advisory_lock\(/.test(sql)).length,
-    ).toBe(2);
-    expect(
-      statements.filter((sql) => sql.includes("pg_advisory_unlock")).length,
-    ).toBe(2);
   });
 });
 
@@ -800,10 +785,7 @@ describe("runMigrations – name-based tracking", () => {
     });
     await plugin(null);
 
-    expect(createDbExec).toHaveBeenCalledWith({
-      url: "postgres://direct",
-      maxConnections: 1,
-    });
+    expect(createDbExec).toHaveBeenCalledWith({ url: "postgres://direct" });
     expect(directExec.insertedNames).toContain("pg-alert-rules-table");
   });
 });

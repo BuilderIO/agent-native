@@ -53,10 +53,7 @@ let migrationExecRefCount = 0;
 
 async function acquireMigrationExec(): Promise<DbExec> {
   if (!migrationExecPromise) {
-    const opened = createDbExec({
-      url: getMigrationDatabaseUrl(),
-      maxConnections: 1,
-    });
+    const opened = createDbExec({ url: getMigrationDatabaseUrl() });
     migrationExecPromise = opened;
     opened.catch(() => {
       if (migrationExecPromise === opened) {
@@ -84,24 +81,6 @@ async function releaseMigrationExec(): Promise<void> {
   } catch (err) {
     console.warn("[db] Migration connection cleanup failed:", err);
   }
-}
-
-async function acquirePostgresMigrationLock(
-  exec: DbExec,
-  url: string,
-): Promise<(() => Promise<void>) | undefined> {
-  if (!url || isPgliteUrl(url)) return undefined;
-  const lock = {
-    sql: "SELECT pg_advisory_lock(hashtextextended(?, 0))",
-    args: [url],
-  };
-  await exec.execute(lock);
-  return async () => {
-    await exec.execute({
-      sql: "SELECT pg_advisory_unlock(hashtextextended(?, 0))",
-      args: [url],
-    });
-  };
 }
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -329,12 +308,8 @@ export function runMigrations(
           (migration) => resolveMigrationSql(migration.sql) === null,
         );
       const exec = runOnlyPending ? getDbExec() : await acquireMigrationExec();
-      let releaseDatabaseLock: (() => Promise<void>) | undefined;
 
       try {
-        releaseDatabaseLock = runOnlyPending
-          ? undefined
-          : await acquirePostgresMigrationLock(exec, getMigrationDatabaseUrl());
         if (!runOnlyPending) {
           await retryOnDdlRace(() =>
             exec.execute(
@@ -449,11 +424,7 @@ export function runMigrations(
           }
         }
       } finally {
-        try {
-          await releaseDatabaseLock?.();
-        } finally {
-          if (!runOnlyPending) await releaseMigrationExec();
-        }
+        if (!runOnlyPending) await releaseMigrationExec();
       }
     } catch (err) {
       console.error("[db] Migration failed:", (err as Error).message);

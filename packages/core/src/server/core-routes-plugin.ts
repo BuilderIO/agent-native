@@ -234,7 +234,6 @@ import {
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 import { shouldReportError } from "./error-noise-filter.js";
 import {
-  FRAMEWORK_AUTH_BOOTSTRAP_PATHS,
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
   type H3AppShim,
@@ -2077,18 +2076,6 @@ export function createCoreRoutesPlugin(
     const initPromise = new Promise<void>((resolve, reject) => {
       resolveInit = resolve;
       rejectInit = reject;
-    });
-    let resolveAuthDependencies: () => void = () => {};
-    let rejectAuthDependencies: (error: unknown) => void = () => {};
-    const authDependenciesPromise = new Promise<void>((resolve, reject) => {
-      resolveAuthDependencies = resolve;
-      rejectAuthDependencies = reject;
-    });
-    // Signup and signin consult framework-owned org and extension tables. Keep
-    // those API paths behind only the schema dependency below; page/session
-    // paths retain their early-start behavior.
-    trackPluginInit(nitroApp, authDependenciesPromise, {
-      paths: [...FRAMEWORK_AUTH_BOOTSTRAP_PATHS],
     });
     trackPluginInit(nitroApp, initPromise, {
       paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
@@ -5239,13 +5226,7 @@ export function createCoreRoutesPlugin(
           await import("../extensions/store.js");
         const { createExtensionsHandler } =
           await import("../extensions/routes.js");
-        if (runBootDatabaseWork) {
-          ensureExtensionsTables().then(resolveAuthDependencies, (error) => {
-            rejectAuthDependencies(error);
-          });
-        } else {
-          resolveAuthDependencies();
-        }
+        if (runBootDatabaseWork) ensureExtensionsTables().catch(() => {});
         registerExtensionsShareable();
         const extensionsHandler = createExtensionsHandler({
           extensionTools: options.extensionTools,
@@ -5265,7 +5246,6 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(`${P}/slots`, createSlotsHandler());
       } catch {
         // Extensions module not available — skip
-        resolveAuthDependencies();
       }
 
       // ─── Data programs (stored server-side JS scripts + run cache) ─────
@@ -5610,7 +5590,6 @@ export function createCoreRoutesPlugin(
       // routes this failure to the readiness gate, which answers the affected
       // paths with a retryable 503 instead.
       rejectInit(error);
-      rejectAuthDependencies(error);
     }
   };
 }

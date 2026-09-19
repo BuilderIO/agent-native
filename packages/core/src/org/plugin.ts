@@ -9,12 +9,10 @@ import {
 import { runMigrations } from "../db/migrations.js";
 import { registerFeatureFlags } from "../feature-flags/registry.js";
 import {
-  FRAMEWORK_AUTH_BOOTSTRAP_PATHS,
   awaitBootstrap,
   getH3App,
   FRAMEWORK_PREFIX,
   markDefaultPluginProvided,
-  trackPluginInit,
 } from "../server/framework-request-handler.js";
 import {
   listAppRolesHandler,
@@ -98,14 +96,8 @@ export function createOrgPlugin(): NitroPluginDef {
   return async (nitroApp: any) => {
     registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     markDefaultPluginProvided(nitroApp, "org");
-    const initPromise = (async () => {
-      await awaitBootstrap(nitroApp);
-      await migrate(nitroApp);
-    })();
-    trackPluginInit(nitroApp, initPromise, {
-      paths: [...FRAMEWORK_AUTH_BOOTSTRAP_PATHS],
-    });
-    await initPromise;
+    await awaitBootstrap(nitroApp);
+    await migrate(nitroApp);
 
     const app = getH3App(nitroApp);
 

@@ -73,14 +73,6 @@ export const FRAMEWORK_AUTH_EARLY_PATHS = [
   "/signup",
 ] as const;
 
-/** Auth API paths that read framework-owned tables during signup/signin. */
-export const FRAMEWORK_AUTH_BOOTSTRAP_PATHS = [
-  `${FRAMEWORK_PREFIX}/auth/register`,
-  `${FRAMEWORK_PREFIX}/auth/login`,
-  `${FRAMEWORK_PREFIX}/auth/sign-up/email`,
-  `${FRAMEWORK_PREFIX}/auth/sign-in/email`,
-] as const;
-
 interface PluginReadyEntry {
   promise: Promise<void>;
   paths?: string[];
@@ -464,11 +456,7 @@ async function awaitFrameworkRoutesReadyForRequest(
         const earlyPaths = nitroApp[EARLY_FRAMEWORK_PATHS_KEY] as
           | Set<string>
           | undefined;
-        const isAuthBootstrapPath = FRAMEWORK_AUTH_BOOTSTRAP_PATHS.some(
-          (path) => resolveMountMatch(reqPath, path),
-        );
         const canDispatchBeforeBootstrap = Boolean(
-          !isAuthBootstrapPath &&
           earlyPaths?.size &&
           Array.from(earlyPaths).some((path) =>
             resolveMountMatch(reqPath, path),

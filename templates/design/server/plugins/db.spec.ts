@@ -173,14 +173,3 @@ describe("design db.ts wires ensureAdditiveColumns after runMigrations", () => {
     );
   });
 });
-
-describe("design db.ts gates auth on schema readiness", () => {
-  it("tracks the async database plugin for the auth route", () => {
-    expect(dbTsSource).toMatch(
-      /import\s*\{[^}]*\btrackPluginInit\b[^}]*\}\s*from\s*["']@agent-native\/core\/server["']/,
-    );
-    expect(dbTsSource).toMatch(
-      /trackPluginInit\(nitroApp,\s*initPromise,\s*\{\s*paths:\s*\["\/_agent-native\/auth"\]/,
-    );
-  });
-});
