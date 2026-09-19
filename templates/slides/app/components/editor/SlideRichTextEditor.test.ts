@@ -207,6 +207,23 @@ describe("slide rich text normalization", () => {
     ).toBe("Updated point");
   });
 
+  it("preserves every item when a legacy bullet becomes a multi-item list", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<ul><li><p>First point</p></li><li><p>Second point</p></li></ul>",
+      source,
+    );
+
+    expect(element.querySelectorAll(":scope > ul > li")).toHaveLength(2);
+    expect(element.textContent).toContain("First point");
+    expect(element.textContent).toContain("Second point");
+  });
+
   it("keeps persisted semantic lists styled without an editor marker", () => {
     document.body.innerHTML = `
       <div class="slide-content">

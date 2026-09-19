@@ -686,11 +686,15 @@ function restoreLegacyBulletRowContent(
   const currentRoot = currentDocument.body
     .firstElementChild as HTMLElement | null;
   if (!currentRoot) return html;
+  if (currentRoot.tagName === "UL" || currentRoot.tagName === "OL") {
+    const currentItems = Array.from(currentRoot.children).filter(
+      (child) => child.tagName === "LI",
+    );
+    if (currentItems.length > 1) return currentRoot.outerHTML;
+  }
   const currentItem =
     currentRoot.tagName === "UL" || currentRoot.tagName === "OL"
-      ? (Array.from(currentRoot.children).find(
-          (child) => child.tagName === "LI",
-        ) as HTMLElement | undefined)
+      ? (currentRoot.firstElementChild as HTMLElement | null)
       : currentRoot;
   if (!currentItem) return html;
   return restoreLegacyBulletRow(sourceWrapper as HTMLElement, currentItem)
