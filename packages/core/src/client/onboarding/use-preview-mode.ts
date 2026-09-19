@@ -16,11 +16,9 @@ export const ONBOARDING_PREVIEW_QUERY_VALUE = "preview";
 export const ONBOARDING_PREVIEW_STEP_QUERY_PARAM = "step";
 
 export const ONBOARDING_PREVIEW_STEPS = [
-  "intro",
-  "choice",
-  "manual",
-  "tools",
   "role",
+  "choice",
+  "tools",
   "connecting",
   "ready",
   "extension",

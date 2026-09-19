@@ -40,8 +40,10 @@ const messages: AgentChatTranslation = {
   "onboarding.customizeRole": "Wir passen das für dich an.",
   "onboarding.roleQuestion":
     "Welche Beschreibung passt am besten zu deiner Rolle?",
-  "onboarding.roleProduct": "Produkt",
-  "onboarding.roleDesign": "Design",
+  "onboarding.roleHelperText":
+    "Das hilft uns, deine Erfahrung zu personalisieren",
+  "onboarding.roleProduct": "Produktmanager",
+  "onboarding.roleDesign": "Designer",
   "onboarding.roleDeveloper": "Entwicklung",
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Vertrieb",
@@ -65,9 +67,10 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "Wir erstellen dein Builder.io-Konto automatisch für dich mit einem Klick.",
   "onboarding.builderCreateAndActivate": "Erstellen und aktivieren",
-  "onboarding.builderConsentPrefix": "Wenn du fortfährst, stimmst du den",
+  "onboarding.builderConsentPrefix":
+    "Mit der Erstellung eines Builder.io-Kontos stimmst du unseren",
   "onboarding.builderTerms": "Nutzungsbedingungen",
-  "onboarding.builderPrivacy": "Datenschutzbestimmungen",
+  "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
   "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
@@ -82,10 +85,8 @@ const messages: AgentChatTranslation = {
     "KI-Credits können verwendet werden. Cloud-Codeänderungen erfordern ein Builder-Projekt in den Einstellungen für Hintergrundagenten.",
   "onboarding.openBackgroundAgentSettings":
     "Einstellungen für Hintergrundagenten öffnen",
-  "onboarding.capability.llm.keySummary":
-    "Verbinde einen KI-Anbieter oder ein lokales Modell",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder-Speicher oder S3-kompatibler Bucket",
+  "onboarding.capability.llm.keySummary": "Verbinde dein eigenes KI-Modell",
+  "onboarding.capability.fileStorage.keySummary": "Datei-Uploads und Speicher",
   "onboarding.fileStorage.title": "Wähle den Dateispeicher",
   "onboarding.fileStorage.description":
     "Wähle den verwalteten Builder-Speicher oder eigene Speicherschlüssel für deinen S3-kompatiblen Bucket.",
@@ -93,13 +94,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "Konfiguriere einen S3-kompatiblen Bucket mit einer stabilen öffentlichen URL.",
   "onboarding.capability.voiceInput.label": "Spracheingabe",
-  "onboarding.capability.voiceInput.keySummary":
-    "Browser-Spracherkennung oder Sprache-zu-Text",
+  "onboarding.capability.voiceInput.keySummary": "Spracheingabe",
   "onboarding.capability.voiceInput.why":
     "Spracheingabe wandelt gesprochene Anfragen in Text um; Tippen funktioniert weiterhin.",
   "onboarding.capability.embeddings.label": "Semantische Vektoren",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini-, Cohere- oder Voyage-Schlüssel",
+  "onboarding.capability.embeddings.keySummary": "Semantische Vektoren",
   "onboarding.capability.embeddings.why":
     "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
   "onboarding.capability.assetsImageGeneration.label": "Bilderzeugung",

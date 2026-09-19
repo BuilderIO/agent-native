@@ -34,8 +34,9 @@ const messages = {
   "onboarding.chooseRole": "Choose your role",
   "onboarding.customizeRole": "Let’s customize this for you.",
   "onboarding.roleQuestion": "What best describes your role?",
-  "onboarding.roleProduct": "Product",
-  "onboarding.roleDesign": "Design",
+  "onboarding.roleHelperText": "This helps us personalize your experience",
+  "onboarding.roleProduct": "Product Manager",
+  "onboarding.roleDesign": "Designer",
   "onboarding.roleDeveloper": "Developer",
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Sales",
@@ -58,9 +59,10 @@ const messages = {
   "onboarding.builderActivationDescription":
     "We'll automatically create your Builder.io account for you in one click.",
   "onboarding.builderCreateAndActivate": "Create and activate",
-  "onboarding.builderConsentPrefix": "By continuing, you agree to Builder.io's",
-  "onboarding.builderTerms": "Terms",
-  "onboarding.builderPrivacy": "Privacy",
+  "onboarding.builderConsentPrefix":
+    "By creating a Builder.io account, you agree to our",
+  "onboarding.builderTerms": "Terms of Service",
+  "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
   "onboarding.builderExistingAccount": "I have a Builder.io account",
   "onboarding.builderActivating": "Activating Builder.io free credits",
@@ -74,10 +76,8 @@ const messages = {
   "onboarding.builderReadyCreditsOnly":
     "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
   "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
-  "onboarding.capability.llm.keySummary":
-    "Connect an AI provider or local model",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder storage or an S3-compatible bucket",
+  "onboarding.capability.llm.keySummary": "Connect your own AI model",
+  "onboarding.capability.fileStorage.keySummary": "File uploads and storage",
   "onboarding.fileStorage.title": "Choose file storage",
   "onboarding.fileStorage.description":
     "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
@@ -85,13 +85,11 @@ const messages = {
   "onboarding.fileStorage.customDescription":
     "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",
-  "onboarding.capability.voiceInput.keySummary":
-    "Browser speech recognition or speech-to-text",
+  "onboarding.capability.voiceInput.keySummary": "Voice input",
   "onboarding.capability.voiceInput.why":
     "Voice input turns spoken requests into text; typing always works without it.",
   "onboarding.capability.embeddings.label": "Embeddings",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini, Cohere, or Voyage key",
+  "onboarding.capability.embeddings.keySummary": "Embeddings",
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
