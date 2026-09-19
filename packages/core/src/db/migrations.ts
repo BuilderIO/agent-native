@@ -83,6 +83,24 @@ async function releaseMigrationExec(): Promise<void> {
   }
 }
 
+async function acquirePostgresMigrationLock(
+  exec: DbExec,
+  url: string,
+): Promise<(() => Promise<void>) | undefined> {
+  if (!url || isPgliteUrl(url)) return undefined;
+  const lock = {
+    sql: "SELECT pg_advisory_lock(hashtextextended(?, 0))",
+    args: [url],
+  };
+  await exec.execute(lock);
+  return async () => {
+    await exec.execute({
+      sql: "SELECT pg_advisory_unlock(hashtextextended(?, 0))",
+      args: [url],
+    });
+  };
+}
+
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 /** True when an ADD COLUMN statement reports an existing column. */
@@ -308,8 +326,12 @@ export function runMigrations(
           (migration) => resolveMigrationSql(migration.sql) === null,
         );
       const exec = runOnlyPending ? getDbExec() : await acquireMigrationExec();
+      let releaseDatabaseLock: (() => Promise<void>) | undefined;
 
       try {
+        releaseDatabaseLock = runOnlyPending
+          ? undefined
+          : await acquirePostgresMigrationLock(exec, getMigrationDatabaseUrl());
         if (!runOnlyPending) {
           await retryOnDdlRace(() =>
             exec.execute(
@@ -424,7 +446,11 @@ export function runMigrations(
           }
         }
       } finally {
-        if (!runOnlyPending) await releaseMigrationExec();
+        try {
+          await releaseDatabaseLock?.();
+        } finally {
+          if (!runOnlyPending) await releaseMigrationExec();
+        }
       }
     } catch (err) {
       console.error("[db] Migration failed:", (err as Error).message);

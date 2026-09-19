@@ -584,6 +584,15 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(maxActiveMigrations).toBe(1);
     expect(createDbExec).toHaveBeenCalledTimes(2);
     expect(directExec.close).toHaveBeenCalledTimes(2);
+    const statements = directExec.execute.mock.calls.map(([sql]) =>
+      typeof sql === "string" ? sql : sql.sql,
+    );
+    expect(
+      statements.filter((sql) => /pg_advisory_lock\(/.test(sql)).length,
+    ).toBe(2);
+    expect(
+      statements.filter((sql) => sql.includes("pg_advisory_unlock")).length,
+    ).toBe(2);
   });
 });
 
