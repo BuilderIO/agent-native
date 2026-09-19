@@ -1184,7 +1184,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  fall back to the previous guide instead of resolving empty and making
    *  the drop guide flicker away every time a single hit-test is slow. */
   const crossScreenLastHitResultRef = useRef<
-    Map<string, CrossScreenHitTestResult>
+    Map<string, { requestSeq: number; result: CrossScreenHitTestResult }>
   >(new Map());
   const onCrossScreenElementDropRef = useRef(onCrossScreenElementDrop);
   const onBoardDrawPrimitiveRef = useRef(onBoardDrawPrimitive);
@@ -2736,7 +2736,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           // puts the layer somewhere the user never released.
           resolve(
             options.preview
-              ? (crossScreenLastHitResultRef.current.get(candidate.id) ?? {})
+              ? (crossScreenLastHitResultRef.current.get(candidate.id)
+                  ?.result ?? {})
               : {},
           );
         }, options.timeoutMs ?? HIT_TEST_PREVIEW_TIMEOUT_MS);
@@ -2788,11 +2789,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               ? ev.data.anchorRect
               : undefined,
           };
-          if (
-            options.preview &&
-            options.previewRequestSeq === crossScreenHitTestSeqRef.current
-          ) {
-            crossScreenLastHitResultRef.current.set(candidate.id, result);
+          if (options.preview && options.previewRequestSeq !== undefined) {
+            const previous = crossScreenLastHitResultRef.current.get(
+              candidate.id,
+            );
+            if (!previous || options.previewRequestSeq > previous.requestSeq) {
+              crossScreenLastHitResultRef.current.set(candidate.id, {
+                requestSeq: options.previewRequestSeq,
+                result,
+              });
+            }
           }
           resolve(result);
         };
