@@ -464,7 +464,11 @@ async function awaitFrameworkRoutesReadyForRequest(
         const earlyPaths = nitroApp[EARLY_FRAMEWORK_PATHS_KEY] as
           | Set<string>
           | undefined;
+        const isAuthBootstrapPath = FRAMEWORK_AUTH_BOOTSTRAP_PATHS.some(
+          (path) => resolveMountMatch(reqPath, path),
+        );
         const canDispatchBeforeBootstrap = Boolean(
+          !isAuthBootstrapPath &&
           earlyPaths?.size &&
           Array.from(earlyPaths).some((path) =>
             resolveMountMatch(reqPath, path),

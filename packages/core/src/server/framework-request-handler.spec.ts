@@ -676,6 +676,45 @@ describe("framework request handler", () => {
     await expect(registration).resolves.toEqual({ registered: true });
   });
 
+  it("waits for default bootstrap before auth APIs while session stays early", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp).use("/_agent-native/auth/session", () => ({
+      session: true,
+    }));
+    getH3App(nitroApp).use("/_agent-native/auth/register", () => ({
+      registered: true,
+    }));
+
+    let settled = false;
+    const registration = dispatch(
+      nitroApp,
+      "/_agent-native/auth/register",
+    ).then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/auth/session"),
+    ).resolves.toEqual({ session: true });
+
+    release();
+    await expect(registration).resolves.toEqual({ registered: true });
+  });
+
   it("does not wait for unscoped plugin initialization on an early route", async () => {
     const nitroApp = createNitroApp();
     let release!: () => void;
