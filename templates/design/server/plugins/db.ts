@@ -3,6 +3,7 @@ import {
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
+import { trackPluginInit } from "@agent-native/core/server";
 
 import * as schema from "../db/schema.js";
 
@@ -489,26 +490,35 @@ async function ensureDesignFilesUniqueIndex(): Promise<void> {
   }
 }
 
-export default async (nitroApp: any): Promise<void> => {
-  await runDesignMigrations(nitroApp);
-  await ensureDesignFilesUniqueIndex();
-  try {
-    const summary = await ensureAdditiveColumns({
-      db: getDbExec(),
-      tables: schemaTables,
-    });
-    if (summary.errors.length > 0) {
+export default (nitroApp: any): Promise<void> => {
+  // Nitro does not await async plugin factories. Hold auth registration until
+  // this app's schema is ready, otherwise a fresh Postgres database can serve
+  // the first signup while design migrations are still creating its tables.
+  const initPromise = (async () => {
+    await runDesignMigrations(nitroApp);
+    await ensureDesignFilesUniqueIndex();
+    try {
+      const summary = await ensureAdditiveColumns({
+        db: getDbExec(),
+        tables: schemaTables,
+      });
+      if (summary.errors.length > 0) {
+        console.warn(
+          "[db] ensureAdditiveColumns completed with errors:",
+          summary.errors,
+        );
+      }
+    } catch (err) {
+      // Never fail boot over the safety net itself — the authoritative
+      // migrations above already ran.
       console.warn(
-        "[db] ensureAdditiveColumns completed with errors:",
-        summary.errors,
+        "[db] ensureAdditiveColumns failed (non-fatal):",
+        err instanceof Error ? err.message : err,
       );
     }
-  } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
-    console.warn(
-      "[db] ensureAdditiveColumns failed (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
-  }
+  })();
+  trackPluginInit(nitroApp, initPromise, {
+    paths: ["/_agent-native/auth"],
+  });
+  return initPromise;
 };
