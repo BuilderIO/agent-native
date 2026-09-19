@@ -15246,8 +15246,8 @@ function DesignEditor() {
             const selectedMovedSource =
               movedSourceId !== undefined &&
               selectedElement?.sourceId === movedSourceId;
-            const selectedLayerIds =
-              selectedLayerIdsStateRef.current.filter((layerId) => {
+            const selectedLayerIds = selectedLayerIdsStateRef.current.filter(
+              (layerId) => {
                 const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
                 if (owner) {
                   return (
@@ -15255,7 +15255,8 @@ function DesignEditor() {
                   );
                 }
                 return !selectedMovedSource;
-              });
+              },
+            );
             return JSON.stringify({
               activeFileId: activeFileIdRef.current,
               selectedLayerIds,
