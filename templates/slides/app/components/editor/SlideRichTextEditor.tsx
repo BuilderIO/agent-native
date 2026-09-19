@@ -201,7 +201,7 @@ export function restoreSlideTextContainerContent(
   if (!isSlideTextContainerTag(element.tagName)) {
     element.innerHTML =
       element.tagName === "DIV" && legacySourceHtml
-        ? restoreLegacyBulletRowContent(legacySourceHtml, html)
+        ? restoreLegacyBulletRowContent(legacySourceHtml, html, element)
         : html;
     return element;
   }
@@ -594,6 +594,32 @@ function restoreLegacyBulletRow(
   return row;
 }
 
+function applyRestoredLegacyBulletRow(
+  target: HTMLElement,
+  restored: HTMLElement,
+): void {
+  for (const attribute of Array.from(restored.attributes)) {
+    if (attribute.name !== "style") {
+      target.setAttribute(attribute.name, attribute.value);
+    }
+  }
+  for (const property of [
+    ...LEGACY_ROW_TEXT_STYLE_PROPERTIES,
+    ...LEGACY_ROW_LAYOUT_STYLE_PROPERTIES,
+  ]) {
+    target.style.removeProperty(property);
+    const value = restored.style.getPropertyValue(property);
+    if (value) {
+      target.style.setProperty(
+        property,
+        value,
+        restored.style.getPropertyPriority(property),
+      );
+    }
+  }
+  target.innerHTML = restored.innerHTML;
+}
+
 function restoreLegacyBulletRowsInContainer(
   source: Element,
   current: Element,
@@ -672,6 +698,7 @@ function restoreLegacyBulletRows(
 function restoreLegacyBulletRowContent(
   sourceHtml: string | undefined,
   html: string,
+  target?: HTMLElement,
 ): string {
   if (!sourceHtml || typeof DOMParser === "undefined") return html;
   const sourceDocument = new DOMParser().parseFromString(
@@ -697,8 +724,12 @@ function restoreLegacyBulletRowContent(
       ? (currentRoot.firstElementChild as HTMLElement | null)
       : currentRoot;
   if (!currentItem) return html;
-  return restoreLegacyBulletRow(sourceWrapper as HTMLElement, currentItem)
-    .innerHTML;
+  const restored = restoreLegacyBulletRow(
+    sourceWrapper as HTMLElement,
+    currentItem,
+  );
+  if (target) applyRestoredLegacyBulletRow(target, restored);
+  return restored.innerHTML;
 }
 
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {

@@ -186,6 +186,24 @@ describe("slide rich text normalization", () => {
     expect(element.textContent).toBe("●Updated point");
   });
 
+  it("preserves single legacy bullet row formatting after editing", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul><li style="color:red;font-size:24px;display:flex;gap:16px"><p>Updated point</p></li></ul>',
+      source,
+    );
+
+    expect(element.style.color).toBe("red");
+    expect(element.style.fontSize).toBe("24px");
+    expect(element.style.display).toBe("flex");
+    expect(element.style.gap).toBe("16px");
+  });
+
   it("unwraps ordinary single-row bullet edits back into the row template", () => {
     const element = document.createElement("div");
     const source =
