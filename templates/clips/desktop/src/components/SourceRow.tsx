@@ -113,7 +113,6 @@ export function SourceRow({
               </>
             ) : null}
           </DropdownMenuRadioGroup>
-          <DropdownMenuSeparator />
           <DropdownMenuItem
             inset
             onSelect={() => {
@@ -121,7 +120,7 @@ export function SourceRow({
               onChooseWindow?.();
             }}
           >
-            Choose window…
+            Window
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

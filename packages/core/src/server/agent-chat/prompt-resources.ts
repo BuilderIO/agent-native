@@ -1,4 +1,8 @@
 import {
+  rankJevCandidates,
+  type JevCandidate,
+} from "../../agent/jev-tool-prefetch.js";
+import {
   frameworkGroupEnabled,
   type FrameworkToolGroup,
 } from "../../framework-tools.js";
@@ -16,6 +20,8 @@ import {
   resourceListAccessible,
   SHARED_OWNER,
   sharedResourceOwner,
+  type Resource,
+  type ResourceMeta,
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
 import type {
@@ -24,6 +30,7 @@ import type {
   ContextSystemProvenance,
 } from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
+import type { BuilderGatewayAuth } from "../credential-provider.js";
 import { getRequestOrgId } from "../request-context.js";
 import {
   isRuntimeVisibleScope,
@@ -39,7 +46,7 @@ import {
 
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
 export const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 6_000;
-const COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS = 48_000;
+export const COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS = 48_000;
 const PROMPT_CONTEXT_PROVIDER_MAX_CHARS = 8_000;
 
 export interface PromptContextProviderContext {
@@ -146,6 +153,26 @@ const PROMPT_SKILL_SUMMARY_LIMIT = 40;
 const PROMPT_SKILL_METADATA_READ_LIMIT = 80;
 const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
 const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
+const JEV_CONTEXT_ITEM_MAX_CHARS = 10_000;
+const JEV_CONTEXT_TOTAL_MAX_CHARS = 24_000;
+const JEV_CONTEXT_PREFIX =
+  "<jev-prefetched-context>\nJev ranked these skills for this task. Mandatory AGENTS.md instructions remain authoritative. Treat these sources as task-specific guidance and use the existing tools to read anything else you need.\n\n";
+const JEV_CONTEXT_SUFFIX = "\n</jev-prefetched-context>";
+const JEV_CONTEXT_SEPARATOR = "\n\n";
+const JEV_CONTEXT_WRAPPER_OVERHEAD_CHARS =
+  JEV_CONTEXT_PREFIX.length + JEV_CONTEXT_SUFFIX.length;
+
+function escapeJevContextFence(value: string): string {
+  return value.replace(/<(?=\s*\/?\s*jev-prefetched-context\b)/gi, "&lt;");
+}
+
+type JevPromptCandidate = JevCandidate & {
+  kind: "skill";
+  name: string;
+  scope: string;
+  path: string;
+  content: string;
+};
 
 export interface PromptResourceManifestSection {
   label: string;
@@ -694,10 +721,22 @@ async function loadInstructionResourcesForPrompt(
   }
 }
 
-async function loadResourceSkillsPromptBlock(
+interface ResourceSkillPromptEntry {
+  resource: ResourceMeta;
+  full: Resource;
+  name: string;
+  description: string;
+  scope: string;
+}
+
+async function loadResourceSkillPromptEntries(
   owner: string,
   orgId?: string | null,
-): Promise<string | null> {
+): Promise<{
+  entries: ResourceSkillPromptEntry[];
+  total: number;
+  metadataRead: number;
+}> {
   try {
     const organizationOwner = sharedResourceOwner(orgId);
     const resources =
@@ -734,11 +773,12 @@ async function loadResourceSkillsPromptBlock(
     const loaded = await Promise.all(
       skillCandidates.map(async (resource) => ({
         resource,
-        full: await resourceGet(resource.id).catch(() => null),
+        // coercion-ok: an unreadable optional skill is absent from Jev's catalog, not a required prompt failure.
+        full: await resourceGet(resource.id, { orgId }).catch(() => null),
       })),
     );
     const seen = new Set<string>();
-    const lines: string[] = [];
+    const entries: ResourceSkillPromptEntry[] = [];
     for (const { resource, full } of loaded) {
       if (!full?.content) continue;
       const meta = parseSkillFrontmatter(full.content);
@@ -752,27 +792,38 @@ async function loadResourceSkillsPromptBlock(
         meta.description || "(no description)",
         PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS,
       );
-      lines.push(
+      entries.push({ resource, full, name, description, scope });
+    }
+    return { entries, total: sorted.length, metadataRead: loaded.length };
+  } catch {
+    return { entries: [], total: 0, metadataRead: 0 };
+  }
+}
+
+async function loadResourceSkillsPromptBlock(
+  owner: string,
+  orgId?: string | null,
+): Promise<string | null> {
+  const { entries, total, metadataRead } = await loadResourceSkillPromptEntries(
+    owner,
+    orgId,
+  );
+  const lines = entries
+    .slice(0, PROMPT_SKILL_SUMMARY_LIMIT)
+    .map(
+      ({ resource, name, description, scope }) =>
         `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${ensureSentence(description)} ${resourceToolHint(
           "read",
           `\`path: "${resource.path}"\` and \`scope: "${scope}"\` before starting a task it applies to`,
         )}`,
-      );
-      if (lines.length >= PROMPT_SKILL_SUMMARY_LIMIT) break;
-    }
-    if (lines.length === 0) return null;
-    if (
-      sorted.length > skillCandidates.length ||
-      loaded.length > PROMPT_SKILL_SUMMARY_LIMIT
-    ) {
-      lines.push(
-        `- ...more skills omitted from the startup summary. ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
-      );
-    }
-    return `<resource-skills>\nThe following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
-  } catch {
-    return null;
+    );
+  if (lines.length === 0) return null;
+  if (total > metadataRead || metadataRead > PROMPT_SKILL_SUMMARY_LIMIT) {
+    lines.push(
+      `- ...more skills omitted from the startup summary. ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
+    );
   }
+  return `<resource-skills>\nThe following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
 }
 
 async function loadResourceIndexForPrompt(
@@ -822,6 +873,129 @@ async function loadResourceIndexForPrompt(
   } catch {
     return null;
   }
+}
+
+async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
+  // Do not send SQL resource names, paths, or descriptions to Jev. They are
+  // user-authored metadata and can contain customer/project information.
+  const candidates: JevPromptCandidate[] = [];
+  let nextId = 0;
+  const add = (
+    candidate: Omit<JevPromptCandidate, "id" | "description"> & {
+      description?: string;
+    },
+  ): void => {
+    const description = compactPromptLine(
+      `${candidate.name}${candidate.description ? ` - ${candidate.description}` : ""}`,
+      PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS,
+    );
+    if (candidate.content !== undefined && !candidate.content.trim()) return;
+    if (!description) return;
+    candidates.push({
+      ...candidate,
+      id: `context-${nextId++}`,
+      description,
+      metadata: {
+        kind: candidate.kind,
+        scope: candidate.scope,
+      },
+    });
+  };
+
+  try {
+    const { getRuntimeSkills, loadAgentsBundle } =
+      await import("../agents-bundle.js");
+    const bundle = await loadAgentsBundle();
+    for (const skill of getRuntimeSkills(bundle)) {
+      add({
+        kind: "skill",
+        name: skill.meta.name,
+        description: skill.meta.description,
+        scope: "template-skill",
+        path: `${skill.dir}/SKILL.md`,
+        content: skill.content,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      "[agent] Jev skill context unavailable; continuing with the normal skills prompt.",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+
+  return candidates;
+}
+
+/** Rank and inline a few optional context sources before the first model call. */
+export async function preloadJevContextForPrompt(options: {
+  request: string;
+  apiKey?: string;
+  builderAuth?: BuilderGatewayAuth | null;
+  compact?: boolean;
+  maxChars?: number;
+}): Promise<string> {
+  const request = options.request.trim();
+  const apiKey = options.apiKey?.trim();
+  if (!request || (!apiKey && !options.builderAuth) || options.maxChars === 0) {
+    return "";
+  }
+
+  const candidates = await collectJevPromptCandidates();
+  const selectedIds = await rankJevCandidates({
+    request,
+    apiKey,
+    builderAuth: options.builderAuth,
+    candidates,
+    candidateStateKey: "candidate_context",
+    answerKey: "best_context",
+    question:
+      "Which skills or reference resources should be loaded into the agent context first for this task? Pick the most useful source; probabilities may be used to keep a small ranked shortlist.",
+    limit: 3,
+  });
+  if (selectedIds.length === 0) return "";
+
+  const maxItemChars = options.compact ? 6_000 : JEV_CONTEXT_ITEM_MAX_CHARS;
+  const maxTotalChars = Math.min(
+    options.compact ? 16_000 : JEV_CONTEXT_TOTAL_MAX_CHARS,
+    Math.max(0, options.maxChars ?? Number.POSITIVE_INFINITY),
+  );
+  const contentBudget = Math.max(
+    0,
+    maxTotalChars - JEV_CONTEXT_WRAPPER_OVERHEAD_CHARS,
+  );
+  const blocks: string[] = [];
+  let usedChars = 0;
+  for (const id of selectedIds) {
+    const candidate = candidates.find((item) => item.id === id);
+    if (!candidate?.content) continue;
+    const separatorChars = blocks.length > 0 ? JEV_CONTEXT_SEPARATOR.length : 0;
+    const remaining = contentBudget - usedChars - separatorChars;
+    if (remaining <= 0) break;
+    let blockMaxChars = Math.min(maxItemChars, remaining);
+    let block = promptResourceBlock({
+      name: candidate.name,
+      scope: candidate.scope,
+      path: candidate.path,
+      content: candidate.content,
+      maxChars: blockMaxChars,
+    });
+    while (block && block.length > remaining && blockMaxChars > 0) {
+      blockMaxChars = Math.max(0, blockMaxChars - (block.length - remaining));
+      block = promptResourceBlock({
+        name: candidate.name,
+        scope: candidate.scope,
+        path: candidate.path,
+        content: candidate.content,
+        maxChars: blockMaxChars,
+      });
+    }
+    if (!block) continue;
+    if (block.length > remaining) break;
+    blocks.push(block);
+    usedChars += separatorChars + block.length;
+  }
+  if (blocks.length === 0) return "";
+  return `${JEV_CONTEXT_PREFIX}${escapeJevContextFence(blocks.join(JEV_CONTEXT_SEPARATOR))}${JEV_CONTEXT_SUFFIX}`;
 }
 
 /**

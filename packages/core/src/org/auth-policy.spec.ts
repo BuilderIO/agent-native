@@ -1,19 +1,62 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.hoisted(() => vi.fn());
+const findOne = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
 }));
 
 import {
+  getAuthEmailForUserId,
   getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
   setRequiredAuthProvider,
 } from "./auth-policy.js";
 
 describe("organization auth policy", () => {
-  beforeEach(() => execute.mockReset());
+  beforeEach(() => {
+    execute.mockReset();
+    findOne.mockReset();
+  });
+
+  it("reads a newly inserted user through Better Auth's transaction adapter", async () => {
+    const adapter = { findOne } as Parameters<typeof getAuthEmailForUserId>[1];
+    execute.mockResolvedValueOnce({ rows: [] });
+    findOne.mockResolvedValueOnce({ email: "new@example.com" });
+
+    await expect(getAuthEmailForUserId("new-user", adapter)).resolves.toBe(
+      "new@example.com",
+    );
+    expect(execute).not.toHaveBeenCalled();
+    expect(findOne).toHaveBeenCalledWith({
+      model: "user",
+      where: [{ field: "id", value: "new-user" }],
+    });
+  });
+
+  it("keeps a genuinely missing user as a failure", async () => {
+    execute.mockResolvedValueOnce({ rows: [] });
+    findOne.mockResolvedValueOnce(null);
+
+    await expect(
+      getAuthEmailForUserId("missing", { findOne } as Parameters<
+        typeof getAuthEmailForUserId
+      >[1]),
+    ).rejects.toThrow("Better Auth user email not found: missing");
+  });
+
+  it("keeps the committed-user lookup for callers without an adapter", async () => {
+    execute.mockResolvedValueOnce({ rows: [{ email: "saved@example.com" }] });
+
+    await expect(getAuthEmailForUserId("saved")).resolves.toBe(
+      "saved@example.com",
+    );
+    expect(execute).toHaveBeenCalledWith({
+      sql: 'SELECT email FROM "user" WHERE id = ? LIMIT 1',
+      args: ["saved"],
+    });
+  });
 
   it("matches members, pending invites, and allowed domains", async () => {
     execute.mockResolvedValueOnce({ rows: [{ provider: "google" }] });

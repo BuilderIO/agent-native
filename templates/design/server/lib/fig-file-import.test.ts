@@ -26,6 +26,7 @@ import {
   assertSafeDecodedFigDocument,
   decodeFig,
   decodeKiwiContainer,
+  sanitizeDecodedFigDocument,
 } from "./fig-file-decoder.js";
 import {
   convertDecodedFigToEditableHtml,
@@ -143,6 +144,58 @@ describe("bounded .fig decoding", () => {
     expect(decoded.format).toBe("kiwi");
     expect(decoded.version).toBe(124);
     expect(decoded.document).toEqual({ hello: "world" });
+  });
+
+  it("allows the hex expansion of bounded binary fields during the safety re-check", () => {
+    const fieldNames = ["blob"];
+    const schema = parseSchema(
+      `message Message { ${fieldNames.map((name, index) => `byte[] ${name} = ${index + 1};`).join(" ")} }`,
+    );
+    const compiled = compileSchema(schema) as {
+      encodeMessage(value: Record<string, Uint8Array>): Uint8Array;
+    };
+    const blob = new Uint8Array(3 * 1024 * 1024);
+    const document = Object.fromEntries(
+      fieldNames.map((name) => [name, blob]),
+    ) as Record<string, Uint8Array>;
+    const decoded = decodeFig(
+      kiwiContainer([
+        Buffer.from(encodeBinarySchema(schema)),
+        Buffer.from(compiled.encodeMessage(document)),
+      ]),
+    );
+
+    expect(() => assertSafeDecodedFigDocument(decoded.document)).not.toThrow();
+    expect(() =>
+      assertSafeDecodedFigDocument({
+        blobs: [{ bytes: "00".repeat(3 * 1024 * 1024) }],
+      }),
+    ).toThrow(/too much string data/i);
+  });
+
+  it("preserves safety metadata for a root binary value", () => {
+    const sanitized = sanitizeDecodedFigDocument(
+      new Uint8Array(3 * 1024 * 1024),
+    );
+
+    expect(() => assertSafeDecodedFigDocument(sanitized)).not.toThrow();
+  });
+
+  it("counts bigint serialization against the decoded string budget", () => {
+    const schema = parseSchema("message Message { uint64[] values = 1; }");
+    const compiled = compileSchema(schema) as {
+      encodeMessage(value: { values: bigint[] }): Uint8Array;
+    };
+    const values = new Array(1_700_000).fill(18_446_744_073_709_551_615n);
+    const decoded = decodeFig(
+      kiwiContainer([
+        Buffer.from(encodeBinarySchema(schema)),
+        Buffer.from(compiled.encodeMessage({ values })),
+      ]),
+    );
+
+    expect(decoded.document).toBeNull();
+    expect(decoded.decodeError).toMatch(/too much string data/i);
   });
 
   it("lets browser-local decoding skip only the raw upload ceiling", () => {
@@ -556,6 +609,68 @@ describe("editable .fig conversion", () => {
     );
 
     expect(result.files).toHaveLength(2);
+  });
+
+  it("imports files with more than 200 top-level frames", () => {
+    const nodes: FigNode[] = [
+      { guid: { sessionID: 1, localID: 1 }, type: "DOCUMENT" },
+      {
+        guid: { sessionID: 1, localID: 2 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 1 },
+          position: "a",
+        },
+        type: "CANVAS",
+        name: "Page 1",
+      },
+      ...Array.from({ length: 201 }, (_, index) => ({
+        guid: { sessionID: 1, localID: index + 3 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 2 },
+          position: String(index).padStart(3, "0"),
+        },
+        type: "FRAME",
+        name: `Frame ${index + 1}`,
+        size: { x: 320, y: 200 },
+        transform: {
+          m00: 1,
+          m01: 0,
+          m02: index * 320,
+          m10: 0,
+          m11: 1,
+          m12: 0,
+        },
+      })),
+    ];
+
+    expect(renderHtmlTemplates({ nodeChanges: nodes }).frames).toHaveLength(
+      201,
+    );
+
+    const tooManyNodes = [
+      ...nodes,
+      ...Array.from({ length: 100 }, (_, index) => ({
+        guid: { sessionID: 1, localID: index + 204 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 2 },
+          position: String(index + 201).padStart(3, "0"),
+        },
+        type: "FRAME",
+        name: `Frame ${index + 202}`,
+        size: { x: 320, y: 200 },
+        transform: {
+          m00: 1,
+          m01: 0,
+          m02: (index + 201) * 320,
+          m10: 0,
+          m11: 1,
+          m12: 0,
+        },
+      })),
+    ];
+    expect(() => renderHtmlTemplates({ nodeChanges: tooManyNodes })).toThrow(
+      /max 300/i,
+    );
   });
 
   it("summarizes the document and warns before an oversized import", () => {

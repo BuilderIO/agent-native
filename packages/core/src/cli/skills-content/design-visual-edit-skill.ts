@@ -29,6 +29,10 @@ Design; only the target app and bridge run locally.
 - If an agent-owned local server redirects a requested screen to \`/sign-in\`,
   restart that server with \`AUTH_DISABLED=1\` and probe the route again before
   opening Design. Never present a sign-in page as the requested screen.
+- Before calling \`open-visual-edit\`, verify the target URL responds. Start an
+  agent-owned dev server with its normal command when it is down, and wait for
+  the requested routes to respond before opening Design. Never leave a dead
+  localhost URL in the canvas.
 - Preserve a server you did not start; use its existing authenticated browser
   session or explain that the target app, rather than Design, requires login.
 - When the user gives explicit paths, skip route inventory and place those

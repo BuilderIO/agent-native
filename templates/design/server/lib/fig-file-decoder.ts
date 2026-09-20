@@ -43,6 +43,19 @@ const MAX_DECODE_READS = 64 * 1024 * 1024;
 const MAX_SANITIZED_BINARY_BYTES = 32 * 1024 * 1024;
 const MAX_DECODED_STRING_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_STRING_BYTES = 32 * 1024 * 1024;
+// `sanitizeForJson` represents bounded binary fields as two hex characters per
+// byte, so each generated value gets the corresponding per-string allowance.
+const MAX_SANITIZED_BINARY_STRING_BYTES = MAX_DECODED_STRING_BYTES * 2;
+const MAX_SANITIZED_BINARY_STRING_TOTAL_BYTES = MAX_SANITIZED_BINARY_BYTES * 2;
+type SanitizedValueKey = string | number;
+interface SanitizedDocumentMetadata {
+  binaryFields: WeakMap<object, Set<SanitizedValueKey>>;
+  rootIsBinary: boolean;
+}
+const sanitizedDocumentMetadata = new WeakMap<
+  object,
+  SanitizedDocumentMetadata
+>();
 const ZSTD_MAGIC = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd]);
 const FIG_KIWI_MAGIC = asciiBytes("fig-kiwi");
 const FIGJAM_KIWI_MAGIC = asciiBytes("fig-jam.");
@@ -446,14 +459,46 @@ interface ObjectBudget {
   objects: number;
   items: number;
   binaryBytes: number;
+  binaryStringBytes: number;
   stringBytes: number;
   active: WeakSet<object>;
+  binaryFields: WeakMap<object, Set<SanitizedValueKey>>;
+  rootIsBinary: boolean;
+}
+
+function accountDecodedStringBytes(bytes: number, budget: ObjectBudget): void {
+  if (
+    bytes > MAX_DECODED_STRING_BYTES ||
+    budget.stringBytes + bytes > MAX_TOTAL_STRING_BYTES
+  ) {
+    throw new Error("Decoded .fig document contains too much string data.");
+  }
+  budget.stringBytes += bytes;
+}
+
+function recordBinaryField(
+  budget: ObjectBudget,
+  parent: object | undefined,
+  key: SanitizedValueKey | undefined,
+): void {
+  if (parent === undefined || key === undefined) {
+    budget.rootIsBinary = true;
+    return;
+  }
+  let keys = budget.binaryFields.get(parent);
+  if (!keys) {
+    keys = new Set<SanitizedValueKey>();
+    budget.binaryFields.set(parent, keys);
+  }
+  keys.add(key);
 }
 
 function sanitizeForJson(
   value: unknown,
   budget: ObjectBudget,
   depth = 0,
+  parent?: object,
+  key?: SanitizedValueKey,
 ): unknown {
   if (depth > MAX_DECODE_DEPTH) {
     throw new Error("Decoded .fig document is nested too deeply.");
@@ -463,20 +508,30 @@ function sanitizeForJson(
     if (budget.binaryBytes > MAX_SANITIZED_BINARY_BYTES) {
       throw new Error("Decoded .fig document contains too much binary data.");
     }
-    return bytesToHexString(value);
-  }
-  if (typeof value === "string") {
-    const bytes = utf8ByteLength(value);
-    budget.stringBytes += bytes;
+    const hexBytes = value.byteLength * 2;
     if (
-      bytes > MAX_DECODED_STRING_BYTES ||
-      budget.stringBytes > MAX_TOTAL_STRING_BYTES
+      hexBytes > MAX_SANITIZED_BINARY_STRING_BYTES ||
+      budget.binaryStringBytes + hexBytes >
+        MAX_SANITIZED_BINARY_STRING_TOTAL_BYTES
     ) {
       throw new Error("Decoded .fig document contains too much string data.");
     }
+    budget.binaryStringBytes += hexBytes;
+    recordBinaryField(budget, parent, key);
+    const hex = bytesToHexString(value);
+    // Box a root binary string so its safety metadata has an object identity;
+    // JSON.stringify unboxes String objects back to the expected primitive.
+    return parent === undefined && key === undefined ? new String(hex) : hex;
+  }
+  if (typeof value === "string") {
+    accountDecodedStringBytes(utf8ByteLength(value), budget);
     return value;
   }
-  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "bigint") {
+    const string = value.toString();
+    accountDecodedStringBytes(utf8ByteLength(string), budget);
+    return string;
+  }
   if (Array.isArray(value)) {
     budget.objects += 1;
     budget.items += value.length;
@@ -492,7 +547,17 @@ function sanitizeForJson(
     }
     budget.active.add(value);
     try {
-      return value.map((item) => sanitizeForJson(item, budget, depth + 1));
+      const out = new Array<unknown>(value.length);
+      for (let index = 0; index < value.length; index += 1) {
+        out[index] = sanitizeForJson(
+          value[index],
+          budget,
+          depth + 1,
+          out,
+          index,
+        );
+      }
+      return out;
     } finally {
       budget.active.delete(value);
     }
@@ -514,7 +579,7 @@ function sanitizeForJson(
     }
     try {
       for (const [k, v] of entries) {
-        out[k] = sanitizeForJson(v, budget, depth + 1);
+        out[k] = sanitizeForJson(v, budget, depth + 1, out, k);
       }
     } finally {
       budget.active.delete(value);
@@ -524,14 +589,45 @@ function sanitizeForJson(
   return value;
 }
 
+export function sanitizeDecodedFigDocument(value: unknown): unknown {
+  const budget: ObjectBudget = {
+    objects: 0,
+    items: 0,
+    binaryBytes: 0,
+    binaryStringBytes: 0,
+    stringBytes: 0,
+    active: new WeakSet(),
+    binaryFields: new WeakMap(),
+    rootIsBinary: false,
+  };
+  const sanitizedDocument = sanitizeForJson(value, budget);
+  if (sanitizedDocument !== null && typeof sanitizedDocument === "object") {
+    sanitizedDocumentMetadata.set(sanitizedDocument, {
+      binaryFields: budget.binaryFields,
+      rootIsBinary: budget.rootIsBinary,
+    });
+  }
+  return sanitizedDocument;
+}
+
 /** Re-check decoded/direct-test documents before renderer traversal. */
 export function assertSafeDecodedFigDocument(value: unknown): void {
-  const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+  const stack: Array<{
+    value: unknown;
+    depth: number;
+    parent?: object;
+    key?: SanitizedValueKey;
+  }> = [{ value, depth: 0 }];
   const seen = new WeakSet<object>();
+  const metadata =
+    value !== null && typeof value === "object"
+      ? sanitizedDocumentMetadata.get(value)
+      : undefined;
   let objects = 0;
   let items = 0;
   let binaryBytes = 0;
   let stringBytes = 0;
+  let binaryStringBytes = 0;
   while (stack.length > 0) {
     const current = stack.pop()!;
     if (current.depth > MAX_DECODE_DEPTH) {
@@ -544,8 +640,46 @@ export function assertSafeDecodedFigDocument(value: unknown): void {
       }
       continue;
     }
-    if (typeof current.value === "string") {
-      const bytes = utf8ByteLength(current.value);
+    const stringValue =
+      typeof current.value === "string"
+        ? current.value
+        : current.value instanceof String
+          ? current.value.valueOf()
+          : undefined;
+    if (stringValue !== undefined) {
+      const bytes = utf8ByteLength(stringValue);
+      const isGeneratedBinaryString =
+        metadata !== undefined &&
+        (current.parent === undefined
+          ? metadata.rootIsBinary
+          : current.key !== undefined &&
+            metadata.binaryFields.get(current.parent)?.has(current.key) ===
+              true);
+      if (isGeneratedBinaryString) {
+        binaryStringBytes += bytes;
+        if (
+          bytes > MAX_SANITIZED_BINARY_STRING_BYTES ||
+          binaryStringBytes > MAX_SANITIZED_BINARY_STRING_TOTAL_BYTES
+        ) {
+          throw new Error(
+            "Decoded .fig document contains too much string data.",
+          );
+        }
+      } else {
+        stringBytes += bytes;
+        if (
+          bytes > MAX_DECODED_STRING_BYTES ||
+          stringBytes > MAX_TOTAL_STRING_BYTES
+        ) {
+          throw new Error(
+            "Decoded .fig document contains too much string data.",
+          );
+        }
+      }
+      continue;
+    }
+    if (typeof current.value === "bigint") {
+      const bytes = utf8ByteLength(current.value.toString());
       stringBytes += bytes;
       if (
         bytes > MAX_DECODED_STRING_BYTES ||
@@ -564,20 +698,38 @@ export function assertSafeDecodedFigDocument(value: unknown): void {
     if (objects > MAX_DECODED_OBJECTS) {
       throw new Error("Decoded .fig document contains too many objects.");
     }
-    const children = Array.isArray(current.value)
-      ? current.value
-      : Object.values(current.value);
-    if (children.length > MAX_COLLECTION_LENGTH) {
+    const arrayValue = Array.isArray(current.value) ? current.value : null;
+    const objectEntries =
+      arrayValue === null ? Object.entries(current.value) : null;
+    const childCount =
+      arrayValue === null ? objectEntries!.length : arrayValue.length;
+    if (childCount > MAX_COLLECTION_LENGTH) {
       throw new Error(
         "Decoded .fig document contains an oversized collection.",
       );
     }
-    items += children.length;
+    items += childCount;
     if (items > MAX_COLLECTION_ITEMS) {
       throw new Error("Decoded .fig document exceeds collection limits.");
     }
-    for (const child of children) {
-      stack.push({ value: child, depth: current.depth + 1 });
+    if (arrayValue !== null) {
+      for (let index = 0; index < arrayValue.length; index += 1) {
+        stack.push({
+          value: arrayValue[index],
+          depth: current.depth + 1,
+          parent: current.value,
+          key: index,
+        });
+      }
+    } else {
+      for (const [key, child] of objectEntries!) {
+        stack.push({
+          value: child,
+          depth: current.depth + 1,
+          parent: current.value,
+          key,
+        });
+      }
     }
   }
 }
@@ -766,13 +918,7 @@ function decodeKiwiDocument(
     const bb = new BudgetByteBuffer(view);
     const document = decoder.call(compiled, bb);
     return {
-      document: sanitizeForJson(document, {
-        objects: 0,
-        items: 0,
-        binaryBytes: 0,
-        stringBytes: 0,
-        active: new WeakSet(),
-      }),
+      document: sanitizeDecodedFigDocument(document),
     };
   } catch (e) {
     return {

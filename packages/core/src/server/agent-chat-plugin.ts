@@ -4175,6 +4175,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         },
         resolveActionSurface: options?.resolveActionSurface,
         skipFilesContext,
+        jevContextCompact: leanPrompt || lazyContext,
         initialToolNames: effectiveInitialToolNames,
         ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
         onEngineResolved: (engine, model) => {
@@ -4228,6 +4229,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               appId: options?.appId,
               apiKey: options?.apiKey,
               ...resolveInteractiveAgentRunOptions(options),
+              jevContextCompact: true,
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               resolveActionSurface: options?.resolveActionSurface,
@@ -4466,6 +4468,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           appId: options?.appId,
           apiKey: options?.apiKey,
           ...resolveInteractiveAgentRunOptions(options),
+          jevContextCompact: leanPrompt || lazyContext,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
             if (details.threadId && details.ownerEmail) {

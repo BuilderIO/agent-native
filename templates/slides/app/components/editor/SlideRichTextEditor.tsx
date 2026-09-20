@@ -126,15 +126,27 @@ export function contentForSlideTextContainer(
   html: string,
   listTagName?: "OL" | "UL",
 ): string {
-  if (
-    !html ||
-    !isSlideTextContainerTag(tagName) ||
-    typeof DOMParser === "undefined"
-  ) {
+  if (!html || typeof DOMParser === "undefined") {
     return html;
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   const first = doc.body.firstElementChild;
+  const normalizedTagName = tagName.toUpperCase();
+  if (
+    normalizedTagName === "DIV" &&
+    doc.body.children.length === 1 &&
+    first?.tagName === "DIV" &&
+    first.firstElementChild &&
+    isBulletMarker(first.firstElementChild)
+  ) {
+    const source = first as HTMLElement;
+    const paragraph = doc.createElement("p");
+    syncSlideEditorBlockFormatting(source, paragraph);
+    copyLegacyRowLayoutStyles(source, paragraph);
+    paragraph.innerHTML = source.innerHTML;
+    return paragraph.outerHTML;
+  }
+  if (!isSlideTextContainerTag(tagName)) return html;
   if (
     doc.body.children.length !== 1 ||
     first?.tagName.toUpperCase() !== tagName.toUpperCase()
@@ -153,8 +165,12 @@ export function contentForSlideTextContainer(
     return paragraph.outerHTML;
   }
   if (tagName.toUpperCase() === "P") {
+    const source = first as HTMLElement;
     const paragraph = doc.createElement("p");
-    syncSlideEditorBlockFormatting(first as HTMLElement, paragraph);
+    syncSlideEditorBlockFormatting(source, paragraph);
+    if (source.firstElementChild && isBulletMarker(source.firstElementChild)) {
+      copyLegacyRowLayoutStyles(source, paragraph);
+    }
     paragraph.innerHTML = first.innerHTML;
     return paragraph.outerHTML;
   }
@@ -183,7 +199,10 @@ export function restoreSlideTextContainerContent(
 ): HTMLElement {
   html = restoreLegacyBulletRows(legacySourceHtml, html);
   if (!isSlideTextContainerTag(element.tagName)) {
-    element.innerHTML = html;
+    element.innerHTML =
+      element.tagName === "DIV" && legacySourceHtml
+        ? restoreLegacyBulletRowContent(legacySourceHtml, html, element)
+        : html;
     return element;
   }
   if (!html || typeof DOMParser === "undefined") {
@@ -575,6 +594,32 @@ function restoreLegacyBulletRow(
   return row;
 }
 
+function applyRestoredLegacyBulletRow(
+  target: HTMLElement,
+  restored: HTMLElement,
+): void {
+  for (const attribute of Array.from(restored.attributes)) {
+    if (attribute.name !== "style") {
+      target.setAttribute(attribute.name, attribute.value);
+    }
+  }
+  for (const property of [
+    ...LEGACY_ROW_TEXT_STYLE_PROPERTIES,
+    ...LEGACY_ROW_LAYOUT_STYLE_PROPERTIES,
+  ]) {
+    target.style.removeProperty(property);
+    const value = restored.style.getPropertyValue(property);
+    if (value) {
+      target.style.setProperty(
+        property,
+        value,
+        restored.style.getPropertyPriority(property),
+      );
+    }
+  }
+  target.innerHTML = restored.innerHTML;
+}
+
 function restoreLegacyBulletRowsInContainer(
   source: Element,
   current: Element,
@@ -648,6 +693,44 @@ function restoreLegacyBulletRows(
   const currentDocument = new DOMParser().parseFromString(html, "text/html");
   restoreLegacyBulletRowsInContainer(sourceDocument.body, currentDocument.body);
   return currentDocument.body.innerHTML;
+}
+
+function restoreLegacyBulletRowContent(
+  sourceHtml: string | undefined,
+  html: string,
+  target?: HTMLElement,
+): string {
+  if (!sourceHtml || typeof DOMParser === "undefined") return html;
+  const sourceDocument = new DOMParser().parseFromString(
+    `<div>${sourceHtml}</div>`,
+    "text/html",
+  );
+  const sourceWrapper = sourceDocument.body.firstElementChild;
+  if (sourceWrapper?.tagName !== "DIV" || !isLegacyBulletRow(sourceWrapper)) {
+    return html;
+  }
+  const currentDocument = new DOMParser().parseFromString(html, "text/html");
+  if (currentDocument.body.childNodes.length !== 1) return html;
+  const currentRoot = currentDocument.body
+    .firstElementChild as HTMLElement | null;
+  if (!currentRoot) return html;
+  if (currentRoot.tagName === "UL" || currentRoot.tagName === "OL") {
+    const currentItems = Array.from(currentRoot.children).filter(
+      (child) => child.tagName === "LI",
+    );
+    if (currentItems.length > 1) return currentRoot.outerHTML;
+  }
+  const currentItem =
+    currentRoot.tagName === "UL" || currentRoot.tagName === "OL"
+      ? (currentRoot.firstElementChild as HTMLElement | null)
+      : currentRoot;
+  if (!currentItem) return html;
+  const restored = restoreLegacyBulletRow(
+    sourceWrapper as HTMLElement,
+    currentItem,
+  );
+  if (target) applyRestoredLegacyBulletRow(target, restored);
+  return restored.innerHTML;
 }
 
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {

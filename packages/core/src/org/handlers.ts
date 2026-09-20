@@ -568,38 +568,58 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     : 0;
 
   const e = await exec();
-  const args: unknown[] = [ctx.orgId];
-  const countArgs: unknown[] = [ctx.orgId];
-  let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members
-             WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
-  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members
-                 WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
+  const baseSql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members
+                   WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
+  let pageRows: any[];
+  let profiles: Awaited<ReturnType<typeof getUserProfiles>>;
+  let totalCount: number;
+  let hasMore = false;
+
   if (search) {
-    sql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
-    args.push(`%${escapeLike(search)}%`);
-    countSql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
-    countArgs.push(`%${escapeLike(search)}%`);
-  }
-  sql += ` ORDER BY LOWER(email) ASC`;
-  if (limit !== null) {
-    sql += ` LIMIT ? OFFSET ?`;
-    args.push(limit + 1, offset);
+    const searchPattern = `%${escapeLike(search)}%`;
+    const pageLimit = limit ?? 25;
+    const { rows } = await e.execute({
+      sql: `SELECT m.email, m.role, m.joined_at AS "joinedAt",
+                   COUNT(*) OVER() AS "totalCount"
+            FROM org_members m
+            LEFT JOIN "user" u ON LOWER(u.email) = LOWER(m.email)
+            WHERE m.org_id = ? AND m.federation_removal_pending_at IS NULL
+              AND (LOWER(m.email) LIKE ? ESCAPE '!'
+                   OR LOWER(COALESCE(u.name, '')) LIKE ? ESCAPE '!')
+            ORDER BY LOWER(m.email) ASC
+            LIMIT ? OFFSET ?`,
+      args: [ctx.orgId, searchPattern, searchPattern, pageLimit + 1, offset],
+    });
+    pageRows = rows.slice(0, pageLimit);
+    totalCount = Number((rows[0] as any)?.totalCount ?? 0);
+    hasMore = rows.length > pageLimit;
+    profiles = await getUserProfiles(pageRows.map((r: any) => String(r.email)));
+  } else {
+    const args: unknown[] = [ctx.orgId];
+    let sql = `${baseSql} ORDER BY LOWER(email) ASC`;
+    if (limit !== null) {
+      sql += ` LIMIT ? OFFSET ?`;
+      args.push(limit + 1, offset);
+    }
+
+    const totalCountResult =
+      limit === null
+        ? undefined
+        : await e.execute({
+            sql: `SELECT COUNT(*) AS "totalCount" FROM org_members
+                  WHERE org_id = ? AND federation_removal_pending_at IS NULL`,
+            args: [ctx.orgId],
+          });
+    const { rows } = await e.execute({ sql, args });
+    pageRows = limit !== null ? rows.slice(0, limit) : rows;
+    hasMore = limit !== null && rows.length > limit;
+    totalCount =
+      totalCountResult === undefined
+        ? pageRows.length
+        : Number((totalCountResult.rows[0] as any)?.totalCount);
+    profiles = await getUserProfiles(pageRows.map((r: any) => String(r.email)));
   }
 
-  const totalCountResult =
-    limit === null
-      ? undefined
-      : await e.execute({ sql: countSql, args: countArgs });
-  const { rows } = await e.execute({
-    sql,
-    args,
-  });
-  const pageRows = limit !== null ? rows.slice(0, limit) : rows;
-  const hasMore = limit !== null && rows.length > limit;
-  const totalCount =
-    totalCountResult === undefined
-      ? pageRows.length
-      : Number((totalCountResult.rows[0] as any)?.totalCount);
   if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
     throw new Error("Organization member count was not returned");
   }
@@ -608,7 +628,6 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     role: String(r.role) as OrgRole,
     joinedAt: Number(r.joinedAt ?? r.joined_at),
   }));
-  const profiles = await getUserProfiles(members.map((member) => member.email));
   const membersWithProfiles = members.map((member) => {
     const profile = profiles.get(member.email.toLowerCase());
     const name = profile?.name;

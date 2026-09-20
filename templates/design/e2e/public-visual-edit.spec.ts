@@ -107,11 +107,18 @@ test.describe.serial("public visual edit", () => {
         signedOut.page.getByRole("heading", { level: 1 }).first(),
       ).toBeVisible();
       await expect(
-        signedOut.page
-          .getByRole("link", {
-            name: /sign up free to save/i,
-          })
-          .first(),
+        signedOut.page.getByRole("heading", {
+          name: /start with \/visual-edit/i,
+        }),
+      ).toBeVisible();
+      await expect(
+        signedOut.page.getByText(
+          "npx @agent-native/core@latest skills add visual-edit",
+          { exact: true },
+        ),
+      ).toBeVisible();
+      await expect(
+        signedOut.page.getByRole("button", { name: /^copy$/i }),
       ).toBeVisible();
       await assertNoRuntimeErrors(signedOut);
 
@@ -122,6 +129,38 @@ test.describe.serial("public visual edit", () => {
       await assertNoRuntimeErrors(signedOut);
     } finally {
       await signedOut.close();
+    }
+  });
+
+  test("rejects forged bare-link editor access", async ({ browser }) => {
+    const context = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+      extraHTTPHeaders: {
+        "X-Agent-Native-Frontend": "1",
+        Origin: new URL(BASE_URL).origin,
+        "Sec-Fetch-Site": "same-origin",
+      },
+    });
+    try {
+      const directResponse = await context.request.get(
+        appUrl(`/visual-edit/${designId}`),
+      );
+      expect(directResponse.ok()).toBe(true);
+      expect(directResponse.url()).toBe(appUrl(`/visual-edit/${designId}`));
+      const directHtml = await directResponse.text();
+      expect(directHtml).not.toContain("/_agent-native/embed/start");
+      expect(directHtml).not.toMatch(/__an_embed_token=[^&"<]*/);
+
+      const response = await context.request.post(
+        appUrl("/_agent-native/actions/issue-visual-edit-access"),
+        {
+          data: { designId },
+        },
+      );
+      expect(response.ok()).toBe(false);
+      expect(await response.text()).not.toContain("/_agent-native/embed/start");
+    } finally {
+      await context.close();
     }
   });
 
@@ -238,18 +277,10 @@ test.describe.serial("public visual edit", () => {
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: /open visual edit/i }).click();
 
-      await expect
-        .poll(
-          () => {
-            const url = new URL(signedOut.page.url());
-            return {
-              editorPath: url.pathname.startsWith("/visual-edit/"),
-              hasCapability: url.searchParams.has("__an_embed_token"),
-            };
-          },
-          { timeout: 30_000 },
-        )
-        .toEqual({ editorPath: true, hasCapability: true });
+      await signedOut.page.waitForURL(
+        /\/visual-edit\/[^?]+\?.*__an_embed_token=/,
+        { timeout: 30_000, waitUntil: "domcontentloaded" },
+      );
       await expect(signedOut.page.locator("[data-design-editor]")).toBeVisible({
         timeout: 30_000,
       });
@@ -329,6 +360,7 @@ test.describe.serial("public visual edit", () => {
           tool: "list-localhost-connections",
           result: { count: 1 },
         });
+
       const consentRequest = await signedOut.page.evaluate(
         async ({ designId, connectionId }) => {
           const helper = (
@@ -367,18 +399,6 @@ test.describe.serial("public visual edit", () => {
     } finally {
       await signedOut.close();
     }
-  });
-
-  test("signed-out /visual-edit save CTA sends visitors to the sign-in return URL", async ({
-    browser,
-  }) => {
-    await expectReturnUrl(
-      browser,
-      "/visual-edit",
-      (page) =>
-        page.getByRole("link", { name: /sign up free to save/i }).first(),
-      "/visual-edit?intent=save",
-    );
   });
 
   test("authenticated public design links register WebMCP actions", async ({
@@ -528,9 +548,7 @@ test.describe.serial("public visual edit", () => {
       // Button asChild wraps an <a href>, so the CTA's role is link — the
       // sibling /visual-edit test queries it the same way.
       await expect(
-        signedOut.page
-          .getByRole("link", { name: /sign up free to save/i })
-          .first(),
+        signedOut.page.getByRole("link", { name: /^sign up$/i }).first(),
       ).toBeVisible();
       // A read-only visitor DOES get a Share control — it is a sign-in CTA
       // rendered as `<Button asChild><a>`, so it carries role "link", not
@@ -617,7 +635,7 @@ test.describe.serial("public visual edit", () => {
       (page) =>
         page
           .getByRole("link")
-          .filter({ hasText: /sign up free to save/i })
+          .filter({ hasText: /^sign up$/i })
           .first(),
       appReturnPath(`/design/${designId}?intent=save`),
     );

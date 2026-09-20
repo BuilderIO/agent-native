@@ -35,7 +35,10 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { startDeckGeneration } from "@/lib/create-deck-generation";
-import { isDesignSystemSelectable } from "@/lib/design-system-selection";
+import {
+  isDesignSystemSelectable,
+  resolveSelectableDesignSystemId,
+} from "@/lib/design-system-selection";
 import { IMPORT_ACTION_TIMEOUT_MS } from "@/lib/import-uploaded-deck";
 import {
   forgetRecentReference,
@@ -64,7 +67,11 @@ export function FirstDeckOnboardingFlow({
   const { session } = useSession();
   const { decks, createDeck, ensureDeckPersisted, deleteDeck, reloadDecks } =
     useDecks();
-  const { designSystems, refetch: refetchDesignSystems } = useDesignSystems();
+  const {
+    designSystems,
+    defaultSystem,
+    refetch: refetchDesignSystems,
+  } = useDesignSystems();
   const { designSystem: workspaceDesignSystem } = useWorkspaceDefaults();
   const { submit: agentSubmit } = useAgentGenerating();
   const [step, setStep] = useState<FirstDeckStep>(() =>
@@ -101,6 +108,10 @@ export function FirstDeckOnboardingFlow({
   const generationInFlightRef = useRef(false);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
+  const effectiveDefaultDesignSystemId = resolveSelectableDesignSystemId(
+    designSystems,
+    defaultSystem?.id,
+  );
   const workspaceDesignSystemId =
     workspaceDesignSystem &&
     workspaceDesignSystem.status === "available" &&
@@ -128,7 +139,9 @@ export function FirstDeckOnboardingFlow({
         decks.some((deck) => deck.id === reference.id),
     )?.id ?? null;
   const initialDesignSystemId =
-    lastUsedDesignSystemId ?? workspaceDesignSystemId;
+    lastUsedDesignSystemId ??
+    effectiveDefaultDesignSystemId ??
+    workspaceDesignSystemId;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
   const handleRetainedFilesAbandoned = useCallback(
     (_files: readonly File[], discard: () => void) => {

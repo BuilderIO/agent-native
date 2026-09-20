@@ -29,6 +29,10 @@ import {
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
 import { verifyWriteGrant } from "../server/lib/verify-write-grant.js";
+import {
+  createLocalhostBridgeRelay,
+  isLocalhostBridgeRelayRequest,
+} from "./visual-edit-browser-request.js";
 
 const SHA256_VERSION_HASH = /^[a-f0-9]{64}$/i;
 
@@ -195,15 +199,18 @@ export default defineAction({
           "false only for legacy writes or deliberate new-file creation.",
       ),
   }),
-  run: async ({
-    designId,
-    connectionId,
-    relPath,
-    content,
-    patch,
-    expectedVersionHash,
-    requireExpectedVersionHash,
-  }) => {
+  run: async (
+    {
+      designId,
+      connectionId,
+      relPath,
+      content,
+      patch,
+      expectedVersionHash,
+      requireExpectedVersionHash,
+    },
+    ctx,
+  ) => {
     // --- Gate 1: access ---
     await assertAccess("design", designId, "editor");
 
@@ -265,6 +272,15 @@ export default defineAction({
     // the transport token rotated — so writes keep working across restarts.
     const bridgeUrl = normalizeBridgeUrl(connection.bridgeUrl);
     const bridgeToken = connection.bridgeToken || grant.bridgeToken;
+
+    if (isLocalhostBridgeRelayRequest(ctx)) {
+      return createLocalhostBridgeRelay({
+        operation: content !== undefined ? "write-file" : "apply-edit",
+        designId,
+        connectionId,
+        relPath,
+      });
+    }
 
     if (content !== undefined) {
       // Full file write

@@ -1246,7 +1246,7 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "新しいスペース",
-    description: "現在の組織にスペースを作成します。",
+    description: "スペースは組織で録画を整理するための共有の場所です。",
     name: "名前",
     color: "色",
     useColor: "色 {{color}} を使用",
@@ -1451,7 +1451,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app (ローカライズ済み)",
     surfaceBrowser: "Browser tab (ローカライズ済み)",
     surfaceBrowserDescription: "Choose an open tab (ローカライズ済み)",
-    surfaceScreen: "Screen (ローカライズ済み)",
+    surfaceScreen: "全画面",
     surfaceScreenDescription: "Capture everything (ローカライズ済み)",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection. (ローカライズ済み)",
@@ -1573,7 +1573,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app (ローカライズ済み)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (ローカライズ済み)",
+    recordOnDesktop: "デスクトップで録画",
     downloadDesktopApp: "Download desktop app (ローカライズ済み)",
+    getChromeExtension: "Chrome 拡張機能を入手",
     technicalDetails: "Technical details (ローカライズ済み)",
     whatToCheck: "What to check (ローカライズ済み)",
     downloadRecording: "Download (ローカライズ済み)",

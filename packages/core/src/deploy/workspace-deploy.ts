@@ -50,6 +50,10 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
 import {
+  createAgentNativeConfigContext,
+  loadResolvedAgentNativeConfig,
+} from "../vite/agent-native-config-loader.js";
+import {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
 } from "../workspace-app-config.js";
@@ -149,7 +153,16 @@ export async function runWorkspaceDeploy(
 ): Promise<void> {
   const workspaceRoot =
     opts.workspaceRoot ?? findWorkspaceRoot(process.cwd()) ?? process.cwd();
-  const appsDir = path.join(workspaceRoot, "apps");
+  const config = await loadResolvedAgentNativeConfig(
+    workspaceRoot,
+    createAgentNativeConfigContext(
+      "build",
+      process.env.CONTEXT ?? "production",
+    ),
+  );
+  const appsDirectory = config.deployment?.workspace?.appsDirectory ?? "apps";
+  const workspaceAuthMode = config.deployment?.workspace?.authMode ?? "shared";
+  const appsDir = path.resolve(workspaceRoot, appsDirectory);
   if (!fs.existsSync(appsDir)) {
     throw new Error(
       `No apps/ directory found at ${workspaceRoot}. Run this inside an agent-native workspace.`,
@@ -173,7 +186,11 @@ export async function runWorkspaceDeploy(
     );
   }
   assertNoReservedWorkspaceAppIds(apps);
-  const workspaceApps = await readWorkspaceAppManifest(workspaceRoot, apps);
+  const workspaceApps = await readWorkspaceAppManifest(
+    workspaceRoot,
+    apps,
+    appsDir,
+  );
 
   const preset = resolvePreset(opts.preset, rawArgs);
   assertWorkspaceDeployProductionEnv({ buildOnly, preset });
@@ -202,14 +219,24 @@ export async function runWorkspaceDeploy(
 
   const execFile = opts.execFile ?? execFileSync;
   for (const app of apps) {
-    buildOneApp(workspaceRoot, app, preset, execFile, workspaceApps);
+    buildOneApp(
+      workspaceRoot,
+      appsDir,
+      app,
+      preset,
+      execFile,
+      workspaceApps,
+      workspaceAuthMode,
+    );
     moveAppBuildIntoWorkspaceOutput(
       workspaceRoot,
+      appsDir,
       app,
       preset,
       distDir,
       vercelOutputDir,
       workspaceApps,
+      workspaceAuthMode,
     );
   }
   writeWorkspaceAppManifests(
@@ -255,12 +282,14 @@ export async function runWorkspaceDeploy(
 
 function buildOneApp(
   workspaceRoot: string,
+  appsDir: string,
   app: string,
   preset: WorkspaceDeployPreset,
   execFile: typeof execFileSync,
   workspaceApps: WorkspaceAppManifestEntry[],
+  workspaceAuthMode: "shared" | "isolated",
 ): void {
-  const appDir = path.join(workspaceRoot, "apps", app);
+  const appDir = path.join(appsDir, app);
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
     workspaceApps,
@@ -273,8 +302,10 @@ function buildOneApp(
     ...process.env,
     NITRO_PRESET: preset,
     AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_AUTH_MODE: workspaceAuthMode,
     AGENT_NATIVE_WORKSPACE_APP_ID: app,
     VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: workspaceAuthMode,
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: app,
     ...(preset === "netlify"
       ? {
@@ -341,19 +372,22 @@ function buildOneApp(
 
 function moveAppBuildIntoWorkspaceOutput(
   workspaceRoot: string,
+  appsDir: string,
   app: string,
   preset: WorkspaceDeployPreset,
   distDir: string,
   vercelOutputDir: string,
   workspaceApps: WorkspaceAppManifestEntry[],
+  workspaceAuthMode: "shared" | "isolated",
 ): void {
-  const appDir = path.join(workspaceRoot, "apps", app);
+  const appDir = path.join(appsDir, app);
   if (preset === "vercel") {
     copyVercelAppBuildIntoWorkspace(
-      workspaceRoot,
+      appsDir,
       app,
       vercelOutputDir,
       workspaceApps,
+      workspaceAuthMode,
     );
     return;
   }
@@ -380,7 +414,14 @@ function moveAppBuildIntoWorkspaceOutput(
     // dist/<app>/<app>/...; the workspace root already supplies the outer
     // mount path, so keeping it would publish duplicate /<app>/<app> URLs.
     fs.rmSync(path.join(target, app), { recursive: true, force: true });
-    copyNetlifyFunctionIntoWorkspace(workspaceRoot, app, workspaceApps, target);
+    copyNetlifyFunctionIntoWorkspace(
+      workspaceRoot,
+      appsDir,
+      app,
+      workspaceApps,
+      target,
+      workspaceAuthMode,
+    );
   } else {
     const target = path.join(distDir, app);
     fs.mkdirSync(target, { recursive: true });
@@ -389,12 +430,13 @@ function moveAppBuildIntoWorkspaceOutput(
 }
 
 function copyVercelAppBuildIntoWorkspace(
-  workspaceRoot: string,
+  appsDir: string,
   app: string,
   vercelOutputDir: string,
   workspaceApps: WorkspaceAppManifestEntry[],
+  workspaceAuthMode: "shared" | "isolated",
 ): void {
-  const appDir = path.join(workspaceRoot, "apps", app);
+  const appDir = path.join(appsDir, app);
   const src = path.join(appDir, VERCEL_OUTPUT_DIR);
   if (!fs.existsSync(src)) {
     throw new Error(
@@ -433,7 +475,7 @@ function copyVercelAppBuildIntoWorkspace(
   );
   fs.rmSync(functionDest, { recursive: true, force: true });
   cloneServerBundleForFunction(functionSrc, functionDest);
-  patchVercelFunctionEntry(functionDest, app, workspaceApps);
+  patchVercelFunctionEntry(functionDest, app, workspaceApps, workspaceAuthMode);
 }
 
 /**
@@ -774,11 +816,13 @@ function assertNoReservedWorkspaceAppIds(apps: string[]): void {
 
 function copyNetlifyFunctionIntoWorkspace(
   workspaceRoot: string,
+  appsDir: string,
   app: string,
   workspaceApps: WorkspaceAppManifestEntry[],
   staticDir: string,
+  workspaceAuthMode: "shared" | "isolated",
 ): void {
-  const appDir = path.join(workspaceRoot, "apps", app);
+  const appDir = path.join(appsDir, app);
   const src = path.join(appDir, ".netlify", "functions-internal", "server");
   if (!fs.existsSync(src)) {
     throw new Error(
@@ -789,7 +833,13 @@ function copyNetlifyFunctionIntoWorkspace(
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), `${app}-server`);
   fs.rmSync(dest, { recursive: true, force: true });
   cloneServerBundleForFunction(src, dest);
-  patchNetlifyFunctionEntry(dest, app, workspaceApps, staticDir);
+  patchNetlifyFunctionEntry(
+    dest,
+    app,
+    workspaceApps,
+    staticDir,
+    workspaceAuthMode,
+  );
 
   // Durable background agent runs. Additive ONLY: when explicitly opted out
   // this emits nothing and the single-function deploy is unchanged.
@@ -798,7 +848,13 @@ function copyNetlifyFunctionIntoWorkspace(
   const durableChat = isDurableBackgroundWorkspaceDeployEnabled();
   const recurringJobs = isRecurringJobsDeployEnabled();
   if (durableChat || integrationDurableDispatch || recurringJobs) {
-    emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
+    emitNetlifyBackgroundFunction(
+      workspaceRoot,
+      app,
+      src,
+      workspaceApps,
+      workspaceAuthMode,
+    );
   }
   if (recurringJobs || durableChat) {
     emitNetlifyRecurringJobsFunction(workspaceRoot, app);
@@ -809,6 +865,7 @@ function copyNetlifyFunctionIntoWorkspace(
       app,
       src,
       workspaceApps,
+      workspaceAuthMode,
     );
   }
 }
@@ -948,6 +1005,7 @@ function emitNetlifyBackgroundFunction(
   app: string,
   srcServerDir: string,
   workspaceApps: WorkspaceAppManifestEntry[],
+  workspaceAuthMode: "shared" | "isolated",
 ): void {
   // Name MUST end in `-background` (Netlify async convention + the runtime guard
   // reads the -background Lambda-name suffix as a fallback). It is reached at its
@@ -1025,12 +1083,14 @@ function setBasePathEnv() {
 ${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     APP_BASE_PATH: basePath,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
@@ -1107,6 +1167,7 @@ function emitNetlifyIntegrationRecoveryFunction(
   app: string,
   srcServerDir: string,
   workspaceApps: WorkspaceAppManifestEntry[],
+  workspaceAuthMode: "shared" | "isolated",
 ): void {
   const functionName = `${app}-integration-recovery`;
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), functionName);
@@ -1134,12 +1195,14 @@ function setBasePathEnv() {
 ${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     APP_BASE_PATH: basePath,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
@@ -1217,6 +1280,7 @@ function patchNetlifyFunctionEntry(
   app: string,
   workspaceApps: WorkspaceAppManifestEntry[],
   staticDir: string,
+  workspaceAuthMode: "shared" | "isolated",
 ): void {
   const serverPath = path.join(functionDir, "server.mjs");
   if (!fs.existsSync(serverPath)) return;
@@ -1268,12 +1332,14 @@ function setBasePathEnv() {
 ${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     APP_BASE_PATH: basePath,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
@@ -1319,6 +1385,7 @@ function patchVercelFunctionEntry(
   functionDir: string,
   app: string,
   workspaceApps: WorkspaceAppManifestEntry[],
+  workspaceAuthMode: "shared" | "isolated",
 ): void {
   const entryPath = path.join(functionDir, "index.mjs");
   if (!fs.existsSync(entryPath)) return;
@@ -1341,12 +1408,14 @@ function setBasePathEnv() {
 ${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     APP_BASE_PATH: basePath,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
@@ -1523,12 +1592,13 @@ function writeWorkspaceAppManifests(
 async function readWorkspaceAppManifest(
   workspaceRoot: string,
   apps: string[],
+  appsDir: string,
 ): Promise<WorkspaceAppManifestEntry[]> {
   const explicitApps = readExistingWorkspaceAppManifest(workspaceRoot);
   const entries: WorkspaceAppManifestEntry[] = [];
 
   for (const app of apps) {
-    const appDir = path.join(workspaceRoot, "apps", app);
+    const appDir = path.join(appsDir, app);
     const pkg = readPackageJson(path.join(appDir, "package.json"));
     const appPath = `/${app}`;
     const explicit = explicitApps.get(app);

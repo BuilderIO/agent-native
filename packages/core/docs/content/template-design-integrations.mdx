@@ -1,0 +1,95 @@
+---
+title: "Design in a Multi-App Workspace"
+description: "How Design connects to Dispatch, and how external agents like Claude Code and Claude Desktop can create and edit designs directly over MCP."
+---
+
+# Design in a Multi-App Workspace
+
+Design is one app among many in a [Dispatch](/docs/template-dispatch)
+workspace, and it's also reachable directly by agents that live outside that
+workspace entirely. This page covers both: how the Dispatch connection
+works, and how an external agent can call Design's own actions over MCP. See
+[Design](/docs/template-design) for the overview.
+
+## How Design connects to Dispatch
+
+Whether this is automatic depends on how Design and Dispatch were set up
+together, not on whether either one is hosted or running locally.
+
+### Same workspace: automatic
+
+If Design and Dispatch were generated or added together into one Agent-Native workspace (via `create` or `add-app`) and deployed as one unit, they
+already share one `.env`, one `A2A_SECRET`, and one workspace registry.
+Discovery and authenticated A2A calling both just work, with nothing to set
+up, whether that workspace is running on your machine or in production.
+
+### Separate deployments: one manual step
+
+If Design and Dispatch are two independently created Agent-Native projects,
+they don't share a secret and can't call each other yet. Connecting them
+takes one manual step on each side: add a `remote-agents/<id>.json` resource
+with a shared secret, from Settings → Connected Agents, the Agent page's
+Connections tab, or Dispatch → Agents → Add external agent. See [A2A
+Protocol](/docs/a2a-protocol) for the full walkthrough.
+
+To check which situation you're in, ask either app's agent "what apps can
+you see?" If Design is missing from Dispatch's answer, you're in the second
+case.
+
+## Calling Design from outside the workspace
+
+Design also runs as a hosted MCP server other agents can connect to
+directly, whether or not they're part of your Dispatch workspace at all.
+Claude, Claude Code, Claude Desktop, Codex, and other MCP-compatible hosts
+can all connect to:
+
+```
+https://design.agent-native.com/mcp
+```
+
+Claude and Claude Desktop add this as a custom connector and sign in to
+approve access. Claude Code adds the same URL, then runs `/mcp` to
+authenticate. Codex and other CLI or stdio clients instead run `npx
+@agent-native/core@latest connect https://design.agent-native.com`, which
+opens a browser tab to authorize and mints a per-user, revocable token, with
+no shared secret involved.
+
+Once connected, the external agent gets the same core workflow covered in
+[Talk to the Agent](/docs/template-design-agent): create a design, generate
+a few directions to compare, pull the current state of a screen, make a
+bounded edit, and export a coding handoff bundle when it's time to turn the
+result into real code. The agent surfaces an inline preview or an "Open
+design" link back into the real editor, rather than pasting raw HTML into
+the conversation.
+
+<Callout tone="info">
+
+If a Design tool call in your external agent starts returning a session or
+authentication error, don't keep retrying it. Run `/mcp` in Claude Code and
+reconnect, or run `npx -y @agent-native/core@latest reconnect
+https://design.agent-native.com` from any terminal. Both re-authenticate
+without reinstalling anything.
+
+</Callout>
+
+## Delegating to Design through Dispatch
+
+A sibling app doesn't need a special integration to work with Design. It can
+hand Design's agent a plain-English request, like "make me a landing page
+for this new feature," the same way you would in chat, and Design answers or
+acts on it directly.
+
+Design never needs to know the requesting app's credentials, or vice versa,
+for any of this. It only has to answer a real request. It doesn't need to
+know who's asking, or why.
+
+## What's next
+
+- [**Design**](/docs/template-design) — the overview and getting-started steps
+- [**Features**](/docs/template-design-features) — Designs, Edit a Design, Templates, and Design Systems
+- [**Talk to the Agent**](/docs/template-design-agent) — prompts by task and how the agent sees your screen
+- [**Developer Guide**](/docs/template-design-developers) — quick start, actions, data model, and routes
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane these patterns run under
+- [**A2A Protocol**](/docs/a2a-protocol) — how apps discover, authenticate with, and call each other
+- [**External Agents**](/docs/external-agents) — connecting Claude Code, Claude Desktop, and other MCP hosts to an agent-native app
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — the general pattern of composing first-party apps instead of nesting them
