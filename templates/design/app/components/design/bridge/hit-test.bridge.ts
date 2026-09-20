@@ -794,6 +794,9 @@
     var cursor: Element | null = hit;
     if (forceNestedAutoLayout) {
       while (cursor && cursor !== document.body) {
+        if (isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
+          return null;
+        }
         if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
           return (
             nearestChildInsertionTarget(cursor, clientX, clientY) || {

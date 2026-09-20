@@ -463,6 +463,9 @@ export const hitTestBridgeScript: string = `"use strict";
       var cursor = hit;
       if (forceNestedAutoLayout) {
         while (cursor && cursor !== document.body) {
+          if (isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
+            return null;
+          }
           if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
             return nearestChildInsertionTarget(cursor, clientX, clientY) || {
               anchor: cursor,

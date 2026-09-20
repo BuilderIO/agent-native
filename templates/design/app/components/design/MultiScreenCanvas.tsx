@@ -362,12 +362,12 @@ import {
 // branch of getDraftGeometryForTool below — drag-to-size behavior is
 // unaffected since getDraftGeometryFromPoints only falls back to these when
 // the pointer hasn't moved.
-function isApplePlatform(): boolean {
+export function isApplePlatform(): boolean {
   const nav = navigator as Navigator & {
     userAgentData?: { platform?: string };
   };
   const platform =
-    (nav.userAgentData && nav.userAgentData.platform) || nav.platform || "";
+    nav.platform || (nav.userAgentData && nav.userAgentData.platform) || "";
   return /Mac|iPhone|iPad|iPod/i.test(platform);
 }
 

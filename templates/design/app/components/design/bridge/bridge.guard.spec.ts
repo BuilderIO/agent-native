@@ -13961,6 +13961,54 @@ it(
   },
 );
 
+it(
+  "forced nested hit testing refuses a locked descendant subtree",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="outer" data-agent-native-node-id="outer" style="display:flex;width:500px;height:300px">
+          <div id="locked" data-agent-native-locked="true" style="display:flex;width:300px;height:200px">
+            <div id="child" data-agent-native-node-id="child" style="width:100px;height:100px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "locked-nested",
+                x: 50,
+                y: 50,
+                preview: false,
+                modifiers: { forceNestedAutoLayout: true },
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string };
+
+      expect(reply.anchorNodeId).toBe("");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it("keeps isAbsolutePrimitiveContainer identical in both bridges", () => {
   const extract = (filename: string) => {
     const source = readFileSync(join(bridgeDir, filename), "utf-8");
