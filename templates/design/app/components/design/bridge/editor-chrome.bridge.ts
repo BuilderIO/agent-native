@@ -14711,9 +14711,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         childStyles.order !== "0"
       );
     });
-    // Explicit grid placement has no meaningful DOM insertion slot. Resolve
-    // the pointer against the rendered tracks and carry that cell through the
-    // drop so the source and its persisted markup move together.
+    // Resolve the pointer against rendered tracks and carry the cell through
+    // the drop so the source and its persisted markup move together. The
+    // occupied cell is also retained as the source-order insertion anchor.
     if (trackLayout && hasExplicitPlacement) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
@@ -14738,6 +14738,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return {
           anchor: container,
           placement: "inside",
+          // Grid placement is calculated against the container, but source
+          // order must follow the occupied cell so persistence matches the
+          // held preview and Figma's layer order.
+          persistenceAnchor: displaced || container,
+          persistencePlacement: displaced ? "before" : "inside",
           axis: "x",
           dropMode: "flow-insert",
           guideRect: {
@@ -16931,14 +16936,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Idempotent for already-nested members (old CB === new CB → delta 0),
     // so the visual-structure-ack replay path is safe too.
     rebaseAbsoluteMemberForContainerDrop(el, target);
-    if (target.placement === "inside") {
-      target.anchor.appendChild(el);
+    var persistenceAnchor = target.persistenceAnchor || target.anchor;
+    var persistencePlacement = target.persistencePlacement || target.placement;
+    if (persistencePlacement === "inside") {
+      persistenceAnchor.appendChild(el);
     } else {
-      var parent = target.anchor.parentElement;
-      if (target.placement === "before") {
-        parent.insertBefore(el, target.anchor);
+      var parent = persistenceAnchor.parentElement;
+      if (persistencePlacement === "before") {
+        parent.insertBefore(el, persistenceAnchor);
       } else {
-        parent.insertBefore(el, target.anchor.nextSibling);
+        parent.insertBefore(el, persistenceAnchor.nextSibling);
       }
     }
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
@@ -16968,7 +16975,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     dndLog("post:structure-change", {
       el: getSelector(el),
       anchor: getSelector(target.anchor),
+      persistenceAnchor: getSelector(target.persistenceAnchor || target.anchor),
       placement: target.placement,
+      persistencePlacement: target.persistencePlacement || target.placement,
       dropMode: target.dropMode || "flow-insert",
     });
     var requestId =
@@ -16985,9 +16994,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       transactionId: transactionId,
       selector: getSelector(el),
       sourceId: getSourceId(el),
-      anchorSelector: getSelector(target.anchor),
-      anchorSourceId: getSourceId(target.anchor),
-      placement: target.placement,
+      anchorSelector: getSelector(target.persistenceAnchor || target.anchor),
+      anchorSourceId: getSourceId(target.persistenceAnchor || target.anchor),
+      placement: target.persistencePlacement || target.placement,
       dropMode: target.dropMode || "flow-insert",
       forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
       gridPlacement: target.gridPlacement,

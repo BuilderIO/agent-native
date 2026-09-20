@@ -10711,6 +10711,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           return {
             anchor: container,
             placement: "inside",
+            // Grid placement is calculated against the container, but source
+            // order must follow the occupied cell so persistence matches the
+            // held preview and Figma's layer order.
+            persistenceAnchor: displaced || container,
+            persistencePlacement: displaced ? "before" : "inside",
             axis: "x",
             dropMode: "flow-insert",
             guideRect: {
@@ -12002,14 +12007,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       rebaseAbsoluteMemberForContainerDrop(el, target);
-      if (target.placement === "inside") {
-        target.anchor.appendChild(el);
+      var persistenceAnchor = target.persistenceAnchor || target.anchor;
+      var persistencePlacement = target.persistencePlacement || target.placement;
+      if (persistencePlacement === "inside") {
+        persistenceAnchor.appendChild(el);
       } else {
-        var parent = target.anchor.parentElement;
-        if (target.placement === "before") {
-          parent.insertBefore(el, target.anchor);
+        var parent = persistenceAnchor.parentElement;
+        if (persistencePlacement === "before") {
+          parent.insertBefore(el, persistenceAnchor);
         } else {
-          parent.insertBefore(el, target.anchor.nextSibling);
+          parent.insertBefore(el, persistenceAnchor.nextSibling);
         }
       }
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
@@ -12024,7 +12031,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       dndLog("post:structure-change", {
         el: getSelector(el),
         anchor: getSelector(target.anchor),
+        persistenceAnchor: getSelector(target.persistenceAnchor || target.anchor),
         placement: target.placement,
+        persistencePlacement: target.persistencePlacement || target.placement,
         dropMode: target.dropMode || "flow-insert"
       });
       var requestId = "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -12040,9 +12049,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         transactionId,
         selector: getSelector(el),
         sourceId: getSourceId(el),
-        anchorSelector: getSelector(target.anchor),
-        anchorSourceId: getSourceId(target.anchor),
-        placement: target.placement,
+        anchorSelector: getSelector(target.persistenceAnchor || target.anchor),
+        anchorSourceId: getSourceId(target.persistenceAnchor || target.anchor),
+        placement: target.persistencePlacement || target.placement,
         dropMode: target.dropMode || "flow-insert",
         forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
         gridPlacement: target.gridPlacement,
