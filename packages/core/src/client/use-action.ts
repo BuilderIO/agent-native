@@ -45,7 +45,9 @@ import {
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
-const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
+function actionPrefix(): string {
+  return agentNativePath("/_agent-native/actions");
+}
 
 /**
  * Upper bound on how long a single action fetch may stay in flight (headers
@@ -351,7 +353,7 @@ async function performActionFetch<T>(
   options?: InternalActionFetchOptions,
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
-  let url = `${ACTION_PREFIX}/${name}`;
+  let url = `${actionPrefix()}/${name}`;
   const browserTabId = getBrowserTabId();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
