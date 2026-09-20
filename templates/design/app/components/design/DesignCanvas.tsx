@@ -181,6 +181,7 @@ import {
 } from "./scaled-iframe-paint";
 import type {
   ElementInfo,
+  GridGroupStructureMove,
   ElementSelectionIntent,
   DeviceFrameType,
   RuntimeStructureInsertRequest,
@@ -744,6 +745,9 @@ interface DesignCanvasProps {
       replacementElementInfo?: ElementInfo;
       replacementSnapshotHtml?: string;
     },
+  ) => boolean | "pending" | void;
+  onVisualGridGroupChange?: (
+    moves: GridGroupStructureMove[],
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
     selector: string,
@@ -1383,6 +1387,7 @@ export function DesignCanvas({
   onIframeContextMenu,
   onEditorDragStateChange,
   onVisualStructureChange,
+  onVisualGridGroupChange,
   onVisualDuplicateChange,
   tweakValues,
   drawMode,
@@ -3758,6 +3763,59 @@ export function DesignCanvas({
         onRuntimeStructureInsertRejected?.(String(e.data.reason || "unknown"));
         return;
       }
+      if (e.data.type === "visual-grid-group-change") {
+        const rawMoves = e.data.moves;
+        const validPlacement = (value: any) =>
+          value &&
+          ["column", "columnEnd", "row", "rowEnd"].every(
+            (key) => Number.isInteger(value[key]) && value[key] > 0,
+          ) &&
+          value.columnEnd > value.column &&
+          value.rowEnd > value.row;
+        const valid =
+          Array.isArray(rawMoves) &&
+          rawMoves.length >= 2 &&
+          rawMoves.length <= 100 &&
+          rawMoves.every(
+            (move: any) =>
+              move?.type === "visual-structure-change" &&
+              typeof move.requestId === "string" &&
+              typeof move.selector === "string" &&
+              typeof move.sourceId === "string" &&
+              typeof move.anchorSelector === "string" &&
+              typeof move.anchorSourceId === "string" &&
+              move.placement === "inside" &&
+              move.dropMode === "flow-insert" &&
+              validPlacement(move.gridPlacement) &&
+              Array.isArray(move.gridDisplacements) &&
+              move.gridDisplacements.every(
+                (entry: any) =>
+                  typeof entry.sourceId === "string" &&
+                  typeof entry.selector === "string" &&
+                  validPlacement(entry.placement),
+              ),
+          ) &&
+          rawMoves.every(
+            (move: any) => move.anchorSourceId === rawMoves[0].anchorSourceId,
+          );
+        const applied = valid
+          ? onVisualGridGroupChange?.(rawMoves as GridGroupStructureMove[])
+          : false;
+        if (applied !== "pending" && Array.isArray(rawMoves)) {
+          for (const move of rawMoves) {
+            if (typeof move?.requestId !== "string") continue;
+            iframeRef.current?.contentWindow?.postMessage(
+              {
+                type: "visual-structure-ack",
+                requestId: move.requestId,
+                applied: applied === true,
+              },
+              "*",
+            );
+          }
+        }
+        return;
+      }
       if (e.data.type === "visual-structure-change") {
         const selector = String(e.data.selector || "");
         const anchorSelector = String(e.data.anchorSelector || "");
@@ -4446,6 +4504,7 @@ export function DesignCanvas({
     onIframeContextMenu,
     onEditorDragStateChange,
     onVisualStructureChange,
+    onVisualGridGroupChange,
     onRuntimeStructureInsertRejected,
     onVisualDuplicateChange,
     onZoomChange,
@@ -4929,6 +4988,25 @@ export function DesignCanvas({
     // Only re-run when readOnly changes; iframe identity is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const sendGridGroupBatching = () =>
+      iframe.contentWindow?.postMessage(
+        {
+          type: "set-grid-group-batching-enabled",
+          enabled:
+            sourceType !== "localhost" &&
+            sourceType !== "fusion" &&
+            !rawExternalPreviewUrl,
+        },
+        "*",
+      );
+    sendGridGroupBatching();
+    iframe.addEventListener("load", sendGridGroupBatching);
+    return () => iframe.removeEventListener("load", sendGridGroupBatching);
+  }, [sourceType, rawExternalPreviewUrl]);
 
   // Sync editMode to the bridge IN-PLACE via postMessage so toggling Edit ⇄
   // Preview does not rebuild srcdoc / reload every screen iframe (which was

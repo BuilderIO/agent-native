@@ -908,6 +908,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     if (window.__anEditorChromeBridge) return;
     window.__anEditorChromeBridge = true;
     var readOnly = __READ_ONLY__;
+    var gridGroupBatchingEnabled = false;
     var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
     var textEditingEnabled = !readOnly && textEditingEnabledFlag;
     var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
@@ -11683,7 +11684,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       htmlEl.style.left = Math.round(baseLeft + localDx) + "px";
       htmlEl.style.top = Math.round(baseTop + localDy) + "px";
     }
-    function applyRuntimeReorder(el, target) {
+    function applyRuntimeReorder(el, target, preview = false) {
       if (!el || !target || !target.anchor || !target.anchor.parentElement)
         return false;
       var previousParent = el.parentElement;
@@ -11886,12 +11887,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
       var runtimeMutationApplied = previousParent !== el.parentElement || previousNextSibling !== el.nextElementSibling || previousInlineStyle !== el.getAttribute("style");
-      if (runtimeMutationApplied) {
+      if (runtimeMutationApplied && !preview) {
         publishSourceDocumentProvenance(void 0, true);
       }
       return runtimeMutationApplied;
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages) {
       if (!el || !target || !target.anchor) return;
       dndLog("post:structure-change", {
         el: getSelector(el),
@@ -11906,38 +11907,37 @@ export const editorChromeBridgeScript: string = `"use strict";
         target,
         origin: origin || null
       };
-      window.parent.postMessage(
-        {
-          type: "visual-structure-change",
-          requestId,
-          selector: getSelector(el),
-          sourceId: getSourceId(el),
-          anchorSelector: getSelector(target.anchor),
-          anchorSourceId: getSourceId(target.anchor),
-          placement: target.placement,
-          dropMode: target.dropMode || "flow-insert",
-          forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
-          gridPlacement: target.gridPlacement,
-          gridDisplacements: Array.isArray(target.gridDisplacementPlacements) ? target.gridDisplacementPlacements.map(function(entry) {
-            return {
-              selector: getSelector(entry.element),
-              sourceId: getSourceId(entry.element),
-              placement: entry.placement
-            };
-          }) : void 0,
-          // Present only when this node did not exist in the running app before
-          // the change. The host must NOT tell the coding agent to relocate an
-          // element the source file has never contained.
-          insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
-          replaced: replaced === true ? true : void 0,
-          replacementSnapshotHtml,
-          sourceRect: rectInfoForElement(el),
-          anchorRect: rectInfoForElement(target.anchor),
-          payload: getElementInfo(el),
-          anchorPayload: getElementInfo(target.anchor)
-        },
-        "*"
-      );
+      var message = {
+        type: "visual-structure-change",
+        requestId,
+        selector: getSelector(el),
+        sourceId: getSourceId(el),
+        anchorSelector: getSelector(target.anchor),
+        anchorSourceId: getSourceId(target.anchor),
+        placement: target.placement,
+        dropMode: target.dropMode || "flow-insert",
+        forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
+        gridPlacement: target.gridPlacement,
+        gridDisplacements: Array.isArray(target.gridDisplacementPlacements) ? target.gridDisplacementPlacements.map(function(entry) {
+          return {
+            selector: getSelector(entry.element),
+            sourceId: getSourceId(entry.element),
+            placement: entry.placement
+          };
+        }) : void 0,
+        // Present only when this node did not exist in the running app before
+        // the change. The host must NOT tell the coding agent to relocate an
+        // element the source file has never contained.
+        insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
+        replaced: replaced === true ? true : void 0,
+        replacementSnapshotHtml,
+        sourceRect: rectInfoForElement(el),
+        anchorRect: rectInfoForElement(target.anchor),
+        payload: getElementInfo(el),
+        anchorPayload: getElementInfo(target.anchor)
+      };
+      if (collectMessages) collectMessages.push(message);
+      else window.parent.postMessage(message, "*");
     }
     function postVisualDuplicateChange(originalEl, cloneEl, target, sourceNodeIdMap) {
       if (!originalEl || !cloneEl) return;
@@ -11974,8 +11974,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
     }
-    function applyGroupStructureDrop(members, target, ev, originInlineStylesFor) {
+    function applyGroupStructureDrop(members, target, ev, originInlineStylesFor, preview = false) {
       var container = dropContainerForTarget(target);
+      var gridGroupMessages = !preview && target.gridCell && gridGroupBatchingEnabled ? [] : null;
       var previous = null;
       var plannedGridPlacements = [];
       var targetGridLayout = target.gridCell ? gridTrackLayoutForElement(target.anchor) : null;
@@ -11986,6 +11987,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
       }
       var targetColumnCount = targetGridLayout?.columnBounds.length ?? 100;
+      var sourceGridPositions = members.map(function(member2) {
+        var styles = window.getComputedStyle(member2);
+        return {
+          column: numericGridLine(styles.gridColumnStart),
+          row: numericGridLine(styles.gridRowStart)
+        };
+      });
       var gridSpanForMember = function(member2) {
         var styles = window.getComputedStyle(member2);
         var spanFor = function(startValue, endValue) {
@@ -12011,6 +12019,20 @@ export const editorChromeBridgeScript: string = `"use strict";
             startRow += 1;
           }
           return { column: startColumn, row: startRow, span };
+        }
+        var firstColumn = sourceGridPositions[0].column;
+        var firstRow = sourceGridPositions[0].row;
+        var memberColumn = sourceGridPositions[index].column;
+        var memberRow = sourceGridPositions[index].row;
+        if (firstColumn !== null && firstRow !== null && memberColumn !== null && memberRow !== null) {
+          var preferredColumn = startColumn + memberColumn - firstColumn;
+          var preferredRow = startRow + memberRow - firstRow;
+          if (preferredColumn >= 0 && preferredColumn + span.column <= targetColumnCount && preferredRow >= 0 && !plannedGridPlacements.some(function(existing) {
+            return preferredColumn < existing.columnEnd && preferredColumn + span.column > existing.column && // i18n-ignore non-user-facing grid overlap condition
+            preferredRow < existing.rowEnd && preferredRow + span.row > existing.row;
+          })) {
+            return { column: preferredColumn, row: preferredRow, span };
+          }
         }
         for (var row = startRow; row < startRow + members.length + 100; row += 1) {
           for (var column = row === startRow ? startColumn : 0; column + span.column <= targetColumnCount; column += 1) {
@@ -12057,14 +12079,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         var prevInlinePositionStyles = originInlineStylesFor ? originInlineStylesFor(member) : snapshotInlinePositionStyles(member);
         var prevInlineGridStyles = snapshotInlineGridStyles(member);
         adaptAutoTextColorForNest(member, container);
-        if (applyRuntimeReorder(member, memberTarget)) {
-          postVisualStructureChange(member, memberTarget, {
-            prevParent,
-            prevNextSibling,
-            prevInlinePositionStyles,
-            prevInlineGridStyles,
-            ...Array.isArray(memberTarget.gridDisplacementPrevStyles) && memberTarget.gridDisplacementPrevStyles.length > 0 ? { gridDisplacements: memberTarget.gridDisplacementPrevStyles } : {}
-          });
+        if (applyRuntimeReorder(member, memberTarget, preview) && !preview) {
+          postVisualStructureChange(
+            member,
+            memberTarget,
+            {
+              prevParent,
+              prevNextSibling,
+              prevInlinePositionStyles,
+              prevInlineGridStyles,
+              ...Array.isArray(memberTarget.gridDisplacementPrevStyles) && memberTarget.gridDisplacementPrevStyles.length > 0 ? { gridDisplacements: memberTarget.gridDisplacementPrevStyles } : {}
+            },
+            void 0,
+            void 0,
+            void 0,
+            gridGroupMessages ?? void 0
+          );
         }
         if (plannedGridCell) {
           plannedGridPlacements.push({
@@ -12076,7 +12106,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         previous = member;
       }
-      postElementMarqueeSelect(members, false, ev);
+      if (gridGroupMessages) {
+        if (gridGroupMessages.length === 1) {
+          window.parent.postMessage(gridGroupMessages[0], "*");
+        } else if (gridGroupMessages.length > 1) {
+          window.parent.postMessage(
+            { type: "visual-grid-group-change", moves: gridGroupMessages },
+            "*"
+          );
+        }
+      }
+      if (!preview) postElementMarqueeSelect(members, false, ev);
     }
     var SNAP_THRESHOLD_PX = 6;
     var layoutGridStep = 1;
@@ -12878,6 +12918,42 @@ export const editorChromeBridgeScript: string = `"use strict";
             s.el.style.transform = s.prevTransform;
             s.el.style.transition = s.prevTransition;
           });
+        }, clearGroupGridPreview2 = function() {
+          if (!restoreGroupGridPreview) return;
+          restoreGroupGridPreview();
+          restoreGroupGridPreview = null;
+        }, applyGroupGridPreview2 = function(target) {
+          if (!isGroupDrag || !target?.gridCell) return;
+          var container = dropContainerForTarget(target);
+          if (!container) return;
+          clearReorderLift2();
+          var elements = Array.from(
+            /* @__PURE__ */ new Set([...groupEls, ...container.children])
+          );
+          var origins = elements.map(function(el) {
+            return {
+              el,
+              parent: el.parentElement,
+              next: el.nextSibling,
+              style: el.getAttribute("style")
+            };
+          });
+          applyGroupStructureDrop(groupEls, target, null, void 0, true);
+          restoreGroupGridPreview = function() {
+            origins.filter(function(origin) {
+              return groupEls.indexOf(origin.el) !== -1;
+            }).reverse().forEach(function(origin) {
+              if (origin.parent)
+                origin.parent.insertBefore(
+                  origin.el,
+                  origin.next?.parentNode === origin.parent ? origin.next : null
+                );
+            });
+            origins.forEach(function(origin) {
+              if (origin.style === null) origin.el.removeAttribute("style");
+              else origin.el.setAttribute("style", origin.style);
+            });
+          };
         }, restoreReorderReflowPreview2 = function() {
           reflowSiblings.forEach(function(s) {
             s.el.style.transition = s.previewTransition;
@@ -13198,6 +13274,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
         }, onReorderMove2 = function(ev) {
+          clearGroupGridPreview2();
           reorderLastMoveEvent = ev;
           if (!ev.metaKey) releaseReorderMetaOverride2(ev);
           if (!reorderMoved && Math.hypot(
@@ -13297,6 +13374,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             applyReorderLift2(dx, dy);
             applyReorderReflow2(currentTarget, cx, cy);
+            applyGroupGridPreview2(currentTarget);
             showInsertionGuideFor(currentTarget);
             showTransformBadge(
               duplicatedForDrag ? "Duplicate layer" : currentTarget ? "Move layer" : "Move",
@@ -13305,6 +13383,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             );
           }
         }, cleanupReorderDrag2 = function() {
+          clearGroupGridPreview2();
           document.removeEventListener(events.move, onReorderMove2, true);
           document.removeEventListener(events.up, onReorderUp2, true);
           document.removeEventListener("pointercancel", onReorderEscape2, true);
@@ -13514,7 +13593,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           resetReorderModifierState2();
         };
-        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, clearReorderReflow = clearReorderReflow2, clearReorderReflowForHitTest = clearReorderReflowForHitTest2, restoreReorderReflowPreview = restoreReorderReflowPreview2, activateReorderControlOverride = activateReorderControlOverride2, releaseReorderMetaOverride = releaseReorderMetaOverride2, resetReorderModifierState = resetReorderModifierState2, activateLateReorderDuplicate = activateLateReorderDuplicate2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, hasMetaFlowTarget = hasMetaFlowTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
+        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, clearReorderReflow = clearReorderReflow2, clearReorderReflowForHitTest = clearReorderReflowForHitTest2, clearGroupGridPreview = clearGroupGridPreview2, applyGroupGridPreview = applyGroupGridPreview2, restoreReorderReflowPreview = restoreReorderReflowPreview2, activateReorderControlOverride = activateReorderControlOverride2, releaseReorderMetaOverride = releaseReorderMetaOverride2, resetReorderModifierState = resetReorderModifierState2, activateLateReorderDuplicate = activateLateReorderDuplicate2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, hasMetaFlowTarget = hasMetaFlowTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
           return dragGrabRect(member);
@@ -13583,6 +13662,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reflowKey = null;
         var reflowGuideRect = null;
         var reflowGuideMode = null;
+        var restoreGroupGridPreview = null;
         var reorderLastMoveEvent = null;
         var reorderMoved = false;
         document.addEventListener(events.move, onReorderMove2, true);
@@ -16406,6 +16486,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (e.data.type === "set-layout-grid-step") {
         var nextStep = Number(e.data.step);
         layoutGridStep = Number.isFinite(nextStep) && nextStep >= 1 ? nextStep : 1;
+        return;
+      }
+      if (e.data.type === "set-grid-group-batching-enabled") {
+        gridGroupBatchingEnabled = e.data.enabled === true;
         return;
       }
       if (e.data.type === "set-read-only") {

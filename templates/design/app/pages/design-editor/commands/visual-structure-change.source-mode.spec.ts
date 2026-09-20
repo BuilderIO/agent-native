@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { projectLinkedComponentPropertyEdit } from "./linked-component-mutation";
 import { runScreenVisualStructureChange } from "./screen-visual-structure-change";
-import { runVisualStructureChange } from "./visual-structure-change";
+import {
+  planVisualGridGroupStructureChange,
+  resolveGridGroupLinkedComponentTarget,
+  runVisualStructureChange,
+} from "./visual-structure-change";
 
 const selector = '[data-agent-native-node-id="target"]';
 const anchorSelector = '[data-agent-native-node-id="anchor"]';
@@ -99,6 +104,124 @@ for (const sourceType of ["localhost", "fusion"] as const) {
 }
 
 describe("inline grid structure changes", () => {
+  it("plans one linked component edit for both members and propagates to its copy", () => {
+    const main =
+      '<section data-agent-native-node-id="main-root" data-agent-native-component-id="group">' +
+      '<div data-agent-native-node-id="source"><span data-agent-native-node-id="a" style="grid-column: 1 / 3; grid-row: 1">A</span>' +
+      '<span data-agent-native-node-id="b" style="grid-column: 1 / 3; grid-row: 2">B</span></div>' +
+      '<div data-agent-native-node-id="target"></div></section>';
+    const copy =
+      '<section data-agent-native-node-id="copy-root" data-agent-native-component-ref="group">' +
+      '<div data-agent-native-node-id="copy-source" data-agent-native-component-source-node-id="source">' +
+      '<span data-agent-native-node-id="copy-a" data-agent-native-component-source-node-id="a">A</span>' +
+      '<span data-agent-native-node-id="copy-b" data-agent-native-component-source-node-id="b">B</span></div>' +
+      '<div data-agent-native-node-id="copy-target" data-agent-native-component-source-node-id="target"></div></section>';
+    const moves = ["a", "b"].map((id, index) => ({
+      requestId: id,
+      selector: `[data-agent-native-node-id="${id}"]`,
+      sourceId: id,
+      anchorSelector: '[data-agent-native-node-id="target"]',
+      anchorSourceId: "target",
+      gridPlacement: {
+        column: 3,
+        columnEnd: 5,
+        row: index + 2,
+        rowEnd: index + 3,
+      },
+      gridDisplacements: [],
+    }));
+    const linked = resolveGridGroupLinkedComponentTarget(
+      main,
+      "main-file",
+      moves,
+    );
+    expect(linked).toEqual({
+      status: "linked",
+      fileId: "main-file",
+      nodeId: "main-root",
+    });
+    const after = planVisualGridGroupStructureChange(
+      { id: "main-file" } as never,
+      main,
+      moves,
+      (key) => key,
+      true,
+    );
+    expect(after).not.toBeNull();
+    const projected = projectLinkedComponentPropertyEdit({
+      documents: [
+        {
+          source: {
+            kind: "design-file",
+            designId: "design",
+            fileId: "main-file",
+          },
+          content: main,
+        },
+        {
+          source: {
+            kind: "design-file",
+            designId: "design",
+            fileId: "copy-file",
+          },
+          content: copy,
+        },
+      ],
+      fileId: "main-file",
+      nodeId: "main-root",
+      edit: { kind: "structure", before: main, after: after! },
+    });
+    expect(projected?.get("copy-file")).toMatch(
+      /copy-target[^>]*>[\s\S]*copy-a[\s\S]*copy-b/,
+    );
+    expect(projected?.get("main-file")).toMatch(/grid-column:\s*3\s*\/\s*5/);
+  });
+
+  it("rejects mixed linked roots before publishing any group member", () => {
+    const content =
+      '<section data-agent-native-node-id="main-one" data-agent-native-component-id="one"><span data-agent-native-node-id="a">A</span><div data-agent-native-node-id="target-one"></div></section>' +
+      '<section data-agent-native-node-id="main-two" data-agent-native-component-id="two"><span data-agent-native-node-id="b">B</span><div data-agent-native-node-id="target-two"></div></section>';
+    const moves = ["one", "two"].map((suffix, index) => ({
+      requestId: suffix,
+      selector: `[data-agent-native-node-id="${index ? "b" : "a"}"]`,
+      sourceId: index ? "b" : "a",
+      anchorSelector: `[data-agent-native-node-id="target-${suffix}"]`,
+      anchorSourceId: `target-${suffix}`,
+      gridPlacement: { column: 1, columnEnd: 2, row: 1, rowEnd: 2 },
+      gridDisplacements: [],
+    }));
+    expect(
+      resolveGridGroupLinkedComponentTarget(content, "screen", moves),
+    ).toEqual({
+      status: "mixed",
+    });
+  });
+
+  it("rejects the whole group plan when a later member cannot be resolved", () => {
+    const content =
+      '<section data-agent-native-node-id="source"><div data-agent-native-node-id="a"></div><div data-agent-native-node-id="b"></div></section>' +
+      '<section data-agent-native-node-id="target"></section>';
+    const placement = { column: 3, columnEnd: 5, row: 2, rowEnd: 3 };
+    const moves = ["a", "missing"].map((id) => ({
+      requestId: id,
+      selector: `[data-agent-native-node-id="${id}"]`,
+      sourceId: id,
+      anchorSelector: '[data-agent-native-node-id="target"]',
+      anchorSourceId: "target",
+      gridPlacement: placement,
+      gridDisplacements: [],
+    }));
+    expect(
+      planVisualGridGroupStructureChange(
+        { id: "screen" } as never,
+        content,
+        moves,
+        (key) => key,
+      ),
+    ).toBeNull();
+    expect(content).toContain('<div data-agent-native-node-id="a"></div>');
+  });
+
   it("persists the held cell after moving an explicitly placed child", () => {
     let published = "";
     const result = runVisualStructureChange(

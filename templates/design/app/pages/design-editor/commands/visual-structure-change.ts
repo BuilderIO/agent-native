@@ -5,7 +5,10 @@ import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { dndHostLog } from "@/components/design/dnd-debug";
-import type { ElementInfo } from "@/components/design/types";
+import type {
+  ElementInfo,
+  GridGroupStructureMove,
+} from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   bridgeSourceIdForCodeLayerNode,
@@ -433,4 +436,82 @@ export function runVisualStructureChange(
     });
   }
   return true;
+}
+
+export function planVisualGridGroupStructureChange(
+  activeFile: DesignFile,
+  content: string,
+  moves: GridGroupStructureMove[],
+  t: VisualStructureChangeArgs["t"],
+  linked = false,
+): string | null {
+  let nextContent = content;
+  for (const move of moves) {
+    const applied = runVisualStructureChange(
+      {
+        activeCanvasSourceType: "inline",
+        activeFile,
+        applyLocalContentUpdate: (next) => {
+          nextContent = next;
+          return { status: "accepted", content: next, nodeIdMap: new Map() };
+        },
+        applyLinkedComponentEdit: linked
+          ? (_fileId, _nodeId, edit) => {
+              if (edit.kind === "structure" && "after" in edit)
+                nextContent = edit.after;
+            }
+          : undefined,
+        canEditDesign: true,
+        getFreshActiveContent: () => nextContent,
+        recordPendingLiveStructureEdit: () => {
+          throw new Error("Inline grid group cannot queue a live-source edit");
+        },
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t,
+      },
+      move.selector,
+      move.anchorSelector,
+      "inside",
+      undefined,
+      { ...move, dropMode: "flow-insert" },
+    );
+    if (applied !== true) return null;
+  }
+  return nextContent;
+}
+
+export function resolveGridGroupLinkedComponentTarget(
+  content: string,
+  fileId: string,
+  moves: GridGroupStructureMove[],
+):
+  | { status: "none" }
+  | { status: "mixed" }
+  | { status: "linked"; fileId: string; nodeId: string } {
+  const source = { kind: "design-file" as const, fileId };
+  const targets = moves.map((move) =>
+    resolveLinkedComponentStructureTarget({
+      content,
+      source,
+      intents: [
+        {
+          kind: "moveNode",
+          target: { nodeId: move.sourceId },
+          anchor: { nodeId: move.anchorSourceId },
+          placement: "inside",
+        },
+      ],
+    }),
+  );
+  const linked = targets.find((target) => target !== null);
+  if (!linked) return { status: "none" };
+  if (
+    targets.some(
+      (target) =>
+        target?.fileId !== linked.fileId || target?.nodeId !== linked.nodeId,
+    )
+  )
+    return { status: "mixed" };
+  return { status: "linked", ...linked };
 }

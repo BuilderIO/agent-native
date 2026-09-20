@@ -22,6 +22,30 @@ export interface RuntimeStructureMoveRequest {
   placement: "before" | "after" | "inside";
 }
 
+export interface GridGroupStructureMove {
+  requestId: string;
+  selector: string;
+  sourceId: string;
+  anchorSelector: string;
+  anchorSourceId: string;
+  gridPlacement: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements: Array<{
+    sourceId: string;
+    selector: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
+}
+
 /**
  * Insert NEW markup into a live screen's running DOM. Unlike
  * RuntimeStructureMoveRequest there is no subject in the running app yet —

@@ -59,6 +59,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   (window as any).__anEditorChromeBridge = true;
 
   var readOnly = __READ_ONLY__;
+  var gridGroupBatchingEnabled = false;
   // Raw host-controlled flag, kept separate from the derived
   // `textEditingEnabled` below. The host (DesignCanvas.tsx) live-updates this
   // via the `set-text-editing-enabled` postMessage instead of rebuilding
@@ -16388,7 +16389,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     htmlEl.style.top = Math.round(baseTop + localDy) + "px";
   }
 
-  function applyRuntimeReorder(el, target): boolean {
+  function applyRuntimeReorder(el, target, preview = false): boolean {
     if (!el || !target || !target.anchor || !target.anchor.parentElement)
       return false;
     var previousParent = el.parentElement;
@@ -16711,7 +16712,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       previousParent !== el.parentElement ||
       previousNextSibling !== el.nextElementSibling ||
       previousInlineStyle !== el.getAttribute("style");
-    if (runtimeMutationApplied) {
+    if (runtimeMutationApplied && !preview) {
       // The optimistic DOM order/reparent now diverges from authored source.
       // Keep known unique IDs, but invalidate the complete-source revision.
       publishSourceDocumentProvenance(undefined, true);
@@ -16726,6 +16727,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     insertedHtml?,
     replaced?,
     replacementSnapshotHtml?: string,
+    collectMessages?: any[],
   ) {
     if (!el || !target || !target.anchor) return;
     dndLog("post:structure-change", {
@@ -16742,41 +16744,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target: target,
       origin: origin || null,
     };
-    (window.parent as Window).postMessage(
-      {
-        type: "visual-structure-change",
-        requestId: requestId,
-        selector: getSelector(el),
-        sourceId: getSourceId(el),
-        anchorSelector: getSelector(target.anchor),
-        anchorSourceId: getSourceId(target.anchor),
-        placement: target.placement,
-        dropMode: target.dropMode || "flow-insert",
-        forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
-        gridPlacement: target.gridPlacement,
-        gridDisplacements: Array.isArray(target.gridDisplacementPlacements)
-          ? target.gridDisplacementPlacements.map(function (entry) {
-              return {
-                selector: getSelector(entry.element),
-                sourceId: getSourceId(entry.element),
-                placement: entry.placement,
-              };
-            })
-          : undefined,
-        // Present only when this node did not exist in the running app before
-        // the change. The host must NOT tell the coding agent to relocate an
-        // element the source file has never contained.
-        insertedHtml:
-          typeof insertedHtml === "string" ? insertedHtml : undefined,
-        replaced: replaced === true ? true : undefined,
-        replacementSnapshotHtml: replacementSnapshotHtml,
-        sourceRect: rectInfoForElement(el),
-        anchorRect: rectInfoForElement(target.anchor),
-        payload: getElementInfo(el),
-        anchorPayload: getElementInfo(target.anchor),
-      },
-      "*",
-    );
+    var message = {
+      type: "visual-structure-change",
+      requestId: requestId,
+      selector: getSelector(el),
+      sourceId: getSourceId(el),
+      anchorSelector: getSelector(target.anchor),
+      anchorSourceId: getSourceId(target.anchor),
+      placement: target.placement,
+      dropMode: target.dropMode || "flow-insert",
+      forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
+      gridPlacement: target.gridPlacement,
+      gridDisplacements: Array.isArray(target.gridDisplacementPlacements)
+        ? target.gridDisplacementPlacements.map(function (entry) {
+            return {
+              selector: getSelector(entry.element),
+              sourceId: getSourceId(entry.element),
+              placement: entry.placement,
+            };
+          })
+        : undefined,
+      // Present only when this node did not exist in the running app before
+      // the change. The host must NOT tell the coding agent to relocate an
+      // element the source file has never contained.
+      insertedHtml: typeof insertedHtml === "string" ? insertedHtml : undefined,
+      replaced: replaced === true ? true : undefined,
+      replacementSnapshotHtml: replacementSnapshotHtml,
+      sourceRect: rectInfoForElement(el),
+      anchorRect: rectInfoForElement(target.anchor),
+      payload: getElementInfo(el),
+      anchorPayload: getElementInfo(target.anchor),
+    };
+    if (collectMessages) collectMessages.push(message);
+    else (window.parent as Window).postMessage(message, "*");
   }
 
   function postVisualDuplicateChange(
@@ -16856,8 +16856,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     target,
     ev,
     originInlineStylesFor?: (member: Element) => Record<string, string>,
+    preview = false,
   ): void {
     var container = dropContainerForTarget(target);
+    var gridGroupMessages =
+      !preview && target.gridCell && gridGroupBatchingEnabled ? [] : null;
     var previous: Element | null = null;
     var plannedGridPlacements: Array<{
       column: number;
@@ -16875,6 +16878,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
     var targetColumnCount = targetGridLayout?.columnBounds.length ?? 100;
+    var sourceGridPositions = members.map(function (member) {
+      var styles = window.getComputedStyle(member);
+      return {
+        column: numericGridLine(styles.gridColumnStart),
+        row: numericGridLine(styles.gridRowStart),
+      };
+    });
     var gridSpanForMember = function (member: Element) {
       var styles = window.getComputedStyle(member);
       var spanFor = function (startValue: string, endValue: string) {
@@ -16900,6 +16910,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           startRow += 1;
         }
         return { column: startColumn, row: startRow, span };
+      }
+      var firstColumn = sourceGridPositions[0].column;
+      var firstRow = sourceGridPositions[0].row;
+      var memberColumn = sourceGridPositions[index].column;
+      var memberRow = sourceGridPositions[index].row;
+      if (
+        firstColumn !== null &&
+        firstRow !== null &&
+        memberColumn !== null &&
+        memberRow !== null
+      ) {
+        var preferredColumn = startColumn + memberColumn - firstColumn;
+        var preferredRow = startRow + memberRow - firstRow;
+        if (
+          preferredColumn >= 0 &&
+          preferredColumn + span.column <= targetColumnCount &&
+          preferredRow >= 0 &&
+          !plannedGridPlacements.some(function (existing) {
+            return (
+              preferredColumn < existing.columnEnd &&
+              preferredColumn + span.column > existing.column && // i18n-ignore non-user-facing grid overlap condition
+              preferredRow < existing.rowEnd &&
+              preferredRow + span.row > existing.row
+            );
+          })
+        ) {
+          return { column: preferredColumn, row: preferredRow, span };
+        }
       }
       for (
         var row = startRow;
@@ -16978,17 +17016,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Board-text auto-color: adapt before the DOM move so the re-parent
       // check sees the ORIGINAL parent (see adaptAutoTextColorForNest).
       adaptAutoTextColorForNest(member, container);
-      if (applyRuntimeReorder(member, memberTarget)) {
-        postVisualStructureChange(member, memberTarget, {
-          prevParent: prevParent,
-          prevNextSibling: prevNextSibling,
-          prevInlinePositionStyles: prevInlinePositionStyles,
-          prevInlineGridStyles: prevInlineGridStyles,
-          ...(Array.isArray(memberTarget.gridDisplacementPrevStyles) &&
-          memberTarget.gridDisplacementPrevStyles.length > 0
-            ? { gridDisplacements: memberTarget.gridDisplacementPrevStyles }
-            : {}),
-        });
+      if (applyRuntimeReorder(member, memberTarget, preview) && !preview) {
+        postVisualStructureChange(
+          member,
+          memberTarget,
+          {
+            prevParent: prevParent,
+            prevNextSibling: prevNextSibling,
+            prevInlinePositionStyles: prevInlinePositionStyles,
+            prevInlineGridStyles: prevInlineGridStyles,
+            ...(Array.isArray(memberTarget.gridDisplacementPrevStyles) &&
+            memberTarget.gridDisplacementPrevStyles.length > 0
+              ? { gridDisplacements: memberTarget.gridDisplacementPrevStyles }
+              : {}),
+          },
+          undefined,
+          undefined,
+          undefined,
+          gridGroupMessages ?? undefined,
+        );
       }
       if (plannedGridCell) {
         plannedGridPlacements.push({
@@ -17000,7 +17046,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       previous = member;
     }
-    postElementMarqueeSelect(members, false, ev);
+    if (gridGroupMessages) {
+      if (gridGroupMessages.length === 1) {
+        (window.parent as Window).postMessage(gridGroupMessages[0], "*");
+      } else if (gridGroupMessages.length > 1) {
+        (window.parent as Window).postMessage(
+          { type: "visual-grid-group-change", moves: gridGroupMessages },
+          "*",
+        );
+      }
+    }
+    if (!preview) postElementMarqueeSelect(members, false, ev);
   }
 
   // ── Alignment / smart-guide snapping (Figma parity) ───────────────────────
@@ -18346,6 +18402,52 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           s.el.style.transition = s.prevTransition;
         });
       }
+      var restoreGroupGridPreview: (() => void) | null = null;
+      function clearGroupGridPreview(): void {
+        if (!restoreGroupGridPreview) return;
+        restoreGroupGridPreview();
+        restoreGroupGridPreview = null;
+      }
+      function applyGroupGridPreview(target): void {
+        if (!isGroupDrag || !target?.gridCell) return;
+        var container = dropContainerForTarget(target);
+        if (!container) return;
+        clearReorderLift();
+        var elements = Array.from(
+          new Set([...groupEls, ...container.children]),
+        );
+        var origins = elements.map(function (el) {
+          return {
+            el: el,
+            parent: el.parentElement,
+            next: el.nextSibling,
+            style: el.getAttribute("style"),
+          };
+        });
+        applyGroupStructureDrop(groupEls, target, null, undefined, true);
+        restoreGroupGridPreview = function () {
+          // Reinsert group members in reverse order so each saved next sibling
+          // is back in its original parent before restoring its predecessor.
+          origins
+            .filter(function (origin) {
+              return groupEls.indexOf(origin.el) !== -1;
+            })
+            .reverse()
+            .forEach(function (origin) {
+              if (origin.parent)
+                origin.parent.insertBefore(
+                  origin.el,
+                  origin.next?.parentNode === origin.parent
+                    ? origin.next
+                    : null,
+                );
+            });
+          origins.forEach(function (origin) {
+            if (origin.style === null) origin.el.removeAttribute("style");
+            else origin.el.setAttribute("style", origin.style);
+          });
+        };
+      }
       function restoreReorderReflowPreview(): void {
         reflowSiblings.forEach(function (s) {
           s.el.style.transition = s.previewTransition;
@@ -18786,6 +18888,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       }
       function onReorderMove(ev) {
+        clearGroupGridPreview();
         reorderLastMoveEvent = ev;
         if (!ev.metaKey) releaseReorderMetaOverride(ev);
         if (
@@ -18929,6 +19032,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
           applyReorderLift(dx, dy);
           applyReorderReflow(currentTarget, cx, cy);
+          applyGroupGridPreview(currentTarget);
           // Paint after sibling projection so a marker anchored to a moved
           // child follows its projected geometry instead of one frame behind.
           showInsertionGuideFor(currentTarget);
@@ -18944,6 +19048,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       }
       function cleanupReorderDrag() {
+        clearGroupGridPreview();
         document.removeEventListener(events.move, onReorderMove, true);
         document.removeEventListener(events.up, onReorderUp, true);
         document.removeEventListener("pointercancel", onReorderEscape, true);
@@ -23182,6 +23287,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var nextStep = Number(e.data.step);
       layoutGridStep =
         Number.isFinite(nextStep) && nextStep >= 1 ? nextStep : 1;
+      return;
+    }
+    if (e.data.type === "set-grid-group-batching-enabled") {
+      gridGroupBatchingEnabled = e.data.enabled === true;
       return;
     }
     if (e.data.type === "set-read-only") {

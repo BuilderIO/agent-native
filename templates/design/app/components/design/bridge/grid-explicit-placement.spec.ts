@@ -327,11 +327,18 @@ describe("explicit grid placement repro", () => {
     await page.addScriptTag({ content: bridge() });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
     await page.evaluate(() => {
+      window.postMessage(
+        { type: "set-grid-group-batching-enabled", enabled: true },
+        "*",
+      );
       (window as Window & { __gridDrops?: unknown[] }).__gridDrops = [];
+      (window as Window & { __gridBatchCount?: number }).__gridBatchCount = 0;
       window.addEventListener("message", (event) => {
-        if (event.data?.type === "visual-structure-change") {
+        if (event.data?.type === "visual-grid-group-change") {
+          const state = window as Window & { __gridBatchCount?: number };
+          state.__gridBatchCount = (state.__gridBatchCount ?? 0) + 1;
           (window as Window & { __gridDrops?: unknown[] }).__gridDrops?.push(
-            event.data,
+            ...event.data.moves,
           );
         }
       });
@@ -408,6 +415,12 @@ describe("explicit grid placement repro", () => {
           ),
       )
       .toBe(2);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as Window & { __gridBatchCount?: number }).__gridBatchCount,
+      ),
+    ).toBe(1);
     const drops = await page.evaluate(
       () => (window as Window & { __gridDrops?: unknown[] }).__gridDrops ?? [],
     );
@@ -486,6 +499,73 @@ describe("explicit grid placement repro", () => {
     ).toBe("3 / 5");
   });
 
+  it("retains individual group messages when inline batching is disabled", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(groupedGridFixture);
+    await page.addScriptTag({ content: bridge() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as Window & { __groupMessages?: unknown[] }).__groupMessages = [];
+      window.addEventListener("message", (event) => {
+        if (
+          event.data?.type === "visual-structure-change" ||
+          event.data?.type === "visual-grid-group-change"
+        )
+          (
+            window as Window & { __groupMessages?: unknown[] }
+          ).__groupMessages?.push(event.data);
+      });
+    });
+    const source = await box(page, "#b");
+    const target = await box(page, "#d");
+    await select(page, "#b");
+    await page.evaluate(() =>
+      window.postMessage(
+        { type: "select-elements", selectorGroups: [["#c"]] },
+        "*",
+      ),
+    );
+    await expect
+      .poll(() =>
+        page
+          .locator('[data-agent-native-edit-overlay="multi-selection"]')
+          .count(),
+      )
+      .toBeGreaterThan(0);
+    await page.mouse.move(
+      source.x + source.width / 2,
+      source.y + source.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(source.x + 8, source.y + 8, { steps: 3 });
+    await page.mouse.move(target.x + 10, target.y + target.height / 2, {
+      steps: 12,
+    });
+    await page.mouse.up();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __groupMessages?: unknown[] }).__groupMessages
+              ?.length ?? 0,
+        ),
+      )
+      .toBe(2);
+    const types = await page.evaluate(() =>
+      (
+        window as Window & { __groupMessages?: Array<{ type: string }> }
+      ).__groupMessages?.map((message) => message.type),
+    );
+    expect(types).toEqual([
+      "visual-structure-change",
+      "visual-structure-change",
+    ]);
+    await browser.close();
+  });
+
   it("keeps grouped drops in authored implicit tracks", async () => {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({
@@ -495,11 +575,15 @@ describe("explicit grid placement repro", () => {
     await page.addScriptTag({ content: bridge() });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
     await page.evaluate(() => {
+      window.postMessage(
+        { type: "set-grid-group-batching-enabled", enabled: true },
+        "*",
+      );
       (window as Window & { __gridDrops?: unknown[] }).__gridDrops = [];
       window.addEventListener("message", (event) => {
-        if (event.data?.type === "visual-structure-change") {
+        if (event.data?.type === "visual-grid-group-change") {
           (window as Window & { __gridDrops?: unknown[] }).__gridDrops?.push(
-            event.data,
+            ...event.data.moves,
           );
         }
       });
