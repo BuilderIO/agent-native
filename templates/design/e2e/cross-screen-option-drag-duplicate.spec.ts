@@ -58,13 +58,17 @@ async function files(
   return ((await response.json()).files ?? []) as DesignFile[];
 }
 
-async function createDesign(request: APIRequestContext) {
+async function createDesign(
+  request: APIRequestContext,
+  onCreated?: (designId: string) => void,
+) {
   const created = await action(request, "create-design", {
     title: `Cross-screen Option drag ${Date.now()}`,
     projectType: "prototype",
   });
   const id = created?.id ?? created?.data?.id;
   if (typeof id !== "string") throw new Error("create-design returned no id");
+  onCreated?.(id);
   await action(request, "create-file", {
     designId: id,
     filename: "index.html",
@@ -143,7 +147,7 @@ function layerIds(html: string, layerName: string) {
 }
 
 async function deleteDesign(request: APIRequestContext, designId: string) {
-  await action(request, "delete-design", { id: designId }).catch(() => {});
+  await action(request, "delete-design", { id: designId });
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -152,15 +156,25 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
   page,
   request,
 }) => {
-  const design = await createDesign(request);
+  let designId: string | null = null;
   try {
+    const design = await createDesign(request, (id) => {
+      designId = id;
+    });
     await gotoEditor(page, design.id);
     await page.keyboard.press("Shift+1");
+    let previousScreenPositions = "";
     await expect
       .poll(async () => {
         const source = await boxFor(page, design.sourceId, "cross-source");
         const target = await boxFor(page, design.destinationId, "nested-auto");
-        return Math.round(source.x) !== Math.round(target.x);
+        const current = JSON.stringify({
+          source: { x: source.x, y: source.y },
+          target: { x: target.x, y: target.y },
+        });
+        const settled = current === previousScreenPositions;
+        previousScreenPositions = current;
+        return settled;
       })
       .toBe(true);
 
@@ -390,6 +404,6 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
       'data-agent-native-node-id="cross-source"',
     );
   } finally {
-    await deleteDesign(request, design.id);
+    if (designId) await deleteDesign(request, designId);
   }
 });
