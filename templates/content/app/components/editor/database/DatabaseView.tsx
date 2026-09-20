@@ -1891,7 +1891,7 @@ function DatabaseTable({
             ),
           persistSelection: setStoredSpaceId,
           openSpace: (spaceId) =>
-            navigate(`/space/${encodeURIComponent(spaceId)}`),
+            navigate(`/home?spaceId=${encodeURIComponent(spaceId)}`),
         });
       })
       .catch((error) => {

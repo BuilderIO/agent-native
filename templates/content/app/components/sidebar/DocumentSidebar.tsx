@@ -1253,7 +1253,7 @@ export function DocumentSidebar({
               void navigate(
                 targetDocumentId
                   ? `/page/${targetDocumentId}`
-                  : `/space/${encodeURIComponent(spaceId)}`,
+                  : `/home?spaceId=${encodeURIComponent(spaceId)}`,
                 {
                   flushSync: true,
                 },
@@ -2556,7 +2556,7 @@ export function DocumentSidebar({
               reorderLabels={sidebarReorderLabels}
               seeAllHrefs={{
                 pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
-                recent: `/recent?spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                recent: `/favorites?view=recent&spaceId=${encodeURIComponent(selectedSpace.id)}`,
                 files: `/page/${selectedSpace.filesDocumentId}`,
               }}
               renderPinned={(limit) => {
