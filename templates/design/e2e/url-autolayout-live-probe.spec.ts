@@ -328,12 +328,17 @@ test.describe("URL-backed live auto-layout probe", () => {
       path.join(rootPath, "index.html"),
       "utf8",
     );
+    const visualEditState = async () => {
+      const result = (await call("get-visual-edit-prompt")) as {
+        result?: { pendingEditCount?: number; status?: string };
+      };
+      return {
+        pendingEditCount: result.result?.pendingEditCount ?? -1,
+        status: result.result?.status ?? "unknown",
+      };
+    };
     const pendingEditCount = async () =>
-      (
-        (await call("get-visual-edit-prompt")) as {
-          result?: { pendingEditCount?: number };
-        }
-      ).result?.pendingEditCount ?? -1;
+      (await visualEditState()).pendingEditCount;
     const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.down(primaryModifier);
     await page.mouse.click(
@@ -391,6 +396,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     console.log("URL probe order after drag", await order());
     await expect.poll(pendingEditCount, { timeout: 5_000 }).toBeGreaterThan(0);
     const promptAfterDrag = await call("get-visual-edit-prompt");
+    expect(promptAfterDrag).toMatchObject({ result: { status: "ready" } });
     expect(await pendingEditCount()).toBeGreaterThan(0);
     console.log("URL probe prompt after drag", JSON.stringify(promptAfterDrag));
     expect(fs.readFileSync(path.join(rootPath, "index.html"), "utf8")).toBe(
@@ -400,12 +406,18 @@ test.describe("URL-backed live auto-layout probe", () => {
 
     await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(order, { timeout: 10_000 }).toEqual(["v1", "v2", "v3"]);
-    await expect.poll(pendingEditCount, { timeout: 10_000 }).toBe(0);
+    await expect.poll(visualEditState, { timeout: 10_000 }).toEqual({
+      pendingEditCount: 0,
+      status: "empty",
+    });
     expect(fs.readFileSync(path.join(rootPath, "index.html"), "utf8")).toBe(
       diskBeforeDrag,
     );
     await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect.poll(order, { timeout: 10_000 }).toEqual(["v2", "v3", "v1"]);
+    await expect
+      .poll(visualEditState, { timeout: 10_000 })
+      .toMatchObject({ status: "ready" });
     await expect.poll(pendingEditCount, { timeout: 10_000 }).toBeGreaterThan(0);
 
     const unloadGuarded = await page.evaluate(() => {
@@ -716,12 +728,17 @@ test.describe("URL-backed live auto-layout probe", () => {
       path.join(rootPath, "index.html"),
       "utf8",
     );
+    const visualEditState = async () => {
+      const result = (await call("get-visual-edit-prompt")) as {
+        result?: { pendingEditCount?: number; status?: string };
+      };
+      return {
+        pendingEditCount: result.result?.pendingEditCount ?? -1,
+        status: result.result?.status ?? "unknown",
+      };
+    };
     const pendingEditCount = async () =>
-      (
-        (await call("get-visual-edit-prompt")) as {
-          result?: { pendingEditCount?: number };
-        }
-      ).result?.pendingEditCount ?? -1;
+      (await visualEditState()).pendingEditCount;
     const gridPlacement = () =>
       frame.locator("[data-group-card]").evaluateAll((els) =>
         Object.fromEntries(
@@ -829,20 +846,11 @@ test.describe("URL-backed live auto-layout probe", () => {
       fullPage: true,
     });
     await page.mouse.up();
-    await expect
-      .poll(
-        async () =>
-          (
-            (await call("get-visual-edit-prompt")) as {
-              result?: { pendingEditCount?: number };
-            }
-          ).result?.pendingEditCount ?? -1,
-        { timeout: 10_000 },
-      )
-      .toBe(1);
+    await expect.poll(pendingEditCount, { timeout: 10_000 }).toBe(1);
     const prompt = (await call("get-visual-edit-prompt")) as {
-      result?: { prompt?: string };
+      result?: { prompt?: string; status?: string };
     };
+    expect(prompt).toMatchObject({ result: { status: "ready" } });
     expect(prompt.result?.prompt).toContain('"transactionId"');
     expect(prompt.result?.prompt).toContain("group-a");
     expect(prompt.result?.prompt).toContain("group-b");
@@ -870,7 +878,10 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect
       .poll(gridOrder, { timeout: 10_000 })
       .toEqual(gridOrderBeforeDrag);
-    await expect.poll(pendingEditCount, { timeout: 10_000 }).toBe(0);
+    await expect.poll(visualEditState, { timeout: 10_000 }).toEqual({
+      pendingEditCount: 0,
+      status: "empty",
+    });
     await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect
       .poll(gridPlacement, { timeout: 10_000 })
@@ -878,6 +889,9 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect
       .poll(gridOrder, { timeout: 10_000 })
       .toEqual(gridOrderAfterDrag);
+    await expect
+      .poll(visualEditState, { timeout: 10_000 })
+      .toMatchObject({ status: "ready" });
     await expect.poll(pendingEditCount, { timeout: 10_000 }).toBeGreaterThan(0);
     let sourceWriteCount = 0;
     page.on("request", (request) => {

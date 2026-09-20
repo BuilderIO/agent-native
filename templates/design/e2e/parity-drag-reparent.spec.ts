@@ -346,6 +346,11 @@ test.describe("drag reparent parity", () => {
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect(
+      designFrame(page, screenId).locator(
+        'footer [data-agent-native-node-id="widget"]',
+      ),
+    ).toBeVisible();
     await expect
       .poll(async () =>
         parentOf(await fileContent(page, id, "index.html"), "widget"),
@@ -449,23 +454,37 @@ test.describe("drag reparent parity", () => {
 
     await page.keyboard.press("ControlOrMeta+z");
     await expect
-      .poll(async () =>
-        parentOf(await fileContent(page, id, "index.html"), "footer-item"),
-      )
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return html.includes('data-agent-native-node-id="footer-item"')
+          ? parentOf(html, "footer-item")
+          : "missing";
+      })
       .toBe("footer");
     await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect
-      .poll(async () =>
-        parentOf(await fileContent(page, id, "index.html"), "footer-item"),
-      )
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return html.includes('data-agent-native-node-id="footer-item"')
+          ? parentOf(html, "footer-item")
+          : "missing";
+      })
       .toBeNull();
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect(
+      designFrame(page, screenId).locator(
+        '[data-agent-native-node-id="footer-item"]',
+      ),
+    ).toBeVisible();
     await expect
-      .poll(async () =>
-        parentOf(await fileContent(page, id, "index.html"), "footer-item"),
-      )
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return html.includes('data-agent-native-node-id="footer-item"')
+          ? parentOf(html, "footer-item")
+          : "missing";
+      })
       .toBeNull();
   });
 
