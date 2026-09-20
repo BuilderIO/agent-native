@@ -65,6 +65,7 @@ function runStoredCrossScreenDrop(args: {
     applyFileContentUpdate: Parameters<
       typeof runCrossScreenElementDrop
     >[0]["applyFileContentUpdate"];
+    contentByFile: Map<string, string>;
     setSelectionFingerprint: (value: string) => void;
   }) => void;
 }) {
@@ -182,6 +183,7 @@ function runStoredCrossScreenDrop(args: {
   );
   args.afterDrop?.({
     applyFileContentUpdate,
+    contentByFile,
     setSelectionFingerprint: (value) => {
       selectionFingerprint = value;
     },
@@ -1330,6 +1332,60 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     expect(result.contentByFile.get("source")).toContain(
       'data-agent-native-node-id="later"',
     );
+  });
+
+  it("records history after persisted saves despite a stale query repaint", async () => {
+    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
+    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    let resolveTarget!: (saved: FileContentSaveCompletion) => void;
+    let resolveSource!: (saved: FileContentSaveCompletion) => void;
+    const targetSave = new Promise<FileContentSaveCompletion>((resolve) => {
+      resolveTarget = resolve;
+    });
+    const sourceSave = new Promise<FileContentSaveCompletion>((resolve) => {
+      resolveSource = resolve;
+    });
+    let publicationCount = 0;
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent,
+      publish: (fileId, content) => {
+        const publication = acceptFixture(fileId, content);
+        publicationCount += 1;
+        return {
+          ...publication,
+          saveCompletion:
+            publicationCount === 1
+              ? targetSave
+              : publicationCount === 2
+                ? sourceSave
+                : Promise.resolve("persisted" as const),
+        };
+      },
+      afterDrop: ({ contentByFile }) => {
+        // Model a refetch that lands after the optimistic overlay retires but
+        // before the cross-file history publication callback runs.
+        contentByFile.set("target", destinationContent);
+      },
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="moving"]',
+        sourceNodeId: "moving",
+        sourceProvenance: { uniqueNodeId: "moving" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "target-root",
+        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
+        targetAnchorProvenance: { uniqueNodeId: "target-root" },
+        targetAnchorPlacement: "inside",
+      },
+    });
+
+    resolveTarget("persisted");
+    resolveSource("persisted");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(result.historyEntries).toHaveLength(1);
+    expect(result.selectionEvents).toContain("active-file");
   });
 
   it("records no duplicate history or selection when the real writer rejects Alpine content", () => {
