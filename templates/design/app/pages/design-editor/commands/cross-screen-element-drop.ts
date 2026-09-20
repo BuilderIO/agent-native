@@ -1097,12 +1097,10 @@ export function runCrossScreenElementDrop(
     publication: Extract<ApplyFileContentUpdateResult, { status: "accepted" }>,
   ) => {
     const expectedRevision = saveOperationRevisionsAtPublication[fileId];
-    const revisionUnchanged =
-      expectedRevision !== undefined &&
-      fileSaveOperationRevisionRef?.current[fileId] === expectedRevision;
-    return (
-      revisionUnchanged || getScreenContent(fileId) === publication.content
-    );
+    if (expectedRevision !== undefined && fileSaveOperationRevisionRef) {
+      return fileSaveOperationRevisionRef.current[fileId] === expectedRevision;
+    }
+    return getScreenContent(fileId) === publication.content;
   };
   const canFinalizePublication = () =>
     isCurrentPublication(targetScreenId, targetPublication) &&
