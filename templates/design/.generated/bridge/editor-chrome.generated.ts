@@ -10743,7 +10743,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             // order must follow the occupied cell so persistence matches the
             // held preview and Figma's layer order.
             persistenceAnchor: displaced || container,
-            persistencePlacement: displaced ? "before" : "inside",
+            persistencePlacement: displaced ? pointer <= midpoint ? "before" : "after" : "inside",
             axis: gridAxis,
             dropMode: "flow-insert",
             guideRect: {

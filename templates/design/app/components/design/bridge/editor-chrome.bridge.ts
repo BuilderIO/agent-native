@@ -14798,7 +14798,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // order must follow the occupied cell so persistence matches the
           // held preview and Figma's layer order.
           persistenceAnchor: displaced || container,
-          persistencePlacement: displaced ? "before" : "inside",
+          persistencePlacement: displaced
+            ? pointer <= midpoint
+              ? "before"
+              : "after"
+            : "inside",
           axis: gridAxis,
           dropMode: "flow-insert",
           guideRect: {
