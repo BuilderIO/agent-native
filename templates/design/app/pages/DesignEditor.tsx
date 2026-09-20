@@ -698,7 +698,11 @@ import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-fr
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
 import { runRecordPendingLiveLayerStateEdit } from "./design-editor/commands/record-pending-live-layer-state-edit";
-import { runRecordPendingLiveStructureEdit } from "./design-editor/commands/record-pending-live-structure-edit";
+import {
+  commitPendingLiveStructureEdits,
+  preparePendingLiveStructureEdit,
+  runRecordPendingLiveStructureEdit,
+} from "./design-editor/commands/record-pending-live-structure-edit";
 import { runRecordPendingLiveTextEdit } from "./design-editor/commands/record-pending-live-text-edit";
 import { runRecordPendingVisualStyleEdit } from "./design-editor/commands/record-pending-visual-style-edit";
 import { runRedo } from "./design-editor/commands/redo";
@@ -1651,6 +1655,13 @@ function DesignEditor() {
   const pendingStructureRedoReplayTimerRef = useRef<number | undefined>(
     undefined,
   );
+  const pendingStructureRedoPreparedEditsRef = useRef<
+    | {
+        replay: PendingLiveStructureUndoEntry;
+        edits: PendingLiveStructureEdit[];
+      }
+    | undefined
+  >(undefined);
   const cancelPendingStructureVerification = useCallback(
     (nextStatus: PendingStructureVerificationStatus = "idle") => {
       const session = pendingStructureVerificationSessionRef.current;
@@ -8415,7 +8426,7 @@ function DesignEditor() {
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
-    ) =>
+    ) => {
       runRecordPendingLiveStructureEdit(
         {
           canEditDesign,
@@ -8428,6 +8439,7 @@ function DesignEditor() {
           pendingLiveNonStyleUndoStackRef,
           pendingStructureRedoReplayRef,
           pendingStructureRedoReplayTimerRef,
+          pendingStructureRedoPreparedEditsRef,
           pendingVisualStyleRedoStackRef,
           runtimeLayerSnapshotsById,
           setPendingLiveNonStyleEdits,
@@ -8438,7 +8450,8 @@ function DesignEditor() {
         placement,
         elementInfo,
         details,
-      ),
+      );
+    },
     [
       canEditDesign,
       cancelPendingStructureVerification,
@@ -13277,8 +13290,15 @@ function DesignEditor() {
         normalizeDesignSourceType(screen?.sourceType) ?? designSourceType;
       if (isRunningAppSourceType(sourceType)) {
         const transactionId = moves[0]?.transactionId;
-        const results = moves.map((move) =>
-          handleScreenVisualStructureChange(
+        const edits = moves.map((move) =>
+          preparePendingLiveStructureEdit(
+            {
+              canEditDesign,
+              files,
+              localhostConnectionRootPathByIdRef,
+              overviewScreens,
+              runtimeLayerSnapshotsById,
+            },
             screenId,
             move.selector,
             move.anchorSelector,
@@ -13295,9 +13315,26 @@ function DesignEditor() {
             },
           ),
         );
-        return results.every((result) => result === "pending")
-          ? "pending"
-          : false;
+        if (
+          !edits.every(
+            (edit): edit is NonNullable<typeof edit> => edit !== undefined,
+          )
+        )
+          return false;
+        commitPendingLiveStructureEdits(
+          {
+            cancelPendingStructureVerification,
+            pendingLiveNonStyleEditsRef,
+            pendingLiveNonStyleRedoStackRef,
+            pendingLiveNonStyleUndoStackRef,
+            pendingStructureRedoReplayRef,
+            pendingStructureRedoReplayTimerRef,
+            pendingVisualStyleRedoStackRef,
+            setPendingLiveNonStyleEdits,
+          },
+          edits,
+        );
+        return "pending";
       }
       const screenFile = files.find((file) => file.id === screenId);
       if (!screenFile || !canEditDesign) return false;
@@ -16323,6 +16360,7 @@ function DesignEditor() {
         pendingLocalFileContentsRef,
         pendingStructureRedoReplayRef,
         pendingStructureRedoReplayTimerRef,
+        pendingStructureRedoPreparedEditsRef,
         pendingVisualStyleEditsRef,
         pendingVisualStyleRedoStackRef,
         pendingVisualStyleUndoStackRef,

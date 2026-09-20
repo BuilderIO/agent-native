@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { createDbExec } from "@agent-native/core/db";
@@ -38,6 +38,8 @@ const LOOPBACK_PID_PATH = path.join(
     path.join(import.meta.dirname, "..", "..", ".tmp", "design-e2e"),
   "loopback-provider.pid",
 );
+const LOOPBACK_READINESS_TIMEOUT_MS = 10_000;
+const LOOPBACK_READINESS_RETRY_MS = 50;
 
 async function startLoopbackProvider(port: number): Promise<void> {
   const child = spawn(
@@ -56,10 +58,49 @@ async function startLoopbackProvider(port: number): Promise<void> {
       },
     },
   );
+  let spawnError: Error | undefined;
+  child.once("error", (error) => {
+    spawnError = error;
+  });
   if (!child.pid) throw new Error("loopback provider did not start");
   await mkdir(path.dirname(LOOPBACK_PID_PATH), { recursive: true });
   await writeFile(LOOPBACK_PID_PATH, String(child.pid));
-  child.unref();
+  const deadline = Date.now() + LOOPBACK_READINESS_TIMEOUT_MS;
+  let lastError: unknown;
+  try {
+    while (Date.now() < deadline) {
+      if (spawnError) throw spawnError;
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${port}/v1/models` /* e2e-harness-ignore: allocated provider port, not Design base URL */,
+          {
+            signal: AbortSignal.timeout(250),
+          },
+        );
+        if (response.ok) {
+          child.unref();
+          return;
+        }
+        lastError = new Error(`HTTP ${response.status}`);
+      } catch (error) {
+        lastError = error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, LOOPBACK_READINESS_RETRY_MS),
+      );
+    }
+    const detail =
+      lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(
+      `loopback provider did not become ready on port ${port}: ${detail}`,
+    );
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill();
+    }
+    await rm(LOOPBACK_PID_PATH, { force: true });
+    throw error;
+  }
 }
 
 /**

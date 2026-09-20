@@ -216,6 +216,7 @@ export interface RedoArgs {
     PendingLiveStructureUndoEntry | undefined
   >;
   pendingStructureRedoReplayTimerRef: RefObject<number | undefined>;
+  pendingStructureRedoPreparedEditsRef?: RefObject<unknown>;
   pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
@@ -388,6 +389,7 @@ export function runRedo({
   pendingLocalFileContentsRef,
   pendingStructureRedoReplayRef,
   pendingStructureRedoReplayTimerRef,
+  pendingStructureRedoPreparedEditsRef,
   pendingVisualStyleEditsRef,
   pendingVisualStyleRedoStackRef,
   pendingVisualStyleUndoStackRef,
@@ -516,6 +518,9 @@ export function runRedo({
       }
       pendingStructureRedoReplayTimerRef.current = window.setTimeout(() => {
         pendingStructureRedoReplayRef.current = undefined;
+        if (pendingStructureRedoPreparedEditsRef) {
+          pendingStructureRedoPreparedEditsRef.current = undefined;
+        }
         pendingStructureRedoReplayTimerRef.current = undefined;
         syncUndoRedoState();
       }, 1_000);
@@ -564,6 +569,9 @@ export function runRedo({
     }
     pendingStructureRedoReplayTimerRef.current = window.setTimeout(() => {
       pendingStructureRedoReplayRef.current = undefined;
+      if (pendingStructureRedoPreparedEditsRef) {
+        pendingStructureRedoPreparedEditsRef.current = undefined;
+      }
       pendingStructureRedoReplayTimerRef.current = undefined;
       syncUndoRedoState();
     }, 1_000);

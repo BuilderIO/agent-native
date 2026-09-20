@@ -742,7 +742,10 @@ export function appendPendingLiveNonStyleUndoEntry(
     entry.edit.transactionId &&
     last.edit.transactionId === entry.edit.transactionId
   ) {
-    last.groupedEdits = [...(last.groupedEdits ?? [last.edit]), entry.edit];
+    last.groupedEdits = [
+      ...(last.groupedEdits ?? [last.edit]),
+      ...pendingLiveStructureEditsFromUndoEntry(entry),
+    ];
     last.edit = entry.edit;
     return;
   }
