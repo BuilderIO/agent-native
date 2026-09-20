@@ -329,18 +329,13 @@ test("grouped occupied-cell drop preserves child order through Apply, undo, redo
       ["source-a", "after"],
     ]);
     await expect
-      .poll(() => persistedTargetGridOrder(page, designId), { timeout: 10_000 })
-      .toEqual([
-        "source-a",
-        "source-b",
-        "occupied-a",
-        "occupied-b",
-        "occupied-c",
-        "occupied-d",
-      ]);
-    await expect
       .poll(async () => (await liveOrder()).slice(0, 3), { timeout: 10_000 })
       .toEqual(["source-a", "source-b", "occupied-a"]);
+    const placementAfterDrop = await Promise.all(
+      ["source-a", "source-b", "occupied-a", "occupied-b"].map((id) =>
+        stylePlacement(page, id),
+      ),
+    );
 
     await page.keyboard.press("ControlOrMeta+z");
     await expect
@@ -350,6 +345,18 @@ test("grouped occupied-cell drop preserves child order through Apply, undo, redo
       .poll(async () => (await liveOrder()).slice(-4, -1), { timeout: 10_000 })
       .toEqual(["occupied-a", "occupied-b", "occupied-c"]);
     await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => (await liveOrder()).slice(0, 3), { timeout: 10_000 })
+      .toEqual(["source-a", "source-b", "occupied-a"]);
+    await expect
+      .poll(async () =>
+        Promise.all(
+          ["source-a", "source-b", "occupied-a", "occupied-b"].map((id) =>
+            stylePlacement(page, id),
+          ),
+        ),
+      )
+      .toEqual(placementAfterDrop);
     await expect
       .poll(() => persistedTargetGridOrder(page, designId), { timeout: 10_000 })
       .toEqual([

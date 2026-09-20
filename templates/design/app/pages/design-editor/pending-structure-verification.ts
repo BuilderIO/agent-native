@@ -205,6 +205,13 @@ function gridRange(value: string | undefined): [number, number] | undefined {
   return Number.isInteger(end) ? [start, end] : undefined;
 }
 
+function gridLine(value: string, start?: number): number | undefined {
+  const line = Number(value);
+  if (Number.isInteger(line)) return line;
+  const span = /^span\s+(\d+)$/i.exec(value)?.[1];
+  return span && start !== undefined ? start + Number(span) : undefined;
+}
+
 function gridPlacementFromStyle(style: CodeLayerNode["style"]):
   | {
       column: number;
@@ -216,21 +223,35 @@ function gridPlacementFromStyle(style: CodeLayerNode["style"]):
   const area = style["grid-area"]?.split("/").map((part) => part.trim());
   const column = gridRange(style["grid-column"]);
   const row = gridRange(style["grid-row"]);
-  return area?.length === 4
+  if (area?.length === 4) {
+    const rowStart = gridLine(area[0]);
+    const columnStart = gridLine(area[1]);
+    const rowEnd =
+      rowStart === undefined ? undefined : gridLine(area[2], rowStart);
+    const columnEnd =
+      columnStart === undefined ? undefined : gridLine(area[3], columnStart);
+    if (
+      rowStart !== undefined &&
+      columnStart !== undefined &&
+      rowEnd !== undefined &&
+      columnEnd !== undefined
+    ) {
+      return {
+        row: rowStart,
+        column: columnStart,
+        rowEnd,
+        columnEnd,
+      };
+    }
+  }
+  return column && row
     ? {
-        row: Number(area[0]),
-        column: Number(area[1]),
-        rowEnd: Number(area[2]),
-        columnEnd: Number(area[3]),
+        column: column[0],
+        columnEnd: column[1],
+        row: row[0],
+        rowEnd: row[1],
       }
-    : column && row
-      ? {
-          column: column[0],
-          columnEnd: column[1],
-          row: row[0],
-          rowEnd: row[1],
-        }
-      : undefined;
+    : undefined;
 }
 
 function verifyGridPlacement(

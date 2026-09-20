@@ -17272,6 +17272,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           replaySubjects.push(runtimeSubject);
         }
         for (var replayMove of runtimeReplayMoves) {
+          if (replayMove.target.gridCell && replayMove.target.placement !== "inside") {
+            var orderAnchor = replayMove.target.anchor;
+            if (!orderAnchor.parentElement) return;
+            replayMove.target.persistenceAnchor = orderAnchor;
+            replayMove.target.persistencePlacement = replayMove.target.placement;
+            replayMove.target.anchor = orderAnchor.parentElement;
+            replayMove.target.placement = "inside";
+            replayMove.target.axis = parentFlowAxis(orderAnchor.parentElement);
+          }
           if (!applyRuntimeReorder(
             replayMove.subject,
             replayMove.target,

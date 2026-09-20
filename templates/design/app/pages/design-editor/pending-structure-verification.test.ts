@@ -803,8 +803,8 @@ describe("verifyPendingStructureRuntime", () => {
 
   it("accepts grid-area shorthand on displaced group members", () => {
     const html = `<!doctype html><body><section id="grid" data-agent-native-node-id="grid">
-      <div id="subject" data-agent-native-node-id="subject" style="grid-area:1 / 1 / 2 / 2">Subject</div>
-      <div id="displaced" data-agent-native-node-id="displaced" style="grid-area:1 / 2 / 2 / 3">Displaced</div>
+      <div id="subject" data-agent-native-node-id="subject" style="grid-area:1 / 1 / span 1 / span 1">Subject</div>
+      <div id="displaced" data-agent-native-node-id="displaced" style="grid-area:1 / 2 / span 1 / span 1">Displaced</div>
     </section></body>`;
     const first = edit({
       anchorSelector: "#grid",

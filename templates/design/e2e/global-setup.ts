@@ -6,6 +6,7 @@ import { createDbExec } from "@agent-native/core/db";
 import { chromium, type FullConfig } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
+import { designE2eRunRoot } from "./global-teardown";
 
 /**
  * Global setup: authenticate a test user (email/password; there is no dev auth
@@ -33,15 +34,13 @@ const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   `pglite:${path.join(import.meta.dirname, "..", "data", "e2e-pglite")}`;
-const LOOPBACK_PID_PATH = path.join(
-  process.env.E2E_RUN_ROOT ??
-    path.join(import.meta.dirname, "..", "..", ".tmp", "design-e2e"),
-  "loopback-provider.pid",
-);
 const LOOPBACK_READINESS_TIMEOUT_MS = 10_000;
 const LOOPBACK_READINESS_RETRY_MS = 50;
 
 async function startLoopbackProvider(port: number): Promise<void> {
+  const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
+  if (!runRoot) throw new Error("loopback provider requires an E2E run root");
+  const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");
   const child = spawn(
     process.execPath,
     [
@@ -63,8 +62,8 @@ async function startLoopbackProvider(port: number): Promise<void> {
     spawnError = error;
   });
   if (!child.pid) throw new Error("loopback provider did not start");
-  await mkdir(path.dirname(LOOPBACK_PID_PATH), { recursive: true });
-  await writeFile(LOOPBACK_PID_PATH, String(child.pid));
+  await mkdir(path.dirname(loopbackPidPath), { recursive: true });
+  await writeFile(loopbackPidPath, String(child.pid));
   const deadline = Date.now() + LOOPBACK_READINESS_TIMEOUT_MS;
   let lastError: unknown;
   try {
@@ -98,7 +97,7 @@ async function startLoopbackProvider(port: number): Promise<void> {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill();
     }
-    await rm(LOOPBACK_PID_PATH, { force: true });
+    await rm(loopbackPidPath, { force: true });
     throw error;
   }
 }

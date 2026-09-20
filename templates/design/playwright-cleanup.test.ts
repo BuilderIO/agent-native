@@ -31,4 +31,10 @@ describe("Design Playwright artifact cleanup", () => {
       designE2eRunRoot("/repo/templates/design", "/tmp/custom-e2e-root", "run"),
     ).toBe("/tmp/custom-e2e-root");
   });
+
+  it("uses the run id when no root is configured", () => {
+    expect(designE2eRunRoot("/repo/templates/design", undefined, "run")).toBe(
+      "/repo/.tmp/design-e2e/run",
+    );
+  });
 });
