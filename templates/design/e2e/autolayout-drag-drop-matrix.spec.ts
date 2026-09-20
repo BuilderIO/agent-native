@@ -335,6 +335,35 @@ async function selectLayer(page: Page, name: string): Promise<void> {
   await expect.poll(() => chromeBounds(page)).not.toBeNull();
 }
 
+async function layerParentName(
+  page: Page,
+  name: string,
+): Promise<string | null> {
+  const row = page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.getByTitle(name, { exact: true }) })
+    .first()
+    .locator('xpath=ancestor::*[@role="treeitem"][1]');
+  return row.evaluate((item) => {
+    const tree = item.closest<HTMLElement>('[role="tree"]');
+    if (!tree) return null;
+    const level = Number(item.getAttribute("aria-level"));
+    const items = Array.from(
+      tree.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+    );
+    const index = items.indexOf(item);
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (Number(items[i]?.getAttribute("aria-level")) < level) {
+        return (
+          items[i]?.querySelector<HTMLElement>("span[title]")?.title ?? null
+        );
+      }
+    }
+    return null;
+  });
+}
+
 async function layerNameForNode(
   page: Page,
   screenId: string,
@@ -976,6 +1005,42 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           await deleteDesign(request, design.id);
         }
       });
+    }
+  });
+
+  test("cross-container flow preview keeps the source in the held Layers tree", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request);
+    try {
+      await gotoEditor(page, design.id);
+      await expandAllLayers(page);
+      await selectLayer(page, "Inner text");
+      const source = await boxFor(page, design.primaryId, "inner-text");
+      const target = await boxFor(page, design.primaryId, "nested-marker");
+
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + source.width / 2 + 12, source.y + 8, {
+        steps: 2,
+      });
+      await page.mouse.move(target.x + target.width / 2, target.y + 2, {
+        steps: 12,
+      });
+
+      await expect
+        .poll(() => layerParentName(page, "Inner text"), { timeout: 5_000 })
+        .toBe("Nested outer");
+      await page.mouse.up();
+      await expect
+        .poll(() => parentId(page, design.primaryId, "inner-text"))
+        .toBe("nested-outer");
+    } finally {
+      await deleteDesign(request, design.id);
     }
   });
 
