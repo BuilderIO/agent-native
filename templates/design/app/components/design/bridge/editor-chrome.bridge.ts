@@ -2900,7 +2900,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // namespace since a portable-style snapshot walks up to 80 descendants
   // per drag.
   var portableStyleProbeDoc: Document | null | undefined;
-  var portableStyleProbeUsesFallback = false;
+  var portableStyleProbeContainer: HTMLElement | ShadowRoot | null | undefined;
 
   function portableStyleProbeDocument(): Document | null {
     if (portableStyleProbeDoc !== undefined) return portableStyleProbeDoc;
@@ -2917,13 +2917,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var probeDoc = frame.contentDocument;
       if (probeDoc) {
         portableStyleProbeDoc = probeDoc;
+        portableStyleProbeContainer = probeDoc.body;
       } else {
         frame.remove();
         // URL previews are sandboxed without allow-same-origin, so a child
-        // probe iframe has no readable document. Revert author styles on a
-        // same-document probe instead; this keeps UA defaults measurable.
+        // probe iframe has no readable document. A shadow root on an isolated
+        // same-document host keeps source author styles and inherited values
+        // out while still applying the user-agent stylesheet.
+        var fallbackHost = document.createElement("div");
+        fallbackHost.setAttribute(
+          "style",
+          "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;",
+        );
+        document.body.appendChild(fallbackHost);
         portableStyleProbeDoc = document;
-        portableStyleProbeUsesFallback = true;
+        portableStyleProbeContainer = fallbackHost.attachShadow({
+          mode: "open",
+        });
       }
     } catch (err) {
       frame?.remove();
@@ -2950,7 +2960,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var cached = portableStyleTagDefaultsCache[cacheKey];
     if (cached) return cached;
     var probeDoc = portableStyleProbeDocument();
-    if (!probeDoc || !probeDoc.body) {
+    var probeContainer = portableStyleProbeContainer;
+    if (!probeDoc || !probeContainer) {
       dndLog("style:probe-unavailable", { tag: el.tagName });
       return null;
     }
@@ -2964,13 +2975,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml"
         ? probeDoc.createElementNS(el.namespaceURI, el.tagName)
         : probeDoc.createElement(el.tagName);
-    if (portableStyleProbeUsesFallback) {
-      probe.setAttribute(
-        "style",
-        "all: revert !important;position: fixed !important;width: 0 !important;height: 0 !important;visibility: hidden !important;pointer-events: none !important;",
-      );
-    }
-    probeDoc.body.appendChild(probe);
+    probeContainer.appendChild(probe);
     var probeWindow = probeDoc.defaultView || window;
     var probeCs = probeWindow.getComputedStyle(probe);
     var defaults: Record<string, string> = {};
@@ -2978,7 +2983,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       defaults[property] =
         probeCs[property] || probeCs.getPropertyValue(property);
     });
-    probeDoc.body.removeChild(probe);
+    probeContainer.removeChild(probe);
     portableStyleTagDefaultsCache[cacheKey] = defaults;
     return defaults;
   }

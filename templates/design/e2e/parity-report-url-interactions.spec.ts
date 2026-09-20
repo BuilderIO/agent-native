@@ -56,6 +56,7 @@ let activeScreenFilename = "";
 let inactiveScreenFilename = "";
 let rootPath = "";
 let screenPath = "";
+let persistedCopyHtml = "";
 let devServer: Server | null = null;
 let bridge: DesignConnectBridge | null = null;
 
@@ -170,7 +171,10 @@ test.beforeAll(async ({ request }, workerInfo) => {
       req.url === "/inactive"
         ? fs
             .readFileSync(screenPath, "utf8")
-            .replace("</body>", `${URL_DROP_TARGET_HTML}</body>`)
+            .replace(
+              "</body>",
+              `${URL_DROP_TARGET_HTML}${persistedCopyHtml}</body>`,
+            )
         : fs.readFileSync(screenPath, "utf8"),
     );
   });
@@ -473,6 +477,7 @@ test("URL-backed nested drops stay pending and root-frame Option-drag duplicates
 test("URL-backed Option-drag preserves identity and appearance across reload", async ({
   page,
 }) => {
+  persistedCopyHtml = "";
   await gotoEditor(page, designId);
   await expect(screenFrame(page, activeScreenId)).toBeVisible();
   await expect(screenFrame(page, inactiveScreenId)).toBeVisible();
@@ -558,12 +563,7 @@ test("URL-backed Option-drag preserves identity and appearance across reload", a
   const copyHtml = await inactiveFrame
     .locator(`[data-agent-native-node-id="${copyId}"]`)
     .evaluate((element) => element.outerHTML);
-  fs.writeFileSync(
-    screenPath,
-    fs
-      .readFileSync(screenPath, "utf8")
-      .replace("</body>", `    ${copyHtml}\n</body>`),
-  );
+  persistedCopyHtml = `    ${copyHtml}\n`;
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(screenFrame(page, activeScreenId)).toBeVisible({
     timeout: 30_000,
@@ -579,11 +579,21 @@ test("URL-backed Option-drag preserves identity and appearance across reload", a
   await expect(
     reloadedInactive.locator(`[data-agent-native-node-id="${copyId}"]`),
   ).toHaveCount(1);
+  await expect(
+    reloadedInactive.locator(`[data-agent-native-node-id="${copyId}"]`),
+  ).toHaveCSS("background-color", sourceAppearance.backgroundColor);
+  await expect(
+    reloadedInactive.locator(`[data-agent-native-node-id="${copyId}"]`),
+  ).toHaveCSS("width", sourceAppearance.width);
+  await expect(
+    reloadedInactive.locator(`[data-agent-native-node-id="${copyId}"]`),
+  ).toHaveCSS("height", sourceAppearance.height);
 });
 
 test("URL-backed Option-drag refuses the drop when Typed OM is unavailable", async ({
   page,
 }) => {
+  persistedCopyHtml = "";
   await page.addInitScript(() => {
     Object.defineProperty(Element.prototype, "computedStyleMap", {
       configurable: true,

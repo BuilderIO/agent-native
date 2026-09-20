@@ -304,8 +304,8 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
     "uses the same-document fallback when the probe iframe has no readable document",
     { timeout: 30_000 },
     async () => {
-      const html = `<!doctype html><html><head><style>button{background-color:teal}</style></head><body style="margin:0">
-        <button data-agent-native-node-id="btn">Click</button>
+      const html = `<!doctype html><html><head><style>div{background-color:teal}</style></head><body style="margin:0;color:rgb(128, 0, 128);font-family:Courier New">
+        <div data-agent-native-node-id="btn">Click</div>
       </body></html>`;
       const capture = await portableStyleSnapshotWithIframeProbe(
         html,
@@ -316,6 +316,7 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
 
       expect(capture.styleSnapshotCaptureFailed).toBeUndefined();
       expect(styles?.backgroundColor).toBe("rgb(0, 128, 128)");
+      expect(styles?.color).toBe("rgb(128, 0, 128)");
       expect(styles?.visibility).toBeUndefined();
       expect(styles?.pointerEvents).toBeUndefined();
     },

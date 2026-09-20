@@ -2796,7 +2796,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return false;
     }
     var portableStyleProbeDoc;
-    var portableStyleProbeUsesFallback = false;
+    var portableStyleProbeContainer;
     function portableStyleProbeDocument() {
       if (portableStyleProbeDoc !== void 0) return portableStyleProbeDoc;
       if (!document.body) return null;
@@ -2810,10 +2810,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         var probeDoc = frame.contentDocument;
         if (probeDoc) {
           portableStyleProbeDoc = probeDoc;
+          portableStyleProbeContainer = probeDoc.body;
         } else {
           frame.remove();
+          var fallbackHost = document.createElement("div");
+          fallbackHost.setAttribute(
+            "style",
+            "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;"
+          );
+          document.body.appendChild(fallbackHost);
           portableStyleProbeDoc = document;
-          portableStyleProbeUsesFallback = true;
+          portableStyleProbeContainer = fallbackHost.attachShadow({
+            mode: "open"
+          });
         }
       } catch (err) {
         frame?.remove();
@@ -2828,25 +2837,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cached = portableStyleTagDefaultsCache[cacheKey];
       if (cached) return cached;
       var probeDoc = portableStyleProbeDocument();
-      if (!probeDoc || !probeDoc.body) {
+      var probeContainer = portableStyleProbeContainer;
+      if (!probeDoc || !probeContainer) {
         dndLog("style:probe-unavailable", { tag: el.tagName });
         return null;
       }
       var probe = el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml" ? probeDoc.createElementNS(el.namespaceURI, el.tagName) : probeDoc.createElement(el.tagName);
-      if (portableStyleProbeUsesFallback) {
-        probe.setAttribute(
-          "style",
-          "all: revert !important;position: fixed !important;width: 0 !important;height: 0 !important;visibility: hidden !important;pointer-events: none !important;"
-        );
-      }
-      probeDoc.body.appendChild(probe);
+      probeContainer.appendChild(probe);
       var probeWindow = probeDoc.defaultView || window;
       var probeCs = probeWindow.getComputedStyle(probe);
       var defaults = {};
       PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
         defaults[property] = probeCs[property] || probeCs.getPropertyValue(property);
       });
-      probeDoc.body.removeChild(probe);
+      probeContainer.removeChild(probe);
       portableStyleTagDefaultsCache[cacheKey] = defaults;
       return defaults;
     }
