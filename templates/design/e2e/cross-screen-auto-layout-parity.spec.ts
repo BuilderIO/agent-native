@@ -55,6 +55,22 @@ const NESTED_DESTINATION_SCREEN = `<!doctype html>
   </body>
 </html>`;
 
+const NESTED_SOURCE_SCREEN = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#0f1115;color:#fff">
+    <section data-agent-native-node-id="source-shell" data-agent-native-layer-name="Source Shell"
+      style="position:absolute;left:80px;top:100px;width:420px;min-height:240px;padding:20px;box-sizing:border-box;background:#1f2937">
+      <section data-agent-native-node-id="nested-source-auto" data-agent-native-layer-name="Nested Source Auto"
+        style="display:flex;flex-direction:column;gap:12px;padding:16px;background:#334155">
+        <div data-agent-native-node-id="nested-source" data-agent-native-layer-name="Nested Source"
+          style="width:180px;height:40px;background:#38bdf8;color:#082f49">Source</div>
+        <div data-agent-native-node-id="nested-source-anchor" data-agent-native-layer-name="Nested Source Anchor"
+          style="width:180px;height:40px;background:#64748b;color:#f8fafc">Anchor</div>
+      </section>
+    </section>
+  </body>
+</html>`;
+
 const EMPTY_DESTINATION_SCREEN = `<!doctype html>
 <html lang="en">
   <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff"></body>
@@ -939,5 +955,122 @@ test.describe("physical cross-screen auto-layout parity", () => {
         position: "absolute",
         ...movedPosition,
       });
+  });
+
+  test("report path: nested flow source drops at an empty Screen root with exact pointer position, undo, and reload", async ({
+    page,
+  }) => {
+    const design = await createDesign(
+      page,
+      (id) =>
+        test.info().annotations.push({ type: "design-id", description: id }),
+      {
+        sourceContent: NESTED_SOURCE_SCREEN,
+        destinationContent: EMPTY_DESTINATION_SCREEN,
+        title: "cross-screen nested source empty root report",
+      },
+    );
+    await gotoEditor(page, design.id);
+    await settleScreens(page, design.sourceId, design.destinationId, {});
+
+    const destinationFrame = page.locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${design.destinationId}"]`,
+    );
+    const destinationBody = destinationFrame.contentFrame().locator("body");
+    const destinationBox = (await destinationBody.boundingBox())!;
+    const release = {
+      x: destinationBox.x + destinationBox.width * 0.64,
+      y: destinationBox.y + destinationBox.height * 0.34,
+    };
+    const sourceBefore = await fileContent(page, design.id, "index.html");
+    const destinationBefore = await fileContent(
+      page,
+      design.id,
+      "destination.html",
+    );
+    const held = await dragScreenNode(
+      page,
+      design.sourceId,
+      "nested-source",
+      release,
+      async () => {
+        expect(await fileContent(page, design.id, "index.html")).toBe(
+          sourceBefore,
+        );
+        expect(await fileContent(page, design.id, "destination.html")).toBe(
+          destinationBefore,
+        );
+      },
+    );
+    expect(held.guide).toBeGreaterThan(0);
+    expect(held.ghost).toBeGreaterThan(0);
+    expect(held.sourceVisible).toBe(true);
+
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "nested-source",
+        ),
+      )
+      .toEqual({ sourceHas: false, destinationHas: true });
+    const moved = designFrame(page, design.destinationId).locator(
+      '[data-agent-native-node-id="nested-source"]',
+    );
+    await expect(moved).toBeVisible();
+    await expect
+      .poll(async () => {
+        const box = await moved.boundingBox();
+        return box ? Math.abs(box.x + box.width / 2 - release.x) : Infinity;
+      })
+      .toBeLessThan(5);
+    await expect
+      .poll(async () => {
+        const box = await moved.boundingBox();
+        return box ? Math.abs(box.y + box.height / 2 - release.y) : Infinity;
+      })
+      .toBeLessThan(5);
+    await expect
+      .poll(() =>
+        moved.evaluate((node) => ({
+          parent: node.parentElement?.tagName,
+          position: getComputedStyle(node).position,
+        })),
+      )
+      .toEqual({ parent: "BODY", position: "absolute" });
+
+    await page.keyboard.press(`${PRIMARY}+z`);
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "nested-source",
+        ),
+      )
+      .toEqual({ sourceHas: true, destinationHas: false });
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "nested-source",
+        ),
+      )
+      .toEqual({ sourceHas: false, destinationHas: true });
+    await settleReload(page);
+    await expect(
+      designFrame(page, design.destinationId).locator(
+        '[data-agent-native-node-id="nested-source"]',
+      ),
+    ).toBeVisible();
   });
 });
