@@ -803,6 +803,7 @@ import {
   OVERVIEW_ZOOM_THRESHOLD,
   STORED_RUN_LIVENESS_GRACE_MS,
 } from "./design-editor/editor-constants";
+import { shouldAcceptEditorDragStateEvent } from "./design-editor/editor-drag-state";
 import {
   buildSignInHrefForComment,
   buildSignInHrefForDesignIntent,
@@ -7316,6 +7317,8 @@ function DesignEditor() {
   const activeEditorDragScreenIdRef = useRef<string | null>(null);
   const activeEditorDragIdRef = useRef<string | null>(null);
   const retiredEditorDragIdsRef = useRef(new Set<string>());
+  const retiredEditorDragScreenIdsRef = useRef(new Set<string>());
+  const latestEditorDragEventAtRef = useRef(new Map<string, number>());
   type LayerStructurePreview = {
     sourceId: string;
     anchorId: string;
@@ -7355,24 +7358,64 @@ function DesignEditor() {
     (state: EditorDragStateChange) => {
       const dragId = state.dragId;
       const activeDragId = activeEditorDragIdRef.current;
-      if (dragId && retiredEditorDragIdsRef.current.has(dragId)) {
+      const previousScreenId = activeEditorDragScreenIdRef.current;
+      if (
+        !shouldAcceptEditorDragStateEvent(state, {
+          dragId: activeDragId,
+          retiredDragIds: retiredEditorDragIdsRef.current,
+          retiredScreenIds: retiredEditorDragScreenIdsRef.current,
+          latestEventAt: dragId
+            ? latestEditorDragEventAtRef.current.get(dragId)
+            : undefined,
+        })
+      )
         return;
+      if (dragId && typeof state.eventAt === "number") {
+        latestEditorDragEventAtRef.current.set(dragId, state.eventAt);
+        if (latestEditorDragEventAtRef.current.size > 32) {
+          const oldest = latestEditorDragEventAtRef.current.keys().next().value;
+          if (oldest) latestEditorDragEventAtRef.current.delete(oldest);
+        }
       }
-      if (!state.active && dragId && activeDragId && dragId !== activeDragId) {
-        return;
-      }
+      const screenId = state.screenId;
+      const retiredScreenClear =
+        state.active &&
+        dragId === activeDragId &&
+        screenId &&
+        retiredEditorDragScreenIdsRef.current.has(screenId) &&
+        state.preview?.phase === "clear";
       if (state.active && dragId && activeDragId && dragId !== activeDragId) {
         retiredEditorDragIdsRef.current.add(activeDragId);
+        retiredEditorDragScreenIdsRef.current.clear();
         if (retiredEditorDragIdsRef.current.size > 32) {
           const oldest = retiredEditorDragIdsRef.current.values().next().value;
           if (oldest) retiredEditorDragIdsRef.current.delete(oldest);
         }
       }
+      if (
+        state.active &&
+        dragId &&
+        dragId === activeDragId &&
+        previousScreenId &&
+        screenId &&
+        previousScreenId !== screenId
+      ) {
+        retiredEditorDragScreenIdsRef.current.add(previousScreenId);
+      }
       if (state.active && dragId) activeEditorDragIdRef.current = dragId;
       if (!state.active) activeEditorDragIdRef.current = null;
-      const previousScreenId = activeEditorDragScreenIdRef.current;
+      if (!state.active) retiredEditorDragScreenIdsRef.current.clear();
+      if (retiredScreenClear && screenId) {
+        retiredEditorDragScreenIdsRef.current.delete(screenId);
+        setLayerStructurePreviewByFileId((current) => {
+          if (!current[screenId]) return current;
+          const next = { ...current };
+          delete next[screenId];
+          return next;
+        });
+        return;
+      }
       activeEditorDragRef.current = state.active;
-      const screenId = state.screenId;
       activeEditorDragScreenIdRef.current = state.active
         ? (screenId ?? null)
         : null;

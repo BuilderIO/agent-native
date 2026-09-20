@@ -524,6 +524,8 @@ test.describe("Layers-panel auto-layout parity", () => {
   }) => {
     const design = await createDesign(request, false, CANVAS_FLOW_DRAG_FIXTURE);
     try {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
       await gotoEditor(page, design.id);
       await expandAllLayers(page);
       await expect(layerButton(page, "Flow child")).toBeVisible();
@@ -554,6 +556,13 @@ test.describe("Layers-panel auto-layout parity", () => {
             original,
           );
           expect(await parentId(page, "flow-child")).toBe("flow-origin");
+          await page.mouse.move(bodyBox.x - 80, bodyBox.y + 80, { steps: 4 });
+          await page.waitForTimeout(80);
+          await page.mouse.move(bodyBox.x + 420, bodyBox.y + 300, {
+            steps: 4,
+          });
+          await page.waitForTimeout(120);
+          expect(pageErrors).toEqual([]);
         },
       );
       await expect.poll(() => panelParentName(page, "Flow child")).toBe("Home");

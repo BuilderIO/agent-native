@@ -523,6 +523,7 @@ export type EditorDragStateChange = {
   active: boolean;
   screenId?: string;
   dragId?: string;
+  eventAt?: number;
   preview?: {
     phase: "preview" | "clear";
     sourceId?: string;
@@ -3716,6 +3717,8 @@ export function DesignCanvas({
           screenId:
             typeof e.data.screenId === "string" ? e.data.screenId : undefined,
           dragId: typeof e.data.dragId === "string" ? e.data.dragId : undefined,
+          eventAt:
+            typeof e.data.eventAt === "number" ? e.data.eventAt : undefined,
           preview:
             e.data.preview && typeof e.data.preview === "object"
               ? {

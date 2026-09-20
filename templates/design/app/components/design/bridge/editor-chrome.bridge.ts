@@ -5853,6 +5853,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         active,
         screenId: designCanvasScreenId,
         dragId: activeEditorDragId || undefined,
+        eventAt:
+          typeof performance !== "undefined" &&
+          typeof performance.timeOrigin === "number" &&
+          typeof performance.now === "function"
+            ? performance.timeOrigin + performance.now()
+            : Date.now(),
         preview,
       },
       "*",

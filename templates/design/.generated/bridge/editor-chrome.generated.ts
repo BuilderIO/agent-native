@@ -4692,6 +4692,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           active,
           screenId: designCanvasScreenId,
           dragId: activeEditorDragId || void 0,
+          eventAt: typeof performance !== "undefined" && typeof performance.timeOrigin === "number" && typeof performance.now === "function" ? performance.timeOrigin + performance.now() : Date.now(),
           preview
         },
         "*"
