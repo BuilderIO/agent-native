@@ -53,6 +53,7 @@ export interface ScreenElementSelectArgs {
   getScreenContent: (screenId: string) => string;
   handleBreakpointBarSelect: (widthPx: number | undefined) => void;
   id: string | undefined;
+  liveScreenIds?: ReadonlySet<string>;
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
   pendingOverviewScreenSelectionRef: RefObject<string | null>;
   renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
@@ -86,6 +87,7 @@ export function runScreenElementSelect(
     getScreenContent,
     handleBreakpointBarSelect,
     id,
+    liveScreenIds,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
     renderedElementInfoByLayerKeyRef,
@@ -181,6 +183,7 @@ export function runScreenElementSelect(
   const pendingNodeId = (canonical as { pendingNodeId?: string }).pendingNodeId;
   if (
     options.persistPendingNodeId !== false &&
+    !(liveScreenIds?.has(screenId) ?? false) &&
     !isScreenRootElementInfo(canonical) &&
     pendingNodeId &&
     !canonical.sourceId &&
@@ -236,6 +239,7 @@ export function runScreenElementSelect(
     }
   } else if (
     options.persistPendingNodeId !== false &&
+    !(liveScreenIds?.has(screenId) ?? false) &&
     // Fallback sweep: an element the bridge didn't mint a pendingNodeId
     // for (older bridge instance, or a node resolved only through the
     // host's own projection) but that still lacks a stable id per the

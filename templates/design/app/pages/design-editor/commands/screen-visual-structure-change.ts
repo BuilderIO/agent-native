@@ -1,9 +1,9 @@
-import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
@@ -135,8 +135,10 @@ export function runScreenVisualStructureChange(
   const overviewScreen = overviewScreens.find(
     (screen) => screen.id === screenId,
   );
-  const screenSourceType =
-    normalizeDesignSourceType(overviewScreen?.sourceType) ?? designSourceType;
+  const screenSourceType = resolveOverviewScreenSourceType(
+    overviewScreen,
+    designSourceType,
+  );
   const screenFile = {
     ...activeFile,
     id: screenId,

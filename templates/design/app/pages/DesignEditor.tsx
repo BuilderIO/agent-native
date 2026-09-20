@@ -1042,6 +1042,7 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
+import { usePublicVisualEditAccess } from "./design-editor/use-public-visual-edit-access";
 import {
   VisualEditWebMcp,
   hasNativeWebMcpHost,
@@ -3879,122 +3880,15 @@ function DesignEditor() {
       designAccessRole === "editor" ||
       designAccessRole === "commenter");
   const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
-  const visualEditAccessAttemptRef = useRef<string | null>(null);
-  const visualEditCanEditRef = useRef<boolean | null>(null);
-  const visualEditAccessRequestRef = useRef(0);
-  const visualEditBootstrapRetryCountRef = useRef(0);
-  const [visualEditBootstrapRetryTick, setVisualEditBootstrapRetryTick] =
-    useState(0);
-  const [visualEditBootstrapFailed, setVisualEditBootstrapFailed] =
-    useState(false);
-
-  useEffect(() => {
-    const previousCanEdit = visualEditCanEditRef.current;
-    visualEditCanEditRef.current = canEditDesign;
-    let active = true;
-    let retryTimeout: number | undefined;
-
-    // Wait for the server-backed design result. It is the authority for both
-    // signed-in editor access and the scoped visual-edit capability ticket.
-    if (
-      !isVisualEditSurface ||
-      !id ||
-      !sessionResolved ||
-      shellMode ||
-      (designResult === undefined && !designQueryFailed)
-    ) {
-      return () => {
-        active = false;
-      };
-    }
-    if (designQueryFailed && designResult === undefined) {
-      visualEditAccessAttemptRef.current = null;
-      setVisualEditBootstrapFailed(true);
-      return () => {
-        active = false;
-      };
-    }
-    if (canEditDesign) {
-      visualEditAccessAttemptRef.current = null;
-      visualEditBootstrapRetryCountRef.current = 0;
-      setVisualEditBootstrapFailed(false);
-      visualEditAccessRequestRef.current += 1;
-      return () => {
-        active = false;
-      };
-    }
-    if (
-      previousCanEdit === false &&
-      visualEditAccessAttemptRef.current !== null
-    ) {
-      return () => {
-        active = false;
-      };
-    }
-
-    visualEditAccessAttemptRef.current = id;
-    const requestId = ++visualEditAccessRequestRef.current;
-    setVisualEditBootstrapFailed(false);
-    void callAction<{ startUrl?: string }>("issue-visual-edit-access", {
-      designId: id,
-    })
-      .then((result) => {
-        if (!active || visualEditAccessRequestRef.current !== requestId) {
-          return;
-        }
-        if (!result?.startUrl) {
-          throw new Error("Visual-edit access did not return a start URL.");
-        }
-        window.location.replace(
-          new URL(result.startUrl, window.location.href).toString(),
-        );
-      })
-      .catch(() => {
-        if (
-          active &&
-          visualEditAccessRequestRef.current === requestId &&
-          visualEditAccessAttemptRef.current === id
-        ) {
-          visualEditAccessAttemptRef.current = null;
-          setVisualEditBootstrapFailed(true);
-          if (visualEditBootstrapRetryCountRef.current < 1) {
-            visualEditBootstrapRetryCountRef.current += 1;
-            retryTimeout = window.setTimeout(() => {
-              if (
-                active &&
-                visualEditAccessRequestRef.current === requestId &&
-                visualEditAccessAttemptRef.current === null
-              ) {
-                setVisualEditBootstrapRetryTick((tick) => tick + 1);
-              }
-            }, 1000);
-          }
-        }
-      });
-    return () => {
-      active = false;
-      if (retryTimeout !== undefined) {
-        window.clearTimeout(retryTimeout);
-      }
-      if (visualEditAccessRequestRef.current === requestId) {
-        visualEditAccessRequestRef.current += 1;
-        if (visualEditAccessAttemptRef.current === id) {
-          visualEditAccessAttemptRef.current = null;
-        }
-      }
-    };
-  }, [
+  const showVisualEditAccessFailureBanner = usePublicVisualEditAccess({
     canEditDesign,
     designQueryFailed,
-    designResult,
+    designResultReady: designResult !== undefined,
     id,
     isVisualEditSurface,
     sessionResolved,
     shellMode,
-    visualEditBootstrapRetryTick,
-  ]);
-  const showVisualEditAccessFailureBanner =
-    isVisualEditSurface && visualEditBootstrapFailed;
+  });
 
   const reviewResult = useReviewComments(
     {
@@ -8781,6 +8675,19 @@ function DesignEditor() {
     activeOverviewScreen,
     designSourceType,
   );
+  const liveScreenIds = useMemo(
+    () =>
+      new Set(
+        overviewScreens
+          .filter(
+            (screen) =>
+              resolveOverviewScreenSourceType(screen, designSourceType) ===
+              "localhost",
+          )
+          .map((screen) => screen.id),
+      ),
+    [designSourceType, overviewScreens],
+  );
   // P4: arms DesignCanvas's single-screen click-to-place overlay only while
   // focused on a single screen with an active creation tool selected —
   // `null` in every other case leaves the overlay unmounted (see
@@ -11635,6 +11542,7 @@ function DesignEditor() {
             getScreenContent,
             handleBreakpointBarSelect,
             id,
+            liveScreenIds,
             pendingOverviewLayerSelectionRef,
             pendingOverviewScreenSelectionRef,
             renderedElementInfoByLayerKeyRef,
@@ -11682,6 +11590,7 @@ function DesignEditor() {
       getScreenContent,
       handleBreakpointBarSelect,
       id,
+      liveScreenIds,
       maybeShowDeepSelectGuidance,
       rehydrateRenderedInfoAfterPreview,
       selectedLayerIdsState,
@@ -12874,10 +12783,12 @@ function DesignEditor() {
       const sourceFile = files.find((file) => file.id === screenId);
       const sourceType = isBoardFile(sourceFile?.filename ?? "")
         ? "inline"
-        : (normalizeDesignSourceType(screen?.sourceType) ??
-          (screenId === activeFile?.id
-            ? activeCanvasSourceType
-            : designSourceType));
+        : resolveOverviewScreenSourceType(
+            screen,
+            screenId === activeFile?.id
+              ? activeCanvasSourceType
+              : designSourceType,
+          );
       if (isRunningAppSourceType(sourceType)) {
         const pendingUndoGestureId =
           changes.length > 1
@@ -22256,6 +22167,7 @@ function DesignEditor() {
           codeLayerOwnerByNodeId,
           effectiveCodeLayerState,
           files,
+          liveScreenIds,
           getFreshActiveContent,
           getScreenContent,
           overviewScreens,
@@ -22282,6 +22194,7 @@ function DesignEditor() {
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
       files,
+      liveScreenIds,
       getFreshActiveContent,
       getScreenContent,
       overviewScreens,
@@ -22960,10 +22873,10 @@ function DesignEditor() {
           ? activeBreakpointWidthState === undefined
           : activeBreakpointWidthState === breakpointWidthPx);
       const screenContent = getScreenContent(screen.id);
-      const screenSourceType =
-        normalizeDesignSourceType(screen.sourceType) ??
-        metadata.source ??
-        designSourceType;
+      const screenSourceType = resolveOverviewScreenSourceType(
+        screen,
+        metadata.source ?? designSourceType,
+      );
       const screenBridgeUrl = screen.bridgeUrl;
       const screenPreviewToken =
         "previewToken" in screen && typeof screen.previewToken === "string"
@@ -25799,6 +25712,10 @@ function DesignEditor() {
                       (designAccessRole === "viewer" ||
                         designAccessRole === "commenter"))) && (
                     <ReadOnlyDesignBanner
+                      hideInVisualEditBootstrap={
+                        isVisualEditSurface &&
+                        !showVisualEditAccessFailureBanner
+                      }
                       pinMode={pinMode}
                       onCommentPin={
                         !hostOwnsChrome && canCommentDesign

@@ -106,6 +106,7 @@ export interface LayerMoveArgs {
   >;
   effectiveCodeLayerState: EffectiveCodeLayerState;
   files: DesignFile[];
+  liveScreenIds?: ReadonlySet<string>;
   overviewScreens?: readonly OverviewScreen[];
   overviewSelectedScreenIds?: string[];
   contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
@@ -400,6 +401,7 @@ export function runLayerMove(
     codeLayerOwnerByNodeId,
     effectiveCodeLayerState,
     files,
+    liveScreenIds,
     getFreshActiveContent,
     getScreenContent,
     handleLayerMoveToScreen,
@@ -472,15 +474,28 @@ export function runLayerMove(
     intent.draggedIds.length === 1
       ? codeLayerOwnerByNodeId.get(intent.draggedIds[0]!)
       : undefined;
-  if (targetOwner.runtimeOnly || runtimeDraggedOwner?.runtimeOnly) {
+  const targetScreenIsLive = liveScreenIds?.has(targetOwner.fileId) ?? false;
+  const sourceScreenIsLive = Boolean(
+    runtimeDraggedOwner &&
+    (liveScreenIds?.has(runtimeDraggedOwner.fileId) ?? false),
+  );
+  if (
+    targetOwner.runtimeOnly ||
+    runtimeDraggedOwner?.runtimeOnly ||
+    targetScreenIsLive ||
+    sourceScreenIsLive
+  ) {
     if (!runtimeDraggedOwner) {
       return;
     }
     const executionMode = resolveRuntimeStructureMoveExecutionMode({
-      subjectRuntimeOnly: runtimeDraggedOwner.runtimeOnly,
-      targetRuntimeOnly: targetOwner.runtimeOnly,
+      subjectRuntimeOnly: runtimeDraggedOwner.runtimeOnly || sourceScreenIsLive,
+      targetRuntimeOnly: targetOwner.runtimeOnly || targetScreenIsLive,
       sourceScreenId: runtimeDraggedOwner.fileId,
       targetScreenId: targetOwner.fileId,
+      sourceScreenIsBoard:
+        Boolean(boardFileId) && runtimeDraggedOwner.fileId === boardFileId,
+      targetScreenIsLive,
     });
     if (executionMode === "screen-bridge") {
       // Keep the existing fast, optimistic in-iframe path when one

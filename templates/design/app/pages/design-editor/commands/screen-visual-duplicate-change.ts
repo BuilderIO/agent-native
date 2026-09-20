@@ -1,8 +1,5 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
-import {
-  isRunningAppSourceType,
-  normalizeDesignSourceType,
-} from "@shared/source-mode";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import { toast } from "sonner";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -21,6 +18,7 @@ import { isCodeLayerNodeOrDescendant } from "@/pages/design-editor/commands/visu
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { GeometryHistorySelection } from "@/pages/design-editor/history";
 import { captureHistorySelectionSources } from "@/pages/design-editor/history-identity";
+import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
@@ -129,8 +127,10 @@ export function runScreenVisualDuplicateChange(
   const overviewScreen = overviewScreens.find(
     (screen) => screen.id === screenId,
   );
-  const screenSourceType =
-    normalizeDesignSourceType(overviewScreen?.sourceType) ?? designSourceType;
+  const screenSourceType = resolveOverviewScreenSourceType(
+    overviewScreen,
+    designSourceType,
+  );
   if (isRunningAppSourceType(screenSourceType)) {
     recordPendingLiveStructureEdit(
       screenId,

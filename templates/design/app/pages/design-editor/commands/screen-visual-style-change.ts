@@ -1,6 +1,5 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
-import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { RefObject } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -12,7 +11,10 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
-import { applyScopedVisualStyleEdit } from "@/pages/design-editor/pending-edits";
+import {
+  applyScopedVisualStyleEdit,
+  resolveOverviewScreenSourceType,
+} from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface ScreenVisualStyleChangeArgs {
@@ -102,8 +104,10 @@ export function runScreenVisualStyleChange(
   const overviewScreen = overviewScreens.find(
     (screen) => screen.id === screenId,
   );
-  const screenSourceType =
-    normalizeDesignSourceType(overviewScreen?.sourceType) ?? designSourceType;
+  const screenSourceType = resolveOverviewScreenSourceType(
+    overviewScreen,
+    designSourceType,
+  );
   if (screenSourceType === "localhost") {
     recordPendingVisualStyleEdit(
       screenId,

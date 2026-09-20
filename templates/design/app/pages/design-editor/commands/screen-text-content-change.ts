@@ -4,7 +4,6 @@ import {
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
-import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -26,6 +25,7 @@ import type {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
+import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
   DesignFile,
@@ -137,8 +137,10 @@ export function runScreenTextContentChange(
   const overviewScreen = overviewScreens.find(
     (screen) => screen.id === screenId,
   );
-  const screenSourceType =
-    normalizeDesignSourceType(overviewScreen?.sourceType) ?? designSourceType;
+  const screenSourceType = resolveOverviewScreenSourceType(
+    overviewScreen,
+    designSourceType,
+  );
   if (screenSourceType === "localhost") {
     recordPendingLiveTextEdit(screenId, selector, value, elementInfo, details);
     setActiveFileId(screenId);

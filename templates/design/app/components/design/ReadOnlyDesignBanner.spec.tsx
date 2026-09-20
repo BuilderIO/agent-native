@@ -67,4 +67,14 @@ describe("ReadOnlyDesignBanner", () => {
       container.querySelector("button")?.getAttribute("aria-pressed"),
     ).toBe("true");
   });
+
+  it("hides while a visual-edit capability is bootstrapping", () => {
+    act(() => {
+      root.render(<ReadOnlyDesignBanner hideInVisualEditBootstrap />);
+    });
+
+    expect(
+      container.querySelector("[data-read-only-design-banner]"),
+    ).toBeNull();
+  });
 });

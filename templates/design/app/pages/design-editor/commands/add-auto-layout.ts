@@ -5,7 +5,6 @@ import type {
   WrapNodeSizeHint,
 } from "@shared/code-layer";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
-import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -24,6 +23,7 @@ import {
   authoredPxLength,
   inferAutoLayoutFromChildren,
 } from "@/pages/design-editor/layout-operations";
+import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import {
   enableInlineScreenAutoLayout,
   getRuntimeScreenAutoLayoutSubjectIds,
@@ -162,8 +162,10 @@ export function runAddAutoLayout({
       (candidate) => candidate.id === screenId,
     );
     if (!screen) return;
-    const screenSourceType =
-      normalizeDesignSourceType(screen.sourceType) ?? designSourceType;
+    const screenSourceType = resolveOverviewScreenSourceType(
+      screen,
+      designSourceType,
+    );
 
     if (screenSourceType === "localhost") {
       const snapshot = runtimeLayerSnapshotsById[screenId];
