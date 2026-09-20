@@ -9917,6 +9917,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       pan,
       canvasZoom,
     );
+    const visibleViewport = getOverscannedViewportCanvasBounds(
+      surfaceSize,
+      pan,
+      canvasZoom,
+      0,
+    );
     const candidates = canvasFrames.map(({ screen, metadata, geometry }) => ({
       id: screen.id,
       geometry: getResponsiveScreenCullGeometry(screen, geometry, (widthPx) => {
@@ -9938,6 +9944,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const next = computeBoundedScreenCullState({
       candidates,
       viewport,
+      visibleViewport,
       protectedScreenIds: protectedLiveScreenIds,
       previousLiveScreenIds: liveScreenIdsRef.current,
       everVisibleScreenIds: hasBeenVisibleScreenIdsRef.current,
