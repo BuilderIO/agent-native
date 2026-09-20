@@ -132,6 +132,7 @@ describe("inline grid structure changes", () => {
         gridDisplacements: [
           {
             sourceId: "c",
+            selector: '[data-agent-native-node-id="c"]',
             placement: { column: 2, columnEnd: 4, row: 1, rowEnd: 2 },
           },
         ],

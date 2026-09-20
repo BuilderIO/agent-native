@@ -340,7 +340,10 @@ export function runVisualStructureChange(
   if (details?.gridDisplacements) {
     for (const displaced of details.gridDisplacements) {
       const target = displaced.sourceId
-        ? { nodeId: displaced.sourceId }
+        ? {
+            nodeId: displaced.sourceId,
+            ...(displaced.selector ? { selector: displaced.selector } : {}),
+          }
         : displaced.selector
           ? { selector: displaced.selector }
           : null;
