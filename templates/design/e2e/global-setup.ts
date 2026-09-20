@@ -1,10 +1,12 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { createDbExec } from "@agent-native/core/db";
 import { chromium, type FullConfig } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
+import { designE2eRunRoot } from "./global-teardown";
 
 /**
  * Global setup: authenticate a test user (email/password; there is no dev auth
@@ -32,6 +34,73 @@ const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   `pglite:${path.join(import.meta.dirname, "..", "data", "e2e-pglite")}`;
+const LOOPBACK_READINESS_TIMEOUT_MS = 10_000;
+const LOOPBACK_READINESS_RETRY_MS = 50;
+
+async function startLoopbackProvider(port: number): Promise<void> {
+  const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
+  if (!runRoot) throw new Error("loopback provider requires an E2E run root");
+  const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      "tsx/esm",
+      path.join(import.meta.dirname, "loopback-design-provider.ts"),
+    ],
+    {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        E2E_LOOPBACK_PORT: String(port),
+      },
+    },
+  );
+  let spawnError: Error | undefined;
+  child.once("error", (error) => {
+    spawnError = error;
+  });
+  if (!child.pid) throw new Error("loopback provider did not start");
+  await mkdir(path.dirname(loopbackPidPath), { recursive: true });
+  await writeFile(loopbackPidPath, String(child.pid));
+  const deadline = Date.now() + LOOPBACK_READINESS_TIMEOUT_MS;
+  let lastError: unknown;
+  try {
+    while (Date.now() < deadline) {
+      if (spawnError) throw spawnError;
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${port}/v1/models` /* e2e-harness-ignore: allocated provider port, not Design base URL */,
+          {
+            signal: AbortSignal.timeout(250),
+          },
+        );
+        if (response.ok) {
+          child.unref();
+          return;
+        }
+        lastError = new Error(`HTTP ${response.status}`);
+      } catch (error) {
+        lastError = error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, LOOPBACK_READINESS_RETRY_MS),
+      );
+    }
+    const detail =
+      lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(
+      `loopback provider did not become ready on port ${port}: ${detail}`,
+    );
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill();
+    }
+    await rm(loopbackPidPath, { force: true });
+    throw error;
+  }
+}
 
 /**
  * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
@@ -300,6 +369,8 @@ async function seedMentionMember(
 }
 
 export default async function globalSetup(config: FullConfig) {
+  if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1")
+    await startLoopbackProvider(config.metadata.sidebarLoopbackPort as number);
   const baseURL =
     (config.projects[0]?.use?.baseURL as string | undefined) ?? e2eBaseURL();
   await mkdir(AUTH_DIR, { recursive: true });

@@ -405,6 +405,8 @@ interface EditPanelProps {
   >;
   /** Server revision for activeContent. */
   activeFileUpdatedAt?: string | null;
+  /** Current hashes for every HTML file when a linked component edit spans Screens. */
+  componentExpectedFiles?: Array<{ fileId: string; versionHash: string }>;
   /**
    * Every file's content in the current design (all screens, not just the
    * active one) — used to compute the document-wide "Document colors"
@@ -2471,6 +2473,7 @@ export const EditPanel = memo(function EditPanel({
   activeContent,
   pendingInteractionStateStyles,
   activeFileUpdatedAt,
+  componentExpectedFiles,
   files,
   designId,
   onComponentPropApplied,
@@ -3114,6 +3117,7 @@ export const EditPanel = memo(function EditPanel({
                   }
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFileUpdatedAt}
+                  expectedFiles={componentExpectedFiles}
                   componentDetailsReady={componentDetailsReady}
                   nodeId={componentNodeId}
                   runtime={componentRuntime}

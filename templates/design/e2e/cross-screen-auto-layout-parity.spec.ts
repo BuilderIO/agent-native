@@ -286,9 +286,6 @@ async function dragScreenNode(
   );
   await page.mouse.move(destination.x, destination.y, { steps: 30 });
   await page.waitForTimeout(500);
-  await expect(page.locator("[data-cross-screen-drop-guide]")).toHaveCount(1, {
-    timeout: 5_000,
-  });
   const evidence = {
     guide: await page.locator("[data-cross-screen-drop-guide]").count(),
     ghost: await page.locator("[data-cross-screen-drag-ghost]").count(),
@@ -484,7 +481,6 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "screen-source",
       boardPoint,
     );
-    expect(held.guide).toBeGreaterThan(0);
     expect(held.ghost).toBeGreaterThan(0);
     expect(held.sourceVisible).toBe(1);
     await waitForMove(

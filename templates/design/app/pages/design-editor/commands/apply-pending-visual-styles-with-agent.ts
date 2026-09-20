@@ -23,12 +23,13 @@ import type {
 } from "@/pages/design-editor/pending-edits";
 import {
   buildPendingVisualStyleRevertPatches,
+  pendingLiveStructureEditsFromEdit,
   pendingStructureEditSourcePaths,
 } from "@/pages/design-editor/pending-edits";
 import {
   partitionPendingStructuresRuntime,
   type RuntimeStructureVerificationFailure,
-  verifyPendingStructureRuntime,
+  verifyPendingStructuresRuntime,
 } from "@/pages/design-editor/pending-structure-verification";
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
@@ -335,7 +336,10 @@ export async function runApplyPendingVisualStylesWithAgent({
               .map((edit) => {
                 const snapshot = runtimeSnapshots[edit.screenId];
                 return snapshot
-                  ? verifyPendingStructureRuntime(snapshot.html, edit)
+                  ? verifyPendingStructuresRuntime(
+                      { [edit.screenId]: snapshot },
+                      pendingLiveStructureEditsFromEdit(edit),
+                    )
                   : undefined;
               })
               .find((result) => result && !result.ok);
@@ -353,13 +357,15 @@ export async function runApplyPendingVisualStylesWithAgent({
                 (edit) => edit.kind !== "structure" || !verifiedSet.has(edit),
               ),
             );
-            const structureAcks = runtimeResult.verified
-              .filter((edit) => Boolean(edit.requestId))
-              .map((edit) => ({
-                screenId: edit.screenId,
-                requestId: edit.requestId!,
-                applied: true,
-              }));
+            const structureAcks = runtimeResult.verified.flatMap((edit) =>
+              pendingLiveStructureEditsFromEdit(edit)
+                .filter((member) => Boolean(member.requestId))
+                .map((member) => ({
+                  screenId: member.screenId,
+                  requestId: member.requestId!,
+                  applied: true,
+                })),
+            );
             if (structureAcks.length > 0) {
               setPendingStructureAckRequest({
                 requestId: Date.now() + Math.random(),

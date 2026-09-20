@@ -19,20 +19,12 @@ import {
 
 import { getAppConfig } from "../app-config/index.js";
 import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
-import {
-  addSession,
-  getSession,
-  getSessionMaxAge,
-  hasLegacySessionForEmail,
-  safeReturnPath,
-  setFirstRunOnboardingCookie,
-  setFrameworkSessionCookie,
-} from "./auth.js";
 import {
   getBetterAuthUserIdForEmail,
   hasBetterAuthUserEmail,
@@ -55,6 +47,10 @@ import {
   WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
 } from "./origin-allowlist.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
+
+function safeReturnPath(raw: string | null | undefined): string {
+  return normalizeAppPath(raw) ?? "/";
+}
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -932,6 +928,7 @@ export async function resolveOAuthOwner(
   event: H3Event,
   stateOwner?: string,
 ): Promise<OAuthOwnerResult> {
+  const { getSession } = await import("./auth.js");
   const existingSession = await getSession(event);
   const hasProductionSession = !!existingSession?.email;
   const owner = hasProductionSession
@@ -982,6 +979,13 @@ export async function createOAuthSession(
     };
   },
 ): Promise<OAuthSessionResult> {
+  const {
+    addSession,
+    getSessionMaxAge,
+    hasLegacySessionForEmail,
+    setFirstRunOnboardingCookie,
+    setFrameworkSessionCookie,
+  } = await import("./auth.js");
   // A native callback can arrive through a browser whose callback request
   // user-agent does not identify as mobile. Prefer the signed flow intent and
   // retain UA detection for ordinary mobile web sign-ins.

@@ -4,6 +4,7 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 
 import { chromium, type Browser } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1119,7 +1120,73 @@ describe("design connect bridge endpoints", () => {
         `<script type="importmap" data-agent-native-opaque-preview-imports>`,
       );
       expect(html.body).toContain("data-agent-native-opaque-preview-auth");
+      expect(html.body).toContain("var W=window.WebSocket");
+      expect(html.body).toContain('a.protocol==="ws:"||a.protocol==="wss:"');
+      expect(html.body).toContain('a.searchParams.has("previewToken")');
       expect(html.body).toContain(bridge.previewToken);
+      const authScript = html.body.match(
+        /<script data-agent-native-opaque-preview-auth>([\s\S]*?)<\/script>/,
+      )?.[1];
+      if (!authScript) throw new Error("missing preview auth shim");
+      const socketUrls: string[] = [];
+      function FakeWebSocket(url: string) {
+        socketUrls.push(url);
+      }
+      FakeWebSocket.prototype = {};
+      const iframeUrls: string[] = [];
+      const nodePrototype = {
+        appendChild: (node: unknown) => node,
+      };
+      const xhrPrototype = { open: () => undefined };
+      const windowObject = {
+        fetch: () => undefined,
+        WebSocket: FakeWebSocket,
+      };
+      vm.runInNewContext(authScript, {
+        window: windowObject,
+        document: { baseURI: `${base}/live-edit` },
+        Node: { prototype: nodePrototype },
+        XMLHttpRequest: { prototype: xhrPrototype },
+        URL,
+      });
+      const sameOriginIframe = {
+        nodeType: 1,
+        tagName: "IFRAME",
+        value: `${base}/nested-preview`,
+        getAttribute(name: string) {
+          return name === "src" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "src") {
+            this.value = value;
+            iframeUrls.push(value);
+          }
+        },
+      };
+      nodePrototype.appendChild(sameOriginIframe);
+      expect(iframeUrls).toEqual([
+        `${base}/nested-preview?previewToken=${bridge.previewToken}`,
+      ]);
+      const externalIframe = {
+        ...sameOriginIframe,
+        value: "https://external.example/nested-preview",
+      };
+      nodePrototype.appendChild(externalIframe);
+      expect(iframeUrls).toHaveLength(1);
+      new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
+        `ws://${new URL(base).host}/hmr`,
+      );
+      new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
+        "wss://external.example/hmr",
+      );
+      new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
+        `ws://${new URL(base).host}/hmr?previewToken=${bridge.previewToken}`,
+      );
+      expect(socketUrls).toEqual([
+        `ws://${new URL(base).host}/hmr?previewToken=${bridge.previewToken}`,
+        "wss://external.example/hmr",
+        `ws://${new URL(base).host}/hmr?previewToken=${bridge.previewToken}`,
+      ]);
       expect(html.body).toContain("agent-native:editor-chrome-ready");
       const previewSessionCookie = (
         Array.isArray(html.headers["set-cookie"])

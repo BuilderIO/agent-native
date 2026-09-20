@@ -44,7 +44,6 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { offboardMember } from "../identity/offboard.js";
 import { getAppProductionUrl } from "../server/app-url.js";
-import { getSession } from "../server/auth.js";
 import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
@@ -175,6 +174,11 @@ function requireAuthEmail(session: { email?: string } | null): string {
     throw createError({ statusCode: 401, message: "Authentication required" });
   }
   return email;
+}
+
+async function getSessionForEvent(event: H3Event) {
+  const { getSession } = await import("../server/auth.js");
+  return getSession(event);
 }
 
 /** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
@@ -320,7 +324,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
 /** POST /_agent-native/org/federation-removal/retry — finish self-cleanup after a failed revoke */
 export const retryPendingFederatedRemovalHandler = defineEventHandler(
   async (event: H3Event) => {
-    const session = await getSession(event);
+    const session = await getSessionForEvent(event);
     const email = requireAuthEmail(session).trim().toLowerCase();
     const body = await readBody(event);
     const orgId = typeof body?.orgId === "string" ? body.orgId.trim() : "";
@@ -471,7 +475,7 @@ export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
 
 /** POST /_agent-native/org — create a new organization */
 export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
-  const session = await getSession(event);
+  const session = await getSessionForEvent(event);
   const email = requireAuthEmail(session);
   const emailVerified = session?.emailVerified === true;
   const access = getAppConfig().access;
@@ -889,7 +893,7 @@ export const listInvitationsHandler = defineEventHandler(
 /** POST /_agent-native/org/invitations/:id/accept — accept an invitation */
 export const acceptInvitationHandler = defineEventHandler(
   async (event: H3Event) => {
-    const session = await getSession(event);
+    const session = await getSessionForEvent(event);
     const email = requireAuthEmail(session);
 
     const invitationId = extractInvitationId(event);
@@ -1445,7 +1449,7 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
 
 /** PUT /_agent-native/org/switch — switch the user's active organization */
 export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
-  const session = await getSession(event);
+  const session = await getSessionForEvent(event);
   const email = requireAuthEmail(session);
 
   const body = await readBody(event);
@@ -1487,7 +1491,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
 /** POST /_agent-native/org/join-by-domain — join an org whose allowed_domain matches your email */
 export const joinByDomainHandler = defineEventHandler(
   async (event: H3Event) => {
-    const session = await getSession(event);
+    const session = await getSessionForEvent(event);
     const email = requireAuthEmail(session);
 
     const body = await readBody(event);

@@ -158,9 +158,11 @@ approve it and never bypass that consent.
   `open-visual-edit` mints a five-minute, single-use capability for the exact
   `/visual-edit/:designId` local-editor route. The MCP host redeems it outside
   model-visible text, then opens the existing editor with localhost edit access.
+  A public `/visual-edit/:designId` route enables browser-only DOM editing of
+  localhost screens; pending changes stay in the browser until applied.
   This capability is not an account session: `/_agent-native/session` remains
   signed out, and account-backed save/share/generate actions remain denied.
-- The editor page registers a stable page-local WebMCP tool named
+- The editor page registers a page-local WebMCP tool named
   `get-visual-edit-prompt`. Call it after canvas edits to retrieve the latest
   bounded source instructions instead of copying stale chat text. It returns
   `status: "empty"` when there is nothing to apply. If a previous editor
@@ -172,11 +174,12 @@ approve it and never bypass that consent.
   WebMCP helper, not `pnpm action` in the target app. The page path works
   signed out only for loopback apps in public mode, using a short-lived
   capability-scoped principal; hosted MCP uses its normal OAuth identity.
-- Public links are always read-only, including on loopback. Loopback peer
-  identity is not an authentication boundary because a tunnel or reverse proxy
-  can make a remote request appear local. A bare `/visual-edit/:designId` or
-  `/design/:designId` URL carries no capability and must never release the
-  connection's `previewToken`.
+- Ordinary public links stay read-only, including on loopback. Public
+  `/visual-edit/:designId` is the browser-only DOM editing surface for public
+  localhost designs; it never upgrades `/design/*` links or grants server
+  writes. Loopback identity is not an authentication boundary because a tunnel
+  or proxy can make a remote request appear local. Persisted writes remain
+  role-gated.
 - The live editor is same-origin through the local bridge proxy. This boots
   CSR apps and root-relative assets, but it is still a localhost editing proxy:
   app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a

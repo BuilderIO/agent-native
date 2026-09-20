@@ -188,6 +188,7 @@ describe("AutoLayoutMatrix Flow interactions", () => {
       "fill",
     );
     expect(onChildSizingChange).toHaveBeenNthCalledWith(2, "vertical", "hug");
+    expect(onChildSizingChange).toHaveBeenCalledTimes(2);
 
     await act(async () => root.unmount());
     container.remove();
@@ -225,6 +226,7 @@ describe("AutoLayoutMatrix Flow interactions", () => {
       );
     });
 
+    expect(onGapModeChange).toHaveBeenCalledTimes(1);
     expect(onGapModeChange).toHaveBeenCalledWith("auto", "horizontal");
 
     await act(async () => root.unmount());

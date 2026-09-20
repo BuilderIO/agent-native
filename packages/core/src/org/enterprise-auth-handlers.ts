@@ -10,7 +10,6 @@ import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getAppProductionUrl } from "../server/app-url.js";
-import { getSession } from "../server/auth.js";
 import { getBetterAuth } from "../server/better-auth-instance.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getOrgContext } from "./context.js";
@@ -29,6 +28,7 @@ function requestHeaders(event: H3Event): Headers {
 }
 
 async function requireOrgAdmin(event: H3Event) {
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
   if (!session?.email) {
     throw createError({ statusCode: 401, message: "Authentication required" });

@@ -993,6 +993,44 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
   });
 
+  it("reserves live URL screen bodies for frame selection until selected", async () => {
+    const render = async (selectedScreenIds: string[] = []) => {
+      await act(async () => {
+        root.render(
+          <MultiScreenCanvas
+            screens={[
+              {
+                id: "screen-a",
+                filename: "screen-a.html",
+                content: "http://localhost:3102/library",
+                sourceType: "localhost",
+              },
+            ]}
+            zoom={100}
+            activeTool="move"
+            selectedScreenIds={selectedScreenIds}
+            geometryById={{
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            }}
+            renderScreenContent={() => (
+              <div className="design-canvas-iframe-wrapper" />
+            )}
+            onPick={() => {}}
+          />,
+        );
+      });
+    };
+
+    await render();
+    const interactiveBody = container.querySelector<HTMLElement>(
+      ".design-canvas-iframe-wrapper",
+    );
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("none");
+
+    await render(["screen-a"]);
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
+  });
+
   it("drags a selected frame from its selection outline", async () => {
     const { frame } = await renderSelectedFrame();
     const dragSurface = container.querySelector<HTMLElement>(

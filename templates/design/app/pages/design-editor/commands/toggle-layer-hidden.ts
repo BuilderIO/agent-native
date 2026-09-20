@@ -31,6 +31,7 @@ export interface ToggleLayerHiddenArgs {
     enabled: boolean,
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   codeLayerOwnerByNodeId: Map<
     string,
     {
@@ -71,6 +72,7 @@ export function runToggleLayerHidden(
     applyFileContentUpdate,
     applyLayerStatePreview,
     canEditDesign,
+    canEditLiveScreens,
     codeLayerOwnerByNodeId,
     designSourceType,
     files,
@@ -86,13 +88,13 @@ export function runToggleLayerHidden(
   layerId: string,
   hidden: boolean,
 ) {
-  if (!canEditDesign) return;
   const owner = codeLayerOwnerByNodeId.get(layerId);
   const layerScreenId =
     owner?.fileId ??
     (files.some((file) => file.id === layerId)
       ? layerId
       : (activeFile?.id ?? layerId));
+  if (!canEditDesign && !canEditLiveScreens?.has(layerScreenId)) return;
   if (hasScopedLayerState(hiddenLayerIds, layerScreenId, layerId) === hidden)
     return;
   const ownerScreen = owner
