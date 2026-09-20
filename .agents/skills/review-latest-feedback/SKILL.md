@@ -404,22 +404,16 @@ pre-existing.
 
 ### Npx and package reports have a release follow-up
 
-An npx scaffold is versioned. Record its pinned core version, the version
-current when filed, and run the exact command with a fresh npm cache and no
-local override; run the same flow on the candidate separately. Record the
-release containing the change and the existing-app path (`pnpm add
-@agent-native/core@<version>` or a hand edit).
+Npx scaffolds are versioned. Record pinned/filed versions, fresh npm cache/no
+local override, candidate result, release, and existing-app path (`pnpm add
+@agent-native/core@<version>` or hand edit).
 
-Local source/tests, beta promises, and local scaffolds are not **Shipped** or
-**Live verified**. A published pass is required for those dispositions, and a
-fresh scaffold covers only new scaffolds. A verified merged source fix is
-**Fixed** and closes the issue; record its merge commit, release version,
-verification command, and any bump/re-scaffold or hand-edit follow-up. Unknown
-old-versus-fresh or endpoint context is a release/runtime follow-up. Ask a fork
-question only if it determines source scope or needs reporter input; missing
-package/endpoint evidence does not keep a verified merged fix open. After
-publish, rerun a clean scaffold and state whether existing apps must bump
-`@agent-native/core` or re-scaffold. Merge/beta status is not npx delivery.
+Local proof, beta promises, and scaffolds are not **Shipped**/**Live verified**
+until published. A verified merged fix is **Fixed** and closes the issue. Record
+merge commit, release, verification, and bump/re-scaffold follow-up. Unknown
+package/endpoint context is a release follow-up. Ask only if source scope or
+reporter input is unclear; missing evidence does not keep a merged fix open.
+Merge/beta is not npx delivery.
 
 ### Documentation has a runnable proof obligation
 
