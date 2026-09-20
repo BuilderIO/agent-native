@@ -7313,6 +7313,9 @@ function DesignEditor() {
   const canvasBackgroundRef = useRef<string | null>(null);
   const { resolvedTheme } = useTheme();
   const activeEditorDragRef = useRef(false);
+  const activeEditorDragScreenIdRef = useRef<string | null>(null);
+  const activeEditorDragIdRef = useRef<string | null>(null);
+  const retiredEditorDragIdsRef = useRef(new Set<string>());
   type LayerStructurePreview = {
     sourceId: string;
     anchorId: string;
@@ -7350,11 +7353,45 @@ function DesignEditor() {
 
   const handleEditorDragStateChange = useCallback(
     (state: EditorDragStateChange) => {
+      const dragId = state.dragId;
+      const activeDragId = activeEditorDragIdRef.current;
+      if (dragId && retiredEditorDragIdsRef.current.has(dragId)) {
+        return;
+      }
+      if (!state.active && dragId && activeDragId && dragId !== activeDragId) {
+        return;
+      }
+      if (state.active && dragId && activeDragId && dragId !== activeDragId) {
+        retiredEditorDragIdsRef.current.add(activeDragId);
+        if (retiredEditorDragIdsRef.current.size > 32) {
+          const oldest = retiredEditorDragIdsRef.current.values().next().value;
+          if (oldest) retiredEditorDragIdsRef.current.delete(oldest);
+        }
+      }
+      if (state.active && dragId) activeEditorDragIdRef.current = dragId;
+      if (!state.active) activeEditorDragIdRef.current = null;
+      const previousScreenId = activeEditorDragScreenIdRef.current;
       activeEditorDragRef.current = state.active;
       const screenId = state.screenId;
-      if (!screenId) return;
+      activeEditorDragScreenIdRef.current = state.active
+        ? (screenId ?? null)
+        : null;
+      const screenChanged =
+        previousScreenId && previousScreenId !== (screenId ?? null);
+      if (!screenId) {
+        if (!previousScreenId) return;
+        setLayerStructurePreviewByFileId((current) => {
+          if (!current[previousScreenId]) return current;
+          const next = { ...current };
+          delete next[previousScreenId];
+          return next;
+        });
+        return;
+      }
       setLayerStructurePreviewByFileId((current) => {
         const preview = state.preview;
+        const next = screenChanged ? { ...current } : current;
+        if (screenChanged) delete next[previousScreenId];
         if (
           !state.active ||
           preview?.phase === "clear" ||
@@ -7362,13 +7399,13 @@ function DesignEditor() {
           !preview.anchorId ||
           !preview.placement
         ) {
-          if (!current[screenId]) return current;
-          const next = { ...current };
-          delete next[screenId];
-          return next;
+          if (!next[screenId]) return next;
+          const cleared = { ...next };
+          delete cleared[screenId];
+          return cleared;
         }
         return {
-          ...current,
+          ...next,
           [screenId]: {
             sourceId: preview.sourceId,
             anchorId: preview.anchorId,
@@ -7380,6 +7417,19 @@ function DesignEditor() {
     },
     [],
   );
+
+  useEffect(() => {
+    const dragScreenId = activeEditorDragScreenIdRef.current;
+    if (!dragScreenId || dragScreenId === activeFile?.id) return;
+    activeEditorDragScreenIdRef.current = null;
+    activeEditorDragRef.current = false;
+    setLayerStructurePreviewByFileId((current) => {
+      if (!current[dragScreenId]) return current;
+      const next = { ...current };
+      delete next[dragScreenId];
+      return next;
+    });
+  }, [activeFile?.id]);
 
   const cancelActiveEditorDrag = useCallback(() => {
     if (!activeEditorDragRef.current) return false;

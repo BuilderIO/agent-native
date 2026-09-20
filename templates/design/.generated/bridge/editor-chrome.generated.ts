@@ -4657,6 +4657,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var spacingOverlayRenderKey = "";
     var activeDragCancel = null;
     var activeDragStartedAt = null;
+    var editorDragIdCounter = 0;
+    var activeEditorDragId = "";
     var bridgeSpaceKeyPressed = false;
     var bridgeIgnoreAutoLayoutKeyPressed = false;
     var bridgeSpaceKeyConsumedByDrag = false;
@@ -4689,12 +4691,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           type: "agent-native:editor-drag-state",
           active,
           screenId: designCanvasScreenId,
+          dragId: activeEditorDragId || void 0,
           preview
         },
         "*"
       );
     }
     function postLayerStructurePreview(el, target) {
+      if (!target) {
+        postEditorDragState(true, { phase: "clear" });
+        return;
+      }
       var anchor = target && (target.persistenceAnchor || target.anchor);
       var placement = target && (target.persistencePlacement || target.placement);
       var sourceId = getSourceId(el);
@@ -4713,6 +4720,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
     }
     function setActiveDragCancel(cancel, startedAt) {
+      editorDragIdCounter += 1;
+      activeEditorDragId = Date.now().toString(36) + "-" + editorDragIdCounter + "-" + Math.random().toString(36).slice(2);
       activeDragCancel = cancel;
       activeDragStartedAt = typeof startedAt === "number" ? startedAt : Date.now();
       postEditorDragState(true);
@@ -4723,12 +4732,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       activeDragCancel = null;
       activeDragStartedAt = null;
       postEditorDragState(false);
+      activeEditorDragId = "";
     }
     function cancelActiveBridgeDrag() {
       var cancel = activeDragCancel;
       if (!cancel) return false;
       activeDragCancel = null;
       postEditorDragState(false);
+      activeEditorDragId = "";
       return cancel();
     }
     var MOVE_CANCEL_RACE_GRACE_MS = 200;

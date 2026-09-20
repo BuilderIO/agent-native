@@ -105,6 +105,32 @@ for (const sourceType of ["localhost", "fusion"] as const) {
 }
 
 describe("inline grid structure changes", () => {
+  it("fails closed when an explicit source id is stale", () => {
+    const applyLocalContentUpdate = vi.fn();
+    const result = runVisualStructureChange(
+      {
+        activeCanvasSourceType: "inline",
+        activeFile: { id: "active-screen" } as never,
+        applyLocalContentUpdate,
+        canEditDesign: true,
+        getFreshActiveContent: () =>
+          '<div data-agent-native-node-id="target">Target</div><div data-agent-native-node-id="anchor">Anchor</div>',
+        recordPendingLiveStructureEdit: vi.fn(),
+        setSelectedElement: vi.fn(),
+        setSelectedLayerIdsState: vi.fn(),
+        t: (key) => key,
+      },
+      '[data-agent-native-node-id="target"]',
+      '[data-agent-native-node-id="anchor"]',
+      "after",
+      undefined,
+      { sourceId: "stale-source-id", anchorSourceId: "anchor" },
+    );
+
+    expect(result).toBe(false);
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+  });
+
   it("reloads grouped placements without stale important longhands", async () => {
     const content =
       "<style>#target{display:grid;grid-template-columns:repeat(4,80px);grid-template-rows:repeat(4,60px)}</style>" +

@@ -189,10 +189,18 @@ export function runVisualStructureChange(
         sourceId: details?.sourceId ?? elementInfo.sourceId,
       }
     : null;
-  const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
-    : resolveBridgeNode(selector, details?.sourceId);
-  const anchorNode = resolveBridgeNode(anchorSelector, details?.anchorSourceId);
+  const targetNode = details?.sourceId
+    ? resolveCodeLayerNodeFromBridge(projection, undefined, details.sourceId)
+    : targetInfo
+      ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+      : resolveBridgeNode(selector, details?.sourceId);
+  const anchorNode = details?.anchorSourceId
+    ? resolveCodeLayerNodeFromBridge(
+        projection,
+        undefined,
+        details.anchorSourceId,
+      )
+    : resolveBridgeNode(anchorSelector, details?.anchorSourceId);
   if (
     (details?.sourceId && !targetNode) ||
     (details?.anchorSourceId && !anchorNode)

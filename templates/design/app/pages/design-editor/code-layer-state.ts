@@ -273,8 +273,10 @@ export function previewCodeLayerTreeMove(
   },
 ): CodeLayerTreeNode[] | null {
   let moved: CodeLayerTreeNode | null = null;
+  let anchorFound = false;
   const remove = (siblings: CodeLayerTreeNode[]): CodeLayerTreeNode[] =>
     siblings.flatMap((node) => {
+      if (node.id === args.anchorId) anchorFound = true;
       if (node.id === args.sourceId) {
         moved = node;
         return [];
@@ -283,7 +285,9 @@ export function previewCodeLayerTreeMove(
     });
   const withoutSource = remove(nodes);
   const movedNode = moved as CodeLayerTreeNode | null;
-  if (movedNode === null || movedNode.id === args.anchorId) return null;
+  if (movedNode === null || movedNode.id === args.anchorId || !anchorFound) {
+    return null;
+  }
   if (args.insert === false) return withoutSource;
 
   const insert = (siblings: CodeLayerTreeNode[]): CodeLayerTreeNode[] => {

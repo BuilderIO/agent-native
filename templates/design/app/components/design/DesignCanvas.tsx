@@ -522,6 +522,7 @@ type BridgeRegistrationAttemptResult = boolean | "stale-preview-token" | null;
 export type EditorDragStateChange = {
   active: boolean;
   screenId?: string;
+  dragId?: string;
   preview?: {
     phase: "preview" | "clear";
     sourceId?: string;
@@ -3714,6 +3715,7 @@ export function DesignCanvas({
           active: Boolean(e.data.active),
           screenId:
             typeof e.data.screenId === "string" ? e.data.screenId : undefined,
+          dragId: typeof e.data.dragId === "string" ? e.data.dragId : undefined,
           preview:
             e.data.preview && typeof e.data.preview === "object"
               ? {
