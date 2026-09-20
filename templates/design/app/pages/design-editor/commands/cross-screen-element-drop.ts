@@ -1320,11 +1320,11 @@ export function runCrossScreenElementDrop(
       targetResult.status === "fulfilled" && targetResult.value === "persisted";
     const sourceSaved =
       sourceResult.status === "fulfilled" && sourceResult.value === "persisted";
-    const retryableSave =
-      (targetResult.status === "fulfilled" &&
-        targetResult.value === "retryable") ||
-      (sourceResult.status === "fulfilled" &&
-        sourceResult.value === "retryable");
+    const targetRetryable =
+      targetResult.status === "fulfilled" && targetResult.value === "retryable";
+    const sourceRetryable =
+      sourceResult.status === "fulfilled" && sourceResult.value === "retryable";
+    const retryableSave = targetRetryable || sourceRetryable;
     const saveConflict =
       (targetResult.status === "fulfilled" &&
         targetResult.value === "conflict") ||
@@ -1348,7 +1348,7 @@ export function runCrossScreenElementDrop(
             rawDestContent,
           ),
         );
-      } else {
+      } else if (targetRetryable) {
         localRestores.push(
           restoreRetryablePublication(
             targetPublication,
@@ -1365,7 +1365,7 @@ export function runCrossScreenElementDrop(
             sourceContent,
           ),
         );
-      } else {
+      } else if (sourceRetryable) {
         localRestores.push(
           restoreRetryablePublication(
             sourcePublication,
