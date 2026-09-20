@@ -108,10 +108,50 @@ function resolveCanonicalizedRange(
 ) {
   if (docToNfm(nfmToDoc(before)) !== current) return null;
   const target = before.slice(anchor.from, anchor.to);
-  if (!target) return null;
+  if (!target)
+    return resolveCanonicalizedInsertion(before, current, anchor.from);
   const from = current.indexOf(target);
   if (from < 0 || current.indexOf(target, from + 1) >= 0) return null;
   return { from, to: from + target.length };
+}
+
+function resolveCanonicalizedInsertion(
+  before: string,
+  current: string,
+  offset: number,
+) {
+  if (offset === 0) return { from: 0, to: 0 };
+  if (offset === before.length) {
+    return { from: current.length, to: current.length };
+  }
+
+  const left = before.slice(0, offset).trimEnd();
+  const right = before.slice(offset).trimStart();
+  const leftToken = left.slice(-64);
+  const rightToken = right.slice(0, 64);
+  const leftFrom = current.indexOf(leftToken);
+  const rightFrom = current.indexOf(rightToken);
+  if (
+    !leftToken ||
+    !rightToken ||
+    leftFrom < 0 ||
+    rightFrom < 0 ||
+    current.indexOf(leftToken, leftFrom + 1) >= 0 ||
+    current.indexOf(rightToken, rightFrom + 1) >= 0
+  ) {
+    return null;
+  }
+
+  const leftBoundary = leftFrom + leftToken.length;
+  const rightBoundary = rightFrom;
+  const afterLeftText = before.slice(left.length, offset);
+  const beforeRightText = before.slice(offset, before.length - right.length);
+  if (!afterLeftText && !beforeRightText && leftBoundary !== rightBoundary) {
+    return null;
+  }
+  if (!afterLeftText) return { from: leftBoundary, to: leftBoundary };
+  if (!beforeRightText) return { from: rightBoundary, to: rightBoundary };
+  return null;
 }
 
 export function resolveMarkdownSuggestionRange(

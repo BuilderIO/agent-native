@@ -275,6 +275,32 @@ describe("resolveMarkdownSuggestionRange", () => {
     });
   });
 
+  it.each([
+    ["First paragraph.\n\nSecond paragraph.", 16, 16],
+    ["First paragraph.\n\nSecond paragraph.", 18, 17],
+  ])(
+    "maps an insertion beside canonicalized whitespace: offset=%s",
+    (saved, from, expected) => {
+      expect(
+        resolveMarkdownSuggestionRange(
+          "First paragraph.\nSecond paragraph.",
+          change(saved, from, from, "Inserted text."),
+        ),
+      ).toEqual({ from: expected, to: expected });
+    },
+  );
+
+  it("does not guess an insertion boundary inside canonicalized whitespace", () => {
+    const saved = "First paragraph.\n\nSecond paragraph.";
+    const from = saved.indexOf("\n\n") + 1;
+    expect(
+      resolveMarkdownSuggestionRange(
+        "First paragraph.\nSecond paragraph.",
+        change(saved, from, from, "Inserted text."),
+      ),
+    ).toBeNull();
+  });
+
   it("does not highlight an overlapping canonical replacement", () => {
     expect(
       resolveMarkdownSuggestionRange(
