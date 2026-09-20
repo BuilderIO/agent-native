@@ -6,10 +6,17 @@
  *
  * After first account exists, this page acts as a normal login page.
  */
-import { createRequire } from "node:module";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
-import type { AuthPageProps, AuthView } from "../client/auth/AuthPage.js";
+import {
+  AuthPage,
+  isVerificationLinkInvalid,
+  type AuthPageProps,
+  type AuthView,
+} from "../client/auth/AuthPage.js";
+import { ResetPasswordPage } from "../client/auth/ResetPasswordPage.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
   DEFAULT_LOCALE,
@@ -69,62 +76,6 @@ import {
 } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
-
-type AuthUiRuntime = {
-  AuthPage: (typeof import("../client/auth/AuthPage.js"))["AuthPage"];
-  ResetPasswordPage: (typeof import("../client/auth/ResetPasswordPage.js"))["ResetPasswordPage"];
-  isVerificationLinkInvalid: (typeof import("../client/auth/AuthPage.js"))["isVerificationLinkInvalid"];
-  createElement: (typeof import("react"))["createElement"];
-  renderToString: (typeof import("react-dom/server"))["renderToString"];
-};
-
-const authUiRequire = createRequire(import.meta.url);
-const canLoadAuthUi = (() => {
-  try {
-    authUiRequire.resolve("react");
-    authUiRequire.resolve("react-dom/server");
-    return true;
-    // coercion-ok: an unresolved optional UI dependency is represented by false.
-  } catch {
-    return false;
-  }
-})();
-
-let authUiLoadError: unknown;
-const loadedAuthUiRuntime: AuthUiRuntime | null = canLoadAuthUi
-  ? await Promise.all([
-      import("react"),
-      import("react-dom/server"),
-      import("../client/auth/AuthPage.js"),
-      import("../client/auth/ResetPasswordPage.js"),
-    ])
-      .then(([react, reactDomServer, authPage, resetPasswordPage]) => ({
-        AuthPage: authPage.AuthPage,
-        ResetPasswordPage: resetPasswordPage.ResetPasswordPage,
-        isVerificationLinkInvalid: authPage.isVerificationLinkInvalid,
-        createElement: react.createElement,
-        renderToString: reactDomServer.renderToString,
-      }))
-      .catch((error: unknown) => {
-        authUiLoadError = error;
-        return null;
-      })
-  : null;
-
-function getAuthUiRuntime(): AuthUiRuntime {
-  if (!loadedAuthUiRuntime) {
-    throw new Error(
-      "Rendering auth HTML requires the React UI dependencies.",
-      authUiLoadError ? { cause: authUiLoadError } : undefined,
-    );
-  }
-  return loadedAuthUiRuntime;
-}
-
-function isVerificationLinkInvalid(error: string | null): boolean {
-  return getAuthUiRuntime().isVerificationLinkInvalid(error);
-}
-
 function hasGoogleOAuth(): boolean {
   return hasGoogleSignInCredentials();
 }
@@ -2751,7 +2702,6 @@ ${marketingStyles}
   const title = hasMarketing
     ? `${marketing!.appName} — ${t("pageTitleSignIn")}`
     : t("pageTitleWelcome");
-  const { AuthPage, createElement, renderToString } = getAuthUiRuntime();
   const authDocumentMarkup = renderToString(
     createElement(
       "html",
@@ -2935,8 +2885,6 @@ export function getResetPasswordHtml(requestPath?: string): string {
     passwordMinLength: PASSWORD_MIN_LENGTH,
     passwordMaxLength: PASSWORD_MAX_LENGTH,
   };
-  const { ResetPasswordPage, createElement, renderToString } =
-    getAuthUiRuntime();
   const resetDocumentMarkup = renderToString(
     createElement(
       "html",

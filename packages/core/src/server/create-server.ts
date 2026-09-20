@@ -21,7 +21,6 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import { getRuntimeConfigReport } from "../shared/runtime-config.js";
-import { getSession } from "./auth.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -34,6 +33,9 @@ import {
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
 } from "./scoped-key-storage.js";
+
+const getSession: (typeof import("./auth.js"))["getSession"] = (...args) =>
+  import("./auth.js").then(({ getSession }) => getSession(...args));
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */
