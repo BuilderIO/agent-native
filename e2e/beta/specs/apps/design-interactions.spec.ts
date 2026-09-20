@@ -225,6 +225,14 @@ async function sourceAttribute(
   );
 }
 
+function previewNode(page: Page, nodeId: string): Locator {
+  return page
+    .locator(PREVIEW)
+    .first()
+    .contentFrame()
+    .locator(`[data-agent-native-node-id="${nodeId}"]`);
+}
+
 async function readScreenMetadata(
   page: Page,
   designId: string,
@@ -793,6 +801,16 @@ test.describe("authenticated beta Design interactions", () => {
           sourceAttribute(
             page,
             designId,
+            "component-main",
+            "data-agent-native-prop-variant",
+          ),
+        )
+        .toBe("secondary");
+      await expect
+        .poll(() =>
+          sourceAttribute(
+            page,
+            designId,
             "component-instance",
             "data-agent-native-prop-variant",
           ),
@@ -830,6 +848,10 @@ test.describe("authenticated beta Design interactions", () => {
       ).toBeVisible({
         timeout: 45_000,
       });
+      await expect(previewNode(page, "component-instance")).toHaveAttribute(
+        "data-agent-native-prop-variant",
+        "outline",
+      );
 
       const laterMainEdit = await apply("component-main", "quiet");
       expect(laterMainEdit.persisted, JSON.stringify(laterMainEdit)).toBe(true);
