@@ -72,6 +72,7 @@ export function createAgentNativeEmbeddedPlugin(
     }
     const initPromise = mountAgentNativeEmbedded(nitroApp, options);
     trackPluginInit(nitroApp, initPromise);
+    return initPromise;
   };
 }
 
