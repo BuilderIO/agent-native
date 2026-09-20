@@ -56,6 +56,67 @@ html,body{margin:0;width:100%;height:100%}
 .peer{width:100%;height:100%}
 </style><div id="grid" data-agent-native-node-id="grid"><div id="b" class="peer" data-agent-native-node-id="b">B</div><div id="c" class="peer" data-agent-native-node-id="c">C</div><div id="d" class="peer" data-agent-native-node-id="d">D</div><div id="e" class="peer" data-agent-native-node-id="e">E</div></div>`;
 
+function groupedSourceFixture(
+  bStyle: string,
+  cStyle: string,
+  targetStyle = "grid-template-columns:repeat(4,80px);grid-template-rows:repeat(4,60px)",
+  targetChildren = '<div id="occupied" data-agent-native-node-id="occupied" style="grid-column:3 / 5;grid-row:2;background:#f90">O</div>',
+  sourceTrailingChild = "",
+) {
+  return `<!doctype html><style>
+html,body{margin:0;width:100%;height:100%}
+#source{position:absolute;left:20px;top:30px;width:350px;height:180px;padding:10px;display:grid;grid-template-columns:[content-start] repeat(4,70px) [content-end];grid-template-rows:repeat(2,60px);gap:10px;background:#eee}
+#target{position:absolute;left:430px;top:30px;width:390px;height:350px;padding:10px;display:grid;gap:10px;background:#ddd;${targetStyle}}
+.item{width:100%;height:100%}
+</style><div id="source" data-agent-native-node-id="source"><div id="b" class="item" data-agent-native-node-id="b" style="${bStyle}">B</div><div id="c" class="item" data-agent-native-node-id="c" style="${cStyle}">C</div>${sourceTrailingChild}</div><div id="target" data-agent-native-node-id="target">${targetChildren}</div>`;
+}
+
+async function dragSelectedGroup(
+  page: Page,
+  destination: { x: number; y: number },
+) {
+  const source = await box(page, "#b");
+  await select(page, "#b");
+  await page.evaluate(() => {
+    window.postMessage(
+      { type: "select-elements", selectorGroups: [["#c"]] },
+      "*",
+    );
+  });
+  await expect
+    .poll(() =>
+      page
+        .locator('[data-agent-native-edit-overlay="multi-selection"]')
+        .count(),
+    )
+    .toBeGreaterThan(0);
+  await page.mouse.move(
+    source.x + source.width / 2,
+    source.y + source.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(source.x + 8, source.y + 8, { steps: 3 });
+  await page.mouse.move(destination.x, destination.y, { steps: 12 });
+}
+
+async function gridDeclarations(page: Page) {
+  return page.locator("#b,#c").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const style = (node as HTMLElement).style;
+      return [
+        "grid-column-start",
+        "grid-column-end",
+        "grid-row-start",
+        "grid-row-end",
+      ].map((property) => ({
+        property,
+        value: style.getPropertyValue(property),
+        priority: style.getPropertyPriority(property),
+      }));
+    }),
+  );
+}
+
 async function select(page: Page, selector: string) {
   await page.evaluate((value) => {
     window.postMessage({ type: "select-element", selector: value }, "*");
@@ -629,6 +690,268 @@ describe("explicit grid placement repro", () => {
         .locator("#b")
         .evaluate((node) => getComputedStyle(node).gridColumn),
     ).toBe("3 / 5");
+    await browser.close();
+  });
+
+  it("restores important grid longhands on rejection and accepts their replacement", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(
+      groupedSourceFixture(
+        "grid-column-start:1!important;grid-column-end:3!important;grid-row-start:1!important;grid-row-end:2!important",
+        "grid-column-start:1;grid-column-end:3;grid-row-start:2;grid-row-end:3",
+      ),
+    );
+    await page.addScriptTag({ content: bridge() });
+    await page.evaluate(() => {
+      window.postMessage(
+        { type: "set-grid-group-batching-enabled", enabled: true },
+        "*",
+      );
+      (window as Window & { __batch?: Array<{ requestId: string }> }).__batch =
+        [];
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-grid-group-change")
+          (
+            window as Window & { __batch?: Array<{ requestId: string }> }
+          ).__batch = event.data.moves;
+      });
+    });
+    const before = await gridDeclarations(page);
+    const target = await box(page, "#target");
+    await dragSelectedGroup(page, { x: target.x + 230, y: target.y + 110 });
+    expect(
+      await page
+        .locator("#b")
+        .evaluate((node) => getComputedStyle(node).gridColumn),
+    ).toBe("3 / 5");
+    await page.mouse.up();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __batch?: unknown[] }).__batch?.length ?? 0,
+        ),
+      )
+      .toBe(2);
+    const requestIds = await page.evaluate(() =>
+      (
+        window as Window & { __batch?: Array<{ requestId: string }> }
+      ).__batch!.map((move) => move.requestId),
+    );
+    for (const requestId of requestIds)
+      await page.evaluate(
+        (id) =>
+          window.postMessage(
+            { type: "visual-structure-ack", requestId: id, applied: false },
+            "*",
+          ),
+        requestId,
+      );
+    await expect.poll(() => gridDeclarations(page)).toEqual(before);
+    await dragSelectedGroup(page, { x: target.x + 230, y: target.y + 110 });
+    await page.mouse.up();
+    const acceptedIds = await page.evaluate(() =>
+      (
+        window as Window & { __batch?: Array<{ requestId: string }> }
+      ).__batch!.map((move) => move.requestId),
+    );
+    expect(acceptedIds).toHaveLength(2);
+    for (const requestId of acceptedIds)
+      await page.evaluate(
+        (id) =>
+          window.postMessage(
+            { type: "visual-structure-ack", requestId: id, applied: true },
+            "*",
+          ),
+        requestId,
+      );
+    await expect
+      .poll(() =>
+        page
+          .locator("#b")
+          .evaluate((node) => getComputedStyle(node).gridColumn),
+      )
+      .toBe("3 / 5");
+    expect(
+      await page.locator("#b").evaluate((node) => node.parentElement?.id),
+    ).toBe("target");
+    await browser.close();
+  });
+
+  it("preserves auto-started, negative, and named authored spans", async () => {
+    for (const columns of [
+      ["auto / span 2", "auto / span 2", "1 / 3", "3 / 5"],
+      ["1 / -1", "1 / -1", "1 / 5", "1 / 5"],
+      [
+        "content-start / content-end",
+        "content-start / content-end",
+        "1 / 5",
+        "1 / 5",
+      ],
+    ]) {
+      const browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 600 },
+      });
+      await page.setContent(
+        groupedSourceFixture(
+          `grid-column:${columns[0]};grid-row:1`,
+          `grid-column:${columns[1]};grid-row:2`,
+        ),
+      );
+      await page.addScriptTag({ content: bridge() });
+      const target = await box(page, "#target");
+      await dragSelectedGroup(page, { x: target.x + 50, y: target.y + 110 });
+      await page.mouse.up();
+      expect(
+        await page
+          .locator("#b")
+          .evaluate((node) => getComputedStyle(node).gridColumn),
+      ).toBe(columns[2]);
+      expect(
+        await page
+          .locator("#c")
+          .evaluate((node) => getComputedStyle(node).gridColumn),
+      ).toBe(columns[3]);
+      await browser.close();
+    }
+  });
+
+  it("resolves negative lines from the explicit grid when implicit tracks follow", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(
+      groupedSourceFixture(
+        "grid-column:1 / -1;grid-row:1",
+        "grid-column:1 / -1;grid-row:2",
+        undefined,
+        undefined,
+        '<div id="implicit" data-agent-native-node-id="implicit" style="grid-column:5;grid-row:1">I</div>',
+      ).replace(
+        "grid-template-columns:[content-start] repeat(4,70px) [content-end]",
+        "grid-template-columns:repeat(2,70px)",
+      ),
+    );
+    await page.addScriptTag({ content: bridge() });
+    expect(
+      await page
+        .locator("#source")
+        .evaluate(
+          (node) =>
+            getComputedStyle(node).gridTemplateColumns.split(" ").length,
+        ),
+    ).toBeGreaterThan(2);
+    const target = await box(page, "#target");
+    await dragSelectedGroup(page, { x: target.x + 50, y: target.y + 110 });
+    for (const id of ["b", "c"])
+      expect(
+        await page
+          .locator(`#${id}`)
+          .evaluate((node) => getComputedStyle(node).gridColumn),
+      ).toBe("1 / 3");
+    await page.mouse.up();
+    await browser.close();
+  });
+
+  it("uses real implicit track bounds when an occupant self-sizes", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(
+      groupedSourceFixture(
+        "grid-column:1 / 3;grid-row:1",
+        "grid-column:1 / 3;grid-row:2",
+        "grid-template-columns:repeat(2,80px);grid-auto-columns:70px;grid-template-rows:repeat(4,60px)",
+        '<div id="occupant" data-agent-native-node-id="occupant" style="grid-column:3 / 5;grid-row:2;justify-self:start;width:70px;background:#f90">O</div>',
+      ),
+    );
+    await page.addScriptTag({ content: bridge() });
+    const occupant = await box(page, "#occupant");
+    await dragSelectedGroup(page, { x: occupant.x + 55, y: occupant.y + 30 });
+    expect(
+      await page
+        .locator("#b")
+        .evaluate((node) => getComputedStyle(node).gridColumn),
+    ).toBe("3 / 5");
+    await page.mouse.up();
+    await browser.close();
+  });
+
+  it("never displaces another selected member during a grouped drop", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(
+      groupedGridFixture.replace(
+        "#c{grid-column:3 / span 2;grid-row:1;",
+        "#c{grid-column:3 / span 2;grid-row:2;justify-self:start;width:20px;",
+      ),
+    );
+    await page.addScriptTag({ content: bridge() });
+    await page.evaluate(() => {
+      window.postMessage(
+        { type: "set-grid-group-batching-enabled", enabled: true },
+        "*",
+      );
+      (
+        window as Window & {
+          __batch?: Array<{ requestId: string; gridDisplacements?: unknown[] }>;
+        }
+      ).__batch = [];
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-grid-group-change")
+          (window as Window & { __batch?: unknown[] }).__batch =
+            event.data.moves;
+      });
+    });
+    const before = await gridDeclarations(page);
+    const target = await box(page, "#c");
+    await dragSelectedGroup(page, {
+      x: target.x + 55,
+      y: target.y + target.height / 2,
+    });
+    await page.mouse.up();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __batch?: unknown[] }).__batch?.length ?? 0,
+        ),
+      )
+      .toBe(2);
+    const moves = await page.evaluate(
+      () =>
+        (
+          window as Window & {
+            __batch?: Array<{
+              requestId: string;
+              gridDisplacements?: Array<{ sourceId: string }>;
+            }>;
+          }
+        ).__batch!,
+    );
+    expect(
+      moves.flatMap(
+        (move) => move.gridDisplacements?.map((item) => item.sourceId) ?? [],
+      ),
+    ).not.toContain("c");
+    for (const move of moves)
+      await page.evaluate(
+        (id) =>
+          window.postMessage(
+            { type: "visual-structure-ack", requestId: id, applied: false },
+            "*",
+          ),
+        move.requestId,
+      );
+    await expect.poll(() => gridDeclarations(page)).toEqual(before);
     await browser.close();
   });
 });

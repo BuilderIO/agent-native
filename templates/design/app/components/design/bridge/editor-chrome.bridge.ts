@@ -5702,10 +5702,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             // move-node round-trip cannot leave the element stripped of its
             // absolute positioning while stuck in the wrong parent.
             prevInlinePositionStyles?: Record<string, string> | null;
-            prevInlineGridStyles?: Record<string, string> | null;
+            prevInlineGridStyles?: Array<{
+              property: string;
+              value: string;
+              priority: string;
+            }> | null;
             gridDisplacements?: Array<{
               element: Element;
-              styles: Record<string, string>;
+              styles: Array<{
+                property: string;
+                value: string;
+                priority: string;
+              }>;
             }>;
           }
         // A host-driven insert has no previous position to restore: the
@@ -8896,9 +8904,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function gridTrackLayoutForElement(el: Element | null): {
+    container: Element;
     rect: DOMRect;
     columns: number[];
     rows: number[];
+    columnTemplate: string;
+    rowTemplate: string;
     columnBounds: Array<{ start: number; end: number }>;
     rowBounds: Array<{ start: number; end: number }>;
   } | null {
@@ -8953,7 +8964,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       rowBounds.push({ start: rowStart, end: rowStart + rows[row] });
       rowStart += rows[row] + rowFlow.gap;
     }
-    return { rect, columns, rows, columnBounds, rowBounds };
+    return {
+      container: el,
+      rect,
+      columns,
+      rows,
+      columnTemplate: cs.gridTemplateColumns,
+      rowTemplate: cs.gridTemplateRows,
+      columnBounds,
+      rowBounds,
+    };
   }
 
   function gridTrackRangeForRect(
@@ -15949,12 +15969,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
   }
-  function snapshotInlineGridStyles(el: Element): Record<string, string> {
-    var htmlEl = el as HTMLElement;
-    return {
-      "grid-column": htmlEl.style.getPropertyValue("grid-column"),
-      "grid-row": htmlEl.style.getPropertyValue("grid-row"),
-    };
+  function snapshotInlineGridStyles(el: Element) {
+    var style = (el as HTMLElement).style;
+    var declarations: Array<{
+      property: string;
+      value: string;
+      priority: string;
+    }> = [];
+    for (var index = 0; index < style.length; index += 1) {
+      var property = style.item(index);
+      if (!/^grid-(?:column|row)(?:-(?:start|end))?$/.test(property)) continue;
+      declarations.push({
+        property,
+        value: style.getPropertyValue(property),
+        priority: style.getPropertyPriority(property),
+      });
+    }
+    return declarations;
   }
   function numericGridLine(value: string): number | null {
     var match = value.trim().match(/^(\d+)$/);
@@ -15966,11 +15997,137 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var span = value.trim().match(/^span\s+(\d+)$/);
     return span && start !== null ? start + Number(span[1]) : null;
   }
+  function withGridAreaProbe<T>(
+    container: Element,
+    measure: (probe: HTMLElement) => T,
+  ): T {
+    var htmlContainer = container as HTMLElement;
+    var originalStyle = htmlContainer.getAttribute("style");
+    var needsContainingBlock =
+      window.getComputedStyle(container).position === "static";
+    var probe = document.createElement("span");
+    probe.style.cssText =
+      "position:absolute;inset:0;visibility:hidden;pointer-events:none";
+    try {
+      if (needsContainingBlock)
+        htmlContainer.style.setProperty("position", "relative", "important");
+      htmlContainer.appendChild(probe);
+      return measure(probe);
+    } finally {
+      probe.remove();
+      if (needsContainingBlock) {
+        if (originalStyle === null) htmlContainer.removeAttribute("style");
+        else htmlContainer.setAttribute("style", originalStyle);
+      }
+    }
+  }
+  function gridLineIndexAtCoordinate(
+    bounds: Array<{ start: number; end: number }>,
+    coordinate: number,
+  ): number | null {
+    for (var index = 0; index < bounds.length; index += 1) {
+      if (Math.abs(bounds[index].start - coordinate) < 1) return index + 1;
+    }
+    var last = bounds[bounds.length - 1];
+    return last && Math.abs(last.end - coordinate) < 1
+      ? bounds.length + 1
+      : null;
+  }
+  function gridLinePosition(
+    value: string,
+    layout: ReturnType<typeof gridTrackLayoutForElement>,
+    axis: "column" | "row",
+  ): number | null {
+    var numeric = numericGridLine(value);
+    if (numeric !== null) return numeric;
+    if (!layout) return null;
+    var negative = value.trim().match(/^-(\d+)$/);
+    if (negative) {
+      // Computed grid templates include implicit tracks. Resolve negative
+      // lines against the browser's explicit-grid origin instead of counting
+      // those expanded tracks as authored tracks.
+      var bounds = axis === "column" ? layout.columnBounds : layout.rowBounds;
+      var coordinates = withGridAreaProbe(layout.container, function (probe) {
+        if (axis === "column") probe.style.gridRow = "1 / 1";
+        else probe.style.gridColumn = "1 / 1";
+        if (axis === "column") probe.style.gridColumn = "1 / 1";
+        else probe.style.gridRow = "1 / 1";
+        var first = probe.getBoundingClientRect();
+        if (axis === "column") probe.style.gridColumn = `${value} / ${value}`;
+        else probe.style.gridRow = `${value} / ${value}`;
+        var resolved = probe.getBoundingClientRect();
+        return axis === "column"
+          ? { first: first.left, resolved: resolved.left }
+          : { first: first.top, resolved: resolved.top };
+      });
+      var firstLine = gridLineIndexAtCoordinate(bounds, coordinates.first);
+      var resolvedLine = gridLineIndexAtCoordinate(
+        bounds,
+        coordinates.resolved,
+      );
+      return firstLine !== null && resolvedLine !== null
+        ? resolvedLine - firstLine + 1
+        : null;
+    }
+    var name = value.trim();
+    if (!name || name === "auto" || name.startsWith("span ")) return null;
+    var template =
+      axis === "column" ? layout.columnTemplate : layout.rowTemplate;
+    var lineIndex = 1;
+    var tokens = template.match(/\[[^\]]*\]|[^\s]+/g) || [];
+    for (var token of tokens) {
+      if (token.startsWith("[")) {
+        if (token.slice(1, -1).split(/\s+/).includes(name)) return lineIndex;
+      } else if (readFinitePx(token) !== null) {
+        lineIndex += 1;
+      }
+    }
+    return null;
+  }
+  function gridItemAxisPlacement(
+    el: Element,
+    layout: ReturnType<typeof gridTrackLayoutForElement>,
+    axis: "column" | "row",
+  ) {
+    var styles = window.getComputedStyle(el);
+    var startValue =
+      axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+    var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+    var start = gridLinePosition(startValue, layout, axis);
+    var end = gridLinePosition(endValue, layout, axis);
+    var authoredSpan =
+      endValue.trim().match(/^span\s+(\d+)$/) ||
+      startValue.trim().match(/^span\s+(\d+)$/);
+    var geometricRange = layout
+      ? gridTrackRangeForRect(
+          el.getBoundingClientRect(),
+          axis === "column" ? layout.columnBounds : layout.rowBounds,
+          axis,
+        )
+      : null;
+    var span = authoredSpan
+      ? Number(authoredSpan[1])
+      : start !== null && end !== null
+        ? end - start
+        : geometricRange
+          ? geometricRange.end - geometricRange.start
+          : 1;
+    span = Math.max(1, span);
+    if (start === null && end !== null && authoredSpan) start = end - span;
+    return {
+      authoredStart: start,
+      start: start ?? (geometricRange ? geometricRange.start + 1 : null),
+      span,
+    };
+  }
   function expandGridTrackLayoutForAuthoredChildren(
     layout: {
+      container: Element;
       rect: DOMRect;
       columns: number[];
       rows: number[];
+      columnTemplate: string;
+      rowTemplate: string;
       columnBounds: Array<{ start: number; end: number }>;
       rowBounds: Array<{ start: number; end: number }>;
     },
@@ -15979,26 +16136,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var requiredColumns = layout.columnBounds.length;
     var requiredRows = layout.rowBounds.length;
     var children = Array.prototype.slice.call(container.children) as Element[];
-    var authoredRanges: Array<{
-      rect: DOMRect;
-      columnStart: number | null;
-      columnEnd: number | null;
-      rowStart: number | null;
-      rowEnd: number | null;
-    }> = [];
     children.forEach(function (child) {
       var styles = window.getComputedStyle(child);
       var columnStart = numericGridLine(styles.gridColumnStart);
       var rowStart = numericGridLine(styles.gridRowStart);
       var columnEnd = gridLineEnd(styles.gridColumnEnd, columnStart);
       var rowEnd = gridLineEnd(styles.gridRowEnd, rowStart);
-      authoredRanges.push({
-        rect: child.getBoundingClientRect(),
-        columnStart,
-        columnEnd,
-        rowStart,
-        rowEnd,
-      });
       if (columnStart !== null) {
         requiredColumns = Math.max(
           requiredColumns,
@@ -16028,60 +16171,63 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
     extendBounds(layout.columnBounds, requiredColumns);
     extendBounds(layout.rowBounds, requiredRows);
-    authoredRanges.forEach(function (range) {
-      var columnSpan =
-        range.columnStart !== null && range.columnEnd !== null
-          ? range.columnEnd - range.columnStart
-          : 0;
-      if (range.columnStart !== null && columnSpan > 0) {
-        var trackWidth =
-          (range.rect.width -
-            readPx(window.getComputedStyle(container).columnGap) *
-              (columnSpan - 1)) /
-          columnSpan;
-        if (Number.isFinite(trackWidth) && trackWidth > 0) {
-          var gap = readPx(window.getComputedStyle(container).columnGap);
-          for (var column = 0; column < columnSpan; column += 1) {
-            var index = range.columnStart - 1 + column;
-            layout.columnBounds[index] = {
-              start: range.rect.left + column * (trackWidth + gap),
-              end: range.rect.left + column * (trackWidth + gap) + trackWidth,
+    if (
+      requiredColumns > layout.columns.length ||
+      requiredRows > layout.rows.length
+    ) {
+      // An absolutely positioned grid item spans its grid area without
+      // participating in track sizing, even when real children self-size.
+      withGridAreaProbe(container, function (probe) {
+        for (
+          var column = layout.columns.length;
+          column < requiredColumns;
+          column += 1
+        ) {
+          probe.style.gridColumn = `${column + 1} / ${column + 2}`;
+          probe.style.gridRow = "1 / 2";
+          var columnRect = probe.getBoundingClientRect();
+          if (columnRect.width > 0)
+            layout.columnBounds[column] = {
+              start: columnRect.left,
+              end: columnRect.right,
             };
-          }
         }
-      }
-      var rowSpan =
-        range.rowStart !== null && range.rowEnd !== null
-          ? range.rowEnd - range.rowStart
-          : 0;
-      if (range.rowStart !== null && rowSpan > 0) {
-        var rowGap = readPx(window.getComputedStyle(container).rowGap);
-        var trackHeight =
-          (range.rect.height - rowGap * (rowSpan - 1)) / rowSpan;
-        if (Number.isFinite(trackHeight) && trackHeight > 0) {
-          for (var row = 0; row < rowSpan; row += 1) {
-            var rowIndex = range.rowStart - 1 + row;
-            layout.rowBounds[rowIndex] = {
-              start: range.rect.top + row * (trackHeight + rowGap),
-              end: range.rect.top + row * (trackHeight + rowGap) + trackHeight,
-            };
-          }
+        for (var row = layout.rows.length; row < requiredRows; row += 1) {
+          probe.style.gridColumn = "1 / 2";
+          probe.style.gridRow = `${row + 1} / ${row + 2}`;
+          var rowRect = probe.getBoundingClientRect();
+          if (rowRect.height > 0)
+            layout.rowBounds[row] = { start: rowRect.top, end: rowRect.bottom };
         }
-      }
-    });
+      });
+    }
     return layout;
   }
   function restoreInlineGridStyles(
     el: Element,
-    snapshot: Record<string, string> | null | undefined,
+    snapshot:
+      | Array<{ property: string; value: string; priority: string }>
+      | null
+      | undefined,
   ): void {
     if (!snapshot) return;
-    var htmlEl = el as HTMLElement;
-    for (var prop of ["grid-column", "grid-row"]) {
-      var value = snapshot[prop];
-      if (value) htmlEl.style.setProperty(prop, value);
-      else htmlEl.style.removeProperty(prop);
-    }
+    var style = (el as HTMLElement).style;
+    for (var property of [
+      "grid-column",
+      "grid-column-start",
+      "grid-column-end",
+      "grid-row",
+      "grid-row-start",
+      "grid-row-end",
+    ])
+      style.removeProperty(property);
+    snapshot.forEach(function (declaration) {
+      style.setProperty(
+        declaration.property,
+        declaration.value,
+        declaration.priority,
+      );
+    });
   }
   // Builds the same snapshot shape as snapshotInlinePositionStyles, but from
   // a startMove memberState's TRUE pre-drag inline values (captured once at
@@ -16389,7 +16535,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     htmlEl.style.top = Math.round(baseTop + localDy) + "px";
   }
 
-  function applyRuntimeReorder(el, target, preview = false): boolean {
+  function applyRuntimeReorder(
+    el,
+    target,
+    preview = false,
+    excludedDisplacements: Element[] = [],
+  ): boolean {
     if (!el || !target || !target.anchor || !target.anchor.parentElement)
       return false;
     var previousParent = el.parentElement;
@@ -16414,7 +16565,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ).__agentNativeDesiredDropPoint;
     stripAbsolutePositioningForFlowInsert(el, target);
     if (target.gridCell) {
-      var gridStyles = window.getComputedStyle(el);
       var sourceGridLayout = previousParent
         ? gridTrackLayoutForElement(previousParent)
         : null;
@@ -16424,46 +16574,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           previousParent,
         );
       }
-      var sourceGridRect = el.getBoundingClientRect();
-      var sourceColumnRange = sourceGridLayout
-        ? gridTrackRangeForRect(
-            sourceGridRect,
-            sourceGridLayout.columnBounds,
-            "column",
-          )
-        : null;
-      var sourceRowRange = sourceGridLayout
-        ? gridTrackRangeForRect(
-            sourceGridRect,
-            sourceGridLayout.rowBounds,
-            "row",
-          )
-        : null;
-      var parsedColumnStart = numericGridLine(gridStyles.gridColumnStart);
-      var parsedRowStart = numericGridLine(gridStyles.gridRowStart);
-      var columnStart =
-        parsedColumnStart ??
-        (sourceColumnRange ? sourceColumnRange.start + 1 : NaN);
-      var columnEnd =
-        gridLineEnd(gridStyles.gridColumnEnd, parsedColumnStart) ??
-        (sourceColumnRange ? sourceColumnRange.end + 1 : NaN);
-      var rowStart =
-        parsedRowStart ?? (sourceRowRange ? sourceRowRange.start + 1 : NaN);
-      var rowEnd =
-        gridLineEnd(gridStyles.gridRowEnd, parsedRowStart) ??
-        (sourceRowRange ? sourceRowRange.end + 1 : NaN);
-      if (Number.isFinite(columnStart) && !Number.isFinite(columnEnd))
-        columnEnd = columnStart + 1;
-      if (Number.isFinite(rowStart) && !Number.isFinite(rowEnd))
-        rowEnd = rowStart + 1;
-      var columnSpan =
-        Number.isFinite(columnStart) && Number.isFinite(columnEnd)
-          ? Math.max(1, columnEnd - columnStart)
-          : 1;
-      var rowSpan =
-        Number.isFinite(rowStart) && Number.isFinite(rowEnd)
-          ? Math.max(1, rowEnd - rowStart)
-          : 1;
+      var sourceColumn = gridItemAxisPlacement(el, sourceGridLayout, "column");
+      var sourceRow = gridItemAxisPlacement(el, sourceGridLayout, "row");
+      var columnStart = sourceColumn.start ?? NaN;
+      var columnSpan = sourceColumn.span;
+      var columnEnd = columnStart + columnSpan;
+      var rowStart = sourceRow.start ?? NaN;
+      var rowSpan = sourceRow.span;
+      var rowEnd = rowStart + rowSpan;
       var targetGridLayout = gridTrackLayoutForElement(target.anchor);
       if (targetGridLayout) {
         targetGridLayout = expandGridTrackLayoutForAuthoredChildren(
@@ -16499,7 +16617,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           targetDisplacements = (
             Array.prototype.slice.call(target.anchor.children) as Element[]
           ).filter(function (child) {
-            if (child === el) return false;
+            if (child === el || excludedDisplacements.indexOf(child) !== -1)
+              return false;
             var rect = child.getBoundingClientRect();
             return (
               rect.left < targetRight &&
@@ -16542,7 +16661,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ];
         (Array.prototype.slice.call(target.anchor.children) as Element[])
           .filter(function (child) {
-            return child !== el && targetDisplacements.indexOf(child) === -1;
+            return (
+              child !== el &&
+              excludedDisplacements.indexOf(child) === -1 &&
+              targetDisplacements.indexOf(child) === -1
+            );
           })
           .forEach(function (child) {
             var childRect = child.getBoundingClientRect();
@@ -16879,29 +17002,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var targetColumnCount = targetGridLayout?.columnBounds.length ?? 100;
     var sourceGridPositions = members.map(function (member) {
-      var styles = window.getComputedStyle(member);
+      var sourceLayout = gridTrackLayoutForElement(member.parentElement);
+      if (sourceLayout)
+        sourceLayout = expandGridTrackLayoutForAuthoredChildren(
+          sourceLayout,
+          member.parentElement!,
+        );
       return {
-        column: numericGridLine(styles.gridColumnStart),
-        row: numericGridLine(styles.gridRowStart),
+        column: gridItemAxisPlacement(member, sourceLayout, "column"),
+        row: gridItemAxisPlacement(member, sourceLayout, "row"),
       };
     });
-    var gridSpanForMember = function (member: Element) {
-      var styles = window.getComputedStyle(member);
-      var spanFor = function (startValue: string, endValue: string) {
-        var start = numericGridLine(startValue);
-        var end = gridLineEnd(endValue, start);
-        if (start !== null && end !== null) return Math.max(1, end - start);
-        var match = startValue.trim().match(/^span\s+(\d+)$/);
-        return match ? Math.max(1, Number(match[1])) : 1;
-      };
-      return {
-        column: spanFor(styles.gridColumnStart, styles.gridColumnEnd),
-        row: spanFor(styles.gridRowStart, styles.gridRowEnd),
-      };
-    };
-    var groupGridCellFor = function (member: Element, index: number) {
+    var groupGridCellFor = function (index: number) {
       if (!target.gridCell) return undefined;
-      var span = gridSpanForMember(member);
+      var span = {
+        column: sourceGridPositions[index].column.span,
+        row: sourceGridPositions[index].row.span,
+      };
       var startColumn = target.gridCell.column;
       var startRow = target.gridCell.row;
       if (index === 0) {
@@ -16911,10 +17028,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         return { column: startColumn, row: startRow, span };
       }
-      var firstColumn = sourceGridPositions[0].column;
-      var firstRow = sourceGridPositions[0].row;
-      var memberColumn = sourceGridPositions[index].column;
-      var memberRow = sourceGridPositions[index].row;
+      var firstColumn = sourceGridPositions[0].column.authoredStart;
+      var firstRow = sourceGridPositions[0].row.authoredStart;
+      var memberColumn = sourceGridPositions[index].column.authoredStart;
+      var memberRow = sourceGridPositions[index].row.authoredStart;
       if (
         firstColumn !== null &&
         firstRow !== null &&
@@ -16970,7 +17087,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
     for (var i = 0; i < members.length; i += 1) {
       var member = members[i];
-      var plannedGridCell = groupGridCellFor(member, i);
+      var plannedGridCell = groupGridCellFor(i);
       var memberTarget =
         i === 0
           ? target.gridCell && plannedGridCell
@@ -17016,7 +17133,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Board-text auto-color: adapt before the DOM move so the re-parent
       // check sees the ORIGINAL parent (see adaptAutoTextColorForNest).
       adaptAutoTextColorForNest(member, container);
-      if (applyRuntimeReorder(member, memberTarget, preview) && !preview) {
+      if (
+        applyRuntimeReorder(member, memberTarget, preview, members) &&
+        !preview
+      ) {
         postVisualStructureChange(
           member,
           memberTarget,
@@ -24359,7 +24479,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ) {
           move.origin.prevParent.insertBefore(
             move.el,
-            move.origin.prevNextSibling,
+            move.origin.prevNextSibling?.parentNode === move.origin.prevParent
+              ? move.origin.prevNextSibling
+              : null,
           );
           restoreInlinePositionStyles(
             move.el,

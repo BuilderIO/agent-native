@@ -1,3 +1,4 @@
+import { chromium } from "@playwright/test";
 import { describe, expect, it, vi } from "vitest";
 
 import { projectLinkedComponentPropertyEdit } from "./linked-component-mutation";
@@ -104,6 +105,74 @@ for (const sourceType of ["localhost", "fusion"] as const) {
 }
 
 describe("inline grid structure changes", () => {
+  it("reloads grouped placements without stale important longhands", async () => {
+    const content =
+      "<style>#target{display:grid;grid-template-columns:repeat(4,80px);grid-template-rows:repeat(4,60px)}</style>" +
+      '<section data-agent-native-node-id="source">' +
+      '<div data-agent-native-node-id="a" style="grid-column-start:1!important;grid-column-end:3!important;grid-row-start:1!important;grid-row-end:2!important;color:navy">A</div>' +
+      '<div data-agent-native-node-id="b" style="grid-column-start:1!important;grid-column-end:3!important;grid-row-start:2!important;grid-row-end:3!important">B</div></section>' +
+      '<section id="target" data-agent-native-node-id="target">' +
+      '<div data-agent-native-node-id="occupied" style="grid-column-start:3!important;grid-column-end:5!important;grid-row-start:2!important;grid-row-end:3!important">O</div></section>';
+    const moves = ["a", "b"].map((id, index) => ({
+      requestId: id,
+      selector: `[data-agent-native-node-id="${id}"]`,
+      sourceId: id,
+      anchorSelector: '[data-agent-native-node-id="target"]',
+      anchorSourceId: "target",
+      gridPlacement: {
+        column: 3,
+        columnEnd: 5,
+        row: index + 2,
+        rowEnd: index + 3,
+      },
+      gridDisplacements:
+        index === 0
+          ? [
+              {
+                sourceId: "occupied",
+                selector: '[data-agent-native-node-id="occupied"]',
+                placement: { column: 1, columnEnd: 3, row: 2, rowEnd: 3 },
+              },
+            ]
+          : [],
+    }));
+    const persisted = planVisualGridGroupStructureChange(
+      { id: "screen" } as never,
+      content,
+      moves,
+      (key) => key,
+    );
+    expect(persisted).not.toBeNull();
+    expect(persisted).not.toMatch(/grid-(?:column|row)-(?:start|end)/);
+    expect(persisted).toContain("color:navy");
+
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.route("http://grid.test/reload", (route) =>
+        route.fulfill({ contentType: "text/html", body: persisted! }),
+      );
+      await page.goto("http://grid.test/reload");
+      await page.reload();
+      for (const [id, column, row] of [
+        ["a", "3 / 5", "2 / 3"],
+        ["b", "3 / 5", "3 / 4"],
+        ["occupied", "1 / 3", "2 / 3"],
+      ]) {
+        expect(
+          await page
+            .locator(`[data-agent-native-node-id="${id}"]`)
+            .evaluate((element) => {
+              const style = getComputedStyle(element);
+              return [style.gridColumn, style.gridRow];
+            }),
+        ).toEqual([column, row]);
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("plans one linked component edit for both members and propagates to its copy", () => {
     const main =
       '<section data-agent-native-node-id="main-root" data-agent-native-component-id="group">' +
