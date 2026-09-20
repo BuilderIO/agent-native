@@ -698,7 +698,11 @@ import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-fr
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
 import { runRecordPendingLiveLayerStateEdit } from "./design-editor/commands/record-pending-live-layer-state-edit";
-import { runRecordPendingLiveStructureEdit } from "./design-editor/commands/record-pending-live-structure-edit";
+import {
+  commitPendingLiveStructureEdits,
+  preparePendingLiveStructureEdit,
+  runRecordPendingLiveStructureEdit,
+} from "./design-editor/commands/record-pending-live-structure-edit";
 import { runRecordPendingLiveTextEdit } from "./design-editor/commands/record-pending-live-text-edit";
 import { runRecordPendingVisualStyleEdit } from "./design-editor/commands/record-pending-visual-style-edit";
 import { runRedo } from "./design-editor/commands/redo";
@@ -954,6 +958,7 @@ import {
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
   getPendingVisualEditCount,
+  pendingLiveStructureEditsFromEdit,
   pendingVisualStyleGestureIdForPhase,
   projectRelativeSourcePath,
   type PendingLiveLayerStateEdit,
@@ -1650,6 +1655,13 @@ function DesignEditor() {
   const pendingStructureRedoReplayTimerRef = useRef<number | undefined>(
     undefined,
   );
+  const pendingStructureRedoPreparedEditsRef = useRef<
+    | {
+        replay: PendingLiveStructureUndoEntry;
+        edits: PendingLiveStructureEdit[];
+      }
+    | undefined
+  >(undefined);
   const cancelPendingStructureVerification = useCallback(
     (nextStatus: PendingStructureVerificationStatus = "idle") => {
       const session = pendingStructureVerificationSessionRef.current;
@@ -1727,14 +1739,17 @@ function DesignEditor() {
         }));
       const structureAcks = edits
         .filter(
-          (edit): edit is PendingLiveStructureEdit =>
-            edit.kind === "structure" && Boolean(edit.requestId),
+          (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
         )
-        .map((edit) => ({
-          screenId: edit.screenId,
-          requestId: edit.requestId!,
-          applied: false,
-        }));
+        .flatMap((edit) =>
+          pendingLiveStructureEditsFromEdit(edit)
+            .filter((member) => Boolean(member.requestId))
+            .map((member) => ({
+              screenId: member.screenId,
+              requestId: member.requestId!,
+              applied: false,
+            })),
+        );
       const layerStatePatches = edits
         .filter(
           (edit): edit is PendingLiveLayerStateEdit =>
@@ -8378,6 +8393,7 @@ function DesignEditor() {
         anchorSourceId?: string;
         anchorElementInfo?: ElementInfo;
         requestId?: string;
+        transactionId?: string;
         dropMode?: "flow-insert" | "absolute-container";
         forceFlowPositionOverride?: boolean;
         sourceRect?: { x: number; y: number; width: number; height: number };
@@ -8410,7 +8426,7 @@ function DesignEditor() {
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
-    ) =>
+    ) => {
       runRecordPendingLiveStructureEdit(
         {
           canEditDesign,
@@ -8423,6 +8439,7 @@ function DesignEditor() {
           pendingLiveNonStyleUndoStackRef,
           pendingStructureRedoReplayRef,
           pendingStructureRedoReplayTimerRef,
+          pendingStructureRedoPreparedEditsRef,
           pendingVisualStyleRedoStackRef,
           runtimeLayerSnapshotsById,
           setPendingLiveNonStyleEdits,
@@ -8433,7 +8450,8 @@ function DesignEditor() {
         placement,
         elementInfo,
         details,
-      ),
+      );
+    },
     [
       canEditDesign,
       cancelPendingStructureVerification,
@@ -8798,11 +8816,17 @@ function DesignEditor() {
     if (selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode)) {
       return bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode);
     }
-    return activeCanvasSourceType === "localhost"
-      ? (selectedElement?.runtimeComponent?.instanceId ??
-          selectedElement?.sourceId ??
-          undefined)
-      : undefined;
+    const runtimeComponent = selectedElement?.runtimeComponent;
+    if (
+      activeCanvasSourceType === "localhost" &&
+      runtimeComponent?.componentId?.trim() &&
+      runtimeComponent.instanceId?.trim() &&
+      runtimeComponent.name?.trim() &&
+      selectedElement?.provenance?.component?.trim()
+    ) {
+      return runtimeComponent.instanceId;
+    }
+    return undefined;
   }, [activeCanvasSourceType, selectedCodeLayerNode, selectedElement]);
   // Keep canonical mains available to the Component section's read/source
   // controls while withholding instance-only actions from those selections.
@@ -8823,8 +8847,11 @@ function DesignEditor() {
     : acceptedActiveFile?.content;
   const hasSelectedComponent = Boolean(
     selectedComponentNodeId &&
-    (activeCanvasSourceType === "inline" ||
-      Boolean(selectedElement?.runtimeComponent)),
+    ((selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode)) ||
+      (selectedElement?.runtimeComponent?.componentId?.trim() &&
+        selectedElement.runtimeComponent.instanceId?.trim() &&
+        selectedElement.runtimeComponent.name?.trim() &&
+        selectedElement.provenance?.component?.trim())),
   );
   const acceptedComponentProjection = useMemo(() => {
     if (
@@ -12879,6 +12906,7 @@ function DesignEditor() {
         anchorSourceId?: string;
         anchorElementInfo?: ElementInfo;
         requestId?: string;
+        transactionId?: string;
         dropMode?: "flow-insert" | "absolute-container";
         forceFlowPositionOverride?: boolean;
         sourceRect?: { x: number; y: number; width: number; height: number };
@@ -12992,10 +13020,27 @@ function DesignEditor() {
         anchorSourceId?: string;
         anchorElementInfo?: ElementInfo;
         requestId?: string;
+        transactionId?: string;
         dropMode?: "flow-insert" | "absolute-container";
         forceFlowPositionOverride?: boolean;
         sourceRect?: { x: number; y: number; width: number; height: number };
         anchorRect?: { x: number; y: number; width: number; height: number };
+        gridPlacement?: {
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        };
+        gridDisplacements?: Array<{
+          sourceId?: string;
+          selector?: string;
+          placement: {
+            column: number;
+            columnEnd: number;
+            row: number;
+            rowEnd: number;
+          };
+        }>;
         placement?: "before" | "after" | "inside";
       },
     ) => {
@@ -13168,10 +13213,27 @@ function DesignEditor() {
         anchorSourceId?: string;
         anchorElementInfo?: ElementInfo;
         requestId?: string;
+        transactionId?: string;
         dropMode?: "flow-insert" | "absolute-container";
         forceFlowPositionOverride?: boolean;
         sourceRect?: { x: number; y: number; width: number; height: number };
         anchorRect?: { x: number; y: number; width: number; height: number };
+        gridPlacement?: {
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        };
+        gridDisplacements?: Array<{
+          sourceId?: string;
+          selector?: string;
+          placement: {
+            column: number;
+            columnEnd: number;
+            row: number;
+            rowEnd: number;
+          };
+        }>;
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
@@ -13226,7 +13288,55 @@ function DesignEditor() {
       );
       const sourceType =
         normalizeDesignSourceType(screen?.sourceType) ?? designSourceType;
-      if (isRunningAppSourceType(sourceType)) return false;
+      if (isRunningAppSourceType(sourceType)) {
+        const transactionId = moves[0]?.transactionId;
+        const edits = moves.map((move) =>
+          preparePendingLiveStructureEdit(
+            {
+              canEditDesign,
+              files,
+              localhostConnectionRootPathByIdRef,
+              overviewScreens,
+              runtimeLayerSnapshotsById,
+            },
+            screenId,
+            move.selector,
+            move.persistenceAnchorSelector ?? move.anchorSelector,
+            move.persistencePlacement ?? move.placement ?? "inside",
+            undefined,
+            {
+              sourceId: move.sourceId,
+              anchorSourceId:
+                move.persistenceAnchorSourceId ?? move.anchorSourceId,
+              requestId: move.requestId,
+              transactionId,
+              dropMode: "flow-insert",
+              gridPlacement: move.gridPlacement,
+              gridDisplacements: move.gridDisplacements,
+            },
+          ),
+        );
+        if (
+          !edits.every(
+            (edit): edit is NonNullable<typeof edit> => edit !== undefined,
+          )
+        )
+          return false;
+        commitPendingLiveStructureEdits(
+          {
+            cancelPendingStructureVerification,
+            pendingLiveNonStyleEditsRef,
+            pendingLiveNonStyleRedoStackRef,
+            pendingLiveNonStyleUndoStackRef,
+            pendingStructureRedoReplayRef,
+            pendingStructureRedoReplayTimerRef,
+            pendingVisualStyleRedoStackRef,
+            setPendingLiveNonStyleEdits,
+          },
+          edits,
+        );
+        return "pending";
+      }
       const screenFile = files.find((file) => file.id === screenId);
       if (!screenFile || !canEditDesign) return false;
       const content = getScreenContent(screenId);
@@ -16263,6 +16373,7 @@ function DesignEditor() {
         pendingLocalFileContentsRef,
         pendingStructureRedoReplayRef,
         pendingStructureRedoReplayTimerRef,
+        pendingStructureRedoPreparedEditsRef,
         pendingVisualStyleEditsRef,
         pendingVisualStyleRedoStackRef,
         pendingVisualStyleUndoStackRef,
