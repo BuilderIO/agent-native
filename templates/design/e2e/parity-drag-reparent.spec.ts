@@ -980,6 +980,101 @@ test.describe("drag reparent parity", () => {
       .toBe(true);
   });
 
+  test("returning a held cross-screen drag to its source keeps the source intact", async ({
+    page,
+  }) => {
+    const id = await newTwoScreenDesign(page);
+    await gotoEditor(page, id);
+    await page.keyboard.press("Shift+1");
+    const screenOneId = await fileIdFor(page, id, "index.html");
+    const screenTwoId = await fileIdFor(page, id, "page-two.html");
+
+    let lastTargetBox: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          const box = await boxFor(page, screenTwoId, "page2-target");
+          const stable =
+            lastTargetBox !== null &&
+            Math.abs(box.x - lastTargetBox.x) < 1 &&
+            Math.abs(box.y - lastTargetBox.y) < 1;
+          lastTargetBox = box;
+          return stable;
+        },
+        { timeout: 5_000, message: "zoom-to-fit never settled" },
+      )
+      .toBe(true);
+
+    const widget = await boxFor(page, screenOneId, "widget");
+    const target = await boxFor(page, screenTwoId, "page2-target");
+    const sourceBefore = await fileContent(page, id, "index.html");
+    const destinationBefore = await fileContent(page, id, "page-two.html");
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
+    await page.mouse.move(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      widget.x + widget.width / 2 + 20,
+      widget.y + widget.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 30 },
+    );
+    await expect
+      .poll(() => page.locator("[data-cross-screen-drop-guide]").isVisible(), {
+        timeout: 5_000,
+        message: "cross-screen target guide must appear while held",
+      })
+      .toBe(true);
+
+    await page.mouse.move(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+      { steps: 30 },
+    );
+    await page.waitForTimeout(300);
+    expect(pageErrors).toEqual([]);
+    expect(await fileContent(page, id, "index.html")).toBe(sourceBefore);
+    expect(await fileContent(page, id, "page-two.html")).toBe(
+      destinationBefore,
+    );
+    await page.mouse.up();
+
+    await expect
+      .poll(async () => {
+        const source = await fileContent(page, id, "index.html");
+        const destination = await fileContent(page, id, "page-two.html");
+        return (
+          source.includes('data-agent-native-node-id="widget"') &&
+          !destination.includes('data-agent-native-node-id="widget"')
+        );
+      })
+      .toBe(true);
+    expect(pageErrors).toEqual([]);
+  });
+
   test("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
     page,
   }) => {
