@@ -585,6 +585,113 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("publishes and retrieves pending visual edits without the Design tab", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const base = `http://127.0.0.1:${port}`;
+    const auth = { "x-design-preview-token": bridge.previewToken };
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect((await getJson(`${base}/live-edit-pending`)).status).toBe(401);
+      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
+        ok: true,
+        pending: null,
+      });
+      expect(
+        (
+          await postJson(
+            `${base}/live-edit-pending`,
+            {
+              pending: {
+                designId: "design-1",
+                pendingEditCount: 2,
+                status: "ready",
+                prompt: "Apply the two pending visual edits.",
+              },
+            },
+            { "x-design-preview-token": "wrong-preview-token" },
+          )
+        ).status,
+      ).toBe(401);
+
+      const published = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 2,
+            status: "ready",
+            prompt: "Apply the two pending visual edits.",
+          },
+        },
+        auth,
+      );
+      expect(published.status).toBe(200);
+      expect(published.body.pending).toMatchObject({
+        designId: "design-1",
+        pendingEditCount: 2,
+        status: "ready",
+        prompt: "Apply the two pending visual edits.",
+      });
+
+      const pulled = await getJson(`${base}/live-edit-pending`, auth);
+      expect(pulled.status).toBe(200);
+      expect(pulled.body.pending).toMatchObject({
+        designId: "design-1",
+        prompt: "Apply the two pending visual edits.",
+      });
+
+      await expect(
+        runDesign([
+          "pending",
+          "--bridge-url",
+          base,
+          "--preview-token",
+          bridge.previewToken,
+        ]),
+      ).resolves.toBe(0);
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("Apply the two pending visual edits."),
+      );
+
+      const oversized = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "x".repeat(520_000),
+          },
+        },
+        auth,
+      );
+      expect(oversized.status).toBe(413);
+
+      const cleared = await postJson(
+        `${base}/live-edit-pending`,
+        { pending: null },
+        auth,
+      );
+      expect(cleared.status).toBe(200);
+      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
+        ok: true,
+        pending: null,
+      });
+    } finally {
+      log.mockRestore();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
   it("marks live-edit documents and keyed recovery redirects as embeddable", async () => {
     const root = tmpDir();
     const devPort = await freePort();

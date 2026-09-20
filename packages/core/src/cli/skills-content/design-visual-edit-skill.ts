@@ -487,6 +487,18 @@ bridge URLs are localhost. Never run \`pnpm action\` from \`templates/design\`.
 
 ## Applying Visual Edits Back To Source
 
+If the Design tab is closed but the paired local bridge is still running, a
+coding agent can recover the latest handoff without browser access:
+
+```bash
+npx @agent-native/core@latest design pending --root .
+```
+
+This reads the preview-token-protected pending payload from the bridge and
+prints the same source-oriented prompt that **Copy prompt** exposes. An empty
+JSON value means the bridge has no pending edits; it is not proof that a
+different bridge or app has no edits.
+
 Canvas edits on a localhost screen do not write source as you make them. They
 accumulate as pending edits and the editor shows an **Apply design updates**
 button on the canvas. In an MCP App, clicking it hands the bounded structured

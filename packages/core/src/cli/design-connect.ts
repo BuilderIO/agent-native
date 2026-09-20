@@ -1739,6 +1739,48 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+const MAX_LIVE_EDIT_PENDING_BYTES = 512 * 1024;
+
+class LiveEditPendingRequestTooLargeError extends Error {}
+
+async function readLiveEditPendingBody(req: IncomingMessage): Promise<string> {
+  const declaredLength = Number(readHeader(req, "content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_LIVE_EDIT_PENDING_BYTES
+  ) {
+    throw new LiveEditPendingRequestTooLargeError(
+      "Pending visual edit payload exceeds the 512 KB limit.",
+    );
+  }
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let tooLarge = false;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_LIVE_EDIT_PENDING_BYTES) {
+        tooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+      if (!tooLarge) chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (tooLarge) {
+        reject(
+          new LiveEditPendingRequestTooLargeError(
+            "Pending visual edit payload exceeds the 512 KB limit.",
+          ),
+        );
+        return;
+      }
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", reject);
+  });
+}
+
 const MAX_PREVIEW_PROXY_REQUEST_BYTES = 8 * 1024 * 1024;
 
 class PreviewProxyRequestTooLargeError extends Error {}
@@ -2574,6 +2616,7 @@ export async function startDesignConnectBridge(
     }),
   );
   let liveEditBridgeScript = "";
+  let pendingVisualEditPayload: Record<string, unknown> | null = null;
   // One bridge process serves every URL-backed screen in an overview. The
   // editor script carries screen-specific state (notably screenId), so a
   // single global slot lets parallel iframe registrations overwrite each
@@ -2771,6 +2814,77 @@ export async function startDesignConnectBridge(
               ok: false,
               error: err instanceof Error ? err.message : String(err),
             });
+          }
+        })();
+        return;
+      }
+      if (pathname === "/live-edit-pending") {
+        if (rejectInvalidPreviewToken()) return;
+        if (req.method === "GET") {
+          sendJson(res, 200, { ok: true, pending: pendingVisualEditPayload });
+          return;
+        }
+        if (req.method !== "POST") {
+          sendJson(res, 405, { ok: false, error: "method not allowed" });
+          return;
+        }
+        void (async () => {
+          try {
+            const raw = await readLiveEditPendingBody(req);
+            const body = JSON.parse(raw) as Record<string, unknown>;
+            const pending = body.pending;
+            if (pending === null) {
+              pendingVisualEditPayload = null;
+              sendJson(res, 200, { ok: true, pending: null });
+              return;
+            }
+            if (!pending || typeof pending !== "object") {
+              sendJson(res, 400, {
+                ok: false,
+                error: "pending must be an object or null",
+              });
+              return;
+            }
+            const candidate = pending as Record<string, unknown>;
+            if (
+              typeof candidate.designId !== "string" ||
+              typeof candidate.prompt !== "string" ||
+              typeof candidate.pendingEditCount !== "number" ||
+              !Number.isInteger(candidate.pendingEditCount) ||
+              candidate.pendingEditCount < 1 ||
+              typeof candidate.status !== "string"
+            ) {
+              sendJson(res, 400, {
+                ok: false,
+                error:
+                  "pending requires designId, prompt, positive pendingEditCount, and status",
+              });
+              return;
+            }
+            if (candidate.prompt.length > 512_000) {
+              sendJson(res, 413, {
+                ok: false,
+                error: "pending prompt exceeds the 512 KB limit",
+              });
+              return;
+            }
+            pendingVisualEditPayload = {
+              designId: candidate.designId,
+              pendingEditCount: candidate.pendingEditCount,
+              status: candidate.status,
+              prompt: candidate.prompt,
+              updatedAt: new Date().toISOString(),
+            };
+            sendJson(res, 200, { ok: true, pending: pendingVisualEditPayload });
+          } catch (error) {
+            sendJson(
+              res,
+              error instanceof LiveEditPendingRequestTooLargeError ? 413 : 400,
+              {
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
           }
         })();
         return;
@@ -3609,6 +3723,7 @@ export async function registerConnectionWithServer(
 function printHelp() {
   console.log(`Usage:
   agent-native design connect [options]
+  agent-native design pending [options]
 
 Options:
   --url <url>             Dev server URL to inspect (auto-detected if omitted)
@@ -3631,6 +3746,11 @@ Options:
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
   --dry-run               Print what would be exposed without writing files
+
+Pending visual edits:
+  --bridge-url <url>      Paired local bridge URL (default http://127.0.0.1:${DEFAULT_BRIDGE_PORT})
+  --root <path>           App/repo root containing .agent-native/design-bridge-token
+  --preview-token <token> Read-only preview token when the root token is unavailable
 
 Element provenance (resolveNodeToFile):
   The design editor can map a selected DOM element back to its source file,
@@ -3773,6 +3893,39 @@ async function readDaemonLogTail(
 
 export async function runDesign(argv: string[]) {
   const subcommand = argv[0];
+  if (subcommand === "pending") {
+    const readFlag = (name: string): string | undefined => {
+      const index = argv.indexOf(name);
+      const value = index >= 0 ? argv[index + 1] : undefined;
+      return value && !value.startsWith("--") ? value : undefined;
+    };
+    const root = path.resolve(readFlag("--root") ?? process.cwd());
+    const bridgeUrl = (
+      readFlag("--bridge-url") ?? `http://127.0.0.1:${DEFAULT_BRIDGE_PORT}`
+    ).replace(/\/$/, "");
+    const bridgeToken = readFlag("--preview-token");
+    const token =
+      bridgeToken ??
+      (await readPersistedBridgeToken(root).then((value) =>
+        value ? deriveDesignPreviewToken(value) : undefined,
+      ));
+    if (!token) {
+      console.error(
+        "No preview token found. Pass --preview-token or run design connect from the app root.",
+      );
+      return 1;
+    }
+    const response = await fetch(`${bridgeUrl}/live-edit-pending`, {
+      headers: { "x-design-preview-token": token },
+    });
+    if (!response.ok) {
+      console.error(`${response.status} ${await response.text()}`);
+      return 1;
+    }
+    const body = (await response.json()) as { pending?: unknown };
+    console.log(JSON.stringify(body.pending ?? null, null, 2));
+    return 0;
+  }
   if (subcommand !== "connect") {
     if (
       subcommand === "help" ||
@@ -3782,7 +3935,9 @@ export async function runDesign(argv: string[]) {
       printHelp();
       return 0;
     }
-    console.error("Usage: agent-native design connect [options]");
+    console.error(
+      "Usage: agent-native design connect [options] | agent-native design pending [options]",
+    );
     return 1;
   }
 
