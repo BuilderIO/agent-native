@@ -178,6 +178,11 @@ async function openOverview(page: Page, designId: string) {
     timeout: 30_000,
   });
   await expect(page.locator("[data-screen-card]").first()).toBeVisible();
+  await page.getByRole("button", { name: /%$/, exact: false }).first().click();
+  await page.getByRole("menuitem", { name: "Zoom to 50%" }).click();
+  await expect(
+    page.getByRole("button", { name: "50%", exact: true }),
+  ).toBeVisible();
 }
 
 async function setOverviewZoom(page: Page, zoom: 100 | 200) {
@@ -185,6 +190,14 @@ async function setOverviewZoom(page: Page, zoom: 100 | 200) {
   await page.getByRole("menuitem", { name: `Zoom to ${zoom}%` }).click();
   await expect(
     page.getByRole("button", { name: `${zoom}%`, exact: true }),
+  ).toBeVisible();
+}
+
+async function resetOverviewZoom(page: Page): Promise<void> {
+  await page.getByRole("button", { name: /%$/, exact: false }).first().click();
+  await page.getByRole("menuitem", { name: "Zoom to 50%" }).click();
+  await expect(
+    page.getByRole("button", { name: "50%", exact: true }),
   ).toBeVisible();
 }
 
@@ -816,6 +829,7 @@ test("report path: Option-dragging a root Screen preserves naming, placement, se
       )
       .toMatchObject({ x: 440, y: 280, width: 800, height: 600 });
     await expect(page.locator("[data-frame-drag-surface]")).toHaveCount(1);
+    await resetOverviewZoom(page);
     await expect(
       page
         .getByRole("tree", { name: "Layers" })
