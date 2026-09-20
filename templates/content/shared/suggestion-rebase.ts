@@ -1,4 +1,4 @@
-import { docToNfm, nfmToDoc } from "./nfm";
+import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 
 type ContextualMarkdownOperation = {
   before?: unknown;
@@ -106,7 +106,7 @@ function resolveCanonicalizedRange(
   current: string,
   anchor: MarkdownAnchor,
 ) {
-  if (docToNfm(nfmToDoc(before)) !== current) return null;
+  if (canonicalizeNfm(before) !== current) return null;
   const target = before.slice(anchor.from, anchor.to);
   if (!target)
     return resolveCanonicalizedInsertion(before, current, anchor.from);

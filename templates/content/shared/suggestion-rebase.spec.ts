@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { canonicalizeNfm } from "./nfm";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase";
 
 function change(before: string, from: number, to: number, inserted: string) {
@@ -299,6 +300,20 @@ describe("resolveMarkdownSuggestionRange", () => {
         change(saved, from, from, "Inserted text."),
       ),
     ).toBeNull();
+  });
+
+  it("uses the editor canonicalizer for trailing empty blocks", () => {
+    const saved = "Paragraph text.\n\n<empty-block/>";
+    const target = "Paragraph text";
+    const from = saved.indexOf(target);
+    const canonical = canonicalizeNfm(saved);
+    expect(canonical).toContain("<empty-block/>");
+    expect(
+      resolveMarkdownSuggestionRange(
+        canonical,
+        change(saved, from, from + target.length, "Revised text"),
+      ),
+    ).toEqual({ from, to: from + target.length });
   });
 
   it("does not highlight an overlapping canonical replacement", () => {
