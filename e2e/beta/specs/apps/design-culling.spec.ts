@@ -75,11 +75,20 @@ async function createCullingDesign(
     }
     return designId;
   } catch (error) {
-    await postAction(request, origin, "delete-design", { id: designId }).catch(
-      () => undefined,
-    );
+    await postAction(request, origin, "delete-design", { id: designId });
     throw error;
   }
+}
+
+async function previewIframeIds(page: Page): Promise<string[]> {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .evaluateAll((iframes) =>
+      iframes.map(
+        (iframe, index) =>
+          iframe.getAttribute("data-screen-iframe-id") ?? `board-${index}`,
+      ),
+    );
 }
 
 async function installChurnObserver(page: Page): Promise<void> {
@@ -165,9 +174,13 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     const initialIframes = await page
       .locator("iframe[data-design-preview-iframe]")
       .count();
+    const initialIframeIds = await previewIframeIds(page);
     const placeholders = await page
       .locator('[data-screen-content][data-cull-tier="placeholder"]')
       .count();
+    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+    await expect(zoomControl).toBeVisible();
+    const initialZoomLabel = await zoomControl.innerText();
     const surface = page
       .locator("[data-multi-screen-canvas-world]")
       .locator("..");
@@ -182,11 +195,9 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
       surfaceBox.x + surfaceBox.width / 2,
       surfaceBox.y + surfaceBox.height / 2,
     );
-    for (let index = 0; index < 10; index += 1) await page.mouse.wheel(24, 18);
+    for (let index = 0; index < 16; index += 1) await page.mouse.wheel(72, 48);
     await page.keyboard.down("Control");
-    for (let index = 0; index < 6; index += 1) {
-      await page.mouse.wheel(0, index % 2 === 0 ? -28 : 28);
-    }
+    for (let index = 0; index < 4; index += 1) await page.mouse.wheel(0, -60);
     await page.keyboard.up("Control");
     await page.waitForTimeout(700);
     await expect
@@ -196,10 +207,15 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
         { timeout: 10_000 },
       )
       .not.toBe(initialTransform);
+    await expect
+      .poll(() => zoomControl.innerText(), { timeout: 10_000 })
+      .not.toBe(initialZoomLabel);
 
     const afterIframes = await page
       .locator("iframe[data-design-preview-iframe]")
       .count();
+    const afterIframeIds = await previewIframeIds(page);
+    expect(afterIframeIds).not.toEqual(initialIframeIds);
     const perf = await page.evaluate(
       () =>
         (
@@ -225,10 +241,11 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     ).toBeLessThanOrEqual(12);
     expect(perf?.iframeLoads ?? 0).toBeLessThanOrEqual(6);
   } finally {
-    if (designId)
+    if (designId) {
       await postAction(context.request, origin, "delete-design", {
         id: designId,
-      }).catch(() => undefined);
+      });
+    }
     await context.close();
   }
 });
