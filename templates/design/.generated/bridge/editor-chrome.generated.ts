@@ -11975,6 +11975,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var container = dropContainerForTarget(target);
       var previous = null;
       var plannedGridPlacements = [];
+      var targetGridLayout = target.gridCell ? gridTrackLayoutForElement(target.anchor) : null;
+      var targetColumnCount = targetGridLayout?.columnBounds.length ?? 100;
       var gridSpanForMember = function(member2) {
         var styles = window.getComputedStyle(member2);
         var spanFor = function(startValue, endValue) {
@@ -11995,10 +11997,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         var startColumn = target.gridCell.column;
         var startRow = target.gridCell.row;
         if (index === 0) {
+          if (startColumn + span.column > targetColumnCount) {
+            startColumn = 0;
+            startRow += 1;
+          }
           return { column: startColumn, row: startRow, span };
         }
         for (var row = startRow; row < startRow + members.length + 100; row += 1) {
-          for (var column = row === startRow ? startColumn : 0; column < 100; column += 1) {
+          for (var column = row === startRow ? startColumn : 0; column + span.column <= targetColumnCount; column += 1) {
             var candidate = {
               column,
               columnEnd: column + span.column,
@@ -12016,7 +12022,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var i = 0; i < members.length; i += 1) {
         var member = members[i];
         var plannedGridCell = groupGridCellFor(member, i);
-        var memberTarget = i === 0 ? target : target.gridCell ? {
+        var memberTarget = i === 0 ? target.gridCell && plannedGridCell ? {
+          ...target,
+          gridCell: {
+            column: plannedGridCell.column,
+            row: plannedGridCell.row
+          }
+        } : target : target.gridCell ? {
           ...target,
           gridCell: plannedGridCell ? {
             column: plannedGridCell.column,
@@ -12034,12 +12046,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         var prevParent = member.parentElement;
         var prevNextSibling = member.nextSibling;
         var prevInlinePositionStyles = originInlineStylesFor ? originInlineStylesFor(member) : snapshotInlinePositionStyles(member);
+        var prevInlineGridStyles = snapshotInlineGridStyles(member);
         adaptAutoTextColorForNest(member, container);
         if (applyRuntimeReorder(member, memberTarget)) {
           postVisualStructureChange(member, memberTarget, {
             prevParent,
             prevNextSibling,
-            prevInlinePositionStyles
+            prevInlinePositionStyles,
+            prevInlineGridStyles,
+            ...Array.isArray(memberTarget.gridDisplacementPrevStyles) && memberTarget.gridDisplacementPrevStyles.length > 0 ? { gridDisplacements: memberTarget.gridDisplacementPrevStyles } : {}
           });
         }
         if (plannedGridCell) {

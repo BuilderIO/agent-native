@@ -42,6 +42,13 @@ html,body{margin:0;width:100%;height:100%}
 .peer{width:100%;height:100%}
 </style><div id="grid" data-agent-native-node-id="grid"><div id="a" class="peer" data-agent-native-node-id="a">A</div><div id="b" class="peer" data-agent-native-node-id="b">B</div><div id="c" class="peer" data-agent-native-node-id="c">C</div><div id="d" class="peer" data-agent-native-node-id="d">D</div></div>`;
 
+const groupedGridFixture = `<!doctype html><style>
+html,body{margin:0;width:100%;height:100%}
+#grid{position:absolute;left:100px;top:80px;width:520px;height:380px;padding:12px;display:grid;grid-template-columns:repeat(4,100px);grid-template-rows:repeat(4,70px);gap:12px;background:#eef2ff;box-sizing:border-box}
+#a{grid-column:1;grid-row:1;background:#94a3b8}#b{grid-column:1 / span 2;grid-row:1;background:#6366f1}#c{grid-column:3 / span 2;grid-row:1;background:#22c55e}#d{grid-column:4;grid-row:3;background:#f59e0b}#e{grid-column:2;grid-row:3;background:#a78bfa}
+.peer{width:100%;height:100%}
+</style><div id="grid" data-agent-native-node-id="grid"><div id="a" class="peer" data-agent-native-node-id="a">A</div><div id="b" class="peer" data-agent-native-node-id="b">B</div><div id="c" class="peer" data-agent-native-node-id="c">C</div><div id="d" class="peer" data-agent-native-node-id="d">D</div><div id="e" class="peer" data-agent-native-node-id="e">E</div></div>`;
+
 async function select(page: Page, selector: string) {
   await page.evaluate((value) => {
     window.postMessage({ type: "select-element", selector: value }, "*");
@@ -302,5 +309,173 @@ describe("explicit grid placement repro", () => {
       }
     }
     await browser.close();
+  });
+
+  it("plans grouped span members without overlap and restores all styles on rejected ack", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(groupedGridFixture);
+    await page.addScriptTag({ content: bridge() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as Window & { __gridDrops?: unknown[] }).__gridDrops = [];
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-structure-change") {
+          (window as Window & { __gridDrops?: unknown[] }).__gridDrops?.push(
+            event.data,
+          );
+        }
+      });
+    });
+
+    const first = await box(page, "#c");
+    const destination = await box(page, "#d");
+    const original = await page.evaluate(() =>
+      ["#b", "#c", "#d", "#e"].map((selector) => {
+        const node = document.querySelector(selector)!;
+        const style = getComputedStyle(node);
+        return { selector, column: style.gridColumn, row: style.gridRow };
+      }),
+    );
+    await select(page, "#b");
+    await page.evaluate(() => {
+      window.postMessage(
+        { type: "select-elements", selectorGroups: [["#c"]] },
+        "*",
+      );
+    });
+    await expect
+      .poll(async () =>
+        page
+          .locator('[data-agent-native-edit-overlay="multi-selection"]')
+          .count(),
+      )
+      .toBeGreaterThan(0);
+    await page.mouse.move(
+      first.x + first.width / 2,
+      first.y + first.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(first.x + 8, first.y + 8, { steps: 3 });
+    await page.mouse.move(
+      destination.x + 10,
+      destination.y + destination.height / 2,
+      { steps: 12 },
+    );
+    const heldRects = await page.evaluate(() =>
+      ["#b", "#c", "#d", "#e"].map((selector) => {
+        const rect = document.querySelector(selector)!.getBoundingClientRect();
+        return {
+          selector,
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        };
+      }),
+    );
+    expect(heldRects).toHaveLength(4);
+    expect(
+      heldRects.some((left, index) =>
+        heldRects
+          .slice(index + 1)
+          .some(
+            (right) =>
+              left.left < right.right &&
+              left.right > right.left &&
+              left.top < right.bottom &&
+              left.bottom > right.top,
+          ),
+      ),
+    ).toBe(false);
+    await page.mouse.up();
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(
+            () =>
+              (window as Window & { __gridDrops?: unknown[] }).__gridDrops
+                ?.length ?? 0,
+          ),
+      )
+      .toBe(2);
+    const drops = await page.evaluate(
+      () => (window as Window & { __gridDrops?: unknown[] }).__gridDrops ?? [],
+    );
+    const after = await page.evaluate(() =>
+      ["#b", "#c", "#d", "#e"].map((selector) => {
+        const node = document.querySelector<HTMLElement>(selector)!;
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+          selector,
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          column: style.gridColumn,
+          row: style.gridRow,
+        };
+      }),
+    );
+    expect(after[0]?.column).toBe("1 / 3");
+    expect(after[1]?.column).toBe("3 / 5");
+    expect(after[0]?.row).toBe("4 / 5");
+    expect(after[1]?.row).toBe("4 / 5");
+    expect(
+      after.some((left, index) =>
+        after
+          .slice(index + 1)
+          .some(
+            (right) =>
+              left.left < right.right &&
+              left.right > right.left &&
+              left.top < right.bottom &&
+              left.bottom > right.top,
+          ),
+      ),
+    ).toBe(false);
+    const persistedHtml = await page
+      .locator("html")
+      .evaluate((node) => node.outerHTML);
+    const requests = await page.evaluate(
+      () =>
+        (window as Window & { __gridDrops?: Array<{ requestId?: string }> })
+          .__gridDrops ?? [],
+    );
+    for (const request of requests) {
+      await page.evaluate((requestId) => {
+        window.postMessage(
+          { type: "visual-structure-ack", requestId, applied: false },
+          "*",
+        );
+      }, request.requestId);
+    }
+    await expect
+      .poll(async () =>
+        page.locator("#b").evaluate((node) => getComputedStyle(node).gridRow),
+      )
+      .toBe("1");
+    const restored = await page.evaluate(() =>
+      ["#b", "#c", "#d", "#e"].map((selector) => {
+        const node = document.querySelector(selector)!;
+        const style = getComputedStyle(node);
+        return { selector, column: style.gridColumn, row: style.gridRow };
+      }),
+    );
+    expect(restored).toEqual(original);
+    await page.setContent(`<!doctype html>${persistedHtml}`);
+    expect(
+      await page
+        .locator("#b")
+        .evaluate((node) => getComputedStyle(node).gridColumn),
+    ).toBe("1 / 3");
+    expect(
+      await page
+        .locator("#c")
+        .evaluate((node) => getComputedStyle(node).gridColumn),
+    ).toBe("3 / 5");
   });
 });

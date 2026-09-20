@@ -16862,6 +16862,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       row: number;
       rowEnd: number;
     }> = [];
+    var targetGridLayout = target.gridCell
+      ? gridTrackLayoutForElement(target.anchor)
+      : null;
+    var targetColumnCount = targetGridLayout?.columnBounds.length ?? 100;
     var gridSpanForMember = function (member: Element) {
       var styles = window.getComputedStyle(member);
       var spanFor = function (startValue: string, endValue: string) {
@@ -16882,6 +16886,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var startColumn = target.gridCell.column;
       var startRow = target.gridCell.row;
       if (index === 0) {
+        if (startColumn + span.column > targetColumnCount) {
+          startColumn = 0;
+          startRow += 1;
+        }
         return { column: startColumn, row: startRow, span };
       }
       for (
@@ -16891,7 +16899,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         for (
           var column = row === startRow ? startColumn : 0;
-          column < 100;
+          column + span.column <= targetColumnCount;
           column += 1
         ) {
           var candidate = {
@@ -16918,7 +16926,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var plannedGridCell = groupGridCellFor(member, i);
       var memberTarget =
         i === 0
-          ? target
+          ? target.gridCell && plannedGridCell
+            ? {
+                ...target,
+                gridCell: {
+                  column: plannedGridCell.column,
+                  row: plannedGridCell.row,
+                },
+              }
+            : target
           : target.gridCell
             ? {
                 ...target,
@@ -16949,6 +16965,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var prevInlinePositionStyles = originInlineStylesFor
         ? originInlineStylesFor(member)
         : snapshotInlinePositionStyles(member);
+      var prevInlineGridStyles = snapshotInlineGridStyles(member);
       // Board-text auto-color: adapt before the DOM move so the re-parent
       // check sees the ORIGINAL parent (see adaptAutoTextColorForNest).
       adaptAutoTextColorForNest(member, container);
@@ -16957,6 +16974,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           prevParent: prevParent,
           prevNextSibling: prevNextSibling,
           prevInlinePositionStyles: prevInlinePositionStyles,
+          prevInlineGridStyles: prevInlineGridStyles,
+          ...(Array.isArray(memberTarget.gridDisplacementPrevStyles) &&
+          memberTarget.gridDisplacementPrevStyles.length > 0
+            ? { gridDisplacements: memberTarget.gridDisplacementPrevStyles }
+            : {}),
         });
       }
       if (plannedGridCell) {
