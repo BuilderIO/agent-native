@@ -684,6 +684,7 @@ export interface ComponentNodeHandle {
 export type ComponentPropertyEdit =
   | { kind: "style"; property: string; value: string | null }
   | { kind: "textContent"; value: string }
+  | { kind: "attribute"; attribute: string; value: string }
   | { kind: "layerName"; value: string };
 
 export interface ComponentSourceChange {
@@ -760,6 +761,7 @@ function stylePropertyName(property: string): string {
 function propertyKey(edit: ComponentPropertyEdit): string {
   if (edit.kind === "style") return `style:${stylePropertyName(edit.property)}`;
   if (edit.kind === "textContent") return "textContent";
+  if (edit.kind === "attribute") return `attribute:${edit.attribute}`;
   return `attribute:${LAYER_NAME_ATTR}`;
 }
 
@@ -802,6 +804,14 @@ function editIntent(
   if (edit.kind === "textContent") {
     return { kind: "textContent", target, value: edit.value };
   }
+  if (edit.kind === "attribute") {
+    return {
+      kind: "attribute",
+      target,
+      name: edit.attribute,
+      value: edit.value,
+    };
+  }
   return {
     kind: "attribute",
     target,
@@ -820,6 +830,11 @@ function readInheritedValue(
   }
   if (edit.kind === "textContent") {
     return readCodeLayerNodeTextContent(document.content, node);
+  }
+  if (edit.kind === "attribute") {
+    const value =
+      node.dataAttributes[edit.attribute] ?? node.attributes[edit.attribute];
+    return typeof value === "string" ? value : null;
   }
   return (
     resolveLayerNameAttribute((attribute) => {
@@ -3611,7 +3626,13 @@ export function resetComponentInstanceOverrides(args: {
               }
             : override.property === `attribute:${LAYER_NAME_ATTR}`
               ? { kind: "layerName", value: "" }
-              : null;
+              : override.property.startsWith("attribute:")
+                ? {
+                    kind: "attribute",
+                    attribute: override.property.slice("attribute:".length),
+                    value: "",
+                  }
+                : null;
       if (!propertyEdit)
         return {
           status: "unsupported-reset-value",
