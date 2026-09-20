@@ -309,6 +309,10 @@ import {
   getSelectionBoxTransition,
 } from "./multi-screen/chrome-transitions";
 import {
+  isCrossScreenIgnoreAutoLayoutHeldAtRelease,
+  shouldClearCrossScreenSKeyTimesOnWindowBlur,
+} from "./multi-screen/cross-screen-modifiers";
+import {
   getCornerHandleGeometry,
   getEdgeHandleHitGeometry,
 } from "./multi-screen/handle-hit-zones";
@@ -358,6 +362,15 @@ import {
 // branch of getDraftGeometryForTool below — drag-to-size behavior is
 // unaffected since getDraftGeometryFromPoints only falls back to these when
 // the pointer hasn't moved.
+function isApplePlatform(): boolean {
+  const nav = navigator as Navigator & {
+    userAgentData?: { platform?: string };
+  };
+  const platform =
+    (nav.userAgentData && nav.userAgentData.platform) || nav.platform || "";
+  return /Mac|iPhone|iPad|iPod/i.test(platform);
+}
+
 const PEN_CLOSE_HIT_RADIUS_SCREEN_PX = 10;
 /** Screen-space hit radius for vector-edit anchor/handle pointer targets,
  *  independent of PEN_CLOSE_HIT_RADIUS_SCREEN_PX (that one gates the pen
@@ -1162,6 +1175,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  not invalidate the commit the release just started. */
   const crossScreenEndSeenRef = useRef(false);
   const crossScreenHostCommittedRef = useRef(false);
+  // The overlay owns focus during a cross-screen drag, so a Windows Figma
+  // Ignore Auto Layout S key can never reach the source iframe. Keep the
+  // current state for preview, and event timestamps for the release decision:
+  // source end can be delivered after host blur or keyup clears current state.
+  const crossScreenIgnoreAutoLayoutRef = useRef(false);
+  const crossScreenSKeyTimesRef = useRef<{
+    downAt: number | null;
+    upAt: number | null;
+  }>({ downAt: null, upAt: null });
+  // A cross-screen start arrives only after the pointer left the source iframe.
+  // Track the host key state before then so a chord held during the source drag
+  // is still present when that start initializes the host payload.
+  const crossScreenSKeyPressedRef = useRef(false);
   /** False once this canvas unmounts. Nothing may persist a drop after that.
    *  Mount-scoped on purpose: the message effect's cleanup also runs on every
    *  dependency change, and invalidating there kills live commits. */
@@ -1174,6 +1200,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     sourceProvenance?: SourceNodeProvenance;
     sourcePointerOffset?: Point;
     sourceElementSize?: { width: number; height: number };
+    modifiers?: {
+      metaKey?: boolean;
+      ctrlKey?: boolean;
+      ignoreAutoLayout?: boolean;
+      forceNestedAutoLayout?: boolean;
+    };
     sourceHtmlSnapshot?: string;
     duplicate?: boolean;
     sourceCloneHtml?: string;
@@ -2703,6 +2735,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         timeoutMs?: number;
         previewGeneration?: number;
         previewRequestSeq?: number;
+        sourceElementSize?: { width: number; height: number };
+        modifiers?: {
+          metaKey?: boolean;
+          ctrlKey?: boolean;
+          ignoreAutoLayout?: boolean;
+          forceNestedAutoLayout?: boolean;
+        };
       } = {},
     ): Promise<CrossScreenHitTestResult> => {
       const targetScreen = screensRef.current.find(
@@ -2750,6 +2789,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const correlationId = `hit-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 6)}`;
+      // The source bridge can continue to emit stale move modifiers after the
+      // overview host receives the non-Apple Ignore Auto Layout key. Resolve
+      // this at the host-to-target boundary used by both preview and commit.
+      const modifiers = {
+        ...options.modifiers,
+        ignoreAutoLayout:
+          options.modifiers?.ignoreAutoLayout === true ||
+          crossScreenIgnoreAutoLayoutRef.current,
+      };
 
       return new Promise((resolve) => {
         const timer = window.setTimeout(() => {
@@ -2843,6 +2891,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             x: localPoint.x,
             y: localPoint.y,
             preview: options.preview === true,
+            sourceElementSize: options.sourceElementSize,
+            modifiers,
           },
           "*",
         );
@@ -2883,6 +2933,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         preview: true,
         previewGeneration,
         previewRequestSeq: requestSeq,
+        sourceElementSize: crossScreenDragMsgRef.current?.sourceElementSize,
+        modifiers: crossScreenDragMsgRef.current?.modifiers,
       }).then((hit) => {
         if (crossScreenPreviewGenerationRef.current !== previewGeneration) {
           return;
@@ -3118,6 +3170,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         sourceId?: string;
         sourceProvenance?: SourceNodeProvenance;
         sourcePointerOffset?: Point;
+        sourceElementSize?: { width: number; height: number };
+        modifiers?: {
+          metaKey?: boolean;
+          ctrlKey?: boolean;
+          ignoreAutoLayout?: boolean;
+          forceNestedAutoLayout?: boolean;
+        };
         sourceHtmlSnapshot?: string;
         duplicate?: boolean;
         sourceCloneHtml?: string;
@@ -3125,6 +3184,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         styleSnapshotCaptureFailed?: boolean;
       },
       lastBoardPoint: Point | null,
+      releasedAt?: number,
     ) => {
       dndHostLog("overview:finalize", {
         sourceScreenId,
@@ -3132,6 +3192,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastBoardPoint,
         selector: payload.selector,
       });
+      const sKeyTimes = crossScreenSKeyTimesRef.current;
+      const ignoreAutoLayoutAtRelease =
+        isCrossScreenIgnoreAutoLayoutHeldAtRelease(
+          releasedAt,
+          sKeyTimes,
+          payload.modifiers?.ignoreAutoLayout === true,
+        );
+      payload.modifiers = {
+        ...payload.modifiers,
+        ignoreAutoLayout: ignoreAutoLayoutAtRelease,
+      };
       crossScreenEndSeenRef.current = true;
       clearCrossScreenDrag();
       const dropSeq = crossScreenDropSeqRef.current;
@@ -3188,6 +3259,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (targetCandidate.id === boardFileId) {
         void runHitTest(targetCandidate, lastBoardPoint, {
           timeoutMs: HIT_TEST_COMMIT_TIMEOUT_MS,
+          sourceElementSize: payload.sourceElementSize,
+          modifiers: payload.modifiers,
         }).then(
           ({
             anchorNodeId,
@@ -3240,6 +3313,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
       void runHitTest(targetCandidate, lastBoardPoint, {
         timeoutMs: HIT_TEST_COMMIT_TIMEOUT_MS,
+        sourceElementSize: payload.sourceElementSize,
+        modifiers: payload.modifiers,
       }).then(
         ({
           anchorNodeId,
@@ -3330,8 +3405,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         viewportH?: number;
         elementRect?: CrossScreenDragElementRect;
         pointerOffset?: Point;
+        modifiers?: {
+          metaKey?: boolean;
+          ctrlKey?: boolean;
+          ignoreAutoLayout?: boolean;
+          forceNestedAutoLayout?: boolean;
+        };
         styleSnapshot?: unknown;
         styleSnapshotCaptureFailed?: boolean;
+        releasedAt?: number;
         duplicate?: boolean;
         sourceCloneHtml?: string;
       };
@@ -3347,6 +3429,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         msg.elementRect.height > 0
           ? { width: msg.elementRect.width, height: msg.elementRect.height }
           : undefined;
+      const sourceModifiers = msg.modifiers
+        ? {
+            metaKey: msg.modifiers.metaKey === true,
+            ctrlKey: msg.modifiers.ctrlKey === true,
+            ignoreAutoLayout:
+              msg.modifiers.ignoreAutoLayout === true ||
+              crossScreenIgnoreAutoLayoutRef.current,
+            forceNestedAutoLayout: msg.modifiers.forceNestedAutoLayout === true,
+          }
+        : undefined;
       const styleSnapshot = isPortableStyleSnapshot(msg.styleSnapshot)
         ? msg.styleSnapshot
         : undefined;
@@ -3425,6 +3517,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         crossScreenDropSeqRef.current += 1;
         crossScreenEndSeenRef.current = false;
         crossScreenHostCommittedRef.current = false;
+        crossScreenIgnoreAutoLayoutRef.current =
+          crossScreenSKeyPressedRef.current;
+        if (!crossScreenSKeyPressedRef.current) {
+          crossScreenSKeyTimesRef.current = { downAt: null, upAt: null };
+        }
         crossScreenLastBoardPointRef.current = null;
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
@@ -3432,6 +3529,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceProvenance,
           sourcePointerOffset,
           sourceElementSize,
+          modifiers: {
+            ...sourceModifiers,
+            ignoreAutoLayout:
+              sourceModifiers?.ignoreAutoLayout === true ||
+              crossScreenIgnoreAutoLayoutRef.current,
+          },
           sourceHtmlSnapshot,
           duplicate: msg.duplicate === true,
           sourceCloneHtml:
@@ -3500,6 +3603,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             sourceProvenance,
             sourcePointerOffset,
             sourceElementSize,
+            modifiers: sourceModifiers,
             sourceHtmlSnapshot,
             duplicate: msg.duplicate === true,
             sourceCloneHtml: msg.sourceCloneHtml,
@@ -3512,13 +3616,46 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             candidate,
             payload,
             lastBoardPoint,
+            performance.timeOrigin + ev.timeStamp,
           );
         };
         const handleParentWindowBlur = () => {
           cancelPendingParentDrag();
+          crossScreenIgnoreAutoLayoutRef.current = false;
+          // An iframe-focus handoff also emits blur on some browsers, while the
+          // top document remains focused. Only a real window blur may discard
+          // the S timeline before the source end message arrives.
+          if (
+            shouldClearCrossScreenSKeyTimesOnWindowBlur(document.hasFocus())
+          ) {
+            crossScreenSKeyTimesRef.current = { downAt: null, upAt: null };
+          }
           clearCrossScreenDrag();
         };
+        const hostUsesSForIgnoreAutoLayout = () => !isApplePlatform();
+        const syncHostIgnoreAutoLayout = (
+          pressed: boolean,
+          eventTimeStamp: number,
+        ) => {
+          crossScreenIgnoreAutoLayoutRef.current = pressed;
+          if (pressed) {
+            crossScreenSKeyTimesRef.current = {
+              downAt: performance.timeOrigin + eventTimeStamp,
+              upAt: null,
+            };
+          } else if (crossScreenSKeyTimesRef.current.downAt !== null) {
+            crossScreenSKeyTimesRef.current = {
+              ...crossScreenSKeyTimesRef.current,
+              upAt: performance.timeOrigin + eventTimeStamp,
+            };
+          }
+        };
         const handleParentKeyDown = (ev: KeyboardEvent) => {
+          if (hostUsesSForIgnoreAutoLayout() && ev.key.toLowerCase() === "s") {
+            syncHostIgnoreAutoLayout(true, ev.timeStamp);
+            ev.preventDefault();
+            return;
+          }
           if (ev.key !== "Escape") return;
           ev.preventDefault();
           ev.stopPropagation();
@@ -3541,6 +3678,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           );
           clearCrossScreenDrag();
         };
+        const handleParentKeyUp = (ev: KeyboardEvent) => {
+          if (hostUsesSForIgnoreAutoLayout() && ev.key.toLowerCase() === "s") {
+            syncHostIgnoreAutoLayout(false, ev.timeStamp);
+            ev.preventDefault();
+          }
+        };
         const cleanup = () => {
           if (didCleanup) return;
           didCleanup = true;
@@ -3549,6 +3692,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           window.removeEventListener("mouseup", handleParentMouseUp, true);
           window.removeEventListener("blur", handleParentWindowBlur, true);
           window.removeEventListener("keydown", handleParentKeyDown, true);
+          window.removeEventListener("keyup", handleParentKeyUp, true);
           restorePreviewPointerEvents();
           if (crossScreenParentDragCleanupRef.current === cleanup) {
             crossScreenParentDragCleanupRef.current = null;
@@ -3559,6 +3703,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         window.addEventListener("mouseup", handleParentMouseUp, true);
         window.addEventListener("blur", handleParentWindowBlur, true);
         window.addEventListener("keydown", handleParentKeyDown, true);
+        window.addEventListener("keyup", handleParentKeyUp, true);
         return;
       }
 
@@ -3631,6 +3776,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceElementSize:
             sourceElementSize ??
             crossScreenDragMsgRef.current?.sourceElementSize,
+          modifiers:
+            sourceModifiers ?? crossScreenDragMsgRef.current?.modifiers,
           sourceHtmlSnapshot:
             sourceHtmlSnapshot ??
             crossScreenDragMsgRef.current?.sourceHtmlSnapshot,
@@ -3713,6 +3860,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceProvenance,
           sourcePointerOffset,
           sourceElementSize,
+          modifiers: sourceModifiers,
           sourceHtmlSnapshot,
           duplicate: msg.duplicate === true,
           sourceCloneHtml: msg.sourceCloneHtml,
@@ -3775,6 +3923,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           candidate,
           payload,
           lastBoardPoint,
+          typeof msg.releasedAt === "number" ? msg.releasedAt : undefined,
         );
       }
     };
@@ -4854,6 +5003,44 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     updateSelectedIds,
     vectorEdit,
   ]);
+
+  useEffect(() => {
+    const hostUsesSForIgnoreAutoLayout = () => !isApplePlatform();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (hostUsesSForIgnoreAutoLayout() && event.key.toLowerCase() === "s") {
+        crossScreenSKeyPressedRef.current = true;
+        crossScreenSKeyTimesRef.current = {
+          downAt: performance.timeOrigin + event.timeStamp,
+          upAt: null,
+        };
+      }
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (hostUsesSForIgnoreAutoLayout() && event.key.toLowerCase() === "s") {
+        crossScreenSKeyPressedRef.current = false;
+        if (crossScreenSKeyTimesRef.current.downAt !== null) {
+          crossScreenSKeyTimesRef.current = {
+            ...crossScreenSKeyTimesRef.current,
+            upAt: performance.timeOrigin + event.timeStamp,
+          };
+        }
+      }
+    };
+    const handleBlur = () => {
+      crossScreenSKeyPressedRef.current = false;
+      if (shouldClearCrossScreenSKeyTimesOnWindowBlur(document.hasFocus())) {
+        crossScreenSKeyTimesRef.current = { downAt: null, upAt: null };
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("blur", handleBlur, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      window.removeEventListener("blur", handleBlur, true);
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

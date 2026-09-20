@@ -5752,6 +5752,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // one meant for whatever is active now — see cancelActiveBridgeDragOrPendingCommit.
   var activeDragStartedAt: number | null = null;
   var bridgeSpaceKeyPressed = false;
+  var bridgeIgnoreAutoLayoutKeyPressed = false;
   var bridgeSpaceKeyConsumedByDrag = false;
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var activeCrossScreenDragIdentity: {
@@ -10259,8 +10260,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var nav = navigator as Navigator & {
       userAgentData?: { platform?: string };
     };
+    // `userAgentData.platform` can describe the emulated UA while
+    // `navigator.platform` still reports the physical keyboard platform (as
+    // Chromium does in the Playwright Mac profile). Prefer the latter so the
+    // primary modifier follows the keyboard that delivered the event.
     var platform =
-      (nav.userAgentData && nav.userAgentData.platform) || nav.platform || "";
+      nav.platform || (nav.userAgentData && nav.userAgentData.platform) || "";
     return /Mac|iPhone|iPad|iPod/i.test(platform);
   }
 
@@ -10268,6 +10273,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return isApplePlatformBridge()
       ? e.metaKey && !e.ctrlKey
       : e.ctrlKey && !e.metaKey;
+  }
+
+  function isIgnoreAutoLayoutChord(e): boolean {
+    // Figma assigns nesting to the platform-primary modifier (Cmd on Apple,
+    // Ctrl elsewhere). Literal Control is the free-placement override on
+    // Apple; keeping it platform-scoped avoids treating Windows Ctrl as both
+    // nesting and Ignore auto layout.
+    return isApplePlatformBridge()
+      ? Boolean(e.ctrlKey && !e.metaKey)
+      : bridgeIgnoreAutoLayoutKeyPressed ||
+          String(e && e.key).toLowerCase() === "s";
   }
 
   function isShowShortcutsChord(e) {
@@ -14142,7 +14158,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function postCrossScreenDrag(
     phase: "start" | "move" | "end" | "cancel",
     el?: Element | null,
-    ev?: { clientX?: number; clientY?: number } | null,
+    ev?: { clientX?: number; clientY?: number; timeStamp?: number } | null,
     options?: {
       duplicate?: boolean;
       elementRect?: {
@@ -14153,6 +14169,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
       pointerOffset?: { x: number; y: number };
       styleSnapshot?: unknown;
+      modifiers?: {
+        metaKey?: boolean;
+        ctrlKey?: boolean;
+        ignoreAutoLayout?: boolean;
+        forceNestedAutoLayout?: boolean;
+      };
     },
   ): void {
     dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
@@ -14225,8 +14247,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // host must not have to infer capture-failed from a value shape
         // that could change; see collectPortableStyleSnapshot's doc.
         styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
+        modifiers: options?.modifiers,
         duplicate: options?.duplicate === true ? true : undefined,
         sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
+        releasedAt:
+          phase === "end" && typeof ev?.timeStamp === "number"
+            ? performance.timeOrigin + ev.timeStamp
+            : undefined,
       },
       "*",
     );
@@ -15139,6 +15166,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     excludeEls,
     keepCurrentParent,
     ignoreTargetAutoLayout,
+    forceNestedAutoLayout = false,
   ) {
     if (!el || !el.parentElement) return null;
     var currentParent = el.parentElement;
@@ -15220,6 +15248,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
 
     var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+    if (
+      (forceNestedAutoLayout || ignoreTargetAutoLayout) &&
+      !pointerOutsideCurrentParent
+    ) {
+      var nestedHit = elementFromEditorPoint(clientX, clientY);
+      while (
+        nestedHit &&
+        nestedHit.parentElement !== currentParent &&
+        nestedHit !== el &&
+        !el.contains(nestedHit)
+      ) {
+        nestedHit = nestedHit.parentElement;
+      }
+      if (
+        nestedHit &&
+        nestedHit !== el &&
+        !el.contains(nestedHit) &&
+        nestedHit !== currentParent &&
+        isAutoLayoutElement(nestedHit) &&
+        nestedHit.parentElement === currentParent &&
+        isContainerDropTarget(nestedHit)
+      ) {
+        target = nearestChildInsertionTarget(
+          nestedHit,
+          clientX,
+          clientY,
+          dragged,
+        ) || {
+          anchor: nestedHit,
+          placement: "inside",
+          axis: parentFlowAxis(nestedHit),
+          dropMode: "flow-insert",
+        };
+      }
+    }
     var container = dropContainerForTarget(target);
 
     // Figma Ignore auto layout: Control-drag into an auto-layout frame keeps
@@ -15361,7 +15424,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // like `el` — used by multi-select group drags so no member of the moving
   // group is hit-tested, walked through, or offered as a nesting container
   // for its own group.
-  function autoLayoutInsertionTargetForPoint(el, clientX, clientY, excludeEls) {
+  function autoLayoutInsertionTargetForPoint(
+    el,
+    clientX,
+    clientY,
+    excludeEls,
+    forceNestedAutoLayout = false,
+  ) {
     var dragged: Element[] = [el].concat(excludeEls || []);
     function isDraggedOrInsideDragged(node) {
       for (var i = 0; i < dragged.length; i += 1) {
@@ -15415,6 +15484,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // node whose parent happens to be body — must fall through to a plain
       // absolute placement instead of silently wrapping body in auto-layout.
       var parent = cursor.parentElement;
+      if (
+        parent === document.body &&
+        isAutoLayoutElement(parent) &&
+        cursor !== el &&
+        !isDraggedOrInsideDragged(cursor) &&
+        !isTemplateCloneElement(cursor)
+      ) {
+        var rootChildSlot = nearestChildInsertionTarget(
+          parent,
+          clientX,
+          clientY,
+          dragged,
+        );
+        if (rootChildSlot) return rootChildSlot;
+      }
       // An absolute layer dropped onto a direct child of an established
       // auto-layout parent is joining that parent's flow. Resolve the sibling
       // slot before the freeform-container probes below: generated preview
@@ -15426,6 +15510,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         isAutoLayoutElement(parent) &&
         cursor.getAttribute("data-an-primitive") !== "frame" &&
         !isTextBearingLeaf(parent) &&
+        !forceNestedAutoLayout &&
         !isTemplateCloneElement(cursor)
       ) {
         var directChildSlot = nearestChildInsertionTarget(
@@ -15500,6 +15585,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cursor !== document.body &&
         isContainerDropTarget(cursor) &&
         !(
+          !forceNestedAutoLayout &&
           parent &&
           parent !== document.body &&
           isAutoLayoutElement(parent) &&
@@ -17561,7 +17647,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var reorderGestureStartRect = dragGrabRect(reorderEl);
       var reorderLastTargetKey = null;
       var keepCurrentFlowParent = bridgeSpaceKeyPressed;
-      // Ctrl overrides auto-layout drag resistance for the WHOLE
+      // Ignore auto layout overrides drag resistance for the WHOLE
       // gesture (unique-paths-5): captured once here, not re-read per move
       // tick, so releasing the modifier mid-drag can't hand the gesture to
       // the host's cross-screen tracking partway through. Held, this skips
@@ -17571,7 +17657,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // board the moment the pointer crosses the screen's rendered edge,
       // stealing the gesture from the (already-correct) in-iframe free-move
       // path below before it can ever run.
-      var reorderIgnoresAutoLayout = Boolean(e.ctrlKey);
+      var reorderIgnoresAutoLayout = isIgnoreAutoLayoutChord(e);
       var reorderMetaFreePlacement = false;
       var currentTarget = flowMoveTargetForPoint(
         reorderEl,
@@ -17580,6 +17666,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         groupOthers,
         keepCurrentFlowParent,
         reorderIgnoresAutoLayout,
+        isPlatformPrimaryChord(e),
       );
       showInsertionGuideFor(currentTarget);
       dndLog("start:reorder", {
@@ -17867,9 +17954,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         postElementSelect(selectedEl);
       }
       // Auto-layout children reorder into a slot on plain drag — they have no
-      // free x/y without leaving the layout, which would collapse it. Ctrl
+      // free x/y without leaving the layout, which would collapse it. Ignore
       // "ignore auto layout" is the explicit free-place escape.
-      function resolveReorderOrFreeTarget(cx, cy, ctrlKey) {
+      function resolveReorderOrFreeTarget(
+        cx,
+        cy,
+        ignoreTargetAutoLayout,
+        forceNestedAutoLayout,
+      ) {
         // Re-sync from the live global on every call: this document's own
         // onReorderKeyDown/KeyUp keep keepCurrentFlowParent current when
         // Space lands here, but the host's forwarded
@@ -17884,7 +17976,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           cy,
           groupOthers,
           keepCurrentFlowParent,
-          ctrlKey,
+          ignoreTargetAutoLayout,
+          forceNestedAutoLayout,
         );
       }
       function hasMetaFlowTarget(target, cx, cy) {
@@ -17927,7 +18020,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!liveReflowEnabled || !target || target.placement !== "inside") {
           return target;
         }
-        if (ev && (ev.metaKey || ev.ctrlKey)) return target;
+        if (ev && (isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev))) {
+          return target;
+        }
         var container = dropContainerForTarget(target);
         // Never treat the screen root (body/html) as a too-small container: the
         // before/after fallback would reparent to documentElement and insert a
@@ -18215,7 +18310,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var dx = cx - reorderPointerStart.clientX;
         var dy = cy - reorderPointerStart.clientY;
         var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
-        if (ev.ctrlKey) activateReorderControlOverride();
+        if (isIgnoreAutoLayoutChord(ev)) activateReorderControlOverride();
         var rawTarget = null;
         // Meta stays in normal flow whenever the pointer resolves to a real
         // flow target. Probe without the free-placement override first on
@@ -18225,7 +18320,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           clearReorderReflow();
           var metaFlowTarget = outside
             ? null
-            : resolveReorderOrFreeTarget(cx, cy, false);
+            : resolveReorderOrFreeTarget(
+                cx,
+                cy,
+                false,
+                isPlatformPrimaryChord(ev),
+              );
           if (hasMetaFlowTarget(metaFlowTarget, cx, cy)) {
             if (reorderMetaFreePlacement) {
               reorderMetaFreePlacement = false;
@@ -18252,7 +18352,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               postCrossScreenDrag("cancel");
             }
             if (!outside) {
-              rawTarget = resolveReorderOrFreeTarget(cx, cy, true);
+              rawTarget = resolveReorderOrFreeTarget(
+                cx,
+                cy,
+                true,
+                isPlatformPrimaryChord(ev),
+              );
               rawTarget = applyReorderSizeGuard(rawTarget, ev);
             }
           }
@@ -18314,7 +18419,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               cy,
               reorderIgnoresAutoLayout ||
                 reorderMetaFreePlacement ||
-                Boolean(ev.ctrlKey),
+                isIgnoreAutoLayoutChord(ev),
+              isPlatformPrimaryChord(ev),
             );
           }
           rawTarget = applyReorderSizeGuard(rawTarget, ev);
@@ -18462,11 +18568,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var cy = ev.clientY;
         var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
         if (!ev.metaKey) releaseReorderMetaOverride(ev);
-        if (ev.ctrlKey) activateReorderControlOverride();
+        if (isIgnoreAutoLayoutChord(ev)) activateReorderControlOverride();
         if (ev.metaKey && !reorderIgnoresAutoLayout && !isGroupDrag) {
           var metaReleaseTarget = outside
             ? null
-            : resolveReorderOrFreeTarget(cx, cy, false);
+            : resolveReorderOrFreeTarget(
+                cx,
+                cy,
+                false,
+                isPlatformPrimaryChord(ev),
+              );
           if (!hasMetaFlowTarget(metaReleaseTarget, cx, cy)) {
             reorderMetaFreePlacement = true;
             crossScreenClaimedByHost = false;
@@ -18538,7 +18649,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           cy,
           reorderIgnoresAutoLayout ||
             reorderMetaFreePlacement ||
-            Boolean(ev?.ctrlKey),
+            isIgnoreAutoLayoutChord(ev),
+          isPlatformPrimaryChord(ev),
         );
         currentTarget = liveReflowEnabled
           ? stabilizeReorderTarget(
@@ -18775,6 +18887,58 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var dragElStartRect = (dragEl as HTMLElement).getBoundingClientRect();
     var dragElStartWidth = dragElStartRect.width;
     var dragElStartHeight = dragElStartRect.height;
+    // Figma keeps an oversized free layer out of a smaller auto-layout
+    // container. The free-drag resolver can otherwise return an inside target
+    // without passing through the flow-reorder guard, so apply the same
+    // source-baseline check before preview and commit.
+    function applyFreeDropSizeGuard(target, ev) {
+      if (
+        !target ||
+        target.placement !== "inside" ||
+        target.dropMode !== "flow-insert"
+      ) {
+        return target;
+      }
+      if (ev && (isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev))) {
+        return target;
+      }
+      var container = dropContainerForTarget(target);
+      if (
+        !container ||
+        container === dragEl ||
+        container === document.body ||
+        container === document.documentElement ||
+        !isAutoLayoutElement(container)
+      ) {
+        return target;
+      }
+      var crect = container.getBoundingClientRect();
+      if (
+        crect.width >= dragElStartRect.width &&
+        crect.height >= dragElStartRect.height
+      ) {
+        return target;
+      }
+      var parent = container.parentElement;
+      if (!parent) return null;
+      var pcs = window.getComputedStyle(parent);
+      var pAxis =
+        pcs.flexDirection === "column" || pcs.flexDirection === "column-reverse"
+          ? "y"
+          : "x";
+      var center =
+        pAxis === "x"
+          ? crect.left + crect.width / 2
+          : crect.top + crect.height / 2;
+      var pointer =
+        pAxis === "x" ? (ev ? ev.clientX : center) : ev ? ev.clientY : center;
+      return {
+        anchor: container,
+        placement: pointer < center ? "before" : "after",
+        axis: pAxis,
+        dropMode: "flow-insert",
+      };
+    }
     // Client px per CSS px for this element. 1 unless an ancestor between it
     // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
     // Client px per CSS px contributed by ANCESTORS. Measured on the offset
@@ -18800,6 +18964,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!isGroupDrag) {
       postCrossScreenDrag("start", dragEl, pointerStartParam || e, {
         duplicate: duplicatedForDrag,
+        modifiers: {
+          metaKey: !!e.metaKey,
+          ctrlKey: !!e.ctrlKey,
+          ignoreAutoLayout: isIgnoreAutoLayoutChord(e),
+          forceNestedAutoLayout: isPlatformPrimaryChord(e),
+        },
       });
     }
     // rAF-coalesce the "move" phase postMessage: a raw mousemove/pointermove
@@ -18814,6 +18984,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var crossScreenDragMovePendingEv: {
       clientX: number;
       clientY: number;
+      metaKey: boolean;
+      ctrlKey: boolean;
+      ignoreAutoLayout: boolean;
+      forceNestedAutoLayout: boolean;
     } | null = null;
     function flushCrossScreenDragMove() {
       crossScreenDragMoveScheduled = false;
@@ -18822,6 +18996,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (pendingEv) {
         postCrossScreenDrag("move", dragEl, pendingEv, {
           duplicate: duplicatedForDrag,
+          modifiers: {
+            metaKey: pendingEv.metaKey,
+            ctrlKey: pendingEv.ctrlKey,
+            ignoreAutoLayout: pendingEv.ignoreAutoLayout,
+            forceNestedAutoLayout: pendingEv.forceNestedAutoLayout,
+          },
         });
       }
     }
@@ -18829,6 +19009,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       crossScreenDragMovePendingEv = {
         clientX: ev.clientX,
         clientY: ev.clientY,
+        metaKey: !!ev.metaKey,
+        ctrlKey: !!ev.ctrlKey,
+        ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+        forceNestedAutoLayout: isPlatformPrimaryChord(ev),
       };
       if (crossScreenDragMoveScheduled) return;
       crossScreenDragMoveScheduled = true;
@@ -18934,7 +19118,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // (Figma behavior) and while an auto-layout flow-insert is about to
       // happen instead of a free absolute placement (handled below once
       // currentAutoLayoutTarget is known for this tick).
-      var snapBypass = Boolean(ev.metaKey || ev.ctrlKey);
+      var snapBypass =
+        isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev);
       var snapResult =
         !snapBypass && !duplicatedForDrag
           ? computeMoveSnapOffset(
@@ -19014,13 +19199,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               ev.clientX,
               ev.clientY,
               groupOthers,
+              isPlatformPrimaryChord(ev),
             )
           : null;
-        if (currentAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
+        if (currentAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
           currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             currentAutoLayoutTarget,
           );
         }
+        currentAutoLayoutTarget = applyFreeDropSizeGuard(
+          currentAutoLayoutTarget,
+          ev,
+        );
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
         } else {
@@ -19162,6 +19352,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
         postCrossScreenDrag("end", dragEl, ev, {
           duplicate: duplicatedForDrag,
+          modifiers: {
+            metaKey: !!ev.metaKey,
+            ctrlKey: !!ev.ctrlKey,
+            ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+            forceNestedAutoLayout: isPlatformPrimaryChord(ev),
+          },
         });
       }
       if (ev && !isGroupDrag && outsideOnDrop) {
@@ -19184,12 +19380,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ev.clientX,
           ev.clientY,
           groupOthers,
+          isPlatformPrimaryChord(ev),
         );
-        if (finalAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
+        if (finalAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
           finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             finalAutoLayoutTarget,
           );
         }
+        finalAutoLayoutTarget = applyFreeDropSizeGuard(
+          finalAutoLayoutTarget,
+          ev,
+        );
         if (finalAutoLayoutTarget) {
           currentAutoLayoutTarget = finalAutoLayoutTarget;
         }
@@ -20917,17 +21118,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         shieldOverlay.setPointerCapture(e.pointerId);
       } catch (_err) {}
     }
-    // unique-paths-5: a ctrl/cmd-held drag on a flow-reorder candidate
-    // (isFlowReorderCandidate) is about to be routed to the ctrl-aware
+    // unique-paths-5: an Ignore-auto-layout drag on a flow-reorder candidate
+    // (isFlowReorderCandidate) is about to be routed to the modifier-aware
     // auto-layout-override path below (reorderIgnoresAutoLayout) — arming
     // the host's cross-screen tracking here, before that routing decision
     // even runs, would let its ctrl-unaware board-level listeners steal the
     // gesture the moment the pointer crosses the screen's rendered edge.
-    // Every other drag (no ctrl, or ctrl on an already-absolute element,
-    // where ctrl carries no auto-layout meaning) arms the host exactly as
+    // Every other drag (including platform-primary nesting) arms the host
+    // exactly as
     // before.
     var suppressCrossScreenStartForCtrlReorder =
-      Boolean(e.ctrlKey) && isFlowReorderCandidate(dragTarget);
+      isIgnoreAutoLayoutChord(e) && isFlowReorderCandidate(dragTarget);
     if (!readOnly && !e.altKey && !suppressCrossScreenStartForCtrlReorder) {
       postCrossScreenDrag("start", dragTarget, e);
     }
@@ -21160,6 +21361,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "keydown",
     function (e) {
+      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        bridgeIgnoreAutoLayoutKeyPressed = true;
+      }
       if (
         e.key === " " &&
         e.code === "Space" &&
@@ -21334,6 +21538,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "keyup",
     function (e) {
+      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        bridgeIgnoreAutoLayoutKeyPressed = false;
+      }
       if (e.key !== " " || e.code !== "Space") return;
       bridgeSpaceKeyPressed = false;
       if (bridgeSpaceKeyConsumedByDrag) {
@@ -21354,6 +21561,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
     true,
   );
+  window.addEventListener("blur", function () {
+    window.setTimeout(function () {
+      if (!activeDragCancel) {
+        bridgeIgnoreAutoLayoutKeyPressed = false;
+      }
+    }, 0);
+  });
 
   // T23/T24: pointerdown-level text-edit session hygiene. Runs on DOCUMENT
   // capture (not the shield) because an active session sets the shield to

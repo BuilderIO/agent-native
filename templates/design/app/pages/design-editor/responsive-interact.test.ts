@@ -306,6 +306,9 @@ describe("responsive Interact wiring", () => {
     );
     expect(canvas).toContain("previewHeightPx?: number");
     expect(canvas).toContain("const resolvedHeight =");
+    expect(canvas).toContain("enabled: Boolean(onZoomChange) && !interactMode");
+    expect(canvas).toContain('if (e.data.type === "pinch-zoom-wheel") {');
+    expect(canvas).toContain("if (interactMode) return;");
   });
 
   it("keeps the canvas-shell Escape handling inert, but exits Interact on Escape", () => {

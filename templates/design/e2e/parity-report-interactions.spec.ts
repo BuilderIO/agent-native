@@ -525,7 +525,39 @@ test("report path: Option-dragging a selected root board frame duplicates into a
   try {
     await gotoEditor(page, designId);
     const { dragSurface } = await selectBoardSourceFromHost(page);
-    await dragHostBoardSourceIntoNestedFrame(page, dragSurface, true);
+    const target = screenFrame(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="nested-frame"]');
+    const targetBox = (await target.boundingBox())!;
+    const release = {
+      x: targetBox.x + targetBox.width / 2,
+      y: targetBox.y + targetBox.height / 2,
+    };
+    const dragBox = (await dragSurface.boundingBox())!;
+    await page.mouse.move(
+      dragBox.x + dragBox.width / 2,
+      dragBox.y + dragBox.height / 2,
+    );
+    await page.keyboard.down("Alt");
+    await page.mouse.down();
+    await page.mouse.move(
+      dragBox.x + dragBox.width / 2 - 12,
+      dragBox.y + dragBox.height / 2,
+      { steps: 4 },
+    );
+    await expect(
+      boardFrame(page)
+        .contentFrame()
+        .locator('[data-agent-native-clone-root="true"]'),
+    ).toHaveCount(1);
+    await page.mouse.move(release.x, release.y, { steps: 24 });
+    await expect(
+      screenFrame(page)
+        .contentFrame()
+        .locator("[data-agent-native-hit-test-preview]"),
+    ).toBeVisible();
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
 
     await expect
       .poll(
@@ -544,6 +576,12 @@ test("report path: Option-dragging a selected root board frame duplicates into a
     const copyId = nestedChildren.find((id) => id !== "nested-anchor");
     expect(copyId).toBeTruthy();
     expect(copyId).not.toBe("board-source");
+    const nestedContent = await fileContent(request, designId, "index.html");
+    expect(nestedContent).toMatch(
+      new RegExp(
+        `data-agent-native-node-id="${copyId}"[^>]*data-agent-native-layer-name="Board source"`,
+      ),
+    );
     expect(await fileContent(request, designId, "__board__.html")).toContain(
       'data-agent-native-node-id="board-source"',
     );
@@ -555,6 +593,50 @@ test("report path: Option-dragging a selected root board frame duplicates into a
         .locator('[role="treeitem"][aria-selected="true"]')
         .filter({ hasText: "Board source" }),
     ).toHaveCount(1);
+
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(
+        async () =>
+          childNodeIds(
+            await fileContent(request, designId, "index.html"),
+            "nested-frame",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["nested-anchor"]);
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(
+        async () =>
+          childNodeIds(
+            await fileContent(request, designId, "index.html"),
+            "nested-frame",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["nested-anchor", copyId]);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
+      timeout: 30_000,
+    });
+    await expect
+      .poll(() => fileContent(request, designId, "index.html"), {
+        timeout: 20_000,
+      })
+      .toContain(`data-agent-native-node-id="${copyId}"`);
+    expect(
+      childNodeIds(
+        await fileContent(request, designId, "index.html"),
+        "nested-frame",
+      ),
+    ).toEqual(["nested-anchor", copyId]);
+    await expect
+      .poll(() => fileContent(request, designId, "__board__.html"), {
+        timeout: 20_000,
+      })
+      .toContain('data-agent-native-node-id="board-source"');
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
