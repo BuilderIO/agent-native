@@ -60,12 +60,12 @@ synonym in the recap or Slack reply:
 - **Evidence-limited or still active, retain the workflow's eye:** **Verified
   locally**, **Built - live unverified**, **Deployed - live unverified**,
   **Not reproducible - attempted**, **In progress**, **Asked**, **Clarification
-  needed**, **Blocked on reporter**, or **Merged - release pending**.
+  needed**, or **Blocked on reporter**.
 - **Foreign ownership, preserve the other workflow's eye:** **Owned elsewhere**.
 
-**Merged - release pending** is non-terminal: the source merged, but release
-delivery and the published rerun remain. **Clustered** closes a duplicate row
-without erasing its row.
+Once the verified source fix is merged into the shipping snapshot, **Fixed** is
+terminal. Publication, beta delivery, and live reruns are separate follow-ups.
+**Clustered** closes a duplicate row without erasing its row.
 
 Use `✅` only for **Fixed**, **Shipped**, or **Live verified**; use
 `:no_entry_sign:` for other terminal states. Never delete `👀` as a substitute
@@ -281,11 +281,11 @@ If a source cannot be read, record it as **unavailable**. Never report
 
 Enumerate every open issue and read its body, comments, author, labels, linked
 PRs, and state. Treat prior `fixed`, `shipped`, or `merged` comments as leads:
-recheck the reporter's surface and residual scope. When the live bar holds,
-thank the human reporter, link the fix, and close it. If release/live proof is
-missing, use **Merged - release pending** and leave it open. Close when the
-reporter's accepted primary scope or blocker ships; mention optional follow-ups,
-but keep it open if accepted scope remains.
+recheck the reporter's surface and residual scope. When the source-fix bar
+holds and the fix is merged, thank the human reporter, link the fix, and close
+it immediately. Do not wait for publication, beta delivery, or live proof.
+Record missing release/runtime evidence separately, and keep the issue open only
+when the accepted scope remains unfixed, unmerged, or needs reporter input.
 
 For every clear GitHub defect, fix the root cause or ask one unblock question;
 do not skip old, bot-filed, or maintainer-commented issues. Feature requests
@@ -296,8 +296,10 @@ Query both production Sentry projects - frontend/browser and backend/CLI -
 paginate unresolved issues, and record representative events, releases, and
 fingerprints. Classify each as repo-owned, external/provider,
 deployment/configuration, or unclear; fix repo-owned failures at the boundary
-and verify the published runtime. Record external actions for the rest; silence
-or an old release is not proof the current error is gone.
+and verify the source/build. Check the published runtime when available, but
+record any release or live gap separately rather than holding a merged fix open.
+Record external actions for the rest; silence or an old release is not proof the
+current error is gone.
 
 ## Phase 2: fix
 
@@ -373,12 +375,13 @@ surface is the contract:
    do not delete unless needed.
 4. **Test release and race layers.** Use deterministic concurrency or 10 runs,
    a clean scaffold/cache and exact published/candidate package, and the exact
-   beta/production URL. Source, tests, merge, or unchanged live state are not
-   runtime proof.
+   beta/production URL when those layers are in scope. These strengthen
+   **Shipped** and **Live verified**; they do not keep a verified, merged source
+   fix open.
 5. Record untested layers/variants and use the narrowest evidence-limited
    disposition. Never release `✅` or call **Fixed**, **Shipped**, or **Live
-   verified** on partial evidence. A post-checkmark repeat reopens the item and
-   needs a fresh failing pre-change reproduction.
+   verified** on partial source evidence. A post-checkmark repeat reopens the
+   item and needs a fresh failing pre-change reproduction.
 
 ### Reproduction ledger - required for every row
 
@@ -389,18 +392,17 @@ layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
 
 If the full bar was not exercised, use **Verified locally**, **Built - live
 unverified**, **Deployed - live unverified**, **Not reproducible - attempted**,
-**Asked**, **Blocked on reporter**, **Merged - release pending**, or
-**Clustered**. **Live verified** is valid only after all four bars hold. Never
-promote `handled`/`completed`, reactions, source tests, or unchanged live state
-to **Fixed**. Repeats require a new failing pre-change reproduction and the
-earlier false claim.
+**Asked**, **Blocked on reporter**, or **Clustered**. **Live verified** is valid
+only after all four bars hold. Never promote `handled`/`completed`, reactions,
+or source tests without a verified regression to **Fixed**. Repeats require a
+new failing pre-change reproduction and the earlier false claim.
 
 Regression claims require Red/Green proof: reverse-apply hunk with
 `git apply -R`, record failure, reapply, record pass. Repeat timing checks 10x.
 If output missing, build it and rerun on `origin/main` before calling them
 pre-existing.
 
-### Npx and package reports have a release gate
+### Npx and package reports have a release follow-up
 
 An npx scaffold is versioned. Record its pinned core version, the version
 current when filed, and run the exact command with a fresh npm cache and no
@@ -408,16 +410,19 @@ local override; run the same flow on the candidate separately. Record the
 release containing the change and the existing-app path (`pnpm add
 @agent-native/core@<version>` or a hand edit).
 
-Local source/tests, beta promises, and local scaffolds are not **Fixed**. A
-published pass is required; a fresh scaffold covers only new scaffolds. Reply
-with the version and bump/re-scaffold or hand-edit steps. If old-versus-fresh or
-the endpoint environment is unknown, ask one fork question and keep the row
-open.
+Local source/tests, beta promises, and local scaffolds are not **Shipped** or
+**Live verified**. A published pass is required for those dispositions, and a
+fresh scaffold covers only new scaffolds. A verified source fix that is merged
+is still **Fixed** and the issue closes; record the release version and
+bump/re-scaffold or hand-edit steps as a follow-up. If old-versus-fresh or the
+endpoint environment is unknown, ask one fork question and keep the row open.
 
-Before npm has the fix, use **Merged - release pending**, not **Fixed**. Record
-the merge commit, next core release, and verification command. After publish,
-rerun the clean scaffold and state whether existing apps must bump
-`@agent-native/core` or re-scaffold. Merge or beta status is not npx delivery.
+Before npm has the fix, use **Fixed** after the source change is verified and
+merged, not a release-pending disposition. Record the merge commit, next core
+release, and verification command. After publish, rerun the clean scaffold and
+state whether existing apps must bump `@agent-native/core` or re-scaffold.
+Merge or beta status is not npx delivery, but it is enough to close the fixed
+source issue.
 
 ### Documentation has a runnable proof obligation
 
@@ -444,11 +449,12 @@ Say **Fixed** only when all four hold: the reporter's observed symptom is named;
 the exact reproduction fails before and passes after (a prop-threading test is
 not proof of "double-click schedules two emails," and a docs diff is not the
 clean-scaffold copy-paste proof); the sibling sweep is clean or triaged; and
-the change is in the shipping snapshot with its runtime layer named.
-**Shipped** requires build/deploy provenance; **Live verified** requires the
-target runtime. Otherwise use a narrower disposition and never imply beta or
-production health. An upvoted improvement states requested versus actual
-behavior, then holds the same bars and is **Shipped**, not **Fixed**.
+the verified change is in the merged shipping snapshot with its source or
+built runtime layer named. **Shipped** requires build/deploy provenance;
+**Live verified** requires the target runtime. Otherwise use a narrower
+disposition and never imply beta or production health. An upvoted improvement
+states requested versus actual behavior, then holds the same bars and is
+**Shipped**, not **Fixed**.
 
 ## Phase 3: reply
 
@@ -462,10 +468,12 @@ have. Three kinds qualify:
 - **Fixed** / **Shipped** / **Live verified** — all four bars above are met. A
   live-verified row may be silent when its live observation is already recorded;
   do not manufacture a reply. For package reports,
-  include the published version and the upgrade or re-scaffold command. Name
-  the beta URL/runtime only when it was actually exercised; never use “on beta
-  later today” as a substitute for release or live proof. Use **Shipped** for
-  an upvoted improvement.
+  include the published version when available. Otherwise name the merged fix
+  and say publication plus the upgrade or re-scaffold command are follow-ups;
+  never imply the current published package is already fixed. Name the beta
+  URL/runtime only when it was actually exercised; never use “on beta later
+  today” as a substitute for release or live proof. Use **Shipped** for an
+  upvoted improvement.
 - **In progress** — the thread already has real, concrete ownership (a named
   PR, a person actively working it). Acknowledge it; ask nothing.
 - **A question** — subject to the budget below.
