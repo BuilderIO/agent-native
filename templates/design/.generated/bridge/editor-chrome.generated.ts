@@ -10691,11 +10691,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         var childStyles = window.getComputedStyle(child);
         return childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0";
       });
-      var hasAuthoredSingleCellSourcePlacement = (excluded || []).some(
-        function(child) {
-          var childStyles = window.getComputedStyle(child);
-          return childStyles.gridColumnStart !== "auto" && childStyles.gridColumnStart.indexOf("span") !== 0 && childStyles.gridColumnEnd === "auto" && childStyles.gridRowStart !== "auto" && childStyles.gridRowStart.indexOf("span") !== 0 && childStyles.gridRowEnd === "auto";
-        }
+      var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
+      var singleSourceStyles = singleSource ? window.getComputedStyle(singleSource) : null;
+      var singleSourceColumn = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "column") : null;
+      var singleSourceRow = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "row") : null;
+      var hasAuthoredSingleCellSourcePlacement = Boolean(
+        singleSource && singleSource.parentElement === container && singleSourceStyles && singleSourceStyles.gridColumnStart !== "auto" && singleSourceStyles.gridColumnStart.indexOf("span") !== 0 && singleSourceStyles.gridRowStart !== "auto" && singleSourceStyles.gridRowStart.indexOf("span") !== 0 && (singleSourceStyles.gridColumnEnd === "auto" || singleSourceColumn?.span === 1) && (singleSourceStyles.gridRowEnd === "auto" || singleSourceRow?.span === 1)
       );
       var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
       while (hit && hit.parentElement && hit.parentElement !== container) {

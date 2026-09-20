@@ -589,12 +589,32 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
           .evaluate((source) => source.parentElement?.tagName),
       )
       .toBe("BODY");
+
+    await page.keyboard.down(MOD);
+    await page.keyboard.press("Shift+z");
+    await page.keyboard.up(MOD);
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .toContain("grid-column: 3 / 4");
+    await openEditor(page, designId);
+    const redone = await preview(page)
+      .locator('[data-agent-native-node-id="explicit-source"]')
+      .evaluate((source) => ({
+        parent: source.parentElement?.getAttribute("data-agent-native-node-id"),
+        column: (source as HTMLElement).style.gridColumn,
+        row: (source as HTMLElement).style.gridRow,
+      }));
+    expect(redone).toEqual({
+      parent: "explicit-grid",
+      column: "3 / 4",
+      row: "auto",
+    });
   } finally {
     await deleteDesign(page, designId);
   }
 });
 
-test("G-5 after-edge grid drop persists after ordering and undo restores the source", async ({
+test("G-5 after-edge grid drop persists through undo, redo, and reload", async ({
   page,
 }) => {
   const designId = await newDesign(page, GRID_EXPLICIT_ORACLE_FIXTURE);
