@@ -40,6 +40,8 @@ const BOARD_HTML = `<!doctype html>
 <body style="margin:0;position:relative;width:1800px;height:900px;overflow:visible;background:transparent">
   <div data-agent-native-node-id="board-source" data-agent-native-layer-name="Board source" data-an-primitive="frame"
        style="position:absolute;left:-400px;top:140px;width:60px;height:30px;box-sizing:border-box;background:#f97316"></div>
+  <div data-agent-native-node-id="board-text" data-agent-native-layer-name="Board text"
+       style="position:absolute;left:-280px;top:140px;width:120px;height:30px;box-sizing:border-box;background:#fef3c7;color:#111827">Board text</div>
 </body></html>`;
 
 async function action(
@@ -429,6 +431,113 @@ test("report path: board frame drops directly into a nested screen frame and sur
         .first()
         .contentFrame()
         .locator('[data-agent-native-node-id="board-source"]'),
+    ).toBeVisible();
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("report path: held board text drop into a nested frame shows guide and ghost, preserves z-order, and reloads", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(request);
+  try {
+    await gotoEditor(page, designId);
+    const source = boardFrame(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="board-text"]');
+    const target = screenFrame(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="nested-frame"]');
+    await expect(source).toBeVisible();
+    await expect(target).toBeVisible();
+
+    const sourceBox = (await source.boundingBox())!;
+    const targetBox = (await target.boundingBox())!;
+    const release = {
+      x: targetBox.x + targetBox.width / 2,
+      y: targetBox.y + targetBox.height / 2,
+    };
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2 - 12,
+      sourceBox.y + sourceBox.height / 2,
+      { steps: 4 },
+    );
+    await page.mouse.move(release.x, release.y, { steps: 24 });
+    await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
+      timeout: 5_000,
+    });
+    await page.mouse.up();
+
+    await expect
+      .poll(
+        async () =>
+          childNodeIds(
+            await fileContent(request, designId, "index.html"),
+            "nested-frame",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["nested-anchor", "board-text"]);
+    await expect
+      .poll(() => fileContent(request, designId, "__board__.html"), {
+        timeout: 20_000,
+      })
+      .not.toContain('data-agent-native-node-id="board-text"');
+
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(
+        async () =>
+          childNodeIds(
+            await fileContent(request, designId, "index.html"),
+            "nested-frame",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["nested-anchor"]);
+    await expect
+      .poll(() => fileContent(request, designId, "__board__.html"), {
+        timeout: 20_000,
+      })
+      .toContain('data-agent-native-node-id="board-text"');
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(
+        async () =>
+          childNodeIds(
+            await fileContent(request, designId, "index.html"),
+            "nested-frame",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["nested-anchor", "board-text"]);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(
+        async () =>
+          childNodeIds(
+            await fileContent(request, designId, "index.html"),
+            "nested-frame",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["nested-anchor", "board-text"]);
+    await expect(
+      screenFrame(page)
+        .contentFrame()
+        .locator('[data-agent-native-node-id="board-text"]'),
     ).toBeVisible();
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});

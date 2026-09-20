@@ -1098,17 +1098,16 @@ export function runCrossScreenElementDrop(
   ) =>
     getScreenContent(fileId) === publication.content &&
     (fileSaveOperationRevisionRef === undefined ||
+      saveOperationRevisionsAtPublication[fileId] === undefined ||
       fileSaveOperationRevisionRef.current[fileId] ===
         saveOperationRevisionsAtPublication[fileId]);
   const canFinalizePublication = () =>
     isCurrentPublication(targetScreenId, targetPublication) &&
-    isCurrentPublication(sourceScreenId, sourcePublication) &&
-    (selectionFingerprintAtPublication === undefined ||
-      selectionFingerprintAtPublication === getCurrentSelectionFingerprint?.());
+    isCurrentPublication(sourceScreenId, sourcePublication);
 
   const finalizePublication = () => {
     // Save completion is asynchronous. Do not append stale whole-document
-    // history or restore an old selection after a newer edit/navigation lands.
+    // history; selection restoration is guarded separately below.
     if (!canFinalizePublication()) return;
     // History must replay the bytes the publisher accepted. Canonical identity
     // publication may stamp IDs into submitted HTML, and the post-action
@@ -1116,6 +1115,11 @@ export function runCrossScreenElementDrop(
     crossScreenHistoryChanges[0].after = sourcePublication.content;
     crossScreenHistoryChanges[1].after = targetPublication.content;
     recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
+
+    const selectionStillCurrent =
+      selectionFingerprintAtPublication === undefined ||
+      selectionFingerprintAtPublication === getCurrentSelectionFingerprint?.();
+    if (!selectionStillCurrent) return;
 
     // Switch active screen to the target and select the moved node; viewMode
     // stays "overview" (no setViewMode call).
