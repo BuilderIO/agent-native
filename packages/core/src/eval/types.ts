@@ -159,6 +159,12 @@ export interface Eval {
   scorers: Scorer<any, any>[];
   /** Minimum acceptable score (per scorer) in [0, 1]. Default 0.5. */
   threshold?: number;
+  /**
+   * Provenance for a case promoted from a production run. Ignored by
+   * threshold math; surfaced in `--json` reports so a CI failure can point
+   * back at the trace.
+   */
+  source?: { kind: "trace"; runId: string };
 }
 
 // ─── Results ──────────────────────────────────────────────────────────
@@ -187,6 +193,8 @@ export interface EvalResultRow {
   durationMs: number;
   /** Terminal error if the agent run itself failed. */
   error?: string;
+  /** Copied from the eval case when present; ignored for pass/fail. */
+  source?: { kind: "trace"; runId: string };
 }
 
 /** The full runner report. */

@@ -19,7 +19,7 @@ description: "에이전트 추적, 평가, 피드백, A/B 실험 및 내장 대�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "에이전트가 이 고정 입력에 대해 올바른 작업을 수행합니까?" | 활성, 결정적, CI/배포 게이트      | 품질        |
 | **[Observational Memory](/docs/observational-memory)** | "이 긴 스레드가 저렴하고 창 안에 남아 있습니까?"           | 긴 스레드의 배경 압축             | 비용 / 상황 |
 
-관찰 가능성과 CI 평가 게이트는 둘 다 _품질_ 점수를 매기지만 반대쪽 끝, 즉 실제 트래픽의 수동적 사후 점수와 고정 입력에 대한 활성 통과/실패 확인의 점수를 매깁니다. 관찰 기억은 품질과 관련이 없습니다. 토큰 비용과 컨텍스트 창 압박에 관한 것입니다.
+관찰 가능성과 CI 평가 게이트는 둘 다 _품질_ 점수를 매기지만 반대쪽 끝, 즉 실제 트래픽의 수동적 사후 점수와 고정 입력에 대한 활성 통과/실패 확인의 점수를 매깁니다. 관찰 기억은 품질과 관련이 없습니다. 토큰 비용과 컨텍스트 창 압박에 관한 것입니다. 완료된 프로덕션 트레이스를 `*.eval.ts` 케이스로 승격하세요(대시보드 **Promote to eval**, `promote-trace-eval`, 또는 `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). [프로덕션 트레이스에서](/docs/evals#from-trace)를 보세요.
 
 ## 자동으로 캡처되는 내용 {#captured}
 
@@ -291,6 +291,7 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 | GET  | `/traces`                  | 추적 요약 나열             |
 | GET  | `/traces/:runId`           | 추적 세부정보(요약 + 범위) |
 | GET  | `/traces/:runId/evals`     | 실행 평가                  |
+| POST | `/traces/:runId/promote`   | 완료된 실행을 CI eval로 승격 |
 | POST | `/feedback`                | 의견 제출                  |
 | GET  | `/feedback`                | 피드백 나열                |
 | GET  | `/feedback/stats`          | 피드백 집계                |

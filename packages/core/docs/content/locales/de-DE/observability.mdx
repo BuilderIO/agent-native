@@ -19,7 +19,7 @@ Diese drei Seiten sind leicht zu verwechseln. Wählen Sie die Frage aus, die Sie
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                                    | „Tut der Agent bei dieser festen Eingabe das Richtige?“ | Aktiv, deterministisch, ein CI/Deploy-Gate    | Qualität       |
 | **[Observational Memory](/docs/observational-memory)**                           | „Bleibt dieser lange Faden billig und im Fenster?“      | Hintergrundkomprimierung bei langen Threads   | Kosten/Kontext |
 
-Observability und das CI Eval Gate bewerten beide _Qualität_, allerdings von entgegengesetzten Enden – passive Post-hoc-Bewertung des realen Datenverkehrs im Vergleich zu aktiven Pass/Fail-Prüfungen an festen Eingaben. Das Beobachtungsgedächtnis hat nichts mit der Qualität zu tun; Es geht um Tokenkosten und Kontextfensterdruck.
+Observability und das CI Eval Gate bewerten beide _Qualität_, allerdings von entgegengesetzten Enden – passive Post-hoc-Bewertung des realen Datenverkehrs im Vergleich zu aktiven Pass/Fail-Prüfungen an festen Eingaben. Das Beobachtungsgedächtnis hat nichts mit der Qualität zu tun; Es geht um Tokenkosten und Kontextfensterdruck. Fördern Sie einen abgeschlossenen Produktionstrace zu einem `*.eval.ts`-Fall (Dashboard **Promote to eval**, Action `promote-trace-eval`, oder `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). Siehe [Aus einem Produktionstrace](/docs/evals#from-trace).
 
 ## Was automatisch erfasst wird {#captured}
 
@@ -291,6 +291,7 @@ Alle automatisch montiert bei `/_agent-native/observability/`:
 | GET     | `/traces`                  | Trace-Zusammenfassungen auflisten         |
 | GET     | `/traces/:runId`           | Trace-Details (Zusammenfassung + Spannen) |
 | GET     | `/traces/:runId/evals`     | Bewertungen für einen Lauf                |
+| POST    | `/traces/:runId/promote`   | Abgeschlossenen Lauf zu einem CI-Eval fördern |
 | POST    | `/feedback`                | Feedback abgeben                          |
 | GET     | `/feedback`                | Feedback auflisten                        |
 | GET     | `/feedback/stats`          | Feedback-Aggregation                      |

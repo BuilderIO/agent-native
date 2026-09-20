@@ -11,13 +11,24 @@ This is complementary to the post-hoc scoring in [Observability](/docs/observabi
 
 - **Observability evals** (`observability/evals.ts`) — _"how did this real run do?"_ Passive, sampled, lives next to traces.
 - **`*.eval.ts` (this primitive)** — _"does the agent do the right thing on this fixed input?"_ Active, deterministic, a CI gate run via the CLI.
+- **Promote** — turn a completed production trace into one of those `*.eval.ts` cases so a staging miss can fail CI the next time.
 
 The runner resolves a provider-agnostic engine/model from the existing registry — no model is hardcoded — so the same suite runs against whatever engine the app is configured for.
 
-<Diagram id="doc-block-1c3v8wg" title="From fixed input to deploy gate" summary={"The runner actually runs the agent loop on each case, scores the output, and exits non-zero if any scorer falls below threshold — making it a drop-in CI gate."}>
-
 ```html
 <div class="eval-flow">
+  <div class="diagram-node">
+    Production trace<br /><small class="diagram-muted"
+      >completed run</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Promote<br /><small class="diagram-muted"
+      >eval promote --write</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
     *.eval.ts<br /><small class="diagram-muted"
       >prompt + expected behavior</small
@@ -261,6 +272,20 @@ Add it to the pipeline that runs before a deploy (excerpt):
 ```
 
 A regression that drops any scorer below threshold fails the step and blocks the deploy. An app with no eval files exits `0`, so adopting evals is opt-in per app.
+
+## From a production trace {#from-trace}
+
+When a real run is surprising — it failed in production after working in a demo, or it called the wrong tool — promote that completed trace into a CI case instead of inventing a prompt.
+
+```bash
+agent-native eval promote <runId> --write evals/from-trace.eval.ts
+```
+
+That command persists an `EvalDataset` row (the same helper the dashboard and the `promote-trace-eval` action use) and writes a `defineEval` fixture the existing `agent-native eval` gate already discovers. Default scorers are `usesTool(...)` for each successful tool on the trace, plus an optional `--must-contain` substring. Truncated, aborted, or prompt-less runs fail closed: they return a typed error and insert nothing.
+
+The hosted action and `POST /_agent-native/observability/traces/:runId/promote` never write the app tree. Use `--write` (or copy the returned JSON into a `*.eval.ts`) when you want CI to gate on the case.
+
+The Observability dashboard's trace detail has a **Promote to eval** control that calls the same endpoint.
 
 ## What's next
 

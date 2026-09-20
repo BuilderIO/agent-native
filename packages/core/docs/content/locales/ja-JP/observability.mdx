@@ -19,7 +19,7 @@ description: "エージェント トレース、評価、フィードバック�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | 「エージェントはこの固定入力に対して正しいことを行いますか?」    | アクティブ、決定論的、CI/デプロイ ゲート          | 品質                  |
 | **[Observational Memory](/docs/observational-memory)** | 「この長いスレッドは安くてウィンドウ内に留まっているのですか？」 | 長いスレッドでのバックグラウンド圧縮              | コスト / コンテキスト |
 
-可観測性と CI 評価ゲートは両方とも品質\_スコアを付けますが、反対の端からのものです。つまり、実際のトラフィックの受動的な事後スコアリングと、固定入力でのアクティブな合否チェックです。観察記憶は質とは無関係です。それはトークンのコストとコンテキスト ウィンドウのプレッシャーに関するものです。
+可観測性と CI 評価ゲートは両方とも品質\_スコアを付けますが、反対の端からのものです。つまり、実際のトラフィックの受動的な事後スコアリングと、固定入力でのアクティブな合否チェックです。完了した本番トレースを `*.eval.ts` ケースに昇格してください（ダッシュボードの **Promote to eval**、`promote-trace-eval`、または `agent-native eval promote <runId> --write evals/from-trace.eval.ts`）。[本番トレースから](/docs/evals#from-trace) を参照。観察記憶は質とは無関係です。それはトークンのコストとコンテキスト ウィンドウのプレッシャーに関するものです。
 
 ## 自動的にキャプチャされるもの {#captured}
 
@@ -293,6 +293,7 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 | GET      | `/traces`                  | トレース概要のリスト           |
 | GET      | `/traces/:runId`           | トレースの詳細 (概要 + スパン) |
 | GET      | `/traces/:runId/evals`     | 実行の評価                     |
+| POST     | `/traces/:runId/promote`   | 完了した実行を CI eval に昇格 |
 | POST     | `/feedback`                | フィードバックを送信           |
 | GET      | `/feedback`                | フィードバックの一覧表示       |
 | GET      | `/feedback/stats`          | フィードバックの集約           |

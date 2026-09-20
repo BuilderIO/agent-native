@@ -860,6 +860,10 @@ export async function mergeCoreSharingActions(
       "export-audit-events",
       () => import("../audit/actions/export-audit-events.js"),
     ],
+    [
+      "promote-trace-eval",
+      () => import("../observability/actions/promote-trace-eval.js"),
+    ],
     // History kit — reusable version snapshots and restore surface.
     [
       "create-resource-version",

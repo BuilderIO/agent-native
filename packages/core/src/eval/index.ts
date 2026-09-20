@@ -12,6 +12,19 @@
 
 export { defineEval, DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
 export {
+  promoteTraceToEval,
+  generateEvalModuleSource,
+  serializePromotedEval,
+  conversationTurnsFromEvents,
+  type PromoteTraceError,
+  type PromoteTraceOptions,
+  type PromoteTraceInput,
+  type PromoteTraceResult,
+  type PromotedEval,
+  type PromotedEvalSpec,
+  type PromotedEvalScorerSpec,
+} from "./from-trace.js";
+export {
   createScorer,
   clamp01,
   exactMatch,

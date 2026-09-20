@@ -132,6 +132,8 @@ Three layers, configured via `evalSampleRate` in the observability config:
 
 **Dataset evaluation:** `runDatasetEval(datasetId)` runs a golden dataset through the agent and scores each case.
 
+Promote a surprising production run into a CI eval case (`promote-trace-eval` / `agent-native eval promote <runId> --write ...`) rather than only inspecting it. Truncated runs fail closed.
+
 Custom criteria use natural language rubrics:
 ```ts
 const criteria: EvalCriteria = {
@@ -159,7 +161,7 @@ export default defineEval({
 
 - Built-in scorers: `exactMatch` / `contains` / `usesTool` (pure JS) and `llmJudge` (provider-agnostic judge).
 - Custom scorers: `createScorer` with the 4-step `preprocess → analyze → generateScore → generateReason` pipeline (only `generateScore` is required).
-- Run as a gate: `agent-native eval [pattern] [--json] [--threshold N]` — discovers `**/*.eval.ts` and `evals/*.ts`, runs the agent, and exits non-zero if any eval is below its threshold. An app with no eval files exits `0`. Complements (does not replace) the post-hoc scoring in `evals.ts`. See the Evals doc.
+- Run as a gate: `agent-native eval [pattern] [--json] [--threshold N]` — discovers `**/*.eval.ts` and `evals/*.ts`, runs the agent, and exits non-zero if any eval is below its threshold. An app with no eval files exits `0`. Complements (does not replace) the post-hoc scoring in `evals.ts`. Promote a surprising production run with `agent-native eval promote <runId> --write evals/from-trace.eval.ts` rather than only inspecting it. See the Evals doc.
 
 ### 4. Experiments
 
@@ -229,6 +231,7 @@ All auto-mounted at `/_agent-native/observability/*`:
 | GET | `/traces` | List trace summaries |
 | GET | `/traces/:runId` | Trace detail (summary + spans) |
 | GET | `/traces/:runId/evals` | Evals for a run |
+| POST | `/traces/:runId/promote` | Promote a completed run into a CI eval case |
 | POST | `/feedback` | Submit feedback |
 | GET | `/feedback` | List feedback entries |
 | GET | `/feedback/stats` | Feedback aggregation |

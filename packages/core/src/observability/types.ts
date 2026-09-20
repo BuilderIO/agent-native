@@ -108,6 +108,11 @@ export interface EvalDataset {
   entries: EvalTestCase[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * Owner of the dataset. Null on legacy rows from before per-user
+   * isolation; scoped reads pass `userId` the same way traces do.
+   */
+  userId?: string | null;
 }
 
 export interface EvalTestCase {

@@ -95,6 +95,63 @@ export function useTraceDetail(runId: string | null) {
   });
 }
 
+export interface PromotedTraceEval {
+  sourceRunId: string;
+  dataset: { id: string; name: string };
+  eval: {
+    name: string;
+    input: { prompt: string };
+    threshold: number;
+    source?: { kind: "trace"; runId: string };
+  };
+}
+
+export function usePromoteTraceEval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      runId: string;
+      mustContain?: string;
+      datasetName?: string;
+    }) => {
+      const res = await fetch(
+        `${BASE}/traces/${encodeURIComponent(payload.runId)}/promote`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(payload.mustContain
+              ? { mustContain: payload.mustContain }
+              : {}),
+            ...(payload.datasetName
+              ? { datasetName: payload.datasetName }
+              : {}),
+          }),
+        },
+      );
+      if (!res.ok) {
+        let code = `HTTP ${res.status}`;
+        try {
+          const body = (await res.json()) as {
+            error?: string;
+            message?: string;
+          };
+          code = body.message ?? body.error ?? code;
+        } catch {
+          // Keep the status text when the body is not JSON.
+        }
+        throw new Error(code);
+      }
+      return res.json() as Promise<PromotedTraceEval>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["observability", "eval-stats"],
+      });
+    },
+  });
+}
+
 // ─── Feedback ──────────────────────────────────────────────────────────
 
 export interface FeedbackEntry {

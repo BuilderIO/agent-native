@@ -19,7 +19,7 @@ These three pages are easy to confuse. Pick by the question you're asking:
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "Does the agent do the right thing on this fixed input?"   | Active, deterministic, a CI/deploy gate      | Quality        |
 | **[Observational Memory](/docs/observational-memory)** | "Is this long thread staying cheap and inside the window?" | Background compaction on long threads        | Cost / context |
 
-Observability and the CI Eval Gate both score _quality_ but from opposite ends — passive post-hoc scoring of real traffic vs. active pass/fail checks on fixed inputs. Observational Memory is unrelated to quality; it's about token cost and context-window pressure.
+Observability and the CI Eval Gate both score _quality_ but from opposite ends — passive post-hoc scoring of real traffic vs. active pass/fail checks on fixed inputs. Promote a completed production trace into a `*.eval.ts` case (dashboard **Promote to eval**, `promote-trace-eval`, or `agent-native eval promote <runId> --write evals/from-trace.eval.ts`) so the miss becomes the next CI gate. See [From a production trace](/docs/evals#from-trace). Observational Memory is unrelated to quality; it's about token cost and context-window pressure.
 
 ## What's captured automatically {#captured}
 
@@ -285,6 +285,7 @@ All auto-mounted at `/_agent-native/observability/`:
 | GET    | `/traces`                  | List trace summaries           |
 | GET    | `/traces/:runId`           | Trace detail (summary + spans) |
 | GET    | `/traces/:runId/evals`     | Evals for a run                |
+| POST   | `/traces/:runId/promote`   | Promote a completed run to a CI eval |
 | POST   | `/feedback`                | Submit feedback                |
 | GET    | `/feedback`                | List feedback                  |
 | GET    | `/feedback/stats`          | Feedback aggregation           |

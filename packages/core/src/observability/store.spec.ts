@@ -53,6 +53,8 @@ const {
   insertTraceSpan,
   insertEvalResult,
   insertFeedback,
+  insertEvalDataset,
+  getEvalDatasetByName,
   upsertTraceSummary,
   upsertSatisfactionScore,
 } = await import("./store.js");
@@ -144,6 +146,21 @@ describe("observability store: per-user isolation", () => {
       expect(call.args).toEqual(["run-x", "alice"]);
     });
 
+    it("getEvalDatasetByName scopes by user_id (prevents IDOR by name)", async () => {
+      await getEvalDatasetByName("from-trace:run-x", { userId: "alice" });
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \? AND user_id = \?/);
+      expect(call.args).toEqual(["from-trace:run-x", "alice"]);
+    });
+
+    it("getEvalDatasetByName omits user_id filter when userId is undefined", async () => {
+      await getEvalDatasetByName("from-trace:run-x");
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \?/);
+      expect(call.sql).not.toMatch(/user_id/);
+      expect(call.args).toEqual(["from-trace:run-x"]);
+    });
+
     it("getEvalStats applies user_id to BOTH sub-queries", async () => {
       await getEvalStats(3000, { userId: "alice" });
       // getEvalStats fires two SELECTs (totals + per-criteria); both must
@@ -226,6 +243,24 @@ describe("observability store: per-user isolation", () => {
       });
       const call = execCalls.find((c) =>
         /INSERT\s+INTO agent_trace_summaries/.test(c.sql),
+      );
+      expect(call).toBeDefined();
+      expect(call!.sql).toMatch(/\buser_id\b/);
+      expect(call!.args).toContain("alice");
+    });
+
+    it("insertEvalDataset persists user_id", async () => {
+      await insertEvalDataset({
+        id: "ds1",
+        name: "from-trace:run-1",
+        description: "Promoted from production run run-1",
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      const call = execCalls.find((c) =>
+        /INSERT INTO agent_eval_datasets/.test(c.sql),
       );
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
