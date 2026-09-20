@@ -126,6 +126,7 @@ export async function runDeleteFiles(
     onMutationSettled?: (
       deletedFiles: DesignFile[],
       failedFiles: DesignFile[],
+      deletedFileSnapshots: FileDeletionHistorySnapshot[],
     ) => void;
   },
 ): Promise<void> {
@@ -409,7 +410,11 @@ export async function runDeleteFiles(
     for (const fileId of deletedIds)
       latestClipboardMutationContentRef.current.delete(fileId);
   }
-  options?.onMutationSettled?.(deletedFiles, failedFiles);
+  options?.onMutationSettled?.(
+    deletedFiles,
+    failedFiles,
+    serverDeletedFileSnapshots,
+  );
   syncUndoRedoState();
 
   // File-backed screen deletion is not a geometry-only edit. The screen rows

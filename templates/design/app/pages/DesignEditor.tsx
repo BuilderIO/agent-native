@@ -870,6 +870,7 @@ import {
   type ContentHistorySelectionAfterMap,
   type FileCreationHistoryEntry,
   type FileDeletionHistoryEntry,
+  type FileDeletionHistorySnapshot,
   finalizeTextCreationHistory,
   findLastContentHistoryChangeIndex,
   hasContentHistoryChange,
@@ -15754,6 +15755,7 @@ function DesignEditor() {
         onMutationSettled?: (
           deletedFiles: DesignFile[],
           failedFiles: DesignFile[],
+          deletedFileSnapshots: FileDeletionHistorySnapshot[],
         ) => void;
       },
     ) =>

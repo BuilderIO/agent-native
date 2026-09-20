@@ -38,6 +38,28 @@ function drizzleSqlForAccess(statement: DbExecStatement) {
   return sql(chunks as unknown as TemplateStringsArray, ...params);
 }
 
+function normalizeDrizzleExecResult(result: unknown): {
+  rows: any[];
+  rowsAffected: number;
+} {
+  const resultObject =
+    result && typeof result === "object"
+      ? (result as Record<string, unknown>)
+      : undefined;
+  const rows = Array.isArray(result)
+    ? result
+    : Array.isArray(resultObject?.rows)
+      ? resultObject.rows
+      : [];
+  const rowsAffected = [
+    resultObject?.rowCount,
+    resultObject?.rowsAffected,
+    resultObject?.affectedRows,
+    resultObject?.count,
+  ].find((value): value is number => typeof value === "number");
+  return { rows, rowsAffected: rowsAffected ?? rows.length };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -374,6 +396,7 @@ export default defineAction({
             id: schema.designs.id,
             data: schema.designs.data,
             updatedAt: schema.designs.updatedAt,
+            ownerEmail: schema.designs.ownerEmail,
             orgId: schema.designs.orgId,
             visibility: schema.designs.visibility,
           })
@@ -388,7 +411,13 @@ export default defineAction({
           .for("update");
         const access = currentAccess();
         const memberEmail = access.userEmail?.trim().toLowerCase();
-        if (design.visibility === "org" && design.orgId && memberEmail) {
+        const ownerEmail = design.ownerEmail?.trim().toLowerCase();
+        if (
+          design.visibility === "org" &&
+          design.orgId &&
+          memberEmail &&
+          memberEmail !== ownerEmail
+        ) {
           await tx
             .select({ id: orgMembers.id })
             .from(orgMembers)
@@ -404,21 +433,9 @@ export default defineAction({
           ...access,
           transaction: {
             async execute(statement: DbExecStatement) {
-              const result = (await tx.execute(
-                drizzleSqlForAccess(statement),
-              )) as unknown as {
-                rows?: unknown[];
-                rowCount?: unknown;
-                rowsAffected?: unknown;
-              };
-              const rows = Array.isArray(result.rows) ? result.rows : [];
-              const rowsAffected =
-                typeof result.rowCount === "number"
-                  ? result.rowCount
-                  : typeof result.rowsAffected === "number"
-                    ? result.rowsAffected
-                    : rows.length;
-              return { rows, rowsAffected };
+              return normalizeDrizzleExecResult(
+                await tx.execute(drizzleSqlForAccess(statement)),
+              );
             },
           },
         };

@@ -186,7 +186,7 @@ test("editor checkpoints survive browser restart and restore screen identity", a
   }
 });
 
-test("multi-screen delete uses one durable checkpoint and one Undo", async ({
+test("multi-screen delete uses one durable checkpoint, Undo, and redo", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -255,4 +255,14 @@ test("multi-screen delete uses one durable checkpoint and one Undo", async ({
   await expect
     .poll(async () => (await filenames(page, designId)).sort())
     .toEqual(["__board__.html", "index.html", "second.html", "third.html"]);
+
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect
+    .poll(async () =>
+      (await filenames(page, designId)).filter(
+        (filename) => filename !== "__board__.html",
+      ),
+    )
+    .toHaveLength(1);
+  await expect(screens).toHaveCount(1);
 });

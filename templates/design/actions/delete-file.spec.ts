@@ -125,6 +125,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "designs.id",
       data: "designs.data",
       updatedAt: "designs.updatedAt",
+      ownerEmail: "designs.ownerEmail",
       orgId: "designs.orgId",
       visibility: "designs.visibility",
     },
@@ -343,6 +344,46 @@ describe("delete-file", () => {
       mocks.snapshotDesignBeforeAgentEditInVersionLock,
     ).not.toHaveBeenCalled();
     expect(mocks.tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("normalizes array-shaped Drizzle results for transactional access", async () => {
+    const rows = [{ id: "design_123" }] as Array<{ id: string }> & {
+      count: number;
+    };
+    rows.count = 1;
+    mocks.tx.execute.mockResolvedValue(rows);
+    mocks.assertAccess.mockImplementation(async (...args: unknown[]) => {
+      const transaction = (
+        args[3] as { transaction?: { execute: Function } } | undefined
+      )?.transaction;
+      if (!transaction) return;
+      await expect(
+        transaction.execute({ sql: "SELECT 1", args: [] }),
+      ).resolves.toEqual({ rows, rowsAffected: 1 });
+    });
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+  });
+
+  it("does not lock org_members for an owner on an embedded org-visible design", async () => {
+    mocks.currentAccess.mockReturnValue({ userEmail: "owner@example.com" });
+    mocks.txDesignSelectChain.for.mockResolvedValue([
+      {
+        id: "design_123",
+        data: JSON.stringify(mocks.designData),
+        updatedAt: mocks.designUpdatedAt,
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        visibility: "org",
+      },
+    ]);
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    expect(mocks.txMemberSelectChain.for).not.toHaveBeenCalled();
   });
 
   it("holds authorization rows before the delete so a revoke waits", async () => {
