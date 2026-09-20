@@ -100,6 +100,7 @@ describe("extractDocumentColorPalette", () => {
   it("does not expose style-block token definitions as selected colors", () => {
     const content = `<style>
       :root { --color-bg: #ffffff; --color-text: #111827; }
+      .unused { color: #abcdef; background: #fedcba; }
     </style><body style="background:#101010"></body>`;
 
     expect(
