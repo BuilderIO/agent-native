@@ -490,9 +490,9 @@ bridge URLs are localhost. Never run \`pnpm action\` from \`templates/design\`.
 If the Design tab is closed but the paired local bridge is still running, a
 coding agent can recover the latest handoff without browser access:
 
-```bash
+\`\`\`bash
 npx @agent-native/core@latest design pending --root .
-```
+\`\`\`
 
 This reads the preview-token-protected pending payload from the bridge and
 prints the same source-oriented prompt that **Copy prompt** exposes. An empty
