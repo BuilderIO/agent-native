@@ -717,6 +717,22 @@ interface DesignCanvasProps {
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
+      gridPlacement?: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+      gridDisplacements?: Array<{
+        sourceId?: string;
+        selector?: string;
+        placement: {
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        };
+      }>;
       anchorElementInfo?: ElementInfo;
       /** Set when the subject is markup this change introduced, not an
        * element the running app already had. */
@@ -3832,6 +3848,48 @@ export function DesignCanvas({
                 e.data.forceFlowPositionOverride === true,
               sourceRect,
               anchorRect,
+              gridPlacement:
+                e.data.gridPlacement &&
+                Number.isFinite(e.data.gridPlacement.column) &&
+                Number.isFinite(e.data.gridPlacement.columnEnd) &&
+                Number.isFinite(e.data.gridPlacement.row) &&
+                Number.isFinite(e.data.gridPlacement.rowEnd)
+                  ? {
+                      column: Number(e.data.gridPlacement.column),
+                      columnEnd: Number(e.data.gridPlacement.columnEnd),
+                      row: Number(e.data.gridPlacement.row),
+                      rowEnd: Number(e.data.gridPlacement.rowEnd),
+                    }
+                  : undefined,
+              gridDisplacements: Array.isArray(e.data.gridDisplacements)
+                ? e.data.gridDisplacements.map(
+                    (entry: {
+                      sourceId?: unknown;
+                      selector?: unknown;
+                      placement: {
+                        column: number;
+                        columnEnd: number;
+                        row: number;
+                        rowEnd: number;
+                      };
+                    }) => ({
+                      sourceId:
+                        typeof entry.sourceId === "string"
+                          ? entry.sourceId
+                          : undefined,
+                      selector:
+                        typeof entry.selector === "string"
+                          ? entry.selector
+                          : undefined,
+                      placement: {
+                        column: Number(entry.placement.column),
+                        columnEnd: Number(entry.placement.columnEnd),
+                        row: Number(entry.placement.row),
+                        rowEnd: Number(entry.placement.rowEnd),
+                      },
+                    }),
+                  )
+                : undefined,
               anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
                 ? e.data.anchorPayload
                 : undefined,

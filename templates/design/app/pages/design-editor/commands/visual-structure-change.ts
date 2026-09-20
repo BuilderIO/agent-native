@@ -68,6 +68,22 @@ export interface VisualStructureChangeArgs {
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
+      gridPlacement?: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+      gridDisplacements?: Array<{
+        sourceId?: string;
+        selector?: string;
+        placement: {
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        };
+      }>;
       insertedHtml?: string;
       replaced?: true;
       replacementSelector?: string;
@@ -108,6 +124,22 @@ export function runVisualStructureChange(
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
     anchorRect?: { x: number; y: number; width: number; height: number };
+    gridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+    gridDisplacements?: Array<{
+      sourceId?: string;
+      selector?: string;
+      placement: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+    }>;
     /** Markup this change introduced; the subject does not exist in the
      * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
@@ -256,7 +288,7 @@ export function runVisualStructureChange(
     (rawAbsoluteContainerOffset.x !== absoluteContainerOffset.x ||
       rawAbsoluteContainerOffset.y !== absoluteContainerOffset.y),
   );
-  const nextContent =
+  let nextContent =
     movedNodeAttrId && details?.dropMode === "absolute-container"
       ? absoluteContainerOffset
         ? setAbsolutePositioningForNodeInHtml(
@@ -278,6 +310,66 @@ export function runVisualStructureChange(
               movedNodeAttrId,
             )
           : patch.content;
+  if (movedNodeAttrId && details?.gridPlacement) {
+    const gridTarget = { nodeId: movedNodeAttrId };
+    const columnPatch = applyVisualEdit(
+      nextContent,
+      {
+        kind: "style",
+        target: gridTarget,
+        property: "grid-column",
+        value: `${details.gridPlacement.column} / ${details.gridPlacement.columnEnd}`,
+      },
+      { source },
+    );
+    if (columnPatch.result.status === "applied") {
+      nextContent = columnPatch.content;
+      const rowPatch = applyVisualEdit(
+        nextContent,
+        {
+          kind: "style",
+          target: gridTarget,
+          property: "grid-row",
+          value: `${details.gridPlacement.row} / ${details.gridPlacement.rowEnd}`,
+        },
+        { source },
+      );
+      if (rowPatch.result.status === "applied") nextContent = rowPatch.content;
+    }
+  }
+  if (details?.gridDisplacements) {
+    for (const displaced of details.gridDisplacements) {
+      const target = displaced.sourceId
+        ? { nodeId: displaced.sourceId }
+        : displaced.selector
+          ? { selector: displaced.selector }
+          : null;
+      if (!target) continue;
+      const displacementPatch = applyVisualEdit(
+        nextContent,
+        {
+          kind: "style",
+          target,
+          property: "grid-column",
+          value: `${displaced.placement.column} / ${displaced.placement.columnEnd}`,
+        },
+        { source },
+      );
+      if (displacementPatch.result.status !== "applied") continue;
+      nextContent = displacementPatch.content;
+      const rowPatch = applyVisualEdit(
+        nextContent,
+        {
+          kind: "style",
+          target,
+          property: "grid-row",
+          value: `${displaced.placement.row} / ${displaced.placement.rowEnd}`,
+        },
+        { source },
+      );
+      if (rowPatch.result.status === "applied") nextContent = rowPatch.content;
+    }
+  }
   const nextProjection = buildCodeLayerProjection(nextContent, { source });
   const movedNodeCandidate =
     (movedNodeAttrId

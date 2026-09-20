@@ -81,6 +81,22 @@ export function runRecordPendingLiveStructureEdit(
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
     anchorRect?: { x: number; y: number; width: number; height: number };
+    gridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+    gridDisplacements?: Array<{
+      sourceId?: string;
+      selector?: string;
+      placement: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+    }>;
     /** Markup this change introduced; the subject does not exist in the
      * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
@@ -160,6 +176,8 @@ export function runRecordPendingLiveStructureEdit(
     forceFlowPositionOverride: details?.forceFlowPositionOverride,
     sourceRect: details?.sourceRect,
     anchorRect: details?.anchorRect,
+    gridPlacement: details?.gridPlacement,
+    gridDisplacements: details?.gridDisplacements,
     insertedHtml: details?.insertedHtml,
     ...(details?.replaced
       ? {

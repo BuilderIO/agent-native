@@ -5701,6 +5701,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             // move-node round-trip cannot leave the element stripped of its
             // absolute positioning while stuck in the wrong parent.
             prevInlinePositionStyles?: Record<string, string> | null;
+            prevInlineGridStyles?: Record<string, string> | null;
+            gridDisplacements?: Array<{
+              element: Element;
+              styles: Record<string, string>;
+            }>;
           }
         // A host-driven insert has no previous position to restore: the
         // element did not exist before this request, so a rejected/undone
@@ -14624,6 +14629,59 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (styles.display !== "grid" && styles.display !== "inline-grid") {
       return null;
     }
+    var trackLayout = gridTrackLayoutForElement(container);
+    var placementCandidates = children.concat(excluded || []);
+    var hasExplicitPlacement = placementCandidates.some(function (child) {
+      var childStyles = window.getComputedStyle(child);
+      return (
+        childStyles.gridColumnStart !== "auto" ||
+        childStyles.gridColumnEnd !== "auto" ||
+        childStyles.gridRowStart !== "auto" ||
+        childStyles.gridRowEnd !== "auto" ||
+        childStyles.order !== "0"
+      );
+    });
+    // Explicit grid placement has no meaningful DOM insertion slot. Resolve
+    // the pointer against the rendered tracks and carry that cell through the
+    // drop so the source and its persisted markup move together.
+    if (trackLayout && hasExplicitPlacement) {
+      var column = trackLayout.columnBounds.findIndex(function (bound) {
+        return clientX >= bound.start && clientX <= bound.end;
+      });
+      var row = trackLayout.rowBounds.findIndex(function (bound) {
+        return clientY >= bound.start && clientY <= bound.end;
+      });
+      if (column >= 0 && row >= 0) {
+        var cellLeft = trackLayout.columnBounds[column].start;
+        var cellTop = trackLayout.rowBounds[row].start;
+        var cellRight = trackLayout.columnBounds[column].end;
+        var cellBottom = trackLayout.rowBounds[row].end;
+        var displaced = children.find(function (child) {
+          var rect = child.getBoundingClientRect();
+          return (
+            rect.left < cellRight &&
+            rect.right > cellLeft && // i18n-ignore non-user-facing pointer geometry condition
+            rect.top < cellBottom &&
+            rect.bottom > cellTop
+          );
+        });
+        return {
+          anchor: container,
+          placement: "inside",
+          axis: "x",
+          dropMode: "flow-insert",
+          guideRect: {
+            left: cellLeft,
+            top: cellTop,
+            width: cellRight - cellLeft,
+            height: cellBottom - cellTop,
+          },
+          guideMode: "grid-cell",
+          gridCell: { column, row },
+          gridDisplacement: displaced,
+        };
+      }
+    }
     // A pointer over an authored grid child expresses an insertion between
     // that child and its neighbor. Reserve the placeholder projection for
     // actual empty cells and outer grid whitespace; otherwise the projected
@@ -15884,6 +15942,82 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
   }
+  function snapshotInlineGridStyles(el: Element): Record<string, string> {
+    var htmlEl = el as HTMLElement;
+    return {
+      "grid-column": htmlEl.style.getPropertyValue("grid-column"),
+      "grid-row": htmlEl.style.getPropertyValue("grid-row"),
+    };
+  }
+  function numericGridLine(value: string): number | null {
+    var match = value.trim().match(/^(\d+)$/);
+    return match ? Number(match[1]) : null;
+  }
+  function gridLineEnd(value: string, start: number | null): number | null {
+    var numeric = numericGridLine(value);
+    if (numeric !== null) return numeric;
+    var span = value.trim().match(/^span\s+(\d+)$/);
+    return span && start !== null ? start + Number(span[1]) : null;
+  }
+  function expandGridTrackLayoutForAuthoredChildren(
+    layout: {
+      rect: DOMRect;
+      columns: number[];
+      rows: number[];
+      columnBounds: Array<{ start: number; end: number }>;
+      rowBounds: Array<{ start: number; end: number }>;
+    },
+    container: Element,
+  ) {
+    var requiredColumns = layout.columnBounds.length;
+    var requiredRows = layout.rowBounds.length;
+    var children = Array.prototype.slice.call(container.children) as Element[];
+    children.forEach(function (child) {
+      var styles = window.getComputedStyle(child);
+      var columnStart = numericGridLine(styles.gridColumnStart);
+      var rowStart = numericGridLine(styles.gridRowStart);
+      var columnEnd = gridLineEnd(styles.gridColumnEnd, columnStart);
+      var rowEnd = gridLineEnd(styles.gridRowEnd, rowStart);
+      if (columnStart !== null) {
+        requiredColumns = Math.max(
+          requiredColumns,
+          columnEnd ?? columnStart + 1,
+        );
+      }
+      if (rowStart !== null) {
+        requiredRows = Math.max(requiredRows, rowEnd ?? rowStart + 1);
+      }
+    });
+    var extendBounds = function (
+      bounds: Array<{ start: number; end: number }>,
+      required: number,
+    ) {
+      while (bounds.length < required) {
+        var previous = bounds[bounds.length - 1];
+        var beforePrevious = bounds[bounds.length - 2];
+        var size = previous ? previous.end - previous.start : 0;
+        var gap =
+          previous && beforePrevious ? previous.start - beforePrevious.end : 0;
+        var start = previous ? previous.end + gap : 0;
+        bounds.push({ start, end: start + size });
+      }
+    };
+    extendBounds(layout.columnBounds, requiredColumns);
+    extendBounds(layout.rowBounds, requiredRows);
+    return layout;
+  }
+  function restoreInlineGridStyles(
+    el: Element,
+    snapshot: Record<string, string> | null | undefined,
+  ): void {
+    if (!snapshot) return;
+    var htmlEl = el as HTMLElement;
+    for (var prop of ["grid-column", "grid-row"]) {
+      var value = snapshot[prop];
+      if (value) htmlEl.style.setProperty(prop, value);
+      else htmlEl.style.removeProperty(prop);
+    }
+  }
   // Builds the same snapshot shape as snapshotInlinePositionStyles, but from
   // a startMove memberState's TRUE pre-drag inline values (captured once at
   // gesture start — see memberStates below) rather than the live element's
@@ -16214,6 +16348,281 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     ).__agentNativeDesiredDropPoint;
     stripAbsolutePositioningForFlowInsert(el, target);
+    if (target.gridCell) {
+      var gridStyles = window.getComputedStyle(el);
+      var sourceGridLayout = gridTrackLayoutForElement(target.anchor);
+      if (sourceGridLayout) {
+        sourceGridLayout = expandGridTrackLayoutForAuthoredChildren(
+          sourceGridLayout,
+          target.anchor,
+        );
+      }
+      var sourceGridRect = el.getBoundingClientRect();
+      var sourceColumnRange = sourceGridLayout
+        ? gridTrackRangeForRect(
+            sourceGridRect,
+            sourceGridLayout.columnBounds,
+            "column",
+          )
+        : null;
+      var sourceRowRange = sourceGridLayout
+        ? gridTrackRangeForRect(
+            sourceGridRect,
+            sourceGridLayout.rowBounds,
+            "row",
+          )
+        : null;
+      var parsedColumnStart = numericGridLine(gridStyles.gridColumnStart);
+      var parsedRowStart = numericGridLine(gridStyles.gridRowStart);
+      var columnStart =
+        parsedColumnStart ??
+        (sourceColumnRange ? sourceColumnRange.start + 1 : NaN);
+      var columnEnd =
+        gridLineEnd(gridStyles.gridColumnEnd, parsedColumnStart) ??
+        (sourceColumnRange ? sourceColumnRange.end + 1 : NaN);
+      var rowStart =
+        parsedRowStart ?? (sourceRowRange ? sourceRowRange.start + 1 : NaN);
+      var rowEnd =
+        gridLineEnd(gridStyles.gridRowEnd, parsedRowStart) ??
+        (sourceRowRange ? sourceRowRange.end + 1 : NaN);
+      if (Number.isFinite(columnStart) && !Number.isFinite(columnEnd))
+        columnEnd = columnStart + 1;
+      if (Number.isFinite(rowStart) && !Number.isFinite(rowEnd))
+        rowEnd = rowStart + 1;
+      var columnSpan =
+        Number.isFinite(columnStart) && Number.isFinite(columnEnd)
+          ? Math.max(1, columnEnd - columnStart)
+          : 1;
+      var rowSpan =
+        Number.isFinite(rowStart) && Number.isFinite(rowEnd)
+          ? Math.max(1, rowEnd - rowStart)
+          : 1;
+      var targetGridLayout = gridTrackLayoutForElement(target.anchor);
+      if (targetGridLayout) {
+        targetGridLayout = expandGridTrackLayoutForAuthoredChildren(
+          targetGridLayout,
+          target.anchor,
+        );
+      }
+      var targetDisplacements: Element[] = [];
+      if (targetGridLayout) {
+        var targetLeft =
+          targetGridLayout.columnBounds[target.gridCell.column]?.start;
+        var targetRight =
+          targetGridLayout.columnBounds[
+            Math.min(
+              targetGridLayout.columnBounds.length - 1,
+              target.gridCell.column + columnSpan - 1,
+            )
+          ]?.end;
+        var targetTop = targetGridLayout.rowBounds[target.gridCell.row]?.start;
+        var targetBottom =
+          targetGridLayout.rowBounds[
+            Math.min(
+              targetGridLayout.rowBounds.length - 1,
+              target.gridCell.row + rowSpan - 1,
+            )
+          ]?.end;
+        if (
+          Number.isFinite(targetLeft) &&
+          Number.isFinite(targetRight) &&
+          Number.isFinite(targetTop) &&
+          Number.isFinite(targetBottom)
+        ) {
+          targetDisplacements = (
+            Array.prototype.slice.call(target.anchor.children) as Element[]
+          ).filter(function (child) {
+            if (child === el) return false;
+            var rect = child.getBoundingClientRect();
+            return (
+              rect.left < targetRight &&
+              rect.right > targetLeft && // i18n-ignore non-user-facing pointer geometry condition
+              rect.top < targetBottom &&
+              rect.bottom > targetTop
+            );
+          });
+        }
+      }
+      target.gridDisplacements = targetDisplacements;
+      target.gridDisplacement = targetDisplacements[0];
+      target.gridDisplacementPlacements = [];
+      target.gridDisplacementPrevStyles = [];
+      if (
+        targetDisplacements.length > 0 &&
+        Number.isFinite(columnStart) &&
+        Number.isFinite(columnEnd) &&
+        Number.isFinite(rowStart) &&
+        Number.isFinite(rowEnd)
+      ) {
+        var allocatedDisplacementPlacements: Array<{
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        }> = [];
+        var occupiedGridPlacements: Array<{
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        }> = [
+          {
+            column: target.gridCell.column + 1,
+            columnEnd: target.gridCell.column + 1 + columnSpan,
+            row: target.gridCell.row + 1,
+            rowEnd: target.gridCell.row + 1 + rowSpan,
+          },
+        ];
+        (Array.prototype.slice.call(target.anchor.children) as Element[])
+          .filter(function (child) {
+            return child !== el && targetDisplacements.indexOf(child) === -1;
+          })
+          .forEach(function (child) {
+            var childRect = child.getBoundingClientRect();
+            var childColumnRange = gridTrackRangeForRect(
+              childRect,
+              targetGridLayout!.columnBounds,
+              "column",
+            );
+            var childRowRange = gridTrackRangeForRect(
+              childRect,
+              targetGridLayout!.rowBounds,
+              "row",
+            );
+            if (childColumnRange && childRowRange) {
+              occupiedGridPlacements.push({
+                column: childColumnRange.start + 1,
+                columnEnd: childColumnRange.end + 1,
+                row: childRowRange.start + 1,
+                rowEnd: childRowRange.end + 1,
+              });
+            }
+          });
+        var placementOverlaps = function (
+          candidate: {
+            column: number;
+            columnEnd: number;
+            row: number;
+            rowEnd: number;
+          },
+          allocated: Array<{
+            column: number;
+            columnEnd: number;
+            row: number;
+            rowEnd: number;
+          }>,
+        ) {
+          return allocated.some(function (existing) {
+            return (
+              candidate.column < existing.columnEnd &&
+              candidate.columnEnd > existing.column &&
+              candidate.row < existing.rowEnd &&
+              candidate.rowEnd > existing.row
+            );
+          });
+        };
+        targetDisplacements.forEach(function (displaced) {
+          var displacedRange = gridTrackRangeForRect(
+            displaced.getBoundingClientRect(),
+            targetGridLayout!.columnBounds,
+            "column",
+          );
+          var displacedRowRange = gridTrackRangeForRect(
+            displaced.getBoundingClientRect(),
+            targetGridLayout!.rowBounds,
+            "row",
+          );
+          var displacedColumnSpan = displacedRange
+            ? Math.max(1, displacedRange.end - displacedRange.start)
+            : 1;
+          var displacedRowSpan = displacedRowRange
+            ? Math.max(1, displacedRowRange.end - displacedRowRange.start)
+            : 1;
+          var displacementPlacement: {
+            column: number;
+            columnEnd: number;
+            row: number;
+            rowEnd: number;
+          } | null = null;
+          var maxRows = Math.max(targetGridLayout!.rowBounds.length, rowEnd);
+          var maxColumns = Math.max(
+            targetGridLayout!.columnBounds.length,
+            columnEnd,
+          );
+          var candidateCoordinates: Array<{ row: number; column: number }> = [];
+          var candidateKeys: { [key: string]: boolean } = {};
+          var addCandidateCoordinates = function (row: number, column: number) {
+            var key = row + ":" + column;
+            if (!candidateKeys[key]) {
+              candidateKeys[key] = true;
+              candidateCoordinates.push({ row, column });
+            }
+          };
+          for (var oldRow = rowStart; oldRow < rowEnd; oldRow += 1) {
+            for (
+              var oldColumn = columnStart;
+              oldColumn < columnEnd;
+              oldColumn += 1
+            ) {
+              addCandidateCoordinates(oldRow, oldColumn);
+            }
+          }
+          for (
+            var displacementRow = 1;
+            displacementRow <= maxRows + targetDisplacements.length;
+            displacementRow += 1
+          ) {
+            for (
+              var displacementColumn = 1;
+              displacementColumn <= maxColumns + targetDisplacements.length;
+              displacementColumn += 1
+            ) {
+              addCandidateCoordinates(displacementRow, displacementColumn);
+            }
+          }
+          for (
+            var candidateIndex = 0;
+            candidateIndex < candidateCoordinates.length &&
+            !displacementPlacement;
+            candidateIndex += 1
+          ) {
+            var coordinate = candidateCoordinates[candidateIndex];
+            if (coordinate) {
+              var candidate = {
+                column: coordinate.column,
+                columnEnd: coordinate.column + displacedColumnSpan,
+                row: coordinate.row,
+                rowEnd: coordinate.row + displacedRowSpan,
+              };
+              if (!placementOverlaps(candidate, occupiedGridPlacements)) {
+                displacementPlacement = candidate;
+              }
+            }
+          }
+          if (!displacementPlacement) return;
+          allocatedDisplacementPlacements.push(displacementPlacement);
+          occupiedGridPlacements.push(displacementPlacement);
+          target.gridDisplacementPrevStyles.push({
+            element: displaced,
+            styles: snapshotInlineGridStyles(displaced),
+          });
+          target.gridDisplacementPlacements.push({
+            element: displaced,
+            placement: displacementPlacement,
+          });
+          displaced.style.gridColumn = `${displacementPlacement.column} / ${displacementPlacement.columnEnd}`;
+          displaced.style.gridRow = `${displacementPlacement.row} / ${displacementPlacement.rowEnd}`;
+        });
+      }
+      el.style.gridColumn = `${target.gridCell.column + 1} / ${target.gridCell.column + 1 + columnSpan}`;
+      el.style.gridRow = `${target.gridCell.row + 1} / ${target.gridCell.row + 1 + rowSpan}`;
+      target.gridPlacement = {
+        column: target.gridCell.column + 1,
+        columnEnd: target.gridCell.column + 1 + columnSpan,
+        row: target.gridCell.row + 1,
+        rowEnd: target.gridCell.row + 1 + rowSpan,
+      };
+    }
     // Must run BEFORE the DOM move below: the delta math reads the member's
     // CURRENT containing block via offsetParent. Called here (the single
     // choke point for drop reparenting) so the single-drag, group-drag,
@@ -16278,6 +16687,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         placement: target.placement,
         dropMode: target.dropMode || "flow-insert",
         forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
+        gridPlacement: target.gridPlacement,
+        gridDisplacements: Array.isArray(target.gridDisplacementPlacements)
+          ? target.gridDisplacementPlacements.map(function (entry) {
+              return {
+                selector: getSelector(entry.element),
+                sourceId: getSourceId(entry.element),
+                placement: entry.placement,
+              };
+            })
+          : undefined,
         // Present only when this node did not exist in the running app before
         // the change. The host must NOT tell the coding agent to relocate an
         // element the source file has never contained.
@@ -18631,6 +19050,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           var prevInlinePositionStyles = reorderOrigin
             ? reorderOrigin.prevInlinePositionStyles
             : snapshotInlinePositionStyles(reorderEl);
+          var prevInlineGridStyles = snapshotInlineGridStyles(reorderEl);
           adaptAutoTextColorForNest(
             reorderEl,
             dropContainerForTarget(currentTarget),
@@ -18653,6 +19073,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               prevParent: prevParent,
               prevNextSibling: prevNextSibling,
               prevInlinePositionStyles: prevInlinePositionStyles,
+              prevInlineGridStyles: prevInlineGridStyles,
+              ...(Array.isArray(currentTarget.gridDisplacementPrevStyles) &&
+              currentTarget.gridDisplacementPrevStyles.length > 0
+                ? {
+                    gridDisplacements: currentTarget.gridDisplacementPrevStyles,
+                  }
+                : {}),
             });
           }
         }
@@ -23656,6 +24083,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             move.el,
             move.origin.prevInlinePositionStyles,
           );
+          restoreInlineGridStyles(move.el, move.origin.prevInlineGridStyles);
+          if (move.origin.gridDisplacements) {
+            move.origin.gridDisplacements.forEach(function (displaced) {
+              restoreInlineGridStyles(displaced.element, displaced.styles);
+            });
+          }
           selectedEl = move.el;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);

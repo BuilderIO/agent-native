@@ -315,6 +315,22 @@ export interface PendingLiveStructureEdit {
   forceFlowPositionOverride?: boolean;
   sourceRect?: { x: number; y: number; width: number; height: number };
   anchorRect?: { x: number; y: number; width: number; height: number };
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements?: Array<{
+    sourceId?: string;
+    selector?: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
   /**
    * Markup this edit ADDED to the running app. Present only for a drop whose
    * subject had no counterpart in the screen's source, so the coding agent
@@ -1226,6 +1242,12 @@ export function formatPendingVisualStylePrompt(args: {
                       : edit.dropMode === "absolute-container"
                         ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
                         : "Preserve the runtime layout behavior observed in the preview.",
+                    edit.gridPlacement
+                      ? `The target is grid cell column ${edit.gridPlacement.column} / ${edit.gridPlacement.columnEnd}, row ${edit.gridPlacement.row} / ${edit.gridPlacement.rowEnd}; preserve this explicit placement in source.`
+                      : "",
+                    edit.gridDisplacements?.length
+                      ? `The target cell was occupied; move ${edit.gridDisplacements.length} displaced element(s) into the recorded free grid cells.`
+                      : "",
                   ].join(" "),
                   sourceAnchors: [subjectAnchor, targetAnchor],
                   runtimeRelationship: {
@@ -1291,6 +1313,10 @@ export function formatPendingVisualStylePrompt(args: {
         : {}),
       ...(edit.sourceRect ? { sourceRect: edit.sourceRect } : {}),
       ...(edit.anchorRect ? { anchorRect: edit.anchorRect } : {}),
+      ...(edit.gridPlacement ? { gridPlacement: edit.gridPlacement } : {}),
+      ...(edit.gridDisplacements
+        ? { gridDisplacements: edit.gridDisplacements }
+        : {}),
       ...(insertedHtml
         ? {
             insertedHtml: insertedHtml.value,
