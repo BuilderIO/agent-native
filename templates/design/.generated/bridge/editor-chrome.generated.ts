@@ -11472,11 +11472,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (columnStart !== null) {
           requiredColumns = Math.max(
             requiredColumns,
-            columnEnd ?? columnStart + 1
+            columnEnd !== null ? columnEnd - 1 : columnStart
           );
         }
         if (rowStart !== null) {
-          requiredRows = Math.max(requiredRows, rowEnd ?? rowStart + 1);
+          requiredRows = Math.max(
+            requiredRows,
+            rowEnd !== null ? rowEnd - 1 : rowStart
+          );
         }
       });
       var extendBounds = function(bounds, required) {
@@ -11976,6 +11979,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var previous = null;
       var plannedGridPlacements = [];
       var targetGridLayout = target.gridCell ? gridTrackLayoutForElement(target.anchor) : null;
+      if (targetGridLayout) {
+        targetGridLayout = expandGridTrackLayoutForAuthoredChildren(
+          targetGridLayout,
+          target.anchor
+        );
+      }
       var targetColumnCount = targetGridLayout?.columnBounds.length ?? 100;
       var gridSpanForMember = function(member2) {
         var styles = window.getComputedStyle(member2);

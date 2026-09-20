@@ -49,6 +49,13 @@ html,body{margin:0;width:100%;height:100%}
 .peer{width:100%;height:100%}
 </style><div id="grid" data-agent-native-node-id="grid"><div id="a" class="peer" data-agent-native-node-id="a">A</div><div id="b" class="peer" data-agent-native-node-id="b">B</div><div id="c" class="peer" data-agent-native-node-id="c">C</div><div id="d" class="peer" data-agent-native-node-id="d">D</div><div id="e" class="peer" data-agent-native-node-id="e">E</div></div>`;
 
+const implicitGroupedGridFixture = `<!doctype html><style>
+html,body{margin:0;width:100%;height:100%}
+#grid{position:absolute;left:100px;top:80px;width:520px;height:380px;padding:12px;display:grid;grid-template-columns:repeat(2,100px);grid-template-rows:repeat(4,70px);gap:12px;background:#eef2ff;box-sizing:border-box}
+#b{grid-column:3 / span 2;grid-row:1;background:#6366f1}#c{grid-column:5 / span 2;grid-row:1;background:#22c55e}#d{grid-column:3 / span 2;grid-row:3;background:#f59e0b}#e{grid-column:5;grid-row:3;background:#a78bfa}
+.peer{width:100%;height:100%}
+</style><div id="grid" data-agent-native-node-id="grid"><div id="b" class="peer" data-agent-native-node-id="b">B</div><div id="c" class="peer" data-agent-native-node-id="c">C</div><div id="d" class="peer" data-agent-native-node-id="d">D</div><div id="e" class="peer" data-agent-native-node-id="e">E</div></div>`;
+
 async function select(page: Page, selector: string) {
   await page.evaluate((value) => {
     window.postMessage({ type: "select-element", selector: value }, "*");
@@ -477,5 +484,67 @@ describe("explicit grid placement repro", () => {
         .locator("#c")
         .evaluate((node) => getComputedStyle(node).gridColumn),
     ).toBe("3 / 5");
+  });
+
+  it("keeps grouped drops in authored implicit tracks", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(implicitGroupedGridFixture);
+    await page.addScriptTag({ content: bridge() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as Window & { __gridDrops?: unknown[] }).__gridDrops = [];
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-structure-change") {
+          (window as Window & { __gridDrops?: unknown[] }).__gridDrops?.push(
+            event.data,
+          );
+        }
+      });
+    });
+    const source = await box(page, "#b");
+    const target = await box(page, "#d");
+    await select(page, "#b");
+    await page.evaluate(() =>
+      window.postMessage(
+        { type: "select-elements", selectorGroups: [["#c"]] },
+        "*",
+      ),
+    );
+    await expect
+      .poll(async () =>
+        page
+          .locator('[data-agent-native-edit-overlay="multi-selection"]')
+          .count(),
+      )
+      .toBeGreaterThan(0);
+    await page.mouse.move(
+      source.x + source.width / 2,
+      source.y + source.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(source.x + 8, source.y + 8, { steps: 3 });
+    await page.mouse.move(target.x + 10, target.y + target.height / 2, {
+      steps: 12,
+    });
+    await page.mouse.up();
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(
+            () =>
+              (window as Window & { __gridDrops?: unknown[] }).__gridDrops
+                ?.length ?? 0,
+          ),
+      )
+      .toBe(2);
+    expect(
+      await page
+        .locator("#b")
+        .evaluate((node) => getComputedStyle(node).gridColumn),
+    ).toBe("3 / 5");
+    await browser.close();
   });
 });
