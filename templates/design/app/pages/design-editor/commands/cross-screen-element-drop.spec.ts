@@ -77,6 +77,7 @@ function runStoredCrossScreenDrop(args: {
   const baseContentByFile = new Map(contentByFile);
   const historyEntries: unknown[] = [];
   const selectionEvents: string[] = [];
+  const fileHistoryMutationPendingRef = { current: false };
   let activeFileId: string | null = null;
   let createdOverviewLayerSelection: {
     screenId: string;
@@ -131,6 +132,7 @@ function runStoredCrossScreenDrop(args: {
       clearPendingOverviewLayerSelectionTimer: () => {},
       codeLayerOwnerByNodeIdRef: { current: new Map() },
       designSourceType: "inline",
+      fileHistoryMutationPendingRef,
       fileSaveOperationRevisionRef: {
         current: saveOperationRevisionByFile,
       },
@@ -150,6 +152,7 @@ function runStoredCrossScreenDrop(args: {
       pendingOverviewLayerSelectionRef: { current: null },
       pendingOverviewScreenSelectionRef: { current: null },
       recordContentHistoryEntry: (entry) => historyEntries.push(entry),
+      syncUndoRedoState: () => {},
       runtimeStructureInsertRevisionRef: { current: 0 },
       sendRuntimeLayerMoveSemanticHandoff: () => false,
       setActiveFileId: (value) => {
@@ -192,6 +195,7 @@ function runStoredCrossScreenDrop(args: {
     activeFileId,
     createdOverviewLayerSelection,
     historyEntries,
+    fileHistoryMutationPendingRef,
     selectionEvents,
     selectedElement,
     selectedLayerIds,
@@ -1380,10 +1384,12 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
       },
     });
 
+    expect(result.fileHistoryMutationPendingRef.current).toBe(true);
     resolveTarget("persisted");
     resolveSource("persisted");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
+    expect(result.fileHistoryMutationPendingRef.current).toBe(false);
     expect(result.historyEntries).toHaveLength(1);
     expect(result.selectionEvents).toContain("active-file");
   });

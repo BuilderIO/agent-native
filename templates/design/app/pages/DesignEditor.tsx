@@ -15394,6 +15394,7 @@ function DesignEditor() {
           contentUndoStackRef,
           contentHistorySelectionAfterRef,
           designSourceType,
+          fileHistoryMutationPendingRef,
           fileSaveOperationRevisionRef,
           getCurrentSelectionFingerprint: () => {
             const selectedElement = selectedElementRef.current;
@@ -15445,6 +15446,7 @@ function DesignEditor() {
           pendingOverviewLayerSelectionRef,
           pendingOverviewScreenSelectionRef,
           recordContentHistoryEntry,
+          syncUndoRedoState,
           runtimeStructureInsertRevisionRef,
           sendRuntimeLayerMoveSemanticHandoff,
           setActiveFileId,
@@ -15468,6 +15470,7 @@ function DesignEditor() {
       id,
       recordContentHistoryEntry,
       sendRuntimeLayerMoveSemanticHandoff,
+      syncUndoRedoState,
       designSourceType,
       overviewScreens,
       t,

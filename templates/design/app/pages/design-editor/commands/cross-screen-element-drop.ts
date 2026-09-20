@@ -130,6 +130,7 @@ export interface CrossScreenElementDropArgs {
   >;
   designSourceType: "inline" | "localhost" | "fusion";
   fileSaveOperationRevisionRef?: RefObject<Record<string, number>>;
+  fileHistoryMutationPendingRef?: RefObject<boolean>;
   getScreenContent: (screenId: string) => string;
   getCurrentSelectionFingerprint?: () => string;
   id: string | undefined;
@@ -139,6 +140,7 @@ export interface CrossScreenElementDropArgs {
   contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
   contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
+  syncUndoRedoState?: () => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
@@ -169,6 +171,7 @@ export function runCrossScreenElementDrop(
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
+    fileHistoryMutationPendingRef,
     fileSaveOperationRevisionRef,
     getScreenContent,
     getCurrentSelectionFingerprint,
@@ -179,6 +182,7 @@ export function runCrossScreenElementDrop(
     contentUndoStackRef,
     contentHistorySelectionAfterRef,
     recordContentHistoryEntry,
+    syncUndoRedoState,
     runtimeStructureInsertRevisionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setActiveFileId,
@@ -1046,6 +1050,16 @@ export function runCrossScreenElementDrop(
       after: nextDestContent,
     },
   ];
+  if (fileHistoryMutationPendingRef?.current) return;
+  const releasePendingHistory = () => {
+    if (!fileHistoryMutationPendingRef) return;
+    fileHistoryMutationPendingRef.current = false;
+    syncUndoRedoState?.();
+  };
+  if (fileHistoryMutationPendingRef) {
+    fileHistoryMutationPendingRef.current = true;
+    syncUndoRedoState?.();
+  }
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
     nextDestContent,
@@ -1058,7 +1072,10 @@ export function runCrossScreenElementDrop(
       awaitSave: true,
     },
   );
-  if (targetPublication.status !== "accepted") return;
+  if (targetPublication.status !== "accepted") {
+    releasePendingHistory();
+    return;
+  }
 
   const sourcePublication = applyFileContentUpdate(
     sourceScreenId,
@@ -1081,6 +1098,7 @@ export function runCrossScreenElementDrop(
     });
     if (rollback.status !== "accepted")
       toast.error(t("designEditor.toasts.saveConflict"));
+    releasePendingHistory();
     return;
   }
 
@@ -1095,21 +1113,23 @@ export function runCrossScreenElementDrop(
   const isCurrentPublication = (
     fileId: string,
     publication: Extract<ApplyFileContentUpdateResult, { status: "accepted" }>,
+    savesPersisted = false,
   ) => {
     const expectedRevision = saveOperationRevisionsAtPublication[fileId];
     if (expectedRevision !== undefined && fileSaveOperationRevisionRef) {
       return fileSaveOperationRevisionRef.current[fileId] === expectedRevision;
     }
+    if (savesPersisted) return true;
     return getScreenContent(fileId) === publication.content;
   };
-  const canFinalizePublication = () =>
-    isCurrentPublication(targetScreenId, targetPublication) &&
-    isCurrentPublication(sourceScreenId, sourcePublication);
+  const canFinalizePublication = (savesPersisted = false) =>
+    isCurrentPublication(targetScreenId, targetPublication, savesPersisted) &&
+    isCurrentPublication(sourceScreenId, sourcePublication, savesPersisted);
 
-  const finalizePublication = () => {
+  const finalizePublication = (savesPersisted = false) => {
     // Save completion is asynchronous. Do not append stale whole-document
     // history; selection restoration is guarded separately below.
-    if (!canFinalizePublication()) return;
+    if (!canFinalizePublication(savesPersisted)) return;
     // History must replay the bytes the publisher accepted. Canonical identity
     // publication may stamp IDs into submitted HTML, and the post-action
     // selection snapshot must resolve against those same final documents.
@@ -1201,6 +1221,7 @@ export function runCrossScreenElementDrop(
   const sourceSave = sourcePublication.saveCompletion;
   if (!targetSave && !sourceSave) {
     finalizePublication();
+    releasePendingHistory();
     return;
   }
 
@@ -1220,10 +1241,14 @@ export function runCrossScreenElementDrop(
     const saveFailed =
       targetResult.status === "rejected" || sourceResult.status === "rejected";
     if (targetSaved && sourceSaved) {
-      finalizePublication();
+      finalizePublication(true);
+      releasePendingHistory();
       return;
     }
-    if (retryableSave) return;
+    if (retryableSave) {
+      releasePendingHistory();
+      return;
+    }
     const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
     if (targetSaved && !sourceSaved) {
       rollbackResults.push(
@@ -1251,5 +1276,6 @@ export function runCrossScreenElementDrop(
     ) {
       toast.error(t("designEditor.toasts.saveConflict"));
     }
+    releasePendingHistory();
   });
 }
