@@ -385,6 +385,7 @@ import type {
   ElementSelectionIntent,
   DeviceFrameType,
   PortableStyleSnapshot,
+  RuntimeStructureDeleteRequest,
   RuntimeStructureInsertRequest,
   RuntimeStructureMoveRequest,
   TextEditingState,
@@ -1601,6 +1602,10 @@ function DesignEditor() {
   const runtimeStructureMoveRevisionRef = useRef(0);
   const [runtimeStructureInsertRequest, setRuntimeStructureInsertRequest] =
     useState<(RuntimeStructureInsertRequest & { screenId: string }) | null>(
+      null,
+    );
+  const [runtimeStructureDeleteRequest, setRuntimeStructureDeleteRequest] =
+    useState<(RuntimeStructureDeleteRequest & { screenId: string }) | null>(
       null,
     );
   const runtimeStructureInsertRevisionRef = useRef(0);
@@ -13916,6 +13921,7 @@ function DesignEditor() {
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
+      canEditLiveScreen,
       getCanvasClipboardEntries,
       getCanvasScreenClipboardEntries,
       getFreshActiveContent,
@@ -15613,6 +15619,7 @@ function DesignEditor() {
           applyFileContentUpdate,
           boardFileId,
           canEditDesign,
+          canEditLiveScreen,
           clearPendingOverviewLayerSelectionTimer,
           codeLayerOwnerByNodeIdRef,
           clearPendingHistory: clearPendingHistoryDirections,
@@ -15685,6 +15692,7 @@ function DesignEditor() {
           setCreatedOverviewLayerSelection,
           setOverviewSelectedScreenIds,
           setRuntimeStructureInsertRequest,
+          setRuntimeStructureDeleteRequest,
           setSelectedElement,
           setSelectedLayerIdsState,
           t,
@@ -15697,6 +15705,7 @@ function DesignEditor() {
       applyFileContentUpdate,
       boardFileId,
       canEditDesign,
+      canEditLiveScreen,
       clearPendingHistoryDirections,
       clearPendingOverviewLayerSelectionTimer,
       getScreenContent,
@@ -15706,6 +15715,7 @@ function DesignEditor() {
       syncUndoRedoState,
       designSourceType,
       overviewScreens,
+      setRuntimeStructureDeleteRequest,
       t,
     ],
   );
@@ -15726,6 +15736,42 @@ function DesignEditor() {
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
     [cancelPendingStructureVerification, t],
+  );
+
+  const handleRuntimeStructureDeleteApplied = useCallback(
+    (details: {
+      screenId?: string;
+      requestId: string;
+      selector: string;
+      sourceId?: string;
+      info?: ElementInfo;
+    }) => {
+      const screenId = details.screenId;
+      const request = runtimeStructureDeleteRequest;
+      if (
+        !screenId ||
+        !request ||
+        request.screenId !== screenId ||
+        request.requestId !== details.requestId
+      ) {
+        return;
+      }
+      recordPendingLiveStructureEdit(
+        screenId,
+        details.selector,
+        "",
+        "after",
+        details.info,
+        {
+          sourceId: details.sourceId,
+          requestId: details.requestId,
+          transactionId: request.transactionId,
+          removed: true,
+        },
+      );
+      setRuntimeStructureDeleteRequest(null);
+    },
+    [recordPendingLiveStructureEdit, runtimeStructureDeleteRequest],
   );
 
   const handleCutSelection = useCallback(async () => {
@@ -22447,6 +22493,7 @@ function DesignEditor() {
           codeLayerOwnerByNodeId,
           effectiveCodeLayerState,
           files,
+          liveScreenIds,
           lockedLayerIds,
           visualScreenFileIds,
         },
@@ -22456,6 +22503,7 @@ function DesignEditor() {
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
       files,
+      liveScreenIds,
       lockedLayerIds,
       visualScreenFileIds,
     ],
@@ -22544,9 +22592,13 @@ function DesignEditor() {
           recordContentHistoryEntry,
           recordLocalContentHistoryEntry,
           remapMotionTracksForClone,
+          runtimeLayerSnapshotsById,
+          runtimeStructureInsertRevisionRef,
           runtimeStructureMoveRevisionRef,
           sendRuntimeLayerMoveSemanticHandoff,
           setExpandedLayerIds,
+          setRuntimeStructureDeleteRequest,
+          setRuntimeStructureInsertRequest,
           setRuntimeStructureMoveRequest,
           setSelectedElement,
           setSelectedLayerIdsState,
@@ -22577,8 +22629,11 @@ function DesignEditor() {
       recordContentHistoryEntry,
       recordLocalContentHistoryEntry,
       remapMotionTracksForClone,
+      runtimeLayerSnapshotsById,
       sendRuntimeLayerMoveSemanticHandoff,
       applyLinkedComponentEdit,
+      setRuntimeStructureDeleteRequest,
+      setRuntimeStructureInsertRequest,
       t,
       visualScreenFileIds,
     ],
@@ -23287,9 +23342,15 @@ function DesignEditor() {
               ? runtimeStructureInsertRequest
               : null
           }
+          runtimeStructureDeleteRequest={
+            runtimeStructureDeleteRequest?.screenId === screen.id
+              ? runtimeStructureDeleteRequest
+              : null
+          }
           onRuntimeStructureInsertRejected={
             handleRuntimeStructureInsertRejected
           }
+          onRuntimeStructureDeleteApplied={handleRuntimeStructureDeleteApplied}
           runtimeVerificationRequest={
             runtimeStructureVerificationRequest?.screenIds.includes(screen.id)
               ? {
@@ -23526,7 +23587,9 @@ function DesignEditor() {
       pendingStructureAckRequest,
       runtimeStructureMoveRequest,
       runtimeStructureInsertRequest,
+      runtimeStructureDeleteRequest,
       handleRuntimeStructureInsertRejected,
+      handleRuntimeStructureDeleteApplied,
       runtimeStructureVerificationRequest,
       contentRenderRevision,
       handleScreenExternalContentSnapshot,
@@ -26497,8 +26560,17 @@ function DesignEditor() {
                             ? runtimeStructureInsertRequest
                             : null
                         }
+                        runtimeStructureDeleteRequest={
+                          runtimeStructureDeleteRequest?.screenId ===
+                          activeFile.id
+                            ? runtimeStructureDeleteRequest
+                            : null
+                        }
                         onRuntimeStructureInsertRejected={
                           handleRuntimeStructureInsertRejected
+                        }
+                        onRuntimeStructureDeleteApplied={
+                          handleRuntimeStructureDeleteApplied
                         }
                         runtimeVerificationRequest={
                           runtimeStructureVerificationRequest?.screenIds.includes(
