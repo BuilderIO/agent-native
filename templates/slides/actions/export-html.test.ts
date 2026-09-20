@@ -20,6 +20,9 @@ it("navigates exported slides with controls and keyboard", async () => {
     "else if (document.documentElement.requestFullscreen)",
   );
   expect(html).toContain("else if (document.exitFullscreen)");
+  expect(html).toContain(
+    "document.fullscreenElement && document.exitFullscreen",
+  );
   window.document.write(html);
   await window.happyDOM.whenAsyncComplete();
 
