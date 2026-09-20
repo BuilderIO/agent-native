@@ -110,6 +110,7 @@ function resolveCanonicalizedRange(
   const target = before.slice(anchor.from, anchor.to);
   if (!target)
     return resolveCanonicalizedInsertion(before, current, anchor.from);
+  if (!target.trim()) return null;
   const from = current.indexOf(target);
   if (from < 0 || current.indexOf(target, from + 1) >= 0) return null;
   return { from, to: from + target.length };
@@ -120,9 +121,15 @@ function resolveCanonicalizedInsertion(
   current: string,
   offset: number,
 ) {
-  if (offset === 0) return { from: 0, to: 0 };
+  if (offset === 0) {
+    return current.length > 0 && before.startsWith(current[0])
+      ? { from: 0, to: 0 }
+      : null;
+  }
   if (offset === before.length) {
-    return { from: current.length, to: current.length };
+    return current.length > 0 && before.endsWith(current[current.length - 1])
+      ? { from: current.length, to: current.length }
+      : null;
   }
 
   const left = before.slice(0, offset).trimEnd();

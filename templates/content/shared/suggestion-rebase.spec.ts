@@ -260,6 +260,17 @@ describe("resolveMarkdownSuggestionRange", () => {
     ).toBeNull();
   });
 
+  it("does not map one selected newline from a collapsed blank-line run", () => {
+    const saved = "First paragraph.\n\nSecond paragraph.";
+    const from = saved.indexOf("\n\n");
+    expect(
+      resolveMarkdownSuggestionRange(
+        "First paragraph.\nSecond paragraph.",
+        change(saved, from, from + 1, "Replacement"),
+      ),
+    ).toBeNull();
+  });
+
   it("maps a target spanning Markdown block syntax without changing structure", () => {
     const saved = "# Heading\n\n> Original quote\n\nTail";
     const target = "> Original quote";
@@ -301,6 +312,21 @@ describe("resolveMarkdownSuggestionRange", () => {
       ),
     ).toBeNull();
   });
+
+  it.each([
+    ["\nFirst paragraph.", 0, "First paragraph."],
+    ["First paragraph.\n", "First paragraph.\n".length, "First paragraph."],
+  ])(
+    "does not map a document-edge insertion across stripped whitespace: %s",
+    (saved, from, canonical) => {
+      expect(
+        resolveMarkdownSuggestionRange(
+          canonical,
+          change(saved, from, from, "Inserted block.\n"),
+        ),
+      ).toBeNull();
+    },
+  );
 
   it("uses the editor canonicalizer for trailing empty blocks", () => {
     const saved = "Paragraph text.\n\n<empty-block/>";
