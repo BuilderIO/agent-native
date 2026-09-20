@@ -292,7 +292,7 @@ describe("<NewDeckReferenceStep>", () => {
     expect(screen.getByLabelText("Slides - Imported")).toBeTruthy();
   });
 
-  it("drops the imported reference deck when Slides is deselected", async () => {
+  it("requires a reference after Slides is deselected", async () => {
     const imported: ImportedReference = {
       id: "deck-google",
       title: "Quarterly plan",
@@ -317,15 +317,28 @@ describe("<NewDeckReferenceStep>", () => {
     fireEvent.click(screen.getByRole("button", { name: "Slides - Imported" }));
     expect(screen.queryByRole("status")).toBeNull();
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    });
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(onSelect).not.toHaveBeenCalled();
+  });
 
-    expect(onSelect).toHaveBeenCalledWith({
-      designSystemId: null,
-      referenceDeckId: null,
-      referenceSource: null,
-    });
+  it("disables Continue when no reference or design system is selected", () => {
+    renderStep({ designSystems: [], defaultDesignSystemId: null });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      false,
+    );
   });
 
   it("only shows Google connection recovery after choosing Slides", () => {
