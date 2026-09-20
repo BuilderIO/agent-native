@@ -120,11 +120,13 @@ displace the first, and no backend is required for the others to work.
 When first-party Agent-Native Analytics is configured, browser
 `configureTracking()` captures uncaught errors, unhandled rejections, and
 manual `captureException()` calls as `$exception` events through `/track`.
-Server `captureError()` calls emit the same event through the provider registry.
-Analytics groups both into owner-scoped `error_issues` and `error_events`,
-shown in Monitoring -> Errors and exposed to authenticated agents through
-`list-error-issues` and `get-error-issue`. This remains available even when
-external Sentry is unavailable or rate-limited.
+On the server, the core route plugin registers the tracking capture provider:
+`captureError()` calls `captureException()`, and the Agent-Native provider sends
+the same event when the server public key is configured. Analytics groups both
+into owner-scoped `error_issues` and `error_events`, shown in Monitoring ->
+Errors and exposed to authenticated agents through `list-error-issues` and
+`get-error-issue`. This remains available even when external Sentry is
+unavailable or rate-limited.
 
 Emit through `captureError()` / `captureException()`. Never hand-roll a
 `track("$exception", …)`: each backend needs its own payload shape and the

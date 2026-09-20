@@ -304,8 +304,9 @@ or an old release is not proof the current error is gone.
 Query authenticated Agent-Native Analytics error issues in parallel. Use
 `list-error-issues` for unresolved groups, then `get-error-issue` for stacks,
 occurrences, breadcrumbs, tags, and replay links. It captures client exceptions
-and server `captureError()` failures. Use it as the Sentry fallback when
-rate-limited. Do not query `error_issues` or `error_events` through
+and server `captureError()` failures when the server Analytics key/provider is
+configured. Use it as the Sentry fallback when rate-limited. Do not query
+`error_issues` or `error_events` through
 `query-agent-native-analytics`; use that action only for bounded event/LLM
 correlation. Apply the same ownership gate: fix worthwhile repo-owned issues
 at their boundary, verify runtime, and record external, deployment, or unclear

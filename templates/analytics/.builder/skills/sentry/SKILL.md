@@ -60,8 +60,9 @@ directly from the agent.
 
 Agent-Native Analytics has its own Sentry-style error store, separate from the
 external Sentry connection. Browser `configureTracking()` and server
-`captureError()` can both emit `$exception` events; Analytics groups them under
-Monitoring -> Errors without a Sentry credential.
+`captureError()` can both emit `$exception` events when their Analytics keys are
+configured; Analytics groups them under Monitoring -> Errors without an
+external Sentry credential.
 
 Use these authenticated actions for first-party issues:
 

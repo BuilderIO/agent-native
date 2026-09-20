@@ -56,7 +56,8 @@ selection to the `monitoring` application-state key.
   `server/db/schema-errors.ts`.
 - Browser exceptions arrive through `configureTracking()` as `$exception`
   events; server `captureError()` failures arrive through the shared tracking
-  provider and use the same grouped issue store.
+  provider when the server Analytics key is configured and use the same grouped
+  issue store.
 - Actions: `list-error-issues`, `get-error-issue`, `resolve-error-issue`,
   `capture-test-error`, `match-error-issues`.
 - Browser capture uses the SDK from `@agent-native/core/client`
