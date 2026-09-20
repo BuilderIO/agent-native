@@ -11,6 +11,16 @@ export interface DesignE2eCleanupPaths {
   resultsDir?: string;
 }
 
+export function designE2eRunRoot(
+  designDir: string,
+  configuredRoot = process.env.E2E_RUN_ROOT,
+  id = runId(),
+): string | undefined {
+  if (configuredRoot) return path.resolve(configuredRoot);
+  if (!id) return undefined;
+  return path.join(designDir, "..", "..", ".tmp", "design-e2e", id);
+}
+
 export function cleanupDesignE2eArtifacts(
   paths: DesignE2eCleanupPaths,
   exitCode: number,
@@ -28,7 +38,8 @@ export default async function globalTeardown(): Promise<void> {
   if (!id) return;
 
   const designDir = path.resolve(import.meta.dirname, "..");
-  const runRoot = path.join(designDir, "..", "..", ".tmp", "design-e2e", id);
+  const runRoot = designE2eRunRoot(designDir, process.env.E2E_RUN_ROOT, id);
+  if (!runRoot) return;
   const pgliteDir = path.join(runRoot, "pglite");
   const resultsDir = path.join(designDir, "test-results", id);
   const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");

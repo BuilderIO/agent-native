@@ -205,33 +205,41 @@ function gridRange(value: string | undefined): [number, number] | undefined {
   return Number.isInteger(end) ? [start, end] : undefined;
 }
 
+function gridPlacementFromStyle(style: CodeLayerNode["style"]):
+  | {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    }
+  | undefined {
+  const area = style["grid-area"]?.split("/").map((part) => part.trim());
+  const column = gridRange(style["grid-column"]);
+  const row = gridRange(style["grid-row"]);
+  return area?.length === 4
+    ? {
+        row: Number(area[0]),
+        column: Number(area[1]),
+        rowEnd: Number(area[2]),
+        columnEnd: Number(area[3]),
+      }
+    : column && row
+      ? {
+          column: column[0],
+          columnEnd: column[1],
+          row: row[0],
+          rowEnd: row[1],
+        }
+      : undefined;
+}
+
 function verifyGridPlacement(
   projection: { nodes: CodeLayerNode[] },
   edit: PendingLiveStructureEdit,
   subject: CodeLayerNode,
 ): RuntimeStructureVerificationResult {
   if (!edit.gridPlacement) return { ok: true };
-  const area = subject.style["grid-area"]
-    ?.split("/")
-    .map((part) => part.trim());
-  const column = gridRange(subject.style["grid-column"]);
-  const row = gridRange(subject.style["grid-row"]);
-  const actual =
-    area?.length === 4
-      ? {
-          row: Number(area[0]),
-          column: Number(area[1]),
-          rowEnd: Number(area[2]),
-          columnEnd: Number(area[3]),
-        }
-      : column && row
-        ? {
-            column: column[0],
-            columnEnd: column[1],
-            row: row[0],
-            rowEnd: row[1],
-          }
-        : undefined;
+  const actual = gridPlacementFromStyle(subject.style);
   if (
     !actual ||
     actual.column !== edit.gridPlacement.column ||
@@ -249,15 +257,13 @@ function verifyGridPlacement(
       role: "subject",
     });
     if (!resolution.node) return { ok: false, failure: "wrong-grid-placement" };
-    const displacedColumn = gridRange(resolution.node.style["grid-column"]);
-    const displacedRow = gridRange(resolution.node.style["grid-row"]);
+    const displacedPlacement = gridPlacementFromStyle(resolution.node.style);
     if (
-      !displacedColumn ||
-      !displacedRow ||
-      displacedColumn[0] !== displacement.placement.column ||
-      displacedColumn[1] !== displacement.placement.columnEnd ||
-      displacedRow[0] !== displacement.placement.row ||
-      displacedRow[1] !== displacement.placement.rowEnd
+      !displacedPlacement ||
+      displacedPlacement.column !== displacement.placement.column ||
+      displacedPlacement.columnEnd !== displacement.placement.columnEnd ||
+      displacedPlacement.row !== displacement.placement.row ||
+      displacedPlacement.rowEnd !== displacement.placement.rowEnd
     ) {
       return { ok: false, failure: "wrong-grid-placement" };
     }
