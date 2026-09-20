@@ -109,6 +109,8 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("@agent-native/core/org", () => ({
   orgMembers: mocks.orgMembers,
+  isMissingOrganizationTableError: (error: unknown) =>
+    String((error as Error)?.message ?? "").includes("org_members"),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -384,6 +386,32 @@ describe("delete-file", () => {
       action.run({ id: "file-b", allowLockedLayers: true }),
     ).resolves.toMatchObject({ id: "file-b", deleted: true });
     expect(mocks.txMemberSelectChain.for).not.toHaveBeenCalled();
+  });
+
+  it("does not make org_members a hard dependency for non-owner access", async () => {
+    mocks.currentAccess.mockReturnValue({
+      userEmail: "shared@example.com",
+      orgId: "org-1",
+    });
+    mocks.txDesignSelectChain.for.mockResolvedValue([
+      {
+        id: "design_123",
+        data: JSON.stringify(mocks.designData),
+        updatedAt: mocks.designUpdatedAt,
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        visibility: "org",
+      },
+    ]);
+    mocks.txMemberSelectChain.for.mockRejectedValue(
+      new Error('relation "org_members" does not exist'),
+    );
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    expect(mocks.txMemberSelectChain.for).toHaveBeenCalledTimes(1);
+    expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
   });
 
   it("holds authorization rows before the delete so a revoke waits", async () => {

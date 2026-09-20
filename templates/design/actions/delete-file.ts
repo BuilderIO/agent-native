@@ -1,6 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
 import type { DbExecStatement } from "@agent-native/core/db";
-import { orgMembers } from "@agent-native/core/org";
+import {
+  isMissingOrganizationTableError,
+  orgMembers,
+} from "@agent-native/core/org";
 import {
   accessFilter,
   assertAccess,
@@ -418,16 +421,23 @@ export default defineAction({
           memberEmail &&
           memberEmail !== ownerEmail
         ) {
-          await tx
-            .select({ id: orgMembers.id })
-            .from(orgMembers)
-            .where(
-              and(
-                eq(orgMembers.orgId, design.orgId),
-                sql`lower(${orgMembers.email}) = ${memberEmail}`,
-              ),
-            )
-            .for("update");
+          try {
+            await tx
+              .select({ id: orgMembers.id })
+              .from(orgMembers)
+              .where(
+                and(
+                  eq(orgMembers.orgId, design.orgId),
+                  sql`lower(${orgMembers.email}) = ${memberEmail}`,
+                ),
+              )
+              .for("update");
+          } catch (error) {
+            // Embedded deployments may omit the org module. Let the shared
+            // access resolver decide whether a direct share still applies;
+            // org visibility itself remains fail-closed without membership.
+            if (!isMissingOrganizationTableError(error)) throw error;
+          }
         }
         const transactionAccess = {
           ...access,
