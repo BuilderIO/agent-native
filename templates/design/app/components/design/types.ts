@@ -15,15 +15,37 @@ export interface PortableStyleSnapshot {
   nodes: PortableStyleSnapshotNode[];
 }
 
-export interface RuntimeStructureMoveRequest {
-  requestId: number;
+export interface RuntimeStructureMove {
   subject: { selector: string; sourceId?: string | null };
   anchor: { selector: string; sourceId?: string | null };
   placement: "before" | "after" | "inside";
+  transactionId?: string;
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements?: Array<{
+    sourceId?: string;
+    selector?: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
+}
+
+export interface RuntimeStructureMoveRequest extends RuntimeStructureMove {
+  requestId: number;
+  moves?: RuntimeStructureMove[];
 }
 
 export interface GridGroupStructureMove {
   requestId: string;
+  transactionId?: string;
   selector: string;
   sourceId: string;
   anchorSelector: string;

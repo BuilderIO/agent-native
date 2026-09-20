@@ -18,6 +18,7 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
+  pendingLiveStructureEditsFromUndoEntry,
   pendingLiveStructureEditsMatch,
   projectRelativeSourcePath,
   reactSourceAnchorForPendingEdit,
@@ -77,6 +78,7 @@ export function runRecordPendingLiveStructureEdit(
     anchorSourceId?: string;
     anchorElementInfo?: ElementInfo;
     requestId?: string;
+    transactionId?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
@@ -191,6 +193,7 @@ export function runRecordPendingLiveStructureEdit(
       : {}),
     ...(details?.removed ? { removed: true as const } : {}),
     requestId: details?.requestId,
+    transactionId: details?.transactionId,
     updatedAt: Date.now(),
   };
   nextEdit.subjectSignature = runtimeStructureNodeSignature({
@@ -226,7 +229,9 @@ export function runRecordPendingLiveStructureEdit(
   const structureRedoReplay = pendingStructureRedoReplayRef.current;
   const replaysUndoneStructure = Boolean(
     structureRedoReplay &&
-    pendingLiveStructureEditsMatch(structureRedoReplay.edit, nextEdit),
+    pendingLiveStructureEditsFromUndoEntry(structureRedoReplay).some((edit) =>
+      pendingLiveStructureEditsMatch(edit, nextEdit),
+    ),
   );
   if (replaysUndoneStructure && structureRedoReplay) {
     pendingStructureRedoReplayRef.current = undefined;

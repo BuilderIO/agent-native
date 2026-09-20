@@ -67,6 +67,7 @@ export interface VisualStructureChangeArgs {
       anchorSourceId?: string;
       anchorElementInfo?: ElementInfo;
       requestId?: string;
+      transactionId?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -123,6 +124,7 @@ export function runVisualStructureChange(
     anchorSourceId?: string;
     anchorElementInfo?: ElementInfo;
     requestId?: string;
+    transactionId?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };

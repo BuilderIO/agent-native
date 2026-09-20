@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -32,6 +33,34 @@ const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   `pglite:${path.join(import.meta.dirname, "..", "data", "e2e-pglite")}`;
+const LOOPBACK_PID_PATH = path.join(
+  process.env.E2E_RUN_ROOT ??
+    path.join(import.meta.dirname, "..", "..", ".tmp", "design-e2e"),
+  "loopback-provider.pid",
+);
+
+async function startLoopbackProvider(port: number): Promise<void> {
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      "tsx/esm",
+      path.join(import.meta.dirname, "loopback-design-provider.ts"),
+    ],
+    {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        E2E_LOOPBACK_PORT: String(port),
+      },
+    },
+  );
+  if (!child.pid) throw new Error("loopback provider did not start");
+  await mkdir(path.dirname(LOOPBACK_PID_PATH), { recursive: true });
+  await writeFile(LOOPBACK_PID_PATH, String(child.pid));
+  child.unref();
+}
 
 /**
  * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
@@ -300,6 +329,8 @@ async function seedMentionMember(
 }
 
 export default async function globalSetup(config: FullConfig) {
+  if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1")
+    await startLoopbackProvider(config.metadata.sidebarLoopbackPort as number);
   const baseURL =
     (config.projects[0]?.use?.baseURL as string | undefined) ?? e2eBaseURL();
   await mkdir(AUTH_DIR, { recursive: true });

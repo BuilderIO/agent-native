@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
 function runId(): string | undefined {
@@ -31,6 +31,21 @@ export default async function globalTeardown(): Promise<void> {
   const runRoot = path.join(designDir, "..", "..", ".tmp", "design-e2e", id);
   const pgliteDir = path.join(runRoot, "pglite");
   const resultsDir = path.join(designDir, "test-results", id);
+  const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");
+  if (
+    process.env.E2E_AI_SIDEBAR_LOOPBACK === "1" &&
+    existsSync(loopbackPidPath)
+  ) {
+    const pid = Number(readFileSync(loopbackPidPath, "utf8"));
+    if (Number.isInteger(pid) && pid > 0) {
+      try {
+        process.kill(pid);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+    }
+    rmSync(loopbackPidPath, { force: true });
+  }
   const cleanup = (exitCode: number) => {
     try {
       cleanupDesignE2eArtifacts({ pgliteDir, resultsDir }, exitCode);

@@ -12019,7 +12019,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return runtimeMutationApplied;
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId) {
       if (!el || !target || !target.anchor) return;
       dndLog("post:structure-change", {
         el: getSelector(el),
@@ -12037,6 +12037,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var message = {
         type: "visual-structure-change",
         requestId,
+        transactionId,
         selector: getSelector(el),
         sourceId: getSourceId(el),
         anchorSelector: getSelector(target.anchor),
@@ -12103,6 +12104,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function applyGroupStructureDrop(members, target, ev, originInlineStylesFor, preview = false) {
       var container = dropContainerForTarget(target);
+      var transactionId = !preview && members.length > 1 ? "group-" + Date.now() + "-" + Math.random().toString(16).slice(2) : void 0;
       var gridGroupMessages = !preview && target.gridCell && gridGroupBatchingEnabled ? [] : null;
       var previous = null;
       var plannedGridPlacements = [];
@@ -12214,7 +12216,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             void 0,
             void 0,
             void 0,
-            gridGroupMessages ?? void 0
+            gridGroupMessages ?? void 0,
+            transactionId
           );
         }
         if (plannedGridCell) {
@@ -17187,45 +17190,101 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "runtime-structure-move") {
         if (readOnly) return;
-        var runtimePlacement = String(e.data.placement || "");
-        if (runtimePlacement !== "before" && runtimePlacement !== "after" && runtimePlacement !== "inside") {
-          return;
+        var rawRuntimeMoves = Array.isArray(e.data.moves) ? e.data.moves : [e.data];
+        if (rawRuntimeMoves.length === 0) return;
+        var replayTransactionId = typeof e.data.transactionId === "string" ? e.data.transactionId : typeof rawRuntimeMoves[0]?.transactionId === "string" ? rawRuntimeMoves[0].transactionId : void 0;
+        var runtimeReplayMoves = [];
+        var replaySubjects = [];
+        for (var rawMove of rawRuntimeMoves) {
+          var runtimePlacement = String(rawMove.placement || "");
+          if (runtimePlacement !== "before" && runtimePlacement !== "after" && runtimePlacement !== "inside") {
+            return;
+          }
+          var runtimeSubject = findUniqueRuntimeStructureTarget(
+            String(rawMove.subjectSelector || rawMove.subject?.selector || ""),
+            typeof rawMove.subjectSourceId === "string" ? rawMove.subjectSourceId : typeof rawMove.subject?.sourceId === "string" ? rawMove.subject.sourceId : ""
+          );
+          var runtimeAnchor = findUniqueRuntimeStructureTarget(
+            String(rawMove.anchorSelector || rawMove.anchor?.selector || ""),
+            typeof rawMove.anchorSourceId === "string" ? rawMove.anchorSourceId : typeof rawMove.anchor?.sourceId === "string" ? rawMove.anchor.sourceId : ""
+          );
+          if (!runtimeSubject || !runtimeAnchor || runtimeSubject === runtimeAnchor || runtimeSubject.contains(runtimeAnchor)) {
+            return;
+          }
+          if (runtimePlacement === "inside" && !isContainerDropTarget(runtimeAnchor) || runtimePlacement !== "inside" && !runtimeAnchor.parentElement) {
+            return;
+          }
+          var runtimeTarget = {
+            anchor: runtimeAnchor,
+            placement: runtimePlacement,
+            axis: parentFlowAxis(
+              runtimePlacement === "inside" ? runtimeAnchor : runtimeAnchor.parentElement
+            ),
+            dropMode: runtimePlacement === "inside" && isAbsolutePrimitiveContainer(runtimeAnchor) ? "absolute-container" : "flow-insert"
+          };
+          if (rawMove.gridPlacement && Number.isInteger(rawMove.gridPlacement.column) && Number.isInteger(rawMove.gridPlacement.row)) {
+            runtimeTarget.gridCell = {
+              column: rawMove.gridPlacement.column - 1,
+              row: rawMove.gridPlacement.row - 1
+            };
+          }
+          runtimeReplayMoves.push({
+            subject: runtimeSubject,
+            target: runtimeTarget,
+            origin: {
+              prevParent: runtimeSubject.parentElement,
+              prevNextSibling: runtimeSubject.nextSibling,
+              prevInlinePositionStyles: snapshotInlinePositionStyles(runtimeSubject),
+              prevInlineGridStyles: snapshotInlineGridStyles(runtimeSubject)
+            },
+            transactionId: typeof rawMove.transactionId === "string" ? rawMove.transactionId : replayTransactionId
+          });
+          replaySubjects.push(runtimeSubject);
         }
-        var runtimeSubject = findUniqueRuntimeStructureTarget(
-          String(e.data.subjectSelector || ""),
-          typeof e.data.subjectSourceId === "string" ? e.data.subjectSourceId : ""
-        );
-        var runtimeAnchor = findUniqueRuntimeStructureTarget(
-          String(e.data.anchorSelector || ""),
-          typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : ""
-        );
-        if (!runtimeSubject || !runtimeAnchor || runtimeSubject === runtimeAnchor || runtimeSubject.contains(runtimeAnchor)) {
-          return;
+        for (var replayMove of runtimeReplayMoves) {
+          if (!applyRuntimeReorder(
+            replayMove.subject,
+            replayMove.target,
+            false,
+            replaySubjects
+          )) {
+            for (var rollbackIndex = runtimeReplayMoves.indexOf(replayMove); rollbackIndex >= 0; rollbackIndex -= 1) {
+              var rollbackMove = runtimeReplayMoves[rollbackIndex];
+              if (!rollbackMove) continue;
+              if (rollbackMove.origin.prevParent?.isConnected && rollbackMove.subject.isConnected) {
+                rollbackMove.origin.prevParent.insertBefore(
+                  rollbackMove.subject,
+                  rollbackMove.origin.prevNextSibling?.parentNode === rollbackMove.origin.prevParent ? rollbackMove.origin.prevNextSibling : null
+                );
+                restoreInlinePositionStyles(
+                  rollbackMove.subject,
+                  rollbackMove.origin.prevInlinePositionStyles
+                );
+                restoreInlineGridStyles(
+                  rollbackMove.subject,
+                  rollbackMove.origin.prevInlineGridStyles
+                );
+              }
+              for (var displaced of rollbackMove.target.gridDisplacementPrevStyles ?? []) {
+                restoreInlineGridStyles(displaced.element, displaced.styles);
+              }
+            }
+            return;
+          }
+          selectedEl = replayMove.subject;
+          positionOverlay(selectionOverlay, selectedEl);
         }
-        if (runtimePlacement === "inside" && !isContainerDropTarget(runtimeAnchor) || runtimePlacement !== "inside" && !runtimeAnchor.parentElement) {
-          return;
-        }
-        var runtimeTarget = {
-          anchor: runtimeAnchor,
-          placement: runtimePlacement,
-          axis: parentFlowAxis(
-            runtimePlacement === "inside" ? runtimeAnchor : runtimeAnchor.parentElement
-          ),
-          dropMode: runtimePlacement === "inside" && isAbsolutePrimitiveContainer(runtimeAnchor) ? "absolute-container" : "flow-insert"
-        };
-        var runtimeOrigin = {
-          prevParent: runtimeSubject.parentElement,
-          prevNextSibling: runtimeSubject.nextSibling,
-          prevInlinePositionStyles: snapshotInlinePositionStyles(runtimeSubject)
-        };
-        var runtimeMutationApplied = applyRuntimeReorder(
-          runtimeSubject,
-          runtimeTarget
-        );
-        selectedEl = runtimeSubject;
-        positionOverlay(selectionOverlay, selectedEl);
-        if (runtimeMutationApplied) {
-          postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
+        for (var completedMove of runtimeReplayMoves) {
+          postVisualStructureChange(
+            completedMove.subject,
+            completedMove.target,
+            completedMove.origin,
+            void 0,
+            void 0,
+            void 0,
+            void 0,
+            completedMove.transactionId
+          );
         }
         return;
       }
@@ -17457,8 +17516,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             );
             restoreInlineGridStyles(move.el, move.origin.prevInlineGridStyles);
             if (move.origin.gridDisplacements) {
-              move.origin.gridDisplacements.forEach(function(displaced) {
-                restoreInlineGridStyles(displaced.element, displaced.styles);
+              move.origin.gridDisplacements.forEach(function(displaced2) {
+                restoreInlineGridStyles(displaced2.element, displaced2.styles);
               });
             }
             selectedEl = move.el;

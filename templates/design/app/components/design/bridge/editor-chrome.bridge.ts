@@ -16962,6 +16962,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     replaced?,
     replacementSnapshotHtml?: string,
     collectMessages?: any[],
+    transactionId?: string,
   ) {
     if (!el || !target || !target.anchor) return;
     dndLog("post:structure-change", {
@@ -16981,6 +16982,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var message = {
       type: "visual-structure-change",
       requestId: requestId,
+      transactionId: transactionId,
       selector: getSelector(el),
       sourceId: getSourceId(el),
       anchorSelector: getSelector(target.anchor),
@@ -17093,6 +17095,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     preview = false,
   ): void {
     var container = dropContainerForTarget(target);
+    var transactionId =
+      !preview && members.length > 1
+        ? "group-" + Date.now() + "-" + Math.random().toString(16).slice(2)
+        : undefined;
     var gridGroupMessages =
       !preview && target.gridCell && gridGroupBatchingEnabled ? [] : null;
     var previous: Element | null = null;
@@ -17265,6 +17271,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           undefined,
           undefined,
           gridGroupMessages ?? undefined,
+          transactionId,
         );
       }
       if (plannedGridCell) {
@@ -24369,66 +24376,161 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (e.data.type === "runtime-structure-move") {
       if (readOnly) return;
-      var runtimePlacement = String(e.data.placement || "");
-      if (
-        runtimePlacement !== "before" &&
-        runtimePlacement !== "after" &&
-        runtimePlacement !== "inside"
-      ) {
-        return;
+      var rawRuntimeMoves = Array.isArray(e.data.moves)
+        ? e.data.moves
+        : [e.data];
+      if (rawRuntimeMoves.length === 0) return;
+      var replayTransactionId =
+        typeof e.data.transactionId === "string"
+          ? e.data.transactionId
+          : typeof rawRuntimeMoves[0]?.transactionId === "string"
+            ? rawRuntimeMoves[0].transactionId
+            : undefined;
+      var runtimeReplayMoves: Array<{
+        subject: Element;
+        target: any;
+        origin: any;
+        transactionId?: string;
+      }> = [];
+      var replaySubjects: Element[] = [];
+      for (var rawMove of rawRuntimeMoves) {
+        var runtimePlacement = String(rawMove.placement || "");
+        if (
+          runtimePlacement !== "before" &&
+          runtimePlacement !== "after" &&
+          runtimePlacement !== "inside"
+        ) {
+          return;
+        }
+        var runtimeSubject = findUniqueRuntimeStructureTarget(
+          String(rawMove.subjectSelector || rawMove.subject?.selector || ""),
+          typeof rawMove.subjectSourceId === "string"
+            ? rawMove.subjectSourceId
+            : typeof rawMove.subject?.sourceId === "string"
+              ? rawMove.subject.sourceId
+              : "",
+        );
+        var runtimeAnchor = findUniqueRuntimeStructureTarget(
+          String(rawMove.anchorSelector || rawMove.anchor?.selector || ""),
+          typeof rawMove.anchorSourceId === "string"
+            ? rawMove.anchorSourceId
+            : typeof rawMove.anchor?.sourceId === "string"
+              ? rawMove.anchor.sourceId
+              : "",
+        );
+        if (
+          !runtimeSubject ||
+          !runtimeAnchor ||
+          runtimeSubject === runtimeAnchor ||
+          runtimeSubject.contains(runtimeAnchor)
+        ) {
+          return;
+        }
+        if (
+          (runtimePlacement === "inside" &&
+            !isContainerDropTarget(runtimeAnchor)) ||
+          (runtimePlacement !== "inside" && !runtimeAnchor.parentElement)
+        ) {
+          return;
+        }
+        var runtimeTarget: any = {
+          anchor: runtimeAnchor,
+          placement: runtimePlacement,
+          axis: parentFlowAxis(
+            runtimePlacement === "inside"
+              ? runtimeAnchor
+              : runtimeAnchor.parentElement!,
+          ),
+          dropMode:
+            runtimePlacement === "inside" &&
+            isAbsolutePrimitiveContainer(runtimeAnchor)
+              ? "absolute-container"
+              : "flow-insert",
+        };
+        if (
+          rawMove.gridPlacement &&
+          Number.isInteger(rawMove.gridPlacement.column) &&
+          Number.isInteger(rawMove.gridPlacement.row)
+        ) {
+          runtimeTarget.gridCell = {
+            column: rawMove.gridPlacement.column - 1,
+            row: rawMove.gridPlacement.row - 1,
+          };
+        }
+        runtimeReplayMoves.push({
+          subject: runtimeSubject,
+          target: runtimeTarget,
+          origin: {
+            prevParent: runtimeSubject.parentElement!,
+            prevNextSibling: runtimeSubject.nextSibling,
+            prevInlinePositionStyles:
+              snapshotInlinePositionStyles(runtimeSubject),
+            prevInlineGridStyles: snapshotInlineGridStyles(runtimeSubject),
+          },
+          transactionId:
+            typeof rawMove.transactionId === "string"
+              ? rawMove.transactionId
+              : replayTransactionId,
+        });
+        replaySubjects.push(runtimeSubject);
       }
-      var runtimeSubject = findUniqueRuntimeStructureTarget(
-        String(e.data.subjectSelector || ""),
-        typeof e.data.subjectSourceId === "string"
-          ? e.data.subjectSourceId
-          : "",
-      );
-      var runtimeAnchor = findUniqueRuntimeStructureTarget(
-        String(e.data.anchorSelector || ""),
-        typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
-      );
-      if (
-        !runtimeSubject ||
-        !runtimeAnchor ||
-        runtimeSubject === runtimeAnchor ||
-        runtimeSubject.contains(runtimeAnchor)
-      ) {
-        return;
+      for (var replayMove of runtimeReplayMoves) {
+        if (
+          !applyRuntimeReorder(
+            replayMove.subject,
+            replayMove.target,
+            false,
+            replaySubjects,
+          )
+        ) {
+          for (
+            var rollbackIndex = runtimeReplayMoves.indexOf(replayMove);
+            rollbackIndex >= 0;
+            rollbackIndex -= 1
+          ) {
+            var rollbackMove = runtimeReplayMoves[rollbackIndex];
+            if (!rollbackMove) continue;
+            if (
+              rollbackMove.origin.prevParent?.isConnected &&
+              rollbackMove.subject.isConnected
+            ) {
+              rollbackMove.origin.prevParent.insertBefore(
+                rollbackMove.subject,
+                rollbackMove.origin.prevNextSibling?.parentNode ===
+                  rollbackMove.origin.prevParent
+                  ? rollbackMove.origin.prevNextSibling
+                  : null,
+              );
+              restoreInlinePositionStyles(
+                rollbackMove.subject,
+                rollbackMove.origin.prevInlinePositionStyles,
+              );
+              restoreInlineGridStyles(
+                rollbackMove.subject,
+                rollbackMove.origin.prevInlineGridStyles,
+              );
+            }
+            for (var displaced of rollbackMove.target
+              .gridDisplacementPrevStyles ?? []) {
+              restoreInlineGridStyles(displaced.element, displaced.styles);
+            }
+          }
+          return;
+        }
+        selectedEl = replayMove.subject;
+        positionOverlay(selectionOverlay, selectedEl);
       }
-      if (
-        (runtimePlacement === "inside" &&
-          !isContainerDropTarget(runtimeAnchor)) ||
-        (runtimePlacement !== "inside" && !runtimeAnchor.parentElement)
-      ) {
-        return;
-      }
-      var runtimeTarget = {
-        anchor: runtimeAnchor,
-        placement: runtimePlacement,
-        axis: parentFlowAxis(
-          runtimePlacement === "inside"
-            ? runtimeAnchor
-            : runtimeAnchor.parentElement!,
-        ),
-        dropMode:
-          runtimePlacement === "inside" &&
-          isAbsolutePrimitiveContainer(runtimeAnchor)
-            ? "absolute-container"
-            : "flow-insert",
-      };
-      var runtimeOrigin = {
-        prevParent: runtimeSubject.parentElement!,
-        prevNextSibling: runtimeSubject.nextSibling,
-        prevInlinePositionStyles: snapshotInlinePositionStyles(runtimeSubject),
-      };
-      var runtimeMutationApplied = applyRuntimeReorder(
-        runtimeSubject,
-        runtimeTarget,
-      );
-      selectedEl = runtimeSubject;
-      positionOverlay(selectionOverlay, selectedEl);
-      if (runtimeMutationApplied) {
-        postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
+      for (var completedMove of runtimeReplayMoves) {
+        postVisualStructureChange(
+          completedMove.subject,
+          completedMove.target,
+          completedMove.origin,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          completedMove.transactionId,
+        );
       }
       return;
     }

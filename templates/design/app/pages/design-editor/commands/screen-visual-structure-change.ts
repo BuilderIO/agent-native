@@ -39,10 +39,27 @@ export interface ScreenVisualStructureChangeArgs {
       anchorSourceId?: string;
       anchorElementInfo?: ElementInfo;
       requestId?: string;
+      transactionId?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
+      gridPlacement?: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+      gridDisplacements?: Array<{
+        sourceId?: string;
+        selector?: string;
+        placement: {
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        };
+      }>;
       insertedHtml?: string;
       replaced?: true;
       replacementSelector?: string;
@@ -63,6 +80,7 @@ export interface ScreenVisualStructureChangeArgs {
       anchorSourceId?: string;
       anchorElementInfo?: ElementInfo;
       requestId?: string;
+      transactionId?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -108,10 +126,27 @@ export function runScreenVisualStructureChange(
     anchorSourceId?: string;
     anchorElementInfo?: ElementInfo;
     requestId?: string;
+    transactionId?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
     anchorRect?: { x: number; y: number; width: number; height: number };
+    gridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+    gridDisplacements?: Array<{
+      sourceId?: string;
+      selector?: string;
+      placement: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+    }>;
     /** Markup this change introduced; the subject does not exist in the
      * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
