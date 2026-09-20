@@ -3649,7 +3649,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               downAt: eventEpochMilliseconds(eventTimeStamp),
               upAt: null,
             };
-          } else if (crossScreenSKeyTimesRef.current.downAt !== null) {
+          } else {
             crossScreenSKeyTimesRef.current = {
               ...crossScreenSKeyTimesRef.current,
               upAt: eventEpochMilliseconds(eventTimeStamp),
@@ -5030,12 +5030,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const handleKeyUp = (event: KeyboardEvent) => {
       if (hostUsesSForIgnoreAutoLayout() && event.key.toLowerCase() === "s") {
         crossScreenSKeyPressedRef.current = false;
-        if (crossScreenSKeyTimesRef.current.downAt !== null) {
-          crossScreenSKeyTimesRef.current = {
-            ...crossScreenSKeyTimesRef.current,
-            upAt: eventEpochMilliseconds(event.timeStamp),
-          };
-        }
+        crossScreenSKeyTimesRef.current = {
+          ...crossScreenSKeyTimesRef.current,
+          upAt: eventEpochMilliseconds(event.timeStamp),
+        };
       }
     };
     const handleBlur = () => {
