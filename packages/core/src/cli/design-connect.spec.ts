@@ -543,6 +543,48 @@ describe("design connect CLI", () => {
 });
 
 describe("design connect bridge endpoints", () => {
+  it("rejects a localhost connection id used as the bridge token", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+
+    await expect(
+      startDesignConnectBridge(manifest, {
+        bridgeToken: "localhost_R3kGp25wAT-syMEt",
+      }),
+    ).rejects.toThrow(/connection ID, not a bridge token/);
+  });
+
+  it("reuses the persisted bridge token after a daemon restart", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const firstBridge = await startDesignConnectBridge(manifest);
+    await new Promise<void>((resolve) =>
+      firstBridge.server.close(() => resolve()),
+    );
+
+    const secondBridge = await startDesignConnectBridge(manifest);
+    try {
+      expect(secondBridge.bridgeToken).toBe(firstBridge.bridgeToken);
+      expect(secondBridge.previewToken).toBe(firstBridge.previewToken);
+      const tokenPath = path.join(root, ".agent-native", "design-bridge-token");
+      expect(fs.statSync(tokenPath).mode & 0o777).toBe(0o600);
+    } finally {
+      await new Promise<void>((resolve) =>
+        secondBridge.server.close(() => resolve()),
+      );
+    }
+  });
+
   it("marks live-edit documents and keyed recovery redirects as embeddable", async () => {
     const root = tmpDir();
     const devPort = await freePort();

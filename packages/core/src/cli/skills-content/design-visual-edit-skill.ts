@@ -265,6 +265,8 @@ in Design (which the browser reads to authorize \`/live-edit-bridge\`,
 bridge with it. This is the only ordering that works for the remote-MCP flow -
 the bridge cannot push its own token to the server without a CLI auth token, so
 the server mints instead and the bridge adopts.
+The \`connectionId\` (usually \`localhost_...\`) only identifies the row; never
+pass it as \`bridgeToken\`.
 
 For a fresh signed-out browser flow, generate the token locally, keep it in the
 host process, and pass it once as the page tool's optional \`bridgeToken\`; the

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
+import { derivePreviewToken } from "./connect-localhost.js";
 
 export default defineAction({
   description:
@@ -75,6 +76,7 @@ export default defineAction({
       .select({
         id: schema.designLocalhostConnections.id,
         previewToken: schema.designLocalhostConnections.previewToken,
+        bridgeToken: schema.designLocalhostConnections.bridgeToken,
         bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
       })
       .from(schema.designLocalhostConnections)
@@ -93,12 +95,26 @@ export default defineAction({
       connections.map((connection) => [connection.id, connection]),
     );
     for (const requestedId of requestedConnectionIds) {
-      if (!connectionById.get(requestedId)?.previewToken) {
+      const connection = connectionById.get(requestedId);
+      if (!connection?.previewToken && !connection?.bridgeToken) {
         throw new Error(
           `The localhost connection "${requestedId}" has no preview token. Run design connect again, then retry.`,
         );
       }
     }
+
+    // A bridge restarted from its stored bridge token derives the same
+    // read-only credential every time. Older rows can still contain a random
+    // preview token from before that contract existed; returning the derived
+    // value lets a public viewer recover without asking the user to reconnect
+    // the Design screen or exposing the write-capable token.
+    const previewTokenFor = (connection: {
+      bridgeToken?: string | null;
+      previewToken?: string | null;
+    }) =>
+      connection.bridgeToken
+        ? derivePreviewToken(connection.bridgeToken)
+        : connection.previewToken;
 
     if (connectionId) {
       const connection = connectionById.get(connectionId);
@@ -108,7 +124,7 @@ export default defineAction({
         );
       }
       return {
-        previewToken: connection.previewToken,
+        previewToken: previewTokenFor(connection),
         bridgeUrl: connection.bridgeUrl,
       };
     }
@@ -126,7 +142,7 @@ export default defineAction({
           return [
             requestedId,
             {
-              previewToken: connection.previewToken!,
+              previewToken: previewTokenFor(connection)!,
               bridgeUrl: connection.bridgeUrl,
             },
           ];

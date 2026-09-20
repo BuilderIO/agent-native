@@ -15,6 +15,8 @@ import { injectDocumentMarkup } from "../shared/html-document.js";
 
 const DEFAULT_BRIDGE_PORT = 7331;
 const ROUTE_MANIFEST_FILE = path.join(".agent-native", "design-routes.json");
+const BRIDGE_TOKEN_FILE = path.join(".agent-native", "design-bridge-token");
+const LOCALHOST_CONNECTION_ID = /^localhost_[A-Za-z0-9_-]{16}$/;
 const DEFAULT_DEV_SERVER_CANDIDATES = [
   "http://127.0.0.1:5173",
   "http://localhost:5173",
@@ -142,6 +144,69 @@ export interface DesignConnectBridgeOptions {
    *  The production Design origin and loopback development origins are always
    *  recognized; custom deployments should pass their app origin here. */
   allowedOrigins?: string[];
+}
+
+async function readPersistedBridgeToken(
+  rootPath: string,
+): Promise<string | undefined> {
+  try {
+    const token = (
+      await fs.readFile(path.join(rootPath, BRIDGE_TOKEN_FILE), "utf8")
+    ).trim();
+    return token || undefined;
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function persistBridgeToken(
+  rootPath: string,
+  token: string,
+): Promise<void> {
+  const absolutePath = path.join(rootPath, BRIDGE_TOKEN_FILE);
+  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+  const temporaryPath = `${absolutePath}.${process.pid}.tmp`;
+  await fs.writeFile(temporaryPath, `${token}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await fs.chmod(temporaryPath, 0o600);
+  await fs.rename(temporaryPath, absolutePath);
+}
+
+async function resolveBridgeToken(
+  rootPath: string,
+  configuredToken?: string,
+): Promise<string> {
+  const persistedToken = await readPersistedBridgeToken(rootPath);
+  const bridgeToken =
+    configuredToken ||
+    process.env["AGENT_NATIVE_BRIDGE_TOKEN"] ||
+    persistedToken ||
+    crypto.randomBytes(32).toString("hex");
+
+  if (LOCALHOST_CONNECTION_ID.test(bridgeToken)) {
+    throw new Error(
+      "AGENT_NATIVE_BRIDGE_TOKEN is a localhost connection ID, not a bridge token. " +
+        "Start visual-edit with the bridgeToken returned by open-visual-edit, then restart the bridge.",
+    );
+  }
+
+  // Keep the durable daemon restart path paired with the connection row. An
+  // explicit token wins so the server-minted token from open-visual-edit can
+  // replace an older local credential before the first browser registration.
+  if (configuredToken || !persistedToken) {
+    await persistBridgeToken(rootPath, bridgeToken);
+  }
+  return bridgeToken;
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
@@ -2489,10 +2554,12 @@ export async function startDesignConnectBridge(
     typeof seedOrOptions === "string"
       ? { bridgeToken: seedOrOptions }
       : (seedOrOptions ?? {});
-  const bridgeToken =
-    options.bridgeToken ||
-    process.env["AGENT_NATIVE_BRIDGE_TOKEN"] ||
-    crypto.randomBytes(32).toString("hex");
+  const configuredBridgeToken =
+    options.bridgeToken || process.env["AGENT_NATIVE_BRIDGE_TOKEN"];
+  const bridgeToken = await resolveBridgeToken(
+    manifest.rootPath,
+    configuredBridgeToken,
+  );
   const previewToken =
     options.previewToken ||
     process.env["AGENT_NATIVE_PREVIEW_TOKEN"] ||

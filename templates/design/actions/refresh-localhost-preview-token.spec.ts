@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   connections: [] as Array<{
     id: string;
     previewToken: string;
+    bridgeToken?: string | null;
     bridgeUrl: string;
   }>,
 }));
@@ -41,6 +42,7 @@ vi.mock("../server/db/index.js", () => ({
       ownerEmail: "ownerEmail",
       orgId: "orgId",
       previewToken: "previewToken",
+      bridgeToken: "bridgeToken",
       bridgeUrl: "bridgeUrl",
     },
   },
@@ -91,6 +93,26 @@ describe("refresh-localhost-preview-token", () => {
       designId: "design_1",
       allowPublicViewer: true,
     });
+  });
+
+  it("derives a restart-safe preview token from the stored bridge token", async () => {
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "legacy-random-preview",
+        bridgeToken: "stored-bridge-token",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_2",
+      publicVisualEdit: true,
+    });
+
+    expect(result.previewToken).not.toBe("legacy-random-preview");
+    expect(result.previewToken).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("rejects a connection that is not part of the design", async () => {
