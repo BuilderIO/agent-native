@@ -599,6 +599,14 @@ function frame(page: Page) {
     .contentFrame();
 }
 
+function frameById(page: Page, screenId: string) {
+  const escapedScreenId = screenId.replace(/["\\]/g, "\\$&");
+  return page
+    .locator(`${PREVIEW}[data-screen-iframe-id="${escapedScreenId}"]`)
+    .first()
+    .contentFrame();
+}
+
 function boardFrame(page: Page) {
   return page
     .locator(`[data-board-surface-layer] ${PREVIEW}`)
@@ -664,44 +672,19 @@ async function expandLayers(page: Page): Promise<void> {
   for (let index = 0; index < 128; index += 1) {
     const expand = tree.getByRole("button", { name: "Expand layer" }).first();
     if ((await expand.count()) === 0) return;
-    let rowIndex = -1;
-    let expanded = false;
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const currentExpand = tree
-        .getByRole("button", { name: "Expand layer" })
-        .first();
-      if ((await currentExpand.count()) === 0) return;
-      const row = currentExpand.locator(
-        'xpath=ancestor::*[@role="treeitem"][1]',
-      );
-      rowIndex = await row.evaluate((element) => {
-        const treeElement = element.closest('[role="tree"]');
-        return treeElement
-          ? Array.from(
-              treeElement.querySelectorAll('[role="treeitem"]'),
-            ).indexOf(element)
-          : -1;
-      });
-      if (rowIndex < 0) {
-        await page.waitForTimeout(50);
-        continue;
-      }
-      try {
-        await currentExpand.click({ timeout: 1_000 });
-        expanded = true;
-        break;
-      } catch (error) {
-        if (
-          !/detached from the DOM|not attached to the DOM/i.test(String(error))
-        ) {
-          throw error;
-        }
-        await page.waitForTimeout(50);
-      }
+    const row = expand.locator('xpath=ancestor::*[@role="treeitem"][1]');
+    const rowIndex = await row.evaluate((element) => {
+      const treeElement = element.closest('[role="tree"]');
+      return treeElement
+        ? Array.from(treeElement.querySelectorAll('[role="treeitem"]')).indexOf(
+            element,
+          )
+        : -1;
+    });
+    if (rowIndex < 0) {
+      throw new Error("Could not resolve the expandable layer row");
     }
-    if (!expanded) {
-      throw new Error("Could not click the expandable layer row");
-    }
+    await expand.click();
     await expect(
       tree
         .getByRole("treeitem")
@@ -1084,11 +1067,7 @@ test.describe("authenticated beta Design interactions", () => {
       const grabY = sourceBox.y + sourceBox.height / 2;
       await page.mouse.move(grabX, grabY);
       await page.mouse.down();
-      await page.mouse.move(
-        sourceBox.x + sourceBox.width / 4,
-        sourceBox.y + sourceBox.height / 2,
-        { steps: 4 },
-      );
+      await page.mouse.move(grabX - 12, grabY, { steps: 4 });
       await page.mouse.move(
         targetBox.x + targetBox.width / 2,
         targetBox.y + targetBox.height / 2,
@@ -1177,7 +1156,14 @@ test.describe("authenticated beta Design interactions", () => {
       });
       await openEditor(page, designId, ROOT_FRAME_ID);
 
-      const screen = frame(page);
+      const screenIframe = page
+        .locator(`${PREVIEW}[data-screen-iframe-id]`)
+        .first();
+      const activeScreenId = await screenIframe.getAttribute(
+        "data-screen-iframe-id",
+      );
+      expect(activeScreenId).toBeTruthy();
+      const screen = frameById(page, activeScreenId!);
       const root = screen.locator(
         `[data-agent-native-node-id="${ROOT_FRAME_ID}"]`,
       );
@@ -1208,14 +1194,14 @@ test.describe("authenticated beta Design interactions", () => {
           rootBefore.y + rootBefore.height / 2 + 3,
           { steps: 2 },
         );
-        await expect(
-          screen.locator("[data-agent-native-transform-badge]"),
-        ).toHaveText("Duplicate layer");
         await page.mouse.move(
           rootBefore.x + rootBefore.width / 2 + 120,
           rootBefore.y + rootBefore.height / 2 + 60,
           { steps: 12 },
         );
+        await expect(
+          screen.locator("[data-agent-native-transform-badge]"),
+        ).toHaveText("Duplicate layer");
       } finally {
         if (mouseHeld) await page.mouse.up();
         if (modifierHeld) await page.keyboard.up("Alt");
