@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  PendingLiveLayerNameEdit,
   PendingLiveTextEdit,
   PendingVisualStyleEdit,
 } from "./pending-edits";
@@ -9,6 +10,8 @@ import {
   appendPendingVisualStyleUndoEntry,
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
+  mergePendingLiveNonStyleEdit,
+  pendingLiveLayerNameUndoRevertValue,
   pendingVisualStyleGestureIdForPhase,
   resolveOverviewScreenSourceType,
 } from "./pending-edits";
@@ -39,6 +42,29 @@ function textEdit(value: string): PendingLiveTextEdit {
     classes: [],
     value,
     originalValue: "Hello",
+    updatedAt: 1,
+  };
+}
+
+function layerNameEdit(name: string): PendingLiveLayerNameEdit {
+  return {
+    kind: "layer-name",
+    screenId: "home",
+    filename: "index.html",
+    screenName: "Home",
+    layerId: "hero",
+    selector: '[data-agent-native-node-id="hero"]',
+    sourceId: "hero",
+    sourceAnchor: {
+      sourceFile: "app/Clips.tsx",
+      line: 18,
+      column: 3,
+      component: "Clips",
+    },
+    tagName: "section",
+    classes: ["hero"],
+    name,
+    originalName: "Hero",
     updatedAt: 1,
   };
 }
@@ -163,6 +189,28 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
     expect(stack[0]?.edit.value).toBe("Help");
     expect(stack[0]?.revertValue).toBe("Hello");
   });
+
+  it("coalesces live layer renames and removes the edit when reverted", () => {
+    const first = layerNameEdit("Hero copy");
+    const second = { ...layerNameEdit("Hero final"), updatedAt: 2 };
+    const merged = mergePendingLiveNonStyleEdit([], first);
+    const updated = mergePendingLiveNonStyleEdit(merged, second);
+
+    expect(updated).toHaveLength(1);
+    expect(updated[0]).toMatchObject({
+      kind: "layer-name",
+      name: "Hero final",
+    });
+    expect(pendingLiveLayerNameUndoRevertValue(updated, second)).toBe(
+      "Hero final",
+    );
+    expect(
+      mergePendingLiveNonStyleEdit(updated, {
+        ...layerNameEdit("Hero"),
+        updatedAt: 3,
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe("formatVisualEditClipboardPrompt", () => {
@@ -231,7 +279,21 @@ describe("formatPendingVisualStylePrompt", () => {
     expect(prompt).toContain('"after": {');
     expect(prompt).toContain('"provenance":');
     expect(prompt).toContain("never hand off inline-style mutations");
-    expect(prompt).not.toContain("style=\"color: blue\"");
+    expect(prompt).not.toContain('style="color: blue"');
     expect(prompt).toContain('"screen": "/clips"');
+  });
+
+  it("hands live layer renames off as metadata with source provenance", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      audience: "coding-agent",
+      edits: [],
+      liveEdits: [layerNameEdit("Library hero")],
+    });
+
+    expect(prompt).toContain('"operation": "metadata"');
+    expect(prompt).toContain('"metadata": "data-agent-native-layer-name"');
+    expect(prompt).toContain('"before": "Hero"');
+    expect(prompt).toContain('"after": "Library hero"');
+    expect(prompt).toContain('"sourceFile": "app/Clips.tsx"');
   });
 });

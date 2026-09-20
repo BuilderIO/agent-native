@@ -25029,6 +25029,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       refreshOverlays();
       return;
     }
+    if (e.data.type === "request-runtime-layer-snapshot") {
+      postRuntimeLayerSnapshot();
+      return;
+    }
     if (e.data.type === "runtime-layer-rename") {
       if (readOnly) return;
       var renameName =

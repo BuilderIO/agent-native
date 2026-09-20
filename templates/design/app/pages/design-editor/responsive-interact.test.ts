@@ -292,6 +292,22 @@ describe("responsive Interact wiring", () => {
     expect(bar).not.toContain('"interact"');
   });
 
+  it("refreshes live Layers when Interact returns to Edit", () => {
+    const exitHandler = source.slice(
+      source.indexOf("const handleExitResponsiveInteract ="),
+      source.indexOf("// Escape is the standard"),
+    );
+    expect(exitHandler).toContain("setRuntimeLayerSnapshotRequest(");
+    expect(source).toContain(
+      "runtimeLayerSnapshotRequest={runtimeLayerSnapshotRequest}",
+    );
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain('type: "request-runtime-layer-snapshot"');
+  });
+
   it("uses the selected screen size and the real canvas bounds", () => {
     expect(editorSurface).toContain("resolveInteractDeviceForScreen(");
     expect(source).toContain("container.clientWidth - 48");

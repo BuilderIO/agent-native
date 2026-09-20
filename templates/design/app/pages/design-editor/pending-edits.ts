@@ -206,6 +206,29 @@ export function mergePendingLiveNonStyleEdits(
       };
       continue;
     }
+    if (edit.kind === "layer-name") {
+      const index = merged.findIndex(
+        (candidate) =>
+          candidate.kind === "layer-name" &&
+          pendingLiveEditSubjectKey(candidate) ===
+            pendingLiveEditSubjectKey(edit),
+      );
+      if (index === -1) {
+        merged.push(edit);
+        continue;
+      }
+      const previous = merged[index] as PendingLiveLayerNameEdit;
+      if (previous.originalName === edit.name) {
+        merged.splice(index, 1);
+        continue;
+      }
+      merged[index] = {
+        ...previous,
+        ...edit,
+        originalName: previous.originalName,
+      };
+      continue;
+    }
     const nextKey = pendingLiveEditSubjectKey(edit);
     const index = merged.findIndex(
       (candidate) =>
@@ -282,6 +305,22 @@ export interface PendingLiveLayerStateEdit {
   updatedAt: number;
 }
 
+export interface PendingLiveLayerNameEdit {
+  kind: "layer-name";
+  screenId: string;
+  filename: string;
+  screenName: string;
+  layerId: string;
+  selector: string;
+  sourceId?: string | null;
+  sourceAnchor?: ReactSourceAnchor;
+  tagName?: string | null;
+  classes: string[];
+  name: string;
+  originalName: string;
+  updatedAt: number;
+}
+
 export function pendingLiveLayerStateUndoRevertValue(
   currentEdits: readonly PendingLiveNonStyleEdit[],
   nextEdit: PendingLiveLayerStateEdit,
@@ -293,6 +332,18 @@ export function pendingLiveLayerStateUndoRevertValue(
       pendingLiveEditSubjectKey(edit) === pendingLiveEditSubjectKey(nextEdit),
   );
   return currentForTarget?.enabled ?? nextEdit.originalEnabled;
+}
+
+export function pendingLiveLayerNameUndoRevertValue(
+  currentEdits: readonly PendingLiveNonStyleEdit[],
+  nextEdit: PendingLiveLayerNameEdit,
+): string {
+  const currentForTarget = currentEdits.find(
+    (edit): edit is PendingLiveLayerNameEdit =>
+      edit.kind === "layer-name" &&
+      pendingLiveEditSubjectKey(edit) === pendingLiveEditSubjectKey(nextEdit),
+  );
+  return currentForTarget?.name ?? nextEdit.originalName;
 }
 
 export function shouldRedoPendingLiveNonStyleBeforeStyle(
@@ -575,6 +626,7 @@ export function reactSourceAnchorUnavailableReason(
 export type PendingLiveNonStyleEdit =
   | PendingLiveTextEdit
   | PendingLiveLayerStateEdit
+  | PendingLiveLayerNameEdit
   | PendingLiveStructureEdit;
 export type PendingVisualStyleUndoTarget = {
   edit: PendingVisualStyleEdit;
@@ -635,9 +687,15 @@ export type PendingLiveLayerStateUndoEntry = {
   edit: PendingLiveLayerStateEdit;
   revertEnabled: boolean;
 };
+export type PendingLiveLayerNameUndoEntry = {
+  kind: "layer-name";
+  edit: PendingLiveLayerNameEdit;
+  revertName: string;
+};
 export type PendingLiveNonStyleUndoEntry =
   | PendingLiveTextUndoEntry
   | PendingLiveLayerStateUndoEntry
+  | PendingLiveLayerNameUndoEntry
   | PendingLiveStructureUndoEntry;
 
 /** Coalesce consecutive same-target ticks so slider/keystroke streams stay O(1)
@@ -746,6 +804,15 @@ export function appendPendingLiveNonStyleUndoEntry(
       ...(last.groupedEdits ?? [last.edit]),
       ...pendingLiveStructureEditsFromUndoEntry(entry),
     ];
+    last.edit = entry.edit;
+    return;
+  }
+  if (
+    last?.kind === "layer-name" &&
+    entry.kind === "layer-name" &&
+    pendingLiveEditSubjectKey(last.edit) ===
+      pendingLiveEditSubjectKey(entry.edit)
+  ) {
     last.edit = entry.edit;
     return;
   }
@@ -1207,6 +1274,25 @@ export function formatPendingVisualStylePrompt(args: {
         ...(semanticHandoff?.ok
           ? { semanticHandoff: semanticHandoff.handoff }
           : {}),
+      };
+    }
+    if (edit.kind === "layer-name") {
+      return {
+        operation: "metadata" as const,
+        kind: edit.kind,
+        screenId: edit.screenId,
+        screen: nameScreen(edit.screenId, edit.filename),
+        screenName: edit.screenName,
+        selector: edit.selector,
+        sourceId: edit.sourceId ?? null,
+        sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
+        tagName: edit.tagName ?? null,
+        classes: edit.classes,
+        metadata: "data-agent-native-layer-name",
+        before: edit.originalName,
+        after: edit.name,
+        desiredChange: `Set the source layer metadata name to ${JSON.stringify(edit.name)} for the anchored element. Preserve the existing component structure and use the project's idiomatic naming convention.`,
       };
     }
     const subjectAnchor = edit.sourceAnchor

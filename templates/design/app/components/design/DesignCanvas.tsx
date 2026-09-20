@@ -657,6 +657,7 @@ interface DesignCanvasProps {
   /** One-shot host request to delete a runtime layer in this screen. */
   runtimeStructureDeleteRequest?: RuntimeStructureDeleteRequest | null;
   runtimeLayerRenameRequest?: RuntimeLayerRenameRequest | null;
+  runtimeLayerSnapshotRequest?: number | null;
   /** The bridge could not honor a runtimeStructureInsertRequest. */
   onRuntimeStructureInsertRejected?: (reason: string) => void;
   onRuntimeStructureDeleteApplied?: (details: {
@@ -1384,6 +1385,7 @@ export function DesignCanvas({
   runtimeStructureInsertRequest,
   runtimeStructureDeleteRequest,
   runtimeLayerRenameRequest,
+  runtimeLayerSnapshotRequest,
   onRuntimeStructureInsertRejected,
   onRuntimeStructureDeleteApplied,
   onRuntimeLayerRenameApplied,
@@ -5727,6 +5729,19 @@ export function DesignCanvas({
       name: runtimeLayerRenameRequest.name,
     });
   }, [postOneShotBridgeMessage, runtimeLayerRenameRequest]);
+
+  const lastRuntimeLayerSnapshotRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (runtimeLayerSnapshotRequest == null) return;
+    if (
+      lastRuntimeLayerSnapshotRequestIdRef.current ===
+      runtimeLayerSnapshotRequest
+    ) {
+      return;
+    }
+    lastRuntimeLayerSnapshotRequestIdRef.current = runtimeLayerSnapshotRequest;
+    postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
+  }, [postOneShotBridgeMessage, runtimeLayerSnapshotRequest]);
 
   /**
    * Send a motion-preview scrub tick to the iframe.  `t` is the normalised

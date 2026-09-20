@@ -17660,6 +17660,47 @@ export const editorChromeBridgeScript: string = `"use strict";
         refreshOverlays();
         return;
       }
+      if (e.data.type === "request-runtime-layer-snapshot") {
+        postRuntimeLayerSnapshot();
+        return;
+      }
+      if (e.data.type === "runtime-layer-rename") {
+        if (readOnly) return;
+        var renameName = typeof e.data.name === "string" ? e.data.name.trim().slice(0, 200) : "";
+        if (!renameName) return;
+        var renameCandidates = Array.isArray(e.data.selectorCandidates) ? e.data.selectorCandidates : [];
+        if (e.data.selector && renameCandidates.indexOf(String(e.data.selector)) === -1) {
+          renameCandidates.push(String(e.data.selector));
+        }
+        if (typeof e.data.sourceId === "string" && e.data.sourceId) {
+          renameCandidates.push(
+            '[data-agent-native-node-id="' + String(e.data.sourceId).replace(/"/g, '\\\\"') + '"]'
+          );
+        }
+        var renameTarget = findRuntimeTarget(
+          String(e.data.selector || ""),
+          renameCandidates
+        );
+        if (!renameTarget) return;
+        var previousLayerName = renameTarget.getAttribute("data-agent-native-layer-name") || "";
+        renameTarget.setAttribute("data-agent-native-layer-name", renameName);
+        claimContentAsSource(renameTarget);
+        publishSourceDocumentProvenance(void 0, true);
+        postRuntimeLayerSnapshot();
+        refreshOverlays();
+        window.parent.postMessage(
+          {
+            type: "runtime-layer-name-applied",
+            requestId: Number(e.data.requestId),
+            selector: getSelector(renameTarget),
+            sourceId: typeof e.data.sourceId === "string" ? e.data.sourceId : void 0,
+            name: renameName,
+            previousName: previousLayerName
+          },
+          "*"
+        );
+        return;
+      }
       if (e.data.type !== "style-change") return;
       var sel = e.data.selector;
       var prop = e.data.property;

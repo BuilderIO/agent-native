@@ -268,6 +268,17 @@ export interface RedoArgs {
   selectionUndoStackRef: RefObject<SelectionHistoryEntry[]>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  setPendingLayerNameReplayRequest: Dispatch<
+    SetStateAction<{
+      requestId: number;
+      patches: Array<{
+        screenId: string;
+        selector: string;
+        sourceId?: string | null;
+        name: string;
+      }>;
+    } | null>
+  >;
   setPendingLayerStateReplayRequest: Dispatch<
     SetStateAction<{
       requestId: number;
@@ -409,6 +420,7 @@ export function runRedo({
   selectionUndoStackRef,
   setContentRenderRevision,
   setHoveredElement,
+  setPendingLayerNameReplayRequest,
   setPendingLayerStateReplayRequest,
   setPendingLiveNonStyleEdits,
   setPendingTextRevertRequest,
@@ -604,6 +616,36 @@ export function runRedo({
           layerId: pendingNonStyleRedo.edit.layerId,
           state: pendingNonStyleRedo.edit.state,
           enabled: pendingNonStyleRedo.edit.enabled,
+        },
+      ],
+    });
+    setPendingLiveNonStyleEdits(nextPending);
+    syncUndoRedoState();
+    return;
+  }
+  if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "layer-name") {
+    pendingLiveNonStyleRedoStackRef.current = pendingNonStyleRedoStack.slice(
+      0,
+      -1,
+    );
+    pendingLiveNonStyleUndoStackRef.current = [
+      ...pendingLiveNonStyleUndoStackRef.current,
+      pendingNonStyleRedo,
+    ];
+    const nextPending = mergePendingLiveNonStyleEdits(
+      pendingLiveNonStyleEditsFromUndoStack(
+        pendingLiveNonStyleUndoStackRef.current,
+      ),
+    );
+    pendingLiveNonStyleEditsRef.current = nextPending;
+    setPendingLayerNameReplayRequest({
+      requestId: Date.now() + Math.random(),
+      patches: [
+        {
+          screenId: pendingNonStyleRedo.edit.screenId,
+          selector: pendingNonStyleRedo.edit.selector,
+          sourceId: pendingNonStyleRedo.edit.sourceId,
+          name: pendingNonStyleRedo.edit.name,
         },
       ],
     });

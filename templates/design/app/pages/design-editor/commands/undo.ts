@@ -688,7 +688,14 @@ export function runUndo({
                 originalEnabled: pendingNonStyleUndo.revertEnabled,
               },
             ]
-          : pendingLiveStructureEditsFromUndoEntry(pendingNonStyleUndo),
+          : pendingNonStyleUndo.kind === "layer-name"
+            ? [
+                {
+                  ...pendingNonStyleUndo.edit,
+                  originalName: pendingNonStyleUndo.revertName,
+                },
+              ]
+            : pendingLiveStructureEditsFromUndoEntry(pendingNonStyleUndo),
     );
     setPendingLiveNonStyleEdits(nextPending);
     // Bug fix — undo reverted the DOM via requestPendingLiveNonStyleRevert
