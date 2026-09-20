@@ -330,6 +330,27 @@ test.describe("drag reparent parity", () => {
         },
       )
       .toBe("footer");
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "widget"),
+      )
+      .toBe("main");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "widget"),
+      )
+      .toBe("footer");
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "widget"),
+      )
+      .toBe("footer");
   });
 
   test("dragging an element out of the footer to the screen root reparents it to the root", async ({
@@ -358,7 +379,17 @@ test.describe("drag reparent parity", () => {
       { steps: 24 },
     );
     await page.waitForTimeout(400);
+    const guide = designFrame(page, screenId).locator(
+      "[data-agent-native-insertion-guide]",
+    );
+    const guideBox = await guide.boundingBox().catch(() => null);
+    const trace = await dumpTrace(page);
     await page.mouse.up();
+
+    expect(
+      guideBox && guideBox.width > 0 && guideBox.height > 0,
+      `expected a visible root insertion guide while hovering before drop; got guideBox=${JSON.stringify(guideBox)}. Trace: ${trace.slice(-800)}`,
+    ).toBe(true);
 
     await expect
       .poll(
@@ -415,6 +446,27 @@ test.describe("drag reparent parity", () => {
       paintsAfterDropTarget: true,
       remainsBelowLaterSibling: true,
     });
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "footer-item"),
+      )
+      .toBe("footer");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "footer-item"),
+      )
+      .toBeNull();
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "footer-item"),
+      )
+      .toBeNull();
   });
 
   test("dragging an element from inside a screen onto the empty board turns it into a board object", async ({
