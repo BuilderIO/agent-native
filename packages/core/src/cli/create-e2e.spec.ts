@@ -714,6 +714,18 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
     // react / react-router / @tanstack/react-query into a headless load graph.
     const rootEntry = fs.readFileSync(ROOT_ENTRY_SRC, "utf-8");
     expect(rootEntry).not.toMatch(/from\s+["']\.\/client\/index(\.js)?["']/);
+    // Server barrels reach auth's React-rendered onboarding document. They
+    // belong behind the explicit @agent-native/core/server subpath instead.
+    for (const runtimeServerImport of [
+      'from "./server/agent-chat-plugin.js"',
+      'from "./server/embedded.js"',
+      'from "./server/index.js"',
+      'from "./feature-flags/server.js"',
+      'from "./labs/server.js"',
+      'from "./experiments/server.js"',
+    ]) {
+      expect(rootEntry).not.toContain(runtimeServerImport);
+    }
     // Sanity: the server/action primitives headless apps need are still here.
     expect(rootEntry).toMatch(/\bdefineAction\b/);
     expect(rootEntry).toMatch(/from\s+["']\.\/action\.js["']/);

@@ -277,6 +277,28 @@ unresolved items with no maintainer disposition, deduplicated against Slack.
 If a source cannot be read, record it as **unavailable**. Never report
 "nothing matched" for a source you could not query.
 
+### GitHub issues and Sentry are first-class feedback
+
+Enumerate every open issue and read its body, comments, author, labels, linked
+PRs, and state. Treat prior `fixed`, `shipped`, or `merged` comments as leads:
+recheck the reporter's surface and residual scope. When the live bar holds,
+thank the human reporter, link the fix, and close it. If release/live proof is
+missing, use **Merged - release pending** and leave it open. Close when the
+reporter's accepted primary scope or blocker ships; mention optional follow-ups,
+but keep it open if accepted scope remains.
+
+For every clear GitHub defect, fix the root cause or ask one unblock question;
+do not skip old, bot-filed, or maintainer-commented issues. Feature requests
+and subjective feedback need user or `:upvote:` authorization. Ask at most
+three questions per run and re-read before posting or closing.
+
+Query both production Sentry projects - frontend/browser and backend/CLI -
+paginate unresolved issues, and record representative events, releases, and
+fingerprints. Classify each as repo-owned, external/provider,
+deployment/configuration, or unclear; fix repo-owned failures at the boundary
+and verify the published runtime. Record external actions for the rest; silence
+or an old release is not proof the current error is gone.
+
 ## Phase 2: fix
 
 Before changing code, read `fix-at-the-boundary`, `verifying-changes`, and
@@ -448,16 +470,10 @@ have. Three kinds qualify:
   PR, a person actively working it). Acknowledge it; ask nothing.
 - **A question** — subject to the budget below.
 
-Everything else gets an internal recap row and **no message**. Follow the Phase
-0 contract for the eye. An unverified defect earns a targeted question, not a
-release marker or silence, whenever one answer would unblock it; record **Open -
-no reply** only when no question would unblock it, and release that non-fixed
-closure with `:no_entry_sign:`. Do not message merely to hand off.
-Never post the same sentence into multiple threads: if three reports share one
-cause, reply in one and record the rest as clustered.
-
-Before replying, re-read the full thread to the end. If a human is actively
-working it, stay out — do not narrate over someone mid-conversation.
+Everything else gets an internal recap row and **no message**. An unverified
+defect earns a targeted question when one answer would unblock it; use **Open -
+no reply** and `:no_entry_sign:` only when none can. Cluster duplicate causes.
+Re-read the full thread before replying and stay out of active human work.
 
 ### The question budget
 
@@ -469,37 +485,15 @@ can ship the fix.* Ask the three with the strongest answer. If fewer than
 three clear that bar, ask fewer. Everything below the cut is an internal open
 item, not a message.
 
-Never ask for:
-
-- Anything already in the thread — a screenshot that is attached, an app the
-  message is tagged with, a slide number that is in the linked URL, a file
-  type the report already enumerated.
-- A run, request, or session ID as the primary ask. Reporters often cannot get
-  one — the `...` menu exposing it is not always present — and an unfulfillable
-  request reads as a brush-off. Prefer the surface URL, which they always have
-  and which usually contains the same id.
-- A build number, unless two builds plausibly differ and you will act on it.
-- Anything you could determine yourself from source, logs, the linked
-  artifact, or the deployed surface. Exhaust those first.
-- A subjective product choice — including on an upvoted item, where the
-  upvote already made the call. Build the smallest version instead of asking
-  which variant they want.
-- An internal blocker. Missing test tooling or a broken local install is your
-  problem, never a reporter question.
+Never ask for information already supplied, a run/request/session ID as the
+primary ask, a build number unless it changes the action, evidence you can
+inspect yourself, a subjective product choice, or an internal blocker.
 
 At most one clarification question may be pending per thread at a time. Once it
 is answered or resolved, attempt the fix; if that exposes a different required
 detail, ask at most one new, non-repeating question. Never stack questions or
 repeat a pending one. If a needed artifact is inaccessible to you, ask for a
 fresh link - not for its contents again.
-
-### Ask a fork, not for evidence
-
-Name two seams you already narrowed, then ask the reporter to choose one, such
-as “browser or Desktop?” or “localhost or LAN/Docker host?” Do not outsource
-the investigation with a build or run-id request. If you cannot name the two
-causes, read the owning path first. Ask for a one-line answer from memory,
-without requiring devtools.
 
 ## Verification and identity
 
