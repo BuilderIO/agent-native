@@ -412,17 +412,14 @@ release containing the change and the existing-app path (`pnpm add
 
 Local source/tests, beta promises, and local scaffolds are not **Shipped** or
 **Live verified**. A published pass is required for those dispositions, and a
-fresh scaffold covers only new scaffolds. A verified source fix that is merged
-is still **Fixed** and the issue closes; record the release version and
-bump/re-scaffold or hand-edit steps as a follow-up. If old-versus-fresh or the
-endpoint environment is unknown, ask one fork question and keep the row open.
-
-Before npm has the fix, use **Fixed** after the source change is verified and
-merged, not a release-pending disposition. Record the merge commit, next core
-release, and verification command. After publish, rerun the clean scaffold and
-state whether existing apps must bump `@agent-native/core` or re-scaffold.
-Merge or beta status is not npx delivery, but it is enough to close the fixed
-source issue.
+fresh scaffold covers only new scaffolds. A verified merged source fix is
+**Fixed** and closes the issue; record its merge commit, release version,
+verification command, and any bump/re-scaffold or hand-edit follow-up. Unknown
+old-versus-fresh or endpoint context is a release/runtime follow-up. Ask a fork
+question only if it determines source scope or needs reporter input; missing
+package/endpoint evidence does not keep a verified merged fix open. After
+publish, rerun a clean scaffold and state whether existing apps must bump
+`@agent-native/core` or re-scaffold. Merge/beta status is not npx delivery.
 
 ### Documentation has a runnable proof obligation
 
