@@ -160,8 +160,30 @@ test.describe.serial("public visual edit", () => {
         appUrl("/_agent-native/actions/issue-visual-edit-access"),
         { data: { designId } },
       );
-      expect(response.ok()).toBe(false);
+      expect(response.status()).toBe(401);
       expect(await response.text()).not.toContain("/_agent-native/embed/start");
+
+      const forgedFileWrite = await context.request.post(
+        appUrl("/_agent-native/actions/update-file"),
+        {
+          data: {
+            id: linkedScreenId,
+            content: "forged anonymous source write",
+          },
+        },
+      );
+      expect([401, 403]).toContain(forgedFileWrite.status());
+
+      const forgedDesignWrite = await context.request.post(
+        appUrl("/_agent-native/actions/update-design"),
+        {
+          data: {
+            id: designId,
+            data: JSON.stringify({ title: "forged anonymous design write" }),
+          },
+        },
+      );
+      expect([401, 403]).toContain(forgedDesignWrite.status());
     } finally {
       await context.close();
     }
