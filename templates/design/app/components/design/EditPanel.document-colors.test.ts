@@ -97,6 +97,28 @@ describe("extractDocumentColorPalette", () => {
     ).toEqual([{ property: "color", value: "#101010" }]);
   });
 
+  it("does not expose style-block token definitions as selected colors", () => {
+    const content = `<style>
+      :root { --color-bg: #ffffff; --color-text: #111827; }
+      .unused { color: #abcdef; background: #fedcba; }
+    </style><body style="background:#101010"></body>`;
+
+    expect(
+      selectionColorValues(
+        [],
+        [{ fileId: "file-1", content, wholeDocument: true }],
+      ),
+    ).toEqual([{ property: "color", value: "#101010" }]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#ffffff",
+        "#000000",
+      ),
+    ).toContain("--color-bg: #000000");
+  });
+
   it("orders results by descending frequency (most-used colors first)", () => {
     const palette = extractDocumentColorPalette([
       {

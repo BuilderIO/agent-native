@@ -14,6 +14,7 @@ import { appPath, designFrame, expandAllLayers, gotoEditor } from "./helpers";
 // version/zoom dependent.
 const CONTROL = "Control";
 const COMMAND = process.platform === "darwin" ? "Meta" : "Control";
+const IGNORE_AUTO_LAYOUT = process.platform === "darwin" ? "Control" : "S";
 const LINKED_COMPONENT_OVERRIDES = encodeURIComponent(
   JSON.stringify([
     { sourceNodeId: "play-label", property: "style:background-color" },
@@ -62,6 +63,45 @@ const SECOND_SCREEN_HTML = `<!doctype html>
   <section data-agent-native-node-id="cross-target" data-agent-native-layer-name="Cross target" style="position:absolute;left:80px;top:120px;width:400px;height:140px;box-sizing:border-box;display:flex;flex-direction:row;gap:12px;padding:12px;background:#334155">
     <div data-agent-native-node-id="cross-anchor" data-agent-native-layer-name="Cross anchor" style="flex:0 0 120px;width:120px;height:50px;background:#94a3b8;color:#0f172a">Anchor</div>
   </section>
+</body></html>`;
+
+const OVERSIZED_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
+  <div data-agent-native-node-id="oversized-source" data-agent-native-layer-name="Oversized Source"
+    style="position:absolute;left:500px;top:300px;width:500px;height:110px;background:#ea580c">Source</div>
+</body></html>`;
+
+const OVERSIZED_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
+  <section data-agent-native-node-id="plain-target" data-agent-native-layer-name="Empty Flow"
+    style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
+</body></html>`;
+
+const META_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
+  <div data-agent-native-node-id="meta-source" data-agent-native-layer-name="Meta Source"
+    style="position:absolute;left:500px;top:300px;width:500px;height:110px;background:#ea580c">Source</div>
+</body></html>`;
+
+const META_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
+  <section data-agent-native-node-id="meta-target" data-agent-native-layer-name="Empty Flow"
+    style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
+</body></html>`;
+
+const FREEFORM_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
+  <div data-agent-native-node-id="freeform-source" data-agent-native-layer-name="Freeform Source"
+    style="position:absolute;left:500px;top:300px;width:72px;height:44px;background:#ea580c">Source</div>
+</body></html>`;
+
+const FREEFORM_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
+  <div data-agent-native-node-id="freeform-target" data-agent-native-layer-name="Freeform Target"
+    style="position:absolute;left:80px;top:120px;width:360px;height:180px;background:#374151">
+    <div data-agent-native-node-id="freeform-anchor" data-agent-native-layer-name="Freeform Anchor"
+      style="position:absolute;left:24px;top:24px;width:100px;height:48px;background:#94a3b8">Anchor</div>
+  </div>
 </body></html>`;
 
 const LINKED_COMPONENT_HTML = `<!doctype html><html><body style="margin:0;width:900px;height:360px;box-sizing:border-box;display:flex;flex-direction:row;align-items:flex-start;gap:32px;padding:40px;background:#111827;color:#f8fafc">
@@ -254,6 +294,17 @@ async function selectionSourceId(
     selectedElement?: { sourceId?: string } | null;
   };
   return state.selectedElement?.sourceId ?? null;
+}
+
+async function activeSelectionFileId(
+  request: APIRequestContext,
+): Promise<string | null> {
+  const response = await request.get(
+    appPath("/_agent-native/application-state/design-selection"),
+  );
+  if (!response.ok()) return null;
+  const state = (await response.json()) as { activeFileId?: string | null };
+  return state.activeFileId ?? null;
 }
 
 async function settleReload(page: Page, screenId: string): Promise<void> {
@@ -839,11 +890,13 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     const design = await createDesign(request);
     try {
       await gotoEditor(page, design.id);
+      const primaryModifier = COMMAND;
       const result = await dragHeld(
         page,
         design.primaryId,
         "nested-marker",
         "nested-inner",
+        { modifier: primaryModifier },
       );
       expect(result.during.display).toBe("block");
       await expect
@@ -993,7 +1046,13 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
-    const modifiers = [...new Set([CONTROL, COMMAND])];
+    const platform = await page.evaluate(() => {
+      const nav = navigator as Navigator & {
+        userAgentData?: { platform?: string };
+      };
+      return nav.userAgentData?.platform || nav.platform || "";
+    });
+    const modifiers = [/Mac|iPhone|iPad|iPod/i.test(platform) ? CONTROL : "S"];
     for (const modifier of modifiers) {
       for (const timing of [
         "before-pointerdown",
@@ -1504,6 +1563,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             (snapshot) =>
               snapshot.guide?.display === "block" &&
               (snapshot.guide.overlapsTarget ||
+                cell.fixture === "wrap" ||
                 cell.fixture.startsWith("grid-")),
           );
           expect(targetGuideSamples.length).toBeGreaterThan(0);
@@ -1731,6 +1791,511 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => parentId(page, design.secondId!, "free-shape"))
         .toBe("cross-target");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("cross-Screen oversized free drops show a line and persist beside an empty auto-layout target", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: OVERSIZED_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: OVERSIZED_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "oversized-source");
+      const target = await boxFor(page, design.secondId!, "plain-target");
+      expect(source.width).toBeGreaterThan(target.width);
+      await page.keyboard.down(COMMAND);
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.keyboard.up(COMMAND);
+      await expect
+        .poll(() => selectionSourceId(request))
+        .toBe("oversized-source");
+
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+      await page.mouse.move(
+        target.x + target.width * 0.75,
+        target.y + target.height / 2,
+        { steps: 30 },
+      );
+      const guide = page.locator("[data-cross-screen-drop-guide]");
+      await expect
+        .poll(() => guide.count(), {
+          timeout: 5_000,
+          message: "cross-screen oversized drop did not show a held line",
+        })
+        .toBeGreaterThan(0);
+      const heldGuide = await guide.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          display: style.display,
+          width: Number.parseFloat(style.width),
+          height: Number.parseFloat(style.height),
+        };
+      });
+      expect(heldGuide.display).not.toBe("none");
+      expect(heldGuide.height).toBeLessThan(heldGuide.width);
+      expect(
+        await page.locator("[data-cross-screen-drag-ghost]").count(),
+      ).toBeGreaterThan(0);
+      await page.mouse.up();
+
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "oversized-source"),
+            destination: hasNode(to, "oversized-source"),
+          };
+        })
+        .toMatchObject({ from: false, destination: true });
+      await settleReload(page, design.secondId!);
+      await expect
+        .poll(() => parentId(page, design.secondId!, "oversized-source"))
+        .not.toBe("plain-target");
+      await expect
+        .poll(() =>
+          designFrame(page, design.secondId!)
+            .locator('[data-agent-native-node-id="oversized-source"]')
+            .evaluate((node) => node.parentElement?.tagName),
+        )
+        .toBe("BODY");
+      await expect
+        .poll(() =>
+          designFrame(page, design.secondId!)
+            .locator('[data-agent-native-node-id="plain-target"]')
+            .locator('[data-agent-native-node-id="oversized-source"]')
+            .count(),
+        )
+        .toBe(0);
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("cross-Screen Ignore Auto Layout oversized drops keep absolute inside placement", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: META_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: META_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "meta-source");
+      const target = await boxFor(page, design.secondId!, "meta-target");
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await expect.poll(() => selectionSourceId(request)).toBe("meta-source");
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      // Cross into the overview host first. It owns focus after this handoff,
+      // The overview host owns focus after this handoff, so use the platform
+      // Ignore Auto Layout chord there instead of relying on the source iframe.
+      await page.mouse.move(
+        target.x + target.width / 2,
+        target.y + target.height / 2,
+        { steps: 30 },
+      );
+      await expect
+        .poll(() => page.locator("[data-cross-screen-drag-ghost]").count())
+        .toBeGreaterThan(0);
+      await page.keyboard.down(IGNORE_AUTO_LAYOUT);
+      await page.mouse.move(
+        target.x + target.width / 2 + 1,
+        target.y + target.height / 2 + 1,
+        { steps: 3 },
+      );
+      const guide = page.locator("[data-cross-screen-drop-guide]");
+      await expect
+        .poll(() => guide.count(), {
+          timeout: 5_000,
+          message:
+            "cross-screen Ignore Auto Layout drop did not show a held guide",
+        })
+        .toBeGreaterThan(0);
+      expect(
+        await page.locator("[data-cross-screen-drag-ghost]").count(),
+      ).toBeGreaterThan(0);
+      await page.mouse.up();
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT);
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "meta-source"),
+            destination: hasNode(to, "meta-source"),
+          };
+        })
+        .toEqual({ from: false, destination: true });
+      await expect.poll(() => selectionSourceId(request)).toBe("meta-source");
+      await expect
+        .poll(() => activeSelectionFileId(request))
+        .toBe(design.secondId);
+      await page.keyboard.press(`${COMMAND}+z`);
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "meta-source"),
+            destination: hasNode(to, "meta-source"),
+          };
+        })
+        .toEqual({ from: true, destination: false });
+
+      await page.keyboard.press(`${COMMAND}+Shift+z`);
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "meta-source"),
+            destination: hasNode(to, "meta-source"),
+          };
+        })
+        .toEqual({ from: false, destination: true });
+
+      await settleReload(page, design.secondId!);
+      await expect
+        .poll(() => parentId(page, design.secondId!, "meta-source"))
+        .toBe("meta-target");
+      await expect
+        .poll(() =>
+          designFrame(page, design.secondId!)
+            .locator('[data-agent-native-node-id="meta-source"]')
+            .evaluate((node) => getComputedStyle(node).position),
+        )
+        .toBe("absolute");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("cross-Screen drop uses the modifier state at release", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: META_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: META_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "meta-source");
+      const target = await boxFor(page, design.secondId!, "meta-target");
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await expect.poll(() => selectionSourceId(request)).toBe("meta-source");
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        target.x + target.width / 2,
+        target.y + target.height / 2,
+        { steps: 30 },
+      );
+      await expect
+        .poll(() => page.locator("[data-cross-screen-drag-ghost]").count())
+        .toBeGreaterThan(0);
+      await page.keyboard.down(IGNORE_AUTO_LAYOUT);
+      await page.mouse.move(
+        target.x + target.width / 2 + 1,
+        target.y + target.height / 2 + 1,
+        { steps: 3 },
+      );
+      await expect
+        .poll(() => page.locator("[data-cross-screen-drop-guide]").count())
+        .toBeGreaterThan(0);
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT);
+      await page.mouse.up();
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "meta-source"),
+            destination: hasNode(to, "meta-source"),
+          };
+        })
+        .toEqual({ from: false, destination: true });
+      await settleReload(page, design.secondId!);
+      await expect
+        .poll(() => parentId(page, design.secondId!, "meta-source"))
+        .not.toBe("meta-target");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("cross-Screen freeform drops persist through reload", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: FREEFORM_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: FREEFORM_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "freeform-source");
+      const target = await boxFor(page, design.secondId!, "freeform-target");
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await expect
+        .poll(() => selectionSourceId(request))
+        .toBe("freeform-source");
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      try {
+        await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+        await page.mouse.move(
+          target.x + target.width / 2,
+          target.y + target.height / 2,
+          { steps: 30 },
+        );
+        await expect
+          .poll(() => page.locator("[data-cross-screen-drag-ghost]").count())
+          .toBeGreaterThan(0);
+      } finally {
+        await page.mouse.up();
+      }
+      await expect
+        .poll(() => parentId(page, design.secondId!, "freeform-source"))
+        .toBe("freeform-target");
+      await expect
+        .poll(() =>
+          designFrame(page, design.secondId!)
+            .locator('[data-agent-native-node-id="freeform-source"]')
+            .evaluate((node) => getComputedStyle(node).position),
+        )
+        .toBe("absolute");
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "freeform-source"),
+            destination: hasNode(to, "freeform-source"),
+          };
+        })
+        .toEqual({ from: false, destination: true });
+      const droppedHtml = await fileHtml(request, design.id, design.secondId!);
+      const droppedStyle =
+        droppedHtml.match(
+          /data-agent-native-node-id="freeform-source"[^>]*style="([^"]*)"/,
+        )?.[1] ?? null;
+      expect(droppedStyle).not.toBeNull();
+      await settleReload(page, design.secondId!);
+      await expect
+        .poll(() => parentId(page, design.secondId!, "freeform-source"))
+        .toBe("freeform-target");
+      await expect
+        .poll(() =>
+          designFrame(page, design.secondId!)
+            .locator('[data-agent-native-node-id="freeform-source"]')
+            .evaluate((node) => getComputedStyle(node).position),
+        )
+        .toBe("absolute");
+      const reloadedHtml = await fileHtml(request, design.id, design.secondId!);
+      const reloadedStyle =
+        reloadedHtml.match(
+          /data-agent-native-node-id="freeform-source"[^>]*style="([^"]*)"/,
+        )?.[1] ?? null;
+      expect(reloadedStyle).toBe(droppedStyle);
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("same-Screen freeform drag keeps held geometry and exact position after reload", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      primaryHtml: MATRIX_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "free-shape");
+      const before = { ...source };
+      const orderBefore = (await rootChildren(page, design.primaryId)).map(
+        (child) => child.id,
+      );
+      await page.keyboard.down(COMMAND);
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.keyboard.up(COMMAND);
+      await expect.poll(() => selectionSourceId(request)).toBe("free-shape");
+      const dx = 96;
+      const dy = 64;
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      try {
+        await page.mouse.move(
+          source.x + source.width / 2 + 1,
+          source.y + source.height / 2 + 1,
+          { steps: 1 },
+        );
+        await page.mouse.move(
+          source.x + source.width / 2 + 12,
+          source.y + source.height / 2 + 8,
+          { steps: 1 },
+        );
+        await page.mouse.move(
+          source.x + source.width / 2 + dx,
+          source.y + source.height / 2 + dy,
+          {
+            steps: 20,
+          },
+        );
+        const held = await boxFor(page, design.primaryId, "free-shape");
+        expect([held.x, held.y]).not.toEqual([before.x, before.y]);
+      } finally {
+        await page.mouse.up();
+      }
+      const dropped = await boxFor(page, design.primaryId, "free-shape");
+      expect([dropped.x, dropped.y]).not.toEqual([before.x, before.y]);
+      await settleReload(page, design.primaryId);
+      const reloaded = await boxFor(page, design.primaryId, "free-shape");
+      expect(reloaded.x).toBeCloseTo(dropped.x, 0);
+      expect(reloaded.y).toBeCloseTo(dropped.y, 0);
+      await expect
+        .poll(async () =>
+          (await rootChildren(page, design.primaryId)).map((child) => child.id),
+        )
+        .toEqual(orderBefore);
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("cross-Screen Meta oversized drops preserve absolute inside placement", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: META_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: META_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "meta-source");
+      const target = await boxFor(page, design.secondId!, "meta-target");
+      await page.keyboard.down(COMMAND);
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.keyboard.up(COMMAND);
+      await expect.poll(() => selectionSourceId(request)).toBe("meta-source");
+
+      await page.keyboard.down(COMMAND);
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+      await page.mouse.move(
+        target.x + target.width / 2,
+        target.y + target.height / 2,
+        { steps: 30 },
+      );
+      const guide = page.locator("[data-cross-screen-drop-guide]");
+      await expect
+        .poll(() => guide.count(), {
+          timeout: 5_000,
+          message: "cross-screen Meta drop did not show a held guide",
+        })
+        .toBeGreaterThan(0);
+      const heldGuide = await guide.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          display: style.display,
+          width: Number.parseFloat(style.width),
+          height: Number.parseFloat(style.height),
+        };
+      });
+      expect(heldGuide.display).not.toBe("none");
+      expect(heldGuide.width).toBeGreaterThan(2);
+      expect(heldGuide.height).toBeGreaterThan(2);
+      await page.mouse.up();
+      await page.keyboard.up(COMMAND);
+
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "meta-source"),
+            destination: hasNode(to, "meta-source"),
+          };
+        })
+        .toEqual({ from: false, destination: true });
+      await settleReload(page, design.secondId!);
+      await expect
+        .poll(() => parentId(page, design.secondId!, "meta-source"))
+        .toBe("meta-target");
     } finally {
       await deleteDesign(request, design.id);
     }

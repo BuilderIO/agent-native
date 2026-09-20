@@ -3198,7 +3198,7 @@ export function DesignCanvas({
     min: DEFAULT_CANVAS_MIN_ZOOM,
     max: DEFAULT_CANVAS_MAX_ZOOM,
     zoomToCursor: deviceFrame === "none" && !centerInteractPreview,
-    enabled: Boolean(onZoomChange),
+    enabled: Boolean(onZoomChange) && !interactMode,
     onZoomFrame: onZoomChange ? applyZoomFrame : undefined,
     onZoomEnd: onZoomChange ? commitZoom : undefined,
   });
@@ -4408,6 +4408,7 @@ export function DesignCanvas({
         // gets the same gesture as embedded-canvas-wheel. Both bridges are
         // installed in every document, so without this the two apply twice.
         if (isEmbeddedFrame) return;
+        if (interactMode) return;
         if (!onZoomChange) return;
         const iframe = iframeRef.current;
         const scroll = scrollContainerRef.current;

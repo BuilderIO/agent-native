@@ -18,12 +18,10 @@ import { expandAllLayers, gotoEditor } from "./helpers";
  * Fill-container sizing, and finally re-sync a drifted instance from its main
  * component.
  *
- * Design has neither a Section primitive, a page/canvas system, nor a
- * shared main-component (see components.spec.ts: "same-named instances are
- * independent copies") — so several steps have no direct equivalent and are
- * recorded as findings via a no-op probe (established precedent in
- * parity-tutorial-2.spec.ts's Cmd+Opt+K test). The closest available
- * primitives are exercised instead: a board-level Frame ("Wrap in section"),
+ * Design has no Section primitive or page/canvas system. Native components
+ * and linked instances do exist, but Section and page moves remain explicit
+ * findings. The closest available primitives are exercised instead: a
+ * board-level Frame ("Wrap in section"),
  * cross-screen element copy (dragging an "instance" onto a page), Shift+A
  * auto layout, screen duplication (screens are top-level frames per the
  * 2026-09-12 note), and layers-panel reorder.

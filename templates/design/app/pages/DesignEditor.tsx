@@ -4911,6 +4911,16 @@ function DesignEditor() {
       }),
     [pendingLocalFileContentsSnapshot, serverFiles],
   );
+  const componentExpectedFiles = useMemo(
+    () =>
+      files
+        .filter((file) => file.fileType === "html")
+        .map((file) => ({
+          fileId: file.id,
+          versionHash: sourceContentHash(file.content),
+        })),
+    [files],
+  );
   historyFilesRef.current = files;
 
   const codeLayerSourceForScreen = useCallback(
@@ -24945,6 +24955,7 @@ function DesignEditor() {
     activeContent,
     pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
     activeFileUpdatedAt: activeFile?.updatedAt ?? null,
+    componentExpectedFiles,
     componentDetailsReady,
     componentSwapPickerRequest,
     onComponentPropApplied: handleComponentPropApplied,

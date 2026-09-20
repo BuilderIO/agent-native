@@ -42,6 +42,9 @@ import {
   isTextElement,
 } from "../edit-panel/element-classification";
 
+const PLATFORM_PRIMARY_KEY = process.platform === "darwin" ? "Meta" : "Control";
+const IGNORE_AUTO_LAYOUT_KEY = process.platform === "darwin" ? "Control" : "s";
+
 declare global {
   interface Window {
     __bridgeMessages?: Array<{ type?: string; phase?: string }>;
@@ -2010,7 +2013,7 @@ it(
       // Holding Cmd/Ctrl bypasses snapping entirely (Figma behavior) — nudge
       // one px further (still well within snap range if snapping were
       // active) and hold Meta so the raw (unsnapped) position is used.
-      await page.keyboard.down("Meta");
+      await page.keyboard.down(PLATFORM_PRIMARY_KEY);
       await page.mouse.move(174 + 278, 244);
       const bypassedLeft = await page.evaluate(() => {
         const target = document.querySelector<HTMLElement>("#target")!;
@@ -2028,7 +2031,7 @@ it(
         );
       });
       expect(guideHiddenDuringBypass).toBe(true);
-      await page.keyboard.up("Meta");
+      await page.keyboard.up(PLATFORM_PRIMARY_KEY);
 
       await page.mouse.up();
       await page.waitForTimeout(30);
@@ -7990,10 +7993,10 @@ it(
       );
       await page.mouse.move(controlStartX, controlStartY);
       await page.mouse.down();
-      await page.keyboard.down("Control");
+      await page.keyboard.down(IGNORE_AUTO_LAYOUT_KEY);
       await page.mouse.move(450, 115, { steps: 8 });
       await page.mouse.up();
-      await page.keyboard.up("Control");
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT_KEY);
       await page.waitForTimeout(50);
 
       const ignored = await page.evaluate(() => {
@@ -13955,6 +13958,54 @@ it(
 
       expect(reply.anchorNodeId).toBe("sec");
       expect(reply.dropMode).toBe("absolute-container");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "forced nested hit testing refuses a locked descendant subtree",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="outer" data-agent-native-node-id="outer" style="display:flex;width:500px;height:300px">
+          <div id="locked" data-agent-native-locked="true" style="display:flex;width:300px;height:200px">
+            <div id="child" data-agent-native-node-id="child" style="width:100px;height:100px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "locked-nested",
+                x: 50,
+                y: 50,
+                preview: false,
+                modifiers: { forceNestedAutoLayout: true },
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string };
+
+      expect(reply.anchorNodeId).toBe("");
     } finally {
       await browser.close();
     }
