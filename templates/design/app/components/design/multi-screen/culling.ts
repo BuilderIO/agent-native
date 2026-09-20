@@ -22,9 +22,10 @@ import type { FrameGeometry, Point } from "./types";
 //   reachable.
 // - A bounded live-context pool keeps nearby screens warm without retaining
 //   every browsing context ever visited. Active/selected/in-progress screens
-//   are protected; the remaining budget is filled by viewport distance and
-//   then by recency. Evicted screens keep their lightweight React content-cache
-//   entry so revisiting can remount directly without rebuilding source HTML.
+//   are protected; the remaining budget first preserves already-live screens
+//   that are still in the viewport, then fills by viewport distance and
+//   recency. Evicted screens keep their lightweight React content-cache entry
+//   so revisiting can remount directly without rebuilding source HTML.
 
 /** Escape hatch: flip to `false` to fully disable culling in one line if a
  *  regression appears — every screen goes back to always rendering full
@@ -272,6 +273,14 @@ export function computeBoundedScreenCullState({
     )
     .sort((a, b) => {
       if (!viewport) return a.id.localeCompare(b.id);
+      // Keep the live pool stable while a camera move still overlaps the
+      // previous viewport. Ranking every visible candidate by distance alone
+      // lets newly visible screens displace mounted documents on each commit,
+      // causing iframe teardown/reload churn during ordinary pan and zoom.
+      const previousLiveDelta =
+        Number(previousLiveScreenIds.has(b.id)) -
+        Number(previousLiveScreenIds.has(a.id));
+      if (previousLiveDelta !== 0) return previousLiveDelta;
       const distanceDelta =
         distanceSquaredToViewportCenter(a.geometry, viewport) -
         distanceSquaredToViewportCenter(b.geometry, viewport);

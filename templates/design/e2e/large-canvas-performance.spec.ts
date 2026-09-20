@@ -209,7 +209,7 @@ async function screenSelectionLatency(page: Page, screenId: string) {
 // Every other budget passes, including editorUsableMs, both live-iframe caps,
 // long tasks, event-loop delay and selection p95, so this is gesture-time
 // iframe churn in the canvas virtualization, not boot and not culling.
-test.fixme("120-screen canvas stays usable, bounded, and responsive", async ({
+test("120-screen canvas stays usable, bounded, and responsive", async ({
   page,
 }, workerInfo) => {
   test.setTimeout(240_000);

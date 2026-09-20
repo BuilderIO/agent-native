@@ -249,6 +249,38 @@ describe("MultiScreenCanvas viewport culling", () => {
       expect([...second.tierByScreenId.values()]).not.toContain("evicted");
     });
 
+    it("preserves mounted screens across an overlapping camera move", () => {
+      const candidates = [
+        candidate("old-a", 0),
+        candidate("old-b", 100),
+        candidate("new-a", 4_000),
+        candidate("new-b", 4_100),
+      ];
+      const firstViewport = { left: 0, top: 0, right: 100, bottom: 1_000 };
+      const overlappingViewport = {
+        left: 0,
+        top: 0,
+        right: 5_000,
+        bottom: 1_000,
+      };
+      const first = compute(candidates, {
+        viewport: firstViewport,
+        budget: 2,
+        epoch: 1,
+      });
+      expect(first.liveScreenIds).toEqual(new Set(["old-a", "old-b"]));
+
+      const second = compute(candidates, {
+        viewport: overlappingViewport,
+        budget: 2,
+        epoch: 2,
+        previous: first,
+      });
+      expect(second.liveScreenIds).toEqual(new Set(["old-a", "old-b"]));
+      expect(second.tierByScreenId.get("new-a")).toBe("placeholder");
+      expect(second.tierByScreenId.get("new-b")).toBe("placeholder");
+    });
+
     it("still bounds a huge breakpoint-bearing board by the iframe ceiling", () => {
       const candidates = Array.from({ length: 120 }, (_, index) =>
         candidate(
