@@ -19116,6 +19116,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }),
           [reorderEl],
         );
+        var isWrappedFlex =
+          containerStyles.flexWrap === "wrap" ||
+          containerStyles.flexWrap === "wrap-reverse";
         var axis = reorderMainAxis(target);
         var key = axis + ":" + slotInfo.slot;
         if (key === reflowKey && reflowDomApplied) {
@@ -19164,10 +19167,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               top: projected.top,
             });
           });
-          if (
-            containerStyles.flexWrap === "wrap" ||
-            containerStyles.flexWrap === "wrap-reverse"
-          ) {
+          if (isWrappedFlex) {
             var projectedGuide = placeholder.getBoundingClientRect();
             reflowGuideRect = {
               left: projectedGuide.left,
@@ -19188,40 +19188,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           } else {
             container.appendChild(reorderEl);
           }
-          projectedRects.forEach(function (projected) {
-            var el = projected.el as HTMLElement;
-            var current = el.getBoundingClientRect();
-            var dx = projected.left - current.left;
-            var dy = projected.top - current.top;
-            if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-            var prevTransform = el.style.transform;
-            var authoredTransform = authoredTransformOf(el);
-            var previewTransition =
-              "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
-            var previewTransform =
-              "translate(" +
-              dx +
-              "px, " +
-              dy +
-              "px)" +
-              (authoredTransform ? " " + authoredTransform : "");
-            reflowSiblings.push({
-              el: el,
-              prevTransform: prevTransform,
-              authoredTransform: authoredTransform,
-              prevTransition: el.style.transition,
-              previewTransform: previewTransform,
-              previewTransition: previewTransition,
+          // A physical wrapped reorder already makes the browser lay out each
+          // sibling at its projected slot; translating them too would double
+          // the displacement.
+          if (!isWrappedFlex)
+            projectedRects.forEach(function (projected) {
+              var el = projected.el as HTMLElement;
+              var current = el.getBoundingClientRect();
+              var dx = projected.left - current.left;
+              var dy = projected.top - current.top;
+              if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+              var prevTransform = el.style.transform;
+              var authoredTransform = authoredTransformOf(el);
+              var previewTransition =
+                "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+              var previewTransform =
+                "translate(" +
+                dx +
+                "px, " +
+                dy +
+                "px)" +
+                (authoredTransform ? " " + authoredTransform : "");
+              reflowSiblings.push({
+                el: el,
+                prevTransform: prevTransform,
+                authoredTransform: authoredTransform,
+                prevTransition: el.style.transition,
+                previewTransform: previewTransform,
+                previewTransition: previewTransition,
+              });
+              el.style.transition = previewTransition;
+              // Translate FIRST (screen space) composed with the sibling's own
+              // transform so an authored rotate/scale survives the reflow shift.
+              el.style.transform = previewTransform;
             });
-            el.style.transition = previewTransition;
-            // Translate FIRST (screen space) composed with the sibling's own
-            // transform so an authored rotate/scale survives the reflow shift.
-            el.style.transform = previewTransform;
-          });
-          if (
-            containerStyles.flexWrap === "wrap" ||
-            containerStyles.flexWrap === "wrap-reverse"
-          ) {
+          if (isWrappedFlex) {
             reflowDomOrigin = {
               parent: container,
               nextSibling: originalNextSibling,

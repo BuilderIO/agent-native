@@ -13373,6 +13373,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }),
             [reorderEl]
           );
+          var isWrappedFlex = containerStyles.flexWrap === "wrap" || containerStyles.flexWrap === "wrap-reverse";
           var axis = reorderMainAxis2(target);
           var key = axis + ":" + slotInfo.slot;
           if (key === reflowKey && reflowDomApplied) {
@@ -13413,7 +13414,7 @@ export const editorChromeBridgeScript: string = `"use strict";
                 top: projected.top
               });
             });
-            if (containerStyles.flexWrap === "wrap" || containerStyles.flexWrap === "wrap-reverse") {
+            if (isWrappedFlex) {
               var projectedGuide = placeholder.getBoundingClientRect();
               reflowGuideRect = {
                 left: projectedGuide.left,
@@ -13431,28 +13432,29 @@ export const editorChromeBridgeScript: string = `"use strict";
             } else {
               container.appendChild(reorderEl);
             }
-            projectedRects.forEach(function(projected) {
-              var el = projected.el;
-              var current = el.getBoundingClientRect();
-              var dx = projected.left - current.left;
-              var dy = projected.top - current.top;
-              if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-              var prevTransform = el.style.transform;
-              var authoredTransform = authoredTransformOf2(el);
-              var previewTransition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
-              var previewTransform = "translate(" + dx + "px, " + dy + "px)" + (authoredTransform ? " " + authoredTransform : "");
-              reflowSiblings.push({
-                el,
-                prevTransform,
-                authoredTransform,
-                prevTransition: el.style.transition,
-                previewTransform,
-                previewTransition
+            if (!isWrappedFlex)
+              projectedRects.forEach(function(projected) {
+                var el = projected.el;
+                var current = el.getBoundingClientRect();
+                var dx = projected.left - current.left;
+                var dy = projected.top - current.top;
+                if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+                var prevTransform = el.style.transform;
+                var authoredTransform = authoredTransformOf2(el);
+                var previewTransition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+                var previewTransform = "translate(" + dx + "px, " + dy + "px)" + (authoredTransform ? " " + authoredTransform : "");
+                reflowSiblings.push({
+                  el,
+                  prevTransform,
+                  authoredTransform,
+                  prevTransition: el.style.transition,
+                  previewTransform,
+                  previewTransition
+                });
+                el.style.transition = previewTransition;
+                el.style.transform = previewTransform;
               });
-              el.style.transition = previewTransition;
-              el.style.transform = previewTransform;
-            });
-            if (containerStyles.flexWrap === "wrap" || containerStyles.flexWrap === "wrap-reverse") {
+            if (isWrappedFlex) {
               reflowDomOrigin = {
                 parent: container,
                 nextSibling: originalNextSibling

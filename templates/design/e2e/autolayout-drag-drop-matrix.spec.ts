@@ -1741,6 +1741,46 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
                 childMoved(evidence.before, snapshot.children, cell.source),
               ),
             ).toBe(true);
+            const beforeById = new Map(
+              evidence.before.map((child) => [child.id, child]),
+            );
+            const firstRowTop = beforeById.get("root-a")?.top ?? 0;
+            const wrappedRowTop =
+              firstRowTop +
+              Math.max(
+                beforeById.get("root-a")?.height ?? 0,
+                beforeById.get("root-d")?.height ?? 0,
+              ) +
+              16;
+            const expectedWrapGeometry = {
+              "root-a": {
+                left: beforeById.get("root-b")?.left ?? 0,
+                top: firstRowTop,
+              },
+              "root-b": {
+                left: beforeById.get("root-a")?.left ?? 0,
+                top: wrappedRowTop,
+              },
+              "root-c": {
+                left: beforeById.get("root-b")?.left ?? 0,
+                top: wrappedRowTop,
+              },
+            };
+            expect(
+              targetSnapshots.some((snapshot) =>
+                Object.entries(expectedWrapGeometry).every(([id, expected]) => {
+                  const actual = snapshot.children.find(
+                    (child) => child.id === id,
+                  );
+                  return Boolean(
+                    actual &&
+                    expected &&
+                    Math.abs(actual.left - expected.left) < 1 &&
+                    Math.abs(actual.top - expected.top) < 1,
+                  );
+                }),
+              ),
+            ).toBe(true);
             expect(
               targetSnapshots.some(
                 (snapshot) =>
