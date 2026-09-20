@@ -20,6 +20,7 @@ let designId = "";
 let connectionId = "";
 let viteServer: ViteDevServer | null = null;
 let bridge: DesignConnectBridge | null = null;
+const viteChangedFiles: string[] = [];
 
 const sourcePath = "src/Card.tsx";
 
@@ -90,6 +91,9 @@ test.describe.serial("URL-backed React JSX writeback", () => {
       },
     });
     await viteServer.listen();
+    viteServer.watcher.on("change", (changedPath) => {
+      viteChangedFiles.push(changedPath);
+    });
     const address = viteServer.httpServer?.address();
     if (!address || typeof address === "string")
       throw new Error("Vite did not start");
@@ -204,6 +208,9 @@ test.describe.serial("URL-backed React JSX writeback", () => {
     expect(fs.readFileSync(path.join(rootPath, sourcePath), "utf8")).toContain(
       'color: "blue"',
     );
+    await expect
+      .poll(() => viteChangedFiles)
+      .toContain(path.join(rootPath, sourcePath));
     // The source write invalidates Vite; reload the host to prove the bridge
     // also serves the changed authored module on a fresh URL-backed boot.
     await page.reload({ waitUntil: "domcontentloaded" });
