@@ -1081,7 +1081,7 @@ export function inferAgentNativeDeploymentEnvironment(
   const branch = env.BRANCH?.trim().toLowerCase();
   const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
 
-    if (
+  if (
     branch === "production" ||
     (context === "production" && branch !== "beta") ||
     vercelEnv === "production"
