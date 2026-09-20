@@ -202,7 +202,7 @@
     "oxlint": "1.71.0",
     "oxlint-tsgolint": "0.24.0",
     "prettier": "^3.6.2",
-    "tsx": "^4.20.3",
+    "tsx": "^4.23.13",
     "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vitest": "catalog:",
