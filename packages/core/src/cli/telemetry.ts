@@ -19,7 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { canonicalTrackingEvent } from "@agent-native/core/shared";
+import { canonicalTrackingEvent } from "../shared/analytics-events.js";
 
 // Public, write-only analytics key. Safe to embed (revocable from the Analytics
 // settings UI). Override with AGENT_NATIVE_ANALYTICS_PUBLIC_KEY for testing or
