@@ -316,6 +316,8 @@ import {
 } from "./multi-screen/chrome-transitions";
 import {
   isCrossScreenIgnoreAutoLayoutHeldAtRelease,
+  mergeCrossScreenReleaseModifiers,
+  seedCrossScreenSKeyTimesAtStart,
   shouldClearCrossScreenSKeyTimesOnWindowBlur,
 } from "./multi-screen/cross-screen-modifiers";
 import {
@@ -3525,8 +3527,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         crossScreenHostCommittedRef.current = false;
         crossScreenIgnoreAutoLayoutRef.current =
           crossScreenSKeyPressedRef.current;
+        if (sourceModifiers?.ignoreAutoLayout === true) {
+          crossScreenSKeyTimesRef.current = seedCrossScreenSKeyTimesAtStart(
+            true,
+            crossScreenSKeyTimesRef.current,
+            performance.timeOrigin + performance.now(),
+          );
+        }
         if (!crossScreenSKeyPressedRef.current) {
-          crossScreenSKeyTimesRef.current = { downAt: null, upAt: null };
+          if (sourceModifiers?.ignoreAutoLayout !== true) {
+            crossScreenSKeyTimesRef.current = { downAt: null, upAt: null };
+          }
         }
         crossScreenLastBoardPointRef.current = null;
         crossScreenDragMsgRef.current = {
@@ -3864,7 +3875,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const payload = cachedPayload
           ? {
               ...cachedPayload,
-              modifiers: sourceModifiers ?? cachedPayload.modifiers,
+              modifiers: mergeCrossScreenReleaseModifiers(
+                cachedPayload.modifiers,
+                sourceModifiers,
+              ),
             }
           : {
               selector: msg.selector ?? "",
