@@ -1115,15 +1115,19 @@ export function formatPendingVisualStylePrompt(args: {
     (codingAgent ? args.screenRoutes?.[screenId] : undefined) ?? filename;
   const title = args.designTitle?.trim();
   const editPayload = args.edits.map((edit) => ({
+    operation: "update-style" as const,
     screenId: edit.screenId,
     screen: nameScreen(edit.screenId, edit.filename),
     screenName: edit.screenName,
     selector: edit.selector,
     sourceId: edit.sourceId ?? null,
     sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+    provenance: redactReactSourceAnchor(edit.sourceAnchor),
     tagName: edit.tagName ?? null,
     classes: edit.classes,
     styles: edit.styles,
+    before: edit.originalStyles,
+    after: edit.styles,
     ...(edit.interactionState
       ? { interactionState: edit.interactionState }
       : {}),
@@ -1157,6 +1161,7 @@ export function formatPendingVisualStylePrompt(args: {
   const liveEditPayload = (args.liveEdits ?? []).map((edit) => {
     if (edit.kind === "text") {
       return {
+        operation: "update-text" as const,
         kind: edit.kind,
         screenId: edit.screenId,
         screen: nameScreen(edit.screenId, edit.filename),
@@ -1164,10 +1169,13 @@ export function formatPendingVisualStylePrompt(args: {
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
         sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
         tagName: edit.tagName ?? null,
         classes: edit.classes,
         value: edit.value,
         html: edit.html,
+        before: edit.originalValue,
+        after: edit.value,
       };
     }
     if (edit.kind === "layer-state") {
@@ -1180,6 +1188,7 @@ export function formatPendingVisualStylePrompt(args: {
           })
         : null;
       return {
+        operation: "update-layer-state" as const,
         kind: edit.kind,
         screenId: edit.screenId,
         screen: nameScreen(edit.screenId, edit.filename),
@@ -1187,10 +1196,13 @@ export function formatPendingVisualStylePrompt(args: {
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
         sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
         tagName: edit.tagName ?? null,
         classes: edit.classes,
         state: edit.state,
         enabled: edit.enabled,
+        before: edit.originalEnabled,
+        after: edit.enabled,
         attributeName: `data-agent-native-${edit.state}`,
         ...(semanticHandoff?.ok
           ? { semanticHandoff: semanticHandoff.handoff }
@@ -1330,6 +1342,15 @@ export function formatPendingVisualStylePrompt(args: {
                   },
                 };
     return {
+      operation: edit.removed
+        ? "remove"
+        : edit.replaced
+          ? "replace"
+          : edit.insertedHtml
+            ? "insert"
+            : edit.placement === "inside"
+              ? "reparent"
+              : "move",
       kind: edit.kind,
       screenId: edit.screenId,
       screen: nameScreen(edit.screenId, edit.filename),
@@ -1360,6 +1381,10 @@ export function formatPendingVisualStylePrompt(args: {
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+      provenance: {
+        subject: redactReactSourceAnchor(edit.sourceAnchor),
+        target: redactReactSourceAnchor(edit.anchorSourceAnchor),
+      },
       ...(edit.subjectSignature
         ? { subjectSignature: edit.subjectSignature }
         : {}),
@@ -1430,7 +1455,7 @@ export function formatPendingVisualStylePrompt(args: {
       : "",
     "",
     codingAgent
-      ? "These were made against the running app in a visual canvas, so the selectors and node ids below are runtime-only — they do not appear in source. Locate the component that renders each element using its tag, class names and current text, then make the change in that source file. Preserve layout, behavior, and unrelated styling."
+      ? "These were made against the running app in a visual canvas. Treat each item as a source operation: use provenance/sourceAnchor to locate the owning source, compare before with the live after, and make the smallest idiomatic source edit. Runtime selectors and node ids are correlation hints only; never hand off inline-style mutations as the final implementation. Preserve layout, behavior, and unrelated styling."
       : "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, layer-state, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
     hasOutsideConnectedRootPaths
       ? "Some source anchors include an absolute or served path outside the connected root. Keep that sourceFile path and the `outside-connected-root` status in the diagnosis; inspect it read-only or ask for the correct connection, and never silently omit the file."

@@ -196,4 +196,42 @@ describe("formatPendingVisualStylePrompt", () => {
       }),
     ).toBe("");
   });
+
+  it("describes multi-operation handoff as source edits with provenance and before/after", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      audience: "coding-agent",
+      screenRoutes: { home: "/clips" },
+      edits: [
+        {
+          ...styleEdit("h1", { color: "blue" }),
+          sourceAnchor: {
+            sourceFile: "app/Clips.tsx",
+            line: 12,
+            column: 3,
+            component: "Clips",
+          },
+        },
+      ],
+      liveEdits: [
+        {
+          ...textEdit("Updated"),
+          sourceAnchor: {
+            sourceFile: "app/Clips.tsx",
+            line: 14,
+            column: 5,
+            component: "Clips",
+          },
+        },
+      ],
+    });
+
+    expect(prompt).toContain('"operation": "update-style"');
+    expect(prompt).toContain('"operation": "update-text"');
+    expect(prompt).toContain('"before": {');
+    expect(prompt).toContain('"after": {');
+    expect(prompt).toContain('"provenance":');
+    expect(prompt).toContain("never hand off inline-style mutations");
+    expect(prompt).not.toContain("style=\"color: blue\"");
+    expect(prompt).toContain('"screen": "/clips"');
+  });
 });
