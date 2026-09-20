@@ -1599,6 +1599,27 @@ test.describe("authenticated beta Design interactions", () => {
       await expect
         .poll(() => readSource(page, design.designId, "destination.html"))
         .toContain(`data-agent-native-node-id="${copyId}"`);
+      const redoCopy = frameById(page, design.destinationId).locator(
+        `[data-agent-native-node-id="${copyId}"]`,
+      );
+      await expect(redoCopy).toHaveCount(1);
+      expect(
+        await redoCopy.evaluate((node) =>
+          node.parentElement?.getAttribute("data-agent-native-node-id"),
+        ),
+      ).toBe(CROSS_SCREEN_DESTINATION_ID);
+      const redoDestinationOrder = await frameById(page, design.destinationId)
+        .locator(
+          `[data-agent-native-node-id="${CROSS_SCREEN_DESTINATION_ID}"] > [data-agent-native-node-id]`,
+        )
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+        );
+      expect(redoDestinationOrder).toEqual([
+        "destination-first",
+        copyId,
+        "destination-last",
+      ]);
       await expect
         .poll(() => readSource(page, design.designId, "index.html"))
         .toContain(`data-agent-native-node-id="${CROSS_SCREEN_SOURCE_ID}"`);
