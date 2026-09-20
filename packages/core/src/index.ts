@@ -110,6 +110,16 @@ export {
 } from "./data-widgets/index.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
+  createAgentChatPlugin,
+  defaultAgentChatPlugin,
+  type AgentChatPluginOptions,
+} from "./server/agent-chat-plugin.js";
+export {
+  createAgentNativeEmbeddedPlugin,
+  mountAgentNativeEmbedded,
+  type AgentNativeEmbeddedPluginOptions,
+} from "./server/embedded.js";
+export {
   BUILT_IN_INTEGRATION_CATALOG,
   INTEGRATION_CATEGORIES,
   getIntegrationCatalogEntry,
@@ -163,6 +173,10 @@ export {
   type FeatureFlagScope,
 } from "./feature-flags/index.js";
 export {
+  createFeatureFlagA2AActionRouteAuth,
+  createFeatureFlagsPlugin,
+} from "./feature-flags/server.js";
+export {
   defineLab,
   defineLabs,
   getLabDefinition,
@@ -170,6 +184,7 @@ export {
   registerLabs,
   type LabDefinition,
 } from "./labs/index.js";
+export { createLabsPlugin } from "./labs/server.js";
 export {
   defineExperiment,
   defineExperiments,
@@ -178,9 +193,22 @@ export {
   registerExperiments,
   type ExperimentDefinition,
 } from "./experiments/index.js";
-// Server APIs live behind @agent-native/core/server. Keep only type-only auth
-// exports here so the Node entry cannot load React-rendered onboarding code.
-export type { AuthSession, AuthOptions } from "./server/auth.js";
+export { createExperimentsPlugin } from "./experiments/server.js";
+
+// Keep the historical root server exports as a compatibility facade. The
+// server modules defer optional React UI loading, so this does not make the
+// Node entry require React for headless consumers.
+export {
+  createServer,
+  createSSEHandler,
+  defineNitroPlugin,
+  autoMountAuth,
+  getSession,
+  type CreateServerOptions,
+  type SSEHandlerOptions,
+  type AuthSession,
+  type AuthOptions,
+} from "./server/index.js";
 
 // Client
 //
