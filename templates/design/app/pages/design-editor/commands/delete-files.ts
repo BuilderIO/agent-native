@@ -62,7 +62,11 @@ export interface DeleteFilesArgs {
   localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
   queryClient: QueryClient;
   redoOrderRef: RefObject<UndoRedoOrderKind[]>;
+  overviewSelectedScreenIds?: string[];
+  selectedElement?: ElementInfo | null;
+  selectedLayerIdsState?: string[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
+  setOverviewSelectedScreenIds?: Dispatch<SetStateAction<string[]>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   syncUndoRedoState: () => void;
@@ -101,7 +105,11 @@ export async function runDeleteFiles(
     localContentUndoStackRef,
     queryClient,
     redoOrderRef,
+    overviewSelectedScreenIds,
+    selectedElement,
+    selectedLayerIdsState,
     setActiveFileId,
+    setOverviewSelectedScreenIds,
     setSelectedElement,
     setSelectedLayerIdsState,
     syncUndoRedoState,
@@ -137,6 +145,11 @@ export async function runDeleteFiles(
   const deleteIds = new Set(filesToDelete.map((file) => file.id));
   const nextActiveFile = files.find((file) => !deleteIds.has(file.id));
   const previousGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
+  const previousSelection = {
+    overviewSelectedScreenIds: [...(overviewSelectedScreenIds ?? [])],
+    selectedElement: selectedElement ?? null,
+    selectedLayerIds: [...(selectedLayerIdsState ?? [])],
+  };
   const nextGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
   const designQueryKey = ["action", "get-design", { id }] as const;
   const previousDesignQuery = queryClient.getQueryData?.(designQueryKey);
@@ -149,11 +162,15 @@ export async function runDeleteFiles(
     delete nextGeometry[file.id];
   });
 
-  if (!recordDeletionHistory && !options?.preserveHistory) {
+  const pruneHistoryForDeletedFiles = (filesToPrune: DesignFile[]) => {
+    const deletedFileIds = new Set(filesToPrune.map((file) => file.id));
     const nextGeometryUndoStack: GeometryHistoryEntry[] = [];
     let removedGeometryUndoEntries = 0;
     geometryUndoStackRef.current.forEach((entry) => {
-      const pruned = pruneGeometryHistoryEntryForDeletedFiles(entry, deleteIds);
+      const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+        entry,
+        deletedFileIds,
+      );
       if (!pruned) {
         removedGeometryUndoEntries += 1;
         return;
@@ -170,7 +187,10 @@ export async function runDeleteFiles(
     const nextGeometryRedoStack: GeometryHistoryEntry[] = [];
     let removedGeometryRedoEntries = 0;
     geometryRedoStackRef.current.forEach((entry) => {
-      const pruned = pruneGeometryHistoryEntryForDeletedFiles(entry, deleteIds);
+      const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+        entry,
+        deletedFileIds,
+      );
       if (!pruned) {
         removedGeometryRedoEntries += 1;
         return;
@@ -196,7 +216,7 @@ export async function runDeleteFiles(
     let removedContentUndoEntries = 0;
     contentUndoStackRef.current.forEach((entry, index) => {
       const remainingChanges = getContentHistoryChanges(entry).filter(
-        (change) => !deleteIds.has(change.fileId),
+        (change) => !deletedFileIds.has(change.fileId),
       );
       if (remainingChanges.length === 0) {
         removedContentUndoEntries += 1;
@@ -226,7 +246,7 @@ export async function runDeleteFiles(
     let removedContentRedoEntries = 0;
     contentRedoStackRef.current.forEach((entry, index) => {
       const remainingChanges = getContentHistoryChanges(entry).filter(
-        (change) => !deleteIds.has(change.fileId),
+        (change) => !deletedFileIds.has(change.fileId),
       );
       if (remainingChanges.length === 0) {
         removedContentRedoEntries += 1;
@@ -249,19 +269,17 @@ export async function runDeleteFiles(
       removedContentRedoEntries,
     );
     localContentUndoStackRef.current = localContentUndoStackRef.current.filter(
-      (change) => !deleteIds.has(change.fileId),
+      (change) => !deletedFileIds.has(change.fileId),
     );
     localContentRedoStackRef.current = localContentRedoStackRef.current.filter(
-      (change) => !deleteIds.has(change.fileId),
+      (change) => !deletedFileIds.has(change.fileId),
     );
 
     // U12: a file-created entry is resolved by filename at undo/redo time
     // (it doesn't carry an id, since the id isn't known until the create
     // mutation resolves), so prune it here by filename when the file it
     // refers to is being hard-deleted directly.
-    const deletedFilenames = new Set(
-      filesToDelete.map((file) => file.filename),
-    );
+    const deletedFilenames = new Set(filesToPrune.map((file) => file.filename));
     const prunedFileCreationUndo = pruneFileCreationHistoryStack(
       fileCreationUndoStackRef.current,
       deletedFilenames,
@@ -291,7 +309,7 @@ export async function runDeleteFiles(
       "file-created",
       prunedFileCreationRedo.removed,
     );
-  }
+  };
 
   writeFrameGeometrySnapshot(nextGeometry);
   queryClient.setQueryData(designQueryKey, (old: any) => {
@@ -307,6 +325,7 @@ export async function runDeleteFiles(
   if (activeFile && deleteIds.has(activeFile.id) && nextActiveFile) {
     setActiveFileId(nextActiveFile.id);
   }
+  setOverviewSelectedScreenIds?.([]);
   setSelectedElement(null);
   setSelectedLayerIdsState([]);
 
@@ -345,6 +364,13 @@ export async function runDeleteFiles(
   );
   const deletedIds = new Set(deletedFiles.map((file) => file.id));
   const failedFiles = filesToDelete.filter((file) => !deletedIds.has(file.id));
+  if (
+    !recordDeletionHistory &&
+    !options?.preserveHistory &&
+    deletedFiles.length
+  ) {
+    pruneHistoryForDeletedFiles(deletedFiles);
+  }
   const serverDeletedFileSnapshots = Array.isArray(mutationValue?.deletedFiles)
     ? mutationValue.deletedFiles
     : [];
@@ -390,6 +416,9 @@ export async function runDeleteFiles(
     if (activeFile && deleteIds.has(activeFile.id)) {
       setActiveFileId(activeFile.id);
     }
+    setOverviewSelectedScreenIds?.(previousSelection.overviewSelectedScreenIds);
+    setSelectedElement(previousSelection.selectedElement);
+    setSelectedLayerIdsState(previousSelection.selectedLayerIds);
     void queryClient.invalidateQueries({
       queryKey: ["action", "get-design"],
     });
