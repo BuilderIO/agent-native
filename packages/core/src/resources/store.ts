@@ -89,6 +89,11 @@ export function isWorkspaceResourceOwner(owner: string): boolean {
   );
 }
 
+/** Local File Mode has one repo-backed workspace, represented by this owner. */
+function isBareWorkspaceResourceOwner(owner: string): boolean {
+  return owner === WORKSPACE_OWNER;
+}
+
 export function organizationIdFromWorkspaceResourceOwner(
   owner: string,
 ): string | null {
@@ -227,10 +232,12 @@ async function filterLegacyDispatchWorkspaceRows<
       args: ids,
     }));
   } catch (error) {
-    // Without Dispatch's table there is no tenancy record to scope these rows
-    // by, so they keep their pre-scoping meaning as deployment-wide defaults.
+    // A tagged row has no safe tenant without Dispatch's tenancy record.
+    // Untagged bare-owner rows remain genuine deployment-wide defaults.
     if (!isMissingResourceSchemaError(error)) throw error;
-    return resources;
+    return resources.filter(
+      (resource) => legacyDispatchWorkspaceResourceId(resource) === null,
+    );
   }
   const organizationByResourceId = new Map(
     rows.map((row) => [String(row.id), nullableString(row.org_id)]),
@@ -1499,15 +1506,15 @@ export async function resourceGetByPath(
 ): Promise<Resource | null> {
   await ensureTable();
   const workspace = isWorkspaceResourceOwner(owner);
-  if (workspace) {
+  const owners = workspace
+    ? workspaceReadOwners(owner, options?.orgId)
+    : [owner];
+  if (isBareWorkspaceResourceOwner(owners[0])) {
     const local = await localWorkspaceResourceByPath(path);
     if (local) return local;
   }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
-  const owners = workspace
-    ? workspaceReadOwners(owner, options?.orgId)
-    : [owner];
   const { rows } = await client.execute({
     sql: `SELECT * FROM resources WHERE owner IN (${owners.map(() => "?").join(", ")}) AND path = ?`,
     args: [...owners, path],
@@ -1516,7 +1523,7 @@ export async function resourceGetByPath(
   const ownerRank = new Map(
     owners.map((candidate, index) => [candidate, index]),
   );
-  const [resource] = await filterLegacyDispatchWorkspaceRows(
+  const resources = await filterLegacyDispatchWorkspaceRows(
     rows
       .map(rowToResource)
       .filter((candidate) =>
@@ -1529,7 +1536,17 @@ export async function resourceGetByPath(
       ),
     orgId,
   );
-  if (resource) return resource;
+  if (!workspace || isBareWorkspaceResourceOwner(owners[0])) {
+    if (resources[0]) return resources[0];
+  } else {
+    const organizationResource = resources.find(
+      (resource) => resource.owner === owners[0],
+    );
+    if (organizationResource) return organizationResource;
+    const local = await localWorkspaceResourceByPath(path);
+    if (local) return local;
+    if (resources[0]) return resources[0];
+  }
   return workspace ? grantedWorkspaceResourceByPath(path, options) : null;
 }
 
@@ -1542,7 +1559,7 @@ export async function resourcePut(
 ): Promise<Resource> {
   await ensureTable();
   if (
-    isWorkspaceResourceOwner(owner) &&
+    isBareWorkspaceResourceOwner(owner) &&
     (await shouldHandleWorkspaceResourceAsLocal(path))
   ) {
     const written = await writeLocalWorkspaceResource({ path, content });
@@ -1558,7 +1575,7 @@ export async function resourcePut(
     );
     return resource;
   }
-  if (isWorkspaceResourceOwner(owner)) {
+  if (isBareWorkspaceResourceOwner(owner)) {
     await assertWritableWorkspaceResourcePath(path);
   }
   const client = getDbExec();
@@ -1668,12 +1685,12 @@ export async function resourcePutIfAbsent(
 ): Promise<Resource | null> {
   await ensureTable();
   if (
-    isWorkspaceResourceOwner(owner) &&
+    isBareWorkspaceResourceOwner(owner) &&
     (await shouldHandleWorkspaceResourceAsLocal(path))
   ) {
     return null;
   }
-  if (isWorkspaceResourceOwner(owner)) {
+  if (isBareWorkspaceResourceOwner(owner)) {
     await assertWritableWorkspaceResourcePath(path);
   }
 
@@ -1751,12 +1768,12 @@ export async function resourcePutIfCurrent(
 ): Promise<Resource | null> {
   await ensureTable();
   if (
-    isWorkspaceResourceOwner(input.owner) &&
+    isBareWorkspaceResourceOwner(input.owner) &&
     (await shouldHandleWorkspaceResourceAsLocal(input.path))
   ) {
     return null;
   }
-  if (isWorkspaceResourceOwner(input.owner)) {
+  if (isBareWorkspaceResourceOwner(input.owner)) {
     await assertWritableWorkspaceResourcePath(input.path);
   }
 
@@ -1865,7 +1882,7 @@ export async function resourceDeleteByPath(
 ): Promise<boolean> {
   await ensureTable();
   if (
-    isWorkspaceResourceOwner(owner) &&
+    isBareWorkspaceResourceOwner(owner) &&
     (await shouldHandleWorkspaceResourceAsLocal(path))
   ) {
     const existing = await localWorkspaceResourceByPath(path);
@@ -1875,7 +1892,7 @@ export async function resourceDeleteByPath(
       return true;
     }
   }
-  if (isWorkspaceResourceOwner(owner)) {
+  if (isBareWorkspaceResourceOwner(owner)) {
     await assertWritableWorkspaceResourcePath(path);
   }
   const client = getDbExec();
@@ -1935,35 +1952,28 @@ export async function resourceList(
   };
   // The organization's own rows win over legacy bare-owner rows at the same
   // path, so `owners` order is precedence order.
-  const resources = (await Promise.all(owners.map(listOwner))).reduce(
-    (merged, candidate) => mergeResourceMetas(merged, candidate),
+  const ownerResources = await Promise.all(owners.map(listOwner));
+  const resources = ownerResources.reduce((merged, candidate) =>
+    mergeResourceMetas(merged, candidate),
   );
   if (!workspace) return resources;
 
-  if (pathPrefix) {
-    const local = await localWorkspaceResourceMetas(pathPrefix);
-    const granted = await grantedWorkspaceResources({
-      pathPrefix,
-      workspaceAppId: options?.workspaceAppId,
-      userEmail: options?.userEmail,
-      orgId: options?.orgId,
-    });
-    return mergeResourceMetas(
-      local,
-      mergeResourceMetas(resources, granted.map(resourceToMeta)),
-    );
-  }
-
-  const local = await localWorkspaceResourceMetas();
+  const local = await localWorkspaceResourceMetas(pathPrefix);
+  const primaryResources = ownerResources[0] ?? [];
+  const inheritedResources = ownerResources[1] ?? [];
+  const workspaceResources = isBareWorkspaceResourceOwner(owners[0])
+    ? mergeResourceMetas(local, resources)
+    : mergeResourceMetas(
+        primaryResources,
+        mergeResourceMetas(local, inheritedResources),
+      );
   const granted = await grantedWorkspaceResources({
+    pathPrefix,
     workspaceAppId: options?.workspaceAppId,
     userEmail: options?.userEmail,
     orgId: options?.orgId,
   });
-  return mergeResourceMetas(
-    local,
-    mergeResourceMetas(resources, granted.map(resourceToMeta)),
-  );
+  return mergeResourceMetas(workspaceResources, granted.map(resourceToMeta));
 }
 
 /**
@@ -2153,7 +2163,10 @@ export async function resourceListAllOwners(
     ...localResources,
     ...rows
       .map(rowToResource)
-      .filter((resource) => !localPaths.has(resource.path)),
+      .filter(
+        (resource) =>
+          resource.owner !== WORKSPACE_OWNER || !localPaths.has(resource.path),
+      ),
   ];
 }
 

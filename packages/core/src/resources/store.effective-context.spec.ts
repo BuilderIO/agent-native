@@ -193,6 +193,90 @@ describe("resourceEffectiveContext", () => {
     }
   });
 
+  it("fails closed for tagged Dispatch workspace rows without tenancy schema", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceGet,
+      resourceGetByPath,
+      resourceList,
+      resourcePut,
+    } = await import("./store.js");
+    const prefix = `instructions/legacy-dispatch-missing-schema-${Date.now()}/`;
+    const taggedPath = `${prefix}private.md`;
+    const defaultPath = `${prefix}default.md`;
+
+    try {
+      const tagged = await resourcePut(
+        WORKSPACE_OWNER,
+        taggedPath,
+        "unscoped private copy",
+        undefined,
+        {
+          metadata: {
+            source: "dispatch-workspace-resource",
+            resourceId: "missing-tenancy-row",
+          },
+        },
+      );
+      await resourcePut(WORKSPACE_OWNER, defaultPath, "deployment default");
+
+      await expect(
+        resourceGet(tagged.id, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, taggedPath, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, defaultPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ content: "deployment default" });
+      await expect(
+        resourceList(WORKSPACE_OWNER, prefix, { orgId: "org-a" }),
+      ).resolves.toEqual([expect.objectContaining({ path: defaultPath })]);
+    } finally {
+      await Promise.all([
+        resourceDeleteByPath(WORKSPACE_OWNER, taggedPath),
+        resourceDeleteByPath(WORKSPACE_OWNER, defaultPath),
+      ]);
+    }
+  });
+
+  it("propagates non-schema tenancy lookup failures", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `instructions/legacy-dispatch-db-error-${Date.now()}.md`;
+    const databaseClient = sharedClient;
+
+    try {
+      await resourcePut(WORKSPACE_OWNER, path, "private copy", undefined, {
+        metadata: {
+          source: "dispatch-workspace-resource",
+          resourceId: "unreadable-tenancy-row",
+        },
+      });
+      sharedClient = {
+        async execute(arg) {
+          const sql = typeof arg === "string" ? arg : arg.sql;
+          if (sql.includes("SELECT id, org_id FROM workspace_resources")) {
+            throw new Error("Dispatch tenancy connection reset");
+          }
+          return databaseClient.execute(arg);
+        },
+      };
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, path, { orgId: "org-a" }),
+      ).rejects.toThrow("Dispatch tenancy connection reset");
+    } finally {
+      sharedClient = databaseClient;
+      await resourceDeleteByPath(WORKSPACE_OWNER, path);
+    }
+  });
+
   it("keeps a pre-upgrade Dispatch copy visible only to the organization that authored it", async () => {
     const {
       WORKSPACE_OWNER,
@@ -643,10 +727,16 @@ describe("resourceEffectiveContext", () => {
   it("surfaces local file mode control files as writable workspace resources", async () => {
     const {
       WORKSPACE_OWNER,
+      resourceDeleteByPath,
       resourceEffectiveContext,
       resourceGetByPath,
+      resourceList,
+      resourceListAllOwners,
       resourceListAccessible,
       resourcePut,
+      resourcePutIfAbsent,
+      resourcePutIfCurrent,
+      workspaceResourceOwner,
     } = await import("./store.js");
 
     const root = fs.mkdtempSync(
@@ -655,6 +745,16 @@ describe("resourceEffectiveContext", () => {
     const previousManifest = process.env.AGENT_NATIVE_MANIFEST;
     const previousManifestPath = process.env.AGENT_NATIVE_MANIFEST_PATH;
     const manifestPath = path.join(root, "agent-native.json");
+    const localPath = "skills/local-review/SKILL.md";
+    let bareSqlFallback:
+      | {
+          id: string;
+          content: string;
+          size: number;
+          updatedAt: number;
+          createdForTest: boolean;
+        }
+      | undefined;
     try {
       fs.writeFileSync(
         manifestPath,
@@ -707,7 +807,7 @@ describe("resourceEffectiveContext", () => {
 
       const effective = await resourceEffectiveContext(
         "member@example.test",
-        "AGENTS.md",
+        localPath,
       );
       expect(effective.effectiveScope).toBe("workspace");
       expect(effective.layers[0]).toMatchObject({
@@ -715,6 +815,141 @@ describe("resourceEffectiveContext", () => {
         exists: true,
         canWrite: true,
       });
+
+      const orgAOwner = workspaceResourceOwner("org-a");
+      const orgBOwner = workspaceResourceOwner("org-b");
+      const orgA = await resourcePut(orgAOwner, localPath, "# Org A");
+      await resourcePut(orgBOwner, localPath, "# Org B");
+      await expect(
+        resourcePut(orgAOwner, "context/org-only.md", "# Org-only"),
+      ).resolves.toMatchObject({ owner: orgAOwner });
+      await expect(
+        resourcePutIfAbsent(
+          orgAOwner,
+          "context/org-if-absent.md",
+          "# Org-only once",
+        ),
+      ).resolves.toMatchObject({ owner: orgAOwner });
+      expect(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8")).toBe(
+        "# Local Agents",
+      );
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ owner: orgAOwner, content: "# Org A" });
+      await expect(
+        resourceGetByPath(orgBOwner, localPath),
+      ).resolves.toMatchObject({ owner: orgBOwner, content: "# Org B" });
+      await expect(
+        resourceList(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
+      ).resolves.toEqual([expect.objectContaining({ owner: orgAOwner })]);
+      await expect(resourceListAllOwners(localPath)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            owner: WORKSPACE_OWNER,
+            content: expect.stringContaining("# Local Review"),
+          }),
+          expect.objectContaining({ owner: orgAOwner, content: "# Org A" }),
+          expect.objectContaining({ owner: orgBOwner, content: "# Org B" }),
+        ]),
+      );
+
+      const orgAContext = await resourceEffectiveContext(
+        "member@example.test",
+        localPath,
+        { orgId: "org-a" },
+      );
+      expect(orgAContext.effectiveResource).toMatchObject({
+        owner: orgAOwner,
+      });
+      await expect(
+        resourcePutIfCurrent({
+          owner: orgAOwner,
+          path: localPath,
+          content: "# Org A updated",
+          expectedId: orgA.id,
+          expectedUpdatedAt: orgA.updatedAt,
+          expectedContent: orgA.content,
+        }),
+      ).resolves.toMatchObject({ content: "# Org A updated" });
+      await expect(resourceDeleteByPath(orgAOwner, localPath)).resolves.toBe(
+        true,
+      );
+      const bareRows = (await pglite
+        .prepare(
+          "SELECT id, content, size, updated_at FROM resources WHERE owner = ? AND path = ?",
+        )
+        .all(WORKSPACE_OWNER, localPath)) as Array<{
+        id: string;
+        content: string;
+        size: number;
+        updated_at: number;
+      }>;
+      const bareRow = bareRows[0];
+      const now = Date.now();
+      if (bareRow) {
+        bareSqlFallback = {
+          id: bareRow.id,
+          content: bareRow.content,
+          size: Number(bareRow.size),
+          updatedAt: Number(bareRow.updated_at),
+          createdForTest: false,
+        };
+        await pglite
+          .prepare(
+            "UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE id = ?",
+          )
+          .run(
+            "# Bare SQL fallback",
+            Buffer.byteLength("# Bare SQL fallback", "utf8"),
+            now,
+            bareSqlFallback.id,
+          );
+      } else {
+        const id = `bare-local-fallback-${Date.now()}`;
+        await pglite
+          .prepare(
+            `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            id,
+            localPath,
+            WORKSPACE_OWNER,
+            "# Bare SQL fallback",
+            "text/markdown",
+            Buffer.byteLength("# Bare SQL fallback", "utf8"),
+            now,
+            now,
+          );
+        bareSqlFallback = {
+          id,
+          content: "",
+          size: 0,
+          updatedAt: 0,
+          createdForTest: true,
+        };
+      }
+      expect(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8")).toBe(
+        "# Local Agents",
+      );
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({
+        owner: WORKSPACE_OWNER,
+        content: expect.stringContaining("# Local Review"),
+      });
+      await expect(
+        resourceList(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          owner: WORKSPACE_OWNER,
+          metadata: expect.stringContaining("local-workspace-resource"),
+        }),
+      ]);
+      await expect(
+        resourceGetByPath(orgBOwner, localPath),
+      ).resolves.toMatchObject({ owner: orgBOwner, content: "# Org B" });
 
       await resourcePut(
         WORKSPACE_OWNER,
@@ -732,6 +967,36 @@ describe("resourceEffectiveContext", () => {
         resourcePut(WORKSPACE_OWNER, "context/brand.md", "# Brand"),
       ).rejects.toThrow("Workspace resources in local file mode");
     } finally {
+      await Promise.all([
+        resourceDeleteByPath(workspaceResourceOwner("org-a"), localPath),
+        resourceDeleteByPath(
+          workspaceResourceOwner("org-a"),
+          "context/org-only.md",
+        ),
+        resourceDeleteByPath(
+          workspaceResourceOwner("org-a"),
+          "context/org-if-absent.md",
+        ),
+        resourceDeleteByPath(workspaceResourceOwner("org-b"), localPath),
+      ]);
+      if (bareSqlFallback) {
+        if (bareSqlFallback.createdForTest) {
+          await pglite
+            .prepare("DELETE FROM resources WHERE id = ?")
+            .run(bareSqlFallback.id);
+        } else {
+          await pglite
+            .prepare(
+              "UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(
+              bareSqlFallback.content,
+              bareSqlFallback.size,
+              bareSqlFallback.updatedAt,
+              bareSqlFallback.id,
+            );
+        }
+      }
       if (previousManifest === undefined) {
         delete process.env.AGENT_NATIVE_MANIFEST;
       } else {

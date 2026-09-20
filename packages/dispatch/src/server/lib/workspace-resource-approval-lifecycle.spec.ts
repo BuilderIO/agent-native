@@ -227,4 +227,129 @@ describe("workspace resource approval lifecycle", () => {
       ).toMatchObject({ exists: true, effective: true });
     });
   }, 60_000);
+
+  it("removes an organization-tagged legacy bare copy when approval revokes All apps", async () => {
+    const [
+      { getDbExec },
+      { runWithRequestContext },
+      {
+        resourceDeleteByPath,
+        resourceGetByPath,
+        resourcePut,
+        SHARED_OWNER,
+        WORKSPACE_OWNER,
+        workspaceResourceOwner,
+      },
+      { putOrgSetting },
+      {
+        approveRequest,
+        createWorkspaceResource,
+        getWorkspaceResourceEffectiveContext,
+        updateWorkspaceResource,
+      },
+    ] = await Promise.all([
+      import("@agent-native/core/db"),
+      import("@agent-native/core/server"),
+      import("@agent-native/core/resources/store"),
+      import("@agent-native/core/settings"),
+      import("./workspace-resources-store.js").then(async (resourcesStore) => {
+        const dispatchStore = await import("./dispatch-store.js");
+        return {
+          approveRequest: dispatchStore.approveRequest,
+          createWorkspaceResource: resourcesStore.createWorkspaceResource,
+          getWorkspaceResourceEffectiveContext:
+            resourcesStore.getWorkspaceResourceEffectiveContext,
+          updateWorkspaceResource: resourcesStore.updateWorkspaceResource,
+        };
+      }),
+    ]);
+
+    const exec = getDbExec();
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await putOrgSetting(orgId, "dispatch-approval-policy", {
+        enabled: true,
+        approverEmails: [approverEmail],
+      });
+
+      const created = await createWorkspaceResource({
+        kind: "knowledge",
+        name: "Legacy cleanup context",
+        path: resourcePath,
+        content: "# Legacy cleanup context",
+        scope: "all",
+      });
+      await approveRequest((created as any).id);
+
+      const { rows } = await exec.execute({
+        sql: "SELECT id, updated_at FROM workspace_resources WHERE path = ?",
+        args: [resourcePath],
+      });
+      const resourceId = String(rows[0]?.id);
+      const metadata = {
+        source: "dispatch-workspace-resource",
+        resourceId,
+        updatedAt: Number(rows[0]?.updated_at),
+      };
+
+      await resourceDeleteByPath(workspaceResourceOwner(orgId), resourcePath);
+      await resourcePut(
+        WORKSPACE_OWNER,
+        resourcePath,
+        "# Legacy cleanup context",
+        "text/markdown",
+        { createdBy: "system", metadata },
+      );
+      await resourcePut(
+        WORKSPACE_OWNER,
+        `${resourcePath}.backup`,
+        "# Same prefix must survive",
+        "text/markdown",
+        { createdBy: "system", metadata },
+      );
+      await resourcePut(
+        SHARED_OWNER,
+        resourcePath,
+        "# Another Dispatch resource must survive",
+        "text/markdown",
+        {
+          createdBy: "system",
+          metadata: { ...metadata, resourceId: "other_dispatch_resource" },
+        },
+      );
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, resourcePath, { orgId }),
+      ).resolves.toMatchObject({ owner: WORKSPACE_OWNER });
+
+      const revoke = await updateWorkspaceResource(resourceId, {
+        scope: "selected",
+      });
+      await approveRequest((revoke as any).id);
+
+      const materializedRows = await exec.execute({
+        sql: "SELECT owner, path FROM resources WHERE path LIKE ? ORDER BY owner, path",
+        args: [`${resourcePath}%`],
+      });
+      expect(materializedRows.rows).toEqual([
+        { owner: SHARED_OWNER, path: resourcePath },
+        { owner: WORKSPACE_OWNER, path: `${resourcePath}.backup` },
+      ]);
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, resourcePath, { orgId }),
+      ).resolves.toBeNull();
+
+      await expect(
+        getWorkspaceResourceEffectiveContext({
+          path: resourcePath,
+          appId: "analytics",
+          userEmail,
+        }),
+      ).resolves.toMatchObject({
+        availability: "selected-not-granted",
+        availableToApp: false,
+        effectiveScope: "shared",
+      });
+    });
+  }, 60_000);
 });

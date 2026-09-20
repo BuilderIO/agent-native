@@ -4,7 +4,7 @@ import { getDbExec } from "@agent-native/core/db";
 import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
 import {
   isWorkspaceResourceOwner,
-  resourceDeleteByPath,
+  resourceDeleteIfCurrent,
   resourceEffectiveContext,
   resourceGetByPath,
   resourceListAllOwners,
@@ -70,6 +70,15 @@ function now() {
 }
 
 const DISPATCH_RESOURCE_METADATA_SOURCE = "dispatch-workspace-resource";
+
+class WorkspaceResourceMaterializationConflictError extends Error {
+  constructor(resourcePath: string) {
+    super(
+      `Workspace resource materialization changed concurrently: ${resourcePath}`,
+    );
+    this.name = "WorkspaceResourceMaterializationConflictError";
+  }
+}
 
 interface MaterializableWorkspaceResource {
   id: string;
@@ -186,14 +195,20 @@ async function removeMaterializedResourceFromOwner(
   owner: string,
   resource: Pick<MaterializableWorkspaceResource, "id" | "path" | "orgId">,
 ) {
-  // With an organization in scope the store reads the bare workspace owner as
-  // an alias for that organization's owner, and falls through from the
-  // organization owner to the bare one. Neither may stand in for the row this
-  // call is deciding about, so read the bare owner as itself and only delete
-  // the row that actually lives under `owner`.
-  const existing = await resourceGetByPath(owner, resource.path, {
-    orgId: owner === WORKSPACE_OWNER ? null : resource.orgId,
-  });
+  // Legacy tenancy filtering hides a tagged bare row outside its organization,
+  // so scoped reads cannot identify the physical bare row during cleanup.
+  // Other owners retain their narrower scoped lookup.
+  const exactResource = async () => {
+    if (owner === WORKSPACE_OWNER) {
+      return (await resourceListAllOwners(resource.path)).find(
+        (candidate) =>
+          candidate.owner === WORKSPACE_OWNER &&
+          candidate.path === resource.path,
+      );
+    }
+    return resourceGetByPath(owner, resource.path, { orgId: resource.orgId });
+  };
+  const existing = await exactResource();
   if (!existing || existing.owner !== owner) return;
   const metadata = parseResourceMetadata(existing.metadata);
   if (
@@ -202,7 +217,19 @@ async function removeMaterializedResourceFromOwner(
   ) {
     return;
   }
-  await resourceDeleteByPath(owner, resource.path);
+  if (await resourceDeleteIfCurrent(existing)) return;
+
+  const current = await exactResource();
+  const currentMetadata = current
+    ? parseResourceMetadata(current.metadata)
+    : null;
+  if (
+    current?.owner === owner &&
+    currentMetadata?.source === DISPATCH_RESOURCE_METADATA_SOURCE &&
+    currentMetadata.resourceId === resource.id
+  ) {
+    throw new WorkspaceResourceMaterializationConflictError(resource.path);
+  }
 }
 
 async function removeMaterializedGlobalResource(
