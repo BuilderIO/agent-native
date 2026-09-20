@@ -16,6 +16,10 @@ it("navigates exported slides with controls and keyboard", async () => {
     { id: "two", content: "<p>Second</p>" },
   ]);
   expect(html).toContain("@media (hover: none), (any-pointer: coarse)");
+  expect(html).toContain(
+    "else if (document.documentElement.requestFullscreen)",
+  );
+  expect(html).toContain("else if (document.exitFullscreen)");
   window.document.write(html);
   await window.happyDOM.whenAsyncComplete();
 

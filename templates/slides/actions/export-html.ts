@@ -495,8 +495,10 @@ export function buildStandaloneHtml(
       nextButton.addEventListener('click', function() { showSlide(currentSlide + 1); });
       fullscreenButton.addEventListener('click', function() {
         if (document.fullscreenElement) {
-          document.exitFullscreen().catch(function(error) { console.error('Fullscreen exit failed', error); });
-        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(function(error) { console.error('Fullscreen exit failed', error); });
+          }
+        } else if (document.documentElement.requestFullscreen) {
           document.documentElement.requestFullscreen().catch(function(error) { console.error('Fullscreen request failed', error); });
         }
       });
@@ -538,8 +540,10 @@ export function buildStandaloneHtml(
           case 'f':
           case 'F':
             if (!document.fullscreenElement) {
-              document.documentElement.requestFullscreen().catch(function() {});
-            } else {
+              if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(function() {});
+              }
+            } else if (document.exitFullscreen) {
               document.exitFullscreen().catch(function() {});
             }
             break;
