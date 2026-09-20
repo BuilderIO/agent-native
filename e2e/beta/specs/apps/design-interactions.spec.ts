@@ -600,8 +600,11 @@ function frame(page: Page) {
 }
 
 function frameById(page: Page, screenId: string) {
+  const escapedScreenId = screenId.replace(/["\\]/g, "\\$&");
   return page
-    .locator(`${PREVIEW}[data-screen-iframe-id="${CSS.escape(screenId)}"]`)
+    .locator(
+      `${PREVIEW}[data-screen-iframe-id="${escapedScreenId}"]`,
+    )
     .first()
     .contentFrame();
 }
