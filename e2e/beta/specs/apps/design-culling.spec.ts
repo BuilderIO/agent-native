@@ -190,6 +190,12 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     );
     const surfaceBox = await surface.boundingBox();
     if (!surfaceBox) throw new Error("missing overview canvas surface");
+    await Promise.all(
+      page
+        .frames()
+        .filter((frame) => frame !== page.mainFrame())
+        .map((frame) => frame.waitForLoadState("load")),
+    );
     await resetChurn(page);
     await page.mouse.move(
       surfaceBox.x + surfaceBox.width / 2,
