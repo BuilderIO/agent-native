@@ -1,7 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, canvasZoom, designFrame, gotoEditor } from "./helpers";
+import {
+  appPath,
+  canvasZoom,
+  designFrame,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
 
 /**
  * Figma-parity check for §2 Move / auto-nesting (Part 3 resolutions): drag an
@@ -173,6 +179,39 @@ async function selectionContext(page: Page) {
     );
   }
   return response.json();
+}
+
+function layerRow(page: Page, name: string) {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.locator(`span[title="${name}"]`) })
+    .first()
+    .locator('xpath=ancestor::*[@role="treeitem"][1]');
+}
+
+async function layerParentName(
+  page: Page,
+  name: string,
+): Promise<string | null> {
+  return layerRow(page, name).evaluate((row) => {
+    const item = row.closest<HTMLElement>('[role="treeitem"]');
+    const tree = item?.closest<HTMLElement>('[role="tree"]');
+    if (!item || !tree) return null;
+    const level = Number(item.getAttribute("aria-level"));
+    const items = Array.from(
+      tree.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+    );
+    const index = items.indexOf(item);
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (Number(items[i]?.getAttribute("aria-level")) < level) {
+        return (
+          items[i]?.querySelector<HTMLElement>("span[title]")?.title ?? null
+        );
+      }
+    }
+    return null;
+  });
 }
 
 /**
@@ -985,6 +1024,7 @@ test.describe("drag reparent parity", () => {
   }) => {
     const id = await newTwoScreenDesign(page);
     await gotoEditor(page, id);
+    await expandAllLayers(page);
     await page.keyboard.press("Shift+1");
     const screenOneId = await fileIdFor(page, id, "index.html");
     const screenTwoId = await fileIdFor(page, id, "page-two.html");
@@ -1056,6 +1096,7 @@ test.describe("drag reparent parity", () => {
     );
     await page.waitForTimeout(300);
     expect(pageErrors).toEqual([]);
+    await expect.poll(() => layerParentName(page, "Widget")).toBe("Main");
     expect(await fileContent(page, id, "index.html")).toBe(sourceBefore);
     expect(await fileContent(page, id, "page-two.html")).toBe(
       destinationBefore,

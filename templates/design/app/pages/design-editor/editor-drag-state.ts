@@ -26,6 +26,9 @@ export function shouldAcceptEditorDragStateEvent(
   ) {
     return false;
   }
+  // eventAt is a shared epoch clock, not an ordering token. Same-iframe
+  // postMessage delivery is FIFO; equal-time cross-iframe events are rejected
+  // by the retired screen/drag ownership checks above.
   if (
     !state.active &&
     state.dragId &&
