@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import {
   indexHtml,
+  MOD,
   newDesign,
   node,
   openEditor,
@@ -538,7 +539,6 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
     await expect
       .poll(() => indexHtml(page, designId), { timeout: 5_000 })
       .toContain('data-agent-native-node-id="explicit-source"');
-    await openEditor(page, designId);
     const state = await preview(page)
       .locator("body")
       .evaluate(() => {
@@ -568,6 +568,20 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
       span: "1 / span 2",
       gridContains: true,
     });
+
+    await page.keyboard.down(MOD);
+    await page.keyboard.press("z");
+    await page.keyboard.up(MOD);
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .not.toContain("grid-column: 3 / 4");
+    await expect
+      .poll(() =>
+        preview(page)
+          .locator('[data-agent-native-node-id="explicit-source"]')
+          .evaluate((source) => source.parentElement?.tagName),
+      )
+      .toBe("BODY");
   } finally {
     await deleteDesign(page, designId);
   }
