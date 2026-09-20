@@ -106,28 +106,12 @@ function resolveCanonicalizedRange(
   current: string,
   anchor: MarkdownAnchor,
 ) {
-  let marker = "suggestionrangeboundary";
-  while (before.includes(marker) || current.includes(marker)) marker += "z";
-  const startMarker = `${marker}start`;
-  const endMarker = `${marker}end`;
-  const marked = `${before.slice(0, anchor.from)}${startMarker}${before.slice(anchor.from, anchor.to)}${endMarker}${before.slice(anchor.to)}`;
-  const canonicalMarked = docToNfm(nfmToDoc(marked));
-  const from = canonicalMarked.indexOf(startMarker);
-  const end = canonicalMarked.indexOf(endMarker);
-  if (
-    from < 0 ||
-    end < from + startMarker.length ||
-    canonicalMarked.indexOf(startMarker, from + 1) >= 0 ||
-    canonicalMarked.indexOf(endMarker, end + 1) >= 0
-  ) {
-    return null;
-  }
-  const withoutMarkers =
-    canonicalMarked.slice(0, from) +
-    canonicalMarked.slice(from + startMarker.length, end) +
-    canonicalMarked.slice(end + endMarker.length);
-  if (withoutMarkers !== current) return null;
-  return { from, to: end - startMarker.length };
+  if (docToNfm(nfmToDoc(before)) !== current) return null;
+  const target = before.slice(anchor.from, anchor.to);
+  if (!target) return null;
+  const from = current.indexOf(target);
+  if (from < 0 || current.indexOf(target, from + 1) >= 0) return null;
+  return { from, to: from + target.length };
 }
 
 export function resolveMarkdownSuggestionRange(

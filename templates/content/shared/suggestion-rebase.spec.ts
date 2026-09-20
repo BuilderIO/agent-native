@@ -248,6 +248,33 @@ describe("resolveMarkdownSuggestionRange", () => {
     ).toBeNull();
   });
 
+  it("does not map a target whose bytes changed during canonicalization", () => {
+    const saved = "First paragraph.\n\nSecond paragraph.";
+    const from = saved.indexOf("\n\n");
+    expect(
+      resolveMarkdownSuggestionRange(
+        "First paragraph.\nSecond paragraph.",
+        change(saved, from, from + 2, "\nReplacement\n"),
+      ),
+    ).toBeNull();
+  });
+
+  it("maps a target spanning Markdown block syntax without changing structure", () => {
+    const saved = "# Heading\n\n> Original quote\n\nTail";
+    const target = "> Original quote";
+    const canonical = "# Heading\n> Original quote\nTail";
+    const from = saved.indexOf(target);
+    expect(
+      resolveMarkdownSuggestionRange(
+        canonical,
+        change(saved, from, from + target.length, "> Revised quote"),
+      ),
+    ).toEqual({
+      from: canonical.indexOf(target),
+      to: canonical.indexOf(target) + target.length,
+    });
+  });
+
   it("does not highlight an overlapping canonical replacement", () => {
     expect(
       resolveMarkdownSuggestionRange(
