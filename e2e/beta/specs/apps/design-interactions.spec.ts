@@ -1632,6 +1632,24 @@ test.describe("authenticated beta Design interactions", () => {
         cssHeight: copyGeometry.cssHeight,
         parent: CROSS_SCREEN_DESTINATION_ID,
       });
+      expect(await readSource(page, design.designId, "index.html")).toBe(
+        sourceBefore,
+      );
+      const reloadedDestinationOrder = await frameById(
+        page,
+        design.destinationId,
+      )
+        .locator(
+          `[data-agent-native-node-id="${CROSS_SCREEN_DESTINATION_ID}"] > [data-agent-native-node-id]`,
+        )
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+        );
+      expect(reloadedDestinationOrder).toEqual([
+        "destination-first",
+        copyId,
+        "destination-last",
+      ]);
     } catch (error) {
       primaryFailure = true;
       throw error;
