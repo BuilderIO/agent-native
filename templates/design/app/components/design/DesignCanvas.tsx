@@ -184,6 +184,8 @@ import type {
   GridGroupStructureMove,
   ElementSelectionIntent,
   DeviceFrameType,
+  RuntimeStructureDeleteRequest,
+  RuntimeLayerRenameRequest,
   RuntimeStructureInsertRequest,
   RuntimeStructureMoveRequest,
   RuntimeVerificationRequest,
@@ -652,8 +654,25 @@ interface DesignCanvasProps {
   runtimeStructureMoveRequest?: RuntimeStructureMoveRequest | null;
   /** One-shot host request to insert new markup into the running DOM. */
   runtimeStructureInsertRequest?: RuntimeStructureInsertRequest | null;
+  /** One-shot host request to delete a runtime layer in this screen. */
+  runtimeStructureDeleteRequest?: RuntimeStructureDeleteRequest | null;
+  runtimeLayerRenameRequest?: RuntimeLayerRenameRequest | null;
   /** The bridge could not honor a runtimeStructureInsertRequest. */
   onRuntimeStructureInsertRejected?: (reason: string) => void;
+  onRuntimeStructureDeleteApplied?: (details: {
+    screenId?: string;
+    requestId: string;
+    selector: string;
+    sourceId?: string;
+    info?: ElementInfo;
+  }) => void;
+  onRuntimeLayerRenameApplied?: (details: {
+    requestId: number;
+    selector: string;
+    sourceId?: string;
+    name: string;
+    previousName?: string;
+  }) => void;
   /** Mounts a separate hidden runtime only after a guarded source hash
    * changes. The editable iframe remains untouched and fully undoable. */
   runtimeVerificationRequest?: RuntimeVerificationRequest | null;
@@ -1363,7 +1382,11 @@ export function DesignCanvas({
   structureAckRequest,
   runtimeStructureMoveRequest,
   runtimeStructureInsertRequest,
+  runtimeStructureDeleteRequest,
+  runtimeLayerRenameRequest,
   onRuntimeStructureInsertRejected,
+  onRuntimeStructureDeleteApplied,
+  onRuntimeLayerRenameApplied,
   runtimeVerificationRequest,
   embeddedFrameBackground,
   transparentBackground = false,
@@ -2529,6 +2552,41 @@ export function DesignCanvas({
         });
         if (isPreviewTokenStaleStatus(response.status)) {
           if (!isCurrent()) return null;
+          // A public viewer may outlive the local bridge process. Refresh the
+          // read-only credential automatically so a reboot is a recoverable
+          // registration event, not a dead iframe that waits for a manual
+          // reconnect click. The action never returns the write-capable bridge
+          // token; it derives the paired preview credential server-side.
+          if (designId && connectionId) {
+            try {
+              const refreshed = await callAction<{
+                previewToken?: string;
+              }>(
+                "refresh-localhost-preview-token",
+                { designId, connectionId, publicVisualEdit },
+                { method: "GET" },
+              );
+              const nextPreviewToken = refreshed?.previewToken;
+              if (
+                isCurrent() &&
+                nextPreviewToken &&
+                nextPreviewToken !== effectivePreviewToken
+              ) {
+                if (registrationHandoffKey) {
+                  liveEditRegistrationHandoff.delete(registrationHandoffKey);
+                }
+                setRegisteredLiveEditBridgeKey(null);
+                setBridgeRegistrationError(null);
+                setBridgeRegistrationFailureKind(null);
+                setConnectingLocalNetworkAccess(false);
+                setEffectivePreviewToken(nextPreviewToken);
+                return true;
+              }
+            } catch {
+              // Keep the explicit stale-token error below when the public
+              // refresh endpoint cannot recover this connection.
+            }
+          }
           if (registrationHandoffKey) {
             liveEditRegistrationHandoff.delete(registrationHandoffKey);
           }
@@ -2607,6 +2665,9 @@ export function DesignCanvas({
       effectivePreviewToken,
       registrationHandoffKey,
       usesLiveEditInjectedBridge,
+      designId,
+      connectionId,
+      publicVisualEdit,
     ]);
   useEffect(() => {
     if (!usesLiveEditInjectedBridge || !bridgeUrl || !effectivePreviewToken) {
@@ -3431,6 +3492,30 @@ export function DesignCanvas({
     bridgeReadyRef.current = false;
     bootReadyRef.current = false;
   }
+  // Edit mode must never let a live URL receive native app input before the
+  // injected editor bridge has proved that it owns the document. A cached
+  // registration can outlive a bridge restart, and a 401/409 can otherwise
+  // leave an ordinary app iframe interactive while the canvas looks editable.
+  // Interact mode is the deliberate exception: it is the one mode where the
+  // running app, rather than the editor, owns pointer and keyboard input.
+  // A URL-backed localhost frame in Edit mode is never allowed to receive
+  // native app input until the editor bridge is ready. This also covers the
+  // short window before the public visual-edit token query resolves: the raw
+  // URL is useful as a loading surface, but releasing it early makes a failed
+  // registration look like a working editor and lets clicks mutate the app.
+  const liveEditFrameRequiresBridge =
+    sourceType === "localhost" &&
+    Boolean(rawExternalPreviewUrl) &&
+    !interactMode &&
+    !readOnly;
+  const liveEditInteractionBlocked =
+    liveEditFrameRequiresBridge &&
+    (!usesLiveEditInjectedBridge ||
+      bridgeRegistrationFailedForCurrentKey ||
+      !liveEditBridgeRegistered ||
+      readyIframeDocumentIdentity !== iframeDocumentIdentity);
+  const liveEditBridgeConfigurationPending =
+    liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
   // an onLoad that already fired would strand a spinner over finished content.
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
@@ -3451,6 +3536,12 @@ export function DesignCanvas({
     Boolean(externalPreviewUrl) &&
     !usingRawFallbackPreview &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
+  // A failed registration may still leave the raw dev-server URL mounted as a
+  // visual fallback. In Edit mode that fallback is not an editor: cover it
+  // with the same blocking surface used during bridge boot, so a 401/409 or a
+  // denied local-network permission can never hand clicks to the app.
+  const liveEditRegistrationFailurePending =
+    liveEditFrameRequiresBridge && bridgeRegistrationFailedForCurrentKey;
   // A proxied container paints its own app immediately, so without this the
   // canvas looks ready while hover, selection and layers are still dead.
   const sameOriginBridgePending =
@@ -3768,6 +3859,39 @@ export function DesignCanvas({
       }
       if (e.data.type === "runtime-structure-insert-rejected") {
         onRuntimeStructureInsertRejected?.(String(e.data.reason || "unknown"));
+        return;
+      }
+      if (e.data.type === "runtime-element-deleted") {
+        const requestId =
+          typeof e.data.requestId === "string" ? e.data.requestId : "";
+        if (!requestId) return;
+        onRuntimeStructureDeleteApplied?.({
+          screenId,
+          requestId,
+          selector: typeof e.data.selector === "string" ? e.data.selector : "",
+          sourceId:
+            typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+          info: isElementInfoPayload(e.data.payload)
+            ? e.data.payload
+            : undefined,
+        });
+        return;
+      }
+      if (e.data.type === "runtime-layer-name-applied") {
+        const requestId = Number(e.data.requestId);
+        const name = typeof e.data.name === "string" ? e.data.name : "";
+        if (!Number.isFinite(requestId) || !name) return;
+        onRuntimeLayerRenameApplied?.({
+          requestId,
+          selector: typeof e.data.selector === "string" ? e.data.selector : "",
+          sourceId:
+            typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+          name,
+          previousName:
+            typeof e.data.previousName === "string"
+              ? e.data.previousName
+              : undefined,
+        });
         return;
       }
       if (e.data.type === "visual-grid-group-change") {
@@ -4517,6 +4641,7 @@ export function DesignCanvas({
     onVisualStructureChange,
     onVisualGridGroupChange,
     onRuntimeStructureInsertRejected,
+    onRuntimeLayerRenameApplied,
     onVisualDuplicateChange,
     onZoomChange,
     scheduleZoomCommit,
@@ -4532,6 +4657,7 @@ export function DesignCanvas({
     fusionUrl,
     flushPendingOneShotMessages,
     postOneShotBridgeMessage,
+    iframeDocumentIdentity,
   ]);
 
   // Mirror the selection down only when it changes, so stale re-posts can't
@@ -5536,6 +5662,7 @@ export function DesignCanvas({
       postOneShotBridgeMessage({
         type: "runtime-structure-insert",
         requestId: runtimeStructureInsertRequest.requestId + index / 1_000,
+        transactionId: runtimeStructureInsertRequest.transactionId,
         html,
         anchorSelector,
         anchorSourceId,
@@ -5560,6 +5687,46 @@ export function DesignCanvas({
       }
     });
   }, [postOneShotBridgeMessage, runtimeStructureInsertRequest]);
+
+  const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!runtimeStructureDeleteRequest) return;
+    if (
+      lastRuntimeStructureDeleteRequestIdRef.current ===
+      runtimeStructureDeleteRequest.requestId
+    ) {
+      return;
+    }
+    lastRuntimeStructureDeleteRequestIdRef.current =
+      runtimeStructureDeleteRequest.requestId;
+    postOneShotBridgeMessage({
+      type: "delete-element",
+      selector: runtimeStructureDeleteRequest.selector,
+      selectorCandidates:
+        runtimeStructureDeleteRequest.selectorCandidates ?? [],
+      requestId: runtimeStructureDeleteRequest.requestId,
+    });
+  }, [postOneShotBridgeMessage, runtimeStructureDeleteRequest]);
+
+  const lastRuntimeLayerRenameRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!runtimeLayerRenameRequest) return;
+    if (
+      lastRuntimeLayerRenameRequestIdRef.current ===
+      runtimeLayerRenameRequest.requestId
+    ) {
+      return;
+    }
+    lastRuntimeLayerRenameRequestIdRef.current =
+      runtimeLayerRenameRequest.requestId;
+    postOneShotBridgeMessage({
+      type: "runtime-layer-rename",
+      requestId: runtimeLayerRenameRequest.requestId,
+      selector: runtimeLayerRenameRequest.selector,
+      sourceId: runtimeLayerRenameRequest.sourceId,
+      name: runtimeLayerRenameRequest.name,
+    });
+  }, [postOneShotBridgeMessage, runtimeLayerRenameRequest]);
 
   /**
    * Send a motion-preview scrub tick to the iframe.  `t` is the normalised
@@ -6403,8 +6570,7 @@ export function DesignCanvas({
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
-            pointerEvents:
-              usingRawFallbackPreview && !interactMode ? "none" : undefined,
+            pointerEvents: liveEditInteractionBlocked ? "none" : undefined,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             ...getIframePaintRetentionStyle({
               viewportWidth:
@@ -6557,9 +6723,11 @@ export function DesignCanvas({
         />
       ) : null}
       {waitingForEditableExternalSnapshot ||
+      liveEditBridgeConfigurationPending ||
       (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
       sameOriginBridgePending ||
-      liveEditDocumentPending ? (
+      liveEditDocumentPending ||
+      liveEditRegistrationFailurePending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
             // handleSuspectedBridgeRestart's destructive terminal state (see
@@ -6592,6 +6760,39 @@ export function DesignCanvas({
               >
                 <IconRefresh className="size-3.5" />
                 {"Retry" /* i18n-ignore local dev bridge retry button */}
+              </Button>
+            </div>
+          ) : bridgeRegistrationFailedForCurrentKey ? (
+            <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
+                {
+                  "Live editing is waiting for a connection" /* i18n-ignore blocked localhost edit state */
+                }
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {
+                  "The running app is shielded until Design connects to the local bridge." /* i18n-ignore blocked localhost edit state */
+                }
+              </div>
+              {bridgeRegistrationError?.message ? (
+                <div className="w-full truncate rounded bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">
+                  {bridgeRegistrationError.message}
+                </div>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleConnectLocalNetworkAccess}
+                disabled={connectingLocalNetworkAccess}
+              >
+                <IconRefresh className="size-3.5" />
+                {
+                  connectingLocalNetworkAccess
+                    ? "Connecting…"
+                    : "Retry" /* i18n-ignore blocked localhost edit retry */
+                }
               </Button>
             </div>
           ) : waitingForLiveEditBridge || sameOriginBridgePending ? (

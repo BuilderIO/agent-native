@@ -11616,6 +11616,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (target.parentElement) target.parentElement.removeChild(target);
     publishSourceDocumentProvenance(undefined, true);
+    if (typeof requestId === "string" && requestId) {
+      (window.parent as Window).postMessage(
+        {
+          type: "runtime-element-deleted",
+          requestId: requestId,
+          selector: getSelector(target),
+          sourceId: getSourceId(target),
+          payload: getElementInfo(target),
+        },
+        "*",
+      );
+    }
     // T23: the removed subtree may contain the active text-edit element —
     // its blur/keydown listeners are gone with it, so exit the session
     // through the canonical cleanup instead of leaking it.
@@ -24821,6 +24833,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         insertTarget,
         { inserted: true },
         parsedInsertEl.outerHTML,
+        undefined,
+        undefined,
+        undefined,
+        typeof e.data.transactionId === "string"
+          ? e.data.transactionId
+          : undefined,
       );
       return;
     }
@@ -25009,6 +25027,53 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       claimContentAsSource(textTarget);
       publishSourceDocumentProvenance(undefined, true);
       refreshOverlays();
+      return;
+    }
+    if (e.data.type === "runtime-layer-rename") {
+      if (readOnly) return;
+      var renameName =
+        typeof e.data.name === "string" ? e.data.name.trim().slice(0, 200) : "";
+      if (!renameName) return;
+      var renameCandidates = Array.isArray(e.data.selectorCandidates)
+        ? e.data.selectorCandidates
+        : [];
+      if (
+        e.data.selector &&
+        renameCandidates.indexOf(String(e.data.selector)) === -1
+      ) {
+        renameCandidates.push(String(e.data.selector));
+      }
+      if (typeof e.data.sourceId === "string" && e.data.sourceId) {
+        renameCandidates.push(
+          '[data-agent-native-node-id="' +
+            String(e.data.sourceId).replace(/"/g, '\\"') +
+            '"]',
+        );
+      }
+      var renameTarget = findRuntimeTarget(
+        String(e.data.selector || ""),
+        renameCandidates,
+      );
+      if (!renameTarget) return;
+      var previousLayerName =
+        renameTarget.getAttribute("data-agent-native-layer-name") || "";
+      renameTarget.setAttribute("data-agent-native-layer-name", renameName);
+      claimContentAsSource(renameTarget);
+      publishSourceDocumentProvenance(undefined, true);
+      postRuntimeLayerSnapshot();
+      refreshOverlays();
+      (window.parent as Window).postMessage(
+        {
+          type: "runtime-layer-name-applied",
+          requestId: Number(e.data.requestId),
+          selector: getSelector(renameTarget),
+          sourceId:
+            typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+          name: renameName,
+          previousName: previousLayerName,
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type !== "style-change") return;

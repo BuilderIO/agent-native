@@ -79,6 +79,7 @@ export interface GridGroupStructureMove {
  */
 export interface RuntimeStructureInsertRequest {
   requestId: number;
+  transactionId?: string;
   html: string;
   /** Additional clipboard roots inserted by the same paste gesture. */
   additionalHtml?: string[];
@@ -91,6 +92,20 @@ export interface RuntimeStructureInsertRequest {
     pendingNodeId?: string | null;
   };
   placement: "before" | "after" | "inside";
+}
+
+export interface RuntimeStructureDeleteRequest {
+  requestId: string;
+  transactionId?: string;
+  selector: string;
+  selectorCandidates?: string[];
+}
+
+export interface RuntimeLayerRenameRequest {
+  requestId: number;
+  selector: string;
+  sourceId?: string | null;
+  name: string;
 }
 
 export interface RuntimeVerificationRequest {

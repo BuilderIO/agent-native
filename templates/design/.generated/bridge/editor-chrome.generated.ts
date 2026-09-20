@@ -8619,6 +8619,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (target.parentElement) target.parentElement.removeChild(target);
       publishSourceDocumentProvenance(void 0, true);
+      if (typeof requestId === "string" && requestId) {
+        window.parent.postMessage(
+          {
+            type: "runtime-element-deleted",
+            requestId,
+            selector: getSelector(target),
+            sourceId: getSourceId(target),
+            payload: getElementInfo(target)
+          },
+          "*"
+        );
+      }
       exitStaleTextEditSession();
       if (selectedEl === target || !document.documentElement.contains(selectedEl)) {
         selectedEl = null;
@@ -17502,7 +17514,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           parsedInsertEl,
           insertTarget,
           { inserted: true },
-          parsedInsertEl.outerHTML
+          parsedInsertEl.outerHTML,
+          void 0,
+          void 0,
+          void 0,
+          typeof e.data.transactionId === "string" ? e.data.transactionId : void 0
         );
         return;
       }
