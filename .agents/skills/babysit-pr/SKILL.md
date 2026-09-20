@@ -221,9 +221,11 @@ If the PR body or branch cites `/review-latest-feedback`, treat its start
 cursor, grouped reports, evidence links, and disposition table as part of the
 PR's review state. At the first tick, record that handoff. On every later tick
 before the merge gate, re-read the handoff and check for new Slack replies,
-GitHub feedback, Sentry findings, and first-party Agent-Native Analytics error
-issues after its cursor using the configured connectors. A new actionable
- report resets the soak timer and must reach either
+GitHub feedback, and Sentry findings after its cursor using the configured
+connectors. Re-query first-party Agent-Native Analytics error issues with
+`list-error-issues` and its available filters; it has no time cursor and caps
+results at 100, so record bounded coverage and do not claim exhaustive newness.
+A new actionable report resets the soak timer and must reach either
 a verified **Fixed** or **Shipped** result with a concise reply and `✅`, a
 verified **Live verified** result with `✅` (reply only when informative), or a
 non-fixed terminal ledger disposition with its marker before merge (`✅` only
