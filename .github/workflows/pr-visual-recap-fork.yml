@@ -355,6 +355,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile --ignore-scripts
+          pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/recap-cli build
 
       - name: Install published recap CLI
