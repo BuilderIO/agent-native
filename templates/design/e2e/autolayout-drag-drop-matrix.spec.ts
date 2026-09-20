@@ -603,6 +603,12 @@ async function dragHeldWithOracle(
       );
       await capture(`target-${step}`);
     }
+    if (sourceId === "root-d" && targetId === "root-a") {
+      for (let repeat = 1; repeat <= 3; repeat += 1) {
+        await page.mouse.move(end.x, end.y, { steps: 1 });
+        await capture(`target-repeat-${repeat}`);
+      }
+    }
     beforeReleaseHtml = await fileHtml(request, designId, screenId);
   } finally {
     await page.mouse.up();
@@ -1721,7 +1727,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           expect(lifted?.source?.lifted).toBe(true);
           expect(lifted?.source?.zIndex).toBe("2147483646");
           expect(lifted?.source?.pointerEvents).toBe("none");
-          expect(targetSnapshots.length).toBe(8);
+          expect(targetSnapshots.length).toBe(cell.fixture === "wrap" ? 11 : 8);
           const targetGuideSamples = targetSnapshots.filter(
             (snapshot) =>
               snapshot.guide?.display === "block" &&
@@ -1736,6 +1742,27 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
                 snapshot.children.map((child) => child.id).join(","),
               ),
             ).toContain(cell.expected.join(","));
+            const expectedOrder = cell.expected.join(",");
+            const firstExpected = targetSnapshots.findIndex(
+              (snapshot) =>
+                snapshot.children.map((child) => child.id).join(",") ===
+                expectedOrder,
+            );
+            expect(firstExpected).toBeGreaterThanOrEqual(0);
+            expect(
+              targetSnapshots
+                .slice(firstExpected)
+                .every(
+                  (snapshot) =>
+                    snapshot.children.map((child) => child.id).join(",") ===
+                    expectedOrder,
+                ),
+            ).toBe(true);
+            expect(
+              targetSnapshots
+                .slice(-3)
+                .every((snapshot) => snapshot.guide?.display === "block"),
+            ).toBe(true);
             expect(
               targetSnapshots.some((snapshot) =>
                 childMoved(evidence.before, snapshot.children, cell.source),

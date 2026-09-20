@@ -13104,6 +13104,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               }
             }
             reflowDomOrigin = null;
+            reflowKey = null;
+            reflowGuideRect = null;
+            reflowGuideMode = null;
           }
         }, clearGroupGridPreview2 = function() {
           if (!restoreGroupGridPreview) return;

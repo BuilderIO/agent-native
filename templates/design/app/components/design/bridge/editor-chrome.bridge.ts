@@ -18740,6 +18740,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             }
           }
           reflowDomOrigin = null;
+          reflowKey = null;
+          reflowGuideRect = null;
+          reflowGuideMode = null;
         }
       }
       var restoreGroupGridPreview: (() => void) | null = null;
