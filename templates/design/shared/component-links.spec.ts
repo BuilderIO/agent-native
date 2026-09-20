@@ -555,6 +555,62 @@ describe("linked component structure propagation", () => {
     expect(decodeURIComponent(afterReset ?? "")).not.toContain(
       "attribute:data-agent-native-prop-variant",
     );
+
+    const afterResetDocuments = afterLaterMain.map((document) => ({
+      ...document,
+      content:
+        reset.changes.find((change) => change.fileId === document.source.fileId)
+          ?.after ?? document.content,
+    }));
+    const emptyMainEdit = applyComponentPropertyEdit({
+      documents: afterResetDocuments,
+      target: { fileId: SOURCE.fileId!, nodeId: "main-button" },
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-variant",
+        value: "",
+      },
+    });
+    expect(emptyMainEdit.status).toBe("updated");
+    if (emptyMainEdit.status !== "updated") return;
+    const afterEmptyMain = afterResetDocuments.map((document) => ({
+      ...document,
+      content:
+        emptyMainEdit.changes.find(
+          (change) => change.fileId === document.source.fileId,
+        )?.after ?? document.content,
+    }));
+    const emptyInstanceEdit = applyComponentPropertyEdit({
+      documents: afterEmptyMain,
+      target: { fileId: "file-2", nodeId: "instance-button" },
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-variant",
+        value: "outline",
+      },
+    });
+    expect(emptyInstanceEdit.status).toBe("updated");
+    if (emptyInstanceEdit.status !== "updated") return;
+    const afterEmptyInstance = afterEmptyMain.map((document) => ({
+      ...document,
+      content:
+        emptyInstanceEdit.changes.find(
+          (change) => change.fileId === document.source.fileId,
+        )?.after ?? document.content,
+    }));
+    const emptyReset = resetComponentInstanceOverrides({
+      documents: afterEmptyInstance,
+      instance: { fileId: "file-2", nodeId: "instance-button" },
+    });
+    expect(emptyReset.status).toBe("updated");
+    if (emptyReset.status !== "updated") return;
+    const afterEmptyReset = emptyReset.changes.find(
+      (change) => change.fileId === "file-2",
+    )?.after;
+    expect(afterEmptyReset).toContain('data-agent-native-prop-variant=""');
+    expect(decodeURIComponent(afterEmptyReset ?? "")).not.toContain(
+      "attribute:data-agent-native-prop-variant",
+    );
   });
 
   it("propagates a main child deletion to every cross-screen instance", () => {
