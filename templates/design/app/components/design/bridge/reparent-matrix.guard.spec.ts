@@ -703,7 +703,7 @@ describe("Chromium reparent matrix", () => {
   );
 
   it(
-    "honors Control Ignore Auto Layout and Space retain-parent for absolute drags",
+    "honors Ignore Auto Layout and Space retain-parent for absolute drags",
     { timeout: 30_000 },
     async () => {
       const page = await browser.newPage({
@@ -731,7 +731,7 @@ describe("Chromium reparent matrix", () => {
         page,
         "#control",
         { x: 560, y: 220 },
-        "Control",
+        await ignoreAutoLayoutModifier(page),
       );
       const ignored = await page.locator("#control").evaluate((element) => {
         const item = element as HTMLElement;
