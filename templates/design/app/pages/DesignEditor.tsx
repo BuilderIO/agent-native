@@ -250,7 +250,10 @@ import {
   recordDesignPerformance,
   trace,
 } from "@/components/design/design-trace";
-import { DesignCanvas } from "@/components/design/DesignCanvas";
+import {
+  DesignCanvas,
+  type EditorDragStateChange,
+} from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
   AssetLibraryPanel,
@@ -577,6 +580,7 @@ import {
   codeLayerNodeLooksLikeComponent,
   codeLayerSelectorAliases,
   codeLayerSelectorMatches,
+  previewCodeLayerTreeMove,
   codeLayerTreeToPanelNodes,
   collectCodeLayerAncestors,
   collectEffectiveCodeLayerState,
@@ -7309,6 +7313,14 @@ function DesignEditor() {
   const canvasBackgroundRef = useRef<string | null>(null);
   const { resolvedTheme } = useTheme();
   const activeEditorDragRef = useRef(false);
+  type LayerStructurePreview = {
+    sourceId: string;
+    anchorId: string;
+    placement: "before" | "after" | "inside";
+    insert: boolean;
+  };
+  const [layerStructurePreviewByFileId, setLayerStructurePreviewByFileId] =
+    useState<Record<string, LayerStructurePreview>>({});
 
   // Live handle to the active DesignCanvas preview iframe. DesignCanvas owns the
   // <iframe> internally (tagged data-design-preview-iframe) and does not forward
@@ -7336,9 +7348,38 @@ function DesignEditor() {
     [activeFile?.id],
   );
 
-  const handleEditorDragStateChange = useCallback((active: boolean) => {
-    activeEditorDragRef.current = active;
-  }, []);
+  const handleEditorDragStateChange = useCallback(
+    (state: EditorDragStateChange) => {
+      activeEditorDragRef.current = state.active;
+      const screenId = state.screenId;
+      if (!screenId) return;
+      setLayerStructurePreviewByFileId((current) => {
+        const preview = state.preview;
+        if (
+          !state.active ||
+          preview?.phase === "clear" ||
+          !preview?.sourceId ||
+          !preview.anchorId ||
+          !preview.placement
+        ) {
+          if (!current[screenId]) return current;
+          const next = { ...current };
+          delete next[screenId];
+          return next;
+        }
+        return {
+          ...current,
+          [screenId]: {
+            sourceId: preview.sourceId,
+            anchorId: preview.anchorId,
+            placement: preview.placement,
+            insert: preview.insert !== false,
+          },
+        };
+      });
+    },
+    [],
+  );
 
   const cancelActiveEditorDrag = useCallback(() => {
     if (!activeEditorDragRef.current) return false;
@@ -19238,6 +19279,7 @@ function DesignEditor() {
     sourceContent: string;
     sourceNodeIdAttrs: ReadonlySet<string>;
     runtimeOnly: boolean;
+    structurePreviewKey: string;
     tree: CodeLayerTreeNode[];
     nodeById: Map<string, CodeLayerNode>;
   };
@@ -19251,6 +19293,10 @@ function DesignEditor() {
     const models = files.map((file): CodeLayerFileModel => {
       const sourceContent = getScreenContent(file.id);
       const cached = cache.get(file.id);
+      const structurePreview = layerStructurePreviewByFileId[file.id];
+      const structurePreviewKey = structurePreview
+        ? `${structurePreview.sourceId}:${structurePreview.anchorId}:${structurePreview.placement}:${structurePreview.insert}`
+        : "";
       const sourceNodeIdAttrs =
         cached?.sourceContent === sourceContent
           ? cached.sourceNodeIdAttrs
@@ -19285,15 +19331,33 @@ function DesignEditor() {
         cached.projection === projection &&
         cached.sourceProjection === sourceProjection &&
         cached.sourceContent === sourceContent &&
-        cached.runtimeOnly === useRuntimeProjection
+        cached.runtimeOnly === useRuntimeProjection &&
+        cached.structurePreviewKey === structurePreviewKey
       ) {
         return cached;
       }
-      const tree = useRuntimeProjection
+      const baseTree = useRuntimeProjection
         ? buildCodeLayerTree(projection)
         : file.id === activeFile?.id
           ? activeCodeLayerTree
           : buildCodeLayerTree(projection);
+      const tree = structurePreview
+        ? (previewCodeLayerTreeMove(baseTree, {
+            ...structurePreview,
+            sourceId:
+              projection.nodes.find(
+                (node) =>
+                  bridgeSourceIdForCodeLayerNode(node) ===
+                  structurePreview.sourceId,
+              )?.id ?? structurePreview.sourceId,
+            anchorId:
+              projection.nodes.find(
+                (node) =>
+                  bridgeSourceIdForCodeLayerNode(node) ===
+                  structurePreview.anchorId,
+              )?.id ?? structurePreview.anchorId,
+          }) ?? baseTree)
+        : baseTree;
       const model: CodeLayerFileModel = {
         fileId: file.id,
         projection,
@@ -19301,6 +19365,7 @@ function DesignEditor() {
         sourceContent,
         sourceNodeIdAttrs,
         runtimeOnly: useRuntimeProjection,
+        structurePreviewKey,
         tree,
         nodeById: new Map(projection.nodes.map((node) => [node.id, node])),
       };
@@ -19341,6 +19406,7 @@ function DesignEditor() {
     getScreenContent,
     overviewScreenById,
     runtimeLayerSnapshotsById,
+    layerStructurePreviewByFileId,
   ]);
   const codeLayerModelByFileId = useMemo(
     () => new Map(codeLayerModelsByFile.map((model) => [model.fileId, model])),

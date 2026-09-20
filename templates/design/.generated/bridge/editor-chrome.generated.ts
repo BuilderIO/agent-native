@@ -4683,11 +4683,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       hideSpacingOverlay();
       hideMeasurements();
     }
-    function postEditorDragState(active) {
+    function postEditorDragState(active, preview) {
       window.parent.postMessage(
-        { type: "agent-native:editor-drag-state", active },
+        {
+          type: "agent-native:editor-drag-state",
+          active,
+          screenId: designCanvasScreenId,
+          preview
+        },
         "*"
       );
+    }
+    function postLayerStructurePreview(el, target) {
+      var anchor = target && (target.persistenceAnchor || target.anchor);
+      var placement = target && (target.persistencePlacement || target.placement);
+      var sourceId = getSourceId(el);
+      var anchorId = getSourceId(anchor);
+      var insert = target.dropMode !== "flow-insert" || el.parentElement === dropContainerForTarget(target);
+      if (!sourceId || !anchorId || placement !== "before" && placement !== "after" && placement !== "inside") {
+        postEditorDragState(true, { phase: "clear" });
+        return;
+      }
+      postEditorDragState(true, {
+        phase: "preview",
+        sourceId,
+        anchorId,
+        placement,
+        insert
+      });
     }
     function setActiveDragCancel(cancel, startedAt) {
       activeDragCancel = cancel;
@@ -13547,6 +13570,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             hideInsertionGuide();
             clearReorderLift2();
             clearReorderReflow2();
+            postEditorDragState(true, { phase: "clear" });
             showTransformBadge(
               duplicatedForDrag ? "Duplicate layer" : "Move layer",
               cx,
@@ -13573,6 +13597,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             if (_dndKey !== reorderLastTargetKey) {
               reorderLastTargetKey = _dndKey;
               dndLog("target", dndTarget(currentTarget));
+              postLayerStructurePreview(reorderEl, currentTarget);
             }
             applyReorderLift2(dx, dy);
             applyReorderReflow2(currentTarget, cx, cy);
@@ -13829,6 +13854,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           reorderIgnoresAutoLayout,
           isPlatformPrimaryChord(e)
         );
+        postLayerStructurePreview(reorderEl, currentTarget);
         showInsertionGuideFor(currentTarget);
         dndLog("start:reorder", {
           el: getSelector(reorderEl),

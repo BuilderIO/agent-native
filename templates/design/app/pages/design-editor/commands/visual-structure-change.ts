@@ -193,6 +193,12 @@ export function runVisualStructureChange(
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
     : resolveBridgeNode(selector, details?.sourceId);
   const anchorNode = resolveBridgeNode(anchorSelector, details?.anchorSourceId);
+  if (
+    (details?.sourceId && !targetNode) ||
+    (details?.anchorSourceId && !anchorNode)
+  ) {
+    return false;
+  }
   const moveIntent = {
     kind: "moveNode" as const,
     target: targetNode
@@ -414,12 +420,11 @@ export function runVisualStructureChange(
     );
     return true;
   }
-  const publication = applyLocalContentUpdate(
-    nextContent,
-    absoluteOffsetWasPoisoned
+  const publication = applyLocalContentUpdate(nextContent, {
+    ...(absoluteOffsetWasPoisoned
       ? { forcePreviewFullDocument: true }
-      : { skipPreview: true },
-  );
+      : { skipPreview: true }),
+  });
   if (publication.status !== "accepted") return false;
   const acceptedProjection = projectAcceptedSource(publication, source);
   const movedNode = mapAcceptedSelectionNode(

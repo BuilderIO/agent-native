@@ -5835,11 +5835,52 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hideMeasurements();
   }
 
-  function postEditorDragState(active: boolean): void {
+  function postEditorDragState(
+    active: boolean,
+    preview?: {
+      phase: "preview" | "clear";
+      sourceId?: string;
+      anchorId?: string;
+      placement?: "before" | "after" | "inside";
+      insert?: boolean;
+    },
+  ): void {
     (window.parent as Window).postMessage(
-      { type: "agent-native:editor-drag-state", active },
+      {
+        type: "agent-native:editor-drag-state",
+        active,
+        screenId: designCanvasScreenId,
+        preview,
+      },
       "*",
     );
+  }
+
+  function postLayerStructurePreview(el, target): void {
+    var anchor = target && (target.persistenceAnchor || target.anchor);
+    var placement = target && (target.persistencePlacement || target.placement);
+    var sourceId = getSourceId(el);
+    var anchorId = getSourceId(anchor);
+    var insert =
+      target.dropMode !== "flow-insert" ||
+      el.parentElement === dropContainerForTarget(target);
+    if (
+      !sourceId ||
+      !anchorId ||
+      (placement !== "before" &&
+        placement !== "after" &&
+        placement !== "inside")
+    ) {
+      postEditorDragState(true, { phase: "clear" });
+      return;
+    }
+    postEditorDragState(true, {
+      phase: "preview",
+      sourceId,
+      anchorId,
+      placement,
+      insert,
+    });
   }
 
   // `startedAt` should be performance.timeOrigin + <the originating pointer
@@ -18562,6 +18603,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         reorderIgnoresAutoLayout,
         isPlatformPrimaryChord(e),
       );
+      postLayerStructurePreview(reorderEl, currentTarget);
       showInsertionGuideFor(currentTarget);
       dndLog("start:reorder", {
         el: getSelector(reorderEl),
@@ -19339,6 +19381,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           hideInsertionGuide();
           clearReorderLift();
           clearReorderReflow();
+          postEditorDragState(true, { phase: "clear" });
           showTransformBadge(
             duplicatedForDrag ? "Duplicate layer" : "Move layer",
             cx,
@@ -19385,6 +19428,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           if (_dndKey !== reorderLastTargetKey) {
             reorderLastTargetKey = _dndKey;
             dndLog("target", dndTarget(currentTarget));
+            postLayerStructurePreview(reorderEl, currentTarget);
           }
           applyReorderLift(dx, dy);
           applyReorderReflow(currentTarget, cx, cy);
