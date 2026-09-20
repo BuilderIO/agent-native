@@ -184,7 +184,8 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("useDocuments({ enabled: localFileMode })");
     expect(sidebar).toContain('"get-content-navigation-context"');
     expect(sidebar).toContain("limit: 50");
-    expect(sidebar).toContain("limit: Math.max(contentSpaces.length, 1)");
+    expect(sidebar).not.toContain("limit: Math.max(contentSpaces.length, 1)");
+    expect(sidebar).toContain("useContentSpaces()");
     expect(documentsHook).toContain("enabled: options?.enabled !== false");
   });
 

@@ -4,7 +4,6 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { mutateUserSettingTransaction } from "@agent-native/core/settings";
-import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -38,7 +37,6 @@ import {
   migratePersonalDatabaseViewOverrides,
   personalDatabaseViewSettingKey,
 } from "./_content-database-personal-view.js";
-import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
   favoriteDocumentIds,
   favoritesSystemIds,

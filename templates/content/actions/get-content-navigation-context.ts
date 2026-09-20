@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
 import {
@@ -31,10 +32,8 @@ type NavigationFilesContext = {
 
 function isContentSpaceAccessDenial(error: unknown): boolean {
   return (
-    error instanceof Error &&
-    (error.message.startsWith("Not authorized for Content space") ||
-      (error.message.startsWith("Content space") &&
-        error.message.endsWith("not found")))
+    error instanceof ActionContractError &&
+    ["FORBIDDEN", "SPACE_NOT_FOUND"].includes(error.errorCode)
   );
 }
 

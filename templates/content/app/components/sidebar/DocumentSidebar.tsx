@@ -977,34 +977,12 @@ export function DocumentSidebar({
     spaces: contentSpaces,
     storedSpaceId,
   });
-  const workspaceCatalogDatabaseId =
-    contentSpacesQuery.data?.catalogDatabaseId ?? null;
   const favoritesDatabaseId =
     contentSpacesQuery.data?.favoritesDatabaseId ?? null;
   const favoritesDatabase = useContentDatabaseById(favoritesDatabaseId, {
     limit: 50,
     contentSpaceId: selectedSpace?.id,
   });
-  const workspaceCatalogDatabase = useContentDatabaseById(
-    workspaceCatalogDatabaseId,
-    { limit: Math.max(contentSpaces.length, 1) },
-  );
-  const workspaceCatalogDatabaseData = isContentDatabaseUnavailable(
-    workspaceCatalogDatabase.data,
-  )
-    ? undefined
-    : workspaceCatalogDatabase.data;
-  const resolvedWorkspaceCatalogDatabaseId =
-    workspaceCatalogDatabaseData?.database.id ?? null;
-  const workspaceCatalogPersonalView = useContentDatabasePersonalView(
-    resolvedWorkspaceCatalogDatabaseId,
-  );
-  const updateWorkspaceNavigation = useUpdateContentPersonalNavigation(
-    resolvedWorkspaceCatalogDatabaseId,
-    workspaceCatalogDatabaseData?.database.viewConfig.views,
-  );
-  const updateWorkspaceCatalogPersonalView =
-    useUpdateContentDatabasePersonalView(resolvedWorkspaceCatalogDatabaseId);
   const favoritesPersonalView =
     useContentDatabasePersonalView(favoritesDatabaseId);
   const favoritesData = isContentDatabaseUnavailable(favoritesDatabase.data)
@@ -1925,36 +1903,6 @@ export function DocumentSidebar({
       favoritesOrder,
       favoritesPersonalView.data?.overrides,
       updateFavoritesPersonalView,
-      t,
-    ],
-  );
-  const handleWorkspaceReorder = useCallback(
-    (itemIds: string[]) => {
-      if (!workspaceCatalogDatabaseId || !workspaceCatalogDatabaseData) return;
-      const current = workspaceCatalogPersonalView.data?.overrides;
-      const selected = personalSidebarOrderForDatabase(
-        workspaceCatalogDatabaseData,
-        current,
-      );
-      updateWorkspaceNavigation.mutate(
-        {
-          databaseId: workspaceCatalogDatabaseId,
-          navigation: {
-            sidebarOrder: {
-              viewId: selected.activeViewId,
-              mode: "custom",
-              itemIds,
-            },
-          },
-        },
-        { onError: () => toast.error(t("sidebar.failedSaveOrder")) },
-      );
-    },
-    [
-      workspaceCatalogDatabaseId,
-      workspaceCatalogDatabaseData,
-      workspaceCatalogPersonalView.data?.overrides,
-      updateWorkspaceNavigation,
       t,
     ],
   );

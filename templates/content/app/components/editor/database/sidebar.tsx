@@ -25,7 +25,6 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
-import { Link } from "react-router";
 
 import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
 import { SidebarNavigationRow } from "@/components/sidebar/SidebarNavigationRow";
