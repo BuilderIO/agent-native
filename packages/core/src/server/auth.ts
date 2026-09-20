@@ -4,7 +4,6 @@ import {
   defineEventHandler,
   getMethod,
   getQuery,
-  getRequestIP,
   setResponseHeader,
   setResponseStatus,
   getCookie,
@@ -220,6 +219,7 @@ import {
   resolveCanonicalUserForLegacySession,
   type CanonicalLegacyUser,
 } from "./legacy-auth-migration.js";
+import * as loopback from "./loopback.js";
 import {
   encodeMagicLinkSignupAttribution,
   MAGIC_LINK_ATTRIBUTION_PARAM,
@@ -896,16 +896,8 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
  * for the dev account, a throwaway per-DB password.
  */
 export function isLoopbackAddress(ip: string | undefined): boolean {
-  // Strip an optional IPv6 zone id (e.g. "fe80::1%en0") before comparing.
-  const normalised = (ip ?? "").split("%")[0];
-  return (
-    normalised === "127.0.0.1" ||
-    normalised === "::1" ||
-    normalised === "::ffff:127.0.0.1" ||
-    normalised.startsWith("127.")
-  );
+  return loopback.isLoopbackAddress(ip);
 }
-
 /**
  * True when the request's actual socket peer is loopback. Uses
  * `getRequestIP(event)` WITHOUT `{ xForwardedFor: true }`, so it reflects the
@@ -914,15 +906,8 @@ export function isLoopbackAddress(ip: string | undefined): boolean {
  * any "is this local dev?" security gate (MCP/connect dev-open).
  */
 export function isLoopbackRequest(event: H3Event): boolean {
-  let ip: string | undefined;
-  try {
-    ip = getRequestIP(event) ?? undefined;
-  } catch {
-    ip = undefined;
-  }
-  return isLoopbackAddress(ip);
+  return loopback.isLoopbackRequest(event);
 }
-
 /**
  * Read the desktop-SSO broker file, but only if the request is plausibly
  * from the Electron desktop app *and* coming from the local machine.

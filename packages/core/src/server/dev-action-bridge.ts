@@ -34,7 +34,6 @@ import { getAppConfig } from "../app-config/index.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
-import { isLoopbackRequest } from "./auth.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
   DEV_ACTION_DISCOVERY_PATH,
@@ -42,6 +41,7 @@ import {
   readDevActionDiscoveryFile,
 } from "./dev-action-discovery.js";
 import { getH3App } from "./framework-request-handler.js";
+import { isLoopbackRequest } from "./loopback.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,

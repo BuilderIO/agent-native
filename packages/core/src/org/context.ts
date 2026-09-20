@@ -6,7 +6,6 @@ import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
-import { getSession } from "../server/auth.js";
 import {
   getRequestContext,
   hasExplicitPersonalOrgScope,
@@ -276,6 +275,7 @@ function updateMembershipsForEvent(
 }
 
 async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
   const email = session?.email;
   if (!email) return EMPTY_CONTEXT;

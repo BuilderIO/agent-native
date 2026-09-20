@@ -4,7 +4,7 @@ import { getDbExec, type DbExec } from "../db/client.js";
 import {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
-} from "../server/credential-provider.js";
+} from "../server/deployment-protection.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { getOrgA2ASecret, getOrgDomain } from "./context.js";
 import { isMissingOrganizationTableError } from "./membership.js";

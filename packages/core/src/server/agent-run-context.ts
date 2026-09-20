@@ -10,7 +10,6 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
-import { getSession } from "./auth.js";
 import {
   runWithRequestContext,
   type RequestContext,
@@ -181,6 +180,7 @@ export async function resolveAgentRunOwnerContext(
     | undefined;
   if (seeded) return seeded;
 
+  const { getSession } = await import("./auth.js");
   const session = await getSession(event);
   if (session?.email) {
     return seedAgentRunOwnerContext(event, {
@@ -219,6 +219,7 @@ export async function resolveAgentRunOrgId(options: {
     resolvedOrgId = normalizeId(await options.resolveOrgId(options.event));
   } else {
     try {
+      const { getSession } = await import("./auth.js");
       const session = await getSession(options.event);
       resolvedOrgId = normalizeId(session?.orgId);
     } catch {

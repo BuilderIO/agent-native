@@ -1,6 +1,10 @@
 import type { AgentChatPluginOptions } from "./server/agent-chat-plugin.js";
 import { createServer } from "./server/create-server.js";
 import type { AgentNativeEmbeddedPluginOptions } from "./server/embedded.js";
+import {
+  markDefaultPluginProvided,
+  trackPluginInit,
+} from "./server/framework-request-handler.js";
 import { createSSEHandler } from "./server/sse.js";
 
 export type { AgentChatPluginOptions } from "./server/agent-chat-plugin.js";
@@ -11,15 +15,42 @@ export type { SSEHandlerOptions } from "./server/sse.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
+const AGENT_CHAT_PLUGIN_PATHS = [
+  "/_agent-native/agent-chat",
+  "/_agent-native/actions",
+  "/_agent-native/agent-model-defaults",
+  "/_agent-native/mcp",
+  "/mcp",
+  "/.well-known/agent-card.json",
+  "/_agent-native/a2a",
+];
+
+const EMBEDDED_PLUGIN_STEMS = [
+  "auth",
+  "sentry",
+  "org",
+  "core-routes",
+  "resources",
+  "onboarding",
+  "integrations",
+  "terminal",
+  "agent-chat",
+] as const;
+
 // The historical root exports remain available, but loading them must not
 // pull the React auth document into a headless Node process.
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
-  return (nitroApp) =>
-    import("./server/agent-chat-plugin.js").then(({ createAgentChatPlugin }) =>
-      createAgentChatPlugin(options)(nitroApp),
+  return (nitroApp) => {
+    markDefaultPluginProvided(nitroApp, "agent-chat");
+    const initPromise = import("./server/agent-chat-plugin.js").then(
+      ({ createAgentChatPlugin }) => createAgentChatPlugin(options)(nitroApp),
     );
+    trackPluginInit(nitroApp, initPromise, {
+      paths: AGENT_CHAT_PLUGIN_PATHS,
+    });
+  };
 }
 
 export const defaultAgentChatPlugin: NitroPluginDef = createAgentChatPlugin();
@@ -35,7 +66,13 @@ export async function mountAgentNativeEmbedded(
 export function createAgentNativeEmbeddedPlugin(
   options: AgentNativeEmbeddedPluginOptions = {},
 ): NitroPluginDef {
-  return (nitroApp) => mountAgentNativeEmbedded(nitroApp, options);
+  return (nitroApp) => {
+    for (const stem of EMBEDDED_PLUGIN_STEMS) {
+      markDefaultPluginProvided(nitroApp, stem);
+    }
+    const initPromise = mountAgentNativeEmbedded(nitroApp, options);
+    trackPluginInit(nitroApp, initPromise);
+  };
 }
 
 export { createServer, createSSEHandler };

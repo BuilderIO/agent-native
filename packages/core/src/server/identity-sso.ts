@@ -30,12 +30,14 @@ import {
   getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
-import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
+import {
+  normalizeAppPath,
+  SIGN_IN_ENTRY_PATH,
+} from "../shared/sign-in-journey.js";
 import {
   addSignupAttributionHeader,
   signupAttributionContextFromCookieHeader,
 } from "./attribution.js";
-import { getSession, isExpectedAuthFailure, safeReturnPath } from "./auth.js";
 import {
   getBetterAuth,
   getBetterAuthInternalAdapter,
@@ -90,6 +92,15 @@ const MAX_ASSERTION_AGE_SECONDS = 5 * 60;
 const MAX_BOOTSTRAP_NAME_LENGTH = 200;
 const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+function safeReturnPath(raw: string | null | undefined): string {
+  return normalizeAppPath(raw) ?? "/";
+}
+
+async function getSessionForEvent(event: H3Event) {
+  const { getSession } = await import("./auth.js");
+  return getSession(event);
+}
 
 function html(body: string, status = 200): Response {
   return new Response(body, {
@@ -615,6 +626,7 @@ export async function ensureIdentityUser(
         ...(signupHeaders ? { headers: signupHeaders } : {}),
       });
     } catch (error) {
+      const { isExpectedAuthFailure } = await import("./auth.js");
       if (!isExpectedAuthFailure(error)) throw error;
     }
     existing = await adapter.findUserByEmail(email, {
@@ -727,7 +739,7 @@ async function startIdentityBootstrap(
   hub: string,
   returnPath: string,
 ): Promise<Response> {
-  const current = await getSession(event).catch((error) => {
+  const current = await getSessionForEvent(event).catch((error) => {
     void error;
     return null;
   });
@@ -869,7 +881,7 @@ export async function handleIdentitySso(
     if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
       return new Response("Invalid completion request", { status: 400 });
     }
-    const current = await getSession(event).catch((error) => {
+    const current = await getSessionForEvent(event).catch((error) => {
       void error;
       return null;
     });
@@ -899,7 +911,7 @@ export async function handleIdentitySso(
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
-    const current = await getSession(event).catch((error) => {
+    const current = await getSessionForEvent(event).catch((error) => {
       void error;
       return null;
     });
@@ -928,7 +940,7 @@ export async function handleIdentitySso(
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
-    const existing = await getSession(event).catch((error) => {
+    const existing = await getSessionForEvent(event).catch((error) => {
       void error;
       return null;
     });

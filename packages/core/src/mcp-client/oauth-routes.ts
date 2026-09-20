@@ -14,7 +14,6 @@ import {
 
 import { getOrgContext } from "../org/context.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
-import { getSession, safeReturnPath } from "../server/auth.js";
 import {
   CredentialStoreUnavailableError,
   resolveSecretPairs,
@@ -30,6 +29,7 @@ import {
 import { runWithRequestContext } from "../server/request-context.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
 import { MCP_OAUTH_FLOW_TTL_SECONDS } from "../shared/mcp-oauth-flow-ttl.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   finishMcpOAuthAuthorization,
@@ -59,6 +59,15 @@ import {
 } from "./remote-store.js";
 
 const MCP_TRACKING_INTEGRATION_ID_PATTERN = /^[a-z0-9-]{1,64}$/u;
+
+function safeReturnPath(raw: string | null | undefined): string {
+  return normalizeAppPath(raw) ?? "/";
+}
+
+async function getSessionForEvent(event: H3Event) {
+  const { getSession } = await import("../server/auth.js");
+  return getSession(event);
+}
 
 export function resolveTrustedMcpOAuthAuthorizationScope(
   serverUrl: URL,
@@ -245,7 +254,8 @@ export function mountMcpOAuthRoutes(
 async function handleMcpOAuthStart(
   event: H3Event,
 ): Promise<Response | Record<string, unknown>> {
-  const session = await getSession(event).catch(() => null);
+  // coercion-ok: OAuth requests fail closed when session resolution is unavailable.
+  const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
 
   const query = getQuery(event);
@@ -692,7 +702,8 @@ async function handleMcpOAuthCallback(
   event: H3Event,
   options: McpOAuthRoutesOptions,
 ): Promise<Response | Record<string, unknown>> {
-  const session = await getSession(event).catch(() => null);
+  // coercion-ok: OAuth callbacks fail closed when session resolution is unavailable.
+  const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
 
   const query = getQuery(event);

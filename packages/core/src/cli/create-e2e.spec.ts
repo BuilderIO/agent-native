@@ -729,6 +729,10 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
       'import("./server/agent-chat-plugin.js")',
     );
     expect(compatibilitySource).toContain('import("./server/auth.js")');
+    expect(compatibilitySource).toContain("trackPluginInit");
+    expect(compatibilitySource).toContain(
+      'markDefaultPluginProvided(nitroApp, "agent-chat")',
+    );
     // Sanity: the server/action primitives headless apps need are still here.
     expect(rootEntry).toMatch(/\bdefineAction\b/);
     expect(rootEntry).toMatch(/from\s+["']\.\/action\.js["']/);
