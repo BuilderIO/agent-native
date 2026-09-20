@@ -395,14 +395,12 @@ export function runVisualStructureChange(
     applyLinkedComponentEdit(
       linkedComponentTarget.fileId,
       linkedComponentTarget.nodeId,
-      nextContent === patch.content
-        ? { kind: "structure", intents: [linkedMoveIntent!] }
-        : {
-            kind: "structure",
-            before: baseContent,
-            after: nextContent,
-            ...(movedNodeAttrId ? { selectionNodeIds: [movedNodeAttrId] } : {}),
-          },
+      {
+        kind: "structure",
+        before: baseContent,
+        after: nextContent,
+        ...(movedNodeAttrId ? { selectionNodeIds: [movedNodeAttrId] } : {}),
+      },
     );
     return true;
   }

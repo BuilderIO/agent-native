@@ -14630,6 +14630,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return null;
     }
     var trackLayout = gridTrackLayoutForElement(container);
+    if (trackLayout) {
+      trackLayout = expandGridTrackLayoutForAuthoredChildren(
+        trackLayout,
+        container,
+      );
+    }
     var placementCandidates = children.concat(excluded || []);
     var hasExplicitPlacement = placementCandidates.some(function (child) {
       var childStyles = window.getComputedStyle(child);
@@ -15972,12 +15978,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var requiredColumns = layout.columnBounds.length;
     var requiredRows = layout.rowBounds.length;
     var children = Array.prototype.slice.call(container.children) as Element[];
+    var authoredRanges: Array<{
+      rect: DOMRect;
+      columnStart: number | null;
+      columnEnd: number | null;
+      rowStart: number | null;
+      rowEnd: number | null;
+    }> = [];
     children.forEach(function (child) {
       var styles = window.getComputedStyle(child);
       var columnStart = numericGridLine(styles.gridColumnStart);
       var rowStart = numericGridLine(styles.gridRowStart);
       var columnEnd = gridLineEnd(styles.gridColumnEnd, columnStart);
       var rowEnd = gridLineEnd(styles.gridRowEnd, rowStart);
+      authoredRanges.push({
+        rect: child.getBoundingClientRect(),
+        columnStart,
+        columnEnd,
+        rowStart,
+        rowEnd,
+      });
       if (columnStart !== null) {
         requiredColumns = Math.max(
           requiredColumns,
@@ -16004,6 +16024,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
     extendBounds(layout.columnBounds, requiredColumns);
     extendBounds(layout.rowBounds, requiredRows);
+    authoredRanges.forEach(function (range) {
+      var columnSpan =
+        range.columnStart !== null && range.columnEnd !== null
+          ? range.columnEnd - range.columnStart
+          : 0;
+      if (range.columnStart !== null && columnSpan > 0) {
+        var trackWidth =
+          (range.rect.width -
+            readPx(window.getComputedStyle(container).columnGap) *
+              (columnSpan - 1)) /
+          columnSpan;
+        if (Number.isFinite(trackWidth) && trackWidth > 0) {
+          var gap = readPx(window.getComputedStyle(container).columnGap);
+          for (var column = 0; column < columnSpan; column += 1) {
+            var index = range.columnStart - 1 + column;
+            layout.columnBounds[index] = {
+              start: range.rect.left + column * (trackWidth + gap),
+              end: range.rect.left + column * (trackWidth + gap) + trackWidth,
+            };
+          }
+        }
+      }
+      var rowSpan =
+        range.rowStart !== null && range.rowEnd !== null
+          ? range.rowEnd - range.rowStart
+          : 0;
+      if (range.rowStart !== null && rowSpan > 0) {
+        var rowGap = readPx(window.getComputedStyle(container).rowGap);
+        var trackHeight =
+          (range.rect.height - rowGap * (rowSpan - 1)) / rowSpan;
+        if (Number.isFinite(trackHeight) && trackHeight > 0) {
+          for (var row = 0; row < rowSpan; row += 1) {
+            var rowIndex = range.rowStart - 1 + row;
+            layout.rowBounds[rowIndex] = {
+              start: range.rect.top + row * (trackHeight + rowGap),
+              end: range.rect.top + row * (trackHeight + rowGap) + trackHeight,
+            };
+          }
+        }
+      }
+    });
     return layout;
   }
   function restoreInlineGridStyles(
@@ -16350,11 +16411,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     stripAbsolutePositioningForFlowInsert(el, target);
     if (target.gridCell) {
       var gridStyles = window.getComputedStyle(el);
-      var sourceGridLayout = gridTrackLayoutForElement(target.anchor);
+      var sourceGridLayout = previousParent
+        ? gridTrackLayoutForElement(previousParent)
+        : null;
       if (sourceGridLayout) {
         sourceGridLayout = expandGridTrackLayoutForAuthoredChildren(
           sourceGridLayout,
-          target.anchor,
+          previousParent,
         );
       }
       var sourceGridRect = el.getBoundingClientRect();
@@ -16798,14 +16861,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var memberTarget =
         i === 0
           ? target
-          : target.dropMode === "absolute-container"
-            ? target
-            : {
-                anchor: previous,
-                placement: "after",
-                axis: target.axis,
-                dropMode: "flow-insert",
-              };
+          : target.gridCell
+            ? {
+                ...target,
+                gridCell: {
+                  column: target.gridCell.column + i,
+                  row: target.gridCell.row,
+                },
+                gridPlacement: undefined,
+                gridDisplacementPlacements: [],
+                gridDisplacementPrevStyles: [],
+              }
+            : target.dropMode === "absolute-container"
+              ? target
+              : {
+                  anchor: previous,
+                  placement: "after",
+                  axis: target.axis,
+                  dropMode: "flow-insert",
+                };
       var prevParent = member.parentElement;
       var prevNextSibling = member.nextSibling;
       // Captured BEFORE applyRuntimeReorder so a rejected move-node
