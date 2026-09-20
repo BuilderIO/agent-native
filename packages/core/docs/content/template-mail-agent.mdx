@@ -1,0 +1,114 @@
+---
+title: "Mail: Talking to the Agent"
+description: "What the agent can see and do in Mail, useful prompts by task, and when it reaches past the built-in actions to a raw Gmail, Calendar, or HubSpot API call."
+---
+
+# Talking to the Agent
+
+Mail's agent reads and acts through the same actions the UI uses, so anything you can click, you can also ask for. This page covers what the agent sees automatically, prompts organized by task, and the cases where it needs to reach further than a built-in action — useful whether you're a day-to-day user or building on top of Mail.
+
+## How the agent sees your screen
+
+The agent knows which view you're in, which thread is open, and which message is focused on every turn — you don't have to describe "this email" or "the current thread." If you're mid-reply and ask "help me word this," it reads your open compose draft (including subject and body-in-progress) before answering, and writes the update back so you see it appear live in the compose panel. If you're on the draft queue, it sees the queue and whichever request is selected.
+
+## Useful prompts by task
+
+**Triage**
+
+- "Summarize my unread emails."
+- "Find the latest thread from Alice about the budget."
+- "Archive all Netlify bot emails older than a week."
+- "Mark everything in my inbox as read except anything from my manager."
+
+**Draft and reply**
+
+- "Draft a reply that politely declines."
+- "Make this draft more formal."
+- "Send this Friday at 9am instead of now."
+- "Ask Jane if Thursday works, using my usual signature."
+
+**Search and context**
+
+- "Who is this, and what deals do they have open?" (pulls HubSpot context on the sender)
+- "Did they open the proposal I sent last week?"
+- "What did we agree to in the last thread with Acme?"
+
+**Automate**
+
+- "Auto-archive anything from newsletters I don't reply to."
+- "Add a Gmail filter that stars anything from my biggest client."
+- "Queue a draft asking Marcus for the Q3 numbers — he can send it himself."
+
+## Selection-aware edits
+
+Select text in an open email or draft and hit `Cmd+I` — that selection travels with your next message, so "make this punchier" or "translate just this paragraph" operates on exactly what you highlighted, not the whole thread.
+
+## When the agent reaches past a built-in action
+
+Mail's built-in actions cover the common cases: read, search, draft, send, star, archive, schedule, automate. When the exact Gmail endpoint, search operator, HubSpot object, or Google Calendar field a built-in action doesn't expose is what you actually need, the agent can call the real provider API directly — the same escalation path exists for Gmail, Google Calendar, and HubSpot.
+
+<Diagram id="doc-block-mail7" title="Escalating past a built-in action" summary={"When a canned action can't express the exact endpoint or filter, the agent looks up the real API shape and calls it directly, staging large results instead of pasting them into the conversation."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    Built-in action isn't enough<br /><small class="diagram-muted"
+      >missing filter, endpoint, or field</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent"
+      >provider-api-catalog · provider-api-docs</span
+    ><small class="diagram-muted">looks up the real API shape</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    provider-api-request<br /><small class="diagram-muted"
+      >Gmail · Calendar · HubSpot</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Large result? stageAs<br /><small class="diagram-muted"
+      >query-staged-dataset instead of pasting the dump</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+Not every provider the sidebar shows is reachable this way: Gong, Pylon, and Apollo integrations are read-only UI sidebar panels in Mail today — the agent can pull HubSpot data through this path, but not those three, even though they're wired in for other Agent-Native apps.
+
+<Callout tone="info">
+
+**Sending is the one place the agent always stops and asks.** Drafting, editing, scheduling, and queuing all happen freely; the moment the agent is about to actually send an email, it pauses for your explicit approval first. See [Drafting, Scheduling & the Draft Queue](/docs/template-mail-drafts-and-queue) for the full send flow.
+
+</Callout>
+
+## Extensions: adding a custom widget to Mail
+
+Mail has a slot in the email contact sidebar (below the built-in CRM panels) where an installed extension can render its own widget — a sandboxed mini-app with access to the same actions and app data. Build or install one from **Settings → Extensions**; see the [extensions](/docs/extensions) docs for how to write one.
+
+## What's next
+
+- [**Inbox, Search & Automations**](/docs/template-mail-inbox) — the full shortcut list and automation rules
+- [**Drafting, Scheduling & the Draft Queue**](/docs/template-mail-drafts-and-queue) — composing, scheduling, and the queue in detail
+- [**Developer Guide**](/docs/template-mail-developers) — every action referenced above, and how to add your own
+- [**Mail overview**](/docs/template-mail) — back to the app summary

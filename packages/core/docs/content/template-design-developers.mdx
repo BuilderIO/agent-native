@@ -1,0 +1,596 @@
+---
+title: "Design: Developer Guide"
+description: "Quick start, the full action inventory, data model, an action walked through, routes, and how to extend the Design template."
+---
+
+# Developer Guide
+
+This page is for anyone customizing the Design template or building on top of it directly: the quick start, every action, the data model, one action walked through, the route surface, and how to add to it. See [Design](/docs/template-design) for what the app does.
+
+## Quick start
+
+<Steps>
+
+### Create the app
+
+```bash
+npx --yes @agent-native/core@latest create my-design --standalone --template design
+```
+
+See [Getting started](/docs/getting-started) for installing dependencies, running the dev server, and the rest of the setup. For a workspace with Design alongside other apps, run `npx --yes @agent-native/core@latest create my-platform` and pick Design during setup.
+
+### Start the dev server
+
+```bash
+pnpm dev
+```
+
+The app opens at `http://localhost:8099`, Design's default dev port. Design
+works fully with no external connections. You'll only hit a connect prompt
+if you try a Figma import or Full App Building before setting those up.
+
+</Steps>
+
+## Action inventory
+
+Every design-specific operation is a TypeScript file in
+`templates/design/actions/`, auto-mounted at `POST
+/_agent-native/actions/:name` and runnable from the CLI as `pnpm action
+
+<name>`.
+
+### Designs
+
+| Action                    | What it does                                                       |
+| ------------------------- | ------------------------------------------------------------------ |
+| `create-design`           | Create the empty design shell                                      |
+| `generate-design`         | Write generated HTML/JSX file content                              |
+| `edit-design`             | Make a surgical search/replace edit to an existing file            |
+| `update-design`           | Update a design's metadata, like its title or linked design system |
+| `get-design`              | Read one design by id                                              |
+| `list-designs`            | List accessible designs                                            |
+| `duplicate-design`        | Copy a design and its files                                        |
+| `delete-design`           | Delete a design                                                    |
+| `apply-tweaks`            | Persist live tweak-knob values                                     |
+| `present-design-variants` | Save a few directions as screens and show the side-by-side picker  |
+| `show-design-questions`   | Show the clarifying-questions overlay for a vague prompt           |
+| `generate-screens`        | Generate more than one screen in a batch                           |
+
+### Files
+
+| Action        | What it does                |
+| ------------- | --------------------------- |
+| `create-file` | Add a new file to a design  |
+| `update-file` | Update a file's content     |
+| `list-files`  | List a design's files       |
+| `delete-file` | Delete a file from a design |
+
+### Templates
+
+| Action                        | What it does                                                             |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| `list-design-templates`       | List built-in and saved templates                                        |
+| `create-design-from-template` | Copy a template's files, dimensions, and locked layers into a new design |
+| `save-design-as-template`     | Save the current design as a reusable template                           |
+| `delete-design-template`      | Delete a saved template                                                  |
+
+### Design systems and brand import
+
+| Action                             | What it does                                                                                                                                 |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create-design-system`             | Create a design system from scratch, or from a public preset like Material 3, Carbon, or Primer                                              |
+| `update-design-system`             | Update a design system's tokens or settings                                                                                                  |
+| `get-design-system`                | Read one design system by id                                                                                                                 |
+| `list-design-systems`              | List accessible design systems                                                                                                               |
+| `delete-design-system`             | Delete a design system                                                                                                                       |
+| `set-default-design-system`        | Set which design system is the account default                                                                                               |
+| `analyze-brand-assets`             | Extract colors, typography, and logo references from uploaded brand assets                                                                   |
+| `import-from-url`                  | Pull computed colors, typography, and logo references from a live website                                                                    |
+| `index-design-system-with-builder` | Index a design system from connected code, a GitHub repo, or design files, including `.fig`, via Builder DSI (requires Builder.io connected) |
+| `import-design-tokens`             | Import design tokens directly                                                                                                                |
+| `import-document`                  | Extract brand signal from a DOCX, PPTX, or PDF upload                                                                                        |
+| `import-design-project`            | Start a design system from an existing design or design system                                                                               |
+
+### Figma
+
+| Action                        | What it does                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `import-figma-frame`          | Import a Figma frame or file as a real, editable screen, with a fidelity report                              |
+| `import-figma-clipboard`      | Import a Figma clipboard paste, matching by hidden metadata or, otherwise, at least 2 confident text matches |
+| `get-figma-design-context`    | Read a Figma file or frame's structure without importing anything                                            |
+| `get-figma-styles`            | Summarize a Figma file's published Styles panel. Not the Enterprise Variables API                            |
+| `get-figma-connection-status` | Check whether a Figma account is connected                                                                   |
+| `list-figma-library-assets`   | List insertable components from a Figma-connected library                                                    |
+| `insert-figma-library-asset`  | Insert one published Figma component into the design                                                         |
+| `hydrate-figma-paste-images`  | Resolve image references from a Figma clipboard paste                                                        |
+
+### Breakpoints and screen states
+
+| Action                  | What it does                                      |
+| ----------------------- | ------------------------------------------------- |
+| `add-breakpoint`        | Add a responsive breakpoint                       |
+| `remove-breakpoint`     | Remove a responsive breakpoint                    |
+| `set-active-breakpoint` | Set which breakpoint is being edited              |
+| `create-design-state`   | Save a named alternate state, like empty or error |
+| `apply-design-state`    | Apply a saved state                               |
+| `capture-design-state`  | Capture the current state as a named snapshot     |
+| `list-design-states`    | List saved states                                 |
+| `delete-design-state`   | Delete a saved state                              |
+
+### Components
+
+| Action                        | What it does                                                      |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `create-component`            | Promote a selected element into a reusable component              |
+| `index-components`            | Detect and register existing repeated elements as components      |
+| `get-component-details`       | Read a component instance's variants and props                    |
+| `preview-component-prop-edit` | Preview a prop change before applying it                          |
+| `apply-component-prop-edit`   | Apply a prop change to one component instance                     |
+| `detach-component-instance`   | Detach an instance so it no longer tracks the component           |
+| `swap-component-instance`     | Swap which component an instance points at                        |
+| `go-to-main-component`        | Jump to the earliest instance of a component as a reference point |
+| `open-component-source`       | Open a component's source location                                |
+
+### Motion and shaders
+
+| Action                   | What it does                                |
+| ------------------------ | ------------------------------------------- |
+| `get-motion-timeline`    | Read an element's motion timeline           |
+| `apply-motion-edit`      | Add or edit a keyframe on a motion timeline |
+| `remove-motion-timeline` | Remove a motion timeline                    |
+| `apply-shader`           | Apply a shader effect                       |
+| `apply-shader-fill`      | Apply a shader as a fill                    |
+| `preview-shader-fill`    | Preview a shader fill before applying it    |
+| `get-shader`             | Read a shader's current parameters          |
+
+### Quality {#quality}
+
+| Action                   | What it does                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| `run-design-audit`       | Check a screen for accessibility, contrast, and cross-screen drift issues                     |
+| `apply-a11y-fix`         | Apply an automatic fix for an audit finding                                                   |
+| `take-design-screenshot` | Render the screen in a real browser and check for overflow, broken images, and console errors |
+| `get-design-review`      | Read the cached accessibility and visual-diff findings                                        |
+
+### Review feedback
+
+Framework-level, not in `templates/design/actions`. Comes from
+`@agent-native/core/review`, the same system any app can attach.
+
+| Action                        | What it does                                 |
+| ----------------------------- | -------------------------------------------- |
+| `get-review-feedback`         | Read open review comments for a resource     |
+| `create-review-comment`       | Leave an element-anchored comment            |
+| `reply-review-comment`        | Reply to a comment thread                    |
+| `resolve-review-thread`       | Resolve a thread with a one-line note        |
+| `send-review-thread-to-agent` | Send a comment thread to the agent to act on |
+| `consume-review-feedback`     | Mark feedback as picked up by the agent      |
+| `list-review-comments`        | List comments for a resource                 |
+| `delete-review-comment`       | Delete a comment                             |
+| `set-review-status`           | Set a design's overall review status         |
+
+### Export and handoff
+
+| Action                       | What it does                                                                        |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `export-html`                | Export a self-contained HTML file                                                   |
+| `export-zip`                 | Export all design files organized by type, plus a metadata file                     |
+| `export-pdf`                 | Export a client-side rendered PDF, for the multi-screen overview                    |
+| `export-svg`                 | Export an SVG wrapper around the live HTML                                          |
+| `export-design-as-figma-svg` | Export real vector shapes as an editable Figma SVG                                  |
+| `export-coding-handoff`      | Copy design tokens, files, and a ready-to-paste prompt for an external coding agent |
+
+### Full App Building (fusion, flag-gated) {#full-app-building}
+
+Behind the `full-app-building` feature flag, and needs Builder.io connected
+with a branch project id configured. See [Full App
+Building](#full-app-building) below.
+
+| Action                         | What it does                                                            |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `create-fusion-app`            | Provision a Builder Fusion branch and scaffold a real app from a prompt |
+| `sync-fusion-app`              | Poll a fusion branch's container for its preview URL                    |
+| `add-fusion-screens`           | Add screens to a fusion-backed design                                   |
+| `queue-fusion-edit`            | Queue an edit for the app's own coding agent                            |
+| `list-fusion-edits`            | List queued and applied fusion edits                                    |
+| `apply-fusion-edits`           | Dispatch queued edits to the app's coding agent                         |
+| `send-fusion-message`          | Send a message to the fusion app's coding agent                         |
+| `push-fusion-app`              | Push a fusion branch                                                    |
+| `deploy-fusion-app`            | Deploy a fusion branch to a real URL                                    |
+| `get-fusion-deploy-status`     | Check a deploy's status                                                 |
+| `create-design-branch`         | Create a new branch for a fusion-backed design                          |
+| `get-design-branch-diff`       | Diff a fusion branch against an earlier version                         |
+| `deploy-design-preview`        | Deploy a preview of a fusion-backed design                              |
+| `migrate-inline-design-to-app` | Convert an inline prototype into a fusion-backed app                    |
+| `connect-builder-app`          | Start the Builder.io OAuth connect flow                                 |
+
+### Localhost bridge (/visual-edit)
+
+| Action                            | What it does                                    |
+| --------------------------------- | ----------------------------------------------- |
+| `connect-localhost`               | Register a running local app with a design      |
+| `list-localhost-connections`      | List connected local apps                       |
+| `add-localhost-screens`           | Add screens from a connected local app          |
+| `request-localhost-write-consent` | Request permission to write back to local files |
+| `grant-localhost-write-consent`   | Grant that permission                           |
+| `revoke-localhost-write-consent`  | Revoke that permission                          |
+
+### Local and code source editing
+
+For localhost- and fusion-backed designs, where the underlying files aren't
+inline HTML rows.
+
+| Action                      | What it does                                   |
+| --------------------------- | ---------------------------------------------- |
+| `read-source-file`          | Read a real source file                        |
+| `apply-source-edit`         | Apply an edit to a real source file            |
+| `list-source-files`         | List a real app's source files                 |
+| `get-code-layer-projection` | Map a canvas layer back to its source location |
+| `read-local-file`           | Read a file from a connected local app         |
+| `write-local-file`          | Write a file to a connected local app          |
+| `list-local-files`          | List a connected local app's files             |
+
+### Context and navigation
+
+| Action                | What it does                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `view-screen`         | See what the user is currently looking at, including any pending question or variant choice |
+| `get-design-snapshot` | Read a design's current state for an external agent to continue from                        |
+| `navigate`            | Move the UI to a view, panel, tab, or tool                                                  |
+
+## Data model
+
+All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schema.ts`. Designs and design systems carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+The table below covers the core ownable resources: designs, files, templates, versions, and design systems.
+
+| Table                                    | What it holds                                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `designs`                                | A design project — `title`, `description`, `project_type` (`prototype` / `other`), the `data` JSON blob, and an optional `design_system_id` link |
+| `design_files`                           | Individual files belonging to a design (`filename`, `content`, `file_type` defaulting to `html`)                                                 |
+| `design_templates`                       | Reusable template metadata, dimensions, defaults, source design reference, and locked-layer count                                                |
+| `design_template_files`                  | Snapshotted template files copied into a normal editable design when a user starts from a template                                               |
+| `design_template_shares`                 | Framework shares table for private, org, explicitly shared, and public template discovery                                                        |
+| `design_versions`                        | Point-in-time `snapshot`s of a design with an optional `label`, for history and rollback                                                         |
+| `design_systems`                         | Reusable brand tokens — `data` (colors/typography/spacing), `assets`, `custom_instructions`, and an `is_default` flag                            |
+| `design_shares` / `design_system_shares` | Framework shares tables mapping principals (users or orgs) to roles (viewer, editor, admin)                                                      |
+
+<DataModel
+  id="doc-block-design11"
+  title="Design data model"
+  summary={
+    "A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
+  }
+  entities={[
+    {
+      id: "designs",
+      name: "designs",
+      note: "A design project (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "project_type",
+          type: "text",
+          note: "prototype / other",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "starts as {}",
+        },
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "files",
+      name: "design_files",
+      note: "Files in a design",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "filename",
+          type: "text",
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "file_type",
+          type: "text",
+          note: "defaults to html",
+        },
+      ],
+    },
+    {
+      id: "versions",
+      name: "design_versions",
+      note: "History / rollback",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "snapshot",
+          type: "json",
+        },
+        {
+          name: "label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "systems",
+      name: "design_systems",
+      note: "Reusable brand tokens (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "design_shares",
+      name: "design_shares",
+      note: "Framework shares table",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "system_shares",
+      name: "design_system_shares",
+      note: "Framework shares table",
+      fields: [
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "designs",
+      to: "files",
+      kind: "1-n",
+    },
+    {
+      from: "designs",
+      to: "versions",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "designs",
+      kind: "1-n",
+      label: "applied to",
+    },
+    {
+      from: "designs",
+      to: "design_shares",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "system_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
+
+A design project is a shell until it has content: `create-design` makes an empty row (`data: "{}"`), then `generate-design` writes the actual standalone HTML/JSX files. The generated artifact, the editable source, and every export all come from the same HTML, so there is no separate "AI mockup" format to translate. A linked design system supplies tokens and `custom_instructions` that the agent honors on every generation pass.
+
+Seven more tables back features covered elsewhere in this page rather than the core resource model: `design_localhost_connections` and `design_localhost_write_grants` back the [Local app import](/docs/template-design-features#import), `component_index` backs the [Component section of the Design tab](/docs/template-design-features#design-tab), `motion_timeline` backs each element's editable motion timeline (the Motion dock in the editor), `design_state` holds named alternate states, static fixtures, and live-app captures for a design, `design_fusion_edits` backs the fusion edit queue described under [Full App Building](#full-app-building) above, and `design_review_snapshot` caches the accessibility findings and visual diff behind `get-design-review`, described under [Quality](#quality) above.
+
+Persisted review comments and threads (`get-review-feedback`, `resolve-review-thread`, and the rest) are not a Design-specific table at all: they're the shared framework review system from `@agent-native/core/review` (`agent_review_comments` / `agent_review_statuses`), scoped to a design the same way any app can attach it. See [Comments tab](/docs/template-design-features#comments-tab) for the user-facing behavior.
+
+## An action walked through
+
+`save-design-as-template` shows patterns worth reusing in any action: rejecting an unsupported input shape before doing any work, guarding against saving nothing, remapping ids once instead of in every reader, and writing to two tables in one transaction so a template can never end up with metadata but no files.
+
+<AnnotatedCode
+  id="doc-block-design-template-walkthrough"
+  title="Saving a design as a template"
+  filename="templates/design/actions/save-design-as-template.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        designSystemId:\n          typeof source.designSystemId === "string"\n            ? source.designSystemId\n            : null,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "42-45",
+      label: "Only an editor can save it",
+      note: "resolveAccess() confirms the caller can reach the design at all, and the role check rejects a viewer before any snapshot work starts.",
+    },
+    {
+      lines: "56-63",
+      label: "Guard against an unsupported source type",
+      note: "A fusion- or localhost-backed design's real files live outside this database row, so saving one as a template here would silently produce an empty or stale copy. Rejecting it up front is cheaper and more honest than a template that quietly doesn't work.",
+    },
+    {
+      lines: "66-71",
+      label: "Must have at least one real screen",
+      note: "An empty design would still pass every check above, so this catches it explicitly instead of persisting a template nobody can use.",
+    },
+    {
+      lines: "78-84",
+      label: "File ids are remapped once",
+      note: "fileIdMap gives every saved file a fresh id, so saving the same design as more than one template, or from more than one account, never collides on an old id.",
+    },
+    {
+      lines: "94-129",
+      label: "One transaction, two tables",
+      note: "The template's metadata row and its files insert together. If either half failed alone, a reader could see a template with no files, or files with no owning template row.",
+    },
+  ]}
+/>
+
+## Editor model
+
+Design is overview-first for multi-screen work. After generation or broad
+updates, the editor opens the screen overview: an infinite canvas where each
+screen is a static frame you can select, move, resize, drop, or duplicate.
+Use a frame's full-view button when one screen needs focused scrolling or
+prototype interaction.
+
+Single-screen mode is for scrolling, interacting with prototype behavior, and
+editing the DOM/code layers inside one rendered file. The layers panel reflects
+that split: screens are top-level frames, with nested DOM/code layers for the
+active screen.
+
+Every screen is one document rendered at different widths, not separate
+copies per breakpoint: a base (widest) frame cascades down, and edits made at
+a narrower active breakpoint persist as width-scoped overrides on top of it.
+
+## Editor extensions
+
+The editor includes an **Extensions** inspector tab after **Tweaks**. It works
+like a Design-specific plugin lane: users can click **+ Extension** to ask the
+agent to build an extension, or install an extension that declares the
+`design.editor.inspector` slot, using the framework's `create-extension`,
+`add-extension-slot-target`, and `install-extension` actions, not a
+Design-specific action.
+
+Design extensions render inline beside the artboard through the standard
+extension sandbox. The host passes `window.slotContext` and
+`window.onSlotContext(...)` updates with the current `designId`, active file,
+screen list, selected screen ids, selected element metadata, view mode, zoom,
+active tool, and tweak values. That lets an extension show information about
+the current selection, offer style controls, or build compact workflows around
+the open design.
+
+For deterministic work, extensions can call app actions through the extension
+bridge. For AI-driven changes, have the extension call
+`agentNative.chat.send(...)` with the selected element selector/source id and
+requested change. The agent should call `view-screen` first, then use
+`apply-visual-edit` for element style, class, text, or move changes, or
+`update-design` / `generate-design` with `canvasFrames` for artboard placement
+changes. See [Extensions](/docs/extensions#capabilities) for the
+sandbox, persistent state, and bridge APIs.
+
+## Routes reference
+
+<FileTree
+  id="doc-block-design12"
+  title="templates/design/: routes, schema, and skills"
+  entries={[
+    { path: "actions/", note: "~240 files, one per agent-callable operation" },
+    { path: "app/routes/_index.tsx", note: "The designs list route" },
+    { path: "app/routes/design.$id.tsx", note: "The editor route" },
+    { path: "app/routes/present.$id.tsx", note: "Presentation / share view" },
+    { path: "app/routes/templates.tsx", note: "The Templates page" },
+    {
+      path: "app/routes/design-systems.tsx",
+      note: "The Design Systems list. design-systems_.setup.tsx creates one",
+    },
+    {
+      path: "app/routes/visual-edit.tsx",
+      note: "Landing route for the /visual-edit local-app bridge",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle schema for designs, files, versions, systems, shares, plus 7 feature tables",
+    },
+    {
+      path: ".agents/skills/design-generation/SKILL.md",
+      note: "5-phase generation flow, aesthetic quality bar",
+    },
+    {
+      path: ".agents/skills/design-systems/SKILL.md",
+      note: "Brand tokens, Figma import/read/paste",
+    },
+    {
+      path: ".agents/skills/full-app-build/SKILL.md",
+      note: "Flag-gated fusion (full app) mode",
+    },
+  ]}
+/>
+
+Other routes under `templates/design/app/routes/`: `examples.tsx`,
+`extensions.tsx` and its nested routes, `observability.tsx`, plus
+`settings.tsx` and `team.tsx`.
+
+## Customizing it
+
+Design is a complete, cloneable template. Some practical extension ideas:
+
+- "Add a reusable ecommerce design system with our tokens and sample components."
+- "Add an export step that uploads the ZIP to our internal review system."
+- "Let me paste existing landing-page HTML and ask the agent for three stronger versions."
+- "Add a saved prompt library for product-page, dashboard, and onboarding-screen briefs."
+- "Add a custom PDF export preset for stakeholder review."
+
+The agent edits routes, components, actions, and SQL-backed models as needed. See [Templates](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
+
+## What's next
+
+- [**Design**](/docs/template-design) — the overview and getting-started steps
+- [**Features**](/docs/template-design-features) — the user-facing behavior these actions and this data model power
+- [**Talk to the Agent**](/docs/template-design-agent) — how the agent chooses between these actions
+- [**Design in a Multi-App Workspace**](/docs/template-design-integrations) — how these actions get exposed to other apps and external agents
+- [**Actions**](/docs/actions-overview) — the action system this template is built on
+- [**Sharing**](/docs/sharing) — the share-grant model `design_shares` and `design_system_shares` use
+- [**Extensions**](/docs/extensions) — the sandbox and bridge APIs behind the editor's extension slot
