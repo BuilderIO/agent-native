@@ -34,6 +34,16 @@ import {
 } from "./prompts/index.js";
 import { runWithRequestContext } from "./request-context.js";
 
+const agentChatPluginSourceUrl = new URL(
+  "./agent-chat-plugin.ts",
+  import.meta.url,
+);
+const devScriptSourceUrl = new URL("../scripts/dev/index.ts", import.meta.url);
+const productionAgentSourceUrl = new URL(
+  "../agent/production-agent.ts",
+  import.meta.url,
+);
+
 describe("shouldBlockInProductCodeEditingSurface", () => {
   it("blocks app-rendered chat surfaces, including legacy iframe labels", () => {
     expect(
@@ -130,7 +140,7 @@ describe("interactive agent run options", () => {
 
 describe("request-scoped action surface", () => {
   it("does not import the release migration script during dev discovery", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const skipFiles = source.match(
@@ -141,7 +151,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("restores the durable worker org from the validated persisted surface", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -205,7 +215,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("wires the safe code-execution mode into the interactive production registry", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -218,7 +228,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps request-scoped action surfaces out of the dev-native tool switch", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const devNativeBlock = source.match(
@@ -233,7 +243,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps request-scoped dev actions available without exposing them natively", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -246,7 +256,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps local coding tools in every dev handler variant", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -262,7 +272,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("generates chat tab titles with the shared completion engine", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const start = source.indexOf("`${routePath}/generate-title`");
@@ -284,10 +294,10 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps local coding tools available while scoping app actions in dev", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
-    const devSource = readFileSync("src/scripts/dev/index.ts", {
+    const devSource = readFileSync(devScriptSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -333,7 +343,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("forwards the resolver into every interactive production handler", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -381,7 +391,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("uses the request-filtered supplier for production, lean, and dev sandbox meta-tools", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -393,7 +403,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("filters the action registry before agent-team tasks snapshot it", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -423,7 +433,7 @@ describe("hosted Builder handoff surface", () => {
   });
 
   it("wires the hosted handoff into the first-request and lean registries", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     expect(source).toMatch(
@@ -481,7 +491,7 @@ describe("connect setup initial tool names", () => {
   });
 
   it("names connect-builder on the first request outside hosted registries", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const initialNamesStart = source.indexOf(
@@ -511,7 +521,7 @@ describe("connect setup initial tool names", () => {
 // (run-manager.spec.ts) cannot see, since they drive `startRun` directly.
 describe("interactive agent run options — wiring guards", () => {
   it("spreads resolveInteractiveAgentRunOptions(options) into every createProductionAgentHandler call site", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -530,7 +540,7 @@ describe("interactive agent run options — wiring guards", () => {
   });
 
   it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {
-    const source = readFileSync("src/agent/production-agent.ts", {
+    const source = readFileSync(productionAgentSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -559,7 +569,7 @@ describe("interactive agent run options — wiring guards", () => {
   // have no Builder account. No route test can see a hand-picked field, so this
   // guard stands in for one.
   it("reports whether the deployment pays for its own AI on /runs/active", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -572,7 +582,7 @@ describe("interactive agent run options — wiring guards", () => {
   });
 
   it("keeps background workers alive through run-manager finalization", () => {
-    const source = readFileSync("src/agent/production-agent.ts", {
+    const source = readFileSync(productionAgentSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -585,7 +595,7 @@ describe("interactive agent run options — wiring guards", () => {
 
 describe("background automation action surface — wiring guards", () => {
   it("uses one shared background action builder with unattended email tools", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -605,7 +615,7 @@ describe("background automation action surface — wiring guards", () => {
 // resolver in isolation; these source guards prove they are actually wired at
 // the two points that matter, and that the UI's routes stay out of it.
 describe("framework tool gating — wiring guards", () => {
-  const source = readFileSync("src/server/agent-chat-plugin.ts", {
+  const source = readFileSync(agentChatPluginSourceUrl, {
     encoding: "utf-8",
   });
 
@@ -660,7 +670,7 @@ describe("framework tool gating — wiring guards", () => {
 
 describe("lean workspace-app surface — wiring guards", () => {
   it("keeps cross-app discovery and delegation available when enabled", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -674,7 +684,7 @@ describe("lean workspace-app surface — wiring guards", () => {
 
 describe("delegated agent run policy — wiring guards", () => {
   it("forwards non-default delegated budgets to MCP ask_app", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const mcpCallStart = source.indexOf("await runMCPAgentLoop(");
@@ -923,7 +933,7 @@ describe("prompt content invariants", () => {
   });
 
   it("registers extension actions only after an explicit opt-in", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -1233,7 +1243,7 @@ describe("delegated tool surfaces in dev", () => {
   // the run dies on the repetition guard minutes later. Both delegated
   // surfaces therefore keep template actions native even in dev.
   it("keep template actions native so a sibling never has to shell out", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
