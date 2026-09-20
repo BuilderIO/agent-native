@@ -46,7 +46,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import {
   getBuilderParentOrigin,
-  getEmbedAuthToken,
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -1158,41 +1157,6 @@ function readRenderedLayerInfo(
   return null;
 }
 
-function hasActiveVisualEditEmbedToken(
-  token: string | null,
-  pathname: string,
-): boolean {
-  if (typeof window === "undefined" || !token) return false;
-  const [encodedPayload] = token.split(".", 1);
-  if (!encodedPayload) return false;
-
-  try {
-    const base64 = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64.padEnd(
-      base64.length + ((4 - (base64.length % 4)) % 4),
-      "=",
-    );
-    const binary = window.atob(padded);
-    const bytes = Uint8Array.from(binary, (character) =>
-      character.charCodeAt(0),
-    );
-    const claims = JSON.parse(new TextDecoder().decode(bytes)) as {
-      exp?: unknown;
-      targetPath?: unknown;
-    };
-    if (typeof claims.exp !== "number" || claims.exp <= Date.now() / 1000) {
-      return false;
-    }
-    if (typeof claims.targetPath !== "string") return false;
-    return (
-      new URL(claims.targetPath, window.location.origin).pathname === pathname
-    );
-  } catch {
-    // coercion-ok: malformed embed tokens are treated as absent and reissued.
-    return false;
-  }
-}
-
 // ── Route wrapper — remounts editor state per design id ──────────────────────
 /**
  * React Router reuses the same route component when only `:id` changes. Key
@@ -1269,50 +1233,6 @@ function DesignEditor() {
   // so every `embedded` behaviour below would otherwise read as a standalone
   // Design page and put our own chrome and agent inside Builder's.
   const embedded = shellMode || isEmbedAuthActive();
-  const isVisualEditSurface = location.pathname.startsWith("/visual-edit/");
-  const hasActiveVisualEditAccess = hasActiveVisualEditEmbedToken(
-    getEmbedAuthToken(),
-    location.pathname,
-  );
-  const visualEditAccessAttemptRef = useRef<string | null>(null);
-  useEffect(() => {
-    // `embedded=1` is also a presentation marker. It can survive after the
-    // one-time capability token was stripped or lost in a private browser
-    // context, so it must not suppress the signed-out visual-edit bootstrap.
-    if (!isVisualEditSurface || !id || !sessionResolved || shellMode) return;
-    if (hasActiveVisualEditAccess) {
-      // The embed auth bootstrap strips the one-time token from the URL after
-      // storing it. Validate that stored capability before suppressing the
-      // public route bootstrap so expired or copied links renew access.
-      visualEditAccessAttemptRef.current = id;
-      return;
-    }
-    if (visualEditAccessAttemptRef.current === id) return;
-
-    visualEditAccessAttemptRef.current = id;
-    void callAction<{ startUrl?: string }>("issue-visual-edit-access", {
-      designId: id,
-    })
-      .then((result) => {
-        if (!result?.startUrl) {
-          throw new Error("Visual-edit access did not return a start URL.");
-        }
-        window.location.replace(
-          new URL(result.startUrl, window.location.href).toString(),
-        );
-      })
-      .catch(() => {
-        if (visualEditAccessAttemptRef.current === id) {
-          visualEditAccessAttemptRef.current = null;
-        }
-      });
-  }, [
-    hasActiveVisualEditAccess,
-    id,
-    isVisualEditSurface,
-    sessionResolved,
-    shellMode,
-  ]);
   const embedChromeRequested = isEmbedChromeRequested();
   // The shell keeps our rails and hands the host only the chat, so it must not
   // depend on `embedChrome` surviving in the URL Builder builds.
@@ -25669,18 +25589,17 @@ function DesignEditor() {
                   )}
                   {/* Figma-style notice for viewers/commenters who can't edit
                       this design. Only shown once accessRole has resolved. */}
-                  {!isVisualEditSurface &&
-                    (designAccessRole === "viewer" ||
-                      designAccessRole === "commenter") && (
-                      <ReadOnlyDesignBanner
-                        pinMode={pinMode}
-                        onCommentPin={
-                          !hostOwnsChrome && canCommentDesign
-                            ? handlePinToolToggle
-                            : undefined
-                        }
-                      />
-                    )}
+                  {(designAccessRole === "viewer" ||
+                    designAccessRole === "commenter") && (
+                    <ReadOnlyDesignBanner
+                      pinMode={pinMode}
+                      onCommentPin={
+                        !hostOwnsChrome && canCommentDesign
+                          ? handlePinToolToggle
+                          : undefined
+                      }
+                    />
+                  )}
                   {/* Full-app building status/controls. Renders only for
                       designs backed by a fusion app (see readFusionApp) and
                       only while the flag is on — the fusion actions the

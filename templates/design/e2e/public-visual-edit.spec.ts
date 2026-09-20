@@ -132,6 +132,38 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
+  test("rejects forged bare-link editor access", async ({ browser }) => {
+    const context = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+      extraHTTPHeaders: {
+        "X-Agent-Native-Frontend": "1",
+        Origin: new URL(BASE_URL).origin,
+        "Sec-Fetch-Site": "same-origin",
+      },
+    });
+    try {
+      const directResponse = await context.request.get(
+        appUrl(`/visual-edit/${designId}`),
+      );
+      expect(directResponse.ok()).toBe(true);
+      expect(directResponse.url()).toBe(appUrl(`/visual-edit/${designId}`));
+      const directHtml = await directResponse.text();
+      expect(directHtml).not.toContain("/_agent-native/embed/start");
+      expect(directHtml).not.toMatch(/__an_embed_token=[^&"<]*/);
+
+      const response = await context.request.post(
+        appUrl("/_agent-native/actions/issue-visual-edit-access"),
+        {
+          data: { designId },
+        },
+      );
+      expect(response.ok()).toBe(false);
+      expect(await response.text()).not.toContain("/_agent-native/embed/start");
+    } finally {
+      await context.close();
+    }
+  });
+
   test("signed-out /visual-edit opens a capability-scoped editor through page WebMCP", async ({
     browser,
   }) => {
@@ -328,77 +360,6 @@ test.describe.serial("public visual edit", () => {
           tool: "list-localhost-connections",
           result: { count: 1 },
         });
-
-      const direct = await openSignedOutPage(
-        browser,
-        `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview`,
-      );
-      try {
-        await expect(direct.page).toHaveURL(
-          /\/visual-edit\/[^?]+\?.*__an_embed_token=/,
-          { timeout: 30_000 },
-        );
-        await expect(direct.page.locator("[data-design-editor]")).toBeVisible({
-          timeout: 30_000,
-        });
-        await expect(
-          direct.page.locator("[data-read-only-design-banner]"),
-        ).toHaveCount(0);
-        await expect(
-          direct.page
-            .locator("iframe[data-design-preview-iframe]")
-            .last()
-            .contentFrame()
-            .getByRole("heading", { name: "Local visual edit" }),
-        ).toBeVisible({ timeout: 30_000 });
-        await expect
-          .poll(
-            () =>
-              direct.page.evaluate(async (designId) => {
-                const helper = (
-                  window as typeof window & {
-                    __agentNativeWebMcp?: {
-                      call(
-                        name: string,
-                        args?: Record<string, unknown>,
-                      ): Promise<unknown>;
-                    };
-                  }
-                ).__agentNativeWebMcp;
-                if (!helper) throw new Error("WebMCP page helper missing");
-                return helper.call("list-localhost-connections", { designId });
-              }, preflightResult?.designId),
-            { timeout: 15_000 },
-          )
-          .toMatchObject({
-            state: "done",
-            ok: true,
-            result: { count: 1 },
-          });
-        await assertNoRuntimeErrors(direct);
-      } finally {
-        await direct.close();
-      }
-
-      const modeMarkerDirect = await openSignedOutPage(
-        browser,
-        `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview&embedChrome=1&embedded=1`,
-      );
-      try {
-        await expect(modeMarkerDirect.page).toHaveURL(
-          /\/visual-edit\/[^?]+\?.*__an_embed_token=/,
-          { timeout: 30_000 },
-        );
-        await expect(
-          modeMarkerDirect.page.locator("[data-read-only-design-banner]"),
-        ).toHaveCount(0);
-        await expect(
-          modeMarkerDirect.page.locator("[data-design-editor]"),
-        ).toBeVisible({ timeout: 30_000 });
-        await assertNoRuntimeErrors(modeMarkerDirect);
-      } finally {
-        await modeMarkerDirect.close();
-      }
 
       const consentRequest = await signedOut.page.evaluate(
         async ({ designId, connectionId }) => {

@@ -156,10 +156,8 @@ approve it and never bypass that consent.
   and must never be rendered in the frame.
 - **The `/visual-edit` skill needs no Design account sign-in.**
   `open-visual-edit` mints a five-minute, single-use capability for the exact
-  `/visual-edit/:designId` local-editor route. A direct link to a public
-  localhost visual-edit design redeems the same capability automatically
-  in-browser, so Incognito and signed-out users enter the editor without a
-  login.
+  `/visual-edit/:designId` local-editor route. The MCP host redeems it outside
+  model-visible text, then opens the existing editor with localhost edit access.
   This capability is not an account session: `/_agent-native/session` remains
   signed out, and account-backed save/share/generate actions remain denied.
 - The editor page registers a stable page-local WebMCP tool named
@@ -174,13 +172,11 @@ approve it and never bypass that consent.
   WebMCP helper, not `pnpm action` in the target app. The page path works
   signed out only for loopback apps in public mode, using a short-lived
   capability-scoped principal; hosted MCP uses its normal OAuth identity.
-- Public `/design/:designId` links are always read-only, including on loopback.
-  `/visual-edit/:designId` is the explicit editable surface for public
-  localhost designs; it never upgrades ordinary `/design/*` sharing links.
-  Loopback peer
+- Public links are always read-only, including on loopback. Loopback peer
   identity is not an authentication boundary because a tunnel or reverse proxy
-  can make a remote request appear local. Non-public or non-localhost designs
-  still fail closed and never release the connection's `previewToken`.
+  can make a remote request appear local. A bare `/visual-edit/:designId` or
+  `/design/:designId` URL carries no capability and must never release the
+  connection's `previewToken`.
 - The live editor is same-origin through the local bridge proxy. This boots
   CSR apps and root-relative assets, but it is still a localhost editing proxy:
   app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a
