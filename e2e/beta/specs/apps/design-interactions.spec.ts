@@ -1055,11 +1055,9 @@ test.describe("authenticated beta Design interactions", () => {
         NESTED_FRAME_ID,
       );
 
-      const grabPoint = {
-        x: sourceBox.x + sourceBox.width / 2,
-        y: sourceBox.y + sourceBox.height / 2,
-      };
-      await page.mouse.move(grabPoint.x, grabPoint.y);
+      const grabX = sourceBox.x + sourceBox.width / 2;
+      const grabY = sourceBox.y + sourceBox.height / 2;
+      await page.mouse.move(grabX, grabY);
       await page.mouse.down();
       await page.mouse.move(
         sourceBox.x + sourceBox.width / 4,
