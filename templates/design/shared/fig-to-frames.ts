@@ -24,7 +24,7 @@ import { utf8ByteLength } from "./fig-bytes.js";
 
 const MAX_FIG_NODES = 75_000;
 const MAX_FIG_IMAGES = 1_024;
-const MAX_FIG_FRAMES = 200;
+const MAX_FIG_FRAMES = 300;
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
 /** The browser action transport accepts smaller per-frame payloads. */
 export const MAX_FIG_FRAME_HTML_BYTES = 2 * 1024 * 1024;
@@ -451,7 +451,9 @@ function validateRenderedFrames(
     );
   }
   if (rendered.frames.length > MAX_FIG_FRAMES) {
-    throw new Error(".fig document has too many top-level frames (max 200).");
+    throw new Error(
+      `.fig document has too many top-level frames (max ${MAX_FIG_FRAMES}).`,
+    );
   }
   let total = 0;
   for (const frame of rendered.frames) {

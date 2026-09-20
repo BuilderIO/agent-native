@@ -8,6 +8,7 @@ const mockResolveOrgIdForEmail = vi.hoisted(() =>
   vi.fn<(email: string) => Promise<string | null>>(),
 );
 const mockUserEmail = vi.hoisted(() => vi.fn<() => string | undefined>());
+const mockResolveAccess = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestAuthCapability: () => mockRequestAuthCapability(),
@@ -17,6 +18,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/org", () => ({
   resolveOrgIdForEmail: (email: string) => mockResolveOrgIdForEmail(email),
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: (resourceType: string, resourceId: string) =>
+    mockResolveAccess(resourceType, resourceId),
 }));
 
 // Each `select()` shifts the next queued result, so the scoped query and the
@@ -62,6 +68,7 @@ beforeEach(() => {
   mockUserEmail.mockReturnValue("user@example.com");
   mockRequestOrgId.mockReturnValue(undefined);
   mockResolveOrgIdForEmail.mockResolvedValue(null);
+  mockResolveAccess.mockReset();
 });
 
 describe("resolveLocalhostConnectionScope", () => {
@@ -101,6 +108,25 @@ describe("resolveLocalhostConnectionScope", () => {
     await expect(resolveLocalhostConnectionScope()).rejects.toThrow(
       /no authenticated user/,
     );
+  });
+
+  it("uses the public design owner's scope for signed-in viewers", async () => {
+    mockUserEmail.mockReturnValue("viewer@example.com");
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+
+    await expect(
+      resolveLocalhostConnectionScope({
+        designId: "design_1",
+        allowPublicViewer: true,
+      }),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
   });
 });
 

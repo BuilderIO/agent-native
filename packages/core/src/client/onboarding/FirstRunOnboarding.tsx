@@ -418,6 +418,13 @@ export function FirstRunOnboarding({
     if (!selectedRole || savingRole) return;
     setSavingRole(true);
     setRoleSaveError(null);
+    if (!previewMode) {
+      trackOnboardingEvent("onboarding_role_save_started", {
+        flow: "first_run",
+        step_id: "role",
+        role: selectedRole,
+      });
+    }
     try {
       if (!previewMode) await saveFirstRunOnboardingRole(selectedRole);
       handleFinish();

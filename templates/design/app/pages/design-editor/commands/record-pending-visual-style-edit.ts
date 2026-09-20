@@ -37,6 +37,7 @@ export interface RecordPendingVisualStyleEditArgs {
   activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile;
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   cancelPendingStructureVerification: (
     nextStatus?: PendingStructureVerificationStatus,
   ) => void;
@@ -70,6 +71,7 @@ export function runRecordPendingVisualStyleEdit(
     activeBreakpointWidthState,
     activeFile,
     canEditDesign,
+    canEditLiveScreens,
     cancelPendingStructureVerification,
     clipboardPasteRedoStackRef,
     files,
@@ -101,7 +103,7 @@ export function runRecordPendingVisualStyleEdit(
     preserveSelection?: boolean;
   },
 ) {
-  if (!canEditDesign) return;
+  if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
   const entries = Object.entries(styles).filter(
     ([, value]) => value !== undefined,
   );

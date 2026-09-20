@@ -17,14 +17,14 @@ See [Getting started](/docs/getting-started) for the rest of the setup (`cd`, `p
 
 ## Persistence model
 
-Each deck is one JSON blob in `decks.data`. Every write goes through a server-side read-modify-write action that holds a per-deck lock, so concurrent writers — a human and the agent, or two humans — touching different slides of the same deck never overwrite each other's work.
+Each deck is one JSON blob in `decks.data`. Every write goes through a server-side read-modify-write action that holds a per-deck lock, so concurrent writers, a human and the agent, or two humans, touching different slides of the same deck never overwrite each other's work.
 
 - **Agent actions** (`add-slide`, `update-slide`) use their own dedicated, granular actions and share that same lock.
-- **The browser editor** enqueues granular ops — `patch-slide`, `delete-slide`, `reorder-slides`, `add-slide`, `patch-deck-fields` — through `patch-deck` instead of a full-deck PUT.
+- **The browser editor** enqueues granular ops (`patch-slide`, `delete-slide`, `reorder-slides`, `add-slide`, `patch-deck-fields`) through `patch-deck` instead of a full-deck PUT.
 
 <Callout id="doc-block-slides10" tone="warning">
 
-If you're extending the editor's save path, enqueue a new op through `patch-deck`. Do not add a new full-deck PUT — that would reintroduce the last-write-wins race the lock exists to prevent.
+If you're extending the editor's save path, enqueue a new op through `patch-deck`. Do not add a new full-deck PUT. That would reintroduce the last-write-wins race the lock exists to prevent.
 
 </Callout>
 
@@ -36,13 +36,13 @@ All deck data lives in SQL via Drizzle ORM. Schema: `templates/slides/server/db/
   id="doc-block-slides7"
   title="Slides data model"
   summary={
-    "A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."
+    "A deck owns its slides as JSON in decks.data. Comments, versions, shares, and design systems hang off it."
   }
   entities={[
     {
       id: "decks",
       name: "decks",
-      note: "Slides live as JSON in data; carries ownableColumns",
+      note: "Slides live as JSON in data, with ownableColumns",
       fields: [
         {
           name: "id",
@@ -161,7 +161,7 @@ All deck data lives in SQL via Drizzle ORM. Schema: `templates/slides/server/db/
     {
       id: "design_systems",
       name: "design_systems",
-      note: "Reusable brand tokens; ownableColumns",
+      note: "Reusable brand tokens, with ownableColumns",
       fields: [
         {
           name: "id",
@@ -250,7 +250,7 @@ All deck data lives in SQL via Drizzle ORM. Schema: `templates/slides/server/db/
   ]}
 />
 
-Framework shares tables (`deck_shares`, `design_system_shares`) map principals — users or orgs — to viewer / editor / admin roles per resource, and are created via the shared `createSharesTable` helper rather than hand-written.
+Framework shares tables (`deck_shares`, `design_system_shares`) map principals, users or orgs, to viewer / editor / admin roles per resource, and are created via the shared `createSharesTable` helper rather than hand-written.
 
 #### Slide structure
 
@@ -264,7 +264,7 @@ Each slide inside `decks.data` is:
 }
 ```
 
-`content` is raw HTML — the renderer provides the fixed aspect ratio and background, and the HTML provides everything inside. Rich embedding is supported too: hand-drawn diagrams and live-rendered charts can live inside a slide alongside plain HTML.
+`content` is raw HTML. The renderer provides the fixed aspect ratio and background, and the HTML provides everything inside. Rich embedding is supported too: hand-drawn diagrams and live-rendered charts can live inside a slide alongside plain HTML.
 
 ## Action inventory
 
@@ -276,13 +276,18 @@ Each slide inside `decks.data` is:
 - `duplicate-deck` — copy a deck with fresh slide ids
 - `update-deck-aspect-ratio` — 16:9, 1:1, 9:16, or 4:5
 
-`add-deck`, `save-deck`, and `delete-deck` back the browser editor's optimistic-create, undo/redo, and delete flows — the agent uses `create-deck`, `add-slide`/`update-slide`/`patch-deck`, and the framework's own sharing actions instead.
+`add-deck`, `save-deck`, and `delete-deck` back the browser editor's optimistic-create, undo/redo, and delete flows. The agent uses `create-deck`, `add-slide`/`update-slide`/`patch-deck`, and the framework's own sharing actions instead.
+
+### Access requests
+
+- `request-deck-access`, `approve-deck-access-request`, `get-deck-access-status` — the private-deck access-request flow: a visitor without access requests it, the owner approves or denies from the app or the `/access-request/approve` route, and either side can poll the current status
 
 ### Slide edits
 
 - `add-slide` — append (or insert at a position) one slide. Call it sequentially after an empty `create-deck` so the editor can show progress.
 - `update-slide` — surgical find/replace or full-content slide edit
 - `patch-deck` — the granular op queue the browser editor uses instead of a full-deck PUT
+- `get-layout-overflows` — read browser-measured slide-fit results, so an edit that no longer fits its layout can be caught and revised
 
 ### History
 
@@ -295,6 +300,7 @@ Each slide inside `decks.data` is:
 ### Import
 
 - `import-pptx`, `import-docx`, `import-google-doc` — dedicated single-format importers
+- `import-google-slides-reference` — import a Google Slides deck as a reusable reference deck, rather than pulling its content into the working deck
 - `import-file` — one entry point for PPTX, DOCX, or PDF, or a Figma `.fig` file (which routes into Builder design-system indexing instead of a slide import)
 - `extract-pdf` — CLI-only raw text dump of a PDF, mostly for local debugging
 
@@ -304,26 +310,23 @@ Each slide inside `decks.data` is:
 - `export-google-slides` — generates the same PPTX plus a ready Google Slides import link
 - `export-html` — a standalone, self-contained HTML file with built-in keyboard navigation
 
-### Images
-
-- `generate-image` — agent-facing, deck-aware, and delegates to the Images app over A2A for brand-grounded generation when it's configured
-- `edit-image`, `check-image-gen`, `image-gen-status`, `search-images`, `search-logos`
-
 ### Design systems
 
-- `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `set-default-design-system`, `apply-design-system` (link one to a deck)
-- `analyze-brand-assets`, `import-document`, `import-from-url` — gather raw brand signals (website CSS/fonts, uploaded document metadata) for a **local**, agent-drafted design system
-- `index-design-system-with-builder`, `import-design-project` — the Builder-indexed path for Figma files, connected code/GitHub repos, and `design.md`; `import-design-project` starts from an existing design system rather than a raw source
+- `create-design-system`, `update-design-system`, `delete-design-system`, `get-design-system`, `list-design-systems`, `set-default-design-system`, `apply-design-system` (link one to a deck)
+- `get-workspace-defaults`, `set-workspace-defaults` — the workspace-wide default deck and design system. Setting one is admin-only
+- `analyze-brand-assets`, `import-document`, `import-from-url`, `import-code` — gather raw brand signals (website CSS/fonts, uploaded document or code file contents) for a **local**, agent-drafted design system
+- `index-design-system-with-builder`, `sync-design-system-with-builder`, `import-design-project` — the Builder-indexed path for Figma files, connected code/GitHub repos, and `design.md`. `import-design-project` starts from an existing design system rather than a raw source
 
 ### Creative Context
 
 - `clone-context-slide` — insert one pinned Library slide into a deck unchanged, without regenerating its HTML/CSS
 - `clone-creative-context-deck` — recreate one exact governed deck version
-- Retrieval and Library submission (search, fetching a context item, managing Library membership) are shared framework actions the agent calls the same way in every app that supports Creative Context — see the `creative-context` skill for the retrieval procedure and reuse ladder.
+- `get-deck-reference-context` — extract an existing deck's visual language as a reusable pattern library
+- Retrieval and Library submission (search, fetching a context item, managing Library membership) are shared framework actions the agent calls the same way in every app that supports Creative Context. See the `creative-context` skill for the retrieval procedure and reuse ladder.
 
 ### Escalation and staged data
 
-- `provider-api-catalog`, `provider-api-docs`, `provider-api-request` — raw Google Drive API access when a canned import/export action is too narrow; Slides resolves auth from the user's connected Google Docs account
+- `provider-api-catalog`, `provider-api-docs`, `provider-api-request` — raw Google Drive API access when a canned import/export action is too narrow. Slides resolves auth from the user's connected Google Docs account
 - `list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset` — aggregate a large staged provider result without re-fetching it
 
 ### Navigation and context
@@ -333,19 +336,20 @@ Each slide inside `decks.data` is:
 
 ## Routes reference
 
-| Route                  | Renders                                                                 |
-| ---------------------- | ----------------------------------------------------------------------- |
-| `/`                    | Deck list                                                               |
-| `/deck/:id`            | The editor                                                              |
-| `/deck/:id/present`    | Full-screen presentation                                                |
-| `/p/:id`               | Public/agent-readable live deck preview — distinct from `/share/:token` |
-| `/share/:token`        | Public read-only snapshot, frozen at share time                         |
-| `/slide`               | Single-slide embed used for chat previews                               |
-| `/design-systems`      | Manage saved design systems                                             |
-| `/agent`               | Full-page Agent tab                                                     |
-| `/extensions`, `/team` | Redirect into the relevant `/settings` tab                              |
+| Route                            | Renders                                                                |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| `/`                              | Public marketing/SEO landing page                                      |
+| `/home`                          | Deck list, the private app home                                        |
+| `/deck/:id`                      | The editor                                                             |
+| `/deck/:id/present`              | Full-screen presentation                                               |
+| `/p/:id`                         | Public/agent-readable live deck preview, distinct from `/share/:token` |
+| `/share/:token`                  | Public read-only snapshot, frozen at share time                        |
+| `/slide`                         | Single-slide embed used for chat previews                              |
+| `/design-systems`                | Manage saved design systems                                            |
+| `/access-request/approve`        | Approve a request for access to a private deck                         |
+| `/agent`, `/extensions`, `/team` | Redirect into the relevant `/settings` tab                             |
 
-## Customizing it
+## Customize it
 
 The Slides template is fully customizable. Key places to look when extending it:
 
@@ -359,7 +363,7 @@ Every agent-callable operation lives here as a TypeScript file, mounted automati
   filename="actions/update-slide.ts (simplified)"
   language="ts"
   code={
-    'import { defineAction } from "@agent-native/core";\nimport { assertAccess } from "@agent-native/core/sharing";\nimport { eq } from "drizzle-orm";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { notifyClients } from "../server/handlers/decks.js";\nimport { withDeckLock } from "./patch-deck.js";\n\nexport default defineAction({\n  description:\n    "Surgically edit a slide\'s content using search-replace or full replacement. " +\n    "Syncs live to open editors. Prefer this over full deck rewrites.",\n  schema: z.object({\n    deckId: z.string(),\n    slideId: z.string(),\n    find: z.string().optional(),\n    replace: z.string().optional(),\n    fullContent: z.string().optional(),\n  }),\n  run: async ({ deckId, slideId, find, replace, fullContent }) => {\n    await assertAccess("deck", deckId, "editor");\n    return withDeckLock(deckId, async () => {\n      const db = getDb();\n      const [row] = await db\n        .select()\n        .from(schema.decks)\n        .where(eq(schema.decks.id, deckId));\n      if (!row) throw new Error(`Deck ${deckId} not found`);\n\n      const deck = JSON.parse(row.data);\n      const slide = deck.slides.find((s: { id: string }) => s.id === slideId);\n      if (!slide) throw new Error(`Slide ${slideId} not found`);\n\n      if (fullContent) {\n        slide.content = fullContent;\n      } else if (find) {\n        const idx = slide.content.indexOf(find);\n        if (idx === -1) return { ok: false, message: "Text not found" };\n        slide.content =\n          slide.content.slice(0, idx) +\n          (replace ?? "") +\n          slide.content.slice(idx + find.length);\n      }\n\n      deck.updatedAt = new Date().toISOString();\n      await db\n        .update(schema.decks)\n        .set({ data: JSON.stringify(deck), updatedAt: deck.updatedAt })\n        .where(eq(schema.decks.id, deckId));\n\n      notifyClients(deckId, { slideId, actor: "agent" });\n      return { ok: true, deckId, slideId };\n    });\n  },\n});'
+    'import { defineAction, fail } from "@agent-native/core/action";\nimport { assertAccess } from "@agent-native/core/sharing";\nimport { eq } from "drizzle-orm";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { notifyClients } from "../server/handlers/decks.js";\nimport { withDeckLock } from "./patch-deck.js";\n\nexport default defineAction({\n  description:\n    "Surgically edit a slide\'s content using search-replace or full replacement. " +\n    "Syncs live to open editors. Prefer this over full deck rewrites.",\n  schema: z.object({\n    deckId: z.string(),\n    slideId: z.string(),\n    find: z.string().optional(),\n    replace: z.string().optional(),\n    fullContent: z.string().optional(),\n  }),\n  run: async ({ deckId, slideId, find, replace, fullContent }) => {\n    await assertAccess("deck", deckId, "editor");\n    return withDeckLock(deckId, async () => {\n      const db = getDb();\n      const [row] = await db\n        .select()\n        .from(schema.decks)\n        .where(eq(schema.decks.id, deckId));\n      if (!row) {\n        fail(`Deck ${deckId} not found`, { errorCode: "deck_not_found", statusCode: 404 });\n      }\n\n      const deck = JSON.parse(row.data);\n      const slide = deck.slides.find((s: { id: string }) => s.id === slideId);\n      if (!slide) {\n        fail(`Slide ${slideId} not found`, { errorCode: "slide_not_found", statusCode: 404 });\n      }\n\n      if (fullContent) {\n        slide.content = fullContent;\n      } else if (find) {\n        const idx = slide.content.indexOf(find);\n        if (idx === -1) {\n          fail("Text not found", { errorCode: "slide_find_no_match" });\n        }\n        slide.content =\n          slide.content.slice(0, idx) +\n          (replace ?? "") +\n          slide.content.slice(idx + find.length);\n      }\n\n      deck.updatedAt = new Date().toISOString();\n      await db\n        .update(schema.decks)\n        .set({ data: JSON.stringify(deck), updatedAt: deck.updatedAt })\n        .where(eq(schema.decks.id, deckId));\n\n      notifyClients(deckId, { slideId, actor: "agent" });\n      return { ok: true, deckId, slideId };\n    });\n  },\n});'
   }
   annotations={[
     {
@@ -368,29 +372,34 @@ Every agent-callable operation lives here as a TypeScript file, mounted automati
       note: "`assertAccess` throws before anything else runs if the caller isn't at least an editor on this deck.",
     },
     {
-      lines: "23-29",
+      lines: "23",
       label: "Per-deck lock",
-      note: "`withDeckLock` serializes this against every other write to the same deck — `add-slide` and the browser's `patch-deck` share the same lock, so two writers touching different slides never clobber each other.",
+      note: "`withDeckLock` serializes this against every other write to the same deck. `add-slide` and the browser's `patch-deck` share the same lock, so two writers touching different slides never clobber each other.",
     },
     {
-      lines: "35-44",
+      lines: "29-37",
+      label: "Fail loud, don't return quietly",
+      note: '`fail(...)` throws a structured error instead of returning a plain value. This action used to return `{ ok: false, message: "Text not found" }` for a bad match, which a caller could too easily read as success. Throwing is the only channel that reliably says the deck was not modified.',
+    },
+    {
+      lines: "39-51",
       label: "Surgical edit",
-      note: "A `find`/`replace` pair changes only the matched text; `fullContent` swaps the whole slide. Prefer the narrower form for real edits.",
+      note: "A `find`/`replace` pair changes only the matched text, and now fails loudly on no match too. `fullContent` swaps the whole slide. Prefer the narrower form for real edits.",
     },
     {
-      lines: "47-50",
+      lines: "53-57",
       label: "SQL is the source of truth",
-      note: "The whole deck is one JSON blob in `decks.data` — there's no separate `slides` table, so every write reads, edits, and rewrites that one column.",
+      note: "The whole deck is one JSON blob in `decks.data`. There's no separate `slides` table, so every write reads, edits, and rewrites that one column.",
     },
     {
-      lines: "52",
+      lines: "59",
       label: "Live sync",
-      note: "`notifyClients` pushes the change to any open editor immediately; polling is the fallback path. See [Real-Time Collaboration](/docs/real-time-collaboration).",
+      note: "`notifyClients` pushes the change to any open editor immediately. Polling is the fallback path. See [Real-Time Collaboration](/docs/real-time-collaboration).",
     },
   ]}
 />
 
-The real action also records Creative Context reuse provenance and waits briefly for the editor to report a layout-overflow measurement — trimmed here to the core read-modify-write shape.
+The real action also validates that exactly one edit mode was provided, snapshots a version before writing, and writes with an optimistic-concurrency check so a stale read can never silently overwrite a newer one, on top of recording Creative Context reuse provenance and waiting briefly for the editor to report a layout-overflow measurement. This example trims all of that down to the core access, lock, read-modify-write, notify shape.
 
 #### Layout
 
@@ -404,7 +413,7 @@ The real action also records Creative Context reuse provenance and waits briefly
     },
     {
       path: "actions/add-slide.ts",
-      note: "Append one slide; used for streaming generation",
+      note: "Append one slide, used for streaming generation",
     },
     {
       path: "actions/update-slide.ts",
@@ -413,10 +422,6 @@ The real action also records Creative Context reuse provenance and waits briefly
     {
       path: "actions/patch-deck.ts",
       note: "Granular ops the browser editor uses instead of a full-deck PUT",
-    },
-    {
-      path: "actions/generate-image.ts",
-      note: "Agent-facing image generation, deck-aware, optional A2A delegation to Images",
     },
     {
       path: "actions/index-design-system-with-builder.ts",
@@ -461,7 +466,7 @@ The real action also records Creative Context reuse provenance and waits briefly
   ]}
 />
 
-Most editor UI customization happens under `app/components/editor/`: the slide canvas, toolbar, sidebar, bubble menu, slash menu, and the panels for image generation, search, and history.
+Most editor UI customization happens under `app/components/editor/`: the slide canvas, toolbar, sidebar, bubble menu, slash menu, and the history panel.
 
 #### Skills — `templates/slides/.agents/skills/`
 
@@ -470,19 +475,18 @@ Agent skills that explain patterns when the agent needs to modify code:
 - `create-deck` — how to create a new deck, with exact slide HTML templates for every layout
 - `slide-editing` — how to edit individual slides
 - `deck-management` — how decks are stored and accessed
-- `slide-images`, `image-generation-via-a2a` — image generation and search
 - `design-systems` — design-system data shape and how tokens apply to generated slides
 - `creative-context` — the reuse ladder, retrieval procedure, and Library submission
 
 #### AGENTS.md
 
-`templates/slides/AGENTS.md` is the short router the agent reads on every conversation. It points at the skills under `.agents/skills/` and lays out the core rules, persistence model, and application-state contract. Update the relevant skill whenever you add or change a slide layout, image path, or design-system source.
+`templates/slides/AGENTS.md` is the short router the agent reads on every conversation. It points at the skills under `.agents/skills/` and lays out the core rules, persistence model, and application-state contract. Update the relevant skill whenever you add or change a slide layout or design-system source.
 
 ## What's next
 
-- [**Generating & Editing Decks**](/docs/template-slides-editing) — the user-facing editing, presenting, and sharing flow
-- [**Design Systems & Media**](/docs/template-slides-design-and-media) — the design-system and import/export flow this data model backs
-- [**Talking to the Agent & Creative Context**](/docs/template-slides-agent) — the reuse ladder these actions implement
+- [**Features**](/docs/template-slides-features) — the user-facing editing, presenting, sharing, design-system, and import/export flow this data model backs
+- [**Talk to the Agent**](/docs/template-slides-agent) — prompts by task and what the agent sees
+- [**Slides in a Multi-App Workspace**](/docs/template-slides-integrations) — how these actions get called from outside Slides
 - [**Sharing**](/docs/sharing) — the share-grant model `deck_shares` and `design_system_shares` build on
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — the Yjs pipeline decks share with other collaborative surfaces
 - [**Slides overview**](/docs/template-slides) — back to the app summary

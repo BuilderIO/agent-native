@@ -37,7 +37,10 @@ import {
 } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
-import { ZERO_WIDTH_SPACE } from "@/components/editor/bullet-editing";
+import {
+  isBulletRow,
+  ZERO_WIDTH_SPACE,
+} from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -291,6 +294,8 @@ type RichTextEditorSession = {
   originalContent: string;
   originalContentEditable: string | null;
   originalEditingBlock: string | null;
+  originalStyle: string | null;
+  cleanupHost: () => void;
   latestHtml: string;
 };
 
@@ -1233,6 +1238,7 @@ function ElementSelectionOutline({
   viewportRect,
   onResizeStart,
   onMoveStart,
+  allowBodyMove = true,
   onRotateStart,
 }: {
   rect: DOMRect;
@@ -1240,6 +1246,7 @@ function ElementSelectionOutline({
   viewportRect: DOMRect | null;
   onResizeStart?: (handle: ResizeHandle, e: React.PointerEvent) => void;
   onMoveStart?: (e: React.PointerEvent) => void;
+  allowBodyMove?: boolean;
   onRotateStart?: (e: React.PointerEvent) => void;
 }) {
   const pad = 2;
@@ -1251,6 +1258,12 @@ function ElementSelectionOutline({
   const edgeHandleClass =
     "absolute flex touch-none items-center justify-center bg-transparent p-0";
   const edgeBarClass = "rounded-sm";
+  const moveHandleStyles = [
+    ["n", { top: -4, left: 7, right: 7, height: 8 }],
+    ["e", { top: 7, right: -4, bottom: 7, width: 8 }],
+    ["s", { right: 7, bottom: -4, left: 7, height: 8 }],
+    ["w", { bottom: 7, left: -4, top: 7, width: 8 }],
+  ] as const;
   return (
     <SelectionOverlayPortal viewportRect={viewportRect} zIndex={51}>
       <div
@@ -1272,7 +1285,22 @@ function ElementSelectionOutline({
             : undefined,
         }}
       >
-        {onMoveStart && (
+        {onMoveStart &&
+          moveHandleStyles.map(([edge, style]) => (
+            <span
+              key={edge}
+              data-slide-move-handle={edge}
+              onPointerDown={onMoveStart}
+              className="absolute touch-none"
+              style={{
+                ...style,
+                pointerEvents: "auto",
+                cursor: "move",
+                zIndex: 0,
+              }}
+            />
+          ))}
+        {onMoveStart && allowBodyMove && (
           <span
             data-slide-group-move-handle="true"
             onPointerDown={onMoveStart}
@@ -1389,6 +1417,43 @@ function ElementSelectionOutline({
           <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
         </span>
       </div>
+    </SelectionOverlayPortal>
+  );
+}
+
+function ElementHoverOutline({
+  rect,
+  frame,
+  viewportRect,
+}: {
+  rect: DOMRect;
+  frame?: SelectionOverlayMeasurement["frame"];
+  viewportRect: DOMRect | null;
+}) {
+  const pad = 2;
+  const left = frame?.left ?? rect.left;
+  const top = frame?.top ?? rect.top;
+  const width = frame?.width ?? rect.width;
+  const height = frame?.height ?? rect.height;
+
+  return (
+    <SelectionOverlayPortal viewportRect={viewportRect} zIndex={49}>
+      <div
+        data-slide-layer-hover-outline="true"
+        style={{
+          position: "absolute",
+          top: top - pad,
+          left: left - pad,
+          width: width + pad * 2,
+          height: height + pad * 2,
+          pointerEvents: "none",
+          borderRadius: 3,
+          transform: frame?.transform,
+          transformOrigin: frame
+            ? `${frame.transformOrigin.x + pad}px ${frame.transformOrigin.y + pad}px`
+            : undefined,
+        }}
+      />
     </SelectionOverlayPortal>
   );
 }
@@ -1627,6 +1692,12 @@ export default function SlideEditor({
   >(null);
   const [selectedElementMeasurement, setSelectedElementMeasurement] =
     useState<SelectionOverlayMeasurement | null>(null);
+  const [hoveredLayerId, setHoveredLayerId] = useState<string | null>(null);
+  const [hoveredLayerMeasurement, setHoveredLayerMeasurement] = useState<{
+    id: string;
+    rect: DOMRect;
+    frame: SelectionOverlayMeasurement["frame"];
+  } | null>(null);
   const [selectionMeasurementRevision, setSelectionMeasurementRevision] =
     useState(0);
   const canvasAutofitKey = createSelectionOverlayAutofitKey(slide.id, content);
@@ -2022,6 +2093,14 @@ export default function SlideEditor({
   const currentSlideIdRef = useRef(slide.id);
   const [richTextEditorRevision, setRichTextEditorRevision] = useState(0);
 
+  const getRichTextEditorSurface = useCallback(
+    () =>
+      richTextEditorRef.current?.getEditor()?.view.dom ??
+      richTextEditorSessionRef.current?.host ??
+      editingElRef.current,
+    [],
+  );
+
   useLayoutEffect(() => {
     currentSlideIdRef.current = slide.id;
     if (inlineEditDraftCaptureTimerRef.current !== null) {
@@ -2037,6 +2116,7 @@ export default function SlideEditor({
       activePath: number[] | null = null,
       activeHtml: string | null = null,
       activeSourceContent: string | null = null,
+      activeOriginalStyle: string | null | undefined = undefined,
     ) => {
       // SlideRenderer swaps each `<div class="mermaid">` for a
       // `data-mermaid-index` placeholder and renders the diagram as SVG via
@@ -2062,6 +2142,24 @@ export default function SlideEditor({
             activeHtml,
             activeSourceContent ?? undefined,
           );
+          if (activeOriginalStyle !== undefined) {
+            const originalStyleElement =
+              clone.ownerDocument.createElement("div");
+            if (activeOriginalStyle !== null) {
+              originalStyleElement.setAttribute("style", activeOriginalStyle);
+            }
+            const originalVisibility =
+              originalStyleElement.style.getPropertyValue("visibility");
+            if (originalVisibility) {
+              activeClone.style.setProperty(
+                "visibility",
+                originalVisibility,
+                originalStyleElement.style.getPropertyPriority("visibility"),
+              );
+            } else {
+              activeClone.style.removeProperty("visibility");
+            }
+          }
         }
       }
       const placeholders = clone.querySelectorAll("[data-mermaid-index]");
@@ -2109,12 +2207,24 @@ export default function SlideEditor({
     ) as HTMLElement | null;
     if (!slideContent) return null;
     const session = richTextEditorSessionRef.current;
+    const liveSerializationRoot =
+      session?.slideId === slide.id &&
+      session.element.isConnected &&
+      slideContent.contains(session.element)
+        ? slideContent
+        : null;
+    const serializationRoot =
+      liveSerializationRoot ??
+      (session?.slideId === slide.id
+        ? session.slideContentSnapshot
+        : slideContent);
     return serializeSlideContentHtml(
-      slideContent,
+      serializationRoot,
       slide.content,
       activeRichTextPathRef.current,
       activeRichTextHtmlRef.current,
       session?.slideId === slide.id ? session.originalContent : null,
+      session?.slideId === slide.id ? session.originalStyle : undefined,
     );
   }, [serializeSlideContentHtml, slide.content]);
 
@@ -2177,68 +2287,68 @@ export default function SlideEditor({
     [captureInlineEditDraft],
   );
 
-  const disposeRichTextEditor = useCallback(
-    (restoreLiveDom = true) => {
-      if (inlineEditDraftCaptureTimerRef.current !== null) {
-        clearTimeout(inlineEditDraftCaptureTimerRef.current);
-        inlineEditDraftCaptureTimerRef.current = null;
-      }
-      const session = richTextEditorSessionRef.current;
-      if (!session) return null;
+  const disposeRichTextEditor = useCallback(() => {
+    if (inlineEditDraftCaptureTimerRef.current !== null) {
+      clearTimeout(inlineEditDraftCaptureTimerRef.current);
+      inlineEditDraftCaptureTimerRef.current = null;
+    }
+    const session = richTextEditorSessionRef.current;
+    if (!session) return null;
 
-      const latest =
-        session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
-      session.latestHtml = latest;
-      activeRichTextHtmlRef.current = latest;
-      const draftContent =
-        session.slideId === previousSlideIdRef.current
-          ? readCurrentSlideContentHtmlRef.current()
-          : serializeSlideContentHtml(
-              session.slideContentSnapshot,
-              session.sourceContent,
-              session.path,
-              latest,
-              session.originalContent,
-            );
-      if (draftContent !== null)
-        persistInlineEditDraft(session.slideId, draftContent);
-      session.root.unmount();
+    const latest =
+      session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
+    session.latestHtml = latest;
+    activeRichTextHtmlRef.current = latest;
+    const liveSlideContent = containerRef.current?.querySelector(
+      ".slide-content",
+    ) as HTMLElement | null;
+    const serializationRoot =
+      liveSlideContent &&
+      session.element.isConnected &&
+      liveSlideContent.contains(session.element)
+        ? liveSlideContent
+        : session.slideContentSnapshot;
+    const draftContent = serializeSlideContentHtml(
+      serializationRoot,
+      session.sourceContent,
+      session.path,
+      latest,
+      session.originalContent,
+      session.originalStyle,
+    );
+    if (draftContent !== null)
+      persistInlineEditDraft(session.slideId, draftContent);
+    session.root.unmount();
+    session.cleanupHost();
+    if (session.originalStyle === null) {
+      session.element.removeAttribute("style");
+    } else {
+      session.element.setAttribute("style", session.originalStyle);
+    }
+    if (session.originalContentEditable === null) {
+      session.element.removeAttribute("contenteditable");
+    } else {
+      session.element.setAttribute(
+        "contenteditable",
+        session.originalContentEditable,
+      );
+    }
+    if (session.originalEditingBlock === null) {
+      session.element.removeAttribute("data-editing-block");
+    } else {
+      session.element.setAttribute(
+        "data-editing-block",
+        session.originalEditingBlock,
+      );
+    }
 
-      let restoredElement = session.element;
-      if (restoreLiveDom && session.element.isConnected) {
-        restoredElement = restoreSlideTextContainerContent(
-          session.element,
-          latest,
-          session.originalContent,
-        );
-        session.element = restoredElement;
-        if (session.originalContentEditable === null) {
-          restoredElement.removeAttribute("contenteditable");
-        } else {
-          restoredElement.setAttribute(
-            "contenteditable",
-            session.originalContentEditable,
-          );
-        }
-        if (session.originalEditingBlock === null) {
-          restoredElement.removeAttribute("data-editing-block");
-        } else {
-          restoredElement.setAttribute(
-            "data-editing-block",
-            session.originalEditingBlock,
-          );
-        }
-      }
-
-      richTextEditorSessionRef.current = null;
-      richTextEditorRef.current = null;
-      activeRichTextHtmlRef.current = null;
-      activeRichTextPathRef.current = null;
-      setRichTextEditorRevision((revision) => revision + 1);
-      return { html: latest, element: restoredElement };
-    },
-    [persistInlineEditDraft, serializeSlideContentHtml],
-  );
+    richTextEditorSessionRef.current = null;
+    richTextEditorRef.current = null;
+    activeRichTextHtmlRef.current = null;
+    activeRichTextPathRef.current = null;
+    setRichTextEditorRevision((revision) => revision + 1);
+    return { content: draftContent, html: latest, element: session.element };
+  }, [persistInlineEditDraft, serializeSlideContentHtml]);
 
   const flushInlineEditDraft = useCallback(() => {
     const draft = inlineEditDraftRef.current;
@@ -2605,8 +2715,8 @@ export default function SlideEditor({
       session.latestHtml = latest;
       activeRichTextHtmlRef.current = latest;
     }
-    const html = readCurrentSlideContentHtml();
     const disposed = disposeRichTextEditor();
+    const html = disposed?.content ?? readCurrentSlideContentHtml();
     const selected = disposed?.element ?? el;
     const selectionTarget = slideContent
       ? resolveSlideTextSelectionTarget(selected, slideContent)
@@ -2705,24 +2815,261 @@ export default function SlideEditor({
         el.contains(nativeRange.endContainer)
           ? selectionOffsetsWithin(el, nativeRange)
           : null;
-      const initialHtml = isSlideTextContainerTag(el.tagName)
-        ? contentForSlideTextContainer(
-            el.tagName,
-            el.outerHTML,
-            el.tagName === "LI" &&
-              (el.parentElement?.tagName === "OL" ||
-                el.parentElement?.tagName === "UL")
-              ? (el.parentElement.tagName as "OL" | "UL")
-              : undefined,
-          )
-        : el.innerHTML;
+      const initialHtml =
+        isSlideTextContainerTag(el.tagName) || isBulletRow(el)
+          ? contentForSlideTextContainer(
+              el.tagName,
+              el.outerHTML,
+              el.tagName === "LI" &&
+                (el.parentElement?.tagName === "OL" ||
+                  el.parentElement?.tagName === "UL")
+                ? (el.parentElement.tagName as "OL" | "UL")
+                : undefined,
+            )
+          : el.innerHTML;
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;
       const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
       const originalContent = el.innerHTML;
 
+      const editorContext = document.createElement("div");
+      editorContext.className = "slide-content slide-rich-editor-context";
+      const fmdSlide = el.closest<HTMLElement>(".fmd-slide");
+      const fmdSlideContext = fmdSlide
+        ? (fmdSlide.cloneNode(false) as HTMLElement)
+        : null;
+      if (fmdSlideContext) {
+        // Keep descendant slide selectors and imported-deck typography while
+        // the fixed editor host lives outside the React-owned canvas.
+        fmdSlideContext.style.display = "contents";
+        editorContext.append(fmdSlideContext);
+      }
+
       const host = document.createElement("div");
       host.className = "slide-rich-editor-host";
+      (fmdSlideContext ?? editorContext).append(host);
+      const originalStyle = el.getAttribute("style");
+      const computedStyle = window.getComputedStyle(el);
+      const slideCanvas = el.closest<HTMLElement>("[data-slide-canvas]");
+      const transformOriginOffset = (
+        token: string | undefined,
+        size: number,
+      ) => {
+        const normalized = token?.trim().toLowerCase();
+        if (!normalized || normalized === "center") return size / 2;
+        if (normalized === "left" || normalized === "top") return 0;
+        if (normalized === "right" || normalized === "bottom") return size;
+        const value = Number.parseFloat(normalized);
+        if (!Number.isFinite(value)) return size / 2;
+        return normalized.endsWith("%") ? (value / 100) * size : value;
+      };
+      const positionHost = () => {
+        const rect = el.getBoundingClientRect();
+        const canvasRect = slideCanvas?.getBoundingClientRect();
+        const scaleX =
+          slideCanvas && slideCanvas.offsetWidth > 0 && canvasRect
+            ? canvasRect.width / slideCanvas.offsetWidth
+            : 1;
+        const scaleY =
+          slideCanvas && slideCanvas.offsetHeight > 0 && canvasRect
+            ? canvasRect.height / slideCanvas.offsetHeight
+            : 1;
+        const safeScaleX = Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1;
+        const safeScaleY = Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1;
+        const { transform: elementTransform, transformOrigin } =
+          readSlideObjectTransformSnapshot(el);
+        const hasElementTransform = elementTransform !== "none";
+        const layoutWidth = hasElementTransform
+          ? el.offsetWidth || rect.width / safeScaleX
+          : rect.width / safeScaleX;
+        const layoutHeight = hasElementTransform
+          ? el.offsetHeight || rect.height / safeScaleY
+          : rect.height / safeScaleY;
+        host.style.width = `${layoutWidth}px`;
+        host.style.minHeight = `${layoutHeight}px`;
+
+        const getBoxQuads = (
+          el as HTMLElement & {
+            getBoxQuads?: () => Array<{
+              p1: { x: number; y: number };
+              p2: { x: number; y: number };
+              p4: { x: number; y: number };
+            }>;
+          }
+        ).getBoxQuads;
+        const sourceQuad = getBoxQuads?.call(el)?.[0];
+        if (
+          sourceQuad &&
+          typeof DOMMatrixReadOnly !== "undefined" &&
+          el.offsetWidth > 0 &&
+          el.offsetHeight > 0
+        ) {
+          try {
+            const elementMatrix =
+              elementTransform === "none"
+                ? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+                : new DOMMatrixReadOnly(elementTransform);
+            const totalA = (sourceQuad.p2.x - sourceQuad.p1.x) / el.offsetWidth;
+            const totalB = (sourceQuad.p2.y - sourceQuad.p1.y) / el.offsetWidth;
+            const totalC =
+              (sourceQuad.p4.x - sourceQuad.p1.x) / el.offsetHeight;
+            const totalD =
+              (sourceQuad.p4.y - sourceQuad.p1.y) / el.offsetHeight;
+            const determinant =
+              elementMatrix.a * elementMatrix.d -
+              elementMatrix.b * elementMatrix.c;
+            if (
+              [totalA, totalB, totalC, totalD, determinant].every(
+                Number.isFinite,
+              ) &&
+              Math.abs(determinant) > 1e-8
+            ) {
+              const ancestorA =
+                (totalA * elementMatrix.d - totalC * elementMatrix.b) /
+                determinant;
+              const ancestorB =
+                (totalB * elementMatrix.d - totalD * elementMatrix.b) /
+                determinant;
+              const ancestorC =
+                (totalC * elementMatrix.a - totalA * elementMatrix.c) /
+                determinant;
+              const ancestorD =
+                (totalD * elementMatrix.a - totalB * elementMatrix.c) /
+                determinant;
+              const sourceOriginTokens = transformOrigin.split(/\s+/);
+              const sourceOriginX = transformOriginOffset(
+                sourceOriginTokens[0],
+                el.offsetWidth,
+              );
+              const sourceOriginY = transformOriginOffset(
+                sourceOriginTokens[1],
+                el.offsetHeight,
+              );
+              const elementTranslationX =
+                sourceOriginX -
+                elementMatrix.a * sourceOriginX -
+                elementMatrix.c * sourceOriginY +
+                elementMatrix.e;
+              const elementTranslationY =
+                sourceOriginY -
+                elementMatrix.b * sourceOriginX -
+                elementMatrix.d * sourceOriginY +
+                elementMatrix.f;
+              const ancestorTranslationX =
+                sourceQuad.p1.x -
+                ancestorA * elementTranslationX -
+                ancestorC * elementTranslationY;
+              const ancestorTranslationY =
+                sourceQuad.p1.y -
+                ancestorB * elementTranslationX -
+                ancestorD * elementTranslationY;
+              const hostWidth = host.offsetWidth || layoutWidth;
+              const hostHeight = host.offsetHeight || layoutHeight;
+              const hostOriginTokens = transformOrigin.split(/\s+/);
+              const hostOriginX = transformOriginOffset(
+                hostOriginTokens[0],
+                hostWidth,
+              );
+              const hostOriginY = transformOriginOffset(
+                hostOriginTokens[1],
+                hostHeight,
+              );
+              const hostTranslationX =
+                ancestorTranslationX +
+                ancestorA *
+                  (hostOriginX -
+                    elementMatrix.a * hostOriginX -
+                    elementMatrix.c * hostOriginY +
+                    elementMatrix.e) +
+                ancestorC *
+                  (hostOriginY -
+                    elementMatrix.b * hostOriginX -
+                    elementMatrix.d * hostOriginY +
+                    elementMatrix.f);
+              const hostTranslationY =
+                ancestorTranslationY +
+                ancestorB *
+                  (hostOriginX -
+                    elementMatrix.a * hostOriginX -
+                    elementMatrix.c * hostOriginY +
+                    elementMatrix.e) +
+                ancestorD *
+                  (hostOriginY -
+                    elementMatrix.b * hostOriginX -
+                    elementMatrix.d * hostOriginY +
+                    elementMatrix.f);
+              const composed = [
+                ancestorA * elementMatrix.a + ancestorC * elementMatrix.b,
+                ancestorB * elementMatrix.a + ancestorD * elementMatrix.b,
+                ancestorA * elementMatrix.c + ancestorC * elementMatrix.d,
+                ancestorB * elementMatrix.c + ancestorD * elementMatrix.d,
+                hostTranslationX,
+                hostTranslationY,
+              ];
+              if (composed.every(Number.isFinite)) {
+                host.style.left = "0px";
+                host.style.top = "0px";
+                host.style.transformOrigin = "0 0";
+                host.style.transform = `matrix(${composed.join(", ")})`;
+                return;
+              }
+            }
+            // coercion-ok: browser geometry APIs can reject unsupported transform strings; use the scale-aware fallback.
+          } catch {
+            // Fall back to the scale-aware rect path when browser geometry
+            // APIs cannot provide a usable affine transform.
+          }
+        }
+
+        host.style.transformOrigin = hasElementTransform
+          ? transformOrigin
+          : "top left";
+        host.style.transform = hasElementTransform
+          ? `scale(${safeScaleX}, ${safeScaleY}) ${elementTransform}`
+          : `scale(${safeScaleX}, ${safeScaleY})`;
+        host.style.left = `${rect.left}px`;
+        host.style.top = `${rect.top}px`;
+        if (hasElementTransform) {
+          const hostRect = host.getBoundingClientRect();
+          host.style.left = `${rect.left + rect.left - hostRect.left}px`;
+          host.style.top = `${rect.top + rect.top - hostRect.top}px`;
+        }
+      };
+      host.style.position = "fixed";
+      host.style.zIndex = "1000";
+      host.style.pointerEvents = "auto";
+      host.style.boxSizing = computedStyle.boxSizing;
+      host.style.font = computedStyle.font;
+      host.style.color = computedStyle.color;
+      host.style.textAlign = computedStyle.textAlign;
+      host.style.whiteSpace = computedStyle.whiteSpace;
+      host.style.wordBreak = computedStyle.wordBreak;
+      host.style.overflowWrap = computedStyle.overflowWrap;
+      host.style.background = computedStyle.background;
+      host.style.border = computedStyle.border;
+      host.style.borderRadius = computedStyle.borderRadius;
+      host.style.padding = computedStyle.padding;
+      const contentScope = el.closest<HTMLElement>("[data-slide-content-scope]")
+        ?.dataset.slideContentScope;
+      if (contentScope) editorContext.dataset.slideContentScope = contentScope;
+      document.body.append(editorContext);
+      positionHost();
+      const resizeObserver =
+        typeof ResizeObserver === "undefined"
+          ? null
+          : new ResizeObserver(positionHost);
+      resizeObserver?.observe(el);
+      if (slideCanvas) resizeObserver?.observe(slideCanvas);
+      resizeObserver?.observe(host);
+      window.addEventListener("resize", positionHost);
+      const scrollContainer = scrollContainerRef.current;
+      scrollContainer?.addEventListener("scroll", positionHost);
+      const cleanupHost = () => {
+        resizeObserver?.disconnect();
+        window.removeEventListener("resize", positionHost);
+        scrollContainer?.removeEventListener("scroll", positionHost);
+        editorContext.remove();
+      };
       const apiRef: { current: SlideRichTextEditorHandle | null } = {
         current: null,
       };
@@ -2738,6 +3085,8 @@ export default function SlideEditor({
         originalContent,
         originalContentEditable: el.getAttribute("contenteditable"),
         originalEditingBlock: el.getAttribute("data-editing-block"),
+        originalStyle,
+        cleanupHost,
         latestHtml: initialHtml,
       };
       richTextEditorSessionRef.current = session;
@@ -2745,6 +3094,7 @@ export default function SlideEditor({
       activeRichTextPathRef.current = path;
       el.contentEditable = "false";
       el.setAttribute("data-editing-block", "true");
+      el.style.visibility = "hidden";
       // Keep the inspector selection mounted while text is being edited. The
       // inspector is a stable dock, so clearing it here would make the canvas
       // resize and auto-fit again on the second click.
@@ -2761,7 +3111,6 @@ export default function SlideEditor({
       // user's gesture; re-selecting from JS clobbers it. focus() on an
       // element that already contains the selection preserves it in modern
       // browsers, so it's safe to keep for keyboard delivery.
-      el.replaceChildren(host);
       session.root.render(
         <SlideRichTextEditor
           ref={apiRef}
@@ -2771,6 +3120,7 @@ export default function SlideEditor({
             if (richTextEditorSessionRef.current !== session) return;
             session.latestHtml = html;
             activeRichTextHtmlRef.current = html;
+            positionHost();
             scheduleInlineEditDraftCapture(slide.id);
           }}
           onEditorReady={handleRichTextEditorReady}
@@ -2877,10 +3227,12 @@ export default function SlideEditor({
     const updateInspectorTextStyle = () => {
       const selection = window.getSelection();
       if (!selection || selection.rangeCount !== 1) return;
+      const editingSurface = getRichTextEditorSurface();
+      if (!editingSurface) return;
       const range = selection.getRangeAt(0);
       if (
-        !editingEl.contains(range.startContainer) ||
-        !editingEl.contains(range.endContainer)
+        !editingSurface.contains(range.startContainer) ||
+        !editingSurface.contains(range.endContainer)
       ) {
         // Inspector and portalled picker interactions move browser focus away
         // from the slide. Retain the last valid range until the user places a
@@ -2889,7 +3241,7 @@ export default function SlideEditor({
       }
 
       richTextSelectionRef.current = snapshotEditableTextRange(
-        editingEl,
+        editingSurface,
         selection,
       );
       const slideContent = getSlideContent();
@@ -2902,7 +3254,7 @@ export default function SlideEditor({
       const snapshot = buildStyleSnapshot(
         editingEl,
         selector,
-        getInlineTextStyleSnapshot(editingEl, selection),
+        getInlineTextStyleSnapshot(editingSurface, selection),
       );
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
@@ -2922,14 +3274,24 @@ export default function SlideEditor({
     document.addEventListener("selectionchange", updateInspectorTextStyle);
     return () =>
       document.removeEventListener("selectionchange", updateInspectorTextStyle);
-  }, [editingEl, getSlideContent, selectedElementSelector]);
+  }, [
+    editingEl,
+    getRichTextEditorSurface,
+    getSlideContent,
+    selectedElementSelector,
+  ]);
 
   // Click-outside: exit inline edit mode
   useEffect(() => {
     if (!editingEl) return;
     const onDocMouseDown = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (editingEl.contains(target)) return;
+      if (
+        editingEl.contains(target) ||
+        richTextEditorSessionRef.current?.host.contains(target)
+      ) {
+        return;
+      }
       // Inspector controls and their popovers deliberately preserve the live
       // edit session so a saved text range can receive the chosen formatting.
       if (
@@ -2986,6 +3348,7 @@ export default function SlideEditor({
         return;
       }
       const editingElement = editingElRef.current;
+      const editingSurface = getRichTextEditorSurface();
       const slideContent = editingElement ? getSlideContent() : null;
       const resolvedEditingElement =
         editingElement && slideContent
@@ -2994,7 +3357,7 @@ export default function SlideEditor({
       const inlineTextStyle =
         editingElement && resolvedEditingElement === element
           ? getInlineTextStyleSnapshotForRange(
-              editingElement,
+              editingSurface ?? editingElement,
               richTextSelectionRef.current,
             )
           : undefined;
@@ -3066,6 +3429,7 @@ export default function SlideEditor({
   }, [
     buildSelectionState,
     clearSelectedElement,
+    getRichTextEditorSurface,
     getSlideContent,
     resolveSelectedElement,
     selectedElementPath,
@@ -3074,9 +3438,47 @@ export default function SlideEditor({
     canvasAutofitKey,
     settledAutofitKey,
     selectionOverlayMeasurementKey,
+    editingEl,
+    richTextEditorRevision,
     slide.content,
     slide.id,
   ]);
+
+  useLayoutEffect(() => {
+    if (!layersOpen || !hoveredLayerId) {
+      setHoveredLayerMeasurement(null);
+      return;
+    }
+
+    const update = () => {
+      const slideContent = getSlideContent();
+      const element = slideContent?.querySelector<HTMLElement>(
+        `[data-builder-id="${hoveredLayerId}"]`,
+      );
+      if (!element) {
+        setHoveredLayerMeasurement(null);
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      setHoveredLayerMeasurement({
+        id: hoveredLayerId,
+        rect,
+        frame: readSlideObjectSelectionFrame(element, rect),
+      });
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [canvasZoom, getSlideContent, hoveredLayerId, layersOpen, slide.content]);
+
+  useEffect(() => {
+    if (!layersOpen) setHoveredLayerId(null);
+  }, [layersOpen]);
 
   // Deselect when clicking outside
   useEffect(() => {
@@ -4330,13 +4732,13 @@ export default function SlideEditor({
       const inlineTextStyle =
         editingElRef.current === element
           ? getInlineTextStyleSnapshotForRange(
-              element,
+              getRichTextEditorSurface() ?? element,
               richTextSelectionRef.current,
             )
           : undefined;
       return buildStyleSnapshot(element, selector, inlineTextStyle);
     },
-    [selectedElementSelector],
+    [getRichTextEditorSurface, selectedElementSelector],
   );
 
   const applyStylePatchToElement = useCallback(
@@ -4350,6 +4752,10 @@ export default function SlideEditor({
       let styledRange: Range | null = null;
       const richEditor =
         editingElRef.current === element ? richTextEditorRef.current : null;
+      const editableSurface =
+        editingElRef.current === element
+          ? (getRichTextEditorSurface() ?? element)
+          : element;
       let handledByRichEditor = false;
       if (richEditor && hasInlinePatch) {
         if (range) styledRange = richEditor.applyTextStyle(inlinePatch, range);
@@ -4358,10 +4764,10 @@ export default function SlideEditor({
         activeRichTextHtmlRef.current = richEditor.getHTML();
       } else if (
         range &&
-        restoreEditableTextRange(element, range) &&
+        restoreEditableTextRange(editableSurface, range) &&
         hasInlinePatch
       ) {
-        const result = applyInlineTextStyle(element, inlinePatch);
+        const result = applyInlineTextStyle(editableSurface, inlinePatch);
         if (result.scope === "selection" && result.range) {
           styledRange = result.range.cloneRange();
         }
@@ -4399,7 +4805,7 @@ export default function SlideEditor({
 
       return styledRange;
     },
-    [],
+    [getRichTextEditorSurface],
   );
 
   const copySelectedElementStyle = useCallback(() => {
@@ -4419,8 +4825,10 @@ export default function SlideEditor({
     if (targets.length === 0) return false;
 
     const editing = editingElRef.current;
+    const editingSurface = editing ? getRichTextEditorSurface() : null;
     const savedRange = editing
-      ? (richTextSelectionRef.current ?? snapshotEditableTextRange(editing))
+      ? (richTextSelectionRef.current ??
+        snapshotEditableTextRange(editingSurface ?? editing))
       : null;
     const nextRange = editing
       ? applyStylePatchToElement(editing, copied, savedRange)
@@ -4440,7 +4848,7 @@ export default function SlideEditor({
             editing,
             selector,
             getInlineTextStyleSnapshotForRange(
-              editing,
+              editingSurface ?? editing,
               richTextSelectionRef.current,
             ),
           ),
@@ -4461,6 +4869,7 @@ export default function SlideEditor({
   }, [
     applyStylePatchToElement,
     captureInlineEditDraft,
+    getRichTextEditorSurface,
     getStyleTargets,
     preserveMultiSelectionForUpdate,
     readCurrentSlideContentHtml,
@@ -7775,19 +8184,20 @@ export default function SlideEditor({
 
   const preserveRichTextSelection = useCallback(() => {
     const editing = editingElRef.current;
+    const editingSurface = editing ? getRichTextEditorSurface() : null;
     const selection = window.getSelection();
     if (!editing || !selection || selection.rangeCount !== 1) return;
     const range = selection.getRangeAt(0);
     if (
-      editing.contains(range.startContainer) &&
-      editing.contains(range.endContainer)
+      editingSurface?.contains(range.startContainer) &&
+      editingSurface.contains(range.endContainer)
     ) {
       richTextSelectionRef.current = snapshotEditableTextRange(
-        editing,
+        editingSurface,
         selection,
       );
     }
-  }, []);
+  }, [getRichTextEditorSurface]);
 
   const applySelectedStylePatch = useCallback(
     (patch: SlideStylePatch) => {
@@ -7825,7 +8235,9 @@ export default function SlideEditor({
 
       const savedRange =
         richTextSelectionRef.current ??
-        (editing ? snapshotEditableTextRange(editing) : null);
+        (editing
+          ? snapshotEditableTextRange(getRichTextEditorSurface() ?? editing)
+          : null);
       const nextRange = applyStylePatchToElement(element, patch, savedRange);
       if (editing && nextRange) {
         richTextSelectionRef.current = nextRange.cloneRange();
@@ -7842,7 +8254,7 @@ export default function SlideEditor({
 
       const inlineTextStyle = editing
         ? getInlineTextStyleSnapshotForRange(
-            editing,
+            getRichTextEditorSurface() ?? editing,
             richTextSelectionRef.current,
           )
         : undefined;
@@ -7863,6 +8275,7 @@ export default function SlideEditor({
       buildSelectionState,
       applyStylePatchToElement,
       captureInlineEditDraft,
+      getRichTextEditorSurface,
       getStyleTargets,
       invalidateSelectionOverlayMeasurement,
       multiSelection.size,
@@ -8161,7 +8574,7 @@ export default function SlideEditor({
               activeEditing,
               selector,
               getInlineTextStyleSnapshotForRange(
-                activeEditing,
+                getRichTextEditorSurface() ?? activeEditing,
                 richTextSelectionRef.current,
               ),
             ),
@@ -8189,6 +8602,7 @@ export default function SlideEditor({
     },
     [
       captureInlineEditDraft,
+      getRichTextEditorSurface,
       getStyleTargets,
       invalidateSelectionOverlayMeasurement,
       multiSelection.size,
@@ -8287,8 +8701,7 @@ export default function SlideEditor({
 
   // Flow objects are promoted for the resize gesture and restored when a
   // press does not become a resize.
-  const selectedForDrag =
-    selectedElementRect && !editingEl ? resolveSelectedElement() : null;
+  const selectedForDrag = selectedElementRect ? resolveSelectedElement() : null;
   const isSelectedElementDraggable = selectedForDrag
     ? !isSlideCanvasShell(selectedForDrag)
     : false;
@@ -8520,6 +8933,10 @@ export default function SlideEditor({
     <SlidesLayersPanel
       layers={layerNodes}
       selectedIds={selectedLayerIds}
+      onHoverLayer={setHoveredLayerId}
+      onLeaveLayer={(id) =>
+        setHoveredLayerId((current) => (current === id ? null : current))
+      }
       contextMenuContent={readOnly ? undefined : slideElementContextMenuContent}
       onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}
       onContextMenuClose={clearContextMenuState}
@@ -8778,11 +9195,27 @@ export default function SlideEditor({
           viewportRect={selectionViewportRect}
         />
       )}
-      {selectedElementRect && !editingEl && !multiSelectionBounds && (
+      {hoveredLayerMeasurement &&
+        !selectedLayerIds.has(hoveredLayerMeasurement.id) && (
+          <ElementHoverOutline
+            rect={hoveredLayerMeasurement.rect}
+            frame={hoveredLayerMeasurement.frame}
+            viewportRect={selectionViewportRect}
+          />
+        )}
+      {selectedElementRect && !multiSelectionBounds && (
         <ElementSelectionOutline
           rect={selectedElementRect}
           frame={selectedElementFrame}
           viewportRect={selectionViewportRect}
+          allowBodyMove={Boolean(
+            selectedForDrag && !isRichTextBlock(selectedForDrag),
+          )}
+          onMoveStart={
+            !readOnly && isSelectedElementDraggable && selectedForDrag
+              ? (e) => startElementDrag(e, selectedForDrag)
+              : undefined
+          }
           onResizeStart={
             !readOnly && isSelectedElementDraggable && selectedElementFrame
               ? startElementResize

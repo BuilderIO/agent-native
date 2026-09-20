@@ -1,0 +1,186 @@
+---
+title: "Incorporar Clipes"
+description: "Incorpore o Clipes hospedado no seu produto com um token de serviço da organização, armazenamento de vídeo pré-configurado, URLs de captação de curta duração e mensagens de conclusão."
+search: "Clipes incorporar iframe token de serviço da organização captação de gravação anônima Builder S3 armazenamento auto-hospedagem"
+---
+
+# Incorporar Clipes
+
+Use o Clipes hospedado como o back-end de gravação do seu produto. Uma pessoa pode gravar a partir de um iframe sem entrar no Clipes. Seu backend usa um token de serviço da organização para criar uma URL de captação de curta duração, e o Clipes armazena a gravação resultante no armazenamento configurado dessa organização.
+
+Este guia cobre o fluxo de incorporação hospedado. Ele não exige que a pessoa que está gravando tenha uma conta no Clipes.
+
+## Como a integração funciona
+
+A integração tem quatro partes:
+
+1. Um administrador da organização configura o armazenamento de vídeo no Clipes.
+2. Seu backend armazena o token de serviço da organização e solicita uma URL de captação.
+3. Seu produto passa apenas a URL de captação de curta duração para um iframe.
+4. O Clipes envia a gravação para o armazenamento da organização e publica uma mensagem de conclusão para o seu produto.
+
+O token de serviço da organização nunca deve estar no iframe. Ele está vinculado à organização que o gerou, então o próprio token fornece o contexto da organização. Um ID de organização é útil para o seu próprio mapeamento de tenants, mas não é uma credencial por si só.
+
+## Configure a organização do Clipes
+
+Crie ou selecione a organização do Clipes que deve ser proprietária das gravações. Um administrador da organização então configura o armazenamento de vídeo através do onboarding do Clipes ou das Configurações do Clipes:
+
+- O **Builder.io Connect** fornece armazenamento de vídeo gerenciado e créditos de IA.
+- O **armazenamento compatível com S3** usa o endpoint, bucket, chave de acesso, chave secreta e, opcionalmente, região ou URL base pública configurados da organização. O Cloudflare R2 e o DigitalOcean Spaces usam as mesmas configurações de armazenamento com seus nomes específicos de provedor.
+
+A configuração de armazenamento tem escopo de organização. Toda gravação criada através do token de serviço dessa organização usa o armazenamento já conectado a essa organização. O produto que incorpora não precisa das credenciais do Builder.io ou do S3.
+
+O vídeo é armazenado no armazenamento de objetos configurado. O Clipes armazena os metadados da gravação, propriedade, estado de processamento e referência de armazenamento no seu banco de dados.
+
+## Crie um token de serviço da organização
+
+Execute o comando `connect` existente como proprietário ou administrador da organização. O comando abre um login pelo navegador, cria um token de serviço nomeado para a organização ativa, e imprime o token uma única vez:
+
+```bash
+npx @agent-native/core@latest connect https://clips.agent-native.com \
+  --service-token support-desk --ttl-days 365
+```
+
+Copie o token impresso diretamente para o gerenciador de segredos do lado do servidor do seu produto. O token pertence à organização, então ele continua funcionando mesmo se a pessoa que o gerou saia da organização ou revogue seus tokens pessoais. Ele nunca é gravado em uma configuração de cliente local. Use um nome de serviço diferente para cada integração, para que um chamador possa ser revogado sem quebrar outro.
+
+`--ttl-days` aceita de 1 a 365 dias e usa 365 como padrão. O token age como um membro da organização. Ele não pode criar ou revogar outros tokens de serviço, nem alterar as configurações da organização.
+
+## Solicite uma URL de captação
+
+Seu backend confiável chama a action de captação do Clipes. Use a origem hospedada do Clipes para contas hospedadas, ou sua própria origem do Clipes ao fazer auto-hospedagem.
+
+```ts
+const clipsBaseUrl = "https://clips.agent-native.com";
+const clipsServiceToken = process.env.CLIPS_SERVICE_TOKEN;
+
+const response = await fetch(
+  `${clipsBaseUrl}/_agent-native/actions/create-recording-intake-link`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${clipsServiceToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ttlSeconds: 3600,
+    }),
+  },
+);
+
+if (!response.ok) {
+  throw new Error("Could not create a Clips intake URL");
+}
+
+const intake = await response.json();
+// intake.url is safe to pass to the recording iframe.
+```
+
+O contexto de organização assinado do token de serviço determina qual organização é proprietária da captação. A resposta da action é o objeto de captação no nível superior. O tempo de vida padrão da captação é uma hora. O máximo é quatro horas. Cada URL de captação pode criar uma gravação.
+
+Não faça essa solicitação a partir de um navegador anônimo. Não retorne o token de serviço, as credenciais de armazenamento, ou uma sessão de longa duração do Clipes para o navegador.
+
+## Incorpore o gravador
+
+Passe a URL retornada diretamente para um iframe. A URL contém a capacidade restrita e assinada que permite ao visitante criar e enviar uma gravação privada.
+
+```tsx
+<iframe
+  data-clips-recorder
+  src={intake.url}
+  allow="display-capture; camera; microphone"
+  title="Report a problem"
+  style={{ width: 420, height: 560, border: 0 }}
+/>
+```
+
+Você pode adicionar valores de contexto pequenos e não sensíveis à URL de captação antes de renderizá-la, como um ID de projeto, título de página, versão do aplicativo ou ambiente. Não coloque senhas, chaves de API, registros de clientes ou outros valores sensíveis na URL. URLs podem aparecer no histórico do navegador, em logs, em análises e em referrers.
+
+O gravador abre um popup de nível superior quando o visitante inicia a captura. As permissões de mídia do navegador e a captura de tela exigem um gesto do usuário em um contexto de navegação de nível superior. Permita popups para o produto host durante os testes.
+
+## Receba a mensagem de conclusão
+
+Quando a gravação é salva, a página de conclusão publica `agent-native.clips.bug-report.submitted` para o pai que faz a incorporação. Valide a origem do Clipes e a fonte da mensagem antes de usar o payload.
+
+```ts
+const clipsOrigin = new URL(clipsBaseUrl).origin;
+const recorderFrame = document.querySelector<HTMLIFrameElement>(
+  "iframe[data-clips-recorder]",
+);
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== clipsOrigin) return;
+  if (recorderFrame && event.source !== recorderFrame.contentWindow) return;
+  if (event.data?.type !== "agent-native.clips.bug-report.submitted") return;
+
+  const { recordingId, recordingUrl, embedUrl, agentAccessStatus } = event.data;
+  if (!recordingId) return;
+
+  // Send recordingId to your trusted backend and attach it to the support case.
+  console.log({ recordingId, recordingUrl, embedUrl, agentAccessStatus });
+});
+```
+
+O payload de conclusão pode incluir `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt` e `agentAccessStatus`. Trate `recordingId` como o identificador durável do caso de suporte. Uma captação somente de escrita pode informar `agentAccessStatus: "unavailable"` até que seu backend autenticado crie um link de agente com escopo separado. Esse status não significa que a gravação está vazia.
+
+A mensagem do navegador é uma notificação, não uma concessão de autorização. Seu backend deve usar sua própria conexão autenticada com o Clipes quando precisar ler ou compartilhar a gravação concluída.
+
+## Onde as gravações são armazenadas
+
+As gravações criadas através do token de serviço pertencem à organização associada a esse token. O Clipes envia a mídia pelo seu pipeline normal de upload e finalização. O pipeline usa o armazenamento Builder.io ou compatível com S3 configurado para essa organização.
+
+O iframe não faz upload diretamente para o seu bucket, e não precisa das credenciais do bucket. Seu produto recebe identificadores de gravação e URLs com escopo definido a partir do Clipes. Armazene apenas os identificadores ou URLs que você precisa no seu próprio sistema de suporte.
+
+## Auto-hospedagem do Clipes
+
+A auto-hospedagem usa o mesmo contrato de organização:
+
+1. Implante o Clipes com um banco de dados persistente e um `BETTER_AUTH_URL` público.
+2. Crie a organização que será proprietária das gravações incorporadas.
+3. Configure o Builder.io Connect ou o armazenamento compatível com S3 uma vez nessa organização.
+4. Execute `connect` na origem auto-hospedada do Clipes para criar o token de serviço da organização.
+5. Forneça esse token uma vez ao seu backend de incorporação como um valor de implantação ou de gerenciador de segredos.
+6. Use a origem auto-hospedada do Clipes quando seu backend solicitar URLs de captação.
+
+```bash
+npx @agent-native/core@latest connect https://clips.example.com \
+  --service-token support-desk --ttl-days 365
+```
+
+Por exemplo, o backend de incorporação pode manter estes valores na sua configuração do lado do servidor:
+
+```text
+CLIPS_BASE_URL=https://clips.example.com
+CLIPS_SERVICE_TOKEN=<secret>
+```
+
+O token é fornecido uma vez ao backend. Cada visitante ainda recebe uma nova URL de captação de curta duração. Nenhum token ou credencial de armazenamento é adicionado ao iframe, e nenhuma alteração de código no iframe é necessária quando o token é rotacionado.
+
+Veja [Deployment](/docs/deployment) para requisitos gerais de auto-hospedagem.
+
+## Lista de verificação de segurança
+
+- Mantenha o token de serviço da organização em um gerenciador de segredos do lado do servidor.
+- Use HTTPS tanto para o produto host quanto para o Clipes.
+- Trate cada URL de captação como uma credencial portadora. Mantenha-a fora de logs e dados de referrer.
+- Use o menor tempo de vida útil possível para a captação.
+- Valide tanto `event.origin` quanto `event.source` no listener de conclusão.
+- Nunca exponha os endpoints de upload com escopo de proprietário do Clipes diretamente para usuários anônimos.
+- Rotacione o token de serviço criando um substituto com `connect`, implantando-o, verificando o fluxo e depois revogando o token antigo com `revoke-org-service-token`.
+- Mantenha o ID da organização e o ID de captação com o backend confiável em vez de confiar em valores fornecidos pelo visitante.
+
+## Solução de problemas
+
+**A solicitação de captação não está autorizada.** Confirme que o backend está usando um token de serviço não expirado e não revogado, gerado para a origem pretendida do Clipes. A vinculação de organização do token determina onde a captação é criada.
+
+**O iframe abre uma página de login.** Certifique-se de que o iframe usa a URL de curta duração retornada por `create-recording-intake-link`. Não incorpore `/record` ou uma URL normal da biblioteca do Clipes para um visitante anônimo.
+
+**A gravação não termina.** Verifique se a organização tem armazenamento Builder.io ou compatível com S3 configurado. Um visitante anônimo não pode configurar o armazenamento a partir do iframe.
+
+**A conclusão não tem link de agente.** Isso é esperado para uma captação somente de escrita. Peça ao seu backend autenticado para criar um link de agente com escopo separado se o fluxo de suporte precisar de dados de transcrição e quadro legíveis por agente.
+
+## Próximos passos
+
+- [**Clipes**](/docs/template-clips) — a visão geral e o que ele substitui
+- [**Guia do desenvolvedor**](/docs/template-clips-developers) — início rápido, actions, modelo de dados e rotas para o aplicativo completo
+- [**Clipes em um workspace com múltiplos apps**](/docs/template-clips-integrations) — clipes legíveis por agentes, exportação para o Brain e evidência de chamada para CRM
+- [**Deployment**](/docs/deployment) — requisitos gerais de auto-hospedagem

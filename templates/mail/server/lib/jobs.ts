@@ -209,11 +209,15 @@ async function archiveThreadForSnooze(
   if (await isConnected(ownerEmail)) {
     const account = await getFirstAccountToken(accountEmail, ownerEmail);
     if (account) {
-      await gmailModifyThread(account.accessToken, threadId, undefined, [
-        "INBOX",
-      ]);
+      const updated = (await gmailModifyThread(
+        account.accessToken,
+        threadId,
+        undefined,
+        ["INBOX"],
+      )) as { historyId?: string } | undefined;
       await syncInboxLabelDelta(ownerEmail, account.email, [threadId], {
         remove: ["INBOX"],
+        providerHistoryId: updated?.historyId,
       });
       return;
     }
@@ -455,12 +459,25 @@ export async function resurfaceEmail(
   if (await isConnected(ownerEmail)) {
     const account = await getFirstAccountToken(accountEmail, ownerEmail);
     if (account) {
+      let updated: { historyId?: string } | undefined;
       if (threadId) {
-        await gmailModifyThread(account.accessToken, threadId, ["INBOX"]);
+        updated = (await gmailModifyThread(account.accessToken, threadId, [
+          "INBOX",
+        ])) as { historyId?: string } | undefined;
       } else {
-        await gmailModifyMessage(account.accessToken, emailId, ["INBOX"], []);
+        updated = (await gmailModifyMessage(
+          account.accessToken,
+          emailId,
+          ["INBOX"],
+          [],
+        )) as { historyId?: string } | undefined;
       }
-      await gmailModifyMessage(account.accessToken, emailId, ["UNREAD"], []);
+      const readUpdated = (await gmailModifyMessage(
+        account.accessToken,
+        emailId,
+        ["UNREAD"],
+        [],
+      )) as { historyId?: string } | undefined;
       // No threadId hint: resolve it from the store (no extra Gmail
       // round-trip) so this message-scoped mutation still reaches the
       // mirror instead of silently skipping it.
@@ -472,6 +489,7 @@ export async function resurfaceEmail(
       if (mirrorThreadId) {
         await syncInboxLabelDelta(ownerEmail, account.email, [mirrorThreadId], {
           add: ["INBOX", "UNREAD"],
+          providerHistoryId: readUpdated?.historyId ?? updated?.historyId,
           ...(threadId
             ? {}
             : { scope: "message" as const, messageIds: [emailId] }),

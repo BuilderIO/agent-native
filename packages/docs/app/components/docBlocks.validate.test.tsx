@@ -105,6 +105,10 @@ function shouldTranslateFileTreeText(value: unknown): value is string {
   // file-tree notes; prose titles and comments should not remain English.
   if (trimmed.startsWith("@")) return false;
   if (/^[\w.-]+:\s*\[/.test(trimmed)) return false;
+  // A bare list of identifiers or enum values (table/column names, "a | b |
+  // c" status values) has nothing to translate, unlike a sentence that
+  // happens to contain one.
+  if (/^[\w.]+(\s*[,|]\s*[\w.]+)+$/.test(trimmed)) return false;
   return /[A-Za-z]/.test(trimmed);
 }
 

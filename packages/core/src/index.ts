@@ -112,13 +112,20 @@ export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
-  type AgentChatPluginOptions,
-} from "./server/agent-chat-plugin.js";
-export {
   createAgentNativeEmbeddedPlugin,
   mountAgentNativeEmbedded,
+  createServer,
+  createSSEHandler,
+  defineNitroPlugin,
+  autoMountAuth,
+  getSession,
+  type AgentChatPluginOptions,
   type AgentNativeEmbeddedPluginOptions,
-} from "./server/embedded.js";
+  type AuthSession,
+  type AuthOptions,
+  type CreateServerOptions,
+  type SSEHandlerOptions,
+} from "./root-server-compat.js";
 export {
   BUILT_IN_INTEGRATION_CATALOG,
   INTEGRATION_CATEGORIES,
@@ -194,19 +201,6 @@ export {
   type ExperimentDefinition,
 } from "./experiments/index.js";
 export { createExperimentsPlugin } from "./experiments/server.js";
-
-// Server
-export {
-  createServer,
-  createSSEHandler,
-  defineNitroPlugin,
-  autoMountAuth,
-  getSession,
-  type CreateServerOptions,
-  type SSEHandlerOptions,
-  type AuthSession,
-  type AuthOptions,
-} from "./server/index.js";
 
 // Client
 //

@@ -8,6 +8,7 @@ const requestContextMock = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => requestContextMock.orgId,
 }));
@@ -15,6 +16,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 type ExistingConnection = {
   ownerEmail: string;
   orgId: string | null;
+  bridgeUrl?: string | null;
   bridgeToken: string | null;
   previewToken?: string | null;
 };
@@ -76,6 +78,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "id",
       previewToken: "previewToken",
       bridgeToken: "bridgeToken",
+      bridgeUrl: "bridgeUrl",
       ownerEmail: "ownerEmail",
       orgId: "orgId",
     },
@@ -95,6 +98,28 @@ beforeEach(() => {
 });
 
 describe("connect-localhost", () => {
+  it("defaults new connections to the standard bridge and preserves a custom port", async () => {
+    await action.run({
+      id: "conn_new",
+      devServerUrl: "http://localhost:5173",
+    });
+    expect(insertedValues?.bridgeUrl).toBe("http://127.0.0.1:7331");
+
+    existingConnection = {
+      ownerEmail: "user@example.com",
+      orgId: "org_1",
+      bridgeUrl: "http://127.0.0.1:7666",
+      bridgeToken: "existing_bridge_token",
+    };
+    insertedValues = null;
+    selectCallCount = 0;
+    await action.run({
+      id: "conn_existing",
+      devServerUrl: "http://localhost:5173",
+    });
+    expect(insertedValues?.bridgeUrl).toBe("http://127.0.0.1:7666");
+  });
+
   it("keeps fallback ids unique for routes on another loopback origin", async () => {
     const result = await action.run({
       id: "conn_primary",

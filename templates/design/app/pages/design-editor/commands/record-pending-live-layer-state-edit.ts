@@ -31,6 +31,7 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface RecordPendingLiveLayerStateEditArgs {
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   cancelPendingStructureVerification: (
     nextStatus?: PendingStructureVerificationStatus,
   ) => void;
@@ -62,6 +63,7 @@ export interface RecordPendingLiveLayerStateEditArgs {
 export function runRecordPendingLiveLayerStateEdit(
   {
     canEditDesign,
+    canEditLiveScreens,
     cancelPendingStructureVerification,
     clipboardPasteRedoStackRef,
     codeLayerOwnerByNodeIdRef,
@@ -80,9 +82,9 @@ export function runRecordPendingLiveLayerStateEdit(
   enabled: boolean,
   originalEnabled: boolean,
 ) {
-  if (!canEditDesign) return false;
   const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
   if (!owner) return false;
+  if (!canEditDesign && !canEditLiveScreens?.has(owner.fileId)) return false;
   const screen = overviewScreens.find(
     (candidate) => candidate.id === owner.fileId,
   );

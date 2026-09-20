@@ -6,6 +6,7 @@
  *   - comments (flat list — UI groups into threads)
  *   - reactions
  *   - chapters (parsed from recording.chaptersJson)
+ *   - tags
  *   - CTAs
  *   - counted-view total
  *
@@ -99,7 +100,7 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. Browser player calls receive the full transcript.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, tags, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. Browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     transcriptOffset: z.coerce.number().int().min(0).optional(),
@@ -225,6 +226,17 @@ export default defineAction({
       .from(schema.recordingCtas)
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
+
+    // DISTINCT because `recording_tags` carries no unique (recording_id, tag)
+    // constraint: `tag-recording` checks-then-inserts, so two editors adding
+    // the same tag at once can leave duplicate rows. The player should not
+    // render the same tag twice on account of that.
+    const tagRows = await db
+      .selectDistinct({ tag: schema.recordingTags.tag })
+      .from(schema.recordingTags)
+      .where(eq(schema.recordingTags.recordingId, args.recordingId))
+      .orderBy(asc(schema.recordingTags.tag));
+    const tags = tagRows.map((row) => row.tag);
 
     const [browserDiagnosticsRow] = await db
       .select()
@@ -450,6 +462,7 @@ export default defineAction({
         createdAt: r.createdAt,
       })),
       chapters,
+      tags,
       ctas: ctas.map((c) => ({
         id: c.id,
         label: c.label,

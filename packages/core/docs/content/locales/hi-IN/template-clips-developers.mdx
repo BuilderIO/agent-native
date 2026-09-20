@@ -1,0 +1,440 @@
+---
+title: "क्लिप्स: डेवलपर गाइड"
+description: "क्विक स्टार्ट, पूरी action इन्वेंट्री, डेटा मॉडल, रूट्स, और क्लिप्स टेम्पलेट को एक्सटेंड करने का तरीका।"
+---
+
+# डेवलपर गाइड
+
+यह पेज उन सभी के लिए है जो क्लिप्स टेम्पलेट को कस्टमाइज़ या एक्सटेंड कर रहे
+हैं: क्विक स्टार्ट, हर action, डेटा मॉडल, रूट सरफ़ेस, और इसमें कुछ जोड़ने का
+तरीका। ऐप क्या करता है यह जानने के लिए [क्लिप्स](/docs/template-clips) देखें।
+
+## क्विक स्टार्ट
+
+<Steps>
+
+### ऐप बनाएं
+
+```bash
+npx @agent-native/core@latest create my-clips --standalone --template clips
+cd my-clips
+pnpm install
+```
+
+इसके लिए पहले [Node.js](https://nodejs.org) 22.22 या उसके बाद का वर्शन और
+[pnpm](https://pnpm.io) इंस्टॉल होना चाहिए। अगर आपने अभी तक इनमें से कोई
+इंस्टॉल नहीं किया है, या आपके पास कोई LLM कनेक्शन (Builder.io, कोई
+Anthropic/OpenAI key, या लोकल Ollama) सेट नहीं है, तो
+[शुरुआत करें](/docs/getting-started) देखें।
+
+### डेव सर्वर शुरू करें
+
+```bash
+pnpm dev
+```
+
+ऐप आपके ब्राउज़र में अपने आप खुल जाता है। रिकॉर्डिंग बिना किसी एक्स्ट्रा
+सेटअप के काम करती है, क्योंकि ब्राउज़र या डेस्कटॉप ऐप लोकली कैप्चर करता है।
+आपको सिर्फ़ किसी ऐसे action पर एरर मिलेगी जिसे फ़ाइल स्टोरेज या AI क्रेडिट
+चाहिए, जब तक इनमें से कोई कॉन्फ़िगर न हो।
+
+</Steps>
+
+<Callout tone="info">
+
+रिकॉर्डिंग, ट्रांसक्रिप्शन, और AI शीर्षक/सारांश के एंड-टू-एंड काम करने से पहले
+फ़ाइल स्टोरेज और AI क्रेडिट कॉन्फ़िगर होने चाहिए। दोनों के लिए एक साथ
+**Settings** से Builder.io कनेक्ट करें (इसके फ़्री टियर में मैनेज्ड AI
+क्रेडिट शामिल हैं), या S3-कम्पैटिबल स्टोरेज अलग से कनेक्ट करें और
+ट्रांसक्रिप्शन के लिए अपनी खुद की Groq key लाएं। देखें
+[ट्रांसक्रिप्शन और AI मेटाडेटा](/docs/template-clips-features#transcription-and-ai-metadata)।
+
+</Callout>
+
+## Action इन्वेंट्री
+
+हर ऑपरेशन `templates/clips/actions/` में एक TypeScript फ़ाइल है, जो
+`POST /_agent-native/actions/:name` पर ऑटो-माउंटेड है।
+
+### लाइब्रेरी और रिकॉर्डिंग
+
+| Action                                                                                    | यह क्या करता है                                                              |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `list-recordings`, `search-recordings`                                                    | लाइब्रेरी, शेयर्ड-विद-मी, ट्रैश, और स्पेस-स्कोप्ड लिस्टिंग                   |
+| `create-recording`, `finalize-recording`                                                  | रो बनाना; अपलोड पूरा करना                                                    |
+| `import-loom-recording`                                                                   | किसी Loom वीडियो या सीधे MP4/WebM URL को इम्पोर्ट करना                       |
+| `update-recording`                                                                        | शीर्षक, विवरण, पासवर्ड, एक्सपायरी, दृश्यता                                   |
+| `move-recording`                                                                          | एक या कई रिकॉर्डिंग को किसी फ़ोल्डर या रूट में मूव करना                      |
+| `archive-recording`, `trash-recording`, `restore-recording`, `delete-recording-permanent` | लाइफ़साइकल: छुपाना, सॉफ़्ट-डिलीट करना, अनडू करना, या हमेशा के लिए डिलीट करना |
+| `reprocess-recording`                                                                     | अनसीकेबल या फ़्रोज़न मीडिया को ठीक करना                                      |
+| `generate-filmstrip`                                                                      | एडिटर टाइमलाइन फ़्रेम स्प्राइट                                               |
+| `tag-recording`, `set-thumbnail`                                                          | टैगिंग और हाथ से चुना गया थंबनेल फ़्रेम                                      |
+
+### फ़ोल्डर और स्पेस
+
+| Action                                            | यह क्या करता है                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------ |
+| `create-folder`, `rename-folder`, `delete-folder` | नेस्टेड फ़ोल्डर; किसी को डिलीट करने पर उसकी कंटेंट ऊपर चली जाती है |
+| `create-space`, `rename-space`, `delete-space`    | ऑर्ग-स्कोप्ड, टॉपिक-बेस्ड रिकॉर्डिंग कंटेनर                        |
+| `add-recording-to-space`                          | किसी स्पेस से रिकॉर्डिंग जोड़ना या हटाना (मैनी-टू-मैनी)            |
+| `add-space-member`, `remove-space-member`         | स्पेस-लेवल viewer, contributor, और admin रोल                       |
+
+### एडिटिंग
+
+| Action                                   | यह क्या करता है                                                      |
+| ---------------------------------------- | -------------------------------------------------------------------- |
+| `trim-recording`, `split-recording`      | एक कट इंस्ट्रक्शन लेयर करना; असली मीडिया को कभी नहीं छूता            |
+| `remove-silences`, `remove-filler-words` | एजेंट-एक्ज़िक्यूटेड: ट्रांसक्रिप्ट पढ़ता है, आपके लिए ट्रिम लगाता है |
+| `stitch-recordings`                      | कई रिकॉर्डिंग को क्रम में एक में मिलाना                              |
+| `undo-edit`, `clear-edits`               | सबसे हाल का एडिट हटाना, या असली पर रीसेट करना                        |
+
+### ट्रांसक्रिप्शन और AI मेटाडेटा
+
+| Action                                                                          | यह क्या करता है                                            |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `request-transcript`, `cleanup-transcript`                                      | ट्रांसक्राइब करना; फिर से करने के लिए `force`/`regenerate` |
+| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | AI मेटाडेटा, या हाथ से अध्याय सेट करना                     |
+| `get-builder-credit-status`                                                     | क्या Builder.io AI क्रेडिट पॉज़ हैं                        |
+
+### कमेंट और रिएक्शन
+
+| Action                                                                                   | यह क्या करता है                               |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | थ्रेडेड, टाइमस्टैम्प्ड कमेंट                  |
+| `react-to-comment`, `react-to-recording`                                                 | इमोजी रिएक्शन                                 |
+| `list-comments`, `list-recording-mention-members`                                        | कमेंट पढ़ना; कौन @mention हो सकता है यह देखना |
+
+### स्क्रीन मेमोरी (Rewind)
+
+| Action                                                                                                                          | यह क्या करता है                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | लोकल Rewind बफ़र पढ़ना                                                     |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | किसी क्लिप में Rewind हिस्ट्री जोड़ने के लिए रिव्यू-एंड-अप्रूव फ़्लो       |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | किसी अप्रूव्ड एक्सटेंशन को अप्लाई करना; पहले क्लिप को ज़बरदस्ती निजी बनाना |
+
+### क्रॉस-ऐप और इनसाइट्स
+
+| Action                                                                       | यह क्या करता है                                                            |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `export-to-brain`                                                            | तैयार ट्रांसक्रिप्ट को ब्रेन को भेजना, बैकफ़िल और रिज़्यूमेबल कर्सर के साथ |
+| `prepare-crm-call-evidence`                                                  | CRM ऑटोमेशन के लिए ओपेक क्लिप id और एक टिकाऊ `/r/<id>` लिंक                |
+| `create-recording-agent-link`                                                | किसी एक रिकॉर्डिंग के लिए स्कोप्ड, टाइम-लिमिटेड `agent_access` लिंक बनाना  |
+| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | व्यूज़, एंगेजमेंट, और org-wide CSV एक्सपोर्ट                               |
+| `list-viewers`, `list-clip-views`                                            | किसने देखा, और कब                                                          |
+
+### संगठन
+
+| Action                                                                                  | यह क्या करता है                                 |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | Org बनाना और इनवाइटेशन                          |
+| `remove-member`, `update-member-role`                                                   | मेंबरशिप और रोल मैनेज करना                      |
+| `set-organization-branding`, `list-organization-state`                                  | ब्रांड कलर/लोगो, डिफ़ॉल्ट दृश्यता, org-wide रीड |
+
+### नेविगेशन, एम्बेडिंग, और बग रिपोर्ट
+
+| Action                                                                                | यह क्या करता है                                                                               |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `view-screen`, `navigate`, `refresh-list`                                             | कॉन्टेक्स्ट पढ़ना; UI मूव करना                                                                |
+| `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | प्लेबैक रिज़्यूम करना; पूरा ट्रांसक्रिप्ट और डायग्नोस्टिक्स                                   |
+| `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | एनोनिमस, थर्ड-पार्टी एम्बेडिंग फ़्लो। देखें [क्लिप्स एम्बेड करें](/docs/template-clips-embed) |
+| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | एम्बेडेड बग-रिपोर्ट लॉन्चर और Chrome एक्सटेंशन डायग्नोस्टिक्स                                 |
+
+## डेटा मॉडल
+
+`templates/clips/server/db/schema.ts` में डिफ़ाइन किया गया है।
+
+<Callout tone="warning">
+
+टीम, मेंबर, और इनवाइटेशन रो फ़्रेमवर्क की अपनी `organizations`,
+`org_members`, और `org_invitations` टेबल में रहती हैं, किसी
+क्लिप्स-स्पेसिफ़िक टेबल में नहीं। `organization_settings` क्लिप्स का अपना
+साइडकार है: ब्रांड कलर, लोगो, और डिफ़ॉल्ट दृश्यता, हर संगठन के लिए एक रो। एक
+पुराना `workspaces`/`workspace_members` जोड़ा अभी भी सिर्फ़ इसलिए मौजूद है
+ताकि एक बार चलने वाली स्टार्टअप माइग्रेशन किसी मौजूदा डिप्लॉयमेंट पर
+फ़्रेमवर्क टेबल को बैकफ़िल कर सके। इनके ऊपर नई सुविधाएं मत बनाएं।
+
+</Callout>
+
+<DataModel
+  id="doc-block-clips-data-model"
+  title="क्लिप्स डेटा मॉडल"
+  summary={
+    "रिकॉर्डिंग मुख्य रिसोर्स है। एक रिकॉर्डिंग एक फ़ोल्डर की होती है (या किसी की नहीं) लेकिन एक साथ किसी भी संख्या में स्पेस की हो सकती है। कमेंट और शेयर दोनों रिकॉर्डिंग id पर आधारित हैं।"
+  }
+  entities={[
+    {
+      id: "recordings",
+      name: "recordings",
+      note: "मुख्य रिसोर्स (ownable)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "folderId", type: "id", nullable: true },
+        {
+          name: "spaceIds",
+          type: "json",
+          note: "स्पेस id की JSON array, many-to-many",
+        },
+        { name: "title", type: "string" },
+        {
+          name: "status",
+          type: "enum",
+          note: "uploading | processing | ready | failed",
+        },
+        { name: "durationMs", type: "int" },
+        { name: "videoUrl", type: "string", nullable: true },
+        {
+          name: "editsJson",
+          type: "json",
+          note: "लेयर्ड, गैर-विनाशकारी एडिट इंस्ट्रक्शन",
+        },
+        { name: "chaptersJson", type: "json" },
+        { name: "password", type: "string", nullable: true },
+        { name: "expiresAt", type: "datetime", nullable: true },
+        { name: "archivedAt", type: "datetime", nullable: true },
+        { name: "trashedAt", type: "datetime", nullable: true },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "नेस्टेड फ़ोल्डर",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "parentId", type: "id", nullable: true },
+        {
+          name: "spaceId",
+          type: "id",
+          nullable: true,
+          note: "null = पर्सनल लाइब्रेरी",
+        },
+        { name: "ownerEmail", type: "string" },
+        { name: "name", type: "string" },
+      ],
+    },
+    {
+      id: "spaces",
+      name: "spaces",
+      note: "टॉपिक-स्कोप्ड org सब-कंटेनर",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "name", type: "string" },
+        { name: "isAllCompany", type: "bool" },
+      ],
+    },
+    {
+      id: "space_members",
+      name: "space_members",
+      note: "प्रति-स्पेस रोल",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "spaceId", type: "id", fk: "spaces.id" },
+        { name: "email", type: "string" },
+        { name: "role", type: "enum", note: "viewer | contributor | admin" },
+      ],
+    },
+    {
+      id: "recording_comments",
+      name: "recording_comments",
+      note: "थ्रेडेड, टाइमस्टैम्प्ड कमेंट",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "recordingId", type: "id", fk: "recordings.id" },
+        { name: "threadId", type: "id" },
+        { name: "parentId", type: "id", nullable: true },
+        { name: "authorEmail", type: "string" },
+        { name: "content", type: "string" },
+        { name: "videoTimestampMs", type: "int" },
+        { name: "resolved", type: "bool" },
+      ],
+    },
+    {
+      id: "recording_shares",
+      name: "recording_shares",
+      note: "शेयर ग्रांट, शेयर्ड फ़्रेमवर्क शेयरिंग प्रिमिटिव से",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "recordingId", type: "id", fk: "recordings.id" },
+        { name: "principal", type: "string", note: "यूज़र या org" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "folders", to: "recordings", kind: "1-n", label: "रखता है" },
+    {
+      from: "spaces",
+      to: "recordings",
+      kind: "n-n",
+      label: "रिकॉर्डिंग किसी भी संख्या में स्पेस से जुड़ सकती हैं",
+    },
+    {
+      from: "spaces",
+      to: "space_members",
+      kind: "1-n",
+      label: "के मेंबर होते हैं",
+    },
+    {
+      from: "recordings",
+      to: "recording_comments",
+      kind: "1-n",
+      label: "में कमेंट होते हैं",
+    },
+    {
+      from: "recordings",
+      to: "recording_shares",
+      kind: "1-n",
+      label: "में शेयर ग्रांट होते हैं",
+    },
+  ]}
+/>
+
+## एक action को समझना
+
+`create-recording-agent-link` ऐसे पैटर्न दिखाता है जो किसी भी ऐसे action में
+दोबारा इस्तेमाल करने लायक हैं जो कोई स्कोप्ड क्रेडेंशियल बनाता है: कुछ भी
+देने से पहले रिसोर्स की असली स्थिति चेक करना, असली टोकन बनाने का काम खुद करने
+के बजाय किसी शेयर्ड फ़्रेमवर्क हेल्पर को सौंपना, और कॉलर को चाहिए हर URL को उस
+एक ग्रांट से निकालना।
+
+<AnnotatedCode
+  id="doc-block-clips-agent-link"
+  title="एक स्कोप्ड agent-access लिंक बनाना"
+  filename="templates/clips/actions/create-recording-agent-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport {\n  buildAgentAccessUrl,\n  createScopedAgentAccessGrant,\n  getRequestContext,\n  getRequestUserEmail,\n} from "@agent-native/core/server";\nimport { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";\nimport { z } from "zod";\n\nimport {\n  CLIPS_AGENT_ACCESS_TTL_SECONDS,\n  getServerAppBasePath,\n} from "../server/lib/public-agent-context.js";\nimport {\n  buildAgentApiUrls,\n  CLIP_AGENT_ACCESS_TOKEN_PREFIX,\n} from "../shared/agent-context.js";\nimport { BUG_REPORT_AGENT_ACCESS_TTL_SECONDS } from "../shared/bug-report.js";\n\nfunction appOrigin(): string {\n  const origin =\n    getRequestContext()?.requestOrigin ||\n    process.env.APP_URL ||\n    process.env.BETTER_AUTH_URL ||\n    "http://localhost:3000";\n  try {\n    return new URL(origin).origin;\n  } catch {\n    return "http://localhost:3000";\n  }\n}\n\nexport default defineAction({\n  description:\n    "Create a temporary private agent-readable link for one Clips recording. The URL is scoped to that recording and expires after two hours.",\n  schema: z.object({\n    recordingId: z.string().describe("Recording ID"),\n    agentLabel: z\n      .string()\n      .trim()\n      .min(1)\n      .max(60)\n      .optional()\n      .describe(\n        "Name of the agent that will read this link (e.g. \'Fusion\', \'Claude Code\'). Recorded against every read the link produces, so the owner sees a name instead of an unidentified agent.",\n      ),\n    ttlSeconds: z\n      .number()\n      .int()\n      .positive()\n      .max(BUG_REPORT_AGENT_ACCESS_TTL_SECONDS)\n      .optional()\n      .describe(\n        "Optional scoped-link lifetime in seconds, capped at seven days. Defaults to two hours.",\n      ),\n  }),\n  readOnly: true,\n  run: async (args) => {\n    const access = await resolveAccess("recording", args.recordingId);\n    if (!access) {\n      throw new ForbiddenError(`No access to recording ${args.recordingId}`);\n    }\n\n    const recording = access.resource as {\n      id: string;\n      archivedAt?: string | null;\n      trashedAt?: string | null;\n    };\n    if (recording.archivedAt || recording.trashedAt) {\n      throw new ForbiddenError(\n        `Recording ${args.recordingId} is not shareable`,\n      );\n    }\n\n    const grant = createScopedAgentAccessGrant({\n      resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,\n      resourceId: recording.id,\n      viewerEmail: getRequestUserEmail() || undefined,\n      agentLabel: args.agentLabel,\n      ttlSeconds: args.ttlSeconds ?? CLIPS_AGENT_ACCESS_TTL_SECONDS,\n    });\n    const origin = appOrigin();\n    const basePath = getServerAppBasePath();\n    const pageUrl = buildAgentAccessUrl({\n      path: `/share/${encodeURIComponent(recording.id)}`,\n      origin,\n      basePath,\n      token: grant.token,\n    });\n    const api = buildAgentApiUrls(recording.id, {\n      origin,\n      basePath,\n      token: grant.token,\n    });\n\n    return {\n      recordingId: recording.id,\n      url: pageUrl,\n      contextUrl: api.contextUrl,\n      expiresAt: grant.expiresAt,\n      ttlSeconds: grant.ttlSeconds,\n    };\n  },\n});\n'
+  }
+  annotations={[
+    {
+      lines: "60-74",
+      label: "कुछ भी बनने से पहले रिसोर्स की स्थिति चेक होती है",
+      note: "resolveAccess() यह कन्फ़र्म करता है कि कॉलर को यह रिकॉर्डिंग बिल्कुल देखने को मिलती भी है या नहीं, फिर एक साफ़ archivedAt/trashedAt चेक ऐसी क्लिप के लिए लिंक देने से मना कर देता है जो अब शेयर करने लायक नहीं रहनी चाहिए, चाहे टेक्निकली किसी के पास अभी भी एक्सेस हो।",
+    },
+    {
+      lines: "76-82",
+      label: "टोकन बनाने का काम सौंपा जाता है, फिर से नहीं बनाया जाता",
+      note: "createScopedAgentAccessGrant() एक शेयर्ड फ़्रेमवर्क हेल्पर है, इसलिए क्लिप्स के पास खुद की कोई टोकन-साइनिंग लॉजिक नहीं है। TTL को zod स्कीमा से कैप किया गया है और यह किसी मैजिक नंबर के बजाय एक नाम वाले कॉन्स्टेंट से डिफ़ॉल्ट होता है।",
+    },
+    {
+      lines: "83-95",
+      label: "कॉलर को चाहिए हर URL उसी ग्रांट से आता है",
+      note: "शेयर पेज URL और तीनों एजेंट API URL (buildAgentApiUrls) सभी एक ही टोकन से निकाले जाते हैं, इसलिए कोई ग्रांट गलत तरीके से लीक या दोबारा इस्तेमाल होने की बस एक जगह है, तीन नहीं।",
+    },
+    {
+      lines: "79",
+      label: "लिंक को याद रहता है कि इसे किसने मांगा था",
+      note: "viewerEmail और agentLabel ग्रांट के साथ रिकॉर्ड किए जाते हैं, ताकि किसी रिकॉर्डिंग के ओनर को यह दिखे कि इसे किस व्यक्ति और किस एजेंट ने पढ़ा, न कि कोई अनाम एक्सेस लॉग एंट्री।",
+    },
+  ]}
+/>
+
+## रूट्स रेफ़रेंस
+
+<FileTree
+  id="doc-block-clips-routes"
+  title="क्लिप्स टेम्पलेट लेआउट"
+  entries={[
+    {
+      path: "actions/",
+      note: "हर एजेंट-कॉल करने योग्य action — रिकॉर्डिंग, फ़ोल्डर, स्पेस, कमेंट, शेयरिंग, इनसाइट्स",
+    },
+    {
+      path: "app/routes/_app.library._index.tsx",
+      note: "लाइब्रेरी ग्रिड; _app.library.folder.$folderId.tsx एक फ़ोल्डर है",
+    },
+    { path: "app/routes/_app.shared.tsx", note: "मेरे साथ शेयर की गई" },
+    {
+      path: "app/routes/_app.spaces._index.tsx",
+      note: "स्पेस लिस्ट; _app.spaces.$spaceId.tsx एक स्पेस है",
+    },
+    {
+      path: "app/routes/_app.r.$recordingId.tsx",
+      note: "रिकॉर्डिंग डिटेल पेज और एडिटर",
+    },
+    { path: "app/routes/_app.agent.tsx", note: "फ़ुल-पेज एजेंट चैट टैब" },
+    {
+      path: "app/routes/_app.settings._index.tsx",
+      note: "Settings, जिसमें Labs टैब भी शामिल है",
+    },
+    { path: "app/routes/record.tsx", note: "रिकॉर्डर" },
+    {
+      path: "app/routes/share.$shareId.tsx",
+      note: "सार्वजनिक शेयर पेज; embed.$shareId.tsx iframe-एम्बेड वैरिएंट है",
+    },
+    {
+      path: "app/routes/download.tsx",
+      note: "डेस्कटॉप ऐप डाउनलोड पेज",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle टेबल — रिकॉर्डिंग, फ़ोल्डर, स्पेस, कमेंट",
+    },
+    {
+      path: "server/routes/api/agent-context.json.get.ts",
+      note: "एजेंट-पठनीय एंडपॉइंट, साथ ही agent-transcript.json और agent-frame.jpg",
+    },
+    {
+      path: "server/lib/google-calendar-client.ts",
+      note: "Google Calendar API क्लाइंट",
+    },
+    {
+      path: "shared/api.ts",
+      note: "सर्वर और क्लाइंट द्वारा इस्तेमाल किए जाने वाले शेयर्ड TypeScript टाइप्स",
+    },
+    {
+      path: "desktop/",
+      note: "Tauri डेस्कटॉप ऐप (स्क्रीन/सिस्टम-ऑडियो कैप्चर, Rewind)",
+    },
+    {
+      path: "chrome-extension/",
+      note: "Chrome एक्सटेंशन (रिकॉर्डिंग के साथ ब्राउज़र डायग्नोस्टिक्स)",
+    },
+  ]}
+/>
+
+## इसे कस्टमाइज़ करना
+
+ऐप का हर हिस्सा एडिटेबल सोर्स है। यहां से शुरू करें:
+
+- `templates/clips/actions/` — एजेंट और फ्रंटएंड दोनों को नई क्षमता एक्सपोज़
+  करने के लिए `defineAction` के साथ एक नई फ़ाइल जोड़ें।
+- `templates/clips/app/routes/` — UI, ऊपर लिस्ट किया गया।
+- `templates/clips/server/db/schema.ts` — Drizzle के साथ कॉलम या टेबल जोड़ें।
+  स्कीमा को PostgreSQL-कम्पैटिबल रखें ताकि टेम्पलेट लोकल PGlite और होस्टेड
+  Postgres दोनों पर चले।
+- `templates/clips/server/lib/` — प्रोवाइडर इंटीग्रेशन:
+  `google-calendar-client.ts`, `s3-upload-provider.ts`, `slack-oauth.ts`,
+  `video-remux.ts`, `video-filmstrip-sprite.ts`।
+- `templates/clips/AGENTS.md` — एजेंट इंस्ट्रक्शन। जब आप एजेंट को नई क्षमताएं
+  या कन्वेंशन सिखाएं तो इसे अपडेट करें।
+- `templates/clips/.agents/skills/` — डिटेल्ड पैटर्न जिनका एजेंट पालन करता है।
+  संबंधित स्किल्स: `recording`, `ai-video-tools`, `video-editing`,
+  `video-sharing`, `screen-memory`।
+- `templates/clips/shared/api.ts` — सर्वर और क्लाइंट दोनों द्वारा इस्तेमाल किए
+  जाने वाले शेयर्ड TypeScript टाइप्स।
+- `templates/clips/desktop/` और `templates/clips/chrome-extension/` — नेटिव
+  कैप्चर सरफ़ेस के लिए अलग पैकेज, हर एक का अपना `package.json` और बिल्ड।
+
+अगर आप कोई फ़ीचर जोड़ते हैं, तो सभी चार एरिया अपडेट करना याद रखें: UI, action,
+skill या AGENTS.md एंट्री, और कोई भी application state जिसे एजेंट को देखने की
+ज़रूरत है। यही एजेंट और UI को बराबर बनाए रखता है।
+
+## आगे क्या
+
+- [**क्लिप्स**](/docs/template-clips) — ओवरव्यू और यह क्या बदलता है
+- [**सुविधाएं**](/docs/template-clips-features) — यूज़र-फ़ेसिंग बिहेवियर जिसे
+  ये actions और यह डेटा मॉडल पावर देते हैं
+- [**एजेंट से बात करें**](/docs/template-clips-agent) — एजेंट इन actions और
+  कम आम actions के बीच कैसे चुनाव करता है
+- [**मल्टी-ऐप वर्कस्पेस में क्लिप्स का क्रॉस-ऐप उपयोग**](/docs/template-clips-integrations)
+  — एजेंट-पठनीय एंडपॉइंट और `clip.created` इवेंट का दूसरे ऐप्स द्वारा कैसे
+  इस्तेमाल होता है
+- [**क्लिप्स एम्बेड करें**](/docs/template-clips-embed) — एनोनिमस,
+  थर्ड-पार्टी रिकॉर्डिंग-इनटेक फ़्लो
+- [**Actions**](/docs/actions-overview) — action सिस्टम जिस पर यह टेम्पलेट
+  बना है
+- [**साझाकरण**](/docs/sharing) — शेयर-ग्रांट मॉडल जो `recording_shares`
+  इस्तेमाल करता है

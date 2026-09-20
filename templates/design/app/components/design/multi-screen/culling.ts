@@ -22,9 +22,10 @@ import type { FrameGeometry, Point } from "./types";
 //   reachable.
 // - A bounded live-context pool keeps nearby screens warm without retaining
 //   every browsing context ever visited. Active/selected/in-progress screens
-//   are protected; the remaining budget is filled by viewport distance and
-//   then by recency. Evicted screens keep their lightweight React content-cache
-//   entry so revisiting can remount directly without rebuilding source HTML.
+//   are protected; the remaining budget first preserves already-live screens
+//   that are still in the raw viewport, then fills by viewport distance and
+//   recency. Evicted screens keep their lightweight React content-cache entry
+//   so revisiting can remount directly without rebuilding source HTML.
 
 /** Escape hatch: flip to `false` to fully disable culling in one line if a
  *  regression appears — every screen goes back to always rendering full
@@ -166,6 +167,7 @@ function distanceSquaredToViewportCenter(
  * Allocation order is intentional:
  * 1. protected interactions (active, selected, dragged, text/layer edited),
  * 2. screens inside the overscanned viewport, nearest the viewport center,
+ *    preserving prior-live screens only while they overlap the raw viewport,
  * 3. previously-mounted offscreen screens, most recently visible first.
  *
  * This keeps imminent pan/zoom destinations live while guaranteeing that a
@@ -176,6 +178,7 @@ function distanceSquaredToViewportCenter(
 export function computeBoundedScreenCullState({
   candidates,
   viewport,
+  visibleViewport,
   protectedScreenIds,
   previousLiveScreenIds,
   everVisibleScreenIds,
@@ -186,6 +189,9 @@ export function computeBoundedScreenCullState({
 }: {
   candidates: readonly ScreenCullCandidate[];
   viewport: OverscannedViewportBounds | null;
+  /** The unexpanded camera viewport, used to keep overscan-only screens from
+   *  displacing screens that have just entered the actual viewport. */
+  visibleViewport: OverscannedViewportBounds | null;
   protectedScreenIds: ReadonlySet<string>;
   previousLiveScreenIds: ReadonlySet<string>;
   everVisibleScreenIds: ReadonlySet<string>;
@@ -272,6 +278,22 @@ export function computeBoundedScreenCullState({
     )
     .sort((a, b) => {
       if (!viewport) return a.id.localeCompare(b.id);
+      // Keep the live pool stable while a camera move still overlaps the raw
+      // viewport. The overscan halo is only a warm-ahead buffer, so an old
+      // overscan-only screen must not displace a screen that just entered the
+      // actual viewport.
+      const previousLiveDelta =
+        Number(
+          previousLiveScreenIds.has(b.id) &&
+            visibleViewport !== null &&
+            isFrameWithinOverscannedViewport(b.geometry, visibleViewport),
+        ) -
+        Number(
+          previousLiveScreenIds.has(a.id) &&
+            visibleViewport !== null &&
+            isFrameWithinOverscannedViewport(a.geometry, visibleViewport),
+        );
+      if (previousLiveDelta !== 0) return previousLiveDelta;
       const distanceDelta =
         distanceSquaredToViewportCenter(a.geometry, viewport) -
         distanceSquaredToViewportCenter(b.geometry, viewport);

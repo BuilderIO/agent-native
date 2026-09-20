@@ -4,7 +4,6 @@ import {
   defineEventHandler,
   getMethod,
   getQuery,
-  getRequestIP,
   setResponseHeader,
   setResponseStatus,
   getCookie,
@@ -144,7 +143,10 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import {
+  getConfiguredAppBasePath,
+  stripAppBasePath as stripConfiguredAppBasePath,
+} from "./app-base-path.js";
 import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -227,6 +229,7 @@ import {
   resolveCanonicalUserForLegacySession,
   type CanonicalLegacyUser,
 } from "./legacy-auth-migration.js";
+import * as loopback from "./loopback.js";
 import {
   encodeMagicLinkSignupAttribution,
   MAGIC_LINK_ATTRIBUTION_PARAM,
@@ -252,6 +255,10 @@ import {
   setCachedSessionEmail,
 } from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
+
+function stripAppBasePath(pathname: string): string {
+  return stripConfiguredAppBasePath(pathname, getAppBasePath());
+}
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -899,16 +906,8 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
  * for the dev account, a throwaway per-DB password.
  */
 export function isLoopbackAddress(ip: string | undefined): boolean {
-  // Strip an optional IPv6 zone id (e.g. "fe80::1%en0") before comparing.
-  const normalised = (ip ?? "").split("%")[0];
-  return (
-    normalised === "127.0.0.1" ||
-    normalised === "::1" ||
-    normalised === "::ffff:127.0.0.1" ||
-    normalised.startsWith("127.")
-  );
+  return loopback.isLoopbackAddress(ip);
 }
-
 /**
  * True when the request's actual socket peer is loopback. Uses
  * `getRequestIP(event)` WITHOUT `{ xForwardedFor: true }`, so it reflects the
@@ -917,15 +916,8 @@ export function isLoopbackAddress(ip: string | undefined): boolean {
  * any "is this local dev?" security gate (MCP/connect dev-open).
  */
 export function isLoopbackRequest(event: H3Event): boolean {
-  let ip: string | undefined;
-  try {
-    ip = getRequestIP(event) ?? undefined;
-  } catch {
-    ip = undefined;
-  }
-  return isLoopbackAddress(ip);
+  return loopback.isLoopbackRequest(event);
 }
-
 /**
  * Read the desktop-SSO broker file, but only if the request is plausibly
  * from the Electron desktop app *and* coming from the local machine.
@@ -1014,13 +1006,63 @@ function extractSessionTokenFromAuthResponse(
   return cookie ? decodeSessionCookieValue(cookie) : undefined;
 }
 
-function forwardBetterAuthSetCookies(event: H3Event, result: unknown): void {
+function forwardBetterAuthSetCookies(
+  event: H3Event,
+  result: unknown,
+  options: { excludeSessionCookies?: boolean } = {},
+): void {
   if (!result || typeof result !== "object") return;
   const headers = (result as { headers?: Headers }).headers;
   if (!headers || typeof headers.get !== "function") return;
   for (const cookie of getSetCookieHeaders(headers)) {
+    if (
+      options.excludeSessionCookies &&
+      /(?:^|;\s*)(?:__Secure-)?[^=;\s]+(?:[.-])(?:session_token|session_data)=/i.test(
+        cookie,
+      )
+    ) {
+      continue;
+    }
     event.res?.headers?.append("set-cookie", cookie);
   }
+}
+
+function betterAuthApiBody(result: unknown): Record<string, any> {
+  if (!result || typeof result !== "object") return {};
+  const response = (result as { response?: unknown }).response;
+  if (response && typeof response === "object") {
+    return response as Record<string, any>;
+  }
+  return result as Record<string, any>;
+}
+
+function betterAuthHeadersForSession(event: H3Event, token?: string): Headers {
+  const headers = betterAuthRequestHeaders(event);
+  if (token) headers.set("authorization", `Bearer ${token}`);
+  return headers;
+}
+
+async function signInWithEmailPassword(
+  event: H3Event,
+  auth: BetterAuthInstance,
+  email: string,
+  password: string,
+): Promise<Record<string, any>> {
+  const result = await auth.api.signInEmail({
+    body: { email, password },
+    headers: betterAuthRequestHeaders(event),
+    returnHeaders: true,
+  });
+  const body = betterAuthApiBody(result);
+  if (body.twoFactorRedirect === true) {
+    // Keep the short-lived Better Auth challenge cookie, but never expose the
+    // Better Auth session/cache cookies to the browser. The framework mirrors
+    // the verified token into its own session cookie after the second factor.
+    forwardBetterAuthSetCookies(event, result, {
+      excludeSessionCookies: true,
+    });
+  }
+  return body;
 }
 
 // ---------------------------------------------------------------------------
@@ -4856,16 +4898,6 @@ function isPublicWorkspacePageRequest(
   return config.workspaceAppAudience === "public";
 }
 
-function stripAppBasePath(pathname: string): string {
-  const basePath = getAppBasePath();
-  if (!basePath) return pathname;
-  if (pathname === basePath) return "/";
-  if (pathname.startsWith(`${basePath}/`)) {
-    return pathname.slice(basePath.length) || "/";
-  }
-  return pathname;
-}
-
 // ---------------------------------------------------------------------------
 // Fallback login page HTML (custom auth with no login page configured)
 // ---------------------------------------------------------------------------
@@ -5799,6 +5831,170 @@ async function mountBetterAuthRoutes(
     createLocalDevAuthHandler(betterAuthConfig),
   );
 
+  const requireTwoFactorSession = async (
+    event: H3Event,
+  ): Promise<AuthSession | null> => {
+    const session = await getSession(event);
+    if (session?.email && session.token) return session;
+    setResponseStatus(event, 401);
+    return null;
+  };
+
+  const twoFactorError = (event: H3Event, error: unknown) => {
+    if (!isExpectedAuthFailure(error)) {
+      captureAuthError(error, { route: "better-auth" });
+    }
+    const publicError = publicAuthError(
+      error,
+      "Two-factor authentication could not be completed.",
+    );
+    setResponseStatus(event, publicError.statusCode ?? 400);
+    return {
+      error: publicError.message,
+      ...(publicError.code ? { code: publicError.code } : {}),
+    };
+  };
+
+  app.use(
+    "/_agent-native/auth/two-factor/status",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await requireTwoFactorSession(event);
+      if (!session) return { error: "Not authenticated" };
+      try {
+        const authSession = await auth.api.getSession({
+          headers: betterAuthHeadersForSession(event, session.token),
+        });
+        return {
+          enabled: Boolean(
+            (authSession?.user as { twoFactorEnabled?: unknown } | undefined)
+              ?.twoFactorEnabled,
+          ),
+        };
+      } catch (error) {
+        return twoFactorError(event, error);
+      }
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/two-factor/enable",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await requireTwoFactorSession(event);
+      if (!session) return { error: "Not authenticated" };
+      const body = await readBody<Record<string, unknown>>(event);
+      const password = typeof body?.password === "string" ? body.password : "";
+      try {
+        const result = await auth.api.enableTwoFactor({
+          body: { method: "totp", ...(password ? { password } : {}) },
+          headers: betterAuthHeadersForSession(event, session.token),
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result, {
+          excludeSessionCookies: true,
+        });
+        return betterAuthApiBody(result);
+      } catch (error) {
+        return twoFactorError(event, error);
+      }
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/two-factor/disable",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await requireTwoFactorSession(event);
+      if (!session) return { error: "Not authenticated" };
+      const body = await readBody<Record<string, unknown>>(event);
+      const password = typeof body?.password === "string" ? body.password : "";
+      try {
+        const result = await auth.api.disableTwoFactor({
+          body: password ? { password } : {},
+          headers: betterAuthHeadersForSession(event, session.token),
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result, {
+          excludeSessionCookies: true,
+        });
+        return betterAuthApiBody(result);
+      } catch (error) {
+        return twoFactorError(event, error);
+      }
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/two-factor/verify",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const body = await readBody<Record<string, unknown>>(event);
+      const code = typeof body?.code === "string" ? body.code.trim() : "";
+      if (!/^\d{6,8}$/.test(code)) {
+        setResponseStatus(event, 400);
+        return { error: "Enter the six-digit code from your authenticator." };
+      }
+      const existingSession = await getSession(event);
+      try {
+        const result = await auth.api.verifyTOTP({
+          body: {
+            code,
+            ...(body?.trustDevice === true ? { trustDevice: true } : {}),
+          },
+          headers: betterAuthHeadersForSession(event, existingSession?.token),
+          returnHeaders: true,
+        });
+        const responseBody = betterAuthApiBody(result);
+        const token =
+          typeof responseBody.token === "string" ? responseBody.token : "";
+        const email =
+          typeof responseBody.user?.email === "string"
+            ? responseBody.user.email
+            : existingSession?.email;
+        if (!existingSession) {
+          if (!token || !email) {
+            setResponseStatus(event, 500);
+            return {
+              error: "Two-factor authentication did not create a session.",
+            };
+          }
+          setFrameworkSessionCookie(event, token);
+          clearIdentityGoogleAuthCookie(event);
+          setFirstRunOnboardingCookie(event);
+          await addSession(token, email);
+          if (isElectronRequest(event)) {
+            await writeDesktopSso({
+              email,
+              token,
+              expiresAt: Date.now() + sessionMaxAge * 1000,
+            });
+          }
+        }
+        forwardBetterAuthSetCookies(event, result, {
+          excludeSessionCookies: true,
+        });
+        return existingSession
+          ? { ok: true }
+          : authLoginResponse(event, token, email);
+      } catch (error) {
+        return twoFactorError(event, error);
+      }
+    }),
+  );
+
   // Mount Better Auth catch-all handler at /_agent-native/auth/ba/*
   app.use(
     "/_agent-native/auth/ba",
@@ -6296,10 +6492,14 @@ async function mountBetterAuthRoutes(
       }
 
       try {
-        const result = await auth.api.signInEmail({
-          body: { email, password },
-        });
-        if (result?.token) {
+        const result = await signInWithEmailPassword(
+          event,
+          auth,
+          email,
+          password,
+        );
+        if (result.twoFactorRedirect === true) return result;
+        if (result.token) {
           setFrameworkSessionCookie(event, result.token);
           clearIdentityGoogleAuthCookie(event);
           setFirstRunOnboardingCookie(event);
@@ -6734,10 +6934,14 @@ function mountAuthFallbackRoutes(app: H3App): void {
 
       try {
         const auth = await getBetterAuth();
-        const result = await auth.api.signInEmail({
-          body: { email, password },
-        });
-        if (result?.token) {
+        const result = await signInWithEmailPassword(
+          event,
+          auth,
+          email,
+          password,
+        );
+        if (result.twoFactorRedirect === true) return result;
+        if (result.token) {
           setFrameworkSessionCookie(event, result.token);
           clearIdentityGoogleAuthCookie(event);
           setFirstRunOnboardingCookie(event);

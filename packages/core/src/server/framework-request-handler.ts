@@ -35,11 +35,12 @@ import {
   isRetiredInternalFrameworkPath,
 } from "./framework-route-prefix.js";
 import {
+  getOrCreateHttpRequestTrackingScope,
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
 } from "./http-response-telemetry.js";
 import {
-  hasRequestContext,
+  getRequestContext,
   markRequestBoundaryInstalled,
   runWithRequestContext,
 } from "./request-context.js";
@@ -412,15 +413,24 @@ function registerRequestContextBoundary(nitroApp: any): void {
       setResponseHeader(event, "content-type", "application/json");
       return { error: "Not found" };
     }
-    if (hasRequestContext()) return next();
-    return runWithRequestContext(
-      {
-        isSyntheticTraffic: isSyntheticTrafficValue(
-          getHeader(event, SYNTHETIC_TRAFFIC_HEADER),
-        ),
-      },
-      () => next(),
+    const inheritedContext = getRequestContext();
+    const syntheticTraffic = isSyntheticTrafficValue(
+      getHeader(event, SYNTHETIC_TRAFFIC_HEADER),
     );
+    const trackingScope = getOrCreateHttpRequestTrackingScope(event);
+    const requestContext = inheritedContext
+      ? {
+          ...inheritedContext,
+          ...(syntheticTraffic === undefined
+            ? {}
+            : { isSyntheticTraffic: syntheticTraffic }),
+          trackingScope,
+        }
+      : {
+          isSyntheticTraffic: syntheticTraffic,
+          trackingScope,
+        };
+    return runWithRequestContext(requestContext, () => next());
   };
 
   h3[REQUEST_CONTEXT_BOUNDARY_KEY] = middleware;

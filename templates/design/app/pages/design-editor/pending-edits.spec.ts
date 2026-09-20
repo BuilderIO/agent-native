@@ -10,6 +10,7 @@ import {
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
   pendingVisualStyleGestureIdForPhase,
+  resolveOverviewScreenSourceType,
 } from "./pending-edits";
 
 function styleEdit(
@@ -41,6 +42,23 @@ function textEdit(value: string): PendingLiveTextEdit {
     updatedAt: 1,
   };
 }
+
+describe("resolveOverviewScreenSourceType", () => {
+  it("recognizes a bridged screen when sourceType is absent", () => {
+    expect(
+      resolveOverviewScreenSourceType({ bridgeUrl: "http://localhost:7331" }),
+    ).toBe("localhost");
+  });
+
+  it("prefers an explicit source type over bridge metadata", () => {
+    expect(
+      resolveOverviewScreenSourceType({
+        sourceType: "inline",
+        bridgeUrl: "http://localhost:7331",
+      }),
+    ).toBe("inline");
+  });
+});
 
 describe("appendPendingVisualStyleUndoEntry", () => {
   it("coalesces consecutive ticks on the same target and keeps the first revert", () => {

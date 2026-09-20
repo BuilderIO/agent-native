@@ -115,6 +115,8 @@ import {
 import {
   classifyBridgeRegistrationFailure,
   getDesignCanvasIframeSandbox,
+  getDesignCanvasIframeAllow,
+  getLocalNetworkAccessPermissionState,
   getSnapshotRetryDelayMs,
   isPreviewTokenStaleStatus,
   resolveLiveEditPreviewUrl,
@@ -122,6 +124,7 @@ import {
   shouldFetchExternalSourceSnapshot,
   shouldUseIframeLoadReadyFallback,
   type BridgeRegistrationFailureKind,
+  type LocalNetworkAccessPermissionState,
   useBrowserOrigin,
 } from "./design-canvas/external-preview";
 import { isOsFileDragEvent } from "./design-canvas/file-drop";
@@ -172,9 +175,13 @@ import {
   sendLinkedScreenPreviewStyleChange,
 } from "./multi-screen/linked-screen-preview";
 import type { KScaleStyleChange } from "./multi-screen/types";
-import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
+import {
+  getIframePaintRetentionStyle,
+  SCALED_IFRAME_PAINT_RETENTION_STYLE,
+} from "./scaled-iframe-paint";
 import type {
   ElementInfo,
+  GridGroupStructureMove,
   ElementSelectionIntent,
   DeviceFrameType,
   RuntimeStructureInsertRequest,
@@ -182,6 +189,20 @@ import type {
   RuntimeVerificationRequest,
   TextEditingState,
 } from "./types";
+
+function getSingleScreenZoomTransform(
+  zoom: number,
+  deviceFrame: DeviceFrameType,
+  centerInteractPreview: boolean,
+) {
+  const scale = zoom / 100;
+  if (centerInteractPreview || deviceFrame !== "none") {
+    return `scale(${scale})`;
+  }
+  return zoom < 100
+    ? `translate(${(100 - zoom) / 2}%, ${(100 - zoom) / 2}%) scale(${scale})`
+    : `scale(${scale})`;
+}
 
 function parseKScaleStyleChangeBatch(
   value: unknown,
@@ -240,6 +261,11 @@ function parseKScaleStyleChangeBatch(
         string
       >;
     }
+    let elementInfo: ElementInfo | undefined;
+    if (candidate.elementInfo !== undefined) {
+      if (!isElementInfoPayload(candidate.elementInfo)) return null;
+      elementInfo = candidate.elementInfo;
+    }
     if (
       candidate.preserveSelection !== undefined &&
       typeof candidate.preserveSelection !== "boolean"
@@ -251,6 +277,7 @@ function parseKScaleStyleChangeBatch(
       ...(typeof candidate.sourceId === "string"
         ? { sourceId: candidate.sourceId }
         : {}),
+      ...(elementInfo ? { elementInfo } : {}),
       styles: Object.fromEntries(styleEntries) as Record<string, string>,
       ...(originalStyles ? { originalStyles } : {}),
       ...(candidate.preserveSelection === true
@@ -572,6 +599,8 @@ interface DesignCanvasProps {
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
+  /** The public visual-edit surface may refresh owner-scoped preview tokens. */
+  publicVisualEdit?: boolean;
   zoom: number;
   onZoomChange?: (zoom: number) => void;
   deviceFrame: DeviceFrameType;
@@ -687,10 +716,27 @@ interface DesignCanvasProps {
       sourceId?: string;
       anchorSourceId?: string;
       requestId?: string;
+      transactionId?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
+      gridPlacement?: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+      gridDisplacements?: Array<{
+        sourceId?: string;
+        selector?: string;
+        placement: {
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        };
+      }>;
       anchorElementInfo?: ElementInfo;
       /** Set when the subject is markup this change introduced, not an
        * element the running app already had. */
@@ -703,6 +749,9 @@ interface DesignCanvasProps {
       replacementSnapshotHtml?: string;
     },
   ) => boolean | "pending" | void;
+  onVisualGridGroupChange?: (
+    moves: GridGroupStructureMove[],
+  ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
     selector: string,
     cloneHtml: string,
@@ -714,6 +763,7 @@ interface DesignCanvasProps {
       anchorSourceId?: string;
       anchorElementInfo?: ElementInfo;
       requestId?: string;
+      transactionId?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -1341,6 +1391,7 @@ export function DesignCanvas({
   onIframeContextMenu,
   onEditorDragStateChange,
   onVisualStructureChange,
+  onVisualGridGroupChange,
   onVisualDuplicateChange,
   tweakValues,
   drawMode,
@@ -1361,6 +1412,7 @@ export function DesignCanvas({
   onExitPinMode,
   registerRuntimeBridge = true,
   designId,
+  publicVisualEdit = false,
   reviewCanPost = false,
   reviewCanResolve = false,
   reviewTargetId,
@@ -1421,7 +1473,81 @@ export function DesignCanvas({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const reviewCanvasId = useId();
   const zoomLayerRef = useRef<HTMLDivElement>(null);
+  const zoomSizeLayerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
+  const imperativeZoomRef = useRef<number | null>(null);
+  const zoomPropRef = useRef(zoom);
+  const zoomGestureGenerationRef = useRef(0);
+  const zoomCommitTimerRef = useRef<number | null>(null);
+  const applyZoomFrame = useCallback(
+    (nextZoom: number) => {
+      imperativeZoomRef.current = nextZoom;
+      zoomRef.current = nextZoom;
+      const layer = zoomLayerRef.current;
+      if (layer) {
+        layer.style.transform = getSingleScreenZoomTransform(
+          nextZoom,
+          deviceFrame,
+          centerInteractPreview,
+        );
+      }
+      const sizeLayer = zoomSizeLayerRef.current;
+      if (sizeLayer && centerInteractPreview) {
+        if (previewWidthPx === undefined) {
+          sizeLayer.style.removeProperty("width");
+        } else {
+          sizeLayer.style.width = `${previewWidthPx * (nextZoom / 100)}px`;
+        }
+        if (previewHeightPx === undefined) {
+          sizeLayer.style.removeProperty("height");
+        } else {
+          sizeLayer.style.height = `${previewHeightPx * (nextZoom / 100)}px`;
+        }
+      }
+    },
+    [centerInteractPreview, deviceFrame, previewHeightPx, previewWidthPx],
+  );
+  const commitZoom = useCallback(
+    (nextZoom: number) => {
+      if (nextZoom !== zoomRef.current) return;
+      if (zoomCommitTimerRef.current !== null) {
+        window.clearTimeout(zoomCommitTimerRef.current);
+        zoomCommitTimerRef.current = null;
+      }
+      imperativeZoomRef.current = nextZoom;
+      zoomRef.current = nextZoom;
+      zoomPropRef.current = nextZoom;
+      onZoomChange?.(nextZoom);
+    },
+    [onZoomChange],
+  );
+  const scheduleZoomCommit = useCallback(
+    (nextZoom: number) => {
+      applyZoomFrame(nextZoom);
+      const generation = zoomGestureGenerationRef.current;
+      if (zoomCommitTimerRef.current !== null) {
+        window.clearTimeout(zoomCommitTimerRef.current);
+      }
+      zoomCommitTimerRef.current = window.setTimeout(() => {
+        zoomCommitTimerRef.current = null;
+        if (
+          generation !== zoomGestureGenerationRef.current ||
+          zoomRef.current !== nextZoom
+        ) {
+          return;
+        }
+        commitZoom(zoomRef.current);
+      }, 120);
+    },
+    [applyZoomFrame, commitZoom],
+  );
+  useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current !== null) {
+        window.clearTimeout(zoomCommitTimerRef.current);
+      }
+    };
+  }, []);
   // Zoom-invariant chrome: the non-embedded-frame render path below wraps the
   // iframe in its own CSS `transform: scale(zoom / 100)` (see the
   // `deviceFrame === "none"` and framed branches further down) — a purely
@@ -1834,6 +1960,10 @@ export function DesignCanvas({
   ] = useState<string | null>(null);
   const [connectingLocalNetworkAccess, setConnectingLocalNetworkAccess] =
     useState(false);
+  const [
+    localNetworkAccessPermissionState,
+    setLocalNetworkAccessPermissionState,
+  ] = useState<LocalNetworkAccessPermissionState | null>(null);
   // Cache of the bridgeInstanceId returned by the client's LAST successful
   // /live-edit-bridge registration POST (see the registration effect below).
   // Compared against a later /health probe's bridgeInstanceId to tell "the
@@ -2025,6 +2155,19 @@ export function DesignCanvas({
   const usesLiveEditInjectedBridge =
     sourceType === "localhost" &&
     Boolean(bridgeUrl && effectivePreviewToken && rawExternalPreviewUrl);
+  useEffect(() => {
+    if (!usesLiveEditInjectedBridge) {
+      setLocalNetworkAccessPermissionState(null);
+      return;
+    }
+    let cancelled = false;
+    void getLocalNetworkAccessPermissionState().then((state) => {
+      if (!cancelled) setLocalNetworkAccessPermissionState(state);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [usesLiveEditInjectedBridge]);
   // Hoisted above usesLiveEditEditorBridge (rather than declared next to
   // externalPreviewUrl/usingRawFallbackPreview below, which reuse it) because
   // a failed registration's raw-URL fallback document has no injected editor
@@ -2139,11 +2282,11 @@ export function DesignCanvas({
   //
   // A FAILED registration (most commonly Chrome's Local Network Access
   // permission blocking the fetch — see classifyBridgeRegistrationFailure)
-  // falls back the same way: the dev server itself is still reachable via a
-  // plain iframe navigation (unlike fetch/XHR, navigations aren't subject to
-  // that permission check), so showing it read-only beats hiding a working
-  // app behind an indefinite loading state. LocalNetworkAccessPrompt offers
-  // the way to actually enable editing from here.
+  // falls back the same way: the dev server URL remains the honest live
+  // fallback, although Chrome may gate this loopback iframe navigation behind
+  // the same Local Network Access permission. The iframe's explicit policy
+  // allows that prompt; LocalNetworkAccessPrompt offers the way to enable
+  // editing from here.
   const usingRawFallbackPreview =
     usesLiveEditInjectedBridge &&
     !liveEditExternalPreviewUrl &&
@@ -2165,7 +2308,28 @@ export function DesignCanvas({
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
     usesLiveEditInjectedBridge && !liveEditBridgeRegistered;
-  zoomRef.current = zoom;
+  const showProactiveLocalNetworkAccessPrompt =
+    usesLiveEditInjectedBridge &&
+    localNetworkAccessPermissionState === "prompt" &&
+    !liveEditBridgeRegistered &&
+    localNetworkAccessDismissedForKey !== liveEditBridgeKey;
+  useLayoutEffect(() => {
+    if (zoomPropRef.current === zoom) return;
+    zoomPropRef.current = zoom;
+    if (imperativeZoomRef.current === zoom) {
+      imperativeZoomRef.current = null;
+      return;
+    }
+    if (zoomCommitTimerRef.current !== null) {
+      window.clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    imperativeZoomRef.current = null;
+    zoomRef.current = zoom;
+    zoomGestureGenerationRef.current += 1;
+  }, [zoom]);
+  if (imperativeZoomRef.current === zoom) imperativeZoomRef.current = null;
+  zoomRef.current = imperativeZoomRef.current ?? zoom;
   runtimeReplacementContentRef.current = runtimeReplacementContent;
   runtimeReplacementSourceRef.current =
     authoredSourceContent ?? runtimeReplacementContent;
@@ -2558,6 +2722,7 @@ export function DesignCanvas({
           {
             designId,
             connectionId,
+            publicVisualEdit,
           },
           { method: "GET" },
         );
@@ -2595,6 +2760,7 @@ export function DesignCanvas({
     designId,
     effectivePreviewToken,
     liveEditBridgeKey,
+    publicVisualEdit,
     scheduleBridgeRegistrationRetry,
   ]);
   const handleDismissLocalNetworkAccessPrompt = useCallback(() => {
@@ -3039,7 +3205,9 @@ export function DesignCanvas({
     min: DEFAULT_CANVAS_MIN_ZOOM,
     max: DEFAULT_CANVAS_MAX_ZOOM,
     zoomToCursor: deviceFrame === "none" && !centerInteractPreview,
-    enabled: Boolean(onZoomChange),
+    enabled: Boolean(onZoomChange) && !interactMode,
+    onZoomFrame: onZoomChange ? applyZoomFrame : undefined,
+    onZoomEnd: onZoomChange ? commitZoom : undefined,
   });
 
   // T-zoom-anchor: the "none"-mode zoom layer now uses `transform-origin: top
@@ -3602,6 +3770,58 @@ export function DesignCanvas({
         onRuntimeStructureInsertRejected?.(String(e.data.reason || "unknown"));
         return;
       }
+      if (e.data.type === "visual-grid-group-change") {
+        const rawMoves = e.data.moves;
+        const validPlacement = (value: any) =>
+          value &&
+          ["column", "columnEnd", "row", "rowEnd"].every(
+            (key) => Number.isInteger(value[key]) && value[key] > 0,
+          ) &&
+          value.columnEnd > value.column &&
+          value.rowEnd > value.row;
+        const valid =
+          Array.isArray(rawMoves) &&
+          rawMoves.length >= 2 &&
+          rawMoves.length <= 100 &&
+          rawMoves.every(
+            (move: any) =>
+              move?.type === "visual-structure-change" &&
+              typeof move.requestId === "string" &&
+              typeof move.selector === "string" &&
+              typeof move.sourceId === "string" &&
+              typeof move.anchorSelector === "string" &&
+              typeof move.anchorSourceId === "string" &&
+              (move.placement === "before" ||
+                move.placement === "after" ||
+                move.placement === "inside") &&
+              move.dropMode === "flow-insert" &&
+              validPlacement(move.gridPlacement) &&
+              Array.isArray(move.gridDisplacements) &&
+              move.gridDisplacements.every(
+                (entry: any) =>
+                  typeof entry.sourceId === "string" &&
+                  typeof entry.selector === "string" &&
+                  validPlacement(entry.placement),
+              ),
+          );
+        const applied = valid
+          ? onVisualGridGroupChange?.(rawMoves as GridGroupStructureMove[])
+          : false;
+        if (applied !== "pending" && Array.isArray(rawMoves)) {
+          for (const move of rawMoves) {
+            if (typeof move?.requestId !== "string") continue;
+            iframeRef.current?.contentWindow?.postMessage(
+              {
+                type: "visual-structure-ack",
+                requestId: move.requestId,
+                applied: applied === true,
+              },
+              "*",
+            );
+          }
+        }
+        return;
+      }
       if (e.data.type === "visual-structure-change") {
         const selector = String(e.data.selector || "");
         const anchorSelector = String(e.data.anchorSelector || "");
@@ -3685,6 +3905,10 @@ export function DesignCanvas({
               : e.data.payload,
             {
               requestId,
+              transactionId:
+                typeof e.data.transactionId === "string"
+                  ? e.data.transactionId
+                  : undefined,
               sourceId: replaced ? anchorSourceId : sourceId,
               anchorSourceId: replaced ? undefined : anchorSourceId,
               dropMode,
@@ -3692,6 +3916,48 @@ export function DesignCanvas({
                 e.data.forceFlowPositionOverride === true,
               sourceRect,
               anchorRect,
+              gridPlacement:
+                e.data.gridPlacement &&
+                Number.isFinite(e.data.gridPlacement.column) &&
+                Number.isFinite(e.data.gridPlacement.columnEnd) &&
+                Number.isFinite(e.data.gridPlacement.row) &&
+                Number.isFinite(e.data.gridPlacement.rowEnd)
+                  ? {
+                      column: Number(e.data.gridPlacement.column),
+                      columnEnd: Number(e.data.gridPlacement.columnEnd),
+                      row: Number(e.data.gridPlacement.row),
+                      rowEnd: Number(e.data.gridPlacement.rowEnd),
+                    }
+                  : undefined,
+              gridDisplacements: Array.isArray(e.data.gridDisplacements)
+                ? e.data.gridDisplacements.map(
+                    (entry: {
+                      sourceId?: unknown;
+                      selector?: unknown;
+                      placement: {
+                        column: number;
+                        columnEnd: number;
+                        row: number;
+                        rowEnd: number;
+                      };
+                    }) => ({
+                      sourceId:
+                        typeof entry.sourceId === "string"
+                          ? entry.sourceId
+                          : undefined,
+                      selector:
+                        typeof entry.selector === "string"
+                          ? entry.selector
+                          : undefined,
+                      placement: {
+                        column: Number(entry.placement.column),
+                        columnEnd: Number(entry.placement.columnEnd),
+                        row: Number(entry.placement.row),
+                        rowEnd: Number(entry.placement.rowEnd),
+                      },
+                    }),
+                  )
+                : undefined,
               anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
                 ? e.data.anchorPayload
                 : undefined,
@@ -4152,6 +4418,7 @@ export function DesignCanvas({
         // gets the same gesture as embedded-canvas-wheel. Both bridges are
         // installed in every document, so without this the two apply twice.
         if (isEmbeddedFrame) return;
+        if (interactMode) return;
         if (!onZoomChange) return;
         const iframe = iframeRef.current;
         const scroll = scrollContainerRef.current;
@@ -4192,7 +4459,7 @@ export function DesignCanvas({
           const rawClientX = Number(e.data.clientX);
           const rawClientY = Number(e.data.clientY);
           if (!Number.isFinite(rawClientX) || !Number.isFinite(rawClientY)) {
-            onZoomChange(nextZoom);
+            scheduleZoomCommit(nextZoom);
             return;
           }
           // The iframe lives inside a `transform: scale(zoom/100)` wrapper, so
@@ -4214,13 +4481,13 @@ export function DesignCanvas({
             scroll,
             ratio,
           );
-          onZoomChange(nextZoom);
+          scheduleZoomCommit(nextZoom);
           requestAnimationFrame(() => {
             scroll.scrollLeft += dx;
             scroll.scrollTop += dy;
           });
         } else {
-          onZoomChange(nextZoom);
+          scheduleZoomCommit(nextZoom);
         }
       }
     }
@@ -4248,9 +4515,11 @@ export function DesignCanvas({
     onIframeContextMenu,
     onEditorDragStateChange,
     onVisualStructureChange,
+    onVisualGridGroupChange,
     onRuntimeStructureInsertRejected,
     onVisualDuplicateChange,
     onZoomChange,
+    scheduleZoomCommit,
     centerInteractPreview,
     deviceFrame,
     onPrototypeNavigate,
@@ -4731,6 +5000,25 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly]);
 
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const sendGridGroupBatching = () =>
+      iframe.contentWindow?.postMessage(
+        {
+          type: "set-grid-group-batching-enabled",
+          enabled:
+            sourceType !== "localhost" &&
+            sourceType !== "fusion" &&
+            !rawExternalPreviewUrl,
+        },
+        "*",
+      );
+    sendGridGroupBatching();
+    iframe.addEventListener("load", sendGridGroupBatching);
+    return () => iframe.removeEventListener("load", sendGridGroupBatching);
+  }, [sourceType, rawExternalPreviewUrl]);
+
   // Sync editMode to the bridge IN-PLACE via postMessage so toggling Edit ⇄
   // Preview does not rebuild srcdoc / reload every screen iframe (which was
   // PF21: __TEXT_EDITING_ENABLED__ used to be baked into srcdoc, so flipping
@@ -5204,6 +5492,7 @@ export function DesignCanvas({
     }
     lastRuntimeStructureMoveRequestIdRef.current =
       runtimeStructureMoveRequest.requestId;
+    const moves = runtimeStructureMoveRequest.moves;
     postOneShotBridgeMessage({
       type: "runtime-structure-move",
       subjectSelector: runtimeStructureMoveRequest.subject.selector,
@@ -5211,6 +5500,19 @@ export function DesignCanvas({
       anchorSelector: runtimeStructureMoveRequest.anchor.selector,
       anchorSourceId: runtimeStructureMoveRequest.anchor.sourceId,
       placement: runtimeStructureMoveRequest.placement,
+      transactionId: runtimeStructureMoveRequest.transactionId,
+      gridPlacement: runtimeStructureMoveRequest.gridPlacement,
+      gridDisplacements: runtimeStructureMoveRequest.gridDisplacements,
+      moves: moves?.map((move) => ({
+        subjectSelector: move.subject.selector,
+        subjectSourceId: move.subject.sourceId,
+        anchorSelector: move.anchor.selector,
+        anchorSourceId: move.anchor.sourceId,
+        placement: move.placement,
+        transactionId: move.transactionId,
+        gridPlacement: move.gridPlacement,
+        gridDisplacements: move.gridDisplacements,
+      })),
     });
   }, [postOneShotBridgeMessage, runtimeStructureMoveRequest]);
 
@@ -5764,6 +6066,19 @@ export function DesignCanvas({
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
   const embeddedFrameFluid = embeddedFrame?.fluid === true;
+  const embeddedFramePaintScaleX =
+    embeddedFrame && !embeddedFrameFluid
+      ? embeddedFrame.displayWidth / Math.max(1, embeddedFrame.viewportWidth)
+      : 1;
+  const embeddedFramePaintScaleY =
+    embeddedFrame && !embeddedFrameFluid
+      ? embeddedFrame.displayHeight / Math.max(1, embeddedFrame.viewportHeight)
+      : 1;
+  // One oversized axis can force the whole iframe backing surface onto the
+  // compositor path, so use the larger inner and editor scale conservatively.
+  const embeddedPaintScale =
+    Math.max(1, embeddedFramePaintScaleX, embeddedFramePaintScaleY) *
+    Math.max(1, editorChromeScaleX, editorChromeScaleY);
   const iframeBackgroundColor = getEmbeddedIframeBackgroundColor({
     embeddedFrameBackground,
     transparentBackground,
@@ -6050,6 +6365,7 @@ export function DesignCanvas({
             previewUrl: externalPreviewUrl,
             parentOrigin: browserOrigin ?? undefined,
           })}
+          allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
           onLoad={(event) => {
             setPreviewFrameLoaded(true);
@@ -6087,7 +6403,25 @@ export function DesignCanvas({
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
+            pointerEvents:
+              usingRawFallbackPreview && !interactMode ? "none" : undefined,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+            ...getIframePaintRetentionStyle({
+              viewportWidth:
+                embeddedFrame?.viewportWidth ??
+                previewWidthPx ??
+                Number.parseFloat(iframeWidth),
+              viewportHeight:
+                embeddedFrame?.viewportHeight ??
+                previewHeightPx ??
+                Number.parseFloat(iframeHeight ?? "900px"),
+              effectiveScale: embeddedFrame
+                ? embeddedPaintScale
+                : (zoom / 100) * editorChromeScaleX,
+              effectiveScaleY: embeddedFrame
+                ? embeddedPaintScale
+                : (zoom / 100) * editorChromeScaleY,
+            }),
           }}
           title={t("designEditor.designPreview")}
         />
@@ -6111,6 +6445,7 @@ export function DesignCanvas({
             previewUrl: runtimeVerificationUrl,
             parentOrigin: browserOrigin,
           })}
+          allow={getDesignCanvasIframeAllow(runtimeVerificationUrl)}
           data-runtime-verification-iframe
           aria-hidden="true"
           tabIndex={-1}
@@ -6198,7 +6533,17 @@ export function DesignCanvas({
           </div>
         </div>
       ) : null}
+      {showProactiveLocalNetworkAccessPrompt ? (
+        <LocalNetworkAccessPrompt
+          kind={bridgeRegistrationFailureKind ?? "maybePermissionBlocked"}
+          connecting={connectingLocalNetworkAccess}
+          onConnect={handleConnectLocalNetworkAccess}
+          onDismiss={handleDismissLocalNetworkAccessPrompt}
+          proactive
+        />
+      ) : null}
       {bridgeRegistrationFailedForCurrentKey &&
+      !showProactiveLocalNetworkAccessPrompt &&
       localNetworkAccessDismissedForKey !== liveEditBridgeKey ? (
         // Deliberately NOT inside the blocking overlay below: usingRawFallback
         // Preview means the iframe right underneath is the real running dev
@@ -6431,7 +6776,7 @@ export function DesignCanvas({
           tabIndex={-1}
           onPointerEnter={focusScrollSurface}
           onMouseEnter={focusScrollSurface}
-          className="relative h-full w-full overflow-hidden"
+          className="relative h-full w-full overflow-clip"
         >
           {iframeElement}
           {reviewCanvasPins}
@@ -6449,7 +6794,7 @@ export function DesignCanvas({
         tabIndex={-1}
         onPointerEnter={focusScrollSurface}
         onMouseEnter={focusScrollSurface}
-        className="relative h-full w-full overflow-hidden"
+        className="relative h-full w-full overflow-clip"
         style={{
           width: embeddedFrame.displayWidth,
           height: embeddedFrame.displayHeight,
@@ -6492,6 +6837,7 @@ export function DesignCanvas({
           framed modes are centered inside the canvas with zoom applied. */}
       {centerInteractPreview ? (
         <div
+          ref={zoomSizeLayerRef}
           className="relative flex min-h-full min-w-full items-center justify-center"
           style={{ justifyContent: "safe center", alignItems: "safe center" }}
         >
@@ -6511,7 +6857,11 @@ export function DesignCanvas({
             <div
               ref={zoomLayerRef}
               style={{
-                transform: `scale(${zoom / 100})`,
+                transform: getSingleScreenZoomTransform(
+                  zoom,
+                  deviceFrame,
+                  centerInteractPreview,
+                ),
                 transformOrigin: "top left",
               }}
             >
@@ -6556,10 +6906,11 @@ export function DesignCanvas({
             // >= 100% the offset is exactly 0 and the original top-left
             // contract holds verbatim. The offset is also continuous at
             // 100% (0), so crossing the boundary mid-gesture cannot jump.
-            transform:
-              zoom < 100
-                ? `translate(${(100 - zoom) / 2}%, ${(100 - zoom) / 2}%) scale(${zoom / 100})`
-                : `scale(${zoom / 100})`,
+            transform: getSingleScreenZoomTransform(
+              zoom,
+              deviceFrame,
+              centerInteractPreview,
+            ),
             transformOrigin: "top left",
           }}
         >
@@ -6568,8 +6919,13 @@ export function DesignCanvas({
       ) : (
         <div className="relative flex items-center justify-center min-h-full">
           <div
+            ref={zoomLayerRef}
             style={{
-              transform: `scale(${zoom / 100})`,
+              transform: getSingleScreenZoomTransform(
+                zoom,
+                deviceFrame,
+                centerInteractPreview,
+              ),
               transformOrigin: "center center",
             }}
           >
