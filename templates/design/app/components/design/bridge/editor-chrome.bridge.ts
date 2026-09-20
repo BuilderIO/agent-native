@@ -14179,6 +14179,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): void {
     dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
     if (phase === "cancel") {
+      bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenDragIdentity = null;
       (window.parent as Window).postMessage(
@@ -14258,6 +14259,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "*",
     );
     if (phase === "end") {
+      // A non-Apple S keyup can land in the overview host after this source
+      // iframe loses focus. End the source gesture's modifier scope here so a
+      // missed iframe keyup cannot affect the next drag.
+      bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenDragIdentity = null;
     }

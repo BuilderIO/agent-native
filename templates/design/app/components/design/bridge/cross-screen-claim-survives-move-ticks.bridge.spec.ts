@@ -130,4 +130,74 @@ describe("crossScreenClaimedByHost survives the move ticks between claim and rel
       await browser.close();
     }
   });
+
+  it("clears a source S modifier when cross-screen end owns the keyup", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(FIXTURE);
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "Win32",
+        });
+      });
+      const starts: Array<{ ignoreAutoLayout?: boolean }> = [];
+      await page.exposeFunction(
+        "__pushCrossScreenStart",
+        (data: { modifiers?: { ignoreAutoLayout?: boolean } }) =>
+          starts.push(data.modifiers ?? {}),
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (event: MessageEvent) => {
+          const data = event.data as {
+            type?: string;
+            phase?: string;
+            modifiers?: { ignoreAutoLayout?: boolean };
+          };
+          if (
+            data.type === "agent-native:cross-screen-drag" &&
+            data.phase === "start"
+          ) {
+            void (window as any).__pushCrossScreenStart(data);
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="widget"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(30);
+
+      await page.keyboard.down("s");
+      await page.mouse.move(90, 320);
+      await page.mouse.down();
+      await page.mouse.move(900, 400, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      await page.mouse.move(90, 320);
+      await page.mouse.down();
+      await page.mouse.move(150, 360, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      expect(
+        starts
+          .filter((start) => "ignoreAutoLayout" in start)
+          .map((start) => start.ignoreAutoLayout),
+      ).toEqual([true, false]);
+      await page.close();
+    } finally {
+      await browser.close();
+    }
+  });
 });
