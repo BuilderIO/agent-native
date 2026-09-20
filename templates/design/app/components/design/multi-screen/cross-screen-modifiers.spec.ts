@@ -31,6 +31,23 @@ describe("cross-screen Ignore Auto Layout release timing", () => {
     ).toBe(false);
   });
 
+  it("honors a host keyup when source iframe owned the keydown", () => {
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(
+        140,
+        { downAt: null, upAt: 130 },
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(
+        120,
+        { downAt: null, upAt: 130 },
+        true,
+      ),
+    ).toBe(true);
+  });
+
   it("clears S timing after a real window blur but preserves iframe-focus handoff", () => {
     const held = { downAt: 100, upAt: null };
 

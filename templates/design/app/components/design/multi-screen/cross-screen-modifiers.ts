@@ -8,8 +8,13 @@ export function isCrossScreenIgnoreAutoLayoutHeldAtRelease(
   sKeyTimes: CrossScreenSKeyTimes,
   fallbackIgnoreAutoLayout: boolean,
 ): boolean {
-  if (typeof releasedAt !== "number" || sKeyTimes.downAt === null) {
+  if (typeof releasedAt !== "number") {
     return fallbackIgnoreAutoLayout;
+  }
+  if (sKeyTimes.downAt === null) {
+    return sKeyTimes.upAt === null || releasedAt < sKeyTimes.upAt
+      ? fallbackIgnoreAutoLayout
+      : false;
   }
   return (
     sKeyTimes.downAt <= releasedAt &&
