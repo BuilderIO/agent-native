@@ -16856,34 +16856,78 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): void {
     var container = dropContainerForTarget(target);
     var previous: Element | null = null;
-    var gridColumnOffset = 0;
+    var plannedGridPlacements: Array<{
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    }> = [];
+    var gridSpanForMember = function (member: Element) {
+      var styles = window.getComputedStyle(member);
+      var spanFor = function (startValue: string, endValue: string) {
+        var start = numericGridLine(startValue);
+        var end = gridLineEnd(endValue, start);
+        if (start !== null && end !== null) return Math.max(1, end - start);
+        var match = startValue.trim().match(/^span\s+(\d+)$/);
+        return match ? Math.max(1, Number(match[1])) : 1;
+      };
+      return {
+        column: spanFor(styles.gridColumnStart, styles.gridColumnEnd),
+        row: spanFor(styles.gridRowStart, styles.gridRowEnd),
+      };
+    };
+    var groupGridCellFor = function (member: Element, index: number) {
+      if (!target.gridCell) return undefined;
+      var span = gridSpanForMember(member);
+      var startColumn = target.gridCell.column;
+      var startRow = target.gridCell.row;
+      if (index === 0) {
+        return { column: startColumn, row: startRow, span };
+      }
+      for (
+        var row = startRow;
+        row < startRow + members.length + 100;
+        row += 1
+      ) {
+        for (
+          var column = row === startRow ? startColumn : 0;
+          column < 100;
+          column += 1
+        ) {
+          var candidate = {
+            column: column,
+            columnEnd: column + span.column,
+            row: row,
+            rowEnd: row + span.row,
+          };
+          var overlaps = plannedGridPlacements.some(function (existing) {
+            return (
+              candidate.column < existing.columnEnd &&
+              candidate.columnEnd > existing.column &&
+              candidate.row < existing.rowEnd &&
+              candidate.rowEnd > existing.row
+            );
+          });
+          if (!overlaps) return { column: column, row: row, span };
+        }
+      }
+      return { column: startColumn, row: startRow, span };
+    };
     for (var i = 0; i < members.length; i += 1) {
       var member = members[i];
-      var memberStyles = window.getComputedStyle(member);
-      var memberColumnStart = numericGridLine(memberStyles.gridColumnStart);
-      var memberColumnEnd = gridLineEnd(
-        memberStyles.gridColumnEnd,
-        memberColumnStart,
-      );
-      var memberColumnSpan =
-        memberColumnStart !== null && memberColumnEnd !== null
-          ? Math.max(1, memberColumnEnd - memberColumnStart)
-          : (() => {
-              var spanMatch = memberStyles.gridColumnStart
-                .trim()
-                .match(/^span\s+(\d+)$/);
-              return spanMatch ? Math.max(1, Number(spanMatch[1])) : 1;
-            })();
+      var plannedGridCell = groupGridCellFor(member, i);
       var memberTarget =
         i === 0
           ? target
           : target.gridCell
             ? {
                 ...target,
-                gridCell: {
-                  column: target.gridCell.column + gridColumnOffset,
-                  row: target.gridCell.row,
-                },
+                gridCell: plannedGridCell
+                  ? {
+                      column: plannedGridCell.column,
+                      row: plannedGridCell.row,
+                    }
+                  : target.gridCell,
                 gridPlacement: undefined,
                 gridDisplacementPlacements: [],
                 gridDisplacementPrevStyles: [],
@@ -16915,7 +16959,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           prevInlinePositionStyles: prevInlinePositionStyles,
         });
       }
-      if (target.gridCell) gridColumnOffset += memberColumnSpan;
+      if (plannedGridCell) {
+        plannedGridPlacements.push({
+          column: plannedGridCell.column,
+          columnEnd: plannedGridCell.column + plannedGridCell.span.column,
+          row: plannedGridCell.row,
+          rowEnd: plannedGridCell.row + plannedGridCell.span.row,
+        });
+      }
       previous = member;
     }
     postElementMarqueeSelect(members, false, ev);
