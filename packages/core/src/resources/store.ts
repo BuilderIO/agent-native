@@ -65,6 +65,32 @@ export function sharedResourceOwner(orgId?: string | null): string {
   return activeOrgId ? organizationResourceOwner(activeOrgId) : SHARED_OWNER;
 }
 
+export function isBinaryResourceMimeType(mimeType: string): boolean {
+  return (
+    mimeType.startsWith("image/") ||
+    mimeType.startsWith("audio/") ||
+    mimeType.startsWith("video/") ||
+    mimeType === "application/octet-stream"
+  );
+}
+
+export function packScopeFromOwner(
+  owner: string,
+  userEmail: string,
+): "personal" | "organization" | "workspace" {
+  if (owner === userEmail) return "personal";
+  if (owner === WORKSPACE_OWNER) return "workspace";
+  return "organization";
+}
+
+export function ownerForPackTarget(
+  target: "personal" | "organization",
+  userEmail: string,
+  orgId?: string | null,
+): string {
+  return target === "personal" ? userEmail : sharedResourceOwner(orgId);
+}
+
 /**
  * Rows written by the old organization workspace-files adapter used the
  * global shared owner. Keep true app defaults visible, but do not let those
@@ -1912,6 +1938,24 @@ export async function resourceListAccessible(
       mergeResourceMetas(legacyShared, workspace),
     ),
   );
+}
+
+/** Organization/shared rows a caller can list, including the legacy app default. */
+export async function resourceListOrganization(
+  orgId: string | null,
+  pathPrefix?: string,
+  options?: ResourceListOptions,
+): Promise<ResourceMeta[]> {
+  const organizationOwner = sharedResourceOwner(orgId);
+  const scopedOptions = { ...options, orgId };
+  if (organizationOwner === SHARED_OWNER) {
+    return resourceList(SHARED_OWNER, pathPrefix, scopedOptions);
+  }
+  const [organization, legacyAppDefaults] = await Promise.all([
+    resourceList(organizationOwner, pathPrefix, scopedOptions),
+    resourceList(SHARED_OWNER, pathPrefix, scopedOptions),
+  ]);
+  return mergeResourceMetas(organization, legacyAppDefaults);
 }
 
 export async function resourceEffectiveContext(

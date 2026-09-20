@@ -534,6 +534,18 @@ describe("action discovery", () => {
     expect(registry["get-experiments"].http).toEqual({ method: "GET" });
   });
 
+  it("merges resource pack actions into the resources group", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    expect(registry["export-resource-pack"]).toBeDefined();
+    expect(registry["export-resource-pack"].http).toEqual({ method: "GET" });
+    expect(registry["export-resource-pack"].readOnly).toBe(true);
+    expect(registry["import-resource-pack"]).toBeDefined();
+    expect(CORE_ACTION_GROUPS["export-resource-pack"]).toBe("resources");
+    expect(CORE_ACTION_GROUPS["import-resource-pack"]).toBe("resources");
+  });
+
   it("merges toolkit history and review actions", async () => {
     const registry: Record<string, any> = {};
     await mergeCoreSharingActions(registry);
