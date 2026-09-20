@@ -16,16 +16,13 @@ import { cn } from "@/lib/utils";
  * viewers get their one canvas action integrated into the same quiet notice.
  */
 export function ReadOnlyDesignBanner({
-  hideInVisualEditBootstrap = false,
   pinMode = false,
   onCommentPin,
 }: {
-  hideInVisualEditBootstrap?: boolean;
   pinMode?: boolean;
   onCommentPin?: () => void;
 }) {
   const t = useT();
-  if (hideInVisualEditBootstrap) return null;
 
   const commentLabel = pinMode
     ? t("designEditor.stopPinningComments")

@@ -134,6 +134,7 @@ export interface RedoArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
+  allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
   /** See UndoArgs's matching field doc comment (undo.ts). */
@@ -343,6 +344,7 @@ export function runRedo({
   applyGeometryHistoryContentChanges,
   applyLocalContentUpdate,
   canEditDesign,
+  allowPendingLiveEdits,
   clipboardPasteRedoStackRef,
   clipboardPasteUndoStackRef,
   codeLayerOwnerByNodeIdRef,
@@ -444,7 +446,7 @@ export function runRedo({
     if (selection) setSelectedElement(resolved.element);
   };
   trace("history", "redo", {});
-  if (!canEditDesign) return;
+  if (!canEditDesign && !allowPendingLiveEdits) return;
   // U10: see the matching guard in handleUndo — don't redo into a document
   // state an in-progress, uncommitted drag is about to overwrite anyway.
   if (activeEditorDragRef.current) return;
@@ -455,6 +457,7 @@ export function runRedo({
     pendingNonStyleRedoStack[pendingNonStyleRedoStack.length - 1];
   const pendingLiveRedoStack = pendingVisualStyleRedoStackRef.current;
   const pendingLiveRedo = pendingLiveRedoStack[pendingLiveRedoStack.length - 1];
+  if (!canEditDesign && !pendingLiveRedo && !pendingNonStyleRedo) return;
   const redoPendingNonStyleFirst = shouldRedoPendingLiveNonStyleBeforeStyle(
     pendingLiveRedo,
     pendingNonStyleRedo,

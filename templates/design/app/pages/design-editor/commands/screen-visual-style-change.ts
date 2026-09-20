@@ -35,6 +35,7 @@ export interface ScreenVisualStyleChangeArgs {
     },
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
   designSourceType: "inline" | "localhost" | "fusion";
   getScreenContent: (screenId: string) => string;
   handleVisualStyleChange: (
@@ -69,6 +70,7 @@ export function runScreenVisualStyleChange(
     activeFile,
     applyFileContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     designSourceType,
     getScreenContent,
     handleVisualStyleChange,
@@ -87,7 +89,18 @@ export function runScreenVisualStyleChange(
     preserveSelection?: boolean;
   },
 ) {
+  const overviewScreen = overviewScreens.find(
+    (screen) => screen.id === screenId,
+  );
+  const screenSourceType = resolveOverviewScreenSourceType(
+    overviewScreen,
+    designSourceType,
+  );
+  const canEditScreen =
+    canEditDesign ||
+    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
   if (screenId === activeFile?.id) {
+    if (!canEditScreen) return;
     handleVisualStyleChange(selector, styles, elementInfo, metadata);
     return;
   }
@@ -101,14 +114,8 @@ export function runScreenVisualStyleChange(
   // gesture commit immediately (breakpoint-aware, single history step),
   // matching commitStylesToSelectedLayers's established per-file write
   // pattern below.
-  const overviewScreen = overviewScreens.find(
-    (screen) => screen.id === screenId,
-  );
-  const screenSourceType = resolveOverviewScreenSourceType(
-    overviewScreen,
-    designSourceType,
-  );
   if (screenSourceType === "localhost") {
+    if (!canEditScreen) return;
     recordPendingVisualStyleEdit(
       screenId,
       selector,

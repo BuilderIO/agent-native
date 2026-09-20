@@ -61,6 +61,7 @@ export interface ScreenTextContentChangeArgs {
     edit: LinkedComponentEdit,
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
   designSourceType: "inline" | "localhost" | "fusion";
   /** Decides whether this write is the creation's first commit BEFORE the
    *  content is applied, and hands back a `confirm` the caller runs only once
@@ -105,6 +106,7 @@ export function runScreenTextContentChange(
     applyFileContentUpdate,
     applyLinkedComponentEdit,
     canEditDesign,
+    canEditLiveScreen,
     designSourceType,
     prepareTextCreationFinalization,
     getScreenContent,
@@ -130,10 +132,6 @@ export function runScreenTextContentChange(
     originalHtml?: string;
   },
 ): TextCommitStatus {
-  if (screenId === activeFile?.id) {
-    return handleTextContentChange(selector, value, elementInfo, details);
-  }
-  if (!canEditDesign) return "refused";
   const overviewScreen = overviewScreens.find(
     (screen) => screen.id === screenId,
   );
@@ -141,6 +139,14 @@ export function runScreenTextContentChange(
     overviewScreen,
     designSourceType,
   );
+  const canEditScreen =
+    canEditDesign ||
+    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
+  if (screenId === activeFile?.id) {
+    if (!canEditScreen) return "refused";
+    return handleTextContentChange(selector, value, elementInfo, details);
+  }
+  if (!canEditScreen) return "refused";
   if (screenSourceType === "localhost") {
     recordPendingLiveTextEdit(screenId, selector, value, elementInfo, details);
     setActiveFileId(screenId);

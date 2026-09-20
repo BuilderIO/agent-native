@@ -392,6 +392,7 @@ export interface UndoArgs {
     direction: "undo" | "redo",
   ) => boolean;
   canEditDesign: boolean;
+  allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
   /** Flat ownership map (DesignEditor.tsx's `codeLayerOwnerByNodeIdRef`) used
@@ -547,6 +548,7 @@ export function runUndo({
   applyLocalContentUpdate,
   applyDesignDataHistoryChanges,
   canEditDesign,
+  allowPendingLiveEdits,
   clipboardPasteRedoStackRef,
   clipboardPasteUndoStackRef,
   codeLayerOwnerByNodeIdRef,
@@ -637,7 +639,7 @@ export function runUndo({
     if (selection) setSelectedElement(resolved.element);
   };
   trace("history", "undo", {});
-  if (!canEditDesign) return;
+  if (!canEditDesign && !allowPendingLiveEdits) return;
   // U10: an in-progress drag hasn't been committed yet (onGeometryCommit /
   // the content update fires on drag END), so undoing mid-drag would pop a
   // PRIOR entry while the live-but-uncommitted drag is still moving the
@@ -652,6 +654,7 @@ export function runUndo({
   const pendingNonStyleUndoStack = pendingLiveNonStyleUndoStackRef.current;
   const pendingNonStyleUndo =
     pendingNonStyleUndoStack[pendingNonStyleUndoStack.length - 1];
+  if (!canEditDesign && !pendingStyleUndo && !pendingNonStyleUndo) return;
   if (
     pendingNonStyleUndo &&
     (!pendingStyleUndo ||

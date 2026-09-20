@@ -42,6 +42,7 @@ export interface ScreenVisualDuplicateChangeArgs {
     },
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
   designSourceType: "inline" | "localhost" | "fusion";
   getScreenContent: (screenId: string) => string;
   overviewScreens: OverviewScreen[];
@@ -95,6 +96,7 @@ export function runScreenVisualDuplicateChange(
     applyLinkedComponentEdit,
     applyFileContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     componentLinksForFile,
     designSourceType,
     getScreenContent,
@@ -123,7 +125,6 @@ export function runScreenVisualDuplicateChange(
     placement?: "before" | "after" | "inside";
   },
 ) {
-  if (!canEditDesign) return false;
   const overviewScreen = overviewScreens.find(
     (screen) => screen.id === screenId,
   );
@@ -131,6 +132,10 @@ export function runScreenVisualDuplicateChange(
     overviewScreen,
     designSourceType,
   );
+  const canEditScreen =
+    canEditDesign ||
+    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
+  if (!canEditScreen) return false;
   if (isRunningAppSourceType(screenSourceType)) {
     recordPendingLiveStructureEdit(
       screenId,

@@ -62,6 +62,7 @@ export interface TextContentChangeArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
+  canEditLiveScreen?: boolean;
   /** Decides whether this write is the creation's first commit BEFORE the
    *  content is applied, and hands back a `confirm` the caller runs only once
    *  that publication is accepted. */
@@ -98,6 +99,7 @@ export function runTextContentChange(
     applyLinkedComponentEdit,
     applyLocalContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     getFreshActiveContent,
     liveScreenSnapshotsById,
     prepareTextCreationFinalization,
@@ -118,7 +120,7 @@ export function runTextContentChange(
     originalHtml?: string;
   },
 ): TextCommitStatus {
-  if (!canEditDesign) return "refused";
+  if (!canEditDesign && !canEditLiveScreen) return "refused";
   if (!activeFile) return "refused";
   if (activeCanvasSourceType === "localhost") {
     recordPendingLiveTextEdit(

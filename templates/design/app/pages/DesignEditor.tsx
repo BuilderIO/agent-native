@@ -1042,7 +1042,6 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
-import { usePublicVisualEditAccess } from "./design-editor/use-public-visual-edit-access";
 import {
   VisualEditWebMcp,
   hasNativeWebMcpHost,
@@ -3870,6 +3869,12 @@ function DesignEditor() {
   const canEditDesign = !visualEditAccessLost
     ? canShareDesign || designAccessRole === "editor"
     : false;
+  // `/visual-edit/:id` is a public viewer surface. Localhost frames can still
+  // be edited in the browser because those edits stay in the running DOM and
+  // the pending handoff; all persisted design/source writes remain gated by
+  // canEditDesign below.
+  const canEditLiveScreens = isVisualEditSurface && !visualEditAccessLost;
+  const canEditLiveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
   const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
@@ -3880,15 +3885,6 @@ function DesignEditor() {
       designAccessRole === "editor" ||
       designAccessRole === "commenter");
   const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
-  const showVisualEditAccessFailureBanner = usePublicVisualEditAccess({
-    canEditDesign,
-    designQueryFailed,
-    designResultReady: designResult !== undefined,
-    id,
-    isVisualEditSurface,
-    sessionResolved,
-    shellMode,
-  });
 
   const reviewResult = useReviewComments(
     {
@@ -5298,6 +5294,32 @@ function DesignEditor() {
     boardFileId,
     breakpointFramesHidden,
   ]);
+  const publicVisualEditConnectionId = useMemo(
+    () =>
+      isVisualEditSurface
+        ? (overviewScreens.find((screen) => screen.connectionId)
+            ?.connectionId ?? null)
+        : null,
+    [isVisualEditSurface, overviewScreens],
+  );
+  const publicVisualEditPreviewTokenQuery = useActionQuery<{
+    previewToken?: string;
+  }>(
+    "refresh-localhost-preview-token",
+    {
+      designId: id!,
+      connectionId: publicVisualEditConnectionId ?? "",
+      publicVisualEdit: true,
+    },
+    {
+      enabled:
+        isVisualEditSurface &&
+        !shellMode &&
+        !canEditDesign &&
+        Boolean(id) &&
+        Boolean(publicVisualEditConnectionId),
+    },
+  );
   const exportCanvasFrameGeometryById = useMemo(
     () =>
       getOverviewScreenExportGeometryById({
@@ -8234,6 +8256,7 @@ function DesignEditor() {
           activeBreakpointWidthState,
           activeFile,
           canEditDesign,
+          canEditLiveScreens: canEditLiveScreenIdsRef.current,
           cancelPendingStructureVerification,
           clipboardPasteRedoStackRef,
           files,
@@ -8292,6 +8315,7 @@ function DesignEditor() {
         {
           activeFile,
           canEditDesign,
+          canEditLiveScreens: canEditLiveScreenIdsRef.current,
           cancelPendingStructureVerification,
           files,
           localhostConnectionRootPathByIdRef,
@@ -8335,6 +8359,7 @@ function DesignEditor() {
       runRecordPendingLiveLayerStateEdit(
         {
           canEditDesign,
+          canEditLiveScreens: canEditLiveScreenIdsRef.current,
           cancelPendingStructureVerification,
           clipboardPasteRedoStackRef,
           codeLayerOwnerByNodeIdRef,
@@ -8394,6 +8419,7 @@ function DesignEditor() {
       runRecordPendingLiveStructureEdit(
         {
           canEditDesign,
+          canEditLiveScreens: canEditLiveScreenIdsRef.current,
           cancelPendingStructureVerification,
           files,
           localhostConnectionRootPathByIdRef,
@@ -8688,6 +8714,21 @@ function DesignEditor() {
       ),
     [designSourceType, overviewScreens],
   );
+  canEditLiveScreenIdsRef.current = canEditLiveScreens
+    ? liveScreenIds
+    : new Set();
+  const canEditLiveScreen = useCallback(
+    (screenId: string | null | undefined) =>
+      canEditLiveScreens && Boolean(screenId && liveScreenIds.has(screenId)),
+    [canEditLiveScreens, liveScreenIds],
+  );
+  const editableLiveScreenIds = useMemo(
+    () =>
+      canEditDesign || canEditLiveScreens ? liveScreenIds : new Set<string>(),
+    [canEditDesign, canEditLiveScreens, liveScreenIds],
+  );
+  const canEditActiveVisualScreen =
+    canEditDesign || canEditLiveScreen(activeFile?.id ?? activeFileId);
   // P4: arms DesignCanvas's single-screen click-to-place overlay only while
   // focused on a single screen with an active creation tool selected —
   // `null` in every other case leaves the overlay unmounted (see
@@ -12109,7 +12150,7 @@ function DesignEditor() {
           activeProjectionContent,
           applyLinkedComponentEdit,
           canApplyContentEdit,
-          canEditDesign,
+          canEditDesign: canEditActiveVisualScreen,
           commitVisualStyles,
           getScreenContent,
           isSynced,
@@ -12154,7 +12195,7 @@ function DesignEditor() {
       activeProjectionContent,
       applyLinkedComponentEdit,
       canApplyContentEdit,
-      canEditDesign,
+      canEditActiveVisualScreen,
       getScreenContent,
       liveScreenSnapshotsById,
       queueFileContentSave,
@@ -12179,8 +12220,14 @@ function DesignEditor() {
       targets?: SelectedLayerTarget[],
       capturedOptions?: CapturedStyleTargetCommitOptions,
       pendingUndoGestureId?: string,
-    ) =>
-      runCommitStylesToSelectedLayers(
+    ) => {
+      const canEditSelectedVisualLayers =
+        canEditDesign ||
+        (selectedLayerTargetsRef.current.length > 0 &&
+          selectedLayerTargetsRef.current.every((target) =>
+            canEditLiveScreen(target.fileId),
+          ));
+      return runCommitStylesToSelectedLayers(
         {
           activeCanvasSourceType,
           activeBreakpointUpperBoundPx,
@@ -12190,7 +12237,7 @@ function DesignEditor() {
           applyFileContentUpdate,
           applyLinkedComponentEdit,
           commitVisualStyles,
-          canEditDesign,
+          canEditDesign: canEditSelectedVisualLayers,
           effectiveCodeLayerStateRef,
           getScreenContent,
           getProjectionContentForScreen,
@@ -12218,7 +12265,8 @@ function DesignEditor() {
         targets,
         capturedOptions,
         pendingUndoGestureId,
-      ),
+      );
+    },
     [
       activeCanvasSourceType,
       activeBreakpointUpperBoundPx,
@@ -12228,6 +12276,7 @@ function DesignEditor() {
       applyLinkedComponentEdit,
       commitVisualStyles,
       canEditDesign,
+      canEditLiveScreen,
       getScreenContent,
       getProjectionContentForScreen,
       t,
@@ -12254,8 +12303,14 @@ function DesignEditor() {
       property: string,
       operation: number | ScrubRelativeExpression,
       pendingUndoGestureId?: string,
-    ) =>
-      runCommitRelativeStyleDeltaToSelectedLayers(
+    ) => {
+      const canEditSelectedVisualLayers =
+        canEditDesign ||
+        (selectedLayerTargetsRef.current.length > 0 &&
+          selectedLayerTargetsRef.current.every((target) =>
+            canEditLiveScreen(target.fileId),
+          ));
+      return runCommitRelativeStyleDeltaToSelectedLayers(
         {
           activeCanvasSourceType,
           activeBreakpointUpperBoundPx,
@@ -12265,7 +12320,7 @@ function DesignEditor() {
           applyFileContentUpdate,
           applyLinkedComponentEdit,
           commitVisualStyles,
-          canEditDesign,
+          canEditDesign: canEditSelectedVisualLayers,
           effectiveCodeLayerStateRef,
           getScreenContent,
           getProjectionContentForScreen,
@@ -12291,7 +12346,8 @@ function DesignEditor() {
         property,
         operation,
         pendingUndoGestureId,
-      ),
+      );
+    },
     [
       activeCanvasSourceType,
       activeBreakpointUpperBoundPx,
@@ -12301,6 +12357,7 @@ function DesignEditor() {
       applyLinkedComponentEdit,
       commitVisualStyles,
       canEditDesign,
+      canEditLiveScreen,
       getScreenContent,
       getProjectionContentForScreen,
       t,
@@ -12591,7 +12648,7 @@ function DesignEditor() {
   // `textDecorationLine`, commits through the shorthand "textDecoration"
   // property name (see nextTextDecorationLineValue's doc comment).
   const handleToggleUnderlineHotkey = useCallback(() => {
-    if (!canEditDesign || !selectedElement) return;
+    if (!canEditActiveVisualScreen || !selectedElement) return;
     const nextValue = nextTextDecorationLineValue(
       readOptimisticTextDecorationLine(),
       "underline",
@@ -12605,14 +12662,14 @@ function DesignEditor() {
     }
     handleStyleChange("textDecoration", nextValue);
   }, [
-    canEditDesign,
+    canEditActiveVisualScreen,
     selectedElement,
     handleStyleChange,
     readOptimisticTextDecorationLine,
   ]);
 
   const handleToggleStrikethroughHotkey = useCallback(() => {
-    if (!canEditDesign || !selectedElement) return;
+    if (!canEditActiveVisualScreen || !selectedElement) return;
     const nextValue = nextTextDecorationLineValue(
       readOptimisticTextDecorationLine(),
       "line-through",
@@ -12626,7 +12683,7 @@ function DesignEditor() {
     }
     handleStyleChange("textDecoration", nextValue);
   }, [
-    canEditDesign,
+    canEditActiveVisualScreen,
     selectedElement,
     handleStyleChange,
     readOptimisticTextDecorationLine,
@@ -12778,7 +12835,7 @@ function DesignEditor() {
   const handleKScaleStyleBatchChange = useCallback(
     (screenId: string, changes: KScaleStyleChange[]) => {
       if (changes.length === 0) return true;
-      if (!canEditDesign) return false;
+      if (!canEditDesign && !canEditLiveScreen(screenId)) return false;
       const screen = overviewScreens.find((entry) => entry.id === screenId);
       const sourceFile = files.find((file) => file.id === screenId);
       const sourceType = isBoardFile(sourceFile?.filename ?? "")
@@ -12852,6 +12909,7 @@ function DesignEditor() {
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
+      canEditLiveScreen,
       codeLayerSourceForScreen,
       designSourceType,
       files,
@@ -12897,6 +12955,7 @@ function DesignEditor() {
           applyLinkedComponentEdit,
           applyLocalContentUpdate,
           canEditDesign,
+          canEditLiveScreen: canEditActiveVisualScreen,
           getFreshActiveContent,
           recordPendingLiveStructureEdit,
           setSelectedElement,
@@ -12915,6 +12974,7 @@ function DesignEditor() {
       applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
+      canEditActiveVisualScreen,
       getFreshActiveContent,
       recordPendingLiveStructureEdit,
       t,
@@ -12981,6 +13041,7 @@ function DesignEditor() {
       },
     ) => {
       if (isRunningAppSourceType(activeCanvasSourceType) && activeFile) {
+        if (!canEditActiveVisualScreen) return false;
         recordPendingLiveStructureEdit(
           activeFile.id,
           elementInfo?.runtimeSelector ?? elementInfo?.selector ?? selector,
@@ -13011,6 +13072,7 @@ function DesignEditor() {
             : undefined,
           applyLocalContentUpdate,
           canEditDesign,
+          canEditLiveScreen: canEditActiveVisualScreen,
           remapMotionTracksForClone,
           getFreshActiveContent,
           selectedElement,
@@ -13033,6 +13095,7 @@ function DesignEditor() {
       activeCanvasSourceType,
       applyLocalContentUpdate,
       canEditDesign,
+      canEditActiveVisualScreen,
       componentCloneContextForFile,
       getFreshActiveContent,
       recordPendingLiveStructureEdit,
@@ -13060,6 +13123,7 @@ function DesignEditor() {
           applyLinkedComponentEdit,
           applyLocalContentUpdate,
           canEditDesign,
+          canEditLiveScreen: canEditActiveVisualScreen,
           prepareTextCreationFinalization,
           getFreshActiveContent,
           liveScreenSnapshotsById,
@@ -13082,6 +13146,7 @@ function DesignEditor() {
       applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
+      canEditActiveVisualScreen,
       prepareTextCreationFinalization,
       getFreshActiveContent,
       liveScreenSnapshotsById,
@@ -13110,6 +13175,7 @@ function DesignEditor() {
           activeFile,
           applyFileContentUpdate,
           canEditDesign,
+          canEditLiveScreen,
           designSourceType,
           getScreenContent,
           handleVisualStyleChange,
@@ -13129,6 +13195,7 @@ function DesignEditor() {
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
+      canEditLiveScreen,
       designSourceType,
       getScreenContent,
       handleVisualStyleChange,
@@ -13169,6 +13236,7 @@ function DesignEditor() {
           applyLinkedComponentEdit,
           applyFileContentUpdate,
           canEditDesign,
+          canEditLiveScreen,
           designSourceType,
           getScreenContent,
           handleVisualStructureChange,
@@ -13190,6 +13258,7 @@ function DesignEditor() {
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
+      canEditLiveScreen,
       designSourceType,
       getScreenContent,
       handleVisualStructureChange,
@@ -13227,6 +13296,7 @@ function DesignEditor() {
           selectionBefore: captureCurrentSelection(),
           applyFileContentUpdate,
           canEditDesign,
+          canEditLiveScreen,
           remapMotionTracksForClone,
           componentLinksForFile: componentCloneContextForFile,
           getScreenContent,
@@ -13248,6 +13318,7 @@ function DesignEditor() {
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
+      canEditLiveScreen,
       componentCloneContextForFile,
       designSourceType,
       getScreenContent,
@@ -13276,6 +13347,7 @@ function DesignEditor() {
           applyFileContentUpdate,
           applyLinkedComponentEdit,
           canEditDesign,
+          canEditLiveScreen,
           designSourceType,
           prepareTextCreationFinalization,
           getScreenContent,
@@ -13302,6 +13374,7 @@ function DesignEditor() {
       applyFileContentUpdate,
       applyLinkedComponentEdit,
       canEditDesign,
+      canEditLiveScreen,
       designSourceType,
       prepareTextCreationFinalization,
       getScreenContent,
@@ -16018,6 +16091,7 @@ function DesignEditor() {
           applyGeometryHistoryContentChangesRef.current(changes, direction),
         applyLocalContentUpdate,
         canEditDesign,
+        allowPendingLiveEdits: canEditLiveScreens && !canEditDesign,
         clipboardPasteRedoStackRef,
         clipboardPasteUndoStackRef,
         codeLayerOwnerByNodeIdRef,
@@ -16096,6 +16170,7 @@ function DesignEditor() {
       applyGeometryHistoryContentChangesRef,
       applyLocalContentUpdate,
       canEditDesign,
+      canEditLiveScreens,
       clearPendingHistoryDirections,
       createFileMutation,
       deleteFileMutation,
@@ -16135,6 +16210,7 @@ function DesignEditor() {
           applyGeometryHistoryContentChangesRef.current(changes, direction),
         applyLocalContentUpdate,
         canEditDesign,
+        allowPendingLiveEdits: canEditLiveScreens && !canEditDesign,
         clipboardPasteRedoStackRef,
         clipboardPasteUndoStackRef,
         codeLayerOwnerByNodeIdRef,
@@ -16224,6 +16300,7 @@ function DesignEditor() {
       applyGeometryHistoryContentChangesRef,
       applyLocalContentUpdate,
       canEditDesign,
+      canEditLiveScreens,
       clearPendingHistoryDirections,
       createFileMutation,
       deleteFileMutation,
@@ -17484,7 +17561,7 @@ function DesignEditor() {
       !responsiveInteractActive &&
       !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
-    canClaimBoundChords: canEditDesign,
+    canClaimBoundChords: canEditDesign || canEditLiveScreens,
     onMoveTool: canEditDesign ? handleMoveTool : undefined,
     // F always means Frame; without forcing the mode it would reuse whichever
     // sub-tool the dropdown last selected.
@@ -17572,8 +17649,8 @@ function DesignEditor() {
       ? () => handleToggleLockedForSelection()
       : undefined,
     onSelectAll: handleSelectAllFrames,
-    onUndo: canEditDesign ? handleUndo : undefined,
-    onRedo: canEditDesign ? handleRedo : undefined,
+    onUndo: canEditDesign || canEditLiveScreens ? handleUndo : undefined,
+    onRedo: canEditDesign || canEditLiveScreens ? handleRedo : undefined,
     onBringForward: canEditDesign
       ? () => changeSelectedZIndex("forward")
       : undefined,
@@ -22167,7 +22244,6 @@ function DesignEditor() {
           codeLayerOwnerByNodeId,
           effectiveCodeLayerState,
           files,
-          liveScreenIds,
           getFreshActiveContent,
           getScreenContent,
           overviewScreens,
@@ -22194,7 +22270,6 @@ function DesignEditor() {
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
       files,
-      liveScreenIds,
       getFreshActiveContent,
       getScreenContent,
       overviewScreens,
@@ -22218,6 +22293,7 @@ function DesignEditor() {
           applyFileContentUpdate,
           boardFileId,
           canEditDesign,
+          canEditLiveScreen,
           canMoveLayer,
           codeLayerOwnerByNodeId,
           effectiveCodeLayerState,
@@ -22250,6 +22326,7 @@ function DesignEditor() {
       applyFileContentUpdate,
       boardFileId,
       canEditDesign,
+      canEditLiveScreen,
       canMoveLayer,
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
@@ -22881,7 +22958,9 @@ function DesignEditor() {
       const screenPreviewToken =
         "previewToken" in screen && typeof screen.previewToken === "string"
           ? screen.previewToken
-          : undefined;
+          : screen.connectionId === publicVisualEditConnectionId
+            ? publicVisualEditPreviewTokenQuery.data?.previewToken
+            : undefined;
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -23046,7 +23125,7 @@ function DesignEditor() {
           editorChromeScaleY={overviewCanvasZoom / 100}
           editMode={mode === "edit"}
           interactMode={mode === "interact"}
-          readOnly={!canEditDesign}
+          readOnly={!canEditDesign && !canEditLiveScreen(screen.id)}
           scaleMode={screenIsActive && activeTool === "scale"}
           handToolActive={activeTool === "hand"}
           spacePanActive={spacePanActive}
@@ -23215,6 +23294,9 @@ function DesignEditor() {
       overviewCanvasZoom,
       mode,
       canEditDesign,
+      canEditLiveScreen,
+      publicVisualEditConnectionId,
+      publicVisualEditPreviewTokenQuery.data?.previewToken,
       canCommentDesign,
       activeTool,
       pinMode,
@@ -24806,10 +24888,10 @@ function DesignEditor() {
     selectedElement,
     textEditingState,
     selectionHidden: activeLayerHidden,
-    onToggleSelectionHidden: canEditDesign
+    onToggleSelectionHidden: canEditActiveVisualScreen
       ? handleToggleHiddenForSelection
       : undefined,
-    readOnly: !canEditDesign,
+    readOnly: !canEditActiveVisualScreen,
     selectedElements: selectedInspectorElements,
     selectedScreenGeometry,
     selectedScreenLayoutGrid,
@@ -24839,22 +24921,22 @@ function DesignEditor() {
     screenSourcePending: updateScreenSourceMutation.isPending,
     pageStyles,
     selectedScreenElement,
-    onSelectedScreenStyleChange: canEditDesign
+    onSelectedScreenStyleChange: canEditActiveVisualScreen
       ? handleSelectedScreenStyleChange
       : undefined,
-    onSelectedScreenStylesChange: canEditDesign
+    onSelectedScreenStylesChange: canEditActiveVisualScreen
       ? handleSelectedScreenStylesChange
       : undefined,
     selectionColorScopes,
     onSelectionColorTarget: handleSelectionColorTarget,
     canSelectSelectionColorTarget,
-    onSelectionColorChange: canEditDesign
+    onSelectionColorChange: canEditActiveVisualScreen
       ? handleSelectionColorChange
       : undefined,
-    onSelectionColorPickerOpenChange: canEditDesign
+    onSelectionColorPickerOpenChange: canEditActiveVisualScreen
       ? handleSelectionColorPickerOpenChange
       : undefined,
-    onGroupFillStylesChange: canEditDesign
+    onGroupFillStylesChange: canEditActiveVisualScreen
       ? handleGroupFillStylesChange
       : undefined,
     viewMode,
@@ -25704,26 +25786,18 @@ function DesignEditor() {
                       }}
                     />
                   )}
-                  {/* Hide the read-only notice only during a visual-edit
-                      capability bootstrap. Failed authorization stays visible
-                      so private or unavailable designs have a recovery path. */}
-                  {(showVisualEditAccessFailureBanner ||
-                    (!isVisualEditSurface &&
-                      (designAccessRole === "viewer" ||
-                        designAccessRole === "commenter"))) && (
-                    <ReadOnlyDesignBanner
-                      hideInVisualEditBootstrap={
-                        isVisualEditSurface &&
-                        !showVisualEditAccessFailureBanner
-                      }
-                      pinMode={pinMode}
-                      onCommentPin={
-                        !hostOwnsChrome && canCommentDesign
-                          ? handlePinToolToggle
-                          : undefined
-                      }
-                    />
-                  )}
+                  {!isVisualEditSurface &&
+                    (designAccessRole === "viewer" ||
+                      designAccessRole === "commenter") && (
+                      <ReadOnlyDesignBanner
+                        pinMode={pinMode}
+                        onCommentPin={
+                          !hostOwnsChrome && canCommentDesign
+                            ? handlePinToolToggle
+                            : undefined
+                        }
+                      />
+                    )}
                   {/* Full-app building status/controls. Renders only for
                       designs backed by a fusion app (see readFusionApp) and
                       only while the flag is on — the fusion actions the
@@ -25857,6 +25931,7 @@ function DesignEditor() {
                         onReviewPendingScreen={handleReviewPendingScreen}
                         interactMode={mode === "interact"}
                         readOnly={!canEditDesign}
+                        editableScreenIds={editableLiveScreenIds}
                         activeScreenHasHoveredChild={
                           Boolean(hoveredElement) &&
                           !hoveredElementIsScreenRoot &&
@@ -26242,7 +26317,7 @@ function DesignEditor() {
                         editMode={mode === "edit"}
                         interactMode={mode === "interact"}
                         centerInteractPreview={responsiveInteractActive}
-                        readOnly={!canEditDesign}
+                        readOnly={!canEditActiveVisualScreen}
                         scaleMode={activeTool === "scale"}
                         handToolActive={activeTool === "hand"}
                         spacePanActive={spacePanActive}

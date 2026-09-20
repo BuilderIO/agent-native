@@ -12,14 +12,22 @@ export default defineAction({
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     connectionId: z.string().describe("Localhost connection ID."),
+    publicVisualEdit: z
+      .boolean()
+      .optional()
+      .describe(
+        "Allow the public /visual-edit surface to use the connection's read-only preview credential.",
+      ),
   }),
   readOnly: true,
+  requiresAuth: false,
   http: { method: "GET" },
   capabilityScopes: ["visual-edit"],
-  run: async ({ designId, connectionId }) => {
+  run: async ({ designId, connectionId, publicVisualEdit }) => {
     await assertAccess("design", designId, "viewer");
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
       designId,
+      allowPublicViewer: publicVisualEdit === true,
     });
     const [connection] = await getDb()
       .select({

@@ -92,6 +92,7 @@ export interface LayerMoveArgs {
     },
   ) => ApplyFileContentUpdateResult;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
   canMoveLayer: (intent: LayersPanelMoveIntent) => boolean;
   boardFileId?: string;
   codeLayerOwnerByNodeId: Map<
@@ -396,6 +397,7 @@ export function runLayerMove(
     applyLinkedComponentEdit,
     applyFileContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     canMoveLayer,
     boardFileId,
     codeLayerOwnerByNodeId,
@@ -425,7 +427,24 @@ export function runLayerMove(
   }: LayerMoveArgs,
   intent: LayersPanelMoveIntent,
 ) {
-  if (!canEditDesign) return;
+  if (!canEditDesign) {
+    const targetOwner = codeLayerOwnerByNodeId.get(intent.targetId);
+    const targetFileId =
+      targetOwner?.fileId ??
+      (files.some((file) => file.id === intent.targetId)
+        ? intent.targetId
+        : null);
+    const canEditLiveMove = Boolean(
+      targetFileId &&
+      canEditLiveScreen?.(targetFileId) &&
+      intent.draggedIds.length > 0 &&
+      intent.draggedIds.every((draggedId) => {
+        const owner = codeLayerOwnerByNodeId.get(draggedId);
+        return Boolean(owner && canEditLiveScreen?.(owner.fileId));
+      }),
+    );
+    if (!canEditLiveMove) return;
+  }
   if (!canMoveLayer(intent)) return;
   if (
     intent.draggedIds.length > 0 &&

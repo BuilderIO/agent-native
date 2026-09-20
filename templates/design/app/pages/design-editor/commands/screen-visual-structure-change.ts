@@ -27,6 +27,7 @@ export interface ScreenVisualStructureChangeArgs {
     },
   ) => ApplyFileContentUpdateResult;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
   designSourceType: "inline" | "localhost" | "fusion";
   getScreenContent: (screenId: string) => string;
   handleVisualStructureChange: (
@@ -88,6 +89,7 @@ export function runScreenVisualStructureChange(
     applyFileContentUpdate,
     applyLinkedComponentEdit,
     canEditDesign,
+    canEditLiveScreen,
     designSourceType,
     getScreenContent,
     handleVisualStructureChange,
@@ -122,7 +124,18 @@ export function runScreenVisualStructureChange(
     replacementSnapshotHtml?: string;
   },
 ) {
+  const overviewScreen = overviewScreens.find(
+    (screen) => screen.id === screenId,
+  );
+  const screenSourceType = resolveOverviewScreenSourceType(
+    overviewScreen,
+    designSourceType,
+  );
+  const canEditScreen =
+    canEditDesign ||
+    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
   if (screenId === activeFile?.id) {
+    if (!canEditScreen) return false;
     return handleVisualStructureChange(
       selector,
       anchorSelector,
@@ -131,14 +144,7 @@ export function runScreenVisualStructureChange(
       details,
     );
   }
-  if (!canEditDesign) return false;
-  const overviewScreen = overviewScreens.find(
-    (screen) => screen.id === screenId,
-  );
-  const screenSourceType = resolveOverviewScreenSourceType(
-    overviewScreen,
-    designSourceType,
-  );
+  if (!canEditScreen) return false;
   const screenFile = {
     ...activeFile,
     id: screenId,
@@ -161,7 +167,7 @@ export function runScreenVisualStructureChange(
           ? publication
           : { status: "refused" as const };
       },
-      canEditDesign,
+      canEditDesign: canEditScreen,
       getFreshActiveContent: () => getScreenContent(screenId),
       recordPendingLiveStructureEdit,
       setSelectedElement,
