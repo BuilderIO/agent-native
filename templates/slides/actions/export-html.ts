@@ -541,10 +541,10 @@ export function buildStandaloneHtml(
           case 'F':
             if (!document.fullscreenElement) {
               if (document.documentElement.requestFullscreen) {
-                document.documentElement.requestFullscreen().catch(function() {});
+                document.documentElement.requestFullscreen().catch(function(error) { console.error('Fullscreen request failed', error); });
               }
             } else if (document.exitFullscreen) {
-              document.exitFullscreen().catch(function() {});
+              document.exitFullscreen().catch(function(error) { console.error('Fullscreen exit failed', error); });
             }
             break;
           case 'Escape':
