@@ -152,7 +152,7 @@ test("PromptPopover runs deterministic Luna-sidebar transport and same-thread mo
     "36px",
   );
   const providerState = await page.request.get(
-    `http://127.0.0.1:${test.info().config.metadata.sidebarLoopbackPort}/__state`,
+    `http://127.0.0.1:${test.info().config.metadata.sidebarLoopbackPort}/__state`, // e2e-harness-ignore: separate loopback provider with a dynamic metadata port.
   );
   const state = (await providerState.json()) as {
     callNames: string[];
