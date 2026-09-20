@@ -14155,6 +14155,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  // Chromium reports Event.timeStamp relative to the document time origin,
+  // while synthetic and older events can carry an epoch timestamp. Normalize
+  // both forms before sending a source timestamp to the host document.
+  function eventEpochMilliseconds(
+    ev?: { timeStamp?: number } | null,
+  ): number | undefined {
+    if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
+      return undefined;
+    }
+    return ev.timeStamp >= 1_000_000_000_000
+      ? ev.timeStamp
+      : performance.timeOrigin + ev.timeStamp;
+  }
+
   function postCrossScreenDrag(
     phase: "start" | "move" | "end" | "cancel",
     el?: Element | null,
@@ -14251,10 +14265,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         modifiers: options?.modifiers,
         duplicate: options?.duplicate === true ? true : undefined,
         sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
-        releasedAt:
-          phase === "end" && typeof ev?.timeStamp === "number"
-            ? performance.timeOrigin + ev.timeStamp
-            : undefined,
+        releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : undefined,
       },
       "*",
     );
@@ -17497,7 +17508,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var moveGestureId = ++dragGestureSequence;
     // Real creation time of the mousedown that started this gesture, not the
     // moment this handler happened to run — see cancelActiveBridgeDragOrPendingCommit.
-    var gestureStartedAt = performance.timeOrigin + e.timeStamp;
+    var gestureStartedAt = eventEpochMilliseconds(e) ?? Date.now();
     var events = dragEventNames(e);
     var originalSelectedEl = selectedEl;
     var duplicatedForDrag = false;
@@ -17673,6 +17684,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // path below before it can ever run.
       var reorderIgnoresAutoLayout = isIgnoreAutoLayoutChord(e);
       var reorderMetaFreePlacement = false;
+      function reorderCrossScreenModifiers(ev?: any) {
+        return {
+          metaKey: !!ev?.metaKey,
+          ctrlKey: !!ev?.ctrlKey,
+          ignoreAutoLayout: ev
+            ? isIgnoreAutoLayoutChord(ev)
+            : reorderIgnoresAutoLayout,
+          forceNestedAutoLayout: ev ? isPlatformPrimaryChord(ev) : false,
+        };
+      }
       var currentTarget = flowMoveTargetForPoint(
         reorderEl,
         e.clientX,
@@ -17708,6 +17729,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           pointerOffset: reorderPointerOffset,
           styleSnapshot: reorderStyleSnapshot,
+          modifiers: reorderCrossScreenModifiers(e),
         });
       }
       // Transform-only follow: must be cleared before any pointer-up commit
@@ -17895,6 +17917,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             elementRect: reorderRect,
             pointerOffset: reorderPointerOffset,
             styleSnapshot: reorderStyleSnapshot,
+            modifiers: reorderCrossScreenModifiers(lastPoint),
           },
         );
       }
@@ -18355,6 +18378,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                   elementRect: reorderRect,
                   pointerOffset: reorderPointerOffset,
                   styleSnapshot: reorderStyleSnapshot,
+                  modifiers: reorderCrossScreenModifiers(ev),
                 },
               );
             }
@@ -18397,6 +18421,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               elementRect: reorderRect,
               pointerOffset: reorderPointerOffset,
               styleSnapshot: reorderStyleSnapshot,
+              modifiers: reorderCrossScreenModifiers(ev),
             },
           );
         }
@@ -18631,6 +18656,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               elementRect: reorderRect,
               pointerOffset: reorderPointerOffset,
               styleSnapshot: reorderStyleSnapshot,
+              modifiers: reorderCrossScreenModifiers(ev),
             },
           );
         }

@@ -1961,6 +1961,70 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     }
   });
 
+  test("cross-Screen drop uses the modifier state at release", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: META_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: META_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "meta-source");
+      const target = await boxFor(page, design.secondId!, "meta-target");
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await expect.poll(() => selectionSourceId(request)).toBe("meta-source");
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        target.x + target.width / 2,
+        target.y + target.height / 2,
+        { steps: 30 },
+      );
+      await expect
+        .poll(() => page.locator("[data-cross-screen-drag-ghost]").count())
+        .toBeGreaterThan(0);
+      await page.keyboard.down(IGNORE_AUTO_LAYOUT);
+      await page.mouse.move(
+        target.x + target.width / 2 + 1,
+        target.y + target.height / 2 + 1,
+        { steps: 3 },
+      );
+      await expect
+        .poll(() => page.locator("[data-cross-screen-drop-guide]").count())
+        .toBeGreaterThan(0);
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT);
+      await page.mouse.up();
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "meta-source"),
+            destination: hasNode(to, "meta-source"),
+          };
+        })
+        .toEqual({ from: false, destination: true });
+      await settleReload(page, design.secondId!);
+      await expect
+        .poll(() => parentId(page, design.secondId!, "meta-source"))
+        .not.toBe("meta-target");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
   test("cross-Screen freeform drops persist through reload", async ({
     page,
     request,
