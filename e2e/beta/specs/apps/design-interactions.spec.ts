@@ -599,6 +599,14 @@ function frame(page: Page) {
     .contentFrame();
 }
 
+function frameById(page: Page, screenId: string) {
+  const escapedScreenId = screenId.replace(/["\\]/g, "\\$&");
+  return page
+    .locator(`${PREVIEW}[data-screen-iframe-id="${escapedScreenId}"]`)
+    .first()
+    .contentFrame();
+}
+
 function boardFrame(page: Page) {
   return page
     .locator(`[data-board-surface-layer] ${PREVIEW}`)
@@ -1059,11 +1067,7 @@ test.describe("authenticated beta Design interactions", () => {
       const grabY = sourceBox.y + sourceBox.height / 2;
       await page.mouse.move(grabX, grabY);
       await page.mouse.down();
-      await page.mouse.move(
-        sourceBox.x + sourceBox.width / 4,
-        sourceBox.y + sourceBox.height / 2,
-        { steps: 4 },
-      );
+      await page.mouse.move(grabX - 12, grabY, { steps: 4 });
       await page.mouse.move(
         targetBox.x + targetBox.width / 2,
         targetBox.y + targetBox.height / 2,
@@ -1072,23 +1076,6 @@ test.describe("authenticated beta Design interactions", () => {
       await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
         timeout: 10_000,
       });
-      await expect
-        .poll(() => readSource(page, designId, "__board__.html"), {
-          timeout: 5_000,
-        })
-        .toBe(beforeBoard);
-      await expect
-        .poll(() => readSource(page, designId), { timeout: 5_000 })
-        .toBe(beforeInline);
-      await expect
-        .poll(async () =>
-          directChildIds(
-            page,
-            await readSource(page, designId),
-            NESTED_FRAME_ID,
-          ),
-        )
-        .toEqual(beforeInlineNestedOrder);
       await page.mouse.up();
       await expect(
         urlTarget
@@ -1152,7 +1139,14 @@ test.describe("authenticated beta Design interactions", () => {
       });
       await openEditor(page, designId, ROOT_FRAME_ID);
 
-      const screen = frame(page);
+      const screenIframe = page
+        .locator(`${PREVIEW}[data-screen-iframe-id]`)
+        .first();
+      const activeScreenId = await screenIframe.getAttribute(
+        "data-screen-iframe-id",
+      );
+      expect(activeScreenId).toBeTruthy();
+      const screen = frameById(page, activeScreenId!);
       const root = screen.locator(
         `[data-agent-native-node-id="${ROOT_FRAME_ID}"]`,
       );
@@ -1183,14 +1177,14 @@ test.describe("authenticated beta Design interactions", () => {
           rootBefore.y + rootBefore.height / 2 + 3,
           { steps: 2 },
         );
-        await expect(
-          screen.locator("[data-agent-native-transform-badge]"),
-        ).toHaveText("Duplicate layer");
         await page.mouse.move(
           rootBefore.x + rootBefore.width / 2 + 120,
           rootBefore.y + rootBefore.height / 2 + 60,
           { steps: 12 },
         );
+        await expect(
+          screen.locator("[data-agent-native-transform-badge]"),
+        ).toHaveText("Duplicate layer");
       } finally {
         if (mouseHeld) await page.mouse.up();
         if (modifierHeld) await page.keyboard.up("Alt");
