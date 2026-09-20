@@ -159,6 +159,8 @@ export function createDraftPrimitive({
       points: pathPoints,
       stroke: toolProps?.stroke,
       strokeWidth: toolProps?.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
+      startPoint: toolProps?.startPoint,
+      endPoint: toolProps?.endPoint,
     };
   }
   const isFrame = tool === "frame";
@@ -318,6 +320,8 @@ export function draftPrimitiveToInsert(
     fill: draft.fill,
     stroke: draft.stroke,
     strokeWidth: draft.strokeWidth,
+    startPoint: draft.startPoint,
+    endPoint: draft.endPoint,
     autoSize: draft.autoSize,
   };
 }

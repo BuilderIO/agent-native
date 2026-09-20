@@ -1,0 +1,209 @@
+---
+title: "Clips: Funktionen"
+description: "Die Bibliothek, „Für mich freigegeben“ und die Bereiche von Clips: Ihre Clips ansehen, erstellen, teilen und organisieren, plus jede weitere Kernfunktion."
+search: "Clips, Funktionen, Bibliothek, Ordner, Archiv, Papierkorb, Für mich freigegeben, Kommentare, Bereiche, Teilen, Organisationen, Einblicke"
+---
+
+# Funktionen
+
+Alle wichtigen Clips-Funktionen: wie sie funktionieren und wie Sie sie einrichten. Einen Überblick finden Sie unter [Clips](/docs/template-clips), die vollständige Liste der Eingabeaufforderungen unter [Mit dem Agent sprechen](/docs/template-clips-agent).
+
+## Bibliothek
+
+### Clips ansehen {#library-view-clips}
+
+Ihre Bibliothek zeigt zuerst Ordner, dann Aufnahmen, als Raster von Vorschaubildern mit Dauer, Titel, Eigentümer, Aufrufzahl und Sichtbarkeit auf einen Blick. Sortieren Sie nach neuestem, ältestem oder Titel, filtern Sie nach Tag, oder durchsuchen Sie jedes Transkript, das Sie je erstellt haben, um den Clip zu finden, in dem Sie über etwas gesprochen haben, nicht nur die Aufnahme, deren Titel Sie sich merken.
+
+### Einen Clip erstellen {#create-a-clip}
+
+Drei Wege, einen Clip zu Ihrer Bibliothek hinzuzufügen, alle über die Schaltfläche **Aufnehmen** und das **Importieren**-Menü daneben. Ein Rechtsklick auf einen leeren Bereich der Bibliothek bietet dieselben drei Optionen, plus **Neuer Ordner**.
+
+- **Aufnehmen.** Der integrierte Bildschirmrekorder von Clips, mit Webcam-Overlay, Audioaufnahme und Pause-/Zuschneide-Steuerung.
+- **Eine Videodatei hochladen.** Fügen Sie ein vorhandenes Video direkt von Ihrem Computer hinzu, ohne aufnehmen zu müssen.
+- **Loom importieren.** Holen Sie ein öffentliches Loom-Video, ohne es neu aufzunehmen. Öffnen Sie neben **Aufnehmen** das Menü **Importieren**, wählen Sie **Loom importieren** und fügen Sie dann eine Loom-Freigabe- oder Einbettungs-URL ein. Clips speichert eine Kopie in Ihrer Bibliothek und importiert das öffentliche Transkript, wenn Loom eines bereitstellt.
+
+### Einen Clip verwalten
+
+Das Drei-Punkte-Menü jedes Clips, in der Bibliothek oder per Rechtsklick direkt auf einer Karte, bietet dieselben vier Aktionen: **Teilen**, **In Ordner verschieben**, **Archivieren** und **In den Papierkorb verschieben**.
+
+#### Teilen {#share}
+
+Teilen Sie einen Clip mit clipweisen Berechtigungen: öffentlich, Team/Organisation oder privat. Link-Tracking und Kommentare mit Threads funktionieren ebenfalls. Fügen Sie über den Freigabedialog ein Passwort oder ein Ablaufdatum zu jedem Clip hinzu. Beide schränken den Zugriff nur weiter ein. Keines von beiden kann Zugriff gewähren, den die übergeordneten Freigaberegeln sonst verweigern würden.
+
+Organisationsadmins legen die Standardsichtbarkeit fest, die neue Aufnahmen erhalten, wenn niemand ausdrücklich eine auswählt, siehe [Organisationen und Teams](#organizations-and-teams) unten. Aufnahmen sind standardmäßig öffentlich, sofern ein Admin das nicht ändert, und eine ausdrücklich gewählte Sichtbarkeit hat immer Vorrang vor dem Standard.
+
+Erstellen Sie eine Einbettungs-URL für einen Clip, um ihn in eine Wiki-Seite, ein internes Tool oder überall sonst einzufügen, wo ein `<iframe>` akzeptiert wird:
+
+| Param             | Bedeutung                                                  |
+| ----------------- | ---------------------------------------------------------- |
+| `?t=80`           | Wiedergabe bei 80 Sekunden starten                         |
+| `?autoplay=1`     | Autoplay (stumm, da Browser unstummes Autoplay blockieren) |
+| `?hideControls=1` | Die Player-Steuerelemente ausblenden                       |
+| `?loop=1`         | Wiedergabe wiederholen                                     |
+
+Öffentliche Freigabelinks werden außerdem als abspielbares Video im Loom-Stil in der Vorschau angezeigt, sobald Ihr Arbeitsbereich seine Clips-Slack-App installiert. Nur fertige, öffentliche Clips ohne Passwort, ohne erreichtes Ablaufdatum und ohne Archiv-/Papierkorb-Markierung erzeugen eine abspielbare Slack-Vorschau. Alles andere fällt auf normale Titel- und Vorschaubild-Metadaten für Links zurück.
+
+Möchten Sie, dass Transkript und Frames eines freigegebenen Clips nicht nur für Menschen, sondern auch für einen externen Agenten wie ChatGPT oder Claude Code lesbar sind? Siehe [Clips in einem Multi-App-Arbeitsbereich](/docs/template-clips-integrations).
+
+Sobald ein Clip freigegeben ist, kann der Eigentümer sehen, wer ihn tatsächlich ansieht:
+
+| Was                         | Zeigt Ihnen                                                                                                                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Aufnahme-Einblicke**      | Aufrufe, getrennt gezählt für Menschen und für externe Agenten, die die Agent-Context-APIs des Clips lesen, plus eindeutige Zuschauer, Abschlussrate, eine Abbruchkurve und CTA-Klickrate |
+| **Organisations-Einblicke** | Organisationsweite Summen für den Zeitraum, Top-Clips nach Aufrufen, Reaktionen und Kommentaren, Top-Ersteller und ein tagesgenauer Engagement-Trend, der Insights Hub                    |
+| **CSV-Export**              | Jede Aufnahme in der Organisation mit ihren Aufruf- und Engagement-Zahlen, als herunterladbare CSV-Datei, für bis zu die letzten 5.000 Aufnahmen                                          |
+
+Menschliche Aufrufe und Agenten-Aufrufe werden absichtlich in getrennten Zählern erfasst, damit ein Agent, der das Transkript eines freigegebenen Clips abfragt, nie die Zahl der Menschen aufbläht, die ihn tatsächlich angesehen haben.
+
+#### In Ordner verschieben
+
+Ordner halten Ihre Bibliothek organisiert und lassen sich verschachteln: Ein Ordner kann andere Ordner enthalten, nicht nur Aufnahmen.
+
+<Steps>
+
+### Einen Ordner erstellen
+
+Wählen Sie **Neuer Ordner** aus dem Untermenü **In Ordner verschieben** eines Clips, oder aus dem Rechtsklick-Menü der Bibliothek.
+
+### Einen Clip verschieben
+
+Wählen Sie den Zielordner über **In Ordner verschieben** im Drei-Punkte-Menü des Clips. Das funktioniert auch für mehrere ausgewählte Clips gleichzeitig.
+
+</Steps>
+
+Benennen Sie einen Ordner jederzeit über sein eigenes Optionsmenü um. Das Löschen eines Ordners löscht nie dessen Inhalt: Jede Aufnahme darin und jede Aufnahme in einem verschachtelten Unterordner rückt in den übergeordneten Ordner auf, oder in die Wurzel der Bibliothek, wenn der gelöschte Ordner bereits ganz oben stand.
+
+#### Archivieren und in den Papierkorb verschieben
+
+Archivieren und in den Papierkorb verschieben blenden einen Clip beide aus der Hauptbibliothek aus, ohne etwas zu löschen.
+
+- **Archivieren** hält jedes Bit der Daten eines Clips intakt und entfernt ihn gleichzeitig aus Ihrer alltäglichen Ansicht, nützlich für ein abgeschlossenes Projekt, das Sie nicht sehen, aber vielleicht wieder brauchen. Stellen Sie ihn jederzeit wieder her.
+- **In den Papierkorb verschieben** ist ein weiches Löschen. Der Clip verschwindet sowohl aus der Bibliothek als auch aus dem Archiv, aber nichts ist wirklich weg, bis ihn jemand endgültig löscht. Es gibt keine automatische Bereinigung: Ein Clip im Papierkorb bleibt dort, bis Sie oder ein Admin ihn endgültig entfernen.
+- **Wiederherstellen** holt einen Clip in einem Schritt aus dem Archiv oder dem Papierkorb zurück.
+- **Endgültig löschen** ist die einzige unwiderrufliche Option und entfernt die Aufnahme und alles, was daran hängt: Kommentare, Reaktionen, Aufrufverlauf, Transkripte, Freigaben und die zugrunde liegenden Mediendateien.
+
+## Für mich freigegeben
+
+### Clips ansehen {#shared-view-clips}
+
+Diese Ansicht listet jede Aufnahme auf, die jemand direkt mit Ihnen oder Ihrer Organisation geteilt hat, per Name oder über eine organisationsweite Sichtbarkeitseinstellung. Ein öffentlicher Link, den jemand zufällig hat, zählt nicht zu dieser Liste. Sie können hier ansehen und kommentieren, aber es gibt kein Drei-Punkte-Menü: Die Verwaltung eines Clips (verschieben, archivieren, weiter teilen) bleibt die Entscheidung des Eigentümers.
+
+### Clips kommentieren
+
+Fügen Sie einen Kommentar genau an der Stelle im Video hinzu, die Sie sich ansehen, nicht nur zur Aufnahme als Ganzes. Kommentare verzweigen sich zu Antworten, unterstützen Fett, Kursiv, Inline-Code und Links (Überschriften werden zu einfachem Text reduziert) und können einen Teamkollegen per @-Erwähnung benachrichtigen.
+
+## Bereiche
+
+Ein Bereich ist ein themenbezogener Container, der zu einer Organisation gehört, etwa „Q3-Launch“ oder „Support-Team“, in den jedes seiner Mitglieder Aufnahmen ablegen kann. Eine Aufnahme kann zu keinem, einem oder mehreren Bereichen gleichzeitig gehören, daher kommt das Hinzufügen eines Clips zu einem Bereich eher einem Taggen als einem Verschieben gleich: Anders als ein Ordner, der eine Aufnahme an genau einem Ort hält, verlinkt ein Bereich nur darauf. Bereiche haben außerdem ihre eigenen Ordner, getrennt von denen Ihrer persönlichen Bibliothek.
+
+Ein Organisationsadmin erstellt einen Bereich und fügt einzeln Mitglieder hinzu. Die Mitgliedschaft in einem Bereich hat eigene Rollen:
+
+| Rolle           | Kann                                                            |
+| --------------- | --------------------------------------------------------------- |
+| **Admin**       | Mitglieder hinzufügen und entfernen, deren Bereichsrolle ändern |
+| **Contributor** | Aufnahmen zum Bereich hinzufügen und daraus entfernen           |
+| **Viewer**      | Sehen, was sich im Bereich befindet                             |
+
+Das Löschen eines Bereichs entfernt den Bereich und seine Mitgliederliste. Die Aufnahmen, die sich darin befanden, bleiben unberührt. Sie werden dort einfach nicht mehr angezeigt.
+
+## Von überall aufnehmen
+
+Jede Aufnahmequelle landet in derselben gemeinsamen Bibliothek, außer Rewind, das auf Ihrem Gerät bleibt, sofern Sie nicht zustimmen, einen Moment daraus zu teilen.
+
+### Desktop-Tray-App
+
+Die Desktop-App ist für die reibungsloseste alltägliche Aufnahme gebaut: Bildschirm- und Webcam-Aufnahme mit einer ziehbaren Kamerablase, Live-Transkription während der Aufnahme, alles ohne einen offenen Browser-Tab. Laden Sie sie unter [clips.agent-native.com/download](https://clips.agent-native.com/download) herunter, verfügbar für macOS, Windows und Linux.
+
+<Callout tone="info">
+
+Wenn Sie zum ersten Mal Ihren Bildschirm aufnehmen, fragt Ihr Betriebssystem nach der Berechtigung zur Bildschirmaufnahme (auf einem Mac: Systemeinstellungen → Datenschutz & Sicherheit → Bildschirmaufnahme). Das ist eine Berechtigung auf Betriebssystemebene, keine Clips-Einstellung, und Clips kann ohne sie nicht aufnehmen.
+
+</Callout>
+
+### Rewind
+
+Rewind ist ein optionales lokales Gedächtnis, das eine rollierende Aufnahme Ihres Bildschirms führt, und Audio, wenn Sie es aktivieren, lokal auf Ihrem Gerät gespeichert.
+
+<Callout tone="info">
+
+Rewind ist standardmäßig deaktiviert. Nichts wird erfasst, bis Sie es in den Einstellungen des Desktop-Trays aktivieren, und nichts verlässt Ihr Gerät, ohne dass Sie es genehmigen (die Überprüfung pro Anfrage ist standardmäßig aktiviert und kann in den Rewind-Einstellungen ausgeschaltet werden). Sie können den Puffer jederzeit selbst exportieren, durchsuchen oder leeren.
+
+</Callout>
+
+Aktivieren Sie Rewind über den Rewind-Tab in den Einstellungen. Sobald es aktiv ist, können Sie den Agenten Dinge fragen wie „was habe ich mir vor 20 Minuten angesehen?“, und er liest Textausschnitte aus dem lokalen Puffer mit Bildschirmtext, App- und Fensterkontext sowie Transkriptausschnitten. Der Agent erhält niemals die Aufnahmen selbst, mit einer Ausnahme: eine Anfrage, die Sie prüfen und genehmigen und die einen genauen Zeitbereich in einen privaten Clip verwandelt.
+
+#### Vorgeschichte hinzufügen
+
+Im Editor eines Clips holt **Vorgeschichte hinzufügen** die vorherigen 30 Sekunden oder 5 Minuten aus Ihrem lokalen Rewind-Verlauf und fügt sie an den Anfang des Clips an. Der Clip muss auf diesem Gerät aufgenommen worden sein, während Rewind aktiv war, und die Momente müssen noch innerhalb des von Rewind aufbewahrten Verlaufs liegen.
+
+- Der Clip muss privat sein, ohne dass jemand anderem direkter Zugriff gewährt wurde. Der Rewind-Verlauf kann Kontext von vor Ihrer Aufnahmeentscheidung enthalten, daher macht Clips den Clip zuerst privat und bricht ab, wenn jemand anderes noch Zugriff hat.
+- Die Mediendatei des Clips wird durch die kombinierte Aufnahme ersetzt. Transkript, Kapitel, Kommentare und Reaktionen verschieben sich, sodass ihre Zeitstempel weiterhin passen, und die Timeline markiert, wo der ursprüngliche Clip begann.
+- Es läuft einmal pro Clip und nur, wenn Sie danach fragen. Nichts wird automatisch aus Rewind hinzugefügt.
+
+### Browserprotokolle über die Chrome-Erweiterung
+
+Installieren Sie die Clips-Chrome-Erweiterung für eine Aufnahme plus die Browserprotokolle und Netzwerkaktivität aus dem Tab, den Sie debuggen, nützlich zum Melden von Produktfehlern und reinen Browser-Repros.
+
+Sie beobachtet nur den Tab, den Sie aktiv aufnehmen, und nur während die Aufnahme läuft. Sie speichert Konsolenmeldungen und grundlegende Informationen pro Anfrage (Methode, eine geschwärzte URL, Status, Dauer und ob eine Anfrage fehlgeschlagen ist), niemals Anfrage- oder Antworttexte, Header oder Cookies. Verwenden Sie die Desktop-App für die alltägliche Aufnahme, und greifen Sie gezielt zur Chrome-Erweiterung, wenn Sie diese Browserprotokolle angehängt brauchen.
+
+## Transkription und KI-Metadaten {#transcription-and-ai-metadata}
+
+Die Transkription versucht zuerst die schnellste, kostenlose Option und weicht nur bei Bedarf auf eine kostenpflichtige aus:
+
+| Reihenfolge | Anbieter                        | Hinweise                                                                                                                                                                      |
+| ----------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1           | Nativ (auf dem Gerät)           | Web Speech API des Browsers oder lokales Whisper/macOS-Speech auf dem Desktop. Sofort, kein API-Schlüssel.                                                                    |
+| 2           | Builder.io verwaltet (Gemini)   | Cloud-Fallback, wenn nativer Text fehlt. Kein zusätzlicher Schlüssel nötig, sobald Builder verbunden ist. Der kostenlose Tarif von Builder.io enthält verwaltete KI-Guthaben. |
+| 3           | Groq (`whisper-large-v3-turbo`) | Optionales Backup, wenn Sie lieber Ihren eigenen Schlüssel mitbringen.                                                                                                        |
+
+Sobald ein Transkript fertig ist, füllt der Agent automatisch Titel, Zusammenfassung und Kapitelmarkierungen aus und hält sie aktuell, während Sie bearbeiten. Sie können auch direkt fragen:
+
+- „Titel und Zusammenfassung neu generieren.“
+- „Füge Kapitel hinzu. Der ist lang.“
+- „Ziehe drei Zitate für einen Blogbeitrag heraus.“
+- „Korrigiere das falsch transkribierte Wort bei 1:42.“
+
+Bei einer stummen Bildschirmaufnahme, bei der das Audio allein irreführend wäre, aktivieren Sie **Vollständiges Video einbeziehen** im KI-Tools-Menü, damit der Agent die Aufnahme selbst ansieht (dies erfordert Gemini), statt sich allein auf das Transkript zu verlassen.
+
+Backup-Transkription, Transkriptbereinigung und KI-Titel und -Zusammenfassungen laufen standardmäßig auf von Builder.io verwalteten KI-Guthaben, einschließlich der Guthaben des kostenlosen Tarifs. Wenn eine davon nicht mehr funktioniert, fragen Sie den Agenten. Er prüft den aktuellen Guthabenstatus und erklärt, ob die Guthaben pausiert sind, statt es als Fehler zu behandeln. Die Lösung ist entweder Builder.io-Guthaben hinzuzufügen, ein Upgrade durchzuführen oder einen persönlichen Groq-Schlüssel als Fallback für die Transkription zu verbinden.
+
+## Zerstörungsfreie Bearbeitung {#non-destructive-editing}
+
+Zuschneiden, Teilen, Pausen oder Füllwörter entfernen oder Clips kombinieren, alles ohne die Originaldatei je zu berühren. Jede Bearbeitung wird als Anweisung über Ihre ursprüngliche Aufnahme gelegt, ist rückgängig zu machen, und nichts wird fest in eine neue Datei eingebrannt, bis Sie exportieren.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Eine Demo zerstörungsfreier Bearbeitung, einschließlich Zuschneiden, Teilen und Kombinieren von Clips."
+  caption="Eine Demo zerstörungsfreier Bearbeitung, einschließlich Zuschneiden, Teilen und Kombinieren von Clips."
+  autoplay={true}
+  loop={true}
+/>
+
+Bitten Sie den Agenten, eine dieser Bearbeitungen für Sie vorzunehmen:
+
+- „Entferne die Ähs und Ähms und füge alles neu zusammen.“
+- „Schneide die ersten 10 Sekunden ab.“
+- „Kombiniere diese drei Clips in dieser Reihenfolge zu einem.“
+
+Im Optionsmenü einer Aufnahme erledigen **Pausen entfernen** und **Füllwörter entfernen** dasselbe mit einem Klick, statt es auszuschreiben. Der Agent übernimmt bei beidem weiterhin die eigentliche Arbeit: das Transkript lesen, die Bereiche finden und die Zuschneideanweisungen anwenden.
+
+## Organisationen und Teams {#organizations-and-teams}
+
+Jeder kann eine Organisation erstellen, um einen Clips-Arbeitsbereich mit einem Team zu teilen. Wer eine erstellt, wird ihr erster Admin.
+
+- **Branding.** Admins legen eine Markenfarbe und ein Logo fest, die im gesamten gemeinsamen Arbeitsbereich angezeigt werden.
+- **Standardsichtbarkeit.** Admins wählen, worauf neue Aufnahmen standardmäßig gesetzt werden (öffentlich, Organisation oder privat), wenn niemand ausdrücklich eine auswählt.
+- **Mitglieder einladen** per E-Mail. Eine Einladung wird entweder angenommen oder abgelehnt, und Admins können die Rolle eines Mitglieds später ändern oder es entfernen.
+
+| Rolle      | Kann                                                                                                                             |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Admin**  | Mitglieder einladen und entfernen, Rollen ändern, Branding und Standardsichtbarkeit festlegen, plus alles, was ein Mitglied kann |
+| **Member** | Eigene Clips aufnehmen, bearbeiten und teilen, und in jedem Bereich arbeiten, zu dem sie hinzugefügt wurden                      |
+
+## Wie geht es weiter?
+
+- [**Clips**](/docs/template-clips) — der Überblick und was es ersetzt
+- [**Mit dem Agent sprechen**](/docs/template-clips-agent) — jede Eingabeaufforderung nach Aufgabe und wie der Agent Ihren Bildschirm sieht
+- [**Clips in einem Multi-App-Arbeitsbereich**](/docs/template-clips-integrations) — für Agenten lesbare Clips, Brain-Export und CRM-Anrufnachweise
+- [**Entwicklerhandbuch**](/docs/template-clips-developers) — die Aktions- und Datenmodell-Referenz hinter diesen Funktionen
+- [**Freigabe**](/docs/sharing) — das Freigabemodell, auf dem Clip-Freigaben aufbauen

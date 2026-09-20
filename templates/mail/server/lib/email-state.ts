@@ -400,7 +400,12 @@ export async function archiveEmail(
           removeLabels.push(labelId);
         }
       }
-      await gmailModifyThread(token, resolvedThreadId, undefined, removeLabels);
+      const updated = (await gmailModifyThread(
+        token,
+        resolvedThreadId,
+        undefined,
+        removeLabels,
+      )) as { historyId?: string } | undefined;
       // Invalidate so thread-view doesn't serve cached pre-archive messages
       invalidateThreadCache(ownerEmail, resolvedThreadId);
       await syncInboxLabelDelta(
@@ -409,6 +414,7 @@ export async function archiveEmail(
         [resolvedThreadId],
         {
           remove: removeLabels,
+          providerHistoryId: updated?.historyId,
         },
       );
       return { id, threadId: resolvedThreadId, isArchived: true };
@@ -479,10 +485,13 @@ export async function unarchiveEmail(
   );
   const token = await getAccountToken(resolvedAccount, ownerEmail);
   const msg = await gmailGetMessage(token, id, "minimal");
-  await gmailModifyThread(token, msg.threadId, ["INBOX"]);
+  const updated = (await gmailModifyThread(token, msg.threadId, ["INBOX"])) as
+    | { historyId?: string }
+    | undefined;
   invalidateThreadCache(ownerEmail, msg.threadId);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
     add: ["INBOX"],
+    providerHistoryId: updated?.historyId,
   });
   return { id, threadId: msg.threadId, isArchived: false };
 }
@@ -558,8 +567,8 @@ export async function toggleStar(
         id,
         isStarred ? ["STARRED"] : undefined,
         isStarred ? undefined : ["STARRED"],
-      )) as { threadId?: string };
-      const resolvedThreadId = hintThreadId || updated.threadId;
+      )) as { historyId?: string; threadId?: string } | undefined;
+      const resolvedThreadId = hintThreadId || updated?.threadId;
       if (resolvedThreadId) {
         invalidateThreadCache(ownerEmail, resolvedThreadId);
         // Message-scoped: this only starred/unstarred one message, not the
@@ -573,6 +582,7 @@ export async function toggleStar(
             remove: isStarred ? undefined : ["STARRED"],
             scope: "message",
             messageIds: [id],
+            providerHistoryId: updated?.historyId,
           },
         );
       }
@@ -650,11 +660,14 @@ export async function trashEmail(
     if (!token) continue;
     try {
       const msg = await gmailGetMessage(token, id, "minimal");
-      await gmailTrashThread(token, msg.threadId);
+      const updated = (await gmailTrashThread(token, msg.threadId)) as
+        | { historyId?: string }
+        | undefined;
       invalidateThreadCache(ownerEmail, msg.threadId);
       await syncInboxLabelDelta(ownerEmail, account.accountId, [msg.threadId], {
         add: ["TRASH"],
         remove: ["INBOX"],
+        providerHistoryId: updated?.historyId,
       });
       return { id, threadId: msg.threadId, isTrashed: true };
     } catch (err: any) {
@@ -724,10 +737,13 @@ export async function untrashEmail(
   );
   const token = await getAccountToken(resolvedAccount, ownerEmail);
   const msg = await gmailGetMessage(token, id, "minimal");
-  await gmailUntrashThread(token, msg.threadId);
+  const updated = (await gmailUntrashThread(token, msg.threadId)) as
+    | { historyId?: string }
+    | undefined;
   invalidateThreadCache(ownerEmail, msg.threadId);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
     remove: ["TRASH"],
+    providerHistoryId: updated?.historyId,
   });
   return { id, threadId: msg.threadId, isTrashed: false };
 }
@@ -792,12 +808,12 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
     const token = await getToken(account.accountId, ownerEmail);
     if (!token) continue;
     try {
-      await gmailModifyMessage(
+      const updated = (await gmailModifyMessage(
         token,
         id,
         isRead ? undefined : ["UNREAD"],
         isRead ? ["UNREAD"] : undefined,
-      );
+      )) as { historyId?: string } | undefined;
       // No threadId hint at the message level — resolve it from the store's
       // message_ids_json instead of an extra Gmail round-trip.
       const threadId = (
@@ -812,6 +828,7 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
           remove: isRead ? ["UNREAD"] : undefined,
           scope: "message",
           messageIds: [id],
+          providerHistoryId: updated?.historyId,
         });
       }
       return { id, isRead };
@@ -958,16 +975,17 @@ export async function markThreadRead(
     { threadId },
   );
   const token = await getAccountToken(resolvedAccount, ownerEmail);
-  await gmailModifyThread(
+  const updated = (await gmailModifyThread(
     token,
     threadId,
     isRead ? undefined : ["UNREAD"],
     isRead ? ["UNREAD"] : undefined,
-  );
+  )) as { historyId?: string } | undefined;
   invalidateThreadCache(ownerEmail, threadId);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [threadId], {
     add: isRead ? undefined : ["UNREAD"],
     remove: isRead ? ["UNREAD"] : undefined,
+    providerHistoryId: updated?.historyId,
   });
   return { threadId, isRead };
 }

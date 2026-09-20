@@ -1046,7 +1046,6 @@ export function runCrossScreenElementDrop(
       after: nextDestContent,
     },
   ];
-  const selectionFingerprintAtPublication = getCurrentSelectionFingerprint?.();
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
     nextDestContent,
@@ -1085,6 +1084,10 @@ export function runCrossScreenElementDrop(
     return;
   }
 
+  // Capture after both publications so synchronous bridge/state updates caused
+  // by this move are part of the operation rather than mistaken for a newer
+  // selection.
+  const selectionFingerprintAtPublication = getCurrentSelectionFingerprint?.();
   const saveOperationRevisionsAtPublication = {
     [targetScreenId]: fileSaveOperationRevisionRef?.current[targetScreenId],
     [sourceScreenId]: fileSaveOperationRevisionRef?.current[sourceScreenId],

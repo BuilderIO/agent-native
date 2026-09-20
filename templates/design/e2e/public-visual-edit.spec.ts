@@ -245,18 +245,10 @@ test.describe.serial("public visual edit", () => {
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: /open visual edit/i }).click();
 
-      await expect
-        .poll(
-          () => {
-            const url = new URL(signedOut.page.url());
-            return {
-              editorPath: url.pathname.startsWith("/visual-edit/"),
-              hasCapability: url.searchParams.has("__an_embed_token"),
-            };
-          },
-          { timeout: 30_000 },
-        )
-        .toEqual({ editorPath: true, hasCapability: true });
+      await signedOut.page.waitForURL(
+        /\/visual-edit\/[^?]+\?.*__an_embed_token=/,
+        { timeout: 30_000, waitUntil: "domcontentloaded" },
+      );
       await expect(signedOut.page.locator("[data-design-editor]")).toBeVisible({
         timeout: 30_000,
       });
@@ -336,6 +328,78 @@ test.describe.serial("public visual edit", () => {
           tool: "list-localhost-connections",
           result: { count: 1 },
         });
+
+      const direct = await openSignedOutPage(
+        browser,
+        `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview`,
+      );
+      try {
+        await expect(direct.page).toHaveURL(
+          /\/visual-edit\/[^?]+\?.*__an_embed_token=/,
+          { timeout: 30_000 },
+        );
+        await expect(direct.page.locator("[data-design-editor]")).toBeVisible({
+          timeout: 30_000,
+        });
+        await expect(
+          direct.page.locator("[data-read-only-design-banner]"),
+        ).toHaveCount(0);
+        await expect(
+          direct.page
+            .locator("iframe[data-design-preview-iframe]")
+            .last()
+            .contentFrame()
+            .getByRole("heading", { name: "Local visual edit" }),
+        ).toBeVisible({ timeout: 30_000 });
+        await expect
+          .poll(
+            () =>
+              direct.page.evaluate(async (designId) => {
+                const helper = (
+                  window as typeof window & {
+                    __agentNativeWebMcp?: {
+                      call(
+                        name: string,
+                        args?: Record<string, unknown>,
+                      ): Promise<unknown>;
+                    };
+                  }
+                ).__agentNativeWebMcp;
+                if (!helper) throw new Error("WebMCP page helper missing");
+                return helper.call("list-localhost-connections", { designId });
+              }, preflightResult?.designId),
+            { timeout: 15_000 },
+          )
+          .toMatchObject({
+            state: "done",
+            ok: true,
+            result: { count: 1 },
+          });
+        await assertNoRuntimeErrors(direct);
+      } finally {
+        await direct.close();
+      }
+
+      const modeMarkerDirect = await openSignedOutPage(
+        browser,
+        `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview&embedChrome=1&embedded=1`,
+      );
+      try {
+        await expect(modeMarkerDirect.page).toHaveURL(
+          /\/visual-edit\/[^?]+\?.*__an_embed_token=/,
+          { timeout: 30_000 },
+        );
+        await expect(
+          modeMarkerDirect.page.locator("[data-read-only-design-banner]"),
+        ).toHaveCount(0);
+        await expect(
+          modeMarkerDirect.page.locator("[data-design-editor]"),
+        ).toBeVisible({ timeout: 30_000 });
+        await assertNoRuntimeErrors(modeMarkerDirect);
+      } finally {
+        await modeMarkerDirect.close();
+      }
+
       const consentRequest = await signedOut.page.evaluate(
         async ({ designId, connectionId }) => {
           const helper = (
@@ -523,9 +587,7 @@ test.describe.serial("public visual edit", () => {
       // Button asChild wraps an <a href>, so the CTA's role is link — the
       // sibling /visual-edit test queries it the same way.
       await expect(
-        signedOut.page
-          .getByRole("link", { name: /sign up free to save/i })
-          .first(),
+        signedOut.page.getByRole("link", { name: /^sign up$/i }).first(),
       ).toBeVisible();
       // A read-only visitor DOES get a Share control — it is a sign-in CTA
       // rendered as `<Button asChild><a>`, so it carries role "link", not
@@ -612,7 +674,7 @@ test.describe.serial("public visual edit", () => {
       (page) =>
         page
           .getByRole("link")
-          .filter({ hasText: /sign up free to save/i })
+          .filter({ hasText: /^sign up$/i })
           .first(),
       appReturnPath(`/design/${designId}?intent=save`),
     );

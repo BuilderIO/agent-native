@@ -1,31 +1,11 @@
 {
-  "name": "community-templates",
-  "displayName": "Community templates catalog",
+  "name": "@agent-native/community-templates",
   "private": true,
-  "description": "A launcher and multi-page set of cloneable Agent-Native GTM community apps.",
   "type": "module",
-  "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest --run"
-  },
   "dependencies": {
-    "@agent-native/core": "workspace:*",
-    "@tabler/icons-react": "catalog:",
-    "react": "catalog:",
-    "react-dom": "catalog:"
+    "@agent-native/core": "workspace:*"
   },
-  "devDependencies": {
-    "@types/react": "catalog:",
-    "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=22.22.0"
-  },
-  "packageManager": "pnpm@10.29.1"
+  "agent-native": {
+    "workspaceCore": "@agent-native/core"
+  }
 }

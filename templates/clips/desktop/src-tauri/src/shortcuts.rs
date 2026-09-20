@@ -6,12 +6,12 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
-use crate::clips::{force_show_popover, remember_voice_target, toggle_popover};
+use crate::clips::{remember_voice_target, toggle_popover};
 use crate::dlog;
 use crate::state::{DictationActive, VoiceWakePopover};
 use crate::util::{
-    hide_voice_wake_popover, is_dictation_active, is_meeting_active, is_recording_active,
-    set_dictation_active, show_without_activation,
+    hide_voice_wake_popover, is_dictation_active, is_recording_active, set_dictation_active,
+    show_without_activation,
 };
 
 fn escape_shortcut() -> Shortcut {
@@ -59,14 +59,56 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         assert!(shortcuts.contains(&numpad_enter_shortcut()));
     }
+
+    #[test]
+    fn recording_shortcuts_match_platform_defaults() {
+        #[cfg(target_os = "macos")]
+        {
+            assert!(record_start_stop_shortcuts().contains(&Shortcut::new(
+                Some(Modifiers::SUPER | Modifiers::SHIFT),
+                Code::KeyL,
+            )));
+            assert!(record_cancel_shortcuts().contains(&Shortcut::new(
+                Some(Modifiers::ALT | Modifiers::SHIFT),
+                Code::KeyC,
+            )));
+            assert!(record_pause_shortcuts().contains(&Shortcut::new(
+                Some(Modifiers::ALT | Modifiers::SHIFT),
+                Code::KeyP,
+            )));
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert!(record_start_stop_shortcuts().contains(&Shortcut::new(
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                Code::KeyL,
+            )));
+            assert!(record_cancel_shortcuts().contains(&Shortcut::new(
+                Some(Modifiers::ALT | Modifiers::SHIFT),
+                Code::KeyC,
+            )));
+            assert!(record_pause_shortcuts().contains(&Shortcut::new(
+                Some(Modifiers::ALT | Modifiers::SHIFT),
+                Code::KeyP,
+            )));
+            assert!(record_pause_shortcuts().contains(&Shortcut::new(
+                Some(Modifiers::ALT | Modifiers::SHIFT),
+                Code::KeyS,
+            )));
+        }
+    }
 }
 
 static CUSTOM_VOICE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static CUSTOM_POPOVER_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static CUSTOM_RECORD_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
+static CUSTOM_RECORD_CANCEL_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
+static CUSTOM_RECORD_PAUSE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static FN_TAP_ENABLED: AtomicBool = AtomicBool::new(false);
 static FN_TAP_INSTALL_STARTED: AtomicBool = AtomicBool::new(false);
 static POPOVER_DISMISS_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
+static POPOVER_VISIBILITY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static COUNTDOWN_SHORTCUTS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static COUNTDOWN_SHORTCUTS_GENERATION: AtomicU64 = AtomicU64::new(0);
 static COUNTDOWN_SHORTCUTS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -89,6 +131,14 @@ fn custom_record_shortcut() -> &'static Mutex<Option<Shortcut>> {
     CUSTOM_RECORD_SHORTCUT.get_or_init(|| Mutex::new(None))
 }
 
+fn custom_record_cancel_shortcut() -> &'static Mutex<Option<Shortcut>> {
+    CUSTOM_RECORD_CANCEL_SHORTCUT.get_or_init(|| Mutex::new(None))
+}
+
+fn custom_record_pause_shortcut() -> &'static Mutex<Option<Shortcut>> {
+    CUSTOM_RECORD_PAUSE_SHORTCUT.get_or_init(|| Mutex::new(None))
+}
+
 fn current_custom_voice_shortcut() -> Option<Shortcut> {
     custom_voice_shortcut().lock().ok().and_then(|g| *g)
 }
@@ -99,6 +149,14 @@ fn current_custom_popover_shortcut() -> Option<Shortcut> {
 
 fn current_custom_record_shortcut() -> Option<Shortcut> {
     custom_record_shortcut().lock().ok().and_then(|g| *g)
+}
+
+fn current_custom_record_cancel_shortcut() -> Option<Shortcut> {
+    custom_record_cancel_shortcut().lock().ok().and_then(|g| *g)
+}
+
+fn current_custom_record_pause_shortcut() -> Option<Shortcut> {
+    custom_record_pause_shortcut().lock().ok().and_then(|g| *g)
 }
 
 fn parse_optional_shortcut(value: Option<String>) -> Result<Option<Shortcut>, String> {
@@ -156,46 +214,150 @@ fn swap_custom_shortcut<R: tauri::Runtime>(
     Ok(old)
 }
 
+fn swap_custom_recording_shortcut<R: tauri::Runtime>(
+    gs: &tauri_plugin_global_shortcut::GlobalShortcut<R>,
+    state: &Mutex<Option<Shortcut>>,
+    next: Option<Shortcut>,
+    defaults: &[Shortcut],
+    label: &str,
+) -> Result<Option<Shortcut>, String> {
+    let current = state
+        .lock()
+        .map_err(|_| format!("failed to lock {label} shortcut state"))?
+        .to_owned();
+    if current == next {
+        return Ok(current);
+    }
+
+    let replacing_default = current.is_none() && next.is_some();
+    let restoring_default = current.is_some() && next.is_none();
+    if replacing_default {
+        for shortcut in defaults {
+            if gs.is_registered(*shortcut) {
+                let _ = gs.unregister(*shortcut);
+            }
+        }
+    }
+    if restoring_default {
+        let mut newly_registered = Vec::new();
+        for shortcut in defaults {
+            if gs.is_registered(*shortcut) {
+                continue;
+            }
+            if let Err(error) = gs.register(*shortcut) {
+                for registered in newly_registered {
+                    let _ = gs.unregister(registered);
+                }
+                return Err(format!(
+                    "failed to restore default {label} shortcut: {error}"
+                ));
+            }
+            newly_registered.push(*shortcut);
+        }
+    }
+
+    match swap_custom_shortcut(gs, state, next, label) {
+        Ok(previous) => Ok(previous),
+        Err(error) => {
+            if replacing_default {
+                for shortcut in defaults {
+                    if !gs.is_registered(*shortcut) {
+                        let _ = gs.register(*shortcut);
+                    }
+                }
+            } else if restoring_default {
+                for shortcut in defaults {
+                    if gs.is_registered(*shortcut) {
+                        let _ = gs.unregister(*shortcut);
+                    }
+                }
+            }
+            Err(error)
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn set_custom_shortcuts(
     app: AppHandle,
     voice: Option<String>,
     popover: Option<String>,
     record: Option<String>,
+    record_cancel: Option<String>,
+    record_pause: Option<String>,
 ) -> Result<(), String> {
     let voice = parse_optional_shortcut(voice)?;
     let popover = parse_optional_shortcut(popover)?;
     let record = parse_optional_shortcut(record)?;
-    if (voice.is_some() && voice == popover)
-        || (voice.is_some() && voice == record)
-        || (popover.is_some() && popover == record)
-    {
-        return Err(
-            "Voice dictation, Open Clips, and Start/stop recording need different shortcuts."
-                .to_string(),
-        );
+    let record_cancel = parse_optional_shortcut(record_cancel)?;
+    let record_pause = parse_optional_shortcut(record_pause)?;
+    let slots = [
+        ("Voice dictation", voice),
+        ("Open Clips", popover),
+        ("Start/stop recording", record),
+        ("Cancel recording", record_cancel),
+        ("Pause/resume recording", record_pause),
+    ];
+    for (index, (label, shortcut)) in slots.iter().enumerate() {
+        if shortcut.is_none() {
+            continue;
+        }
+        if slots[..index]
+            .iter()
+            .any(|(_, other)| other.is_some() && other == shortcut)
+        {
+            return Err(format!("{label} needs a different shortcut."));
+        }
     }
     let gs = app.global_shortcut();
+    let record_defaults = record_start_stop_shortcuts();
+    let record_cancel_defaults = record_cancel_shortcuts();
+    let record_pause_defaults = record_pause_shortcuts();
 
-    let prev_voice = swap_custom_shortcut(gs, custom_voice_shortcut(), voice, "voice")?;
-    let prev_popover = match swap_custom_shortcut(gs, custom_popover_shortcut(), popover, "Clips") {
-        Ok(prev_popover) => prev_popover,
-        Err(err) => {
-            // Popover registration failed after voice already mutated — roll
-            // the voice slot back to its previous value so callers see
-            // all-or-nothing behaviour. If the rollback itself fails we
-            // surface only the original popover error to the user; local
-            // state always reflects whatever actually got registered.
-            let _ = swap_custom_shortcut(gs, custom_voice_shortcut(), prev_voice, "voice");
-            return Err(err);
+    let updates = [
+        (custom_voice_shortcut(), voice, "voice", None),
+        (custom_popover_shortcut(), popover, "Clips", None),
+        (
+            custom_record_shortcut(),
+            record,
+            "recording",
+            Some(record_defaults.as_slice()),
+        ),
+        (
+            custom_record_cancel_shortcut(),
+            record_cancel,
+            "recording cancel",
+            Some(record_cancel_defaults.as_slice()),
+        ),
+        (
+            custom_record_pause_shortcut(),
+            record_pause,
+            "recording pause",
+            Some(record_pause_defaults.as_slice()),
+        ),
+    ];
+    let mut previous = Vec::with_capacity(updates.len());
+    for (state, next, label, defaults) in updates {
+        let result = match defaults {
+            Some(defaults) => swap_custom_recording_shortcut(gs, state, next, defaults, label),
+            None => swap_custom_shortcut(gs, state, next, label),
+        };
+        match result {
+            Ok(old) => previous.push((state, old, label, defaults)),
+            Err(err) => {
+                // The recording slots restore their platform defaults when a
+                // custom value is cleared, so rollback must use the same
+                // boundary-aware swap instead of the generic helper.
+                for (state, old, label, defaults) in previous.into_iter().rev() {
+                    if let Some(defaults) = defaults {
+                        let _ = swap_custom_recording_shortcut(gs, state, old, defaults, label);
+                    } else {
+                        let _ = swap_custom_shortcut(gs, state, old, label);
+                    }
+                }
+                return Err(err);
+            }
         }
-    };
-    if let Err(err) = swap_custom_shortcut(gs, custom_record_shortcut(), record, "recording") {
-        // Recording registration failed after earlier slots already mutated —
-        // roll them back so callers see all-or-nothing behaviour.
-        let _ = swap_custom_shortcut(gs, custom_popover_shortcut(), prev_popover, "Clips");
-        let _ = swap_custom_shortcut(gs, custom_voice_shortcut(), prev_voice, "voice");
-        return Err(err);
     }
 
     Ok(())
@@ -236,20 +398,63 @@ fn paste_last_dictation_shortcut() -> Shortcut {
     }
 }
 
+fn record_start_stop_shortcuts() -> Vec<Shortcut> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![Shortcut::new(
+            Some(Modifiers::SUPER | Modifiers::SHIFT),
+            Code::KeyL,
+        )]
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        vec![Shortcut::new(
+            Some(Modifiers::CONTROL | Modifiers::SHIFT),
+            Code::KeyL,
+        )]
+    }
+}
+
+fn record_cancel_shortcuts() -> Vec<Shortcut> {
+    vec![Shortcut::new(
+        Some(Modifiers::ALT | Modifiers::SHIFT),
+        Code::KeyC,
+    )]
+}
+
+fn record_pause_shortcuts() -> Vec<Shortcut> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![Shortcut::new(
+            Some(Modifiers::ALT | Modifiers::SHIFT),
+            Code::KeyP,
+        )]
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        vec![
+            Shortcut::new(Some(Modifiers::ALT | Modifiers::SHIFT), Code::KeyP),
+            Shortcut::new(Some(Modifiers::ALT | Modifiers::SHIFT), Code::KeyS),
+        ]
+    }
+}
+
+fn matches_any(shortcut: &Shortcut, candidates: &[Shortcut]) -> bool {
+    candidates.iter().any(|candidate| candidate == shortcut)
+}
+
 pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // Register the global shortcut. On macOS we use Cmd+Shift+L;
-    // on Windows/Linux we use Ctrl+Shift+L. Registering both is safe
-    // because on macOS Ctrl isn't the primary modifier and vice versa.
-    let shortcut_cmd = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyL);
-    let shortcut_ctrl = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL);
     let voice_cmd_space = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
     let voice_ctrl_space = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
     let gs = app.handle().global_shortcut();
-    if let Err(err) = gs.register(shortcut_cmd) {
-        eprintln!("[clips-tray] failed to register Cmd+Shift+L: {err}");
-    }
-    if let Err(err) = gs.register(shortcut_ctrl) {
-        eprintln!("[clips-tray] failed to register Ctrl+Shift+L: {err}");
+    for shortcut in record_start_stop_shortcuts()
+        .into_iter()
+        .chain(record_cancel_shortcuts())
+        .chain(record_pause_shortcuts())
+    {
+        if let Err(err) = gs.register(shortcut) {
+            eprintln!("[clips-tray] failed to register recording shortcut {shortcut:?}: {err}");
+        }
     }
     if let Err(err) = gs.register(voice_cmd_space) {
         eprintln!("[clips-tray] failed to register Cmd+Shift+Space voice shortcut: {err}");
@@ -268,14 +473,17 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
 }
 
 /// Globally intercept Escape while the popover is visible so it dismisses even
-/// when another app is focused — Loom-style. We register/unregister on every
-/// `clips:popover-visible` toggle so Escape stays a normal key everywhere
-/// else. The "parked offscreen" voice-dictation state emits visible=false, so
-/// Escape is correctly inactive then too.
+/// when another app is focused — Loom-style. The native Window picker also
+/// owns Escape while it is active, even if picker focus causes the popover to
+/// emit visible=false; unregistering during that handoff strands the picker.
 pub fn install_popover_dismiss_handler(app: &tauri::App) {
+    #[cfg(target_os = "macos")]
+    install_window_picker_escape_monitor(app);
+
     let handle = app.handle().clone();
     app.listen("clips:popover-visible", move |event| {
         let payload = event.payload().to_string();
+        let generation = POPOVER_VISIBILITY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
         let handle = handle.clone();
         // Defer register/unregister to a worker thread. Calling
         // global_shortcut::{register,unregister,is_registered} from inside
@@ -284,11 +492,16 @@ pub fn install_popover_dismiss_handler(app: &tauri::App) {
         // the stack, and Carbon's hotkey table is not reentrant from
         // within its own callback.
         std::thread::spawn(move || {
+            if POPOVER_VISIBILITY_GENERATION.load(Ordering::SeqCst) != generation {
+                return;
+            }
             let visible: bool = serde_json::from_str(&payload).unwrap_or(false);
+            let picker_active = crate::native_screen::window_picker_active();
+            let recording_flow_active = is_recording_active(&handle);
             POPOVER_DISMISS_SHORTCUT_ACTIVE.store(visible, Ordering::SeqCst);
             let shortcut = escape_shortcut();
             let gs = handle.global_shortcut();
-            if visible {
+            if visible || picker_active || recording_flow_active {
                 if !gs.is_registered(shortcut) {
                     if let Err(err) = gs.register(shortcut) {
                         eprintln!("[clips-tray] failed to register Escape: {err}");
@@ -302,6 +515,69 @@ pub fn install_popover_dismiss_handler(app: &tauri::App) {
             }
         });
     });
+}
+
+/// The ScreenCaptureKit picker temporarily promotes the menu-bar app to a
+/// regular, active AppKit application. During that handoff the global
+/// shortcut callback can be skipped depending on which native picker surface
+/// owns the key window. Keep a picker-scoped AppKit monitor as a direct escape
+/// path; the global monitor covers events delivered outside Clips and the local
+/// monitor covers the picker window when AppKit considers Clips active.
+#[cfg(target_os = "macos")]
+fn install_window_picker_escape_monitor(app: &tauri::App) {
+    use std::ptr::NonNull;
+
+    use block2::RcBlock;
+    use objc2_app_kit::{NSEvent, NSEventMask};
+
+    let app_for_global = app.handle().clone();
+    let global_handler = RcBlock::new(move |event: NonNull<NSEvent>| {
+        if crate::native_screen::window_picker_active() && unsafe { event.as_ref().keyCode() } == 53
+        {
+            let app = app_for_global.clone();
+            thread::spawn(move || crate::native_screen::cancel_window_picker(&app));
+        }
+    });
+    if NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &global_handler)
+        .is_none()
+    {
+        eprintln!("[clips-tray] failed to install global Window picker Escape monitor");
+    }
+
+    let app_for_local = app.handle().clone();
+    let local_handler = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+        if crate::native_screen::window_picker_active() && unsafe { event.as_ref().keyCode() } == 53
+        {
+            let app = app_for_local.clone();
+            thread::spawn(move || crate::native_screen::cancel_window_picker(&app));
+        }
+        event.as_ptr()
+    });
+    let local_monitor = unsafe {
+        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &local_handler)
+    };
+    if local_monitor.is_none() {
+        eprintln!("[clips-tray] failed to install local Window picker Escape monitor");
+    }
+}
+
+/// Ensure the Carbon shortcut is armed before the picker takes AppKit focus.
+/// The AppKit monitors above are the direct fallback, but keeping the normal
+/// shortcut registered preserves the existing cancellation path and handles
+/// picker versions that do not deliver a local key event.
+pub(crate) async fn arm_window_picker_escape(app: &AppHandle) -> Result<(), String> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let shortcut = escape_shortcut();
+        let gs = app.global_shortcut();
+        if gs.is_registered(shortcut) {
+            return Ok(());
+        }
+        gs.register(shortcut)
+            .map_err(|error| format!("failed to register Window picker Escape: {error}"))
+    })
+    .await
+    .map_err(|error| format!("Window picker Escape registration worker stopped: {error}"))?
 }
 
 /// P1 (Esc cancels dictation): set `DictationActive` and keep the global
@@ -491,8 +767,6 @@ fn finish_countdown_from_shortcut(app: &AppHandle, event: &'static str) {
 /// register the plugin before `.build()`.
 pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new().with_handler(|app, shortcut, event| {
-        let is_cmd = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyL);
-        let is_ctrl = shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyL);
         let is_voice_cmd_space = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space);
         let is_voice_ctrl_space =
             shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space);
@@ -505,6 +779,15 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         let is_custom_record = current_custom_record_shortcut()
             .map(|custom| custom == *shortcut)
             .unwrap_or(false);
+        let is_custom_record_cancel = current_custom_record_cancel_shortcut()
+            .map(|custom| custom == *shortcut)
+            .unwrap_or(false);
+        let is_custom_record_pause = current_custom_record_pause_shortcut()
+            .map(|custom| custom == *shortcut)
+            .unwrap_or(false);
+        let is_record_start_stop = matches_any(shortcut, &record_start_stop_shortcuts());
+        let is_record_cancel = matches_any(shortcut, &record_cancel_shortcuts());
+        let is_record_pause = matches_any(shortcut, &record_pause_shortcuts());
         let is_escape = shortcut.matches(Modifiers::empty(), Code::Escape);
         let is_enter = shortcut.matches(Modifiers::empty(), Code::Enter);
         let is_numpad_enter = shortcut.matches(Modifiers::empty(), Code::NumpadEnter);
@@ -534,6 +817,10 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 return;
             }
+            if crate::native_screen::window_picker_active() {
+                crate::native_screen::cancel_window_picker(app);
+                return;
+            }
             // P1: Esc cancels an active dictation (wispr-ux.md §1) —
             // checked before the popover-dismiss fallthrough below, and
             // BEFORE the recording-active guard, since dictation and
@@ -548,16 +835,14 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                 let _ = app.emit("voice:cancel", ());
                 return;
             }
-            // Don't dismiss mid-recording — same guard as the React-side Esc
-            // handler. The user would lose the recorder handle.
-            if is_recording_active(app) {
+            // Keep Escape reserved while the popover is parked for native
+            // capture setup. Once the menu is full-size, Escape should behave
+            // like the visible Cancel/dismiss action even if the recording
+            // flag is stale.
+            if is_recording_active(app) && crate::clips::popover_is_parked(app) {
                 return;
             }
-            if let Some(window) = app.get_webview_window("popover") {
-                let _ = window.hide();
-            }
-            crate::clips::close_bubble_if_idle(app);
-            let _ = app.emit("clips:popover-visible", false);
+            crate::clips::hide_popover(app);
             return;
         }
         if is_paste_last_dictation {
@@ -617,7 +902,15 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
             return;
         }
-        if is_custom_record {
+        if is_record_cancel || is_custom_record_cancel {
+            let _ = app.emit("clips:recorder-cancel", ());
+            return;
+        }
+        if is_record_pause || is_custom_record_pause {
+            let _ = app.emit("clips:recorder-toggle-pause", ());
+            return;
+        }
+        if is_record_start_stop || is_custom_record {
             wake_popover_for_recording_shortcut(app);
             let app = app.clone();
             thread::spawn(move || {
@@ -626,15 +919,8 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             });
             return;
         }
-        if is_cmd || is_ctrl || is_custom_popover {
-            // The dedicated record shortcut remains the fast start/stop
-            // gesture. The separate Open Clips shortcut follows the app-icon
-            // behavior: it opens the popover and never stops capture.
-            if is_recording_active(app) && !is_meeting_active(app) {
-                force_show_popover(app);
-            } else {
-                toggle_popover(app);
-            }
+        if is_custom_popover {
+            toggle_popover(app);
         }
     })
 }

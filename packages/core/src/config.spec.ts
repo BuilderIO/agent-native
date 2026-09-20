@@ -96,6 +96,30 @@ describe("agent-native app config", () => {
     ).toEqual({ deployment: { environment: "beta" } });
   });
 
+  it("supports an alternate workspace app root and isolated auth", () => {
+    expect(
+      normalizeAgentNativeConfig({
+        deployment: {
+          workspace: { appsDirectory: ".", authMode: "isolated" },
+        },
+      }),
+    ).toEqual({
+      deployment: {
+        workspace: { appsDirectory: ".", authMode: "isolated" },
+      },
+    });
+    expect(
+      mergeAgentNativeConfigs(
+        { deployment: { workspace: { appsDirectory: "apps" } } },
+        { deployment: { workspace: { authMode: "isolated" } } },
+      ),
+    ).toEqual({
+      deployment: {
+        workspace: { appsDirectory: "apps", authMode: "isolated" },
+      },
+    });
+  });
+
   it.each([
     [
       {
@@ -311,6 +335,7 @@ describe("agent-native config environment aliases", () => {
         AGENT_NATIVE_CONFIG_INSTRUCTIONS_RUNTIME: JSON.stringify(
           "app-agent/AGENTS.md",
         ),
+        AGENT_NATIVE_CONFIG_DEPLOYMENT_WORKSPACE_AUTH_MODE: "isolated",
       }),
     ).toEqual({
       version: 1,
@@ -324,6 +349,7 @@ describe("agent-native config environment aliases", () => {
       },
       instructions: { runtime: "app-agent/AGENTS.md" },
       translations: { locales: ["en-US", "es-ES"] },
+      deployment: { workspace: { authMode: "isolated" } },
     });
   });
 

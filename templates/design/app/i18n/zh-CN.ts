@@ -4,6 +4,18 @@ const messages = {
   ...messagesByLocale["zh-CN"],
   designEditor: {
     ...messagesByLocale["zh-CN"].designEditor,
+    designNotFoundDescription: "此设计不存在，或已被删除。",
+    requestAccessTitle: "请求访问此设计",
+    requestAccessDescription: "此设计是私有的。向所有者请求访问权限。",
+    requestAccess: "请求访问",
+    accessRequested: "已请求访问",
+    accessRequestSentDescription:
+      "请求已记录。获得批准后，你就可以打开此设计。",
+    signInToRequestAccessTitle: "登录以请求访问",
+    signInToRequestAccessDescription: "登录或创建账户，向所有者请求访问权限。",
+    signInOrSignUp: "登录或注册",
+    accessCheckFailed: "无法检查此设计的访问权限。",
+    retryAccessCheck: "重试",
     import: {
       ...messagesByLocale["zh-CN"].designEditor.import,
       figUploadDescriptionShort:

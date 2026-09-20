@@ -4470,7 +4470,7 @@ export interface RenderHtmlOptions {
   maxTotalOutputBytes?: number;
 }
 
-const DEFAULT_MAX_RENDER_FRAMES = 200;
+const DEFAULT_MAX_RENDER_FRAMES = 300;
 const DEFAULT_MAX_RENDERED_NODES = 250_000;
 const DEFAULT_MAX_TREE_DEPTH = 256;
 const DEFAULT_MAX_FRAME_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -4852,6 +4852,7 @@ export function renderHtmlTemplates(
 
   const selection =
     options.selection && options.selection.size > 0 ? options.selection : null;
+  const maxFrames = options.maxFrames ?? DEFAULT_MAX_RENDER_FRAMES;
 
   const pages = selection
     ? allPages.filter((page) => {
@@ -4873,11 +4874,10 @@ export function renderHtmlTemplates(
         return selection.has(guidKey(c.guid));
       },
     );
-    if (
-      frames.length + pageFrames.length >
-      (options.maxFrames ?? DEFAULT_MAX_RENDER_FRAMES)
-    ) {
-      throw new Error(".fig document has too many top-level frames.");
+    if (frames.length + pageFrames.length > maxFrames) {
+      throw new Error(
+        `.fig document has too many top-level frames (max ${maxFrames}).`,
+      );
     }
 
     const seen = new Map<string, number>();

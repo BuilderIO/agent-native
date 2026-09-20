@@ -2495,7 +2495,10 @@ async function createBetterAuthInstance(
       session: {
         create: {
           before: async (session, context) => {
-            const email = await getAuthEmailForUserId(session.userId);
+            const email = await getAuthEmailForUserId(
+              session.userId,
+              context?.context.adapter,
+            );
             const requiredProvider =
               await getRequiredAuthProviderForEmail(email);
             if (!requiredProvider) return;

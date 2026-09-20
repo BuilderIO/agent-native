@@ -19,6 +19,7 @@ import {
   selectionFillColorValues,
   selectionFillInspectorStyles,
   selectionFillModel,
+  selectionColorTargets,
   selectionColorValues,
 } from "./edit-panel/document-colors";
 import { extractDocumentColorPalette } from "./EditPanel";
@@ -78,6 +79,22 @@ describe("extractDocumentColorPalette", () => {
 
     expect(palette).toHaveLength(1);
     expect(palette[0]).toMatch(/^#[0-9A-F]{6}$/);
+  });
+
+  it("does not treat var() fallbacks as authored document colors", () => {
+    const content = `<style>
+      body { background: var(--color-bg, #ffffff); color: var(--color-text, #111827); }
+    </style><body style="background:#101010"></body>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#101010",
+    ]);
+    expect(
+      selectionColorValues(
+        [],
+        [{ fileId: "file-1", content, wholeDocument: true }],
+      ),
+    ).toEqual([{ property: "color", value: "#101010" }]);
   });
 
   it("orders results by descending frequency (most-used colors first)", () => {
@@ -608,6 +625,55 @@ describe("selectionColorValues", () => {
       { property: "color", value: "#0066ff", count: 3 },
       { property: "color", value: "#ff0000" },
     ]);
+  });
+
+  it("finds matching authored paints on each source-scoped layer", () => {
+    const content = `<body data-agent-native-layer-name="Frame" style="background:#101010">
+      <div data-agent-native-node-id="matching" data-agent-native-layer-name="Matching" style="color:#101010"></div>
+      <div data-agent-native-node-id="other" style="background:#ffffff"></div>
+    </body>`;
+    const projection = buildCodeLayerProjection(content);
+    const expectedIds = projection.nodes
+      .filter(
+        (node) =>
+          node.tag === "body" ||
+          node.dataAttributes["data-agent-native-node-id"] === "matching",
+      )
+      .map((node) => node.id);
+
+    expect(
+      selectionColorTargets(
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#101010",
+      ).map(({ nodeId }) => nodeId),
+    ).toEqual(expectedIds);
+  });
+
+  it("does not claim a stylesheet-only color can locate an authored layer", () => {
+    const content = `<!doctype html><html><head><style>.card { color: #0066ff; }</style></head><body><div class="card"></div></body></html>`;
+
+    expect(
+      selectionColorTargets(
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+      ),
+    ).toEqual([]);
+  });
+
+  it("resolves replacement ranges against the rewritten source snapshot", () => {
+    const stale =
+      '<section data-agent-native-node-id="root"><div style="color:#0066ff"></div></section>';
+    const current =
+      '<section data-agent-native-node-id="root" data-padding="a-much-longer-current-attribute"><div style="color:#0066ff"></div></section>';
+
+    expect(
+      replaceSelectionColorsInHtml(
+        current,
+        [{ fileId: "screen", content: stale, sourceId: "root" }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toContain('style="color:#ff0000"');
   });
 
   it("replaces a color throughout selected descendants but not outside them", () => {

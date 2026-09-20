@@ -109,12 +109,17 @@ function paginateIntoResult(
   const pageSource = page.unreadOnly
     ? activeMembers.filter((item) => item.unreadCount > 0)
     : activeMembers;
+  const pageItems = pageSource.slice(page.offset, page.offset + page.limit);
 
   return {
     tabs: resultTabs,
     activeTabId,
-    items: pageSource.slice(page.offset, page.offset + page.limit),
+    items: pageItems,
     total: activeMembers.length,
+    // An unread-only page proves coverage of unread rows, not of the full tab
+    // that `total` describes, so it cannot settle a removal journal.
+    complete:
+      !page.unreadOnly && page.offset + pageItems.length >= pageSource.length,
     syncing,
     accounts,
     labels,

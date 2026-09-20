@@ -23,6 +23,7 @@ import {
   normalizeDesignSourceType,
   type DesignSourceType,
 } from "@shared/source-mode";
+import { isVectorEndpointProperty } from "@shared/vector-endpoints";
 
 import type { ElementInfo } from "@/components/design/types";
 
@@ -1486,6 +1487,24 @@ export function applyScopedVisualStyleEdit(args: {
     source,
   } = args;
   const normalizedProperty = normalizeCssPropertyName(property);
+  if (upperBoundPx != null && isVectorEndpointProperty(normalizedProperty)) {
+    // Endpoint values require marker definitions and shape attributes, which
+    // cannot be represented by a media-scoped custom property. Let the shared
+    // breakpoint editor return its unsupported result before any existing
+    // scoped declaration is cleaned up.
+    return applyVisualEdit(
+      content,
+      {
+        kind: "breakpoint-style",
+        target,
+        maxWidthPx: upperBoundPx,
+        property: normalizedProperty,
+        value,
+        operation: "set",
+      },
+      { source },
+    );
+  }
   if (
     lowerBoundPx != null &&
     upperBoundPx != null &&
