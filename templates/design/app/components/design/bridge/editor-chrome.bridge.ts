@@ -14711,6 +14711,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         childStyles.order !== "0"
       );
     });
+    var hasExplicitSourcePlacement = (excluded || []).some(function (child) {
+      var childStyles = window.getComputedStyle(child);
+      return (
+        childStyles.gridColumnStart !== "auto" ||
+        childStyles.gridColumnEnd !== "auto" ||
+        childStyles.gridRowStart !== "auto" ||
+        childStyles.gridRowEnd !== "auto" ||
+        childStyles.order !== "0"
+      );
+    });
     var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
     while (hit && hit.parentElement && hit.parentElement !== container) {
       hit = hit.parentElement;
@@ -14718,7 +14728,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Resolve the pointer against rendered tracks and carry the cell through
     // the drop so the source and its persisted markup move together. The
     // occupied cell is also retained as the source-order insertion anchor.
-    if (trackLayout && hasExplicitPlacement) {
+    if (trackLayout && hasExplicitPlacement && !hasExplicitSourcePlacement) {
+      // An authored grid slot is part of the source's placement contract.
+      // Reordering that source changes layer order, but must not turn its
+      // authored grid-column/grid-row into the hovered cell.
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
       });
