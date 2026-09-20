@@ -118,13 +118,16 @@ async function postAction(
   page: Page,
   name: string,
   input: Record<string, unknown>,
+  allowConflict = false,
 ): Promise<any> {
   const response = await page.request.post(
     `${ORIGIN}/_agent-native/actions/${name}`,
     { data: input, headers: { "Content-Type": "application/json" } },
   );
-  if (!response.ok())
+  if (!response.ok() && !(allowConflict && response.status() === 409))
     throw new Error(`${name} failed: HTTP ${response.status()}`);
+  if (allowConflict && response.status() === 409)
+    return { conflict: true, error: await response.text() };
   return response.json();
 }
 
@@ -759,17 +762,24 @@ test.describe("authenticated beta Design interactions", () => {
       const apply = async (nodeId: string, value: string) => {
         let result: any;
         for (let attempt = 0; attempt < 3; attempt += 1) {
-          result = await postAction(page, "apply-component-prop-edit", {
-            designId,
-            fileId,
-            nodeId,
-            edit: {
-              kind: "attribute",
-              attribute: "data-agent-native-prop-variant",
-              value,
+          result = await postAction(
+            page,
+            "apply-component-prop-edit",
+            {
+              designId,
+              fileId,
+              nodeId,
+              edit: {
+                kind: "attribute",
+                attribute: "data-agent-native-prop-variant",
+                value,
+              },
+              source: {
+                expectedFiles: await expectedHtmlFiles(page, designId),
+              },
             },
-            source: { expectedFiles: await expectedHtmlFiles(page, designId) },
-          });
+            true,
+          );
           if (!result.conflict) return result;
           await page.waitForTimeout(500);
         }
