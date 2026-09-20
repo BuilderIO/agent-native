@@ -146,6 +146,7 @@ async function installUrlGhostProbe(page: Page) {
         ),
       ).map(describeIframe);
     const mutations: Array<Record<string, unknown>> = [];
+    const messages: Array<Record<string, unknown>> = [];
     const mousemoves: Array<Record<string, unknown>> = [];
     const recordMutation = (iframe: HTMLIFrameElement, kind: string) => {
       if (mutations.length >= 100) return;
@@ -186,6 +187,26 @@ async function installUrlGhostProbe(page: Page) {
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || typeof data !== "object" || typeof data.type !== "string") {
+        return;
+      }
+      if (
+        !data.type.startsWith("agent-native:") ||
+        (messages.length >= 100 &&
+          data.type !== "agent-native:cross-screen-drag")
+      ) {
+        return;
+      }
+      messages.push({
+        at: Math.round(performance.now()),
+        type: data.type,
+        phase: data.phase,
+        sourceIsWindow: event.source instanceof Window,
+      });
+    };
+    window.addEventListener("message", handleMessage);
     const handleMouseMove = (event: MouseEvent) => {
       if (mousemoves.length >= 200) return;
       mousemoves.push({
@@ -201,11 +222,13 @@ async function installUrlGhostProbe(page: Page) {
       read: () => ({
         initialFrames: probe.initialFrames,
         frames: frames(),
+        messages,
         mutations,
         mousemoves,
       }),
       stop: () => {
         observer.disconnect();
+        window.removeEventListener("message", handleMessage);
         window.removeEventListener("mousemove", handleMouseMove, true);
       },
     };
