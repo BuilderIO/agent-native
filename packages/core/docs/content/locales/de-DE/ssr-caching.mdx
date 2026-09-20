@@ -1,0 +1,45 @@
+---
+title: "SSR-Caching"
+description: "Die standardmäßige Hard-Cache-Richtlinie für SSR-HTML- und React-Router-.data-Antworten, und wie Sie sie mit AGENT_NATIVE_SSR_CACHE überschreiben."
+---
+
+# SSR-Caching
+
+Jede SSR-HTML-Antwort und jede React-Router-`.data`-Antwort ist eine einzige unpersönliche, öffentliche Shell. `createH3SSRHandler` entfernt Cookies vor dem Rendern, sodass dieselben Bytes für jeden Besucher korrekt sind und die gesamte Personalisierung clientseitig nach dem Laden erfolgt. Deshalb ist es sicher, diesen Antworten standardmäßig eine einzige Hard-Cache-Richtlinie aufzuprägen:
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+Derselbe Wert wird auf `cdn-cache-control` gespiegelt. `netlify-cdn-cache-control` führt einen eigenen, länger lebenden Standardwert mit sich, `public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600`, da Netlifys CDN diesen Header getrennt vom Standardheader liest. Ein einziger gemeinsamer CDN-Eintrag bedient dann die gesamte Site anstelle eines Renderings pro Anfrage. Das ist der größte Hebel für die Latenz der ersten Antwort. Lassen Sie es aktiviert, sofern nicht einer der folgenden Fälle auf Ihre Bereitstellung zutrifft.
+
+## Überschreiben mit `AGENT_NATIVE_SSR_CACHE` {#ssr-cache-env}
+
+Legen Sie `AGENT_NATIVE_SSR_CACHE` in der Bereitstellungsumgebung fest, um die Richtlinie für die gesamte Bereitstellung zu ändern:
+
+| Wert                                                | Ergebnis                                                                                                                                                                                                                                                       |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| nicht gesetzt, `on`, `default`, `true`, `1`         | Die oben genannte Standardrichtlinie, unverändert. Für beste Performance empfohlen.                                                                                                                                                                            |
+| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `no-store` bei `cache-control`, `cdn-cache-control` und `netlify-cdn-cache-control`.                                                                                                                                                                           |
+| Eine Dauer: `30`, `30s`, `5m`, `2h`                 | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600` bei `cache-control` und `cdn-cache-control`. `netlify-cdn-cache-control` verwendet dieselbe Dauer mit `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600`. |
+
+Bloße Zahlen sind Sekunden. `stale-while-revalidate` spiegelt bei einer benutzerdefinierten Dauer bewusst `max-age`. Ein kurzes Frische-Fenster gepaart mit dem standardmäßigen siebentägigen Stale-Fenster würde genau die Veraltung zurückgeben, die Sie eigentlich abgewählt haben. Ein nicht erkannter Wert protokolliert eine Warnung und fällt auf den Standard zurück, sodass ein Tippfehler das CDN niemals stillschweigend deaktivieren kann.
+
+Reduzieren oder deaktivieren Sie es, wenn eine der folgenden Bedingungen zutrifft:
+
+1. **Ihr Host leert sein CDN beim Deployment nicht.** Netlify und Vercel tun das. Manche selbstverwalteten Setups tun es nicht. Ohne eine Leerung kann ein ausgelieferter Build für `max-age` plus `stale-while-revalidate` weiterhin die vorherige Shell ausliefern.
+2. **Ihre Loader geben veränderliche öffentliche Daten zurück.** Nach einer erfolgreichen Mutation kann ein erneuter Abruf durch `useRevalidator()` oder eine Weiterleitung nach einer Aktion die zwischengespeicherte `.data`-Kopie des Browsers statt frischer Loader-Ausgaben lesen.
+
+Die Einstellung gilt für jede öffentliche Shell-Oberfläche: React-Router-SSR-HTML und `.data`, die Anmelde-HTML-Shell, die Route `/_agent-native/speculation-rules.json`, die Docs-Site und das öffentliche Formular-SSR im Forms-Template. Der generierte Cloudflare-Worker löst sie zur Build-Zeit auf, legen Sie sie also vor dem Build in der Bereitstellungsumgebung fest.
+
+Drei Dinge sind zu beachten:
+
+- **Das Deaktivieren des Cachings personalisiert SSR nicht.** Cookies werden weiterhin vor dem Rendern entfernt, und die SSR-Loader sehen weiterhin den anonymen Zweig. Benutzerspezifische Daten müssen weiterhin clientseitig aufgelöst werden. Diese Variable steuert ausschließlich die Cache-_Dauer_.
+- **Sie gilt bereitstellungsweit, nicht pro Route, das ist Absicht.** Eine Cache-Überschreibung pro Route oder pro Anfrage ist der Weg, auf dem die Nutzdaten eines Besuchers im gemeinsamen CDN-Eintrag eines anderen Besuchers landen. Deshalb bietet das Framework keine an. `guard:ssr-cache-shell` erzwingt das.
+- **Bevorzugen Sie für mutationsfrische Daten Actions statt den Cache zu deaktivieren.** App-Daten gehören in [Actions](/docs/actions-overview), werden clientseitig mit `useActionQuery` / `useActionMutation` gelesen und durch `useDbSync()`-Polling aktuell gehalten. Nichts davon durchläuft den SSR-Shell-Cache. Lassen Sie SSR-Loader weiterhin die öffentliche Shell rendern und greifen Sie nur dann zu dieser Variable, wenn Sie wirklich frischere Loader-Daten wünschen.
+
+## Was kommt als nächstes?
+
+- [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung
+- [**Bereitstellung: Umgebungsvariablen**](/docs/deployment-environment-variables) — die vollständige Referenz der Produktions-Umgebungsvariablen
+- [**Netlify**](/docs/netlify) — warum `netlify-cdn-cache-control` einen eigenen, länger lebenden Standardwert mit sich führt

@@ -1,0 +1,616 @@
+// @vitest-environment happy-dom
+
+import { act, useCallback, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import PromptPopover, { assetsPickerUrl } from "./PromptDialog";
+
+interface ComposerStubProps {
+  disabled?: boolean;
+  draftScope?: string;
+  initialText?: string;
+  initialTextKey?: string | number;
+  onAttachmentsChange?: (files: File[]) => void;
+  onSubmit: (
+    text: string,
+    files: File[],
+    references: unknown[],
+    options: Record<string, unknown>,
+  ) => void;
+  submitting?: boolean;
+}
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
+  appBasePath: () => "",
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT:
+    () =>
+    (key: string, options?: Record<string, unknown>): string =>
+      options ? `${key}:${JSON.stringify(options)}` : key,
+}));
+
+const mockActiveOrg = vi.hoisted(() => ({
+  current: { orgId: "org-a" } as { orgId: string | null } | undefined,
+}));
+const mockOrgPending = vi.hoisted(() => ({ current: false }));
+const mockOrgQueryOptions = vi.hoisted(() => ({
+  values: [] as Array<{ enabled?: boolean } | undefined>,
+}));
+const mockEagerUpload = vi.hoisted(() => ({
+  implementation: async (files: File[]) =>
+    files.map((file) => ({ path: `/uploads/${file.name}` })),
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: (options?: { enabled?: boolean }) => {
+    mockOrgQueryOptions.values.push(options);
+    return {
+      data: mockActiveOrg.current,
+      isPending: mockOrgPending.current,
+    };
+  },
+}));
+
+vi.mock("@agent-native/core/client/composer", () => ({
+  PromptComposer: (props: ComposerStubProps) => {
+    const [text, setText] = useState("");
+    const [files, setFiles] = useState<File[]>([]);
+    return (
+      <div
+        data-testid="prompt-composer"
+        data-draft-scope={props.draftScope ?? ""}
+        data-initial-text={props.initialText ?? ""}
+        data-initial-text-key={String(props.initialTextKey ?? "")}
+        data-disabled={String(Boolean(props.disabled))}
+      >
+        <textarea
+          data-testid="prompt-editor"
+          disabled={props.disabled}
+          value={text}
+          onInput={(event) => setText(event.currentTarget.value)}
+        />
+        <input
+          data-testid="prompt-file-input"
+          type="file"
+          disabled={props.disabled}
+          onChange={(event) => {
+            const nextFiles = Array.from(event.currentTarget.files ?? []);
+            setFiles(nextFiles);
+            props.onAttachmentsChange?.(nextFiles);
+          }}
+        />
+        <button
+          type="button"
+          data-testid="composer-submit"
+          disabled={props.disabled || props.submitting}
+          onClick={() =>
+            props.onSubmit(text || "  hello world  \n", files, [], {})
+          }
+        >
+          submit
+        </button>
+      </div>
+    );
+  },
+  useEagerFileUploads: () => {
+    const [uploading, setUploading] = useState(false);
+    const uploadFiles = useCallback(async (files: File[]) => {
+      if (files.length === 0) return [];
+      setUploading(true);
+      try {
+        return await mockEagerUpload.implementation(files);
+      } finally {
+        setUploading(false);
+      }
+    }, []);
+    return {
+      commitFiles: () => {},
+      discardFiles: () => {},
+      retainFiles: () => {},
+      syncFiles: () => {},
+      uploadFiles,
+      uploading,
+      reset: () => {},
+    };
+  },
+}));
+
+vi.mock("@agent-native/core/embedding/react", () => ({
+  EmbeddedApp: () => null,
+}));
+
+vi.mock("@/components/ui/dialog", () => ({
+  Dialog: ({ open, children }: { open: boolean; children: unknown }) =>
+    open ? <div>{children as never}</div> : null,
+  DialogContent: ({ children }: { children: unknown }) => (
+    <div>{children as never}</div>
+  ),
+  DialogTitle: ({ children }: { children: unknown }) => (
+    <div>{children as never}</div>
+  ),
+}));
+
+vi.mock("@/components/ui/popover", () => ({
+  Popover: ({ children }: { children: unknown }) => (
+    <div>{children as never}</div>
+  ),
+  PopoverAnchor: ({ children }: { children?: unknown }) => (
+    <>{children as never}</>
+  ),
+  PopoverContent: ({ children }: { children: unknown }) => (
+    <div>{children as never}</div>
+  ),
+  PopoverTrigger: ({ children }: { children: unknown }) => (
+    <>{children as never}</>
+  ),
+}));
+
+vi.mock("@/components/templates/TemplatePreview", () => ({
+  TemplatePreview: ({ title }: { title: string }) => (
+    <span data-template-preview={title} />
+  ),
+}));
+
+const toastError = vi.fn();
+vi.mock("sonner", () => ({
+  toast: { error: (...args: unknown[]) => toastError(...args) },
+}));
+
+let cleanup: (() => Promise<void>) | undefined;
+let root: Root | undefined;
+let container: HTMLDivElement | undefined;
+
+beforeEach(() => {
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  mockActiveOrg.current = { orgId: "org-a" };
+  mockOrgPending.current = false;
+  mockOrgQueryOptions.values = [];
+  mockEagerUpload.implementation = async (files) =>
+    files.map((file) => ({ path: `/uploads/${file.name}` }));
+});
+
+afterEach(async () => {
+  await cleanup?.();
+  cleanup = undefined;
+  root = undefined;
+  container = undefined;
+  document.body.replaceChildren();
+  vi.restoreAllMocks();
+  toastError.mockClear();
+});
+
+async function renderPopover(props: Record<string, unknown>) {
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  cleanup = async () => {
+    await act(async () => root?.unmount());
+    container?.remove();
+  };
+  await act(async () => {
+    root!.render(
+      <PromptPopover
+        open
+        onOpenChange={() => {}}
+        title="Generate design"
+        onSubmit={() => {}}
+        {...props}
+      />,
+    );
+  });
+}
+
+describe("PromptPopover draft isolation", () => {
+  it("scopes the composer draft key to this popover's title by default", async () => {
+    await renderPopover({ title: "Tweak design" });
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composer?.getAttribute("data-draft-scope")).toBe(
+      "Tweak design:org-a",
+    );
+  });
+
+  it("keeps host prompts anonymous without querying the active org", async () => {
+    await renderPopover({ scopeDraftsToOrg: false });
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+
+    expect(mockOrgQueryOptions.values).toContainEqual({ enabled: false });
+    expect(composer?.getAttribute("data-draft-scope")).toBe(
+      "Generate design:anonymous",
+    );
+  });
+
+  it("prefers an explicit draftScope over the title default", async () => {
+    await renderPopover({
+      title: "Generate design",
+      draftScope: "design:abc123:generate",
+    });
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composer?.getAttribute("data-draft-scope")).toBe(
+      "design:abc123:generate:org-a",
+    );
+  });
+
+  it("changes the draft key when the active account switches, so a draft never leaks across accounts", async () => {
+    mockActiveOrg.current = { orgId: "org-a" };
+    await renderPopover({ title: "New design" });
+    const composerBefore = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composerBefore?.getAttribute("data-draft-scope")).toBe(
+      "New design:org-a",
+    );
+
+    // Switching accounts (org.orgId changes) happens client-side with no
+    // reload, so this must re-derive to a different key rather than keep
+    // reading/writing the previous account's localStorage entry.
+    mockActiveOrg.current = { orgId: "org-b" };
+    await act(async () => {
+      root!.render(
+        <PromptPopover
+          open
+          onOpenChange={() => {}}
+          title="New design"
+          onSubmit={() => {}}
+        />,
+      );
+    });
+
+    const composerAfter = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composerAfter?.getAttribute("data-draft-scope")).toBe(
+      "New design:org-b",
+    );
+  });
+
+  it("never falls back to the unscoped title key while the org query is still pending", async () => {
+    // Before `useOrg` resolves we don't know which account this popover
+    // belongs to. Falling back to the bare title key here would let this
+    // popover read (or later leak) a different signed-in account's
+    // abandoned draft, since that unscoped key predates org-scoping.
+    mockOrgPending.current = true;
+    mockActiveOrg.current = undefined;
+    await renderPopover({ title: "New design" });
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composer?.getAttribute("data-draft-scope")).not.toBe("New design");
+    expect(composer?.getAttribute("data-draft-scope")).toBe(
+      "New design:pending",
+    );
+  });
+
+  it("scopes users with no active org distinctly from both the pending and unscoped keys", async () => {
+    mockOrgPending.current = false;
+    mockActiveOrg.current = { orgId: null };
+    await renderPopover({ title: "New design" });
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composer?.getAttribute("data-draft-scope")).toBe("New design:none");
+  });
+});
+
+describe("PromptPopover asset picker", () => {
+  it("uses the embedded library picker contract", () => {
+    const url = new URL(assetsPickerUrl());
+
+    expect(url.pathname).toBe("/library");
+    expect(url.searchParams.get("__an_picker")).toBe("1");
+    expect(url.searchParams.get("mediaType")).toBe("image");
+    expect(url.searchParams.get("layout")).toBe("vertical");
+    expect(url.searchParams.get("embedded")).toBe("1");
+    expect(url.searchParams.get("callerAppId")).toBe("design");
+  });
+
+  it("falls back to the complete embedded contract for an invalid configured URL", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ASSETS_PICKER_URL", "https://[invalid");
+
+    const url = new URL(assetsPickerUrl());
+
+    expect(url.origin).toBe("https://assets.agent-native.com");
+    expect(url.pathname).toBe("/library");
+    expect(url.searchParams.get("__an_picker")).toBe("1");
+    expect(url.searchParams.get("mediaType")).toBe("image");
+    expect(url.searchParams.get("layout")).toBe("vertical");
+    expect(url.searchParams.get("embedded")).toBe("1");
+    expect(url.searchParams.get("callerAppId")).toBe("design");
+  });
+});
+
+describe("PromptPopover submit failure recovery", () => {
+  it("restores the typed prompt into the composer instead of losing it when onSubmit rejects", async () => {
+    const onSubmit = vi.fn().mockRejectedValue(new Error("network down"));
+    await renderPopover({ onSubmit });
+
+    await act(async () => {
+      container!
+        .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')
+        ?.click();
+    });
+    // Let the async handleSubmit's rejection settle and re-render.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(toastError).toHaveBeenCalledWith("network down");
+
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    // The composer optimistically clears its own text as soon as onSubmit is
+    // invoked, so the popover must feed the failed prompt back in via
+    // `initialText`/`initialTextKey` rather than let it vanish.
+    expect(composer?.getAttribute("data-initial-text")).toBe(
+      "  hello world  \n",
+    );
+    expect(composer?.getAttribute("data-initial-text-key")).not.toBe("");
+    expect(composer?.getAttribute("data-initial-text-key")).not.toBe("0");
+  });
+
+  it("does not surface a restore when onSubmit succeeds", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    await renderPopover({ onSubmit });
+
+    await act(async () => {
+      container!
+        .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')
+        ?.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(toastError).not.toHaveBeenCalled();
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+    expect(composer?.getAttribute("data-initial-text")).toBe("");
+  });
+});
+
+describe("PromptPopover attachment editing", () => {
+  it("keeps typing available during eager upload and waits before submitting", async () => {
+    let resolveUpload!: (files: Array<{ path: string }>) => void;
+    const uploadPending = new Promise<Array<{ path: string }>>((resolve) => {
+      resolveUpload = resolve;
+    });
+    mockEagerUpload.implementation = () => uploadPending;
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    await renderPopover({ onSubmit });
+
+    const fileInput = container!.querySelector<HTMLInputElement>(
+      '[data-testid="prompt-file-input"]',
+    );
+    const file = new File(["image"], "hero.png", { type: "image/png" });
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () => {
+      fileInput?.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const editor = container!.querySelector<HTMLTextAreaElement>(
+      '[data-testid="prompt-editor"]',
+    );
+    expect(editor?.disabled).toBe(false);
+    await act(async () => {
+      if (!editor) throw new Error("prompt editor was not rendered");
+      editor.value = "keep typing";
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(editor?.value).toBe("keep typing");
+
+    await act(async () => {
+      container!
+        .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveUpload([{ path: "/uploads/hero.png" }]);
+      await uploadPending;
+    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      "keep typing",
+      [{ path: "/uploads/hero.png" }],
+      expect.anything(),
+    );
+  });
+});
+
+describe("PromptPopover skip affordance", () => {
+  it("falls back to the localized skip label when the caller doesn't pass one", async () => {
+    await renderPopover({ onSkip: vi.fn() });
+    const skipButton = Array.from(container!.querySelectorAll("button")).find(
+      (btn) => btn.textContent === "promptDialog.skipPrompt",
+    );
+    expect(skipButton).toBeTruthy();
+  });
+
+  it("uses an explicit skipLabel over the localized default", async () => {
+    await renderPopover({ onSkip: vi.fn(), skipLabel: "Not now" });
+    const skipButton = Array.from(container!.querySelectorAll("button")).find(
+      (btn) => btn.textContent === "Not now",
+    );
+    expect(skipButton).toBeTruthy();
+  });
+
+  it("fires once and closes once after an async skip succeeds", async () => {
+    let resolveSkip: (() => void) | undefined;
+    const onSkip = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSkip = resolve;
+        }),
+    );
+    const onOpenChange = vi.fn();
+    await renderPopover({ onSkip, onOpenChange });
+    const skipButton = Array.from(container!.querySelectorAll("button")).find(
+      (btn) => btn.textContent === "promptDialog.skipPrompt",
+    );
+
+    await act(async () => {
+      skipButton?.click();
+      skipButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(onSkip).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSkip?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("stays open and allows retry when an async skip fails", async () => {
+    const onSkip = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("create failed"))
+      .mockResolvedValueOnce(undefined);
+    const onOpenChange = vi.fn();
+    await renderPopover({ onSkip, onOpenChange });
+    const findSkipButton = () =>
+      Array.from(container!.querySelectorAll("button")).find(
+        (btn) => btn.textContent === "promptDialog.skipPrompt",
+      );
+
+    await act(async () => {
+      findSkipButton()?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(findSkipButton()?.disabled).toBe(false);
+    expect(
+      container!.querySelector('[data-testid="prompt-composer"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      findSkipButton()?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSkip).toHaveBeenCalledTimes(2);
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("does not close after a successful skip that already navigated", async () => {
+    const onSkip = vi.fn().mockResolvedValue(false);
+    const onOpenChange = vi.fn();
+    await renderPopover({ onSkip, onOpenChange });
+    const skipButton = Array.from(container!.querySelectorAll("button")).find(
+      (btn) => btn.textContent === "promptDialog.skipPrompt",
+    );
+
+    await act(async () => {
+      skipButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSkip).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("PromptPopover template picker", () => {
+  const templates = [
+    {
+      id: "built-in-template",
+      title: "Built-in launch",
+      isBuiltIn: true,
+      previewHtml: "<main>Built in</main>",
+    },
+    {
+      id: "saved-template",
+      title: "Saved campaign",
+      isBuiltIn: false,
+      previewHtml: "<main>Saved</main>",
+    },
+  ];
+
+  it("shows the selected preview, name, badge, and grouped saved-first options", async () => {
+    await renderPopover({
+      templateOptions: templates,
+      selectedTemplateId: "built-in-template",
+      onTemplateChange: vi.fn(),
+    });
+
+    const trigger = container!.querySelector("[data-template-picker-trigger]");
+    expect(trigger?.textContent).toContain(
+      "promptDialog.template · Built-in launch",
+    );
+    expect(trigger?.textContent).toContain("promptDialog.builtIn");
+    expect(
+      trigger?.querySelector('[data-template-preview="Built-in launch"]'),
+    ).toBeTruthy();
+
+    const text = container!.textContent ?? "";
+    expect(text.indexOf("promptDialog.blank")).toBeLessThan(
+      text.indexOf("promptDialog.yourTemplates"),
+    );
+    expect(text.indexOf("promptDialog.yourTemplates")).toBeLessThan(
+      text.indexOf("Saved campaign"),
+    );
+    expect(text.indexOf("Saved campaign")).toBeLessThan(
+      text.indexOf("promptDialog.builtInTemplates"),
+    );
+    expect(text.indexOf("promptDialog.builtInTemplates")).toBeLessThan(
+      text.lastIndexOf("Built-in launch"),
+    );
+  });
+
+  it("selects both saved and built-in templates through the shared control", async () => {
+    const onTemplateChange = vi.fn();
+    await renderPopover({
+      templateOptions: templates,
+      selectedTemplateId: null,
+      onTemplateChange,
+    });
+
+    await act(async () => {
+      container!
+        .querySelector<HTMLElement>('[data-template-option="saved-template"]')
+        ?.click();
+    });
+    expect(onTemplateChange).toHaveBeenCalledWith("saved-template");
+
+    await act(async () => {
+      container!
+        .querySelector<HTMLElement>(
+          '[data-template-option="built-in-template"]',
+        )
+        ?.click();
+    });
+    expect(onTemplateChange).toHaveBeenCalledWith("built-in-template");
+  });
+});

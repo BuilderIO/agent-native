@@ -1,0 +1,83 @@
+---
+title: "Design"
+description: "Un estudio de creación de prototipos nativo del agente que sustituye a herramientas de maquetación estática como Figma. Describe una pantalla, compara variantes, ajusta el resultado y exporta código real de Alpine y Tailwind con el agente."
+---
+
+# Design
+
+Design es un estudio de creación de prototipos nativo del agente. En lugar de
+un lienzo de dibujo en capas, el agente genera prototipos HTML completos y
+autocontenidos con Alpine y Tailwind, los muestra en una vista previa en vivo
+y refina el resultado mediante indicaciones y controles de ajuste. Sustituye
+a una herramienta de maquetación estática y a la transferencia que la sigue,
+ya que lo que ves en la vista previa ya es código real y funcional.
+
+<Cards columns={1}>
+
+### [Pruébalo ahora →](https://design.agent-native.com)
+
+Mira Design en acción y genera un prototipo real.
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd727791fcde24ad7ad9e171f017c4eea?alt=media&token=41c84c1b-f1ca-4670-88a7-cf71018e21c9&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Un breve recorrido por la aplicación de diseño."
+  caption="Un breve recorrido por la aplicación de diseño."
+  autoplay={true}
+  loop={true}
+/>
+
+Cada generación, ajuste y exportación lee y escribe el mismo archivo HTML,
+así que nada se pierde en la traducción entre la vista previa y lo que
+descargas.
+
+## Lo que sustituye
+
+<Comparison>
+
+### Antes
+
+- Figma o una herramienta similar para maquetas estáticas, y luego un desarrollador aparte para convertirlas en markup real
+- Adivinar cómo responde un diseño redimensionando un artboard, en lugar de una renderización real en el navegador
+- Una transferencia lenta entre especificaciones exportadas y alguien que las replica a mano
+- El archivo de diseño y el código publicado que se distancian con el tiempo
+
+### Después
+
+- Un solo prototipo HTML que el agente genera, previsualiza y refina, sin un paso de compilación aparte
+- Markup real de Alpine y Tailwind que puedes previsualizar en vivo en cualquier punto de quiebre
+- Pídele al agente un cambio de diseño, copia o interacción y observa cómo se actualiza ese mismo archivo
+- Exporta directamente a HTML, ZIP, PDF o un paquete de transferencia de código, para que el diseño y el código sigan siendo un solo artefacto
+
+</Comparison>
+
+## Design en un espacio de trabajo con varias apps
+
+Si ejecutas Design junto con otras apps en
+[Dispatch](/docs/template-dispatch), esa no es la única forma de acceder a
+él. Design también funciona como una herramienta alojada que otros agentes
+pueden llamar directamente, incluidos Claude Code y Claude Desktop, a través
+del mismo tipo de punto de conexión que ya expone una app del espacio de
+trabajo. Consulta [Design en un espacio de trabajo con varias
+apps](/docs/template-design-integrations) para saber cómo funciona realmente
+la conexión y los mecanismos reales detrás de ella.
+
+## Qué puedes hacer con él
+
+- **Genera prototipos completos.** Describe la pantalla o página que necesitas y el agente escribe un documento HTML funcional con estilos de Tailwind e interacciones de Alpine.
+- **Compara variantes.** Genera algunas direcciones diferentes, elige la más fuerte y sigue refinando en lugar de empezar de nuevo.
+- **Aplica una marca.** Vincula un sistema de diseño, importa la marca desde un sitio o una base de código, o trae un frame de Figma como punto de partida con precisión de píxel. Consulta [Funciones](/docs/template-design-features).
+- **Mantén la calidad constante.** El agente ejecuta una comprobación de accesibilidad y visual antes de dar un prototipo por listo, y los patrones repetidos pueden convertirse en componentes reutilizables. Consulta [Funciones](/docs/template-design-features).
+- **Exporta archivos reales.** Exporta HTML, ZIP, PDF o un SVG de Figma realmente vectorial, o entrega el prototipo a un agente de codificación con un paquete de transferencia ya preparado. Consulta [Funciones](/docs/template-design-features).
+
+## Qué sigue
+
+- [**Funciones**](/docs/template-design-features) — generación, calidad, marca e importación de Figma, componentes y exportación, con pasos de configuración para cada una
+- [**Hablar con el Agent**](/docs/template-design-agent) — peticiones por tarea y cómo ve el agente tu pantalla
+- [**Design en un espacio de trabajo con varias apps**](/docs/template-design-integrations) — conectar con Dispatch y llamar a Design desde Claude Code, Claude Desktop y otros agentes a través de MCP
+- [**Guía para desarrolladores**](/docs/template-design-developers) — inicio rápido, acciones, el modelo de datos y las rutas
+- [**Plantillas**](/docs/cloneable-saas) — el modelo Cloneable SaaS y todas las demás plantillas de dominio desde las que empezar
+- [**Primeros pasos**](/docs/getting-started) — los fundamentos del framework: acciones, estado de la aplicación y sincronización en vivo
+- [**Conciencia del contexto**](/docs/context-awareness) — cómo sabe el agente qué está viendo el usuario
+- [**Agentes externos**](/docs/external-agents) — conectar Claude Code, Claude Desktop y otros hosts MCP a una app nativa del agente

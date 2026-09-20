@@ -1,0 +1,21 @@
+---
+title: "Capability packages"
+description: "Domain capabilities और उनके manifest-driven lifecycle को Toolkit में मिलाए बिना प्रबंधित करें।"
+---
+
+# Capability packages
+
+Toolkit cross-app product foundations देता है; capability packages सीमित domain, actions, skills और lifecycle metadata देते हैं। Scheduling और Creative Context अलग capability packages हैं, Toolkit feature kits नहीं।
+
+`@agent-native/scheduling` generic manifest pilot में है। Extension points और ownership के लिए हर package के local docs और manifest को source of truth मानें।
+
+- [Scheduling package docs](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Creative Context package docs](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Inspect, dry run और eject नियमों के लिए [Package Lifecycle](/docs/package-lifecycle) देखें।

@@ -1,0 +1,189 @@
+---
+title: "캘린더: Agent와 대화"
+description: "캘린더를 사용할 때 에이전트가 무엇을 보는지, 작업별로 정리한 프롬프트, 그리고 미리 정해진 액션 대신 원시 Google Calendar API를 직접 호출하는 시점을 다룹니다."
+---
+
+# Agent와 대화
+
+캘린더의 모든 기능은 UI가 사용하는 것과 같은 액션을 통해 에이전트에게도 그대로
+제공되므로, 클릭으로 할 수 있는 일은 말로도 요청할 수 있습니다. 이 페이지는 에이전트가
+화면을 어떻게 인식하는지, 작업별로 유용한 프롬프트가 무엇인지, 그리고 기본 제공
+액션을 넘어서야 할 때는 어떻게 하는지를 다룹니다. 전체 개요는
+[캘린더](/docs/template-calendar) 문서를 참고하세요.
+
+## 에이전트가 화면을 보는 방식
+
+에이전트는 현재 캘린더 보기, 지금 보고 있는 날짜 범위, 그리고 선택한 이벤트를 항상
+알고 있습니다. 그래서 "이거 일정 변경해줘"나 "이 통화에 누가 있어?"라고만 말해도
+이벤트 이름을 굳이 말하지 않아도 정확히 처리됩니다. 에이전트는 이미 "이것"이 무엇을
+가리키는지 알고 있습니다.
+
+## 작업별 유용한 프롬프트
+
+아래 프롬프트는 모두 실제 캘린더에 대한 실제 액션이 되며, UI가 읽고 쓰는 것과
+동일한 캘린더를 대상으로 합니다. 실제로 동작하는 예시 하나를 살펴보겠습니다.
+
+<Comparison>
+
+### :blue: 여러분이 묻습니다
+
+"목요일 오후에 시간 있어?"
+
+### :green: 일어나는 일
+
+읽기만 하는 질문입니다. 에이전트가 실제 캘린더와 가용성 규칙을 확인한 다음 채팅에서
+바로 답합니다. 예를 들면 "1시부터 4시까지 비어 있어"처럼요. 아무것도 만들거나 옮기지
+않았으므로 화면에는 아무 변화가 없습니다.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### 일정 예약
+
+- **"내일 오후 2시에 Alex와 30분 통화 잡아줘."** 이벤트가 생성되는 즉시 캘린더에
+  나타납니다. 대화상자가 필요 없습니다.
+- **"목요일 10시에 디자인 팀과 Zoom 회의 만들어줘."** 위와 동일하며, Zoom 링크가
+  자동으로 첨부됩니다.
+- **"금요일에 나 자리비움으로 설정해줘."** 하루 종일 자리비움 이벤트가 캘린더에 바로
+  나타납니다.
+
+### 시간 찾기
+
+- **"다음 주에 Sam, Priya와 1시간짜리 시간을 찾아서 'Planning'으로 잡아줘."**
+  에이전트가 모두의 실제 가용성을 확인한 다음, 새 이벤트가 캘린더에 실시간으로
+  나타납니다. 대화상자가 필요 없습니다.
+
+### 이벤트 관리
+
+_이벤트를 선택한 상태에서는 "이거"와 "이 회의"가 자동으로 해석됩니다._
+
+- **"이 이벤트 금요일 오후 2시로 옮겨줘."** 이벤트가 캘린더 그리드에서 실시간으로
+  이동합니다.
+- **"이 회의에 Jordan을 선택 참석자로 추가해줘."** Jordan이 참석자 목록에 즉시
+  나타납니다.
+- **"이 초대 수락해줘." / "그날 자리비움이라고 메모 남기고 거절해줘."** RSVP가
+  이벤트에 바로 반영됩니다.
+- **"이 회의 나한테서만 삭제해줘. 내가 주최자는 아니야."** 회의가 여러분의
+  캘린더에서 사라집니다. 다른 참석자들의 캘린더에는 그대로 남아 있습니다.
+
+### 예약 링크
+
+- **"이름 필드가 있는 15분짜리 소개 예약 링크 만들어줘."** 새 미팅 유형이 예약 링크
+  목록에 실시간으로 나타납니다.
+- **"'Steve + Brent' 링크에 Brent를 필수 공동 호스트로 추가해줘."** Brent가 즉시
+  공동 호스트로 나타나며, 앞으로는 둘 다 시간이 비어 있을 때만 시간대가 열립니다.
+- **"'30분 데모' 링크 일시중지해줘."** 링크가 바로 일시중지 상태로 표시되며 새
+  예약을 받지 않습니다.
+- **"이번 주 예약 내역 보여줘."** 읽기만 하는 질문입니다. 에이전트가 채팅에 목록으로
+  답합니다.
+
+### 사람과 화면
+
+- "acme.com의 jane이 누구야?"
+- "Priya의 캘린더를 내 화면에 추가해줘."
+- "일별 보기로 전환하고 다음 월요일로 이동해줘."
+
+</Cards>
+
+## 그룹 및 공동 호스트 예약 링크
+
+예약 링크에 필수 공동 호스트가 있으면, 에이전트(그리고 UI)는 소유자 _그리고_ 모든
+공동 호스트가 함께 시간이 비어 있을 때만 시간대를 제공합니다. 소유자의 캘린더뿐
+아니라 모두의 캘린더를 확인합니다. 누군가 예약하면 에이전트는 방문자와 함께 모든
+공동 호스트를 생성된 Google Calendar 이벤트에 초대합니다.
+
+<Diagram id="doc-block-calendar5" title="일정 예약 요청이 흐르는 방식" summary="캘린더에서 클릭하든 에이전트에게 요청하든, 동일한 액션이 Google Calendar에서 실시간으로 읽고 같은 화면에 다시 씁니다. Zoom과 사람 검색도 같은 흐름에 연결됩니다.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      여러분이 클릭<br /><small class="diagram-muted"
+        >드래그, 툴바, 단축키</small
+      >
+    </div>
+    <div class="diagram-node">
+      에이전트에게 요청<br /><small class="diagram-muted"
+        >"다음 주에 1시간짜리 시간 찾아줘"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · find-a-time · search-people · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >실시간, 다중 계정</small
+      >
+    </div>
+    <div class="diagram-box">
+      Zoom<br /><small class="diagram-muted">예약 시 회의 생성</small>
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">예약 · 가용성</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">캘린더 보기가 실시간으로 업데이트됨</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 에이전트가 Google Calendar API를 직접 호출할 때
+
+기본 제공 액션(`list-events`, `search-events`, `find-a-time` 등)은 일상적인 일정
+관리를 다룹니다. 어떤 요청은 이 액션들이 노출하지 않는 정확한 Google Calendar
+엔드포인트, 필터, 또는 페이지네이션 방식을 필요로 합니다. 예를 들면 리포트를 위해
+6개월치 이벤트를 전부 훑거나, 흔치 않은 캘린더 목록 조회 같은 경우입니다. 이런 경우
+에이전트는 좁은 액션에 억지로 답을 맞추는 대신 실제 Google Calendar API를 직접
+호출할 수 있습니다. 대규모로 훑을 때는 결과를 스크래치 데이터셋에 저장해 두고,
+수천 개의 이벤트를 대화에 그대로 쏟아붓는 대신 간결한 요약으로 작업합니다. 보통
+일반적인 일정 질문을 넘어서는 요청에서 "Google Calendar에서 직접 가져올게요" 같은
+식으로 이 동작을 알아볼 수 있습니다.
+
+## 확장
+
+캘린더는 확장을 지원합니다. 확장은 여러분이나 에이전트가 만들어 앱에 붙일 수 있는
+작은 샌드박스 위젯입니다. 이벤트 상세 패널 하단에는 확장이 렌더링될 수 있는 슬롯이
+있으며, 이벤트의 id, 제목, 시간, 시간대, 위치, 참석자, 계정 정보가 이미 준비되어
+있습니다. 만드는 방법은 [확장](/docs/extensions) 문서를 참고하세요.
+
+## 다음 단계
+
+- [**캘린더**](/docs/template-calendar) — 개요와 시작 단계
+- [**기능**](/docs/template-calendar-features) — 보기, 가용성, 시간 찾기, 예약 링크와 각각의 설정 단계
+- [**다중 앱 작업 공간 속 캘린더**](/docs/template-calendar-integrations) — 통합 전략과 Dispatch 연결
+- [**개발자 가이드**](/docs/template-calendar-developers) — 모든 액션, 데이터 모델, 앱을 확장하는 방법
+- [**확장**](/docs/extensions) — 이벤트 상세 슬롯을 위한 위젯 만들기

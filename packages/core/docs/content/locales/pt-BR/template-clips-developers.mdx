@@ -1,0 +1,395 @@
+---
+title: "Clipes: Guia do desenvolvedor"
+description: "Início rápido, o inventário completo de actions, o modelo de dados, as rotas e como estender o template Clipes."
+---
+
+# Guia do desenvolvedor
+
+Esta página é para qualquer pessoa que esteja personalizando o template Clipes ou estendendo-o: o início rápido, todas as actions, o modelo de dados, a superfície de rotas e como adicionar a ela. Veja [Clipes](/docs/template-clips) para o que o aplicativo faz.
+
+## Início rápido
+
+<Steps>
+
+### Crie o aplicativo
+
+```bash
+npx @agent-native/core@latest create my-clips --standalone --template clips
+cd my-clips
+pnpm install
+```
+
+Isso requer [Node.js](https://nodejs.org) 22.22 ou posterior e [pnpm](https://pnpm.io) instalados primeiro. Veja [Primeiros passos](/docs/getting-started) se você ainda não instalou nenhum dos dois, ou não tem uma conexão LLM (Builder.io, uma chave Anthropic/OpenAI, ou Ollama local) configurada.
+
+### Inicie o servidor de desenvolvimento
+
+```bash
+pnpm dev
+```
+
+O aplicativo abre automaticamente no seu navegador. A gravação funciona sem nenhuma configuração extra, já que o navegador ou o aplicativo de desktop captura localmente. Você só vai encontrar um erro em uma action que precisa de armazenamento de arquivos ou de créditos de IA antes que um dos dois esteja configurado.
+
+</Steps>
+
+<Callout tone="info">
+
+Gravação, transcrição e títulos/resumos de IA precisam de armazenamento de arquivos e créditos de IA configurados antes de funcionarem de ponta a ponta. Conecte o Builder.io em **Configurações** para os dois de uma vez (seu plano gratuito inclui créditos de IA gerenciados), ou conecte um armazenamento compatível com S3 separadamente e use sua própria chave do Groq para a transcrição. Veja [Transcrição e metadados de IA](/docs/template-clips-features#transcription-and-ai-metadata).
+
+</Callout>
+
+## Inventário de actions
+
+Cada operação é um arquivo TypeScript em `templates/clips/actions/`, montado automaticamente em `POST /_agent-native/actions/:name`.
+
+### Biblioteca e gravações
+
+| Action                                                                                    | O que faz                                                                             |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `list-recordings`, `search-recordings`                                                    | Listagem da biblioteca, compartilhado comigo, lixeira e com escopo de espaço          |
+| `create-recording`, `finalize-recording`                                                  | Cria a linha; finaliza o upload                                                       |
+| `import-loom-recording`                                                                   | Importa um vídeo do Loom ou uma URL direta de MP4/WebM                                |
+| `update-recording`                                                                        | Título, descrição, senha, expiração, visibilidade                                     |
+| `move-recording`                                                                          | Move uma ou várias gravações para uma pasta ou para a raiz                            |
+| `archive-recording`, `trash-recording`, `restore-recording`, `delete-recording-permanent` | Ciclo de vida: esconder, excluir de forma reversível, desfazer ou excluir para sempre |
+| `reprocess-recording`                                                                     | Repara mídia não navegável ou congelada                                               |
+| `generate-filmstrip`                                                                      | Sprite de quadros da linha do tempo do editor                                         |
+| `tag-recording`, `set-thumbnail`                                                          | Marcação com tags e uma miniatura escolhida manualmente                               |
+
+### Pastas e espaços
+
+| Action                                            | O que faz                                                               |
+| ------------------------------------------------- | ----------------------------------------------------------------------- |
+| `create-folder`, `rename-folder`, `delete-folder` | Pastas aninhadas; excluir uma move seu conteúdo para cima               |
+| `create-space`, `rename-space`, `delete-space`    | Contêineres de gravação com escopo de organização, baseados em tópico   |
+| `add-recording-to-space`                          | Adiciona ou remove uma gravação de um espaço (muitos-para-muitos)       |
+| `add-space-member`, `remove-space-member`         | Funções de visualizador, colaborador e administrador em nível de espaço |
+
+### Edição
+
+| Action                                   | O que faz                                                               |
+| ---------------------------------------- | ----------------------------------------------------------------------- |
+| `trim-recording`, `split-recording`      | Aplica uma instrução de corte em camadas; nunca toca na mídia de origem |
+| `remove-silences`, `remove-filler-words` | Executado pelo agente: lê a transcrição, aplica cortes para você        |
+| `stitch-recordings`                      | Combina várias gravações em uma só, em ordem                            |
+| `undo-edit`, `clear-edits`               | Remove a edição mais recente, ou reseta para o original                 |
+
+### Transcrição e metadados de IA
+
+| Action                                                                          | O que faz                                              |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `request-transcript`, `cleanup-transcript`                                      | Transcreve; `force`/`regenerate` para uma nova passada |
+| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | Metadados de IA, ou definir capítulos manualmente      |
+| `get-builder-credit-status`                                                     | Se os créditos de IA da Builder.io estão pausados      |
+
+### Comentários e reações
+
+| Action                                                                                   | O que faz                                               |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | Comentários encadeados e com carimbo de data e hora     |
+| `react-to-comment`, `react-to-recording`                                                 | Reações com emoji                                       |
+| `list-comments`, `list-recording-mention-members`                                        | Lê comentários; consulta quem pode ser mencionado com @ |
+
+### Memória de tela (Rewind)
+
+| Action                                                                                                                          | O que faz                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Lê o buffer local do Rewind                                                  |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | O fluxo de revisão e aprovação para adicionar histórico do Rewind a um clipe |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | Aplica uma extensão aprovada; força o clipe a ficar privado primeiro         |
+
+### Entre apps e insights
+
+| Action                                                                       | O que faz                                                                                   |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `export-to-brain`                                                            | Envia transcrições prontas para o Brain, com preenchimento retroativo e um cursor retomável |
+| `prepare-crm-call-evidence`                                                  | ID de clipe opaco mais um link durável `/r/<id>` para automações de CRM                     |
+| `create-recording-agent-link`                                                | Gera um link `agent_access` com escopo e tempo limitado para uma gravação                   |
+| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | Visualizações, engajamento e exportação em CSV para toda a organização                      |
+| `list-viewers`, `list-clip-views`                                            | Quem assistiu, e quando                                                                     |
+
+### Organização
+
+| Action                                                                                  | O que faz                                                                  |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | Criação de organização e convites                                          |
+| `remove-member`, `update-member-role`                                                   | Gerencia membros e funções                                                 |
+| `set-organization-branding`, `list-organization-state`                                  | Cor/logotipo da marca, visibilidade padrão, leituras de toda a organização |
+
+### Navegação, incorporação e relatórios de bugs
+
+| Action                                                                                | O que faz                                                                                            |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `view-screen`, `navigate`, `refresh-list`                                             | Lê o contexto; move a interface                                                                      |
+| `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | Retoma a reprodução; transcrição completa e diagnósticos                                             |
+| `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | O fluxo de incorporação anônima e de terceiros. Veja [Incorporar Clipes](/docs/template-clips-embed) |
+| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | O lançador de relatório de bugs incorporado e os diagnósticos da extensão do Chrome                  |
+
+## Modelo de dados
+
+Definido em `templates/clips/server/db/schema.ts`.
+
+<Callout tone="warning">
+
+As linhas de equipe, membro e convite vivem nas próprias tabelas `organizations`, `org_members` e `org_invitations` do framework, não em uma tabela específica do Clipes. `organization_settings` é o arquivo secundário do próprio Clipes: cor da marca, logotipo e visibilidade padrão, uma linha por organização. Um par `workspaces`/`workspace_members` mais antigo ainda existe apenas para que uma migração única de inicialização possa preencher retroativamente as tabelas do framework em uma implantação existente. Não construa novas funcionalidades sobre eles.
+
+</Callout>
+
+<DataModel
+  id="doc-block-clips-data-model"
+  title="Modelo de dados do Clipes"
+  summary={
+    "As gravações são o recurso principal. Uma gravação pertence a uma pasta (ou a nenhuma), mas pode estar em qualquer número de espaços ao mesmo tempo. Comentários e compartilhamentos usam o id da gravação como chave."
+  }
+  entities={[
+    {
+      id: "recordings",
+      name: "recordings",
+      note: "O recurso principal (ownable)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "folderId", type: "id", nullable: true },
+        {
+          name: "spaceIds",
+          type: "json",
+          note: "Array JSON de ids de espaço, muitos-para-muitos",
+        },
+        { name: "title", type: "string" },
+        {
+          name: "status",
+          type: "enum",
+          note: "uploading | processing | ready | failed",
+        },
+        { name: "durationMs", type: "int" },
+        { name: "videoUrl", type: "string", nullable: true },
+        {
+          name: "editsJson",
+          type: "json",
+          note: "instruções de edição em camadas, não destrutivas",
+        },
+        { name: "chaptersJson", type: "json" },
+        { name: "password", type: "string", nullable: true },
+        { name: "expiresAt", type: "datetime", nullable: true },
+        { name: "archivedAt", type: "datetime", nullable: true },
+        { name: "trashedAt", type: "datetime", nullable: true },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "Pastas aninhadas",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "parentId", type: "id", nullable: true },
+        {
+          name: "spaceId",
+          type: "id",
+          nullable: true,
+          note: "null = biblioteca pessoal",
+        },
+        { name: "ownerEmail", type: "string" },
+        { name: "name", type: "string" },
+      ],
+    },
+    {
+      id: "spaces",
+      name: "spaces",
+      note: "Subcontêineres de organização com escopo de tópico",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "name", type: "string" },
+        { name: "isAllCompany", type: "bool" },
+      ],
+    },
+    {
+      id: "space_members",
+      name: "space_members",
+      note: "Funções por espaço",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "spaceId", type: "id", fk: "spaces.id" },
+        { name: "email", type: "string" },
+        { name: "role", type: "enum", note: "viewer | contributor | admin" },
+      ],
+    },
+    {
+      id: "recording_comments",
+      name: "recording_comments",
+      note: "Comentários encadeados e com carimbo de data e hora",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "recordingId", type: "id", fk: "recordings.id" },
+        { name: "threadId", type: "id" },
+        { name: "parentId", type: "id", nullable: true },
+        { name: "authorEmail", type: "string" },
+        { name: "content", type: "string" },
+        { name: "videoTimestampMs", type: "int" },
+        { name: "resolved", type: "bool" },
+      ],
+    },
+    {
+      id: "recording_shares",
+      name: "recording_shares",
+      note: "Concessões de compartilhamento, a partir da primitiva de compartilhamento compartilhada do framework",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "recordingId", type: "id", fk: "recordings.id" },
+        { name: "principal", type: "string", note: "usuário ou organização" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "folders", to: "recordings", kind: "1-n", label: "contém" },
+    {
+      from: "spaces",
+      to: "recordings",
+      kind: "n-n",
+      label: "gravações podem participar de qualquer número de espaços",
+    },
+    { from: "spaces", to: "space_members", kind: "1-n", label: "tem membros" },
+    {
+      from: "recordings",
+      to: "recording_comments",
+      kind: "1-n",
+      label: "tem comentários",
+    },
+    {
+      from: "recordings",
+      to: "recording_shares",
+      kind: "1-n",
+      label: "tem concessões de compartilhamento",
+    },
+  ]}
+/>
+
+## Uma action explicada passo a passo
+
+`create-recording-agent-link` mostra padrões que vale a pena reutilizar em qualquer action que gera uma credencial com escopo definido: verificar o estado real do recurso antes de entregar qualquer coisa, delegar a geração real do token a um helper compartilhado do framework em vez de criar a sua própria, e derivar toda URL que um chamador precisa a partir dessa única concessão.
+
+<AnnotatedCode
+  id="doc-block-clips-agent-link"
+  title="Gerando um link de acesso de agente com escopo definido"
+  filename="templates/clips/actions/create-recording-agent-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport {\n  buildAgentAccessUrl,\n  createScopedAgentAccessGrant,\n  getRequestContext,\n  getRequestUserEmail,\n} from "@agent-native/core/server";\nimport { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";\nimport { z } from "zod";\n\nimport {\n  CLIPS_AGENT_ACCESS_TTL_SECONDS,\n  getServerAppBasePath,\n} from "../server/lib/public-agent-context.js";\nimport {\n  buildAgentApiUrls,\n  CLIP_AGENT_ACCESS_TOKEN_PREFIX,\n} from "../shared/agent-context.js";\nimport { BUG_REPORT_AGENT_ACCESS_TTL_SECONDS } from "../shared/bug-report.js";\n\nfunction appOrigin(): string {\n  const origin =\n    getRequestContext()?.requestOrigin ||\n    process.env.APP_URL ||\n    process.env.BETTER_AUTH_URL ||\n    "http://localhost:3000";\n  try {\n    return new URL(origin).origin;\n  } catch {\n    return "http://localhost:3000";\n  }\n}\n\nexport default defineAction({\n  description:\n    "Create a temporary private agent-readable link for one Clips recording. The URL is scoped to that recording and expires after two hours.",\n  schema: z.object({\n    recordingId: z.string().describe("Recording ID"),\n    agentLabel: z\n      .string()\n      .trim()\n      .min(1)\n      .max(60)\n      .optional()\n      .describe(\n        "Name of the agent that will read this link (e.g. \'Fusion\', \'Claude Code\'). Recorded against every read the link produces, so the owner sees a name instead of an unidentified agent.",\n      ),\n    ttlSeconds: z\n      .number()\n      .int()\n      .positive()\n      .max(BUG_REPORT_AGENT_ACCESS_TTL_SECONDS)\n      .optional()\n      .describe(\n        "Optional scoped-link lifetime in seconds, capped at seven days. Defaults to two hours.",\n      ),\n  }),\n  readOnly: true,\n  run: async (args) => {\n    const access = await resolveAccess("recording", args.recordingId);\n    if (!access) {\n      throw new ForbiddenError(`No access to recording ${args.recordingId}`);\n    }\n\n    const recording = access.resource as {\n      id: string;\n      archivedAt?: string | null;\n      trashedAt?: string | null;\n    };\n    if (recording.archivedAt || recording.trashedAt) {\n      throw new ForbiddenError(\n        `Recording ${args.recordingId} is not shareable`,\n      );\n    }\n\n    const grant = createScopedAgentAccessGrant({\n      resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,\n      resourceId: recording.id,\n      viewerEmail: getRequestUserEmail() || undefined,\n      agentLabel: args.agentLabel,\n      ttlSeconds: args.ttlSeconds ?? CLIPS_AGENT_ACCESS_TTL_SECONDS,\n    });\n    const origin = appOrigin();\n    const basePath = getServerAppBasePath();\n    const pageUrl = buildAgentAccessUrl({\n      path: `/share/${encodeURIComponent(recording.id)}`,\n      origin,\n      basePath,\n      token: grant.token,\n    });\n    const api = buildAgentApiUrls(recording.id, {\n      origin,\n      basePath,\n      token: grant.token,\n    });\n\n    return {\n      recordingId: recording.id,\n      url: pageUrl,\n      contextUrl: api.contextUrl,\n      expiresAt: grant.expiresAt,\n      ttlSeconds: grant.ttlSeconds,\n    };\n  },\n});\n'
+  }
+  annotations={[
+    {
+      lines: "60-74",
+      label:
+        "O estado do recurso é verificado antes de qualquer coisa ser gerada",
+      note: "resolveAccess() confirma que quem chamou pode ver essa gravação, e então uma verificação explícita de archivedAt/trashedAt se recusa a entregar um link para um clipe que não deveria mais ser compartilhável, mesmo para alguém que tecnicamente ainda tem acesso a ele.",
+    },
+    {
+      lines: "76-82",
+      label: "A geração do token é delegada, não reinventada",
+      note: "createScopedAgentAccessGrant() é um helper compartilhado do framework, então o Clipes não possui nenhuma lógica própria de assinatura de token. O TTL é limitado pelo esquema zod e usa como padrão uma constante nomeada em vez de um número mágico.",
+    },
+    {
+      lines: "83-95",
+      label: "Toda URL que um chamador precisa vem da mesma concessão",
+      note: "A URL da página de compartilhamento e as três URLs de API de agente (buildAgentApiUrls) são todas derivadas de um único token, então existe exatamente um lugar onde uma concessão poderia vazar ou ser reutilizada incorretamente, não três.",
+    },
+    {
+      lines: "79",
+      label: "O link lembra quem o solicitou",
+      note: "viewerEmail e agentLabel são registrados junto com a concessão, então o proprietário de uma gravação vê qual pessoa e qual agente a leram, em vez de uma entrada anônima no log de acesso.",
+    },
+  ]}
+/>
+
+## Referência de rotas
+
+<FileTree
+  id="doc-block-clips-routes"
+  title="Layout do template Clipes"
+  entries={[
+    {
+      path: "actions/",
+      note: "cada action que o agente pode chamar — gravações, pastas, espaços, comentários, compartilhamento, insights",
+    },
+    {
+      path: "app/routes/_app.library._index.tsx",
+      note: "a grade da Biblioteca; _app.library.folder.$folderId.tsx é uma pasta",
+    },
+    { path: "app/routes/_app.shared.tsx", note: "Compartilhado comigo" },
+    {
+      path: "app/routes/_app.spaces._index.tsx",
+      note: "lista de Espaços; _app.spaces.$spaceId.tsx é um espaço",
+    },
+    {
+      path: "app/routes/_app.r.$recordingId.tsx",
+      note: "a página de detalhes da gravação e o editor",
+    },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "aba de chat do agente em página inteira",
+    },
+    {
+      path: "app/routes/_app.settings._index.tsx",
+      note: "Configurações, incluindo a aba Labs",
+    },
+    { path: "app/routes/record.tsx", note: "o gravador" },
+    {
+      path: "app/routes/share.$shareId.tsx",
+      note: "a página pública de compartilhamento; embed.$shareId.tsx é a variante incorporada em iframe",
+    },
+    {
+      path: "app/routes/download.tsx",
+      note: "a página de download do aplicativo de desktop",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "tabelas Drizzle — recordings, folders, spaces, comments",
+    },
+    {
+      path: "server/routes/api/agent-context.json.get.ts",
+      note: "os endpoints legíveis por agentes, além de agent-transcript.json e agent-frame.jpg",
+    },
+    {
+      path: "server/lib/google-calendar-client.ts",
+      note: "o cliente da API do Google Calendar",
+    },
+    {
+      path: "shared/api.ts",
+      note: "tipos TypeScript compartilhados usados pelo servidor e pelo cliente",
+    },
+    {
+      path: "desktop/",
+      note: "o aplicativo de desktop Tauri (captura de tela/áudio do sistema, Rewind)",
+    },
+    {
+      path: "chrome-extension/",
+      note: "a extensão do Chrome (gravação mais diagnósticos do navegador)",
+    },
+  ]}
+/>
+
+## Personalizando
+
+Cada parte do aplicativo é código-fonte editável. Comece aqui:
+
+- `templates/clips/actions/` — adicione um novo arquivo com `defineAction` para expor uma nova capacidade tanto ao agente quanto ao frontend.
+- `templates/clips/app/routes/` — a interface, listada acima.
+- `templates/clips/server/db/schema.ts` — adicione colunas ou tabelas com Drizzle. Mantenha o esquema compatível com PostgreSQL para que o template funcione com o PGlite local e o Postgres hospedado.
+- `templates/clips/server/lib/` — integrações de provedor: `google-calendar-client.ts`, `s3-upload-provider.ts`, `slack-oauth.ts`, `video-remux.ts`, `video-filmstrip-sprite.ts`.
+- `templates/clips/AGENTS.md` — instruções do agente. Atualize isso quando você ensinar ao agente novas capacidades ou convenções.
+- `templates/clips/.agents/skills/` — padrões detalhados que o agente segue. Skills relevantes: `recording`, `ai-video-tools`, `video-editing`, `video-sharing`, `screen-memory`.
+- `templates/clips/shared/api.ts` — os tipos TypeScript compartilhados usados tanto pelo servidor quanto pelo cliente.
+- `templates/clips/desktop/` e `templates/clips/chrome-extension/` — pacotes separados para as superfícies de captura nativas, cada um com seu próprio `package.json` e build.
+
+Se você adicionar um recurso, lembre-se de atualizar todas as quatro áreas: UI, action, skill ou entrada no AGENTS.md, e qualquer estado da aplicação que o agente precise ver. É isso que mantém o agente e a UI em paridade.
+
+## Próximos passos
+
+- [**Clipes**](/docs/template-clips) — a visão geral e o que ele substitui
+- [**Funcionalidades**](/docs/template-clips-features) — o comportamento voltado ao usuário que essas actions e esse modelo de dados sustentam
+- [**Conversar com o Agent**](/docs/template-clips-agent) — como o agente escolhe entre essas actions e outras menos comuns
+- [**Clipes em um workspace com múltiplos apps**](/docs/template-clips-integrations) — como os endpoints legíveis por agentes e o evento `clip.created` são usados por outros aplicativos
+- [**Incorporar Clipes**](/docs/template-clips-embed) — o fluxo anônimo de captação de gravações de terceiros
+- [**Actions**](/docs/actions-overview) — o sistema de actions sobre o qual este template é construído
+- [**Compartilhamento**](/docs/sharing) — o modelo de concessão de compartilhamento que `recording_shares` usa
