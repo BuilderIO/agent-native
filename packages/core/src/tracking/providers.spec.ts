@@ -68,6 +68,7 @@ describe("tracking providers", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST", "true");
     vi.stubEnv(
       "AGENT_NATIVE_ANALYTICS_ENDPOINT",
       "https://analytics.example.test/track",
