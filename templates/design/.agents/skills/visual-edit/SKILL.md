@@ -487,30 +487,23 @@ bridge URLs are localhost. Never run `pnpm action` from `templates/design`.
 
 ## Applying Visual Edits Back To Source
 
-If the Design tab is closed but the paired local bridge is still running, a
-coding agent can recover the latest handoff without browser access:
+With the Design tab closed, recover the bridge handoff with:
 
 ```bash
 npx @agent-native/core@latest design pending --root .
 ```
 
-This reads the preview-token-protected pending payload from the bridge and
-prints the same source-oriented prompt that **Copy prompt** exposes. An empty
-JSON value means the bridge has no pending edits; it is not proof that a
-different bridge or app has no edits.
+It prints the source prompt; empty JSON means this bridge has no pending edits.
 
 Canvas edits on a localhost screen do not write source as you make them. They
 accumulate as pending edits and the editor shows an **Apply design updates**
-button on the canvas. In an MCP App, clicking it hands the bounded structured
-prompt to the current host coding conversation. In an ordinary browser or
-standalone Design page, it falls back to the local Design agent. The dropdown's
-**Copy prompt to your agent** action is the universal manual fallback.
+button on the canvas. An MCP App sends the bounded prompt to the host;
+otherwise it uses the local Design agent. The dropdown's **Copy prompt to your
+agent** action is the manual fallback.
 
-When the page detects ChatGPT, Claude, or a WebMCP host, that copy action uses
-the short instruction **Call the get-visual-edit-prompt WebMCP tool and apply
-the returned instructions.** The primary Apply button sends the same pending
-batch to the host turn when the host bridge is available. In a normal browser,
-the copied text remains the detailed source handoff.
+ChatGPT, Claude, and WebMCP hosts receive a short instruction to call
+`get-visual-edit-prompt`; Apply sends the same batch when the host bridge is
+available, while ordinary browsers copy the detailed handoff.
 
 - Style, text, and drag/drop structure edits all collect into the same pending
   batch, so the user can make several changes and apply once.

@@ -2584,9 +2584,15 @@ export function DesignCanvas({
                 setEffectivePreviewToken(nextPreviewToken);
                 return true;
               }
-            } catch {
+            } catch (refreshError) {
               // Keep the explicit stale-token error below when the public
               // refresh endpoint cannot recover this connection.
+              console.debug(
+                "[design:bridge] preview token refresh failed",
+                refreshError instanceof Error
+                  ? refreshError.message
+                  : String(refreshError),
+              );
             }
           }
           if (registrationHandoffKey) {
