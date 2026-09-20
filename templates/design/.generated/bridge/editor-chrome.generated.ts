@@ -13083,7 +13083,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             reflowDomOrigin = null;
           }
-          reflowDomApplied = false;
           reflowSiblings = [];
           reflowKey = null;
           reflowGuideRect = null;
@@ -13106,7 +13105,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             reflowDomOrigin = null;
           }
-          reflowDomApplied = false;
         }, clearGroupGridPreview2 = function() {
           if (!restoreGroupGridPreview) return;
           restoreGroupGridPreview();
@@ -13376,7 +13374,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var isWrappedFlex = containerStyles.flexWrap === "wrap" || containerStyles.flexWrap === "wrap-reverse";
           var axis = reorderMainAxis2(target);
           var key = axis + ":" + slotInfo.slot;
-          if (key === reflowKey && reflowDomApplied) {
+          if (key === reflowKey) {
             restoreReorderReflowPreview2();
             if (reflowGuideRect) target.guideRect = { ...reflowGuideRect };
             if (reflowGuideMode) target.guideMode = reflowGuideMode;
@@ -13455,6 +13453,7 @@ export const editorChromeBridgeScript: string = `"use strict";
                 el.style.transform = previewTransform;
               });
             if (isWrappedFlex) {
+              var heldRectBefore = reorderEl.getBoundingClientRect();
               reflowDomOrigin = {
                 parent: container,
                 nextSibling: originalNextSibling
@@ -13466,7 +13465,15 @@ export const editorChromeBridgeScript: string = `"use strict";
               } else {
                 container.insertBefore(reorderEl, target.anchor.nextSibling);
               }
-              reflowDomApplied = true;
+              var heldRectAfter = reorderEl.getBoundingClientRect();
+              var sourceLift = reorderLiftedMembers.filter(function(snap) {
+                return snap.el === reorderEl;
+              })[0];
+              if (sourceLift) {
+                var heldLiftDx = cx - reorderPointerStart.clientX + (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+                var heldLiftDy = cy - reorderPointerStart.clientY + (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
+                reorderEl.style.transform = "translate(" + (heldLiftDx + heldRectBefore.left - heldRectAfter.left) + "px, " + (heldLiftDy + heldRectBefore.top - heldRectAfter.top) + "px)" + (sourceLift.authoredTransform ? " " + sourceLift.authoredTransform : "");
+              }
             }
           } catch (error) {
             clearReorderReflow2();
@@ -13894,7 +13901,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reflowGuideRect = null;
         var reflowGuideMode = null;
         var reflowDomOrigin = null;
-        var reflowDomApplied = false;
         var restoreGroupGridPreview = null;
         var reorderLastMoveEvent = null;
         var reorderMoved = false;

@@ -18676,7 +18676,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         parent: Element;
         nextSibling: ChildNode | null;
       } | null = null;
-      var reflowDomApplied = false;
       function reorderMainAxis(target): "x" | "y" {
         return target && target.axis === "y" ? "y" : "x";
       }
@@ -18716,7 +18715,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
           reflowDomOrigin = null;
         }
-        reflowDomApplied = false;
         reflowSiblings = [];
         reflowKey = null;
         reflowGuideRect = null;
@@ -18743,7 +18741,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
           reflowDomOrigin = null;
         }
-        reflowDomApplied = false;
       }
       var restoreGroupGridPreview: (() => void) | null = null;
       function clearGroupGridPreview(): void {
@@ -19121,7 +19118,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           containerStyles.flexWrap === "wrap-reverse";
         var axis = reorderMainAxis(target);
         var key = axis + ":" + slotInfo.slot;
-        if (key === reflowKey && reflowDomApplied) {
+        if (key === reflowKey) {
           // The target resolver returns a fresh object on every pointer event.
           // Preserve the wrapped-slot projection that was computed when the
           // same-slot fast path first ran so the guide does not fall back to
@@ -19223,6 +19220,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               el.style.transform = previewTransform;
             });
           if (isWrappedFlex) {
+            var heldRectBefore = reorderEl.getBoundingClientRect();
             reflowDomOrigin = {
               parent: container,
               nextSibling: originalNextSibling,
@@ -19234,7 +19232,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             } else {
               container.insertBefore(reorderEl, target.anchor.nextSibling);
             }
-            reflowDomApplied = true;
+            var heldRectAfter = reorderEl.getBoundingClientRect();
+            var sourceLift = reorderLiftedMembers.filter(function (snap) {
+              return snap.el === reorderEl;
+            })[0];
+            if (sourceLift) {
+              var heldLiftDx =
+                cx -
+                reorderPointerStart.clientX +
+                (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+              var heldLiftDy =
+                cy -
+                reorderPointerStart.clientY +
+                (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
+              reorderEl.style.transform =
+                "translate(" +
+                (heldLiftDx + heldRectBefore.left - heldRectAfter.left) +
+                "px, " +
+                (heldLiftDy + heldRectBefore.top - heldRectAfter.top) +
+                "px)" +
+                (sourceLift.authoredTransform
+                  ? " " + sourceLift.authoredTransform
+                  : "");
+            }
           }
         } catch (error) {
           // A layout read or DOM insertion can fail if the editor is tearing
