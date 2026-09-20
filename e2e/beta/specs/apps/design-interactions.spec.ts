@@ -1247,6 +1247,20 @@ test.describe("authenticated beta Design interactions", () => {
       await installUrlGhostProbe(page);
       const sourceBox = (await source.boundingBox())!;
       const targetBox = (await urlTarget.boundingBox())!;
+      console.log(
+        `[url-ghost-geometry] ${JSON.stringify({
+          viewport: await page.evaluate(() => ({
+            width: window.innerWidth,
+            height: window.innerHeight,
+          })),
+          sourceBox,
+          targetBox,
+          boardIframeBox: await page
+            .locator(`[data-board-surface-layer] ${PREVIEW}`)
+            .first()
+            .boundingBox(),
+        })}`,
+      );
       const beforeBoard = await readSource(page, designId, "__board__.html");
       const beforeInline = await readSource(page, designId);
       const beforeBoardOrder = await topLevelNodeIds(page, beforeBoard);
