@@ -2149,7 +2149,7 @@ async function createBetterAuthInstance(
   // must be the PUBLIC one. The framework still mounts the handler on the
   // internal path and passes Better Auth a request in public form.
   const basePath = publicFrameworkPath(
-    config?.basePath ?? "/_agent-native/auth/ba",
+    `${getConfiguredAppBasePath()}${config?.basePath ?? "/_agent-native/auth/ba"}`,
   );
   const access = getAppConfig().access;
 
@@ -2334,12 +2334,7 @@ async function createBetterAuthInstance(
           urlQueryKeys,
         });
       }
-      const appBasePath = getConfiguredAppBasePath();
-      const magicLinkUrl = appBasePath
-        ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
-        : url;
-      const deliveredMagicLinkUrl =
-        desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
+      const deliveredMagicLinkUrl = desktopMagicLinkLandingUrl(url) ?? url;
       const { subject, html, text, appSender } = renderMagicLinkEmail({
         email,
         magicLinkUrl: deliveredMagicLinkUrl,

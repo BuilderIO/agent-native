@@ -416,6 +416,7 @@ describe("configurable framework route prefix", () => {
     vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
       runtime: { frameworkRoutePrefix: "/_platform" },
     });
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
     vi.stubGlobal("window", { location: { pathname: "/" } });
     expect(agentNativePath("/_agent-native-extra/settings")).toBe(
       "/_agent-native-extra/settings",

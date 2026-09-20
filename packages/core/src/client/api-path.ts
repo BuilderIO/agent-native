@@ -326,7 +326,11 @@ export function appApiPath(path: string): string {
  * which is also what keeps an already-mounted URL from being prefixed twice.
  */
 export function agentNativePath(path: string): string {
-  if (!path.startsWith(FRAMEWORK_INTERNAL_ROUTE_PREFIX)) return path;
+  const queryOrFragment = path.search(/[?#]/);
+  const pathname =
+    queryOrFragment === -1 ? path : path.slice(0, queryOrFragment);
+  if (!matchesPathPrefix(pathname, FRAMEWORK_INTERNAL_ROUTE_PREFIX))
+    return path;
   return appPath(
     toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() }),
   );

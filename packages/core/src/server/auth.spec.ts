@@ -5602,9 +5602,13 @@ describe("server/auth", () => {
       });
     });
 
-    it("strips APP_BASE_PATH before forwarding requests to Better Auth", async () => {
+    it("preserves APP_BASE_PATH and the public prefix for Better Auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_BASE_PATH", "/docs");
+      vi.stubEnv(
+        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        "/_platform",
+      );
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
@@ -5665,7 +5669,7 @@ describe("server/auth", () => {
 
       await baHandler(event);
 
-      expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
+      expect(forwardedPath).toBe("/docs/_platform/auth/ba/sign-in/email");
       expect(event.res.headers.get("set-cookie")).toContain(
         "agent-native-first-run=1",
       );
