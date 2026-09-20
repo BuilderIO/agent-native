@@ -674,55 +674,51 @@ async function loadInstructionResourcesForPrompt(
   summaryOnly = false,
   orgId?: string | null,
 ): Promise<string[]> {
-  try {
-    const resources = await resourceList(owner, "instructions/", { orgId });
-    const sorted = resources
-      .filter((resource) => isAutoLoadedInstructionPath(resource.path))
-      .sort((a, b) => a.path.localeCompare(b.path));
+  const resources = await resourceList(owner, "instructions/", { orgId });
+  const sorted = resources
+    .filter((resource) => isAutoLoadedInstructionPath(resource.path))
+    .sort((a, b) => a.path.localeCompare(b.path));
 
-    if (summaryOnly) {
-      if (sorted.length === 0) return [];
-      const resourceScope = scope.startsWith("workspace")
-        ? "workspace"
-        : scope.startsWith("personal")
-          ? "personal"
-          : "shared";
-      const listed = sorted.slice(0, PROMPT_INSTRUCTION_SUMMARY_LIMIT);
-      const lines = listed.map(
-        (resource) =>
-          `- \`${resource.path}\` - ${resourceToolHint("read", `\`path: "${resource.path}"\` and \`scope: "${resourceScope}"\` when it applies`)}`,
-      );
-      if (sorted.length > listed.length) {
-        lines.push(
-          `- ...${sorted.length - listed.length} more instruction files. ${resourceToolHint("list", `\`scope: "${resourceScope}"\` and \`prefix: "instructions/"\``)}`,
-        );
-      }
-      return [
-        `<instruction-resources scope="${escapeXmlAttribute(scope)}">\nDetailed instruction files are loaded on demand so the first model request stays compact. Read a relevant file before following its workflow.\n\n${lines.join("\n")}\n</instruction-resources>`,
-      ];
-    }
-
-    const fullResources = await Promise.all(
-      sorted.map((resource) => resourceGet(resource.id).catch(() => null)),
+  if (summaryOnly) {
+    if (sorted.length === 0) return [];
+    const resourceScope = scope.startsWith("workspace")
+      ? "workspace"
+      : scope.startsWith("personal")
+        ? "personal"
+        : "shared";
+    const listed = sorted.slice(0, PROMPT_INSTRUCTION_SUMMARY_LIMIT);
+    const lines = listed.map(
+      (resource) =>
+        `- \`${resource.path}\` - ${resourceToolHint("read", `\`path: "${resource.path}"\` and \`scope: "${resourceScope}"\` when it applies`)}`,
     );
-    const blocks: string[] = [];
-    for (let index = 0; index < sorted.length; index++) {
-      const resource = sorted[index]!;
-      const full = fullResources[index];
-      if (!full?.content?.trim()) continue;
-      const block = promptResourceBlock({
-        name: resource.path,
-        scope,
-        path: resource.path,
-        content: full.content,
-        maxChars,
-      });
-      if (block) blocks.push(block);
+    if (sorted.length > listed.length) {
+      lines.push(
+        `- ...${sorted.length - listed.length} more instruction files. ${resourceToolHint("list", `\`scope: "${resourceScope}"\` and \`prefix: "instructions/"\``)}`,
+      );
     }
-    return blocks;
-  } catch {
-    return [];
+    return [
+      `<instruction-resources scope="${escapeXmlAttribute(scope)}">\nDetailed instruction files are loaded on demand so the first model request stays compact. Read a relevant file before following its workflow.\n\n${lines.join("\n")}\n</instruction-resources>`,
+    ];
   }
+
+  const fullResources = await Promise.all(
+    sorted.map((resource) => resourceGet(resource.id, { orgId })),
+  );
+  const blocks: string[] = [];
+  for (let index = 0; index < sorted.length; index++) {
+    const resource = sorted[index]!;
+    const full = fullResources[index];
+    if (!full?.content?.trim()) continue;
+    const block = promptResourceBlock({
+      name: resource.path,
+      scope,
+      path: resource.path,
+      content: full.content,
+      maxChars,
+    });
+    if (block) blocks.push(block);
+  }
+  return blocks;
 }
 
 interface ResourceSkillPromptEntry {
@@ -835,49 +831,45 @@ async function loadResourceIndexForPrompt(
   scope: "workspace" | "shared",
   orgId?: string | null,
 ): Promise<string | null> {
-  try {
-    const resources = (await resourceList(owner, undefined, { orgId }))
-      .filter(
-        (resource) =>
-          !isSpecialPromptResourcePath(resource.path) &&
-          isTextLikeResource(resource.mimeType),
-      )
-      .sort((a, b) => a.path.localeCompare(b.path));
-    if (resources.length === 0) return null;
+  const resources = (await resourceList(owner, undefined, { orgId }))
+    .filter(
+      (resource) =>
+        !isSpecialPromptResourcePath(resource.path) &&
+        isTextLikeResource(resource.mimeType),
+    )
+    .sort((a, b) => a.path.localeCompare(b.path));
+  if (resources.length === 0) return null;
 
-    const listed = resources.slice(0, SHARED_RESOURCE_INDEX_LIMIT);
-    const lines: string[] = [];
-    const fullResources = await Promise.all(
-      listed.map((resource) => resourceGet(resource.id).catch(() => null)),
-    );
-    for (let index = 0; index < listed.length; index++) {
-      const resource = listed[index]!;
-      const full = fullResources[index];
-      const summary = full?.content
-        ? getResourceSummaryFromContent(full.content)
-        : null;
-      lines.push(`- \`${resource.path}\`${summary ? ` - ${summary}` : ""}`);
-    }
-    if (resources.length > listed.length) {
-      lines.push(
-        `- ...${resources.length - listed.length} more ${scope} resources. ${resourceToolHint(
-          "list",
-          `\`scope: "${scope}"\` to inspect them`,
-        )}`,
-      );
-    }
-
-    const label =
-      scope === "workspace"
-        ? "Workspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context."
-        : "Shared app/organization reference resources are available for app-specific or team context.";
-    return `<workspace-resources scope="${scope}">\n${label} ${resourceToolHint(
-      "read",
-      `\`path: <path>\` and \`scope: "${scope}"\` when a task may depend on them`,
-    )} Do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
-  } catch {
-    return null;
+  const listed = resources.slice(0, SHARED_RESOURCE_INDEX_LIMIT);
+  const lines: string[] = [];
+  const fullResources = await Promise.all(
+    listed.map((resource) => resourceGet(resource.id, { orgId })),
+  );
+  for (let index = 0; index < listed.length; index++) {
+    const resource = listed[index]!;
+    const full = fullResources[index];
+    const summary = full?.content
+      ? getResourceSummaryFromContent(full.content)
+      : null;
+    lines.push(`- \`${resource.path}\`${summary ? ` - ${summary}` : ""}`);
   }
+  if (resources.length > listed.length) {
+    lines.push(
+      `- ...${resources.length - listed.length} more ${scope} resources. ${resourceToolHint(
+        "list",
+        `\`scope: "${scope}"\` to inspect them`,
+      )}`,
+    );
+  }
+
+  const label =
+    scope === "workspace"
+      ? "Workspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context."
+      : "Shared app/organization reference resources are available for app-specific or team context.";
+  return `<workspace-resources scope="${scope}">\n${label} ${resourceToolHint(
+    "read",
+    `\`path: <path>\` and \`scope: "${scope}"\` when a task may depend on them`,
+  )} Do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
 }
 
 async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {

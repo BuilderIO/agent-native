@@ -103,6 +103,15 @@ export function organizationIdFromWorkspaceResourceOwner(
   );
 }
 
+function isOrganizationWorkspaceResourceVisibleToOrganization(
+  owner: string,
+  orgId: string | null,
+): boolean {
+  if (!owner.startsWith(WORKSPACE_ORGANIZATION_OWNER_PREFIX)) return true;
+  const ownerOrgId = organizationIdFromWorkspaceResourceOwner(owner);
+  return ownerOrgId !== null && ownerOrgId === orgId;
+}
+
 /**
  * Owners a workspace read consults, most specific first. A bare
  * `WORKSPACE_OWNER` read follows the active organization the same way
@@ -687,7 +696,7 @@ function requestScopedResourceIdentity(options?: ResourceResolutionOptions): {
   orgId: string | null;
 } {
   const userEmail = options?.userEmail ?? getRequestUserEmail() ?? null;
-  const orgId = options?.orgId ?? getRequestOrgId() ?? null;
+  const orgId = resourceOrganizationId(options?.orgId);
   return { userEmail, orgId };
 }
 
@@ -1492,6 +1501,11 @@ export async function resourceGet(
   if (rows.length === 0) return grantedWorkspaceResourceById(id, options);
   const resource = rowToResource(rows[0]);
   const orgId = resourceOrganizationId(options?.orgId);
+  if (
+    !isOrganizationWorkspaceResourceVisibleToOrganization(resource.owner, orgId)
+  ) {
+    return null;
+  }
   if (!isLegacySharedResourceVisibleToOrganization(resource, orgId)) {
     return null;
   }

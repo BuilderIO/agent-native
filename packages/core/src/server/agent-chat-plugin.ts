@@ -586,6 +586,14 @@ export async function resolveA2ARecoverableArtifactSecret(
   return globalSecret || undefined;
 }
 
+async function resolveResourceOrgId(
+  event: H3Event,
+  resolveOrgId: AgentChatPluginOptions["resolveOrgId"] | undefined,
+): Promise<string | null | undefined> {
+  const resolved = resolveOrgId ? await resolveOrgId(event) : undefined;
+  return resolved === undefined ? getRequestOrgId() : resolved;
+}
+
 export function buildLeanRunPolicyPrompt(
   codeEditingSurfaceRestriction: string,
   prodCodeExecPromptNote: string,
@@ -5032,9 +5040,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           // Query resources. The organization decides which workspace defaults
           // are visible, so failing to resolve it is not "no resources".
-          const filesOrgId = options?.resolveOrgId
-            ? await options.resolveOrgId(event)
-            : null;
+          const filesOrgId = await resolveResourceOrgId(
+            event,
+            options?.resolveOrgId,
+          );
           try {
             const resources = [
               ...(await resourceList(SHARED_OWNER)),
@@ -5187,28 +5196,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // Query accessible resources with skills/ prefix. Personal skills
           // need to show alongside shared skills so slash/menu invocation can
           // find both `learn` and `learn-shared`.
+          const skillsOwner = await getOwnerFromEvent(event).catch(
+            () => undefined,
+          );
+          const skillsOrgId = await resolveResourceOrgId(
+            event,
+            options?.resolveOrgId,
+          );
           try {
-            const skillsOwner = await getOwnerFromEvent(event).catch(
-              () => undefined,
-            );
-            let skillsOrgId: string | undefined;
-            if (options?.resolveOrgId) {
-              try {
-                skillsOrgId = (await options.resolveOrgId(event)) ?? undefined;
-              } catch {
-                skillsOrgId = undefined;
-              }
-            }
             if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
             const resourceSkills = skillsOwner
               ? await resourceListAccessible(skillsOwner, "skills/", {
                   userEmail: skillsOwner,
-                  orgId: skillsOrgId ?? null,
+                  orgId: skillsOrgId,
                 })
               : [
                   ...(await resourceList(SHARED_OWNER, "skills/")),
                   ...(await resourceList(WORKSPACE_OWNER, "skills/", {
-                    orgId: skillsOrgId ?? null,
+                    orgId: skillsOrgId,
                   })),
                 ];
             resourceSkills.sort((a, b) => {
@@ -5240,12 +5245,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               let description: string | undefined;
               let userInvocable: boolean | undefined;
               try {
-                const full = await resourceGet(
-                  r.id,
-                  skillsOwner
-                    ? { userEmail: skillsOwner, orgId: skillsOrgId ?? null }
-                    : undefined,
-                );
+                const full = await resourceGet(r.id, {
+                  userEmail: skillsOwner,
+                  orgId: skillsOrgId,
+                });
                 if (full) {
                   const fm = parseSkillFrontmatter(full.content);
                   if (!isRuntimeVisibleScope(fm.scope)) continue;
@@ -5301,15 +5304,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const mentionsOwner = await getOwnerFromEvent(event).catch(
             () => undefined,
           );
-          let mentionsOrgId: string | undefined;
-          if (options?.resolveOrgId) {
-            try {
-              const resolved = await options.resolveOrgId(event);
-              mentionsOrgId = resolved ?? undefined;
-            } catch {
-              mentionsOrgId = undefined;
-            }
-          }
+          const mentionsOrgId = await resolveResourceOrgId(
+            event,
+            options?.resolveOrgId,
+          );
 
           const query = getQuery(event);
           const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
@@ -5350,10 +5348,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           const stream = new ReadableStream({
             start(controller) {
+              const inheritedPersonalScope =
+                mentionsOrgId === undefined &&
+                getRequestContext()?.orgScope === "personal";
               return runWithRequestContext(
                 {
                   userEmail: mentionsOwner,
-                  orgId: mentionsOrgId,
+                  orgId: mentionsOrgId ?? undefined,
+                  ...((mentionsOrgId === null || inheritedPersonalScope) && {
+                    orgScope: "personal" as const,
+                  }),
                 },
                 () => mentionsStreamWork(controller),
               );
@@ -5404,10 +5408,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               (async () => {
                 try {
                   const resources = mentionsOwner
-                    ? await resourceListAccessible(mentionsOwner)
+                    ? await resourceListAccessible(mentionsOwner, undefined, {
+                        userEmail: mentionsOwner,
+                        orgId: mentionsOrgId,
+                      })
                     : [
                         ...(await resourceList(WORKSPACE_OWNER, undefined, {
-                          orgId: mentionsOrgId ?? null,
+                          orgId: mentionsOrgId,
                         })),
                         ...(await resourceList(SHARED_OWNER)),
                       ];

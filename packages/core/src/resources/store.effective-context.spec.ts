@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
@@ -189,6 +190,86 @@ describe("resourceEffectiveContext", () => {
         resourceDeleteByPath(orgAOwner, path),
         resourceDeleteByPath(orgBOwner, path),
         resourceDeleteByPath(WORKSPACE_OWNER, legacyPath),
+      ]);
+    }
+  });
+
+  it("scopes direct organization workspace reads to the resolved organization", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceGet,
+      resourcePut,
+      workspaceResourceOwner,
+    } = await import("./store.js");
+    const prefix = `context/org-workspace-id-${Date.now()}/`;
+    const orgAOwner = workspaceResourceOwner("org-a");
+    const malformedOwner = "__workspace__:__organization__:bad%zz";
+    const orgAPath = `${prefix}org-a.md`;
+    const malformedPath = `${prefix}malformed.md`;
+    const barePath = `${prefix}default.md`;
+    const personalPath = `${prefix}personal.md`;
+
+    try {
+      const orgA = await resourcePut(orgAOwner, orgAPath, "org A only");
+      const malformed = await resourcePut(
+        malformedOwner,
+        malformedPath,
+        "malformed owner",
+      );
+      const bare = await resourcePut(
+        WORKSPACE_OWNER,
+        barePath,
+        "deployment default",
+      );
+      const personal = await resourcePut(
+        "member@example.test",
+        personalPath,
+        "personal resource",
+      );
+
+      await expect(
+        resourceGet(orgA.id, { orgId: "org-a" }),
+      ).resolves.toMatchObject({
+        content: "org A only",
+      });
+      await expect(
+        resourceGet(orgA.id, { orgId: "org-b" }),
+      ).resolves.toBeNull();
+      await expect(resourceGet(orgA.id, { orgId: null })).resolves.toBeNull();
+      await expect(
+        runWithRequestContext({ orgId: undefined }, () => resourceGet(orgA.id)),
+      ).resolves.toBeNull();
+      await expect(
+        runWithRequestContext({ orgId: "org-a" }, () => resourceGet(orgA.id)),
+      ).resolves.toMatchObject({ content: "org A only" });
+      await expect(
+        runWithRequestContext({ orgId: "org-a" }, () =>
+          resourceGet(orgA.id, { orgId: null }),
+        ),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGet(malformed.id, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGet(bare.id, { orgId: "org-b" }),
+      ).resolves.toMatchObject({
+        content: "deployment default",
+      });
+      await expect(
+        resourceGet(bare.id, { orgId: null }),
+      ).resolves.toMatchObject({
+        content: "deployment default",
+      });
+      await expect(
+        resourceGet(personal.id, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ content: "personal resource" });
+    } finally {
+      await Promise.all([
+        resourceDeleteByPath(orgAOwner, orgAPath),
+        resourceDeleteByPath(malformedOwner, malformedPath),
+        resourceDeleteByPath(WORKSPACE_OWNER, barePath),
+        resourceDeleteByPath("member@example.test", personalPath),
       ]);
     }
   });
@@ -507,6 +588,15 @@ describe("resourceEffectiveContext", () => {
       path: skillPath,
       content: expect.stringContaining("# Analytics Review"),
     });
+    await expect(
+      runWithRequestContext({ orgId: "org_123" }, () =>
+        resourceGet(selectedSkill!.id, {
+          workspaceAppId: "analytics",
+          userEmail: "member@example.test",
+          orgId: null,
+        }),
+      ),
+    ).resolves.toBeNull();
 
     await expect(
       resourceGetByPath(WORKSPACE_OWNER, skillPath, {

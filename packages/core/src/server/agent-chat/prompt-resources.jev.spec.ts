@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   loadAgentsBundle: vi.fn(),
   getRuntimeSkills: vi.fn(),
   resourceGet: vi.fn(),
+  resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
   resourceListAccessible: vi.fn(),
 }));
@@ -20,11 +21,14 @@ vi.mock("../../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
   organizationIdFromResourceOwner: () => null,
-  sharedResourceOwner: () => "__shared__",
-  workspaceResourceOwner: () => "__workspace__",
-  isWorkspaceResourceOwner: (owner: string) => owner === "__workspace__",
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${orgId}` : "__shared__",
+  workspaceResourceOwner: (orgId?: string | null) =>
+    orgId ? `__workspace__:__organization__:${orgId}` : "__workspace__",
+  isWorkspaceResourceOwner: (owner: string) =>
+    owner === "__workspace__" || owner.startsWith("__workspace__:"),
   resourceGet: (...args: unknown[]) => mocks.resourceGet(...args),
-  resourceGetByPath: vi.fn(),
+  resourceGetByPath: (...args: unknown[]) => mocks.resourceGetByPath(...args),
   resourceList: (...args: unknown[]) => mocks.resourceList(...args),
   resourceListAccessible: (...args: unknown[]) =>
     mocks.resourceListAccessible(...args),
@@ -40,7 +44,10 @@ vi.mock("../request-context.js", () => ({
   getRequestOrgId: () => null,
 }));
 
-import { preloadJevContextForPrompt } from "./prompt-resources.js";
+import {
+  loadResourcesForPrompt,
+  preloadJevContextForPrompt,
+} from "./prompt-resources.js";
 
 describe("preloadJevContextForPrompt", () => {
   beforeEach(() => {
@@ -59,6 +66,7 @@ describe("preloadJevContextForPrompt", () => {
     ]);
     mocks.resourceListAccessible.mockResolvedValue([]);
     mocks.resourceList.mockResolvedValue([]);
+    mocks.resourceGetByPath.mockResolvedValue(null);
   });
 
   it("does nothing without a Jev key", async () => {
@@ -175,4 +183,120 @@ describe("preloadJevContextForPrompt", () => {
     expect(result).toContain("&lt;/jev-prefetched-context>");
     expect(result.match(/<\/jev-prefetched-context>/g)).toHaveLength(1);
   });
+
+  it("loads only explicit-organization workspace instruction and index bodies without ambient context", async () => {
+    const targetOrgId = "org_prompt_target";
+    const workspaceOwner = `__workspace__:__organization__:${targetOrgId}`;
+    const targetInstruction = {
+      id: "target-instruction",
+      owner: workspaceOwner,
+      path: "instructions/target.md",
+      mimeType: "text/markdown",
+    };
+    const targetIndex = {
+      id: "target-index",
+      owner: workspaceOwner,
+      path: "context/target.md",
+      mimeType: "text/markdown",
+    };
+    const otherInstruction = {
+      id: "other-instruction",
+      owner: "__workspace__:__organization__:org_prompt_other",
+      path: "instructions/other.md",
+      mimeType: "text/markdown",
+    };
+    const otherIndex = {
+      id: "other-index",
+      owner: "__workspace__:__organization__:org_prompt_other",
+      path: "context/other.md",
+      mimeType: "text/markdown",
+    };
+    mocks.resourceList.mockImplementation(
+      async (
+        owner: string,
+        pathPrefix: string | undefined,
+        options?: { orgId?: string | null },
+      ) => {
+        if (owner !== workspaceOwner) return [];
+        if (options?.orgId !== targetOrgId) {
+          return pathPrefix === "instructions/"
+            ? [otherInstruction]
+            : [otherIndex];
+        }
+        return pathPrefix === "instructions/"
+          ? [targetInstruction]
+          : [targetIndex];
+      },
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string, options?: { orgId?: string | null }) => {
+        if (options?.orgId !== targetOrgId) return null;
+        if (id === targetInstruction.id) {
+          return { ...targetInstruction, content: "# Target instruction" };
+        }
+        if (id === targetIndex.id) {
+          return { ...targetIndex, content: "# Target reference" };
+        }
+        return null;
+      },
+    );
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      targetOrgId,
+    );
+
+    expect(prompt).toContain("# Target instruction");
+    expect(prompt).toContain("Target reference");
+    expect(prompt).not.toContain("instructions/other.md");
+    expect(prompt).not.toContain("context/other.md");
+    expect(mocks.resourceGet).toHaveBeenCalledWith(targetInstruction.id, {
+      orgId: targetOrgId,
+    });
+    expect(mocks.resourceGet).toHaveBeenCalledWith(targetIndex.id, {
+      orgId: targetOrgId,
+    });
+  });
+
+  it.each([
+    ["instruction", "instructions/", "instructions/failing.md"],
+    ["index", undefined, "context/failing.md"],
+  ] as const)(
+    "propagates a failed %s body read instead of omitting it from the prompt",
+    async (_kind, pathPrefix, resourcePath) => {
+      const targetOrgId = "org_prompt_failure";
+      const workspaceOwner = `__workspace__:__organization__:${targetOrgId}`;
+      const resource = {
+        id: `failing-${pathPrefix ?? "index"}`,
+        owner: workspaceOwner,
+        path: resourcePath,
+        mimeType: "text/markdown",
+      };
+      const failure = new Error(`Unable to read ${resourcePath}`);
+      mocks.resourceList.mockImplementation(
+        async (
+          owner: string,
+          prefix: string | undefined,
+          options?: { orgId?: string | null },
+        ) =>
+          owner === workspaceOwner &&
+          prefix === pathPrefix &&
+          options?.orgId === targetOrgId
+            ? [resource]
+            : [],
+      );
+      mocks.resourceGet.mockRejectedValue(failure);
+
+      await expect(
+        loadResourcesForPrompt(
+          "user@example.test",
+          false,
+          undefined,
+          targetOrgId,
+        ),
+      ).rejects.toBe(failure);
+    },
+  );
 });
