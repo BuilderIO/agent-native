@@ -14,6 +14,7 @@ import { appPath, designFrame, expandAllLayers, gotoEditor } from "./helpers";
 // version/zoom dependent.
 const CONTROL = "Control";
 const COMMAND = process.platform === "darwin" ? "Meta" : "Control";
+const IGNORE_AUTO_LAYOUT = process.platform === "darwin" ? "Control" : "S";
 const LINKED_COMPONENT_OVERRIDES = encodeURIComponent(
   JSON.stringify([
     { sourceNodeId: "play-label", property: "style:background-color" },
@@ -1878,7 +1879,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     }
   });
 
-  test("cross-Screen S Ignore Auto Layout oversized drops keep absolute inside placement", async ({
+  test("cross-Screen Ignore Auto Layout oversized drops keep absolute inside placement", async ({
     page,
     request,
   }) => {
@@ -1903,8 +1904,8 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       );
       await page.mouse.down();
       // Cross into the overview host first. It owns focus after this handoff,
-      // so the non-Apple Ignore Auto Layout chord is tracked there instead of
-      // relying on the source iframe to receive the key.
+      // The overview host owns focus after this handoff, so use the platform
+      // Ignore Auto Layout chord there instead of relying on the source iframe.
       await page.mouse.move(
         target.x + target.width / 2,
         target.y + target.height / 2,
@@ -1913,7 +1914,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => page.locator("[data-cross-screen-drag-ghost]").count())
         .toBeGreaterThan(0);
-      await page.keyboard.down("S");
+      await page.keyboard.down(IGNORE_AUTO_LAYOUT);
       await page.mouse.move(
         target.x + target.width / 2 + 1,
         target.y + target.height / 2 + 1,
@@ -1924,14 +1925,14 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         .poll(() => guide.count(), {
           timeout: 5_000,
           message:
-            "cross-screen S Ignore Auto Layout drop did not show a held guide",
+            "cross-screen Ignore Auto Layout drop did not show a held guide",
         })
         .toBeGreaterThan(0);
       expect(
         await page.locator("[data-cross-screen-drag-ghost]").count(),
       ).toBeGreaterThan(0);
       await page.mouse.up();
-      await page.keyboard.up("S");
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT);
       await expect
         .poll(async () => {
           const [from, to] = await Promise.all([
