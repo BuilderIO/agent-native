@@ -680,6 +680,43 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("emits canonical browser aliases while retaining legacy events", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    const legacyName = "session status";
+    trackEvent(legacyName, { signed_in: true });
+
+    expect(analyticsCalls).toHaveLength(2);
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(events[0]).toMatchObject({
+      event: legacyName,
+      properties: { signed_in: true },
+    });
+    expect(events[1]).toMatchObject({
+      event: "session_status",
+      properties: {
+        signed_in: true,
+        canonical_event_name: "session_status",
+        legacy_event_name: legacyName,
+      },
+    });
+    expect(gtag).toHaveBeenCalledWith(
+      "event",
+      "session_status",
+      expect.objectContaining({
+        canonical_event_name: "session_status",
+        legacy_event_name: legacyName,
+      }),
+    );
+    expect(gtag).toHaveBeenCalledTimes(1);
+  });
+
   it("attaches the signed-in session identity to first-party analytics", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch({

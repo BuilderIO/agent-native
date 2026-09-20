@@ -34,6 +34,7 @@ describe("Plan agent write schemas", () => {
     expect(properties).not.toHaveProperty("html");
     expect(properties).not.toHaveProperty("markdown");
     expect(properties).not.toHaveProperty("sections");
+    expect(properties).toHaveProperty("allowSurfaceMismatch");
     expect(ops).toContain("append-block");
     expect(ops).toContain("update-rich-text");
     expect(ops).not.toContain("replace-block");

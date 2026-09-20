@@ -93,13 +93,13 @@ export function IntegrationGrid({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-2">
-                  <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                  <h3 className="min-w-0 truncate text-sm font-medium text-foreground">
                     {item.name}
                   </h3>
                   {item.badge ? (
                     <Badge
                       variant="default"
-                      className="h-5 shrink-0 rounded-md border-primary/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.5px] shadow-sm"
+                      className="h-4 shrink-0 rounded-sm border-primary/80 px-1 py-0 text-[9px] font-semibold uppercase tracking-[0.4px] shadow-sm"
                     >
                       {item.badge}
                     </Badge>
