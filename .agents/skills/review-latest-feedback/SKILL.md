@@ -1,7 +1,8 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep recent Slack, GitHub issue, Sentry, and explicitly linked tracker
+  Sweep recent Slack, GitHub issue, Sentry, first-party Agent-Native Analytics
+  error issues, and explicitly linked tracker
   feedback: first answer reporters, then fix verified bugs and actionable
   objective UI defects at the owning boundary, require human signoff for
   subjective UI changes, build features the invoking user endorsed with an
@@ -272,12 +273,13 @@ fix, targeted clarification, or Phase 0 release.
 Group repeat symptoms into one cluster with one owning investigation; the
 repeat gate in Phase 2 owns how they are worked.
 
-For GitHub and Sentry, use native state as the cursor: recent open or
-unresolved items with no maintainer disposition, deduplicated against Slack.
-If a source cannot be read, record it as **unavailable**. Never report
-"nothing matched" for a source you could not query.
+For GitHub, Sentry, and first-party Agent-Native Analytics, use native state as
+the cursor: recent open or unresolved items with no maintainer disposition,
+deduplicated against Slack. If a source cannot be read, record it as
+**unavailable**. Never report "nothing matched" for a source you could not
+query.
 
-### GitHub issues and Sentry are first-class feedback
+### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
 Enumerate every open issue and read its body, comments, author, labels, linked
 PRs, and state. Treat prior `fixed`, `shipped`, or `merged` comments as leads:
@@ -298,6 +300,16 @@ fingerprints. Classify each as repo-owned, external/provider,
 deployment/configuration, or unclear; fix repo-owned failures at the boundary
 and verify the published runtime. Record external actions for the rest; silence
 or an old release is not proof the current error is gone.
+
+Query authenticated Agent-Native Analytics error issues in parallel. Use
+`list-error-issues` for unresolved groups, then `get-error-issue` for stacks,
+occurrences, breadcrumbs, tags, and replay links. It captures client exceptions
+and server `captureError()` failures. Use it as the Sentry fallback when
+rate-limited. Do not query `error_issues` or `error_events` through
+`query-agent-native-analytics`; use that action only for bounded event/LLM
+correlation. Apply the same ownership gate: fix worthwhile repo-owned issues
+at their boundary, verify runtime, and record external, deployment, or unclear
+issues without inventing a fix.
 
 ## Phase 2: fix
 
@@ -501,7 +513,8 @@ Follow the `## Slack identity` contract in `address-feedback-with-replies`:
 confirm the connected profile is the invoking user before the first write, and
 keep that identity for every read, reaction, reply, and read-back.
 
-Resolve the Slack, GitHub, and Sentry schemas once and reuse them.
+Resolve the Slack, GitHub, Sentry, and first-party Analytics error action
+schemas once and reuse them.
 
 For every Slack write: use the exact parent `thread_ts` from a full-thread
 read, never a search-result or adjacent timestamp, and re-read after posting.
