@@ -31,7 +31,6 @@ import {
   type H3Event,
 } from "h3";
 
-import { getOrgContext } from "../org/context.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -77,6 +76,13 @@ import {
 } from "./remote-store.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 import { loadWorkspaceMcpServers } from "./workspace-servers.js";
+
+const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
+  ...args
+) =>
+  import("../org/context.js").then(({ getOrgContext }) =>
+    getOrgContext(...args),
+  );
 
 export { formatMcpConnectError } from "./errors.js";
 

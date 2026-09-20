@@ -12,7 +12,6 @@ import {
   type H3Event,
 } from "h3";
 
-import { getOrgContext } from "../org/context.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import {
   CredentialStoreUnavailableError,
@@ -57,6 +56,13 @@ import {
   type StoredRemoteMcpServer,
   type RemoteMcpScope,
 } from "./remote-store.js";
+
+const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
+  ...args
+) =>
+  import("../org/context.js").then(({ getOrgContext }) =>
+    getOrgContext(...args),
+  );
 
 const MCP_TRACKING_INTEGRATION_ID_PATTERN = /^[a-z0-9-]{1,64}$/u;
 
