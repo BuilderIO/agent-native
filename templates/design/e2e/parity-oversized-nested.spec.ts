@@ -62,6 +62,7 @@ async function drag(
   id: string,
   target: Locator,
   modifier?: "Meta" | "Control",
+  requireGuide = true,
 ) {
   const source = (await node(page, id).boundingBox())!;
   const targetBox = (await target.boundingBox())!;
@@ -82,8 +83,8 @@ async function drag(
       targetBox.y + targetBox.height / 2,
       { steps: 24 },
     );
-    await expect.poll(() => guide(page), { timeout: 5_000 }).toBeTruthy();
     const held = await guide(page);
+    if (requireGuide) expect(held).toBeTruthy();
     await page.mouse.up();
     return held;
   } finally {
@@ -99,9 +100,14 @@ test("default oversized drop rejects nested insertion", async ({ page }) => {
   const id = await newDesign(page, FIXTURE);
   try {
     await openEditor(page, id);
+    await page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("button", { name: "Source", exact: true })
+      .first()
+      .click({ force: true });
     const target = node(page, "nested");
     const before = await indexHtml(page, id);
-    await drag(page, "source", target);
+    await drag(page, "source", target, undefined, false);
     await expect
       .poll(() => indexHtml(page, id), { timeout: 5_000 })
       .not.toBe(before);

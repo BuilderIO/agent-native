@@ -204,7 +204,6 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
   });
 });
 
-
 describe("runApplyDesignEditorCommand: focused URL mode", () => {
   it("preserves an explicit edit mode for single-screen navigation", () => {
     const args = makeArgs({

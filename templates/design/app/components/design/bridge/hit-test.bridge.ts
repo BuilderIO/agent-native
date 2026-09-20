@@ -952,7 +952,9 @@
       return target;
     }
     var container =
-      target.placement === "inside" ? target.anchor : target.anchor.parentElement;
+      target.placement === "inside"
+        ? target.anchor
+        : target.anchor.parentElement;
     if (!container || !isAutoLayoutElement(container)) return target;
     return {
       anchor: container,
