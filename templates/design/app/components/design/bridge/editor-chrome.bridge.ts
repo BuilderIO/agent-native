@@ -15259,6 +15259,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         nestedHit !== el &&
         !el.contains(nestedHit)
       ) {
+        if (
+          isOverlayElement(nestedHit) ||
+          isLayerInteractionBlocked(nestedHit)
+        ) {
+          nestedHit = null;
+          break;
+        }
         nestedHit = nestedHit.parentElement;
       }
       if (
@@ -15267,6 +15274,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         !el.contains(nestedHit) &&
         nestedHit !== currentParent &&
         isAutoLayoutElement(nestedHit) &&
+        !isOverlayElement(nestedHit) &&
+        !isLayerInteractionBlocked(nestedHit) &&
         nestedHit.parentElement === currentParent &&
         isContainerDropTarget(nestedHit)
       ) {

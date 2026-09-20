@@ -11023,9 +11023,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       if ((forceNestedAutoLayout || ignoreTargetAutoLayout) && !pointerOutsideCurrentParent) {
         var nestedHit = elementFromEditorPoint(clientX, clientY);
         while (nestedHit && nestedHit.parentElement !== currentParent && nestedHit !== el && !el.contains(nestedHit)) {
+          if (isOverlayElement(nestedHit) || isLayerInteractionBlocked(nestedHit)) {
+            nestedHit = null;
+            break;
+          }
           nestedHit = nestedHit.parentElement;
         }
-        if (nestedHit && nestedHit !== el && !el.contains(nestedHit) && nestedHit !== currentParent && isAutoLayoutElement(nestedHit) && nestedHit.parentElement === currentParent && isContainerDropTarget(nestedHit)) {
+        if (nestedHit && nestedHit !== el && !el.contains(nestedHit) && nestedHit !== currentParent && isAutoLayoutElement(nestedHit) && !isOverlayElement(nestedHit) && !isLayerInteractionBlocked(nestedHit) && nestedHit.parentElement === currentParent && isContainerDropTarget(nestedHit)) {
           target = nearestChildInsertionTarget(
             nestedHit,
             clientX,
