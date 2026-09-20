@@ -10691,15 +10691,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         var childStyles = window.getComputedStyle(child);
         return childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0";
       });
-      var hasExplicitSourcePlacement = (excluded || []).some(function(child) {
-        var childStyles = window.getComputedStyle(child);
-        return childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0";
-      });
+      var hasAuthoredSingleCellSourcePlacement = (excluded || []).some(
+        function(child) {
+          var childStyles = window.getComputedStyle(child);
+          return childStyles.gridColumnStart !== "auto" && childStyles.gridColumnStart.indexOf("span") !== 0 && childStyles.gridColumnEnd === "auto" && childStyles.gridRowStart !== "auto" && childStyles.gridRowStart.indexOf("span") !== 0 && childStyles.gridRowEnd === "auto";
+        }
+      );
       var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
       while (hit && hit.parentElement && hit.parentElement !== container) {
         hit = hit.parentElement;
       }
-      if (trackLayout && hasExplicitPlacement && !hasExplicitSourcePlacement) {
+      if (trackLayout && hasExplicitPlacement && !hasAuthoredSingleCellSourcePlacement) {
         var column = trackLayout.columnBounds.findIndex(function(bound) {
           return clientX >= bound.start && clientX <= bound.end;
         });

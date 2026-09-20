@@ -14711,16 +14711,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         childStyles.order !== "0"
       );
     });
-    var hasExplicitSourcePlacement = (excluded || []).some(function (child) {
-      var childStyles = window.getComputedStyle(child);
-      return (
-        childStyles.gridColumnStart !== "auto" ||
-        childStyles.gridColumnEnd !== "auto" ||
-        childStyles.gridRowStart !== "auto" ||
-        childStyles.gridRowEnd !== "auto" ||
-        childStyles.order !== "0"
-      );
-    });
+    // Preserve a single-cell authored slot while dragging over an occupied
+    // peer; the gesture changes layer order without retargeting that slot.
+    var hasAuthoredSingleCellSourcePlacement = (excluded || []).some(
+      function (child) {
+        var childStyles = window.getComputedStyle(child);
+        return (
+          childStyles.gridColumnStart !== "auto" &&
+          childStyles.gridColumnStart.indexOf("span") !== 0 &&
+          childStyles.gridColumnEnd === "auto" &&
+          childStyles.gridRowStart !== "auto" &&
+          childStyles.gridRowStart.indexOf("span") !== 0 &&
+          childStyles.gridRowEnd === "auto"
+        );
+      },
+    );
     var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
     while (hit && hit.parentElement && hit.parentElement !== container) {
       hit = hit.parentElement;
@@ -14728,10 +14733,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Resolve the pointer against rendered tracks and carry the cell through
     // the drop so the source and its persisted markup move together. The
     // occupied cell is also retained as the source-order insertion anchor.
-    if (trackLayout && hasExplicitPlacement && !hasExplicitSourcePlacement) {
-      // An authored grid slot is part of the source's placement contract.
-      // Reordering that source changes layer order, but must not turn its
-      // authored grid-column/grid-row into the hovered cell.
+    if (
+      trackLayout &&
+      hasExplicitPlacement &&
+      !hasAuthoredSingleCellSourcePlacement
+    ) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
       });
