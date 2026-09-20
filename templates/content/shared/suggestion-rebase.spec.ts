@@ -271,6 +271,20 @@ describe("resolveMarkdownSuggestionRange", () => {
     ).toBeNull();
   });
 
+  it("does not relocate a canonicalized paragraph target into a code fence", () => {
+    const saved = "Paragraph a < b.\n\n```\na < b\n```";
+    const target = "a < b";
+    const canonical = canonicalizeNfm(saved);
+    const from = saved.indexOf(target);
+    expect(canonical.indexOf(target)).toBe(canonical.lastIndexOf(target));
+    expect(
+      resolveMarkdownSuggestionRange(
+        canonical,
+        change(saved, from, from + target.length, "a > b"),
+      ),
+    ).toBeNull();
+  });
+
   it("maps a target spanning Markdown block syntax without changing structure", () => {
     const saved = "# Heading\n\n> Original quote\n\nTail";
     const target = "> Original quote";

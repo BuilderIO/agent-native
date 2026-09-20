@@ -1,3 +1,9 @@
+import DiffMatchPatch, {
+  DIFF_DELETE,
+  DIFF_EQUAL,
+  DIFF_INSERT,
+} from "diff-match-patch";
+
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 
 type ContextualMarkdownOperation = {
@@ -111,9 +117,47 @@ function resolveCanonicalizedRange(
   if (!target)
     return resolveCanonicalizedInsertion(before, current, anchor.from);
   if (!target.trim()) return null;
-  const from = current.indexOf(target);
-  if (from < 0 || current.indexOf(target, from + 1) >= 0) return null;
-  return { from, to: from + target.length };
+  const range = resolveUnchangedCanonicalRange(
+    before,
+    current,
+    anchor.from,
+    anchor.to,
+  );
+  if (
+    !range ||
+    current.indexOf(target) !== range.from ||
+    current.indexOf(target, range.from + 1) >= 0
+  )
+    return null;
+  return range;
+}
+
+function resolveUnchangedCanonicalRange(
+  before: string,
+  current: string,
+  from: number,
+  to: number,
+) {
+  const differ = new DiffMatchPatch();
+  const diffs = differ.diff_main(before, current, true);
+  let beforeOffset = 0;
+  let currentOffset = 0;
+  for (const [operation, text] of diffs) {
+    if (operation === DIFF_EQUAL) {
+      const end = beforeOffset + text.length;
+      if (from >= beforeOffset && to <= end) {
+        const mappedFrom = currentOffset + from - beforeOffset;
+        return { from: mappedFrom, to: mappedFrom + to - from };
+      }
+      beforeOffset = end;
+      currentOffset += text.length;
+    } else if (operation === DIFF_DELETE) {
+      beforeOffset += text.length;
+    } else if (operation === DIFF_INSERT) {
+      currentOffset += text.length;
+    }
+  }
+  return null;
 }
 
 function resolveCanonicalizedInsertion(
