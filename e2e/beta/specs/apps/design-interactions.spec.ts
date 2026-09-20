@@ -114,206 +114,6 @@ interface AuthedPage {
   appErrors: string[];
 }
 
-async function installUrlGhostProbe(page: Page) {
-  await page.evaluate(() => {
-    const probeKey = "__agentNativeUrlGhostProbe";
-    const describeIframe = (iframe: HTMLIFrameElement) => {
-      const rect = iframe.getBoundingClientRect();
-      return {
-        connected: iframe.isConnected,
-        id: iframe.id,
-        screenId: iframe.getAttribute("data-screen-iframe-id"),
-        pointerEvents: iframe.style.pointerEvents,
-        left: Math.round(rect.left),
-        top: Math.round(rect.top),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      };
-    };
-    const describeTarget = (target: EventTarget | null) => {
-      if (!(target instanceof Element))
-        return target?.constructor?.name ?? null;
-      return {
-        tag: target.tagName,
-        id: target.id,
-        iframe: target.closest("iframe")?.getAttribute("data-screen-iframe-id"),
-      };
-    };
-    const frames = () =>
-      Array.from(
-        document.querySelectorAll<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        ),
-      ).map(describeIframe);
-    const mutations: Array<Record<string, unknown>> = [];
-    const messages: Array<Record<string, unknown>> = [];
-    const mousemoves: Array<Record<string, unknown>> = [];
-    const recordMutation = (iframe: HTMLIFrameElement, kind: string) => {
-      if (mutations.length >= 100) return;
-      mutations.push({
-        at: Math.round(performance.now()),
-        kind,
-        ...describeIframe(iframe),
-      });
-    };
-    const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        for (const node of Array.from(record.addedNodes)) {
-          if (node instanceof HTMLIFrameElement) {
-            recordMutation(node, "added");
-          }
-          if (node instanceof Element) {
-            node
-              .querySelectorAll<HTMLIFrameElement>(
-                "iframe[data-design-preview-iframe]",
-              )
-              .forEach((iframe) => recordMutation(iframe, "added-descendant"));
-          }
-        }
-        for (const node of Array.from(record.removedNodes)) {
-          if (node instanceof HTMLIFrameElement) {
-            recordMutation(node, "removed");
-          }
-          if (node instanceof Element) {
-            node
-              .querySelectorAll<HTMLIFrameElement>(
-                "iframe[data-design-preview-iframe]",
-              )
-              .forEach((iframe) =>
-                recordMutation(iframe, "removed-descendant"),
-              );
-          }
-        }
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    const handleMessage = (event: MessageEvent) => {
-      const data = event.data;
-      if (!data || typeof data !== "object" || typeof data.type !== "string") {
-        return;
-      }
-      if (
-        !data.type.startsWith("agent-native:") ||
-        (messages.length >= 100 &&
-          data.type !== "agent-native:cross-screen-drag")
-      ) {
-        return;
-      }
-      messages.push({
-        at: Math.round(performance.now()),
-        type: data.type,
-        phase: data.phase,
-        sourceIsWindow: event.source instanceof Window,
-      });
-    };
-    window.addEventListener("message", handleMessage);
-    const handleMouseMove = (event: MouseEvent) => {
-      if (mousemoves.length >= 200) return;
-      mousemoves.push({
-        at: Math.round(performance.now()),
-        x: Math.round(event.clientX),
-        y: Math.round(event.clientY),
-        target: describeTarget(event.target),
-      });
-    };
-    window.addEventListener("mousemove", handleMouseMove, true);
-    const probe = {
-      initialFrames: frames(),
-      read: () => ({
-        initialFrames: probe.initialFrames,
-        frames: frames(),
-        messages,
-        mutations,
-        mousemoves,
-      }),
-      stop: () => {
-        observer.disconnect();
-        window.removeEventListener("message", handleMessage);
-        window.removeEventListener("mousemove", handleMouseMove, true);
-      },
-    };
-    (window as unknown as Record<string, unknown>)[probeKey] = probe;
-  });
-  const boardBody = page
-    .locator(`[data-board-surface-layer] ${PREVIEW}`)
-    .first()
-    .contentFrame()
-    .locator("body");
-  await boardBody.evaluate((body) => {
-    const events: Array<Record<string, unknown>> = [];
-    const record = (event: MouseEvent) => {
-      if (events.length >= 100) return;
-      events.push({
-        type: event.type,
-        at: Math.round(performance.now()),
-        x: Math.round(event.clientX),
-        y: Math.round(event.clientY),
-        target: event.target instanceof Element ? event.target.tagName : null,
-      });
-    };
-    const frameWindow = body.ownerDocument.defaultView;
-    if (!frameWindow) return;
-    frameWindow.addEventListener("mousedown", record, true);
-    frameWindow.addEventListener("mousemove", record, true);
-    frameWindow.addEventListener("mouseup", record, true);
-    (frameWindow as unknown as Record<string, unknown>)[
-      "__agentNativeUrlGhostBoardProbe"
-    ] = {
-      read: () => events,
-      stop: () => {
-        frameWindow.removeEventListener("mousedown", record, true);
-        frameWindow.removeEventListener("mousemove", record, true);
-        frameWindow.removeEventListener("mouseup", record, true);
-      },
-    };
-  });
-}
-
-async function readUrlGhostProbe(page: Page) {
-  const host = await page.evaluate(() => {
-    const probe = (
-      window as unknown as {
-        __agentNativeUrlGhostProbe?: { read: () => unknown };
-      }
-    ).__agentNativeUrlGhostProbe;
-    return probe?.read() ?? null;
-  });
-  const boardBody = page
-    .locator(`[data-board-surface-layer] ${PREVIEW}`)
-    .first()
-    .contentFrame()
-    .locator("body");
-  const board = await boardBody.evaluate((body) => {
-    const frameWindow = body.ownerDocument.defaultView as unknown as {
-      __agentNativeUrlGhostBoardProbe?: { read: () => unknown };
-    } | null;
-    return frameWindow?.__agentNativeUrlGhostBoardProbe?.read() ?? null;
-  });
-  return { host, board };
-}
-
-async function stopUrlGhostProbe(page: Page) {
-  await page.evaluate(() => {
-    const probe = (
-      window as unknown as {
-        __agentNativeUrlGhostProbe?: { stop: () => void };
-      }
-    ).__agentNativeUrlGhostProbe;
-    probe?.stop();
-  });
-  const boardBody = page
-    .locator(`[data-board-surface-layer] ${PREVIEW}`)
-    .first()
-    .contentFrame()
-    .locator("body");
-  await boardBody.evaluate((body) => {
-    const frameWindow = body.ownerDocument.defaultView as unknown as {
-      __agentNativeUrlGhostBoardProbe?: { stop: () => void };
-    } | null;
-    frameWindow?.__agentNativeUrlGhostBoardProbe?.stop();
-  });
-}
-
 async function postAction(
   page: Page,
   name: string,
@@ -1244,23 +1044,8 @@ test.describe("authenticated beta Design interactions", () => {
           .contentFrame()
           .locator('[data-agent-native-node-id="external-target"]'),
       ).toBeVisible({ timeout: 30_000 });
-      await installUrlGhostProbe(page);
       const sourceBox = (await source.boundingBox())!;
       const targetBox = (await urlTarget.boundingBox())!;
-      console.log(
-        `[url-ghost-geometry] ${JSON.stringify({
-          viewport: await page.evaluate(() => ({
-            width: window.innerWidth,
-            height: window.innerHeight,
-          })),
-          sourceBox,
-          targetBox,
-          boardIframeBox: await page
-            .locator(`[data-board-surface-layer] ${PREVIEW}`)
-            .first()
-            .boundingBox(),
-        })}`,
-      );
       const beforeBoard = await readSource(page, designId, "__board__.html");
       const beforeInline = await readSource(page, designId);
       const beforeBoardOrder = await topLevelNodeIds(page, beforeBoard);
@@ -1270,9 +1055,17 @@ test.describe("authenticated beta Design interactions", () => {
         NESTED_FRAME_ID,
       );
 
-      await page.mouse.move(sourceBox.x + 18, sourceBox.y + 11);
+      const grabPoint = {
+        x: sourceBox.x + sourceBox.width / 2,
+        y: sourceBox.y + sourceBox.height / 2,
+      };
+      await page.mouse.move(grabPoint.x, grabPoint.y);
       await page.mouse.down();
-      await page.mouse.move(sourceBox.x + 6, sourceBox.y + 11, { steps: 4 });
+      await page.mouse.move(
+        sourceBox.x + sourceBox.width / 4,
+        sourceBox.y + sourceBox.height / 2,
+        { steps: 4 },
+      );
       await page.mouse.move(
         targetBox.x + targetBox.width / 2,
         targetBox.y + targetBox.height / 2,
@@ -1337,12 +1130,8 @@ test.describe("authenticated beta Design interactions", () => {
         .toBe(URL_BACKED_TARGET_URL);
     } catch (error) {
       primaryFailure = true;
-      console.log(
-        `[url-ghost-probe] ${JSON.stringify(await readUrlGhostProbe(page))}`,
-      );
       throw error;
     } finally {
-      if (!page.isClosed()) await stopUrlGhostProbe(page);
       await cleanupTest({
         context,
         page,
