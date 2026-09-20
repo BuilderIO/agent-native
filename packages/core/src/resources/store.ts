@@ -1519,6 +1519,10 @@ export async function resourceGetByPath(
   options?: ResourceResolutionOptions,
 ): Promise<Resource | null> {
   await ensureTable();
+  const orgId = resourceOrganizationId(options?.orgId);
+  if (!isOrganizationWorkspaceResourceVisibleToOrganization(owner, orgId)) {
+    return null;
+  }
   const workspace = isWorkspaceResourceOwner(owner);
   const owners = workspace
     ? workspaceReadOwners(owner, options?.orgId)
@@ -1533,7 +1537,6 @@ export async function resourceGetByPath(
     sql: `SELECT * FROM resources WHERE owner IN (${owners.map(() => "?").join(", ")}) AND path = ?`,
     args: [...owners, path],
   });
-  const orgId = resourceOrganizationId(options?.orgId);
   const ownerRank = new Map(
     owners.map((candidate, index) => [candidate, index]),
   );
@@ -1935,11 +1938,14 @@ export async function resourceList(
   options?: ResourceListOptions,
 ): Promise<ResourceMeta[]> {
   await ensureTable();
+  const orgId = resourceOrganizationId(options?.orgId);
+  if (!isOrganizationWorkspaceResourceVisibleToOrganization(owner, orgId)) {
+    return [];
+  }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
   const visibilitySql = scratchFilterSql(options);
   const workspace = isWorkspaceResourceOwner(owner);
-  const orgId = resourceOrganizationId(options?.orgId);
   const owners = workspace
     ? workspaceReadOwners(owner, options?.orgId)
     : [owner];
@@ -2004,15 +2010,21 @@ export async function resourceListContentByOwnersAndPrefixes(
   const uniquePrefixes = [...new Set(pathPrefixes.filter(Boolean))];
   if (uniqueOwners.length === 0 || uniquePrefixes.length === 0) return [];
 
+  const orgId = resourceOrganizationId(options?.orgId);
+  const visibleOwners = uniqueOwners.filter((owner) =>
+    isOrganizationWorkspaceResourceVisibleToOrganization(owner, orgId),
+  );
+  if (visibleOwners.length === 0) return [];
+
   const client = getDbExec();
-  const ownerSql = uniqueOwners.map(() => "?").join(", ");
+  const ownerSql = visibleOwners.map(() => "?").join(", ");
   const prefixSql = uniquePrefixes
     .map(() => "path LIKE ? ESCAPE '!'")
     .join(" OR ");
   const query = {
     sql: `SELECT id, path, owner, content, metadata FROM resources WHERE owner IN (${ownerSql}) AND (${prefixSql})${scratchFilterSql()}`,
     args: [
-      ...uniqueOwners,
+      ...visibleOwners,
       ...uniquePrefixes.map((prefix) => prefixLike(prefix)),
     ],
   };
@@ -2028,21 +2040,21 @@ export async function resourceListContentByOwnersAndPrefixes(
     ({ rows } = await client.execute(query));
   }
   scheduleExpiredAgentScratchCleanup(client);
-  return rows
-    .map((row) => ({
-      id: String(row.id),
-      path: String(row.path),
-      owner: String(row.owner),
-      content: String(row.content),
-      metadata: nullableString(row.metadata),
-    }))
-    .filter((resource) =>
-      isLegacySharedResourceVisibleToOrganization(
-        resource,
-        resourceOrganizationId(options?.orgId),
+  const visible = await filterLegacyDispatchWorkspaceRows(
+    rows
+      .map((row) => ({
+        id: String(row.id),
+        path: String(row.path),
+        owner: String(row.owner),
+        content: String(row.content),
+        metadata: nullableString(row.metadata),
+      }))
+      .filter((resource) =>
+        isLegacySharedResourceVisibleToOrganization(resource, orgId),
       ),
-    )
-    .map(({ metadata: _metadata, ...resource }) => resource);
+    orgId,
+  );
+  return visible.map(({ metadata: _metadata, ...resource }) => resource);
 }
 
 export async function resourceListAccessible(
@@ -2091,7 +2103,7 @@ export async function resourceEffectiveContext(
     resourceGetByPath(workspaceOwner, path, { ...options, userEmail }),
     organizationOwner === SHARED_OWNER
       ? Promise.resolve(null)
-      : resourceGetByPath(organizationOwner, path),
+      : resourceGetByPath(organizationOwner, path, { ...options, userEmail }),
     resourceGetByPath(SHARED_OWNER, path, options),
     resourceGetByPath(userEmail, path),
   ]);

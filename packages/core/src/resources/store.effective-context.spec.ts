@@ -199,6 +199,9 @@ describe("resourceEffectiveContext", () => {
       WORKSPACE_OWNER,
       resourceDeleteByPath,
       resourceGet,
+      resourceGetByPath,
+      resourceList,
+      resourceListContentByOwnersAndPrefixes,
       resourcePut,
       workspaceResourceOwner,
     } = await import("./store.js");
@@ -234,23 +237,92 @@ describe("resourceEffectiveContext", () => {
         content: "org A only",
       });
       await expect(
+        resourceGetByPath(orgAOwner, orgAPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ content: "org A only" });
+      await expect(
+        resourceList(orgAOwner, prefix, { orgId: "org-a" }),
+      ).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: orgAPath })]),
+      );
+      await expect(
+        resourceListContentByOwnersAndPrefixes([orgAOwner], [prefix], {
+          orgId: "org-a",
+        }),
+      ).resolves.toEqual([expect.objectContaining({ path: orgAPath })]);
+      await expect(
         resourceGet(orgA.id, { orgId: "org-b" }),
       ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(orgAOwner, orgAPath, { orgId: "org-b" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceList(orgAOwner, prefix, { orgId: "org-b" }),
+      ).resolves.toEqual([]);
+      await expect(
+        resourceListContentByOwnersAndPrefixes(
+          [orgAOwner, WORKSPACE_OWNER],
+          [prefix],
+          { orgId: "org-b" },
+        ),
+      ).resolves.toEqual([expect.objectContaining({ path: barePath })]);
       await expect(resourceGet(orgA.id, { orgId: null })).resolves.toBeNull();
       await expect(
         runWithRequestContext({ orgId: undefined }, () => resourceGet(orgA.id)),
       ).resolves.toBeNull();
       await expect(
+        runWithRequestContext({ orgId: undefined }, () =>
+          resourceGetByPath(orgAOwner, orgAPath),
+        ),
+      ).resolves.toBeNull();
+      await expect(
+        runWithRequestContext({ orgId: undefined }, () =>
+          resourceList(orgAOwner, prefix),
+        ),
+      ).resolves.toEqual([]);
+      await expect(
+        runWithRequestContext({ orgId: undefined }, () =>
+          resourceListContentByOwnersAndPrefixes([orgAOwner], [prefix]),
+        ),
+      ).resolves.toEqual([]);
+      await expect(
         runWithRequestContext({ orgId: "org-a" }, () => resourceGet(orgA.id)),
       ).resolves.toMatchObject({ content: "org A only" });
+      await expect(
+        runWithRequestContext({ orgId: "org-a" }, () =>
+          resourceGetByPath(orgAOwner, orgAPath),
+        ),
+      ).resolves.toMatchObject({ content: "org A only" });
+      await expect(
+        runWithRequestContext({ orgId: "org-a" }, () =>
+          resourceList(orgAOwner, prefix),
+        ),
+      ).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: orgAPath })]),
+      );
       await expect(
         runWithRequestContext({ orgId: "org-a" }, () =>
           resourceGet(orgA.id, { orgId: null }),
         ),
       ).resolves.toBeNull();
       await expect(
+        runWithRequestContext({ orgId: "org-a" }, () =>
+          resourceGetByPath(orgAOwner, orgAPath, { orgId: null }),
+        ),
+      ).resolves.toBeNull();
+      await expect(
         resourceGet(malformed.id, { orgId: "org-a" }),
       ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(malformedOwner, malformedPath, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceList(malformedOwner, prefix, { orgId: "org-a" }),
+      ).resolves.toEqual([]);
+      await expect(
+        resourceListContentByOwnersAndPrefixes([malformedOwner], [prefix], {
+          orgId: "org-a",
+        }),
+      ).resolves.toEqual([]);
       await expect(
         resourceGet(bare.id, { orgId: "org-b" }),
       ).resolves.toMatchObject({
@@ -264,6 +336,12 @@ describe("resourceEffectiveContext", () => {
       await expect(
         resourceGet(personal.id, { orgId: "org-b" }),
       ).resolves.toMatchObject({ content: "personal resource" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, barePath, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ content: "deployment default" });
+      await expect(
+        resourceList(WORKSPACE_OWNER, prefix, { orgId: "org-b" }),
+      ).resolves.toEqual([expect.objectContaining({ path: barePath })]);
     } finally {
       await Promise.all([
         resourceDeleteByPath(orgAOwner, orgAPath),
@@ -281,6 +359,7 @@ describe("resourceEffectiveContext", () => {
       resourceGet,
       resourceGetByPath,
       resourceList,
+      resourceListContentByOwnersAndPrefixes,
       resourcePut,
     } = await import("./store.js");
     const prefix = `instructions/legacy-dispatch-missing-schema-${Date.now()}/`;
@@ -313,6 +392,11 @@ describe("resourceEffectiveContext", () => {
       ).resolves.toMatchObject({ content: "deployment default" });
       await expect(
         resourceList(WORKSPACE_OWNER, prefix, { orgId: "org-a" }),
+      ).resolves.toEqual([expect.objectContaining({ path: defaultPath })]);
+      await expect(
+        resourceListContentByOwnersAndPrefixes([WORKSPACE_OWNER], [prefix], {
+          orgId: "org-a",
+        }),
       ).resolves.toEqual([expect.objectContaining({ path: defaultPath })]);
     } finally {
       await Promise.all([
@@ -928,7 +1012,7 @@ describe("resourceEffectiveContext", () => {
         resourceGetByPath(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
       ).resolves.toMatchObject({ owner: orgAOwner, content: "# Org A" });
       await expect(
-        resourceGetByPath(orgBOwner, localPath),
+        resourceGetByPath(orgBOwner, localPath, { orgId: "org-b" }),
       ).resolves.toMatchObject({ owner: orgBOwner, content: "# Org B" });
       await expect(
         resourceList(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
@@ -1038,7 +1122,7 @@ describe("resourceEffectiveContext", () => {
         }),
       ]);
       await expect(
-        resourceGetByPath(orgBOwner, localPath),
+        resourceGetByPath(orgBOwner, localPath, { orgId: "org-b" }),
       ).resolves.toMatchObject({ owner: orgBOwner, content: "# Org B" });
 
       await resourcePut(
