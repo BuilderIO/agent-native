@@ -50,6 +50,10 @@ export interface GridGroupStructureMove {
   sourceId: string;
   anchorSelector: string;
   anchorSourceId: string;
+  placement?: "before" | "after" | "inside";
+  persistenceAnchorSelector?: string;
+  persistenceAnchorSourceId?: string;
+  persistencePlacement?: "before" | "after" | "inside";
   gridPlacement: {
     column: number;
     columnEnd: number;

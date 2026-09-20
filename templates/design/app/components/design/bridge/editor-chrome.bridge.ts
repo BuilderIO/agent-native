@@ -14711,6 +14711,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         childStyles.order !== "0"
       );
     });
+    var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
+    while (hit && hit.parentElement && hit.parentElement !== container) {
+      hit = hit.parentElement;
+    }
     // Resolve the pointer against rendered tracks and carry the cell through
     // the drop so the source and its persisted markup move together. The
     // occupied cell is also retained as the source-order insertion anchor.
@@ -14721,6 +14725,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var row = trackLayout.rowBounds.findIndex(function (bound) {
         return clientY >= bound.start && clientY <= bound.end;
       });
+      // A spanning item includes the track gap in its rendered rectangle, but
+      // a gap is not itself a track bound. Preserve that item's authored start
+      // instead of falling through to a flow insertion at its midpoint.
+      if (
+        (column < 0 || row < 0) &&
+        hit &&
+        hit.parentElement === container &&
+        children.indexOf(hit) !== -1
+      ) {
+        var hitColumn = gridItemAxisPlacement(hit, trackLayout, "column");
+        var hitRow = gridItemAxisPlacement(hit, trackLayout, "row");
+        if (
+          column < 0 &&
+          hitColumn.span > 1 &&
+          hitColumn.authoredStart !== null
+        ) {
+          column = hitColumn.authoredStart - 1;
+        }
+        if (row < 0 && hitRow.span > 1 && hitRow.authoredStart !== null) {
+          row = hitRow.authoredStart - 1;
+        }
+      }
       if (column >= 0 && row >= 0) {
         var cellLeft = trackLayout.columnBounds[column].start;
         var cellTop = trackLayout.rowBounds[row].start;
@@ -14762,10 +14788,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // actual empty cells and outer grid whitespace; otherwise the projected
     // child rectangle paints a cell fill where the normal insertion line is
     // the established drag affordance.
-    var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
-    while (hit && hit.parentElement && hit.parentElement !== container) {
-      hit = hit.parentElement;
-    }
     if (
       hit &&
       hit.parentElement === container &&
@@ -16972,9 +16994,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     transactionId?: string,
   ) {
     if (!el || !target || !target.anchor) return;
-    // Batched grid-group persistence is handled by the host's grid planner,
-    // which expects the grid container as its inside anchor. Single-node
-    // moves use the occupied-cell anchor so source order follows the preview.
+    // Batched grid messages keep the grid container as their runtime anchor;
+    // persistence fields retain each member's source-order anchor.
     var messageAnchor = collectMessages
       ? target.anchor
       : target.persistenceAnchor || target.anchor;
@@ -17006,6 +17027,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       anchorSelector: getSelector(messageAnchor),
       anchorSourceId: getSourceId(messageAnchor),
       placement: messagePlacement,
+      persistenceAnchorSelector: getSelector(
+        target.persistenceAnchor || target.anchor,
+      ),
+      persistenceAnchorSourceId: getSourceId(
+        target.persistenceAnchor || target.anchor,
+      ),
+      persistencePlacement: target.persistencePlacement || target.placement,
       dropMode: target.dropMode || "flow-insert",
       forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
       gridPlacement: target.gridPlacement,

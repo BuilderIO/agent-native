@@ -13301,12 +13301,13 @@ function DesignEditor() {
             },
             screenId,
             move.selector,
-            move.anchorSelector,
-            "inside",
+            move.persistenceAnchorSelector ?? move.anchorSelector,
+            move.persistencePlacement ?? move.placement ?? "inside",
             undefined,
             {
               sourceId: move.sourceId,
-              anchorSourceId: move.anchorSourceId,
+              anchorSourceId:
+                move.persistenceAnchorSourceId ?? move.anchorSourceId,
               requestId: move.requestId,
               transactionId,
               dropMode: "flow-insert",

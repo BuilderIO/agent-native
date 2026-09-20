@@ -1007,6 +1007,90 @@ describe("explicit grid placement repro", () => {
     await browser.close();
   });
 
+  it("chains occupied-cell anchors for grouped source order", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(
+      groupedSourceFixture(
+        "grid-column:1 / 3;grid-row:1",
+        "grid-column:1 / 3;grid-row:2",
+      ),
+    );
+    await page.addScriptTag({ content: bridge() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      window.postMessage(
+        { type: "set-grid-group-batching-enabled", enabled: true },
+        "*",
+      );
+      (
+        window as Window & {
+          __gridDrops?: Array<{
+            anchorSourceId: string;
+            placement: string;
+            persistenceAnchorSourceId: string;
+            persistencePlacement: string;
+          }>;
+        }
+      ).__gridDrops = [];
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-grid-group-change")
+          (window as Window & { __gridDrops?: unknown[] }).__gridDrops =
+            event.data.moves;
+      });
+    });
+    const target = await box(page, "#target");
+    await dragSelectedGroup(page, { x: target.x + 230, y: target.y + 110 });
+    await page.mouse.up();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __gridDrops?: unknown[] }).__gridDrops
+              ?.length ?? 0,
+        ),
+      )
+      .toBe(2);
+    expect(
+      await page.evaluate(() =>
+        (
+          window as Window & {
+            __gridDrops?: Array<{
+              anchorSourceId: string;
+              placement: string;
+              persistenceAnchorSourceId: string;
+              persistencePlacement: string;
+            }>;
+          }
+        ).__gridDrops?.map((move) => [move.anchorSourceId, move.placement]),
+      ),
+    ).toEqual([
+      ["target", "inside"],
+      ["target", "inside"],
+    ]);
+    expect(
+      await page.evaluate(() =>
+        (
+          window as Window & {
+            __gridDrops?: Array<{
+              persistenceAnchorSourceId: string;
+              persistencePlacement: string;
+            }>;
+          }
+        ).__gridDrops?.map((move) => [
+          move.persistenceAnchorSourceId,
+          move.persistencePlacement,
+        ]),
+      ),
+    ).toEqual([
+      ["occupied", "before"],
+      ["b", "after"],
+    ]);
+    await browser.close();
+  });
+
   it("restores important grid longhands on rejection and accepts their replacement", async () => {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({

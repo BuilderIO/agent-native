@@ -10691,6 +10691,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         var childStyles = window.getComputedStyle(child);
         return childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0";
       });
+      var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
+      while (hit && hit.parentElement && hit.parentElement !== container) {
+        hit = hit.parentElement;
+      }
       if (trackLayout && hasExplicitPlacement) {
         var column = trackLayout.columnBounds.findIndex(function(bound) {
           return clientX >= bound.start && clientX <= bound.end;
@@ -10698,6 +10702,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         var row = trackLayout.rowBounds.findIndex(function(bound) {
           return clientY >= bound.start && clientY <= bound.end;
         });
+        if ((column < 0 || row < 0) && hit && hit.parentElement === container && children.indexOf(hit) !== -1) {
+          var hitColumn = gridItemAxisPlacement(hit, trackLayout, "column");
+          var hitRow = gridItemAxisPlacement(hit, trackLayout, "row");
+          if (column < 0 && hitColumn.span > 1 && hitColumn.authoredStart !== null) {
+            column = hitColumn.authoredStart - 1;
+          }
+          if (row < 0 && hitRow.span > 1 && hitRow.authoredStart !== null) {
+            row = hitRow.authoredStart - 1;
+          }
+        }
         if (column >= 0 && row >= 0) {
           var cellLeft = trackLayout.columnBounds[column].start;
           var cellTop = trackLayout.rowBounds[row].start;
@@ -10729,10 +10743,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             gridDisplacement: displaced
           };
         }
-      }
-      var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
-      while (hit && hit.parentElement && hit.parentElement !== container) {
-        hit = hit.parentElement;
       }
       if (hit && hit.parentElement === container && children.indexOf(hit) !== -1) {
         return null;
@@ -12054,6 +12064,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         anchorSelector: getSelector(messageAnchor),
         anchorSourceId: getSourceId(messageAnchor),
         placement: messagePlacement,
+        persistenceAnchorSelector: getSelector(
+          target.persistenceAnchor || target.anchor
+        ),
+        persistenceAnchorSourceId: getSourceId(
+          target.persistenceAnchor || target.anchor
+        ),
+        persistencePlacement: target.persistencePlacement || target.placement,
         dropMode: target.dropMode || "flow-insert",
         forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
         gridPlacement: target.gridPlacement,

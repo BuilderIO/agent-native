@@ -3786,7 +3786,9 @@ export function DesignCanvas({
               typeof move.sourceId === "string" &&
               typeof move.anchorSelector === "string" &&
               typeof move.anchorSourceId === "string" &&
-              move.placement === "inside" &&
+              (move.placement === "before" ||
+                move.placement === "after" ||
+                move.placement === "inside") &&
               move.dropMode === "flow-insert" &&
               validPlacement(move.gridPlacement) &&
               Array.isArray(move.gridDisplacements) &&
@@ -3796,9 +3798,6 @@ export function DesignCanvas({
                   typeof entry.selector === "string" &&
                   validPlacement(entry.placement),
               ),
-          ) &&
-          rawMoves.every(
-            (move: any) => move.anchorSourceId === rawMoves[0].anchorSourceId,
           );
         const applied = valid
           ? onVisualGridGroupChange?.(rawMoves as GridGroupStructureMove[])
