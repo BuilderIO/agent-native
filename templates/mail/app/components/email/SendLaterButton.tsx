@@ -262,7 +262,7 @@ export function SendLaterButton({
               <div id={listboxId} role="listbox" className="space-y-1">
                 {suggestions.map((suggestion, index) => (
                   <button
-                    key={suggestion.date.getTime()}
+                    key={`${suggestion.label}-${suggestion.date.getTime()}`}
                     id={`${listboxId}-option-${index}`}
                     type="button"
                     role="option"
