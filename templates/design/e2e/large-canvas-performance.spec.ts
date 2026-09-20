@@ -9,7 +9,7 @@ import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
 const SCREEN_COUNT = 120;
-const CARDS_PER_SCREEN = 24;
+const CARDS_PER_SCREEN = 25;
 const EXPECTED_AUTHORED_LAYERS = SCREEN_COUNT * (1 + CARDS_PER_SCREEN * 3);
 const LIVE_IFRAME_BUDGET = 32;
 
@@ -330,9 +330,9 @@ test("120-screen canvas stays usable, bounded, and responsive", async ({
     expect(placeholderCount).toBeGreaterThanOrEqual(
       SCREEN_COUNT - LIVE_IFRAME_BUDGET,
     );
-    // The 32 live screens alone expose 2,336 authored nodes, so this proves
+    // The live screens expose more than 2,000 authored nodes, so this proves
     // the browser is exercising a real thousands-of-layers DOM workload even
-    // while the remaining 88 screens stay correctly placeholder-culled.
+    // while the remaining screens stay correctly placeholder-culled.
     expect(authoredLayerCount).toBeGreaterThanOrEqual(2_000);
     expect(authoredLayerCount).toBeLessThanOrEqual(EXPECTED_AUTHORED_LAYERS);
     expect(
