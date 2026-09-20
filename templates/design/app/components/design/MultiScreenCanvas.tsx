@@ -12260,9 +12260,7 @@ const Screen = memo(function Screen({
   // its live DOM does, and that DOM is the only thing there is to select.
   const screenContentInteractive =
     Boolean(screenContent) &&
-    (isSelected ||
-      isRunningAppSourceType(metadata.source) ||
-      hasScreenChildLayers(screen.content)) &&
+    (isSelected || hasScreenChildLayers(screen.content)) &&
     !locked &&
     !penActive &&
     !creationToolActive &&
