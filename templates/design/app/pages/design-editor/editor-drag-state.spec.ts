@@ -46,11 +46,17 @@ describe("editor drag state ownership", () => {
         { dragId, retiredDragIds, retiredScreenIds, latestEventAt: 20 },
       ),
     ).toBe(true);
-    retiredScreenIds.delete("screen-a");
     expect(
       shouldAcceptEditorDragStateEvent(
         { active: true, dragId, screenId: "screen-a", eventAt: 30 },
         { dragId, retiredDragIds, retiredScreenIds, latestEventAt: 20 },
+      ),
+    ).toBe(false);
+    retiredScreenIds.clear();
+    expect(
+      shouldAcceptEditorDragStateEvent(
+        { active: true, dragId: "drag-2", screenId: "screen-a", eventAt: 30 },
+        { dragId: null, retiredDragIds, retiredScreenIds },
       ),
     ).toBe(true);
   });

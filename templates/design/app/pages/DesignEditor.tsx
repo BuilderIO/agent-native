@@ -7406,7 +7406,6 @@ function DesignEditor() {
       if (!state.active) activeEditorDragIdRef.current = null;
       if (!state.active) retiredEditorDragScreenIdsRef.current.clear();
       if (retiredScreenClear && screenId) {
-        retiredEditorDragScreenIdsRef.current.delete(screenId);
         setLayerStructurePreviewByFileId((current) => {
           if (!current[screenId]) return current;
           const next = { ...current };
@@ -19435,21 +19434,25 @@ function DesignEditor() {
           ? activeCodeLayerTree
           : buildCodeLayerTree(projection);
       const tree = structurePreview
-        ? (previewCodeLayerTreeMove(baseTree, {
-            ...structurePreview,
-            sourceId:
-              projection.nodes.find(
-                (node) =>
-                  bridgeSourceIdForCodeLayerNode(node) ===
-                  structurePreview.sourceId,
-              )?.id ?? structurePreview.sourceId,
-            anchorId:
-              projection.nodes.find(
-                (node) =>
-                  bridgeSourceIdForCodeLayerNode(node) ===
-                  structurePreview.anchorId,
-              )?.id ?? structurePreview.anchorId,
-          }) ?? baseTree)
+        ? (() => {
+            const sourceNode = resolveCodeLayerNodeFromBridge(
+              projection,
+              undefined,
+              structurePreview.sourceId,
+            );
+            const anchorNode = resolveCodeLayerNodeFromBridge(
+              projection,
+              undefined,
+              structurePreview.anchorId,
+            );
+            return sourceNode && anchorNode
+              ? (previewCodeLayerTreeMove(baseTree, {
+                  ...structurePreview,
+                  sourceId: sourceNode.id,
+                  anchorId: anchorNode.id,
+                }) ?? baseTree)
+              : baseTree;
+          })()
         : baseTree;
       const model: CodeLayerFileModel = {
         fileId: file.id,

@@ -5874,9 +5874,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var placement = target && (target.persistencePlacement || target.placement);
     var sourceId = getSourceId(el);
     var anchorId = getSourceId(anchor);
-    var insert =
-      target.dropMode !== "flow-insert" ||
-      el.parentElement === dropContainerForTarget(target);
     if (
       !sourceId ||
       !anchorId ||
@@ -5892,7 +5889,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       sourceId,
       anchorId,
       placement,
-      insert,
+      insert: true,
     });
   }
 
