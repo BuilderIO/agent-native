@@ -633,7 +633,10 @@ test.describe("Layers-panel auto-layout parity", () => {
           y: targetBox.y + targetBox.height / 2,
         },
         async () => {
-          await expect(layerButton(page, "Flow child")).toHaveCount(0);
+          await expect(layerButton(page, "Flow child")).toHaveCount(1);
+          await expect
+            .poll(() => panelParentName(page, "Flow child"))
+            .toBe("Flow target");
           expect(await parentId(page, "flow-child")).toBe("flow-origin");
           expect(await fileHtml(request, design.id, design.primaryId)).toBe(
             original,
