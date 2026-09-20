@@ -346,13 +346,14 @@ async function layerParentName(
     .first()
     .locator('xpath=ancestor::*[@role="treeitem"][1]');
   return row.evaluate((item) => {
-    const tree = item.closest<HTMLElement>('[role="tree"]');
+    const current = item as HTMLElement;
+    const tree = current.closest<HTMLElement>('[role="tree"]');
     if (!tree) return null;
-    const level = Number(item.getAttribute("aria-level"));
+    const level = Number(current.getAttribute("aria-level"));
     const items = Array.from(
       tree.querySelectorAll<HTMLElement>('[role="treeitem"]'),
     );
-    const index = items.indexOf(item);
+    const index = items.indexOf(current);
     for (let i = index - 1; i >= 0; i -= 1) {
       if (Number(items[i]?.getAttribute("aria-level")) < level) {
         return (
