@@ -48,7 +48,6 @@ export async function resolveLocalhostConnectionScope(options?: {
   /** Public /visual-edit may read a design's read-only preview credential. */
   allowPublicViewer?: boolean;
 }): Promise<LocalhostConnectionScope> {
-  const capability = getRequestAuthCapability();
   const designId = options?.designId;
   if (options?.allowPublicViewer && designId) {
     const access = await resolveAccess("design", designId);
@@ -78,6 +77,7 @@ export async function resolveLocalhostConnectionScope(options?: {
     };
   }
 
+  const capability = getRequestAuthCapability();
   if (
     !designId ||
     !capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) ||
