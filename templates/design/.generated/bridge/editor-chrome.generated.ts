@@ -30,9 +30,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     mod
   ));
 
-  // ../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
+  // node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
   var require_resolve_uri_umd = __commonJS({
-    "../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
+    "node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
       (function(global, factory) {
         typeof exports === "object" && typeof module !== "undefined" ? module.exports = factory() : typeof define === "function" && define.amd ? define(factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, global.resolveURI = factory());
       })(exports, (function() {
@@ -209,7 +209,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
   });
 
-  // ../../packages/toolkit/dist/canvas-interactions/canvas-interactions.js
+  // packages/toolkit/dist/canvas-interactions/canvas-interactions.js
   var DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
   var DEFAULT_CANVAS_NUDGE = 1;
   var DEFAULT_CANVAS_ACCELERATED_NUDGE = 10;
@@ -617,7 +617,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
   }
 
-  // ../../node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
+  // node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
   var comma = ",".charCodeAt(0);
   var semicolon = ";".charCodeAt(0);
   var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -716,7 +716,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     return a[0] - b[0];
   }
 
-  // ../../node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
+  // node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
   var import_resolve_uri = __toESM(require_resolve_uri_umd(), 1);
   function stripFilename(path) {
     if (!path) return "";
@@ -903,7 +903,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
-  // app/components/design/bridge/editor-chrome.bridge.ts
+  // templates/design/app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     if (window.__anEditorChromeBridge) return;
     window.__anEditorChromeBridge = true;
@@ -10655,6 +10655,46 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (styles.display !== "grid" && styles.display !== "inline-grid") {
         return null;
       }
+      var trackLayout = gridTrackLayoutForElement(container);
+      var placementCandidates = children.concat(excluded || []);
+      var hasExplicitPlacement = placementCandidates.some(function(child) {
+        var childStyles = window.getComputedStyle(child);
+        return childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0";
+      });
+      if (trackLayout && hasExplicitPlacement) {
+        var column = trackLayout.columnBounds.findIndex(function(bound) {
+          return clientX >= bound.start && clientX <= bound.end;
+        });
+        var row = trackLayout.rowBounds.findIndex(function(bound) {
+          return clientY >= bound.start && clientY <= bound.end;
+        });
+        if (column >= 0 && row >= 0) {
+          var cellLeft = trackLayout.columnBounds[column].start;
+          var cellTop = trackLayout.rowBounds[row].start;
+          var cellRight = trackLayout.columnBounds[column].end;
+          var cellBottom = trackLayout.rowBounds[row].end;
+          var displaced = children.find(function(child) {
+            var rect = child.getBoundingClientRect();
+            return rect.left < cellRight && rect.right > cellLeft && // i18n-ignore non-user-facing pointer geometry condition
+            rect.top < cellBottom && rect.bottom > cellTop;
+          });
+          return {
+            anchor: container,
+            placement: "inside",
+            axis: "x",
+            dropMode: "flow-insert",
+            guideRect: {
+              left: cellLeft,
+              top: cellTop,
+              width: cellRight - cellLeft,
+              height: cellBottom - cellTop
+            },
+            guideMode: "grid-cell",
+            gridCell: { column, row },
+            gridDisplacement: displaced
+          };
+        }
+      }
       var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
       while (hit && hit.parentElement && hit.parentElement !== container) {
         hit = hit.parentElement;
@@ -11388,6 +11428,66 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
     }
+    function snapshotInlineGridStyles(el) {
+      var htmlEl = el;
+      return {
+        "grid-column": htmlEl.style.getPropertyValue("grid-column"),
+        "grid-row": htmlEl.style.getPropertyValue("grid-row")
+      };
+    }
+    function numericGridLine(value) {
+      var match = value.trim().match(/^(\\d+)$/);
+      return match ? Number(match[1]) : null;
+    }
+    function gridLineEnd(value, start) {
+      var numeric = numericGridLine(value);
+      if (numeric !== null) return numeric;
+      var span = value.trim().match(/^span\\s+(\\d+)$/);
+      return span && start !== null ? start + Number(span[1]) : null;
+    }
+    function expandGridTrackLayoutForAuthoredChildren(layout, container) {
+      var requiredColumns = layout.columnBounds.length;
+      var requiredRows = layout.rowBounds.length;
+      var children = Array.prototype.slice.call(container.children);
+      children.forEach(function(child) {
+        var styles = window.getComputedStyle(child);
+        var columnStart = numericGridLine(styles.gridColumnStart);
+        var rowStart = numericGridLine(styles.gridRowStart);
+        var columnEnd = gridLineEnd(styles.gridColumnEnd, columnStart);
+        var rowEnd = gridLineEnd(styles.gridRowEnd, rowStart);
+        if (columnStart !== null) {
+          requiredColumns = Math.max(
+            requiredColumns,
+            columnEnd ?? columnStart + 1
+          );
+        }
+        if (rowStart !== null) {
+          requiredRows = Math.max(requiredRows, rowEnd ?? rowStart + 1);
+        }
+      });
+      var extendBounds = function(bounds, required) {
+        while (bounds.length < required) {
+          var previous = bounds[bounds.length - 1];
+          var beforePrevious = bounds[bounds.length - 2];
+          var size = previous ? previous.end - previous.start : 0;
+          var gap = previous && beforePrevious ? previous.start - beforePrevious.end : 0;
+          var start = previous ? previous.end + gap : 0;
+          bounds.push({ start, end: start + size });
+        }
+      };
+      extendBounds(layout.columnBounds, requiredColumns);
+      extendBounds(layout.rowBounds, requiredRows);
+      return layout;
+    }
+    function restoreInlineGridStyles(el, snapshot) {
+      if (!snapshot) return;
+      var htmlEl = el;
+      for (var prop of ["grid-column", "grid-row"]) {
+        var value = snapshot[prop];
+        if (value) htmlEl.style.setProperty(prop, value);
+        else htmlEl.style.removeProperty(prop);
+      }
+    }
     function dragOriginInlinePositionStyles(state) {
       return {
         position: state.originalPosition,
@@ -11548,6 +11648,184 @@ export const editorChromeBridgeScript: string = `"use strict";
       })() : null;
       delete el.__agentNativeDesiredDropPoint;
       stripAbsolutePositioningForFlowInsert(el, target);
+      if (target.gridCell) {
+        var gridStyles = window.getComputedStyle(el);
+        var sourceGridLayout = gridTrackLayoutForElement(target.anchor);
+        if (sourceGridLayout) {
+          sourceGridLayout = expandGridTrackLayoutForAuthoredChildren(
+            sourceGridLayout,
+            target.anchor
+          );
+        }
+        var sourceGridRect = el.getBoundingClientRect();
+        var sourceColumnRange = sourceGridLayout ? gridTrackRangeForRect(
+          sourceGridRect,
+          sourceGridLayout.columnBounds,
+          "column"
+        ) : null;
+        var sourceRowRange = sourceGridLayout ? gridTrackRangeForRect(
+          sourceGridRect,
+          sourceGridLayout.rowBounds,
+          "row"
+        ) : null;
+        var parsedColumnStart = numericGridLine(gridStyles.gridColumnStart);
+        var parsedRowStart = numericGridLine(gridStyles.gridRowStart);
+        var columnStart = parsedColumnStart ?? (sourceColumnRange ? sourceColumnRange.start + 1 : NaN);
+        var columnEnd = gridLineEnd(gridStyles.gridColumnEnd, parsedColumnStart) ?? (sourceColumnRange ? sourceColumnRange.end + 1 : NaN);
+        var rowStart = parsedRowStart ?? (sourceRowRange ? sourceRowRange.start + 1 : NaN);
+        var rowEnd = gridLineEnd(gridStyles.gridRowEnd, parsedRowStart) ?? (sourceRowRange ? sourceRowRange.end + 1 : NaN);
+        if (Number.isFinite(columnStart) && !Number.isFinite(columnEnd))
+          columnEnd = columnStart + 1;
+        if (Number.isFinite(rowStart) && !Number.isFinite(rowEnd))
+          rowEnd = rowStart + 1;
+        var columnSpan = Number.isFinite(columnStart) && Number.isFinite(columnEnd) ? Math.max(1, columnEnd - columnStart) : 1;
+        var rowSpan = Number.isFinite(rowStart) && Number.isFinite(rowEnd) ? Math.max(1, rowEnd - rowStart) : 1;
+        var targetGridLayout = gridTrackLayoutForElement(target.anchor);
+        if (targetGridLayout) {
+          targetGridLayout = expandGridTrackLayoutForAuthoredChildren(
+            targetGridLayout,
+            target.anchor
+          );
+        }
+        var targetDisplacements = [];
+        if (targetGridLayout) {
+          var targetLeft = targetGridLayout.columnBounds[target.gridCell.column]?.start;
+          var targetRight = targetGridLayout.columnBounds[Math.min(
+            targetGridLayout.columnBounds.length - 1,
+            target.gridCell.column + columnSpan - 1
+          )]?.end;
+          var targetTop = targetGridLayout.rowBounds[target.gridCell.row]?.start;
+          var targetBottom = targetGridLayout.rowBounds[Math.min(
+            targetGridLayout.rowBounds.length - 1,
+            target.gridCell.row + rowSpan - 1
+          )]?.end;
+          if (Number.isFinite(targetLeft) && Number.isFinite(targetRight) && Number.isFinite(targetTop) && Number.isFinite(targetBottom)) {
+            targetDisplacements = Array.prototype.slice.call(target.anchor.children).filter(function(child) {
+              if (child === el) return false;
+              var rect = child.getBoundingClientRect();
+              return rect.left < targetRight && rect.right > targetLeft && // i18n-ignore non-user-facing pointer geometry condition
+              rect.top < targetBottom && rect.bottom > targetTop;
+            });
+          }
+        }
+        target.gridDisplacements = targetDisplacements;
+        target.gridDisplacement = targetDisplacements[0];
+        target.gridDisplacementPlacements = [];
+        target.gridDisplacementPrevStyles = [];
+        if (targetDisplacements.length > 0 && Number.isFinite(columnStart) && Number.isFinite(columnEnd) && Number.isFinite(rowStart) && Number.isFinite(rowEnd)) {
+          var allocatedDisplacementPlacements = [];
+          var occupiedGridPlacements = [
+            {
+              column: target.gridCell.column + 1,
+              columnEnd: target.gridCell.column + 1 + columnSpan,
+              row: target.gridCell.row + 1,
+              rowEnd: target.gridCell.row + 1 + rowSpan
+            }
+          ];
+          Array.prototype.slice.call(target.anchor.children).filter(function(child) {
+            return child !== el && targetDisplacements.indexOf(child) === -1;
+          }).forEach(function(child) {
+            var childRect = child.getBoundingClientRect();
+            var childColumnRange = gridTrackRangeForRect(
+              childRect,
+              targetGridLayout.columnBounds,
+              "column"
+            );
+            var childRowRange = gridTrackRangeForRect(
+              childRect,
+              targetGridLayout.rowBounds,
+              "row"
+            );
+            if (childColumnRange && childRowRange) {
+              occupiedGridPlacements.push({
+                column: childColumnRange.start + 1,
+                columnEnd: childColumnRange.end + 1,
+                row: childRowRange.start + 1,
+                rowEnd: childRowRange.end + 1
+              });
+            }
+          });
+          var placementOverlaps = function(candidate, allocated) {
+            return allocated.some(function(existing) {
+              return candidate.column < existing.columnEnd && candidate.columnEnd > existing.column && candidate.row < existing.rowEnd && candidate.rowEnd > existing.row;
+            });
+          };
+          targetDisplacements.forEach(function(displaced) {
+            var displacedRange = gridTrackRangeForRect(
+              displaced.getBoundingClientRect(),
+              targetGridLayout.columnBounds,
+              "column"
+            );
+            var displacedRowRange = gridTrackRangeForRect(
+              displaced.getBoundingClientRect(),
+              targetGridLayout.rowBounds,
+              "row"
+            );
+            var displacedColumnSpan = displacedRange ? Math.max(1, displacedRange.end - displacedRange.start) : 1;
+            var displacedRowSpan = displacedRowRange ? Math.max(1, displacedRowRange.end - displacedRowRange.start) : 1;
+            var displacementPlacement = null;
+            var maxRows = Math.max(targetGridLayout.rowBounds.length, rowEnd);
+            var maxColumns = Math.max(
+              targetGridLayout.columnBounds.length,
+              columnEnd
+            );
+            var candidateCoordinates = [];
+            var candidateKeys = {};
+            var addCandidateCoordinates = function(row, column) {
+              var key = row + ":" + column;
+              if (!candidateKeys[key]) {
+                candidateKeys[key] = true;
+                candidateCoordinates.push({ row, column });
+              }
+            };
+            for (var oldRow = rowStart; oldRow < rowEnd; oldRow += 1) {
+              for (var oldColumn = columnStart; oldColumn < columnEnd; oldColumn += 1) {
+                addCandidateCoordinates(oldRow, oldColumn);
+              }
+            }
+            for (var displacementRow = 1; displacementRow <= maxRows + targetDisplacements.length; displacementRow += 1) {
+              for (var displacementColumn = 1; displacementColumn <= maxColumns + targetDisplacements.length; displacementColumn += 1) {
+                addCandidateCoordinates(displacementRow, displacementColumn);
+              }
+            }
+            for (var candidateIndex = 0; candidateIndex < candidateCoordinates.length && !displacementPlacement; candidateIndex += 1) {
+              var coordinate = candidateCoordinates[candidateIndex];
+              if (coordinate) {
+                var candidate = {
+                  column: coordinate.column,
+                  columnEnd: coordinate.column + displacedColumnSpan,
+                  row: coordinate.row,
+                  rowEnd: coordinate.row + displacedRowSpan
+                };
+                if (!placementOverlaps(candidate, occupiedGridPlacements)) {
+                  displacementPlacement = candidate;
+                }
+              }
+            }
+            if (!displacementPlacement) return;
+            allocatedDisplacementPlacements.push(displacementPlacement);
+            occupiedGridPlacements.push(displacementPlacement);
+            target.gridDisplacementPrevStyles.push({
+              element: displaced,
+              styles: snapshotInlineGridStyles(displaced)
+            });
+            target.gridDisplacementPlacements.push({
+              element: displaced,
+              placement: displacementPlacement
+            });
+            displaced.style.gridColumn = \`\${displacementPlacement.column} / \${displacementPlacement.columnEnd}\`;
+            displaced.style.gridRow = \`\${displacementPlacement.row} / \${displacementPlacement.rowEnd}\`;
+          });
+        }
+        el.style.gridColumn = \`\${target.gridCell.column + 1} / \${target.gridCell.column + 1 + columnSpan}\`;
+        el.style.gridRow = \`\${target.gridCell.row + 1} / \${target.gridCell.row + 1 + rowSpan}\`;
+        target.gridPlacement = {
+          column: target.gridCell.column + 1,
+          columnEnd: target.gridCell.column + 1 + columnSpan,
+          row: target.gridCell.row + 1,
+          rowEnd: target.gridCell.row + 1 + rowSpan
+        };
+      }
       rebaseAbsoluteMemberForContainerDrop(el, target);
       if (target.placement === "inside") {
         target.anchor.appendChild(el);
@@ -11592,6 +11870,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           placement: target.placement,
           dropMode: target.dropMode || "flow-insert",
           forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
+          gridPlacement: target.gridPlacement,
+          gridDisplacements: Array.isArray(target.gridDisplacementPlacements) ? target.gridDisplacementPlacements.map(function(entry) {
+            return {
+              selector: getSelector(entry.element),
+              sourceId: getSourceId(entry.element),
+              placement: entry.placement
+            };
+          }) : void 0,
           // Present only when this node did not exist in the running app before
           // the change. The host must NOT tell the coding agent to relocate an
           // element the source file has never contained.
@@ -13076,6 +13362,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             var prevParent = reorderOrigin ? reorderOrigin.prevParent : reorderEl.parentElement;
             var prevNextSibling = reorderOrigin ? reorderOrigin.prevNextSibling : reorderEl.nextSibling;
             var prevInlinePositionStyles = reorderOrigin ? reorderOrigin.prevInlinePositionStyles : snapshotInlinePositionStyles(reorderEl);
+            var prevInlineGridStyles = snapshotInlineGridStyles(reorderEl);
             adaptAutoTextColorForNest(
               reorderEl,
               dropContainerForTarget(currentTarget)
@@ -13092,7 +13379,11 @@ export const editorChromeBridgeScript: string = `"use strict";
               postVisualStructureChange(reorderEl, currentTarget, {
                 prevParent,
                 prevNextSibling,
-                prevInlinePositionStyles
+                prevInlinePositionStyles,
+                prevInlineGridStyles,
+                ...Array.isArray(currentTarget.gridDisplacementPrevStyles) && currentTarget.gridDisplacementPrevStyles.length > 0 ? {
+                  gridDisplacements: currentTarget.gridDisplacementPrevStyles
+                } : {}
               });
             }
           }
@@ -16728,6 +17019,12 @@ export const editorChromeBridgeScript: string = `"use strict";
               move.el,
               move.origin.prevInlinePositionStyles
             );
+            restoreInlineGridStyles(move.el, move.origin.prevInlineGridStyles);
+            if (move.origin.gridDisplacements) {
+              move.origin.gridDisplacements.forEach(function(displaced) {
+                restoreInlineGridStyles(displaced.element, displaced.styles);
+              });
+            }
             selectedEl = move.el;
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
