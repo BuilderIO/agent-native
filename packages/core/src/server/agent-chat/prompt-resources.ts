@@ -13,6 +13,7 @@ import {
 } from "../../resources/metadata.js";
 import {
   ensurePersonalDefaults,
+  isWorkspaceResourceOwner,
   organizationIdFromResourceOwner,
   resourceGet,
   resourceGetByPath,
@@ -23,6 +24,7 @@ import {
   type Resource,
   type ResourceMeta,
   WORKSPACE_OWNER,
+  workspaceResourceOwner,
 } from "../../resources/store.js";
 import type {
   ContextGovernanceTier,
@@ -632,7 +634,7 @@ export function resourceScopeForOwner(
   owner: string,
   currentOwner?: string,
 ): string {
-  if (owner === WORKSPACE_OWNER) return "workspace";
+  if (isWorkspaceResourceOwner(owner)) return "workspace";
   if (owner === SHARED_OWNER || organizationIdFromResourceOwner(owner)) {
     return "shared";
   }
@@ -644,10 +646,11 @@ async function loadAgentsResourceForPrompt(
   owner: string,
   scope: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
+  orgId?: string | null,
 ): Promise<string | null> {
   let agents: Awaited<ReturnType<typeof resourceGetByPath>>;
   try {
-    agents = await resourceGetByPath(owner, "AGENTS.md");
+    agents = await resourceGetByPath(owner, "AGENTS.md", { orgId });
   } catch (error) {
     throw new Error(
       `Unable to read durable AGENTS.md instructions for ${scope} (${owner}). The run cannot safely continue without them.`,
@@ -669,9 +672,10 @@ async function loadInstructionResourcesForPrompt(
   scope: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
   summaryOnly = false,
+  orgId?: string | null,
 ): Promise<string[]> {
   try {
-    const resources = await resourceList(owner, "instructions/");
+    const resources = await resourceList(owner, "instructions/", { orgId });
     const sorted = resources
       .filter((resource) => isAutoLoadedInstructionPath(resource.path))
       .sort((a, b) => a.path.localeCompare(b.path));
@@ -743,7 +747,7 @@ async function loadResourceSkillPromptEntries(
       owner === SHARED_OWNER
         ? [
             ...(await resourceList(SHARED_OWNER, "skills/")),
-            ...(await resourceList(WORKSPACE_OWNER, "skills/")),
+            ...(await resourceList(WORKSPACE_OWNER, "skills/", { orgId })),
           ]
         : await resourceListAccessible(owner, "skills/", { orgId });
     const sorted = resources.sort((a, b) => {
@@ -754,7 +758,7 @@ async function loadResourceSkillPromptEntries(
             ? 1
             : a.owner === SHARED_OWNER
               ? 2
-              : a.owner === WORKSPACE_OWNER
+              : isWorkspaceResourceOwner(a.owner)
                 ? 3
                 : 4) -
         (b.owner === owner
@@ -763,7 +767,7 @@ async function loadResourceSkillPromptEntries(
             ? 1
             : b.owner === SHARED_OWNER
               ? 2
-              : b.owner === WORKSPACE_OWNER
+              : isWorkspaceResourceOwner(b.owner)
                 ? 3
                 : 4);
       if (ownerOrder !== 0) return ownerOrder;
@@ -829,9 +833,10 @@ async function loadResourceSkillsPromptBlock(
 async function loadResourceIndexForPrompt(
   owner: string,
   scope: "workspace" | "shared",
+  orgId?: string | null,
 ): Promise<string | null> {
   try {
-    const resources = (await resourceList(owner))
+    const resources = (await resourceList(owner, undefined, { orgId }))
       .filter(
         (resource) =>
           !isSpecialPromptResourcePath(resource.path) &&
@@ -1110,19 +1115,23 @@ export async function loadResourcesForPrompt(
 
   // 3. Runtime workspace resources. These are global defaults inherited by
   // every app in the workspace, not copied into app scopes. They may come from
-  // SQL, Dispatch, or local file mode.
+  // SQL, Dispatch, or local file mode, and Dispatch keeps one copy per
+  // organization.
+  const workspaceOwner = workspaceResourceOwner(orgId);
   const workspaceAgents = await loadAgentsResourceForPrompt(
-    WORKSPACE_OWNER,
+    workspaceOwner,
     "workspace",
     promptResourceMaxChars,
+    orgId,
   );
   addSection(workspaceAgents, "required");
   addSections(
     await loadInstructionResourcesForPrompt(
-      WORKSPACE_OWNER,
+      workspaceOwner,
       "workspace-instruction",
       promptResourceMaxChars,
       compact,
+      orgId,
     ),
   );
 
@@ -1169,7 +1178,7 @@ export async function loadResourcesForPrompt(
 
   // 6. Personal SQL resources. These come last in the instruction stack so a
   // user can narrow or override organization/app and workspace defaults.
-  if (owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER) {
+  if (owner !== SHARED_OWNER && !isWorkspaceResourceOwner(owner)) {
     const personalAgents = await loadAgentsResourceForPrompt(
       owner,
       "personal",
@@ -1257,8 +1266,9 @@ export async function loadResourcesForPrompt(
   }
 
   const workspaceResourceIndex = await loadResourceIndexForPrompt(
-    WORKSPACE_OWNER,
+    workspaceOwner,
     "workspace",
+    orgId,
   );
   addSection(workspaceResourceIndex);
 

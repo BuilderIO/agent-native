@@ -192,6 +192,7 @@ import {
   resourceListAccessible,
   resourceGet,
   ensurePersonalDefaults,
+  isWorkspaceResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "../resources/store.js";
@@ -5029,11 +5030,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // Query resources
+          // Query resources. The organization decides which workspace defaults
+          // are visible, so failing to resolve it is not "no resources".
+          const filesOrgId = options?.resolveOrgId
+            ? await options.resolveOrgId(event)
+            : null;
           try {
             const resources = [
               ...(await resourceList(SHARED_OWNER)),
-              ...(await resourceList(WORKSPACE_OWNER)),
+              ...(await resourceList(WORKSPACE_OWNER, undefined, {
+                orgId: filesOrgId,
+              })),
             ];
             for (const r of resources) {
               if (!seen.has(r.path)) {
@@ -5200,7 +5207,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 })
               : [
                   ...(await resourceList(SHARED_OWNER, "skills/")),
-                  ...(await resourceList(WORKSPACE_OWNER, "skills/")),
+                  ...(await resourceList(WORKSPACE_OWNER, "skills/", {
+                    orgId: skillsOrgId ?? null,
+                  })),
                 ];
             resourceSkills.sort((a, b) => {
               const ownerOrder =
@@ -5208,14 +5217,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ? 0
                   : a.owner === SHARED_OWNER
                     ? 1
-                    : a.owner === WORKSPACE_OWNER
+                    : isWorkspaceResourceOwner(a.owner)
                       ? 2
                       : 3) -
                 (b.owner === skillsOwner
                   ? 0
                   : b.owner === SHARED_OWNER
                     ? 1
-                    : b.owner === WORKSPACE_OWNER
+                    : isWorkspaceResourceOwner(b.owner)
                       ? 2
                       : 3);
               if (ownerOrder !== 0) return ownerOrder;
@@ -5397,7 +5406,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   const resources = mentionsOwner
                     ? await resourceListAccessible(mentionsOwner)
                     : [
-                        ...(await resourceList(WORKSPACE_OWNER)),
+                        ...(await resourceList(WORKSPACE_OWNER, undefined, {
+                          orgId: mentionsOrgId ?? null,
+                        })),
                         ...(await resourceList(SHARED_OWNER)),
                       ];
                   flush(

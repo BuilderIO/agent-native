@@ -21,6 +21,8 @@ vi.mock("../../resources/store.js", () => ({
   WORKSPACE_OWNER: "__workspace__",
   organizationIdFromResourceOwner: () => null,
   sharedResourceOwner: () => "__shared__",
+  workspaceResourceOwner: () => "__workspace__",
+  isWorkspaceResourceOwner: (owner: string) => owner === "__workspace__",
   resourceGet: (...args: unknown[]) => mocks.resourceGet(...args),
   resourceGetByPath: vi.fn(),
   resourceList: (...args: unknown[]) => mocks.resourceList(...args),

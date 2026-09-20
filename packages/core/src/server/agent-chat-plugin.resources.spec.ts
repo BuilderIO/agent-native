@@ -32,6 +32,12 @@ vi.mock("../resources/store.js", () => ({
       : null,
   sharedResourceOwner: (orgId?: string | null) =>
     orgId ? `__organization__:${encodeURIComponent(orgId)}` : "__shared__",
+  workspaceResourceOwner: (orgId?: string | null) =>
+    orgId
+      ? `__workspace__:__organization__:${encodeURIComponent(orgId)}`
+      : "__workspace__",
+  isWorkspaceResourceOwner: (owner: string) =>
+    owner === "__workspace__" || owner.startsWith("__workspace__:"),
   ensurePersonalDefaults: (...args: any[]) =>
     mocks.ensurePersonalDefaults(...args),
   resourceGetByPath: (...args: any[]) => mocks.resourceGetByPath(...args),
@@ -400,17 +406,25 @@ describe("loadResourcesForPrompt", () => {
     expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
       "__workspace__",
       "AGENTS.md",
+      { orgId: null },
     );
     expect(mocks.resourceList).toHaveBeenCalledWith(
       "__workspace__",
       "instructions/",
+      { orgId: null },
     );
     expect(mocks.resourceListAccessible).toHaveBeenCalledWith(
       "user@example.test",
       "skills/",
       { orgId: null },
     );
-    expect(mocks.resourceList).toHaveBeenCalledWith("__workspace__");
+    expect(mocks.resourceList).toHaveBeenCalledWith(
+      "__workspace__",
+      undefined,
+      {
+        orgId: null,
+      },
+    );
 
     expect(analyticsPrompt).toContain(
       '<resource name="instructions/guardrails.md" scope="workspace-instruction"',
@@ -433,6 +447,95 @@ describe("loadResourcesForPrompt", () => {
     );
     expect(analyticsPrompt).not.toContain("Workspace voice default.");
     expect(analyticsPrompt).not.toContain("Organization voice override.");
+  });
+
+  it("loads only the active organization's workspace defaults", async () => {
+    const ownerA = "__workspace__:__organization__:org-a";
+    const ownerB = "__workspace__:__organization__:org-b";
+    const orgResources = new Map(
+      [
+        {
+          id: "org_a_agents",
+          owner: ownerA,
+          path: "AGENTS.md",
+          content: "# Org A Workspace Instructions",
+        },
+        {
+          id: "org_a_guardrails",
+          owner: ownerA,
+          path: "instructions/guardrails.md",
+          content: "# Org A Guardrails",
+        },
+        {
+          id: "org_a_company",
+          owner: ownerA,
+          path: "context/company.md",
+          content: "---\ntitle: Acme\ndescription: Org A company.\n---\n",
+        },
+        {
+          id: "org_b_agents",
+          owner: ownerB,
+          path: "AGENTS.md",
+          content: "# Org B Workspace Instructions",
+        },
+        {
+          id: "org_b_guardrails",
+          owner: ownerB,
+          path: "instructions/guardrails.md",
+          content: "# Org B Guardrails",
+        },
+        {
+          id: "org_b_company",
+          owner: ownerB,
+          path: "context/company.md",
+          content: "---\ntitle: Globex\ndescription: Org B company.\n---\n",
+        },
+      ].map((resource) => [
+        resource.id,
+        { ...resource, mimeType: "text/markdown" },
+      ]),
+    );
+    const byOwner = (owner: string, prefix?: string) =>
+      [...orgResources.values()].filter(
+        (resource) =>
+          resource.owner === owner &&
+          (!prefix || resource.path.startsWith(prefix)),
+      );
+    mocks.resourceGetByPath.mockImplementation(
+      async (owner, path) =>
+        byOwner(owner).find((resource) => resource.path === path) ?? null,
+    );
+    mocks.resourceList.mockImplementation(async (owner, prefix) =>
+      byOwner(owner, prefix).map(({ content, ...meta }) => meta),
+    );
+    mocks.resourceListAccessible.mockResolvedValue([]);
+    mocks.resourceGet.mockImplementation(async (id) => orgResources.get(id));
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      "analytics",
+      "org-a",
+    );
+
+    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(ownerA, "AGENTS.md", {
+      orgId: "org-a",
+    });
+    expect(mocks.resourceGetByPath).not.toHaveBeenCalledWith(
+      ownerB,
+      "AGENTS.md",
+      expect.anything(),
+    );
+    expect(mocks.resourceGetByPath).not.toHaveBeenCalledWith(
+      "__workspace__",
+      "AGENTS.md",
+      expect.anything(),
+    );
+    expect(prompt).toContain("# Org A Workspace Instructions");
+    expect(prompt).toContain("# Org A Guardrails");
+    expect(prompt).toContain("`context/company.md` - Acme: Org A company.");
+    expect(prompt).not.toContain("Org B");
+    expect(prompt).not.toContain("Globex");
   });
 
   it("loads inherited workspace instructions and indexes workspace reference resources", async () => {

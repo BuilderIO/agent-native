@@ -61,7 +61,13 @@ describe("workspace resource approval lifecycle", () => {
     const [
       { getDbExec },
       { runWithRequestContext },
-      { resourceGetByPath, resourcePut, SHARED_OWNER, WORKSPACE_OWNER },
+      {
+        resourceGetByPath,
+        resourcePut,
+        SHARED_OWNER,
+        WORKSPACE_OWNER,
+        workspaceResourceOwner,
+      },
       { putOrgSetting },
       {
         approveRequest,
@@ -150,7 +156,7 @@ describe("workspace resource approval lifecycle", () => {
       );
       expect(materialized).toEqual(
         expect.objectContaining({
-          owner: WORKSPACE_OWNER,
+          owner: workspaceResourceOwner(orgId),
           path: resourcePath,
           content: "# Workspace lifecycle context",
         }),

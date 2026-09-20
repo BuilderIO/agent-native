@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { getDbExec } from "@agent-native/core/db";
 import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
 import {
+  isWorkspaceResourceOwner,
   resourceDeleteByPath,
   resourceEffectiveContext,
   resourceGetByPath,
@@ -10,6 +11,7 @@ import {
   resourcePut,
   SHARED_OWNER,
   WORKSPACE_OWNER,
+  workspaceResourceOwner,
   type EffectiveResourceContext,
   type EffectiveResourceLayer,
   type ResourceInheritanceScope,
@@ -71,6 +73,7 @@ const DISPATCH_RESOURCE_METADATA_SOURCE = "dispatch-workspace-resource";
 
 interface MaterializableWorkspaceResource {
   id: string;
+  orgId: string | null;
   kind: string;
   name: string;
   description: string | null;
@@ -104,6 +107,18 @@ function parseResourceMetadata(metadata: string | null): Record<string, any> {
   }
 }
 
+/**
+ * Owners a Dispatch row may have been materialized under before this row's
+ * copy is (re)written: the organization-scoped owner first, then the bare
+ * owner that rows written before organization scoping still live under.
+ */
+function materializedOwners(
+  resource: Pick<MaterializableWorkspaceResource, "orgId">,
+): string[] {
+  const owner = workspaceResourceOwner(resource.orgId);
+  return owner === WORKSPACE_OWNER ? [owner] : [owner, WORKSPACE_OWNER];
+}
+
 async function materializeGlobalResource(
   resource: MaterializableWorkspaceResource,
 ) {
@@ -112,40 +127,50 @@ async function materializeGlobalResource(
     return;
   }
 
+  const owner = workspaceResourceOwner(resource.orgId);
   const mimeType = mimeTypeForWorkspaceResource(resource);
-  const existing = await resourceGetByPath(
-    WORKSPACE_OWNER,
-    resource.path,
-  ).catch(() => null);
+  // A failed read must not look like "not materialized yet": that would skip
+  // the legacy-copy cleanup below and leave the cross-organization row in
+  // place, which is the leak this owner split exists to close.
+  const existing = await resourceGetByPath(owner, resource.path, {
+    orgId: resource.orgId,
+  });
   const existingMetadata = parseResourceMetadata(existing?.metadata ?? null);
   if (
-    existing?.content === resource.content &&
+    existing &&
+    existing.owner === owner &&
+    existing.content === resource.content &&
     existing.mimeType === mimeType &&
     existingMetadata.source === DISPATCH_RESOURCE_METADATA_SOURCE &&
     existingMetadata.resourceId === resource.id &&
     existingMetadata.updatedAt === resource.updatedAt
   ) {
-    await removeMaterializedResourceFromOwner(SHARED_OWNER, resource);
+    await removeMaterializedLegacyCopies(owner, resource);
     return;
   }
 
-  await resourcePut(
-    WORKSPACE_OWNER,
-    resource.path,
-    resource.content,
-    mimeType,
-    {
-      createdBy: "system",
-      metadata: {
-        source: DISPATCH_RESOURCE_METADATA_SOURCE,
-        resourceId: resource.id,
-        kind: resource.kind,
-        name: resource.name,
-        description: resource.description,
-        updatedAt: resource.updatedAt,
-      },
+  await resourcePut(owner, resource.path, resource.content, mimeType, {
+    createdBy: "system",
+    metadata: {
+      source: DISPATCH_RESOURCE_METADATA_SOURCE,
+      resourceId: resource.id,
+      kind: resource.kind,
+      name: resource.name,
+      description: resource.description,
+      updatedAt: resource.updatedAt,
     },
-  );
+  });
+  await removeMaterializedLegacyCopies(owner, resource);
+}
+
+async function removeMaterializedLegacyCopies(
+  owner: string,
+  resource: Pick<MaterializableWorkspaceResource, "id" | "path" | "orgId">,
+) {
+  for (const legacyOwner of materializedOwners(resource)) {
+    if (legacyOwner === owner) continue;
+    await removeMaterializedResourceFromOwner(legacyOwner, resource);
+  }
   await removeMaterializedResourceFromOwner(SHARED_OWNER, resource);
 }
 
@@ -159,12 +184,17 @@ async function ensureMaterializedGlobalResources(
 
 async function removeMaterializedResourceFromOwner(
   owner: string,
-  resource: Pick<MaterializableWorkspaceResource, "id" | "path">,
+  resource: Pick<MaterializableWorkspaceResource, "id" | "path" | "orgId">,
 ) {
-  const existing = await resourceGetByPath(owner, resource.path).catch(
-    () => null,
-  );
-  if (!existing) return;
+  // With an organization in scope the store reads the bare workspace owner as
+  // an alias for that organization's owner, and falls through from the
+  // organization owner to the bare one. Neither may stand in for the row this
+  // call is deciding about, so read the bare owner as itself and only delete
+  // the row that actually lives under `owner`.
+  const existing = await resourceGetByPath(owner, resource.path, {
+    orgId: owner === WORKSPACE_OWNER ? null : resource.orgId,
+  });
+  if (!existing || existing.owner !== owner) return;
   const metadata = parseResourceMetadata(existing.metadata);
   if (
     metadata.source !== DISPATCH_RESOURCE_METADATA_SOURCE ||
@@ -176,9 +206,11 @@ async function removeMaterializedResourceFromOwner(
 }
 
 async function removeMaterializedGlobalResource(
-  resource: Pick<MaterializableWorkspaceResource, "id" | "path">,
+  resource: Pick<MaterializableWorkspaceResource, "id" | "path" | "orgId">,
 ) {
-  await removeMaterializedResourceFromOwner(WORKSPACE_OWNER, resource);
+  for (const owner of materializedOwners(resource)) {
+    await removeMaterializedResourceFromOwner(owner, resource);
+  }
   await removeMaterializedResourceFromOwner(SHARED_OWNER, resource);
 }
 
@@ -855,7 +887,8 @@ async function listOverrideImpactForPath(
   return resources
     .filter(
       (resource) =>
-        resource.path === resourcePath && resource.owner !== WORKSPACE_OWNER,
+        resource.path === resourcePath &&
+        !isWorkspaceResourceOwner(resource.owner),
     )
     .map((resource): WorkspaceResourceOverrideImpact => {
       const shared = resource.owner === SHARED_OWNER;

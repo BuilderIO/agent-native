@@ -116,6 +116,200 @@ describe("resourceEffectiveContext", () => {
     }
   });
 
+  it("isolates organization workspace defaults and keeps legacy bare-owner rows readable", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceEffectiveContext,
+      resourceGetByPath,
+      resourceList,
+      resourcePut,
+      workspaceResourceOwner,
+    } = await import("./store.js");
+
+    const prefix = `context/org-workspace-${Date.now()}/`;
+    const path = `${prefix}company.md`;
+    const legacyPath = `${prefix}legacy.md`;
+    const orgAOwner = workspaceResourceOwner("org-a");
+    const orgBOwner = workspaceResourceOwner("org-b");
+    expect(orgAOwner).not.toBe(orgBOwner);
+    expect(workspaceResourceOwner(null)).toBe(WORKSPACE_OWNER);
+    try {
+      await resourcePut(orgAOwner, path, "Acme");
+      await resourcePut(orgBOwner, path, "Globex");
+      await resourcePut(WORKSPACE_OWNER, legacyPath, "legacy default");
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, path, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ owner: orgAOwner, content: "Acme" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, path, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ owner: orgBOwner, content: "Globex" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, path, { orgId: null }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, legacyPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({
+        owner: WORKSPACE_OWNER,
+        content: "legacy default",
+      });
+
+      const orgAList = await resourceList(WORKSPACE_OWNER, prefix, {
+        orgId: "org-a",
+      });
+      expect(
+        orgAList.map((resource) => [resource.path, resource.owner]),
+      ).toEqual(
+        expect.arrayContaining([
+          [path, orgAOwner],
+          [legacyPath, WORKSPACE_OWNER],
+        ]),
+      );
+      expect(orgAList.some((resource) => resource.owner === orgBOwner)).toBe(
+        false,
+      );
+
+      const orgA = await resourceEffectiveContext("member@example.test", path, {
+        orgId: "org-a",
+      });
+      expect(orgA.effectiveScope).toBe("workspace");
+      expect(orgA.effectiveResource).toMatchObject({ owner: orgAOwner });
+      expect(orgA.layers[0]).toMatchObject({
+        scope: "workspace",
+        owner: orgAOwner,
+        effective: true,
+      });
+      const orgB = await resourceEffectiveContext("member@example.test", path, {
+        orgId: "org-b",
+      });
+      expect(orgB.effectiveResource).toMatchObject({ owner: orgBOwner });
+    } finally {
+      await Promise.all([
+        resourceDeleteByPath(orgAOwner, path),
+        resourceDeleteByPath(orgBOwner, path),
+        resourceDeleteByPath(WORKSPACE_OWNER, legacyPath),
+      ]);
+    }
+  });
+
+  it("keeps a pre-upgrade Dispatch copy visible only to the organization that authored it", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceGet,
+      resourceGetByPath,
+      resourceList,
+      resourcePut,
+    } = await import("./store.js");
+
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS workspace_resources (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+    `);
+    const prefix = `instructions/legacy-dispatch-${Date.now()}/`;
+    const orgBPath = `${prefix}private.md`;
+    const untaggedPath = `${prefix}default.md`;
+    const orphanPath = `${prefix}orphan.md`;
+    await pglite
+      .prepare(
+        `INSERT INTO workspace_resources
+          (id, owner_email, org_id, kind, name, description, path, content, scope, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "legacy_dispatch_org_b",
+        "owner@org-b.test",
+        "org-b",
+        "instruction",
+        "Private",
+        null,
+        orgBPath,
+        "org B private",
+        "all",
+        "owner@org-b.test",
+        1,
+        2,
+      );
+    try {
+      // Written by a pre-upgrade Dispatch under the bare owner; only the
+      // Dispatch resource id ties it back to org B.
+      const orgBRow = await resourcePut(
+        WORKSPACE_OWNER,
+        orgBPath,
+        "org B private",
+        undefined,
+        {
+          metadata: {
+            source: "dispatch-workspace-resource",
+            resourceId: "legacy_dispatch_org_b",
+          },
+        },
+      );
+      await resourcePut(WORKSPACE_OWNER, untaggedPath, "deployment default");
+      await resourcePut(
+        WORKSPACE_OWNER,
+        orphanPath,
+        "orphaned copy",
+        undefined,
+        {
+          metadata: {
+            source: "dispatch-workspace-resource",
+            resourceId: "legacy_dispatch_missing",
+          },
+        },
+      );
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, orgBPath, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGet(orgBRow.id, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, orgBPath, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ content: "org B private" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, untaggedPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ content: "deployment default" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, orphanPath, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+
+      const orgAList = await resourceList(WORKSPACE_OWNER, prefix, {
+        orgId: "org-a",
+      });
+      expect(orgAList.map((resource) => resource.path)).toEqual([untaggedPath]);
+      const orgBList = await resourceList(WORKSPACE_OWNER, prefix, {
+        orgId: "org-b",
+      });
+      expect(orgBList.map((resource) => resource.path).sort()).toEqual(
+        [orgBPath, untaggedPath].sort(),
+      );
+    } finally {
+      await Promise.all([
+        resourceDeleteByPath(WORKSPACE_OWNER, orgBPath),
+        resourceDeleteByPath(WORKSPACE_OWNER, untaggedPath),
+        resourceDeleteByPath(WORKSPACE_OWNER, orphanPath),
+        pglite
+          .prepare("DELETE FROM workspace_resources WHERE id = ?")
+          .run("legacy_dispatch_org_b"),
+      ]);
+    }
+  });
+
   it("exposes selected Dispatch workspace skills only to granted apps", async () => {
     const {
       WORKSPACE_OWNER,
