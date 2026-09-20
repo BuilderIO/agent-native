@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   resolveScope: vi.fn(),
-  connection: null as { previewToken: string; bridgeUrl: string } | null,
+  connections: [] as Array<{
+    id: string;
+    previewToken: string;
+    bridgeUrl: string;
+  }>,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -13,6 +17,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(),
   eq: vi.fn(),
+  inArray: vi.fn(),
   isNull: vi.fn(),
 }));
 
@@ -25,8 +30,7 @@ vi.mock("../server/db/index.js", () => ({
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: () =>
-            Promise.resolve(mocks.connection ? [mocks.connection] : []),
+          limit: () => Promise.resolve(mocks.connections),
         }),
       }),
     }),
@@ -47,10 +51,13 @@ import action from "./refresh-localhost-preview-token.js";
 beforeEach(() => {
   mocks.assertAccess.mockReset();
   mocks.resolveScope.mockReset();
-  mocks.connection = {
-    previewToken: "preview",
-    bridgeUrl: "http://127.0.0.1:7331",
-  };
+  mocks.connections = [
+    {
+      id: "conn_2",
+      previewToken: "preview",
+      bridgeUrl: "http://127.0.0.1:7331",
+    },
+  ];
   mocks.assertAccess.mockResolvedValue({
     role: "viewer",
     resource: {
@@ -94,5 +101,32 @@ describe("refresh-localhost-preview-token", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(mocks.resolveScope).not.toHaveBeenCalled();
+  });
+
+  it("returns every bound connection for the public canvas", async () => {
+    mocks.connections = [
+      {
+        id: "conn_1",
+        previewToken: "preview-1",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+      {
+        id: "conn_2",
+        previewToken: "preview-2",
+        bridgeUrl: "http://127.0.0.1:7332",
+      },
+    ];
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        publicVisualEdit: true,
+      }),
+    ).resolves.toMatchObject({
+      connections: {
+        conn_1: { previewToken: "preview-1" },
+        conn_2: { previewToken: "preview-2" },
+      },
+    });
   });
 });

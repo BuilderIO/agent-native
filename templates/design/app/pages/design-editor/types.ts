@@ -98,6 +98,7 @@ export interface DesignData {
   description?: string;
   projectType: string;
   designSystemId?: string | null;
+  visibility?: "private" | "org" | "public";
   data?: string | null;
   accessRole?: DesignAccessRole;
   files: DesignFile[];

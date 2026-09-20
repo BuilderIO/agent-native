@@ -3893,7 +3893,10 @@ function DesignEditor() {
   // be edited in the browser because those edits stay in the running DOM and
   // the pending handoff; all persisted design/source writes remain gated by
   // canEditDesign below.
-  const canEditLiveScreens = isVisualEditSurface && !visualEditAccessLost;
+  const canEditLiveScreens =
+    isVisualEditSurface &&
+    !visualEditAccessLost &&
+    (canEditDesign || design?.visibility === "public");
   const canEditLiveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
@@ -5323,21 +5326,24 @@ function DesignEditor() {
     boardFileId,
     breakpointFramesHidden,
   ]);
-  const publicVisualEditConnectionId = useMemo(
-    () =>
-      isVisualEditSurface
-        ? (overviewScreens.find((screen) => screen.connectionId)
-            ?.connectionId ?? null)
-        : null,
-    [isVisualEditSurface, overviewScreens],
-  );
+  const publicVisualEditConnectionIds = useMemo(() => {
+    if (!isVisualEditSurface) return [];
+    return [
+      ...new Set(
+        overviewScreens.flatMap((screen) =>
+          screen.connectionId ? [screen.connectionId] : [],
+        ),
+      ),
+    ];
+  }, [isVisualEditSurface, overviewScreens]);
+  const publicVisualEditConnectionId = publicVisualEditConnectionIds[0] ?? null;
   const publicVisualEditPreviewTokenQuery = useActionQuery<{
     previewToken?: string;
+    connections?: Record<string, { previewToken?: string; bridgeUrl?: string }>;
   }>(
     "refresh-localhost-preview-token",
     {
       designId: id!,
-      connectionId: publicVisualEditConnectionId ?? "",
       publicVisualEdit: true,
     },
     {
@@ -5346,7 +5352,7 @@ function DesignEditor() {
         !shellMode &&
         !canEditDesign &&
         Boolean(id) &&
-        Boolean(publicVisualEditConnectionId),
+        publicVisualEditConnectionIds.length > 0,
     },
   );
   const exportCanvasFrameGeometryById = useMemo(
@@ -23181,9 +23187,12 @@ function DesignEditor() {
       const screenPreviewToken =
         "previewToken" in screen && typeof screen.previewToken === "string"
           ? screen.previewToken
-          : screen.connectionId === publicVisualEditConnectionId
-            ? publicVisualEditPreviewTokenQuery.data?.previewToken
-            : undefined;
+          : (publicVisualEditPreviewTokenQuery.data?.connections?.[
+              screen.connectionId ?? ""
+            ]?.previewToken ??
+            (screen.connectionId === publicVisualEditConnectionId
+              ? publicVisualEditPreviewTokenQuery.data?.previewToken
+              : undefined));
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -23524,6 +23533,7 @@ function DesignEditor() {
       canEditLiveScreen,
       publicVisualEditConnectionId,
       publicVisualEditPreviewTokenQuery.data?.previewToken,
+      publicVisualEditPreviewTokenQuery.data?.connections,
       canCommentDesign,
       activeTool,
       pinMode,
