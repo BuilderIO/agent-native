@@ -31,6 +31,35 @@ const DESTINATION_SCREEN = `<!doctype html>
   </body>
 </html>`;
 
+const FREE_SOURCE_SCREEN = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#0f1115;color:#fff">
+    <div data-agent-native-node-id="free-source" data-agent-native-layer-name="Free Source"
+      style="position:absolute;left:100px;top:420px;width:140px;height:60px;background:#38bdf8;color:#082f49">Free</div>
+  </body>
+</html>`;
+
+const NESTED_DESTINATION_SCREEN = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff">
+    <section data-agent-native-node-id="destination-shell" data-agent-native-layer-name="Destination Shell"
+      style="position:absolute;left:80px;top:100px;width:420px;min-height:240px;padding:20px;box-sizing:border-box;background:#334155">
+      <section data-agent-native-node-id="nested-auto" data-agent-native-layer-name="Nested Auto"
+        style="display:flex;flex-direction:column;gap:12px;padding:16px;background:#475569">
+        <div data-agent-native-node-id="destination-first" data-agent-native-layer-name="Destination First"
+          style="width:180px;height:40px;background:#94a3b8;color:#0f172a">First</div>
+        <div data-agent-native-node-id="destination-second" data-agent-native-layer-name="Destination Second"
+          style="width:180px;height:40px;background:#64748b;color:#f8fafc">Second</div>
+      </section>
+    </section>
+  </body>
+</html>`;
+
+const EMPTY_DESTINATION_SCREEN = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff"></body>
+</html>`;
+
 type DesignFile = { filename: string; id: string; content: string };
 
 let baseURL = "";
@@ -68,13 +97,18 @@ async function files(page: Page, designId: string): Promise<DesignFile[]> {
 async function createDesign(
   page: Page,
   onCreated?: (designId: string) => void,
+  options?: {
+    sourceContent?: string;
+    destinationContent?: string;
+    title?: string;
+  },
 ): Promise<{
   id: string;
   sourceId: string;
   destinationId: string;
 }> {
   const created = await action(page, "create-design", {
-    title: "cross-screen auto-layout parity",
+    title: options?.title ?? "cross-screen auto-layout parity",
     projectType: "prototype",
   });
   const id = created?.id ?? created?.data?.id;
@@ -83,13 +117,13 @@ async function createDesign(
   await action(page, "create-file", {
     designId: id,
     filename: "index.html",
-    content: SOURCE_SCREEN,
+    content: options?.sourceContent ?? SOURCE_SCREEN,
     fileType: "html",
   });
   await action(page, "create-file", {
     designId: id,
     filename: "destination.html",
-    content: DESTINATION_SCREEN,
+    content: options?.destinationContent ?? DESTINATION_SCREEN,
     fileType: "html",
   });
   const createdFiles = await files(page, id);
@@ -187,15 +221,26 @@ async function settleScreens(
   page: Page,
   sourceId: string,
   destinationId: string,
+  nodes: { source?: string; destination?: string } = {
+    source: "source-flow",
+    destination: "destination-flow",
+  },
 ): Promise<void> {
   await page.keyboard.press("Shift+1");
+  if (!nodes.source || !nodes.destination) {
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
+      timeout: 5_000,
+    });
+    await page.waitForTimeout(500);
+    return;
+  }
   let previous: string | null = null;
   await expect
     .poll(
       async () => {
         const [source, destination] = await Promise.all([
-          boxFor(page, sourceId, "source-flow"),
-          boxFor(page, destinationId, "destination-flow"),
+          boxFor(page, sourceId, nodes.source!),
+          boxFor(page, destinationId, nodes.destination!),
         ]);
         const current = JSON.stringify({
           source: { x: source.x, y: source.y },
@@ -269,6 +314,7 @@ async function dragScreenNode(
   screenId: string,
   nodeId: string,
   destination: { x: number; y: number },
+  onHeld?: () => Promise<void>,
 ): Promise<{ guide: number; ghost: number; sourceVisible: number }> {
   await selectScreenNode(page, screenId, nodeId);
   const source = await boxFor(page, screenId, nodeId);
@@ -293,6 +339,7 @@ async function dragScreenNode(
       .locator(`[data-agent-native-node-id="${nodeId}"]`)
       .count(),
   };
+  await onHeld?.();
   await page.mouse.up();
   return evidence;
 }
@@ -579,5 +626,240 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "screen-source",
     );
     await settleReload(page);
+  });
+
+  test("report path: free source drops into nested auto-layout with held guide, exact order, undo, and reload", async ({
+    page,
+  }) => {
+    const design = await createDesign(
+      page,
+      (id) =>
+        test.info().annotations.push({ type: "design-id", description: id }),
+      {
+        sourceContent: FREE_SOURCE_SCREEN,
+        destinationContent: NESTED_DESTINATION_SCREEN,
+        title: "cross-screen nested auto-layout report",
+      },
+    );
+    await gotoEditor(page, design.id);
+    await settleScreens(page, design.sourceId, design.destinationId, {});
+
+    const target = await boxFor(page, design.destinationId, "nested-auto");
+    const sourceBefore = await fileContent(page, design.id, "index.html");
+    const destinationBefore = await fileContent(
+      page,
+      design.id,
+      "destination.html",
+    );
+    const held = await dragScreenNode(
+      page,
+      design.sourceId,
+      "free-source",
+      { x: target.x + target.width / 2, y: target.y + target.height / 2 },
+      async () => {
+        expect(await fileContent(page, design.id, "index.html")).toBe(
+          sourceBefore,
+        );
+        expect(await fileContent(page, design.id, "destination.html")).toBe(
+          destinationBefore,
+        );
+        await expect(
+          designFrame(page, design.sourceId).locator(
+            '[data-agent-native-node-id="free-source"]',
+          ),
+        ).toHaveCount(1);
+      },
+    );
+    expect(held.guide).toBeGreaterThan(0);
+    expect(held.ghost).toBeGreaterThan(0);
+    expect(held.sourceVisible).toBe(1);
+
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "free-source",
+        ),
+      )
+      .toEqual({ sourceHas: false, destinationHas: true });
+    await expect
+      .poll(() =>
+        designFrame(page, design.destinationId)
+          .locator('[data-agent-native-node-id="free-source"]')
+          .evaluate((node) => {
+            const parent = node.parentElement;
+            const rect = node.getBoundingClientRect();
+            const parentRect = parent?.getBoundingClientRect();
+            return {
+              parent: parent?.getAttribute("data-agent-native-node-id"),
+              order: parent
+                ? Array.from(parent.children).map((child) =>
+                    child.getAttribute("data-agent-native-node-id"),
+                  )
+                : [],
+              position: getComputedStyle(node).position,
+              left: Math.round(rect.left - (parentRect?.left ?? 0)),
+              top: Math.round(rect.top - (parentRect?.top ?? 0)),
+            };
+          }),
+      )
+      .toEqual({
+        parent: "nested-auto",
+        order: ["destination-first", "free-source", "destination-second"],
+        position: "static",
+        left: 16,
+        top: 68,
+      });
+
+    await page.keyboard.press(`${PRIMARY}+z`);
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "free-source",
+        ),
+      )
+      .toEqual({ sourceHas: true, destinationHas: false });
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "free-source",
+        ),
+      )
+      .toEqual({ sourceHas: false, destinationHas: true });
+    await settleReload(page);
+    await expect(
+      designFrame(page, design.destinationId).locator(
+        '[data-agent-native-node-id="free-source"]',
+      ),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        designFrame(page, design.destinationId)
+          .locator('[data-agent-native-node-id="free-source"]')
+          .evaluate((node) =>
+            node.parentElement?.getAttribute("data-agent-native-node-id"),
+          ),
+      )
+      .toBe("nested-auto");
+  });
+
+  test("report path: free source drops at an empty Screen root with exact pointer position, undo, and reload", async ({
+    page,
+  }) => {
+    const design = await createDesign(
+      page,
+      (id) =>
+        test.info().annotations.push({ type: "design-id", description: id }),
+      {
+        sourceContent: FREE_SOURCE_SCREEN,
+        destinationContent: EMPTY_DESTINATION_SCREEN,
+        title: "cross-screen empty root report",
+      },
+    );
+    await gotoEditor(page, design.id);
+    await settleScreens(page, design.sourceId, design.destinationId, {});
+
+    const destinationFrame = page.locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${design.destinationId}"]`,
+    );
+    const destinationBody = destinationFrame.contentFrame().locator("body");
+    const destinationBox = (await destinationBody.boundingBox())!;
+    const release = {
+      x: destinationBox.x + destinationBox.width * 0.3,
+      y: destinationBox.y + destinationBox.height * 0.28,
+    };
+    const sourceBefore = await fileContent(page, design.id, "index.html");
+    const destinationBefore = await fileContent(
+      page,
+      design.id,
+      "destination.html",
+    );
+    const held = await dragScreenNode(
+      page,
+      design.sourceId,
+      "free-source",
+      release,
+      async () => {
+        expect(await fileContent(page, design.id, "index.html")).toBe(
+          sourceBefore,
+        );
+        expect(await fileContent(page, design.id, "destination.html")).toBe(
+          destinationBefore,
+        );
+      },
+    );
+    expect(held.guide).toBeGreaterThan(0);
+    expect(held.ghost).toBeGreaterThan(0);
+    expect(held.sourceVisible).toBe(1);
+
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "free-source",
+        ),
+      )
+      .toEqual({ sourceHas: false, destinationHas: true });
+    const moved = designFrame(page, design.destinationId).locator(
+      '[data-agent-native-node-id="free-source"]',
+    );
+    await expect(moved).toBeVisible();
+    const movedBox = (await moved.boundingBox())!;
+    expect(movedBox.x + movedBox.width / 2).toBeCloseTo(release.x, -1);
+    expect(movedBox.y + movedBox.height / 2).toBeCloseTo(release.y, -1);
+    await expect
+      .poll(() =>
+        moved.evaluate((node) => ({
+          parent: node.parentElement?.tagName,
+          position: getComputedStyle(node).position,
+        })),
+      )
+      .toEqual({ parent: "BODY", position: "absolute" });
+
+    await page.keyboard.press(`${PRIMARY}+z`);
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "free-source",
+        ),
+      )
+      .toEqual({ sourceHas: true, destinationHas: false });
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "free-source",
+        ),
+      )
+      .toEqual({ sourceHas: false, destinationHas: true });
+    await settleReload(page);
+    await expect(
+      designFrame(page, design.destinationId).locator(
+        '[data-agent-native-node-id="free-source"]',
+      ),
+    ).toBeVisible();
   });
 });
