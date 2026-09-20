@@ -2142,32 +2142,37 @@ export function DocumentSidebar({
       ref={searchTriggerRef}
       type="button"
       variant="outline"
-      className="h-9 w-full justify-start gap-2 bg-background px-2.5 text-muted-foreground shadow-none hover:bg-accent/50 hover:text-foreground"
+      className="grid h-9 w-full grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center bg-background p-0 text-muted-foreground shadow-none hover:bg-accent/50 hover:text-foreground"
       onClick={handleOpenSearch}
     >
-      <IconSearch size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-start">
+      <IconSearch size={15} className="justify-self-center" />
+      <span className="min-w-0 truncate ps-1.5 text-start">
         {t("sidebar.search")}
       </span>
-      <kbd className="shrink-0 font-sans text-[11px] font-normal text-muted-foreground">
+      <kbd className="justify-self-center font-sans text-[11px] font-normal text-muted-foreground">
         {isMac ? "⌘ K" : "Ctrl K"}
       </kbd>
     </Button>
   );
   const contentSpaceSelector = selectedSpace ? (
-    <div className="flex min-w-0 items-center gap-1 px-3 pt-2">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="h-8 min-w-0 flex-1 justify-between px-2"
+            className="grid h-8 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center p-0"
             aria-label={`${t("sidebar.contentSpace")}: ${selectedSpace.name}`}
           >
-            <span className="truncate">{selectedSpace.name}</span>
-            <IconChevronDown className="size-3.5 shrink-0" />
+            <span className="truncate ps-2 text-start">
+              {selectedSpace.name}
+            </span>
+            <IconChevronDown className="size-3.5 justify-self-center" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuContent
+          align="start"
+          className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)]"
+        >
           <DropdownMenuRadioGroup
             value={selectedSpace.id}
             onValueChange={(spaceId) => {
@@ -2178,9 +2183,16 @@ export function DocumentSidebar({
             }}
           >
             {contentSpaces.map((space) => (
-              <DropdownMenuRadioItem key={space.id} value={space.id}>
-                {space.name}
-              </DropdownMenuRadioItem>
+              <Tooltip key={space.id}>
+                <TooltipTrigger asChild>
+                  <DropdownMenuRadioItem value={space.id} className="min-w-0">
+                    <span className="min-w-0 flex-1 truncate">
+                      {space.name}
+                    </span>
+                  </DropdownMenuRadioItem>
+                </TooltipTrigger>
+                <TooltipContent side="right">{space.name}</TooltipContent>
+              </Tooltip>
             ))}
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
@@ -2582,10 +2594,10 @@ export function DocumentSidebar({
         onBrandClick={onToggleCollapsed}
       />
       {contentSpaceSelector}
-      <div className="shrink-0 px-3 py-2">{searchButton}</div>
+      <div className="shrink-0 ps-3 pe-2 py-2">{searchButton}</div>
 
       <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
-        <div className="w-full min-w-0 py-2 pe-2">
+        <div className="w-full min-w-0 py-2">
           {selectedSpace ? (
             <PersonalSidebarSections
               key={selectedSpace.id}

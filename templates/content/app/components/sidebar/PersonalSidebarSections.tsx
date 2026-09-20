@@ -11,6 +11,7 @@ import {
   type ContentSidebarSectionId,
 } from "@shared/content-personal-navigation";
 import {
+  IconChevronDown,
   IconChevronRight,
   IconClock,
   IconDots,
@@ -243,10 +244,11 @@ export function PersonalSidebarSections({
                       {t("sidebar.noRecentVisits")}
                     </p>
                   )}
-                  {canShowMore(id) && (
+                  {canShowMore(id) ? (
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="grid min-h-[38px] w-full grid-cols-[2.375rem_minmax(0,1fr)] items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() =>
                         setLimits((current) => ({
                           ...current,
@@ -254,20 +256,32 @@ export function PersonalSidebarSections({
                         }))
                       }
                     >
-                      {t("sidebar.showMore")}
+                      <IconChevronDown
+                        aria-hidden="true"
+                        className="size-3.5 justify-self-center"
+                      />
+                      <span className="min-w-0 truncate">
+                        {t("sidebar.showMore")}
+                      </span>
                     </Button>
-                  )}
-                  {limits[id] > 5 && (
+                  ) : limits[id] > 5 ? (
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="grid min-h-[38px] w-full grid-cols-[2.375rem_minmax(0,1fr)] items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() =>
                         setLimits((current) => ({ ...current, [id]: 5 }))
                       }
                     >
-                      {t("sidebar.showLess")}
+                      <IconChevronDown
+                        aria-hidden="true"
+                        className="size-3.5 rotate-180 justify-self-center"
+                      />
+                      <span className="min-w-0 truncate">
+                        {t("sidebar.showLess")}
+                      </span>
                     </Button>
-                  )}
+                  ) : null}
                 </>
               )}
             </PersonalSection>
@@ -350,7 +364,7 @@ function PersonalSection({
             <Button
               variant="ghost"
               size="icon"
-              className="size-7"
+              className="size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground"
               aria-label={t("sidebar.customizeSidebar")}
             >
               <IconDots className="size-3.5" />

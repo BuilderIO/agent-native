@@ -333,7 +333,7 @@ function PagedContentFilesBranch({
             type="button"
             size="sm"
             variant="ghost"
-            className="grid h-7 w-full items-center gap-1.5 p-0 pe-1.5 text-start text-xs text-muted-foreground"
+            className="grid min-h-[38px] w-full items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             style={{
               gridTemplateColumns: `${databaseSidebarRowIndent(props.depth, false) + 28}px minmax(0, 1fr)`,
             }}

@@ -33,9 +33,7 @@ describe("document sidebar layout", () => {
     expect(sidebar.slice(collapsedBranchStart, expandedBranchStart)).toContain(
       "{collapsedSearchButton}",
     );
-    expect(sidebar.slice(expandedBranchStart)).toContain(
-      "{searchButton}",
-    );
+    expect(sidebar.slice(expandedBranchStart)).toContain("{searchButton}");
   });
 
   it("keeps deeply nested page rows within the sidebar viewport", () => {
@@ -47,7 +45,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "[&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden",
     );
-    expect(sidebar).toContain('className="w-full min-w-0 py-2 pe-2"');
+    expect(sidebar).toContain('className="w-full min-w-0 py-2"');
     expect(sidebar).not.toContain("w-max");
     expect(treeItem).toContain("const indent = depth * 12 + 12");
     expect(treeItem).toContain("min-w-0");
@@ -517,6 +515,10 @@ describe("document sidebar layout", () => {
     expect(sections).toContain("group-focus-visible/toggle:opacity-100");
     expect(sections).toContain("<SidebarNavigationRow");
     expect(sections).toContain("renderPinned(limits.pinned)");
+    expect(sections).toContain("grid-cols-[2.375rem_minmax(0,1fr)]");
+    expect(sections).toContain("min-h-[38px]");
+    expect(sections).toContain("hover:bg-transparent");
+    expect(sections).toContain("text-muted-foreground");
     expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId, {");
     expect(sidebar).toContain("favoritesData?.items ?? []");
     expect(sidebar).toContain(").slice(0, limit);");
@@ -536,6 +538,23 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).not.toContain("<FavoriteDocumentItem");
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
+  });
+
+  it("aligns the expanded sidebar controls to one trailing grid", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
+
+    expect(sidebar).toContain(
+      "grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2",
+    );
+    expect(sidebar).toContain("grid-cols-[1.75rem_minmax(0,1fr)_1.75rem]");
+    expect(sidebar).toContain("w-[var(--radix-dropdown-menu-trigger-width)]");
+    expect(sidebar).toContain("max-w-[calc(100vw-1rem)]");
+    expect(sidebar).toContain('className="min-w-0 flex-1 truncate"');
+    expect(sidebar).toContain('className="shrink-0 ps-3 pe-2 py-2"');
+    expect(sections).toContain(
+      "size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground",
+    );
   });
 
   it("keeps section visibility inside each section menu instead of a duplicate customize row", () => {
