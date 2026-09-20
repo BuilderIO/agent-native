@@ -180,8 +180,8 @@ export function BreakpointDeviceControl({
     cn(
       "flex h-6 cursor-pointer select-none items-center gap-1 rounded-[5px] px-1.5 font-medium !text-[11px] tabular-nums",
       active
-        ? "bg-background text-[var(--design-editor-accent-color)] shadow-sm"
-        : "text-muted-foreground hover:text-foreground",
+        ? "bg-[var(--design-editor-panel-bg)] text-[var(--design-editor-accent-color)] shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]"
+        : "text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
     );
 
   return (
@@ -194,10 +194,8 @@ export function BreakpointDeviceControl({
           surface — inside it, it reads as one more segment to select. */}
       <div className="flex items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
         {/* Base segment — the primary/widest editing context. Icon-only with
-          the label in the tooltip: this control shares one cramped
-          inspector-header row with the collaborators menu and play/share
-          actions (~300px total), so every segment stays as narrow as it
-          can. */}
+          the label in the tooltip: the Screen settings row can grow with
+          each breakpoint, so every segment stays as narrow as it can. */}
         <button
           type="button"
           className={segmentClass(baseActive)}
@@ -236,9 +234,8 @@ export function BreakpointDeviceControl({
               >
                 {/* ITEM 8a — device icon (by width bucket) + width number.
                   Kept compact (size-3, one notch smaller than Base's
-                  size-3.5) so the segment still fits this ~300px
-                  inspector-header row next to play/share; the full label
-                  stays in the tooltip. */}
+                  size-3.5) so the Screen settings row can grow; the full
+                  label stays in the tooltip. */}
                 <DeviceIcon widthPx={breakpoint.widthPx} />
                 <span>{breakpoint.widthPx}</span>
               </button>

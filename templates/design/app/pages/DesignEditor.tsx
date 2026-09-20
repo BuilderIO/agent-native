@@ -23939,14 +23939,9 @@ function DesignEditor() {
 
   const questionFlowActive = pendingQuestionsVisible;
 
-  // ── Header chrome fragments ────────────────────────────────────────────────
-  // BP-DEEP v2 (items 4/6/7) — the unified breakpoint/device targeting
-  // control. Replaces BOTH the old device-preview dropdown that used to live
-  // in this header slot AND the floating/chrome-row BreakpointBar that used
-  // to cover or displace the canvas: one segmented control (Base + each
-  // breakpoint width + "+"), with a per-breakpoint "…" menu (change width /
-  // remove). Segment clicks route through the same
-  // handleBreakpointBarSelect scope-switching the old chips used.
+  // ── Screen settings controls ──────────────────────────────────────────────
+  // Breakpoint targeting belongs with the selected screen's settings so the
+  // inspector keeps one home for viewport-specific edits.
   const deviceFrameControl = (
     <BreakpointDeviceControl
       breakpoints={designBreakpoints}
@@ -24005,6 +24000,17 @@ function DesignEditor() {
         </SelectContent>
       </Select>
     );
+
+  const screenBreakpointControls = (
+    <div className="design-sidebar-property-group">
+      <div className="flex min-w-0 items-center gap-1">
+        <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {deviceFrameControl}
+        </div>
+        {responsiveEditScopeControl}
+      </div>
+    </div>
+  );
 
   const projectMenu = (
     <DropdownMenu>
@@ -24805,19 +24811,9 @@ function DesignEditor() {
           ) : null}
         </div>
       ) : null}
-      {/* BP-DEEP v2 items 4/6/7 — the unified breakpoint/device segmented
-          control gets its own slim row under the actions row: it needs
-          ~130px+ (growing with each breakpoint) and the actions row above
-          (collaborators + play + share in a ~300px panel) cannot spare that
-          without overlapping — squeezing both into one line collapsed the
-          collaborators menu to a sliver behind the segments. */}
       {/* Zoom sits here rather than in the inspector tab row below: sharing
           that row truncated the "Comments" tab label at normal panel widths. */}
       <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center gap-[var(--design-baseline-half)]">
-        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-[var(--design-baseline-half)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {deviceFrameControl}
-          {responsiveEditScopeControl}
-        </div>
         <div className="shrink-0">{renderZoomControl("inspector")}</div>
       </div>
     </div>
@@ -24924,6 +24920,7 @@ function DesignEditor() {
         ? handleRemoveSelectedScreen
         : undefined,
     screenSourcePending: updateScreenSourceMutation.isPending,
+    screenBreakpointControls,
     pageStyles,
     selectedScreenElement,
     onSelectedScreenStyleChange: canEditDesign
@@ -25747,12 +25744,8 @@ function DesignEditor() {
                     {renderResponsiveInteractBar(false)}
                   </div>
                 ) : null}
-                {/* §6.4 / BP-DEEP v2 — breakpoint targeting no longer
-                    renders any bar over or above the canvas (the earlier
-                    floating overlay covered screen headers; the chrome-row
-                    replacement bumped the canvas down). It now lives in the
-                    right-inspector header as the unified
-                    BreakpointDeviceControl — see rightSidebarActions. */}
+                {/* Breakpoint targeting controls live in the selected Screen
+                    inspector section instead of over the canvas. */}
                 <div
                   ref={canvasContainerRef}
                   data-design-canvas-container
