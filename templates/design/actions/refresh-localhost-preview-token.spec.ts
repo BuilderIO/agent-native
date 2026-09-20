@@ -61,6 +61,7 @@ beforeEach(() => {
   mocks.assertAccess.mockResolvedValue({
     role: "viewer",
     resource: {
+      visibility: "public",
       data: JSON.stringify({
         sourceType: "localhost",
         connectionId: "conn_1",
@@ -97,6 +98,47 @@ describe("refresh-localhost-preview-token", () => {
       action.run({
         designId: "design_1",
         connectionId: "other-connection",
+        publicVisualEdit: true,
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
+  });
+
+  it("rejects public preview refresh for a private design", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: {
+        visibility: "private",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_1",
+        }),
+      },
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        publicVisualEdit: true,
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
+  });
+
+  it("rejects public preview refresh for a non-localhost design", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({ sourceType: "inline" }),
+      },
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
         publicVisualEdit: true,
       }),
     ).rejects.toMatchObject({ statusCode: 403 });
