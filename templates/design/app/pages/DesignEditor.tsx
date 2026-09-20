@@ -4380,9 +4380,11 @@ function DesignEditor() {
         window.clearTimeout(timer);
         delete fileSaveTimersRef.current[fileId];
       }
+      const latest = latestFileSaveForUnloadRef.current[fileId];
       delete pendingFileSavesRef.current[fileId];
       delete latestFileSaveForUnloadRef.current[fileId];
-      const entry = queued ? createFileSaveOutboxEntry(queued) : null;
+      const pending = queued ?? latest;
+      const entry = pending ? createFileSaveOutboxEntry(pending) : null;
       if (entry) {
         void discardDesignSaveOutboxEntry(entry).catch(() => {});
       }

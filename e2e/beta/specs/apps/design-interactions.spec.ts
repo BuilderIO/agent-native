@@ -664,19 +664,44 @@ async function expandLayers(page: Page): Promise<void> {
   for (let index = 0; index < 128; index += 1) {
     const expand = tree.getByRole("button", { name: "Expand layer" }).first();
     if ((await expand.count()) === 0) return;
-    const row = expand.locator('xpath=ancestor::*[@role="treeitem"][1]');
-    const rowIndex = await row.evaluate((element) => {
-      const treeElement = element.closest('[role="tree"]');
-      return treeElement
-        ? Array.from(treeElement.querySelectorAll('[role="treeitem"]')).indexOf(
-            element,
-          )
-        : -1;
-    });
-    if (rowIndex < 0) {
-      throw new Error("Could not resolve the expandable layer row");
+    let rowIndex = -1;
+    let expanded = false;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const currentExpand = tree
+        .getByRole("button", { name: "Expand layer" })
+        .first();
+      if ((await currentExpand.count()) === 0) return;
+      const row = currentExpand.locator(
+        'xpath=ancestor::*[@role="treeitem"][1]',
+      );
+      rowIndex = await row.evaluate((element) => {
+        const treeElement = element.closest('[role="tree"]');
+        return treeElement
+          ? Array.from(
+              treeElement.querySelectorAll('[role="treeitem"]'),
+            ).indexOf(element)
+          : -1;
+      });
+      if (rowIndex < 0) {
+        await page.waitForTimeout(50);
+        continue;
+      }
+      try {
+        await currentExpand.click({ timeout: 1_000 });
+        expanded = true;
+        break;
+      } catch (error) {
+        if (
+          !/detached from the DOM|not attached to the DOM/i.test(String(error))
+        ) {
+          throw error;
+        }
+        await page.waitForTimeout(50);
+      }
     }
-    await expand.click();
+    if (!expanded) {
+      throw new Error("Could not click the expandable layer row");
+    }
     await expect(
       tree
         .getByRole("treeitem")
