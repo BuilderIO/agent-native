@@ -171,6 +171,10 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     const surface = page
       .locator("[data-multi-screen-canvas-world]")
       .locator("..");
+    const world = page.locator("[data-multi-screen-canvas-world]");
+    const initialTransform = await world.evaluate(
+      (element) => (element as HTMLElement).style.transform,
+    );
     const surfaceBox = await surface.boundingBox();
     if (!surfaceBox) throw new Error("missing overview canvas surface");
     await resetChurn(page);
@@ -185,6 +189,13 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     }
     await page.keyboard.up("Control");
     await page.waitForTimeout(700);
+    await expect
+      .poll(
+        () =>
+          world.evaluate((element) => (element as HTMLElement).style.transform),
+        { timeout: 10_000 },
+      )
+      .not.toBe(initialTransform);
 
     const afterIframes = await page
       .locator("iframe[data-design-preview-iframe]")
