@@ -865,9 +865,18 @@ test.describe("physical cross-screen auto-layout parity", () => {
       '[data-agent-native-node-id="free-source"]',
     );
     await expect(moved).toBeVisible();
-    const movedBox = (await moved.boundingBox())!;
-    expect(movedBox.x + movedBox.width / 2).toBeCloseTo(release.x, -1);
-    expect(movedBox.y + movedBox.height / 2).toBeCloseTo(release.y, -1);
+    await expect
+      .poll(async () => {
+        const box = await moved.boundingBox();
+        return box ? Math.abs(box.x + box.width / 2 - release.x) : Infinity;
+      })
+      .toBeLessThan(5);
+    await expect
+      .poll(async () => {
+        const box = await moved.boundingBox();
+        return box ? Math.abs(box.y + box.height / 2 - release.y) : Infinity;
+      })
+      .toBeLessThan(5);
     await expect
       .poll(() =>
         moved.evaluate((node) => ({

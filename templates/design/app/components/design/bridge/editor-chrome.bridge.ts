@@ -18672,6 +18672,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: number;
       } | null = null;
       var reflowGuideMode: string | null = null;
+      var reflowDomOrigin: {
+        parent: Element;
+        nextSibling: ChildNode | null;
+      } | null = null;
+      var reflowDomApplied = false;
       function reorderMainAxis(target): "x" | "y" {
         return target && target.axis === "y" ? "y" : "x";
       }
@@ -18695,6 +18700,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           s.el.style.transform = s.prevTransform;
           s.el.style.transition = s.prevTransition;
         });
+        if (reflowDomOrigin) {
+          if (reorderEl.parentNode === reflowDomOrigin.parent) {
+            if (
+              reflowDomOrigin.nextSibling &&
+              reflowDomOrigin.nextSibling.parentNode === reflowDomOrigin.parent
+            ) {
+              reflowDomOrigin.parent.insertBefore(
+                reorderEl,
+                reflowDomOrigin.nextSibling,
+              );
+            } else {
+              reflowDomOrigin.parent.appendChild(reorderEl);
+            }
+          }
+          reflowDomOrigin = null;
+        }
+        reflowDomApplied = false;
         reflowSiblings = [];
         reflowKey = null;
         reflowGuideRect = null;
@@ -18705,6 +18727,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           s.el.style.transform = s.prevTransform;
           s.el.style.transition = s.prevTransition;
         });
+        if (reflowDomOrigin) {
+          if (reorderEl.parentNode === reflowDomOrigin.parent) {
+            if (
+              reflowDomOrigin.nextSibling &&
+              reflowDomOrigin.nextSibling.parentNode === reflowDomOrigin.parent
+            ) {
+              reflowDomOrigin.parent.insertBefore(
+                reorderEl,
+                reflowDomOrigin.nextSibling,
+              );
+            } else {
+              reflowDomOrigin.parent.appendChild(reorderEl);
+            }
+          }
+          reflowDomOrigin = null;
+        }
+        reflowDomApplied = false;
       }
       var restoreGroupGridPreview: (() => void) | null = null;
       function clearGroupGridPreview(): void {
@@ -19079,7 +19118,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         var axis = reorderMainAxis(target);
         var key = axis + ":" + slotInfo.slot;
-        if (key === reflowKey) {
+        if (key === reflowKey && reflowDomApplied) {
           // The target resolver returns a fresh object on every pointer event.
           // Preserve the wrapped-slot projection that was computed when the
           // same-slot fast path first ran so the guide does not fall back to
@@ -19179,6 +19218,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             // transform so an authored rotate/scale survives the reflow shift.
             el.style.transform = previewTransform;
           });
+          if (
+            containerStyles.flexWrap === "wrap" ||
+            containerStyles.flexWrap === "wrap-reverse"
+          ) {
+            reflowDomOrigin = {
+              parent: container,
+              nextSibling: originalNextSibling,
+            };
+            if (target.placement === "inside") {
+              container.appendChild(reorderEl);
+            } else if (target.placement === "before") {
+              container.insertBefore(reorderEl, target.anchor);
+            } else {
+              container.insertBefore(reorderEl, target.anchor.nextSibling);
+            }
+            reflowDomApplied = true;
+          }
         } catch (error) {
           // A layout read or DOM insertion can fail if the editor is tearing
           // down the frame during a cancel. Restore all preview transforms

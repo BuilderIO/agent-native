@@ -135,7 +135,7 @@ const ROOT_SCREEN_FIXTURES = {
   <div data-agent-native-node-id="root-b" data-agent-native-layer-name="Root B" style="flex:0 0 86px;width:220px;height:86px;background:#fb7185">B</div>
   <div data-agent-native-node-id="root-c" data-agent-native-layer-name="Root C" style="flex:0 0 64px;width:150px;height:64px;background:#f97316">C</div>
 </body></html>`,
-  wrap: `<!doctype html><html><body style="margin:0;width:430px;height:430px;box-sizing:border-box;display:flex;flex-direction:row;flex-wrap:wrap;align-content:space-between;gap:16px 22px;padding:24px 30px;background:#111827;color:#f8fafc">
+  wrap: `<!doctype html><html><body style="margin:0;width:430px;height:430px;box-sizing:border-box;display:flex;flex-direction:row;flex-wrap:wrap;align-content:flex-start;gap:16px 22px;padding:24px 30px;background:#111827;color:#f8fafc">
   <div data-agent-native-node-id="root-a" data-agent-native-layer-name="Root A" style="flex:0 0 150px;width:150px;height:76px;background:#38bdf8">A</div>
   <div data-agent-native-node-id="root-b" data-agent-native-layer-name="Root B" style="flex:0 0 150px;width:150px;height:88px;background:#a78bfa">B</div>
   <div data-agent-native-node-id="root-c" data-agent-native-layer-name="Root C" style="flex:0 0 150px;width:150px;height:68px;background:#fbbf24">C</div>
@@ -1731,6 +1731,16 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           );
           expect(targetGuideSamples.length).toBeGreaterThan(0);
           if (cell.fixture === "wrap") {
+            expect(
+              targetSnapshots.map((snapshot) =>
+                snapshot.children.map((child) => child.id).join(","),
+              ),
+            ).toContain(cell.expected.join(","));
+            expect(
+              targetSnapshots.some((snapshot) =>
+                childMoved(evidence.before, snapshot.children, cell.source),
+              ),
+            ).toBe(true);
             expect(
               targetSnapshots.some(
                 (snapshot) =>
