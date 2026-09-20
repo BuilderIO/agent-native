@@ -583,10 +583,27 @@ async function expandLayers(page: Page): Promise<void> {
     timeout: 30_000,
   });
   for (let index = 0; index < 128; index += 1) {
-    const expand = page.getByRole("button", { name: "Expand layer" }).first();
+    const expand = tree.getByRole("button", { name: "Expand layer" }).first();
     if ((await expand.count()) === 0) return;
+    const row = expand.locator('xpath=ancestor::*[@role="treeitem"][1]');
+    const rowIndex = await row.evaluate((element) => {
+      const treeElement = element.closest('[role="tree"]');
+      return treeElement
+        ? Array.from(treeElement.querySelectorAll('[role="treeitem"]')).indexOf(
+            element,
+          )
+        : -1;
+    });
+    if (rowIndex < 0) {
+      throw new Error("Could not resolve the expandable layer row");
+    }
     await expand.click();
-    await page.waitForTimeout(100);
+    await expect(
+      tree
+        .getByRole("treeitem")
+        .nth(rowIndex)
+        .getByRole("button", { name: "Collapse layer" }),
+    ).toHaveCount(1, { timeout: 5_000 });
   }
   throw new Error("Layers tree still has collapsed rows after 128 expansions");
 }

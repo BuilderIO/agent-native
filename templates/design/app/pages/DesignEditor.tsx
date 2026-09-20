@@ -575,6 +575,7 @@ import {
   codeLayerSourceNodeIdAttrs,
   codeLayerNodeLooksLikeComponent,
   codeLayerSelectorAliases,
+  codeLayerSelectorMatches,
   codeLayerTreeToPanelNodes,
   collectCodeLayerAncestors,
   collectEffectiveCodeLayerState,
@@ -1233,6 +1234,7 @@ function DesignEditor() {
   // so every `embedded` behaviour below would otherwise read as a standalone
   // Design page and put our own chrome and agent inside Builder's.
   const embedded = shellMode || isEmbedAuthActive();
+  const isVisualEditSurface = location.pathname.startsWith("/visual-edit/");
   const embedChromeRequested = isEmbedChromeRequested();
   // The shell keeps our rails and hands the host only the chat, so it must not
   // depend on `embedChrome` surviving in the URL Builder builds.
@@ -3749,6 +3751,8 @@ function DesignEditor() {
 
   const {
     data: designResult,
+    error: designQueryError,
+    isError: designQueryFailed,
     isLoading: designLoading,
     refetch: refetchDesign,
   } = useActionQuery<DesignData | string>(
@@ -3756,7 +3760,13 @@ function DesignEditor() {
     { id: id! },
     {
       enabled: !shellMode,
-      refetchInterval: pendingGenerationActive || generating ? 1000 : false,
+      refetchInterval: isVisualEditSurface
+        ? pendingGenerationActive || generating
+          ? 1000
+          : 30_000
+        : pendingGenerationActive || generating
+          ? 1000
+          : false,
     },
   );
   const {
@@ -3846,7 +3856,19 @@ function DesignEditor() {
   const designAccessRole = design?.accessRole;
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
-  const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const designQueryErrorStatus =
+    designQueryError && typeof designQueryError === "object"
+      ? (designQueryError as { status?: unknown }).status
+      : undefined;
+  const designQueryAuthFailed =
+    designQueryErrorStatus === 401 || designQueryErrorStatus === 403;
+  const visualEditAccessLost =
+    isVisualEditSurface &&
+    designQueryFailed &&
+    (designResult === undefined || designQueryAuthFailed);
+  const canEditDesign = !visualEditAccessLost
+    ? canShareDesign || designAccessRole === "editor"
+    : false;
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
   const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
@@ -3857,7 +3879,6 @@ function DesignEditor() {
       designAccessRole === "editor" ||
       designAccessRole === "commenter");
   const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
-
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -15226,8 +15247,43 @@ function DesignEditor() {
       sourceCloneHtml?: string;
       styleSnapshot?: PortableStyleSnapshot;
       styleSnapshotCaptureFailed?: boolean;
-    }) =>
-      runCrossScreenElementDrop(
+    }) => {
+      const movedSourceId =
+        arg0.sourceProvenance?.uniqueNodeId?.trim() ||
+        arg0.sourceNodeId?.trim() ||
+        undefined;
+      const movedSourceSelector = arg0.sourceSelector.trim() || undefined;
+      const sourceOwners = Array.from(
+        codeLayerOwnerByNodeIdRef.current.entries(),
+      ).filter(([, owner]) => owner.fileId === arg0.sourceScreenId);
+      const sourceIdMatches = movedSourceId
+        ? sourceOwners.filter(
+            ([, owner]) =>
+              bridgeSourceIdForCodeLayerNode(owner.node).trim() ===
+              movedSourceId,
+          )
+        : [];
+      const selectorMatches = movedSourceSelector
+        ? sourceOwners.filter(([, owner]) =>
+            codeLayerSelectorMatches(owner.node, movedSourceSelector),
+          )
+        : [];
+      const movedSourceMatches =
+        sourceIdMatches.length === 1
+          ? sourceIdMatches
+          : selectorMatches.length === 1
+            ? selectorMatches
+            : [];
+      const movedSourceSelection = {
+        movedSourceId,
+        sourceIdMatches,
+        movedSourceOwner: movedSourceMatches[0]?.[1],
+        movedSourceLayerIds: new Set(
+          movedSourceMatches.map(([layerId]) => layerId),
+        ),
+      };
+
+      return runCrossScreenElementDrop(
         {
           applyFileContentUpdate,
           boardFileId,
@@ -15238,20 +15294,50 @@ function DesignEditor() {
           contentHistorySelectionAfterRef,
           designSourceType,
           fileSaveOperationRevisionRef,
-          getCurrentSelectionFingerprint: () =>
-            JSON.stringify({
+          getCurrentSelectionFingerprint: () => {
+            const selectedElement = selectedElementRef.current;
+            const selectedElementSourceScreenId =
+              selectedElement?.sourceLayerIdentity?.screenId?.trim() ||
+              undefined;
+            const selectedElementBelongsToSource =
+              selectedElementSourceScreenId !== undefined &&
+              selectedElementSourceScreenId === arg0.sourceScreenId;
+            // Removing the source can legitimately clear its pre-drop
+            // selection before the two saves settle.
+            const selectedMovedSource =
+              selectedElement !== null &&
+              selectedElementBelongsToSource &&
+              movedSourceSelection.movedSourceOwner !== undefined &&
+              (movedSourceSelection.sourceIdMatches.length === 1
+                ? selectedElement.sourceId?.trim() === movedSourceId
+                : codeLayerSelectorMatches(
+                    movedSourceSelection.movedSourceOwner.node,
+                    selectedElement.selector,
+                  ));
+            const selectedLayerIds = selectedLayerIdsStateRef.current.filter(
+              (layerId) => {
+                const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+                if (owner) {
+                  return !movedSourceSelection.movedSourceLayerIds.has(layerId);
+                }
+                return !selectedMovedSource;
+              },
+            );
+            return JSON.stringify({
               activeFileId: activeFileIdRef.current,
-              selectedLayerIds: selectedLayerIdsStateRef.current,
+              selectedLayerIds,
               overviewSelectedScreenIds: overviewSelectedScreenIdsRef.current,
-              selectedElement: selectedElementRef.current
-                ? {
-                    id: selectedElementRef.current.id ?? null,
-                    selector: selectedElementRef.current.selector ?? null,
-                    sourceId: selectedElementRef.current.sourceId ?? null,
-                  }
-                : null,
+              selectedElement:
+                selectedElement && !selectedMovedSource
+                  ? {
+                      id: selectedElement.id ?? null,
+                      selector: selectedElement.selector ?? null,
+                      sourceId: selectedElement.sourceId ?? null,
+                    }
+                  : null,
               viewMode: viewModeRef.current,
-            }),
+            });
+          },
           getScreenContent,
           id,
           overviewScreens,
@@ -15270,7 +15356,8 @@ function DesignEditor() {
           viewModeRef,
         },
         arg0,
-      ),
+      );
+    },
     [
       applyFileContentUpdate,
       boardFileId,
@@ -23735,14 +23822,9 @@ function DesignEditor() {
 
   const questionFlowActive = pendingQuestionsVisible;
 
-  // ── Header chrome fragments ────────────────────────────────────────────────
-  // BP-DEEP v2 (items 4/6/7) — the unified breakpoint/device targeting
-  // control. Replaces BOTH the old device-preview dropdown that used to live
-  // in this header slot AND the floating/chrome-row BreakpointBar that used
-  // to cover or displace the canvas: one segmented control (Base + each
-  // breakpoint width + "+"), with a per-breakpoint "…" menu (change width /
-  // remove). Segment clicks route through the same
-  // handleBreakpointBarSelect scope-switching the old chips used.
+  // ── Screen settings controls ──────────────────────────────────────────────
+  // Breakpoint targeting belongs with the selected screen's settings so the
+  // inspector keeps one home for viewport-specific edits.
   const deviceFrameControl = (
     <BreakpointDeviceControl
       breakpoints={designBreakpoints}
@@ -23801,6 +23883,17 @@ function DesignEditor() {
         </SelectContent>
       </Select>
     );
+
+  const screenBreakpointControls = (
+    <div className="design-sidebar-property-group">
+      <div className="flex min-w-0 items-center gap-1">
+        <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {deviceFrameControl}
+        </div>
+        {responsiveEditScopeControl}
+      </div>
+    </div>
+  );
 
   const projectMenu = (
     <DropdownMenu>
@@ -24601,19 +24694,9 @@ function DesignEditor() {
           ) : null}
         </div>
       ) : null}
-      {/* BP-DEEP v2 items 4/6/7 — the unified breakpoint/device segmented
-          control gets its own slim row under the actions row: it needs
-          ~130px+ (growing with each breakpoint) and the actions row above
-          (collaborators + play + share in a ~300px panel) cannot spare that
-          without overlapping — squeezing both into one line collapsed the
-          collaborators menu to a sliver behind the segments. */}
       {/* Zoom sits here rather than in the inspector tab row below: sharing
           that row truncated the "Comments" tab label at normal panel widths. */}
       <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center gap-[var(--design-baseline-half)]">
-        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-[var(--design-baseline-half)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {deviceFrameControl}
-          {responsiveEditScopeControl}
-        </div>
         <div className="shrink-0">{renderZoomControl("inspector")}</div>
       </div>
     </div>
@@ -24720,6 +24803,7 @@ function DesignEditor() {
         ? handleRemoveSelectedScreen
         : undefined,
     screenSourcePending: updateScreenSourceMutation.isPending,
+    screenBreakpointControls,
     pageStyles,
     selectedScreenElement,
     onSelectedScreenStyleChange: canEditDesign
@@ -25543,12 +25627,8 @@ function DesignEditor() {
                     {renderResponsiveInteractBar(false)}
                   </div>
                 ) : null}
-                {/* §6.4 / BP-DEEP v2 — breakpoint targeting no longer
-                    renders any bar over or above the canvas (the earlier
-                    floating overlay covered screen headers; the chrome-row
-                    replacement bumped the canvas down). It now lives in the
-                    right-inspector header as the unified
-                    BreakpointDeviceControl — see rightSidebarActions. */}
+                {/* Breakpoint targeting controls live in the selected Screen
+                    inspector section instead of over the canvas. */}
                 <div
                   ref={canvasContainerRef}
                   data-design-canvas-container
