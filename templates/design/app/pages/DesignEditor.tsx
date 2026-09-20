@@ -24850,6 +24850,12 @@ function DesignEditor() {
     activeContent,
     pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
     activeFileUpdatedAt: activeFile?.updatedAt ?? null,
+    componentExpectedFiles: files
+      .filter((file) => file.fileType === "html")
+      .map((file) => ({
+        fileId: file.id,
+        versionHash: sourceContentHash(file.content ?? ""),
+      })),
     componentDetailsReady,
     componentSwapPickerRequest,
     onComponentPropApplied: handleComponentPropApplied,

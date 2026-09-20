@@ -461,6 +461,94 @@ test("Design components preserve identity across inline and URL-backed React bou
       "Instance override",
     );
 
+    const propFile = await indexFile(request, designId);
+    const propReferenceButtonId = attributeValue(
+      tagForSourceNode(html, "card-button") ?? "",
+      "data-agent-native-node-id",
+    );
+    expect(propReferenceButtonId).toBeTruthy();
+    if (!propReferenceButtonId)
+      throw new Error("reference button was not cloned");
+    const propMainEdit = await action(request, "apply-component-prop-edit", {
+      designId,
+      fileId: propFile.id,
+      nodeId: "card-button",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-label",
+        value: "Continue",
+      },
+      source: { expectedFiles: await expectedFiles(request, designId) },
+    });
+    expect(propMainEdit.persisted).toBe(true);
+    html = await source(request, designId);
+    expect(
+      attributeValue(
+        tagForNode(html, "card-button") ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Continue");
+    expect(
+      attributeValue(
+        tagForNode(html, propReferenceButtonId) ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Continue");
+
+    const propInstanceEdit = await action(
+      request,
+      "apply-component-prop-edit",
+      {
+        designId,
+        fileId: propFile.id,
+        nodeId: propReferenceButtonId,
+        edit: {
+          kind: "attribute",
+          attribute: "data-agent-native-prop-label",
+          value: "Learn more",
+        },
+        source: { expectedFiles: await expectedFiles(request, designId) },
+      },
+    );
+    expect(propInstanceEdit.persisted).toBe(true);
+    html = await source(request, designId);
+    expect(
+      attributeValue(
+        tagForNode(html, propReferenceButtonId) ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Learn more");
+
+    const propSecondMainEdit = await action(
+      request,
+      "apply-component-prop-edit",
+      {
+        designId,
+        fileId: propFile.id,
+        nodeId: "card-button",
+        edit: {
+          kind: "attribute",
+          attribute: "data-agent-native-prop-label",
+          value: "Submit",
+        },
+        source: { expectedFiles: await expectedFiles(request, designId) },
+      },
+    );
+    expect(propSecondMainEdit.persisted).toBe(true);
+    html = await source(request, designId);
+    expect(
+      attributeValue(
+        tagForNode(html, "card-button") ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Submit");
+    expect(
+      attributeValue(
+        tagForNode(html, propReferenceButtonId) ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Learn more");
+
     const file = await indexFile(request, designId);
     const reparented = await action(request, "apply-component-prop-edit", {
       designId,
