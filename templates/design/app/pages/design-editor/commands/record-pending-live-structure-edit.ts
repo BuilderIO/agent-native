@@ -17,7 +17,8 @@ import type {
 } from "@/pages/design-editor/pending-edits";
 import {
   appendPendingLiveNonStyleUndoEntry,
-  mergePendingLiveNonStyleEdit,
+  mergePendingLiveNonStyleEdits,
+  pendingLiveStructureEditsFromUndoEntry,
   pendingLiveStructureEditsMatch,
   projectRelativeSourcePath,
   reactSourceAnchorForPendingEdit,
@@ -44,11 +45,244 @@ export interface RecordPendingLiveStructureEditArgs {
     PendingLiveStructureUndoEntry | undefined
   >;
   pendingStructureRedoReplayTimerRef: RefObject<number | undefined>;
+  pendingStructureRedoPreparedEditsRef?: RefObject<
+    | {
+        replay: PendingLiveStructureUndoEntry;
+        edits: PendingLiveStructureEdit[];
+      }
+    | undefined
+  >;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   setPendingLiveNonStyleEdits: Dispatch<
     SetStateAction<PendingLiveNonStyleEdit[]>
   >;
+}
+
+export type PendingLiveStructureEditRequest = Parameters<
+  typeof preparePendingLiveStructureEdit
+>;
+
+/** Builds a source handoff without changing the pending, undo, redo, or
+ * verification state. Grouped gestures prepare every member before committing
+ * any of them, so a rejected later member cannot leave an earlier one pending. */
+export function preparePendingLiveStructureEdit(
+  {
+    canEditDesign,
+    files,
+    localhostConnectionRootPathByIdRef,
+    overviewScreens,
+    runtimeLayerSnapshotsById,
+  }: Pick<
+    RecordPendingLiveStructureEditArgs,
+    | "canEditDesign"
+    | "files"
+    | "localhostConnectionRootPathByIdRef"
+    | "overviewScreens"
+    | "runtimeLayerSnapshotsById"
+  >,
+  screenId: string,
+  selector: string,
+  anchorSelector: string,
+  placement: "before" | "after" | "inside",
+  elementInfo?: ElementInfo,
+  details?: {
+    sourceId?: string;
+    anchorSourceId?: string;
+    anchorElementInfo?: ElementInfo;
+    requestId?: string;
+    transactionId?: string;
+    dropMode?: "flow-insert" | "absolute-container";
+    forceFlowPositionOverride?: boolean;
+    sourceRect?: { x: number; y: number; width: number; height: number };
+    anchorRect?: { x: number; y: number; width: number; height: number };
+    gridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+    gridDisplacements?: Array<{
+      sourceId?: string;
+      selector?: string;
+      placement: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+    }>;
+    insertedHtml?: string;
+    replaced?: true;
+    replacementSelector?: string;
+    replacementSourceId?: string;
+    replacementElementInfo?: ElementInfo;
+    replacementSnapshotHtml?: string;
+    removed?: true;
+  },
+): PendingLiveStructureEdit | undefined {
+  if (!canEditDesign) return undefined;
+
+  const screen = files.find((file) => file.id === screenId);
+  const overviewScreen = overviewScreens.find(
+    (candidate) => candidate.id === screenId,
+  );
+  const connectionRootPath = overviewScreen?.connectionId
+    ? localhostConnectionRootPathByIdRef.current.get(
+        overviewScreen.connectionId,
+      )
+    : undefined;
+  const routeSourceFile = projectRelativeSourcePath({
+    sourceFile: overviewScreen?.sourceFile,
+    rootPath: connectionRootPath,
+  });
+  const fallbackName = screen?.filename ?? screenId;
+  const subjectInfo = details?.replaced
+    ? details.anchorElementInfo
+    : elementInfo;
+  const subjectSourceId = details?.sourceId ?? subjectInfo?.sourceId;
+  const nextEdit: PendingLiveStructureEdit = {
+    kind: "structure",
+    screenId,
+    filename: fallbackName,
+    screenName: prettyScreenName(fallbackName),
+    selector,
+    sourceId: subjectSourceId ?? null,
+    sourceAnchor: reactSourceAnchorForPendingEdit({
+      info: subjectInfo,
+      id: subjectSourceId,
+      rootPath: connectionRootPath,
+      runtimeMultiplicity: runtimeMultiplicityForElementProvenance(
+        runtimeLayerSnapshotsById,
+        subjectInfo,
+      ),
+    }),
+    anchorSelector,
+    anchorSourceId: details?.anchorSourceId ?? null,
+    anchorSourceAnchor: reactSourceAnchorForPendingEdit({
+      info: details?.anchorElementInfo,
+      id: details?.anchorSourceId,
+      rootPath: connectionRootPath,
+      runtimeMultiplicity: runtimeMultiplicityForElementProvenance(
+        runtimeLayerSnapshotsById,
+        details?.anchorElementInfo,
+      ),
+    }),
+    placement,
+    ...(routeSourceFile ? { routeSourceFile } : {}),
+    dropMode: details?.dropMode,
+    forceFlowPositionOverride: details?.forceFlowPositionOverride,
+    sourceRect: details?.sourceRect,
+    anchorRect: details?.anchorRect,
+    gridPlacement: details?.gridPlacement,
+    gridDisplacements: details?.gridDisplacements,
+    insertedHtml: details?.insertedHtml,
+    ...(details?.replaced
+      ? {
+          replaced: true as const,
+          replacementSelector: details.replacementSelector,
+          replacementSourceId: details.replacementSourceId,
+          replacementSnapshotSignature: details.replacementSnapshotHtml
+            ? runtimeStructureSnapshotSignature(details.replacementSnapshotHtml)
+            : undefined,
+        }
+      : {}),
+    ...(details?.removed ? { removed: true as const } : {}),
+    requestId: details?.requestId,
+    transactionId: details?.transactionId,
+    updatedAt: Date.now(),
+  };
+  nextEdit.subjectSignature = runtimeStructureNodeSignature({
+    info: subjectInfo,
+    sourceAnchor: nextEdit.sourceAnchor,
+  });
+  if (details?.replaced) {
+    nextEdit.replacementSignature = runtimeStructureNodeSignature({
+      info: details.replacementElementInfo,
+    });
+  }
+  nextEdit.anchorSignature = runtimeStructureNodeSignature({
+    info: details?.anchorElementInfo,
+    sourceAnchor: nextEdit.anchorSourceAnchor,
+  });
+  const isRunningLocalhostScreen = overviewScreen?.sourceType === "localhost";
+  if (
+    !isRunningLocalhostScreen &&
+    isPendingStructureDropNoOp(
+      runtimeLayerSnapshotsById[screenId]?.html,
+      nextEdit,
+    )
+  ) {
+    return undefined;
+  }
+  return nextEdit;
+}
+
+export function commitPendingLiveStructureEdits(
+  {
+    cancelPendingStructureVerification,
+    pendingLiveNonStyleEditsRef,
+    pendingLiveNonStyleRedoStackRef,
+    pendingLiveNonStyleUndoStackRef,
+    pendingStructureRedoReplayRef,
+    pendingStructureRedoReplayTimerRef,
+    pendingVisualStyleRedoStackRef,
+    setPendingLiveNonStyleEdits,
+  }: Pick<
+    RecordPendingLiveStructureEditArgs,
+    | "cancelPendingStructureVerification"
+    | "pendingLiveNonStyleEditsRef"
+    | "pendingLiveNonStyleRedoStackRef"
+    | "pendingLiveNonStyleUndoStackRef"
+    | "pendingStructureRedoReplayRef"
+    | "pendingStructureRedoReplayTimerRef"
+    | "pendingVisualStyleRedoStackRef"
+    | "setPendingLiveNonStyleEdits"
+  >,
+  edits: readonly PendingLiveStructureEdit[],
+): void {
+  if (edits.length === 0) return;
+  const nextEdit = edits[edits.length - 1]!;
+  cancelPendingStructureVerification("conflict");
+  const structureRedoReplay = pendingStructureRedoReplayRef.current;
+  const replaysUndoneStructure = Boolean(
+    structureRedoReplay &&
+    edits.every((nextEdit) =>
+      pendingLiveStructureEditsFromUndoEntry(structureRedoReplay).some((edit) =>
+        pendingLiveStructureEditsMatch(edit, nextEdit),
+      ),
+    ),
+  );
+  if (replaysUndoneStructure && structureRedoReplay) {
+    pendingStructureRedoReplayRef.current = undefined;
+    if (pendingStructureRedoReplayTimerRef.current !== undefined) {
+      window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
+      pendingStructureRedoReplayTimerRef.current = undefined;
+    }
+    const redoStack = pendingLiveNonStyleRedoStackRef.current;
+    if (redoStack[redoStack.length - 1] === structureRedoReplay) {
+      pendingLiveNonStyleRedoStackRef.current = redoStack.slice(0, -1);
+    }
+  } else {
+    pendingLiveNonStyleRedoStackRef.current = [];
+    pendingStructureRedoReplayRef.current = undefined;
+    if (pendingStructureRedoReplayTimerRef.current !== undefined) {
+      window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
+      pendingStructureRedoReplayTimerRef.current = undefined;
+    }
+    pendingVisualStyleRedoStackRef.current = [];
+  }
+  appendPendingLiveNonStyleUndoEntry(pendingLiveNonStyleUndoStackRef.current, {
+    kind: "structure",
+    edit: nextEdit,
+    ...(edits.length > 1 ? { groupedEdits: [...edits] } : {}),
+  });
+  const nextPending = mergePendingLiveNonStyleEdits([
+    ...pendingLiveNonStyleEditsRef.current,
+    ...edits,
+  ]);
+  pendingLiveNonStyleEditsRef.current = nextPending;
+  setPendingLiveNonStyleEdits(nextPending);
 }
 
 export function runRecordPendingLiveStructureEdit(
@@ -63,6 +297,7 @@ export function runRecordPendingLiveStructureEdit(
     pendingLiveNonStyleUndoStackRef,
     pendingStructureRedoReplayRef,
     pendingStructureRedoReplayTimerRef,
+    pendingStructureRedoPreparedEditsRef,
     pendingVisualStyleRedoStackRef,
     runtimeLayerSnapshotsById,
     setPendingLiveNonStyleEdits,
@@ -77,6 +312,7 @@ export function runRecordPendingLiveStructureEdit(
     anchorSourceId?: string;
     anchorElementInfo?: ElementInfo;
     requestId?: string;
+    transactionId?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
@@ -110,154 +346,84 @@ export function runRecordPendingLiveStructureEdit(
     removed?: true;
   },
 ) {
-  if (!canEditDesign) return;
-  const screen = files.find((file) => file.id === screenId);
-  const overviewScreen = overviewScreens.find(
-    (candidate) => candidate.id === screenId,
-  );
-  const connectionRootPath = overviewScreen?.connectionId
-    ? localhostConnectionRootPathByIdRef.current.get(
-        overviewScreen.connectionId,
-      )
-    : undefined;
-  const routeSourceFile = projectRelativeSourcePath({
-    sourceFile: overviewScreen?.sourceFile,
-    rootPath: connectionRootPath,
-  });
-  const fallbackName = screen?.filename ?? screenId;
-  const subjectInfo = details?.replaced
-    ? details.anchorElementInfo
-    : elementInfo;
-  const subjectSourceId = details?.sourceId ?? subjectInfo?.sourceId;
-  const nextEdit: PendingLiveStructureEdit = {
-    kind: "structure",
+  const nextEdit = preparePendingLiveStructureEdit(
+    {
+      canEditDesign,
+      files,
+      localhostConnectionRootPathByIdRef,
+      overviewScreens,
+      runtimeLayerSnapshotsById,
+    },
     screenId,
-    filename: fallbackName,
-    screenName: prettyScreenName(fallbackName),
     selector,
-    sourceId: subjectSourceId ?? null,
-    sourceAnchor: reactSourceAnchorForPendingEdit({
-      info: subjectInfo,
-      id: subjectSourceId,
-      rootPath: (() => {
-        const connectionId = overviewScreens.find(
-          (candidate) => candidate.id === screenId,
-        )?.connectionId;
-        return connectionId
-          ? localhostConnectionRootPathByIdRef.current.get(connectionId)
-          : undefined;
-      })(),
-      runtimeMultiplicity: runtimeMultiplicityForElementProvenance(
-        runtimeLayerSnapshotsById,
-        subjectInfo,
-      ),
-    }),
     anchorSelector,
-    anchorSourceId: details?.anchorSourceId ?? null,
-    anchorSourceAnchor: reactSourceAnchorForPendingEdit({
-      info: details?.anchorElementInfo,
-      id: details?.anchorSourceId,
-      rootPath: (() => {
-        const connectionId = overviewScreens.find(
-          (candidate) => candidate.id === screenId,
-        )?.connectionId;
-        return connectionId
-          ? localhostConnectionRootPathByIdRef.current.get(connectionId)
-          : undefined;
-      })(),
-      runtimeMultiplicity: runtimeMultiplicityForElementProvenance(
-        runtimeLayerSnapshotsById,
-        details?.anchorElementInfo,
-      ),
-    }),
     placement,
-    ...(routeSourceFile ? { routeSourceFile } : {}),
-    dropMode: details?.dropMode,
-    forceFlowPositionOverride: details?.forceFlowPositionOverride,
-    sourceRect: details?.sourceRect,
-    anchorRect: details?.anchorRect,
-    gridPlacement: details?.gridPlacement,
-    gridDisplacements: details?.gridDisplacements,
-    insertedHtml: details?.insertedHtml,
-    ...(details?.replaced
-      ? {
-          replaced: true as const,
-          replacementSelector: details.replacementSelector,
-          replacementSourceId: details.replacementSourceId,
-          replacementSnapshotSignature: details.replacementSnapshotHtml
-            ? runtimeStructureSnapshotSignature(details.replacementSnapshotHtml)
-            : undefined,
-        }
-      : {}),
-    ...(details?.removed ? { removed: true as const } : {}),
-    requestId: details?.requestId,
-    updatedAt: Date.now(),
-  };
-  nextEdit.subjectSignature = runtimeStructureNodeSignature({
-    info: subjectInfo,
-    sourceAnchor: nextEdit.sourceAnchor,
-  });
-  if (details?.replaced) {
-    nextEdit.replacementSignature = runtimeStructureNodeSignature({
-      info: details.replacementElementInfo,
-    });
-  }
-  nextEdit.anchorSignature = runtimeStructureNodeSignature({
-    info: details?.anchorElementInfo,
-    sourceAnchor: nextEdit.anchorSourceAnchor,
-  });
-  // The bridge applies a live move to the running document before it sends
-  // this message, so the runtime snapshot already contains the requested
-  // order. Treating that post-gesture snapshot as authored source makes a
-  // localhost reorder look like a no-op and drops the source handoff. Fusion
-  // screens do not yet carry the connection metadata Apply needs, so keep
-  // their static no-op protection until that source path is supported too.
-  const isRunningLocalhostScreen = overviewScreen?.sourceType === "localhost";
+    elementInfo,
+    details,
+  );
+  if (!nextEdit) return;
+  const structureRedoReplay = pendingStructureRedoReplayRef.current;
+  const replayEdits = structureRedoReplay
+    ? pendingLiveStructureEditsFromUndoEntry(structureRedoReplay)
+    : [];
   if (
-    !isRunningLocalhostScreen &&
-    isPendingStructureDropNoOp(
-      runtimeLayerSnapshotsById[screenId]?.html,
-      nextEdit,
-    )
+    structureRedoReplay &&
+    replayEdits.length > 1 &&
+    replayEdits.some((edit) =>
+      pendingLiveStructureEditsMatch(edit, nextEdit),
+    ) &&
+    pendingStructureRedoPreparedEditsRef
   ) {
+    const staged = pendingStructureRedoPreparedEditsRef.current;
+    const prepared =
+      staged?.replay === structureRedoReplay
+        ? [...staged.edits, nextEdit]
+        : [nextEdit];
+    const complete = replayEdits.every((expected) =>
+      prepared.some((edit) => pendingLiveStructureEditsMatch(edit, expected)),
+    );
+    if (!complete) {
+      pendingStructureRedoPreparedEditsRef.current = {
+        replay: structureRedoReplay,
+        edits: prepared,
+      };
+      return;
+    }
+    pendingStructureRedoPreparedEditsRef.current = undefined;
+    commitPendingLiveStructureEdits(
+      {
+        cancelPendingStructureVerification,
+        pendingLiveNonStyleEditsRef,
+        pendingLiveNonStyleRedoStackRef,
+        pendingLiveNonStyleUndoStackRef,
+        pendingStructureRedoReplayRef,
+        pendingStructureRedoReplayTimerRef,
+        pendingVisualStyleRedoStackRef,
+        setPendingLiveNonStyleEdits,
+      },
+      replayEdits.map(
+        (expected) =>
+          prepared.find((edit) =>
+            pendingLiveStructureEditsMatch(edit, expected),
+          )!,
+      ),
+    );
     return;
   }
-  cancelPendingStructureVerification("conflict");
-  const structureRedoReplay = pendingStructureRedoReplayRef.current;
-  const replaysUndoneStructure = Boolean(
-    structureRedoReplay &&
-    pendingLiveStructureEditsMatch(structureRedoReplay.edit, nextEdit),
-  );
-  if (replaysUndoneStructure && structureRedoReplay) {
-    pendingStructureRedoReplayRef.current = undefined;
-    if (pendingStructureRedoReplayTimerRef.current !== undefined) {
-      window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
-      pendingStructureRedoReplayTimerRef.current = undefined;
-    }
-    const redoStack = pendingLiveNonStyleRedoStackRef.current;
-    if (redoStack[redoStack.length - 1] === structureRedoReplay) {
-      pendingLiveNonStyleRedoStackRef.current = redoStack.slice(0, -1);
-    }
-  } else {
-    pendingLiveNonStyleRedoStackRef.current = [];
-    pendingStructureRedoReplayRef.current = undefined;
-    if (pendingStructureRedoReplayTimerRef.current !== undefined) {
-      window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
-      pendingStructureRedoReplayTimerRef.current = undefined;
-    }
-    pendingVisualStyleRedoStackRef.current = [];
+  if (pendingStructureRedoPreparedEditsRef) {
+    pendingStructureRedoPreparedEditsRef.current = undefined;
   }
-  // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
-  // stay painted until Apply, so sharing that cap silently drops them from
-  // the Apply payload.
-  appendPendingLiveNonStyleUndoEntry(pendingLiveNonStyleUndoStackRef.current, {
-    kind: "structure",
-    edit: nextEdit,
-  });
-  const nextPending = mergePendingLiveNonStyleEdit(
-    pendingLiveNonStyleEditsRef.current,
-    nextEdit,
+  commitPendingLiveStructureEdits(
+    {
+      cancelPendingStructureVerification,
+      pendingLiveNonStyleEditsRef,
+      pendingLiveNonStyleRedoStackRef,
+      pendingLiveNonStyleUndoStackRef,
+      pendingStructureRedoReplayRef,
+      pendingStructureRedoReplayTimerRef,
+      pendingVisualStyleRedoStackRef,
+      setPendingLiveNonStyleEdits,
+    },
+    [nextEdit],
   );
-  pendingLiveNonStyleEditsRef.current = nextPending;
-  setPendingLiveNonStyleEdits(nextPending);
 }

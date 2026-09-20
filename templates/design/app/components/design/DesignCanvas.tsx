@@ -714,6 +714,7 @@ interface DesignCanvasProps {
       sourceId?: string;
       anchorSourceId?: string;
       requestId?: string;
+      transactionId?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -760,6 +761,7 @@ interface DesignCanvasProps {
       anchorSourceId?: string;
       anchorElementInfo?: ElementInfo;
       requestId?: string;
+      transactionId?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -3784,7 +3786,9 @@ export function DesignCanvas({
               typeof move.sourceId === "string" &&
               typeof move.anchorSelector === "string" &&
               typeof move.anchorSourceId === "string" &&
-              move.placement === "inside" &&
+              (move.placement === "before" ||
+                move.placement === "after" ||
+                move.placement === "inside") &&
               move.dropMode === "flow-insert" &&
               validPlacement(move.gridPlacement) &&
               Array.isArray(move.gridDisplacements) &&
@@ -3794,9 +3798,6 @@ export function DesignCanvas({
                   typeof entry.selector === "string" &&
                   validPlacement(entry.placement),
               ),
-          ) &&
-          rawMoves.every(
-            (move: any) => move.anchorSourceId === rawMoves[0].anchorSourceId,
           );
         const applied = valid
           ? onVisualGridGroupChange?.(rawMoves as GridGroupStructureMove[])
@@ -3899,6 +3900,10 @@ export function DesignCanvas({
               : e.data.payload,
             {
               requestId,
+              transactionId:
+                typeof e.data.transactionId === "string"
+                  ? e.data.transactionId
+                  : undefined,
               sourceId: replaced ? anchorSourceId : sourceId,
               anchorSourceId: replaced ? undefined : anchorSourceId,
               dropMode,
@@ -5482,6 +5487,7 @@ export function DesignCanvas({
     }
     lastRuntimeStructureMoveRequestIdRef.current =
       runtimeStructureMoveRequest.requestId;
+    const moves = runtimeStructureMoveRequest.moves;
     postOneShotBridgeMessage({
       type: "runtime-structure-move",
       subjectSelector: runtimeStructureMoveRequest.subject.selector,
@@ -5489,6 +5495,19 @@ export function DesignCanvas({
       anchorSelector: runtimeStructureMoveRequest.anchor.selector,
       anchorSourceId: runtimeStructureMoveRequest.anchor.sourceId,
       placement: runtimeStructureMoveRequest.placement,
+      transactionId: runtimeStructureMoveRequest.transactionId,
+      gridPlacement: runtimeStructureMoveRequest.gridPlacement,
+      gridDisplacements: runtimeStructureMoveRequest.gridDisplacements,
+      moves: moves?.map((move) => ({
+        subjectSelector: move.subject.selector,
+        subjectSourceId: move.subject.sourceId,
+        anchorSelector: move.anchor.selector,
+        anchorSourceId: move.anchor.sourceId,
+        placement: move.placement,
+        transactionId: move.transactionId,
+        gridPlacement: move.gridPlacement,
+        gridDisplacements: move.gridDisplacements,
+      })),
     });
   }, [postOneShotBridgeMessage, runtimeStructureMoveRequest]);
 

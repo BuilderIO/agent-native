@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { parse } from "parse5";
 
 import {
   indexHtml,
@@ -63,6 +64,31 @@ async function stylePlacement(page: Parameters<typeof node>[0], id: string) {
         bottom: rect.bottom,
       };
     });
+}
+
+async function persistedTargetGridOrder(
+  page: Parameters<typeof node>[0],
+  designId: string,
+) {
+  const html = await indexHtml(page, designId);
+  type Node = {
+    attrs?: Array<{ name: string; value: string }>;
+    childNodes?: Node[];
+  };
+  const find = (node: Node): Node | undefined =>
+    node.attrs?.some(
+      ({ name, value }) =>
+        name === "data-agent-native-node-id" && value === "target-grid",
+    )
+      ? node
+      : node.childNodes?.flatMap((child) => find(child) ?? [])[0];
+  return (find(parse(html) as Node)?.childNodes ?? [])
+    .map(
+      (child) =>
+        child.attrs?.find(({ name }) => name === "data-agent-native-node-id")
+          ?.value,
+    )
+    .filter((id): id is string => Boolean(id));
 }
 
 function overlaps(
@@ -192,6 +218,169 @@ test("grouped span-2 grid drop previews without overlap and persists undo/redo p
     const afterReloadB = await stylePlacement(page, "source-b");
     expect(afterReloadA.column).toMatch(/3\s*\/\s*5/);
     expect(afterReloadB.column).toMatch(/3\s*\/\s*5/);
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("grouped occupied-cell drop preserves child order through Apply, undo, redo, and reload", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, GROUPED_GRID_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    const sourceA = node(page, "source-a");
+    await page.getByRole("treeitem", { name: /Source A/ }).click();
+    await page
+      .getByRole("treeitem", { name: /Source B/ })
+      .click({ modifiers: ["Shift"] });
+    await expect(
+      page.getByRole("treeitem", { name: /Source A/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("treeitem", { name: /Source B/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    await preview(page)
+      .locator("body")
+      .evaluate(() => {
+        const parent = window.parent as Window & { __gridMoves?: unknown };
+        parent.__gridMoves = null;
+        parent.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-grid-group-change")
+            parent.__gridMoves = event.data.moves;
+        });
+      });
+    await preview(page)
+      .locator("body")
+      .evaluate(() =>
+        window.postMessage(
+          { type: "set-grid-group-batching-enabled", enabled: true },
+          "*",
+        ),
+      );
+    await preview(page)
+      .locator("body")
+      .evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const occupiedA = (await node(page, "occupied-a").boundingBox())!;
+    const sourceBox = (await sourceA.boundingBox())!;
+    const dragToOccupied = async () => {
+      await page.mouse.move(
+        sourceBox.x + sourceBox.width / 2,
+        sourceBox.y + sourceBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        sourceBox.x + sourceBox.width / 2 + 12,
+        sourceBox.y + sourceBox.height / 2 + 8,
+        { steps: 6 },
+      );
+      await page.mouse.move(
+        occupiedA.x + occupiedA.width / 2,
+        occupiedA.y + occupiedA.height / 2,
+        { steps: 24 },
+      );
+    };
+    await dragToOccupied();
+    await expect
+      .poll(() => stylePlacement(page, "source-a"))
+      .toMatchObject({ column: "1 / 3", row: "1 / 2" });
+    const liveOrder = async () =>
+      preview(page)
+        .locator(
+          '[data-agent-native-node-id="target-grid"] > [data-agent-native-node-id]',
+        )
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+        );
+    await page.mouse.up();
+    await expect
+      .poll(
+        () =>
+          preview(page)
+            .locator("body")
+            .evaluate(
+              () =>
+                (
+                  (window.parent as Window & { __gridMoves?: unknown[] })
+                    .__gridMoves ?? []
+                ).length,
+            ),
+        { timeout: 10_000 },
+      )
+      .toBe(2);
+    expect(
+      await preview(page)
+        .locator("body")
+        .evaluate(() =>
+          (
+            window.parent as Window & {
+              __gridMoves?: Array<{
+                persistenceAnchorSourceId?: string;
+                persistencePlacement?: string;
+              }>;
+            }
+          ).__gridMoves?.map((move) => [
+            move.persistenceAnchorSourceId,
+            move.persistencePlacement,
+          ]),
+        ),
+    ).toEqual([
+      ["occupied-a", "before"],
+      ["source-a", "after"],
+    ]);
+    await expect
+      .poll(async () => (await liveOrder()).slice(0, 3), { timeout: 10_000 })
+      .toEqual(["source-a", "source-b", "occupied-a"]);
+    const placementAfterDrop = await Promise.all(
+      ["source-a", "source-b", "occupied-a", "occupied-b"].map((id) =>
+        stylePlacement(page, id),
+      ),
+    );
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(() => persistedTargetGridOrder(page, designId), { timeout: 10_000 })
+      .toEqual(["occupied-a", "occupied-b", "occupied-c", "occupied-d"]);
+    await expect
+      .poll(async () => (await liveOrder()).slice(-4, -1), { timeout: 10_000 })
+      .toEqual(["occupied-a", "occupied-b", "occupied-c"]);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => (await liveOrder()).slice(0, 3), { timeout: 10_000 })
+      .toEqual(["source-a", "source-b", "occupied-a"]);
+    await expect
+      .poll(async () =>
+        Promise.all(
+          ["source-a", "source-b", "occupied-a", "occupied-b"].map((id) =>
+            stylePlacement(page, id),
+          ),
+        ),
+      )
+      .toEqual(placementAfterDrop);
+    await expect
+      .poll(() => persistedTargetGridOrder(page, designId), { timeout: 10_000 })
+      .toEqual([
+        "source-a",
+        "source-b",
+        "occupied-a",
+        "occupied-b",
+        "occupied-c",
+        "occupied-d",
+      ]);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(() => persistedTargetGridOrder(page, designId), { timeout: 10_000 })
+      .toEqual([
+        "source-a",
+        "source-b",
+        "occupied-a",
+        "occupied-b",
+        "occupied-c",
+        "occupied-d",
+      ]);
+    await expect
+      .poll(async () => (await liveOrder()).slice(0, 3), { timeout: 10_000 })
+      .toEqual(["source-a", "source-b", "occupied-a"]);
   } finally {
     await deleteDesign(page, designId);
   }

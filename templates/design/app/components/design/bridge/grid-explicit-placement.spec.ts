@@ -4,6 +4,17 @@ import { chromium, type Page } from "@playwright/test";
 import { buildSync } from "esbuild";
 import { describe, expect, it } from "vitest";
 
+import {
+  runRecordPendingLiveStructureEdit,
+  type RecordPendingLiveStructureEditArgs,
+} from "../../../pages/design-editor/commands/record-pending-live-structure-edit";
+import {
+  formatPendingVisualStylePrompt,
+  mergePendingLiveNonStyleEdits,
+  type PendingLiveStructureEdit,
+} from "../../../pages/design-editor/pending-edits";
+import type { ElementInfo } from "../types";
+
 const bridgeSource = buildSync({
   entryPoints: [
     fileURLToPath(new URL("./editor-chrome.bridge.ts", import.meta.url)),
@@ -128,6 +139,60 @@ async function box(page: Page, selector: string) {
   const value = await page.locator(selector).boundingBox();
   expect(value).not.toBeNull();
   return value!;
+}
+
+function pendingEditFromBridgeMessage(message: {
+  selector: string;
+  sourceId?: string;
+  anchorSelector: string;
+  anchorSourceId?: string;
+  requestId: string;
+  transactionId?: string;
+  placement: "before" | "after" | "inside";
+  dropMode?: "flow-insert" | "absolute-container";
+  gridPlacement?: PendingLiveStructureEdit["gridPlacement"];
+  gridDisplacements?: PendingLiveStructureEdit["gridDisplacements"];
+  payload?: ElementInfo;
+  anchorPayload?: ElementInfo;
+}): PendingLiveStructureEdit {
+  const pendingLiveNonStyleEditsRef = {
+    current: [] as PendingLiveStructureEdit[],
+  };
+  const state: RecordPendingLiveStructureEditArgs = {
+    canEditDesign: true,
+    cancelPendingStructureVerification: () => {},
+    files: [],
+    localhostConnectionRootPathByIdRef: { current: new Map() },
+    overviewScreens: [],
+    pendingLiveNonStyleEditsRef,
+    pendingLiveNonStyleRedoStackRef: { current: [] },
+    pendingLiveNonStyleUndoStackRef: { current: [] },
+    pendingStructureRedoReplayRef: { current: undefined },
+    pendingStructureRedoReplayTimerRef: { current: undefined },
+    pendingVisualStyleRedoStackRef: { current: [] },
+    runtimeLayerSnapshotsById: {},
+    setPendingLiveNonStyleEdits: () => {},
+  };
+  runRecordPendingLiveStructureEdit(
+    state,
+    "grid-redo-screen",
+    message.selector,
+    message.anchorSelector,
+    message.placement,
+    message.payload,
+    {
+      sourceId: message.sourceId,
+      anchorSourceId: message.anchorSourceId,
+      anchorElementInfo: message.anchorPayload,
+      requestId: message.requestId,
+      transactionId: message.transactionId,
+      dropMode: message.dropMode,
+      gridPlacement: message.gridPlacement,
+      gridDisplacements: message.gridDisplacements,
+    },
+  );
+  expect(pendingLiveNonStyleEditsRef.current).toHaveLength(1);
+  return pendingLiveNonStyleEditsRef.current[0]!;
 }
 
 describe("explicit grid placement repro", () => {
@@ -596,6 +661,15 @@ describe("explicit grid placement repro", () => {
           .count(),
       )
       .toBeGreaterThan(0);
+    const beforeGridHtml = await page
+      .locator("#grid")
+      .evaluate((node) => node.innerHTML);
+    const beforePositions = await page.evaluate(() =>
+      ["#b", "#c"].map((selector) => {
+        const style = getComputedStyle(document.querySelector(selector)!);
+        return { column: style.gridColumn, row: style.gridRow };
+      }),
+    );
     await page.mouse.move(
       source.x + source.width / 2,
       source.y + source.height / 2,
@@ -605,6 +679,13 @@ describe("explicit grid placement repro", () => {
     await page.mouse.move(target.x + 10, target.y + target.height / 2, {
       steps: 12,
     });
+    const heldPositions = await page.evaluate(() =>
+      ["#b", "#c"].map((selector) => {
+        const style = getComputedStyle(document.querySelector(selector)!);
+        return { column: style.gridColumn, row: style.gridRow };
+      }),
+    );
+    expect(heldPositions).not.toEqual(beforePositions);
     await page.mouse.up();
     await expect
       .poll(() =>
@@ -624,6 +705,239 @@ describe("explicit grid placement repro", () => {
       "visual-structure-change",
       "visual-structure-change",
     ]);
+    const transactions =
+      (await page.evaluate(() =>
+        (
+          window as Window & {
+            __groupMessages?: Array<{ transactionId?: string }>;
+          }
+        ).__groupMessages?.map((message) => message.transactionId),
+      )) ?? [];
+    expect(transactions).toHaveLength(2);
+    expect(transactions[0]).toMatch(/^group-/);
+    expect(transactions.every((id) => id === transactions[0])).toBe(true);
+    const placements = await page.evaluate(() =>
+      (
+        window as Window & {
+          __groupMessages?: Array<{ gridPlacement?: unknown }>;
+        }
+      ).__groupMessages?.map((message) => message.gridPlacement),
+    );
+    expect(placements?.every(Boolean)).toBe(true);
+    const requestIds = await page.evaluate(() =>
+      (
+        window as Window & {
+          __groupMessages?: Array<{ requestId: string }>;
+        }
+      ).__groupMessages?.map((message) => message.requestId),
+    );
+    for (const requestId of [...(requestIds ?? [])].reverse()) {
+      await page.evaluate((id) => {
+        window.postMessage(
+          { type: "visual-structure-ack", requestId: id, applied: false },
+          "*",
+        );
+      }, requestId);
+    }
+    await expect
+      .poll(() =>
+        page
+          .locator("#grid")
+          .evaluate((node) => node.innerHTML.replace(/ style=""/g, "")),
+      )
+      .toBe(beforeGridHtml);
+    await page.setContent(groupedGridFixture);
+    expect(await page.locator("#grid").evaluate((node) => node.innerHTML)).toBe(
+      beforeGridHtml,
+    );
+    await browser.close();
+  });
+
+  it("preflights every grouped redo member before moving any member", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(groupedGridFixture);
+    await page.addScriptTag({ content: bridge() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as Window & { __replayMessages?: unknown[] }).__replayMessages =
+        [];
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-structure-change") {
+          (
+            window as Window & { __replayMessages?: unknown[] }
+          ).__replayMessages?.push(event.data);
+        }
+      });
+    });
+    const beforeGridHtml = await page
+      .locator("#grid")
+      .evaluate((node) => node.innerHTML);
+    await page.evaluate(() => {
+      window.postMessage(
+        {
+          type: "runtime-structure-move",
+          subjectSelector: "#b",
+          subjectSourceId: "b",
+          anchorSelector: "#grid",
+          anchorSourceId: "grid",
+          placement: "inside",
+          transactionId: "group-redo",
+          moves: [
+            {
+              subjectSelector: "#b",
+              subjectSourceId: "b",
+              anchorSelector: "#grid",
+              anchorSourceId: "grid",
+              placement: "inside",
+              transactionId: "group-redo",
+              gridPlacement: {
+                column: 3,
+                columnEnd: 5,
+                row: 3,
+                rowEnd: 4,
+              },
+            },
+            {
+              subjectSelector: "#missing",
+              subjectSourceId: "missing",
+              anchorSelector: "#grid",
+              anchorSourceId: "grid",
+              placement: "inside",
+              transactionId: "group-redo",
+            },
+          ],
+        },
+        "*",
+      );
+    });
+    await page.waitForTimeout(80);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as Window & { __replayMessages?: unknown[] }).__replayMessages
+            ?.length ?? 0,
+      ),
+    ).toBe(0);
+    expect(await page.locator("#grid").evaluate((node) => node.innerHTML)).toBe(
+      beforeGridHtml,
+    );
+    await browser.close();
+  });
+
+  it("records grid metadata from successful grouped redo bridge events", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(groupedGridFixture);
+    await page.addScriptTag({ content: bridge() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as Window & { __redoMessages?: unknown[] }).__redoMessages = [];
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-structure-change") {
+          (
+            window as Window & { __redoMessages?: unknown[] }
+          ).__redoMessages?.push(event.data);
+        }
+      });
+    });
+    await page.evaluate(() => {
+      window.postMessage(
+        {
+          type: "runtime-structure-move",
+          subjectSelector: "#b",
+          subjectSourceId: "b",
+          anchorSelector: "#grid",
+          anchorSourceId: "grid",
+          placement: "inside",
+          transactionId: "group-redo",
+          moves: [
+            {
+              subjectSelector: "#b",
+              subjectSourceId: "b",
+              anchorSelector: "#grid",
+              anchorSourceId: "grid",
+              placement: "inside",
+              transactionId: "group-redo",
+              gridPlacement: {
+                column: 3,
+                columnEnd: 5,
+                row: 3,
+                rowEnd: 4,
+              },
+            },
+            {
+              subjectSelector: "#c",
+              subjectSourceId: "c",
+              anchorSelector: "#grid",
+              anchorSourceId: "grid",
+              placement: "inside",
+              transactionId: "group-redo",
+              gridPlacement: {
+                column: 1,
+                columnEnd: 3,
+                row: 3,
+                rowEnd: 4,
+              },
+            },
+          ],
+        },
+        "*",
+      );
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __redoMessages?: unknown[] }).__redoMessages
+              ?.length ?? 0,
+        ),
+      )
+      .toBe(2);
+    const messages = await page.evaluate(
+      () =>
+        (
+          window as Window & {
+            __redoMessages?: Array<{
+              selector: string;
+              sourceId?: string;
+              anchorSelector: string;
+              anchorSourceId?: string;
+              requestId: string;
+              transactionId?: string;
+              placement: "before" | "after" | "inside";
+              dropMode?: "flow-insert" | "absolute-container";
+              gridPlacement?: PendingLiveStructureEdit["gridPlacement"];
+              gridDisplacements?: PendingLiveStructureEdit["gridDisplacements"];
+              payload?: ElementInfo;
+              anchorPayload?: ElementInfo;
+            }>;
+          }
+        ).__redoMessages ?? [],
+    );
+    const pending = mergePendingLiveNonStyleEdits(
+      messages.map(pendingEditFromBridgeMessage),
+    );
+    expect(pending).toHaveLength(1);
+    const groupedEdits =
+      pending[0]?.kind === "structure" ? pending[0].groupedEdits : undefined;
+    expect(groupedEdits?.map((edit) => edit.selector)).toEqual([
+      '[data-agent-native-node-id="b"]',
+      '[data-agent-native-node-id="c"]',
+    ]);
+    const prompt = formatPendingVisualStylePrompt({
+      designId: "design-1",
+      edits: [],
+      liveEdits: pending,
+    });
+    expect(prompt).toContain('"transactionId": "group-redo"');
+    expect(prompt).toContain('"column": 3');
+    expect(prompt).toContain('"column": 1');
+    expect(prompt).toContain('"sourceId": "d"');
     await browser.close();
   });
 
@@ -690,6 +1004,90 @@ describe("explicit grid placement repro", () => {
         .locator("#b")
         .evaluate((node) => getComputedStyle(node).gridColumn),
     ).toBe("3 / 5");
+    await browser.close();
+  });
+
+  it("chains occupied-cell anchors for grouped source order", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 600 },
+    });
+    await page.setContent(
+      groupedSourceFixture(
+        "grid-column:1 / 3;grid-row:1",
+        "grid-column:1 / 3;grid-row:2",
+      ),
+    );
+    await page.addScriptTag({ content: bridge() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      window.postMessage(
+        { type: "set-grid-group-batching-enabled", enabled: true },
+        "*",
+      );
+      (
+        window as Window & {
+          __gridDrops?: Array<{
+            anchorSourceId: string;
+            placement: string;
+            persistenceAnchorSourceId: string;
+            persistencePlacement: string;
+          }>;
+        }
+      ).__gridDrops = [];
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-grid-group-change")
+          (window as Window & { __gridDrops?: unknown[] }).__gridDrops =
+            event.data.moves;
+      });
+    });
+    const target = await box(page, "#target");
+    await dragSelectedGroup(page, { x: target.x + 230, y: target.y + 110 });
+    await page.mouse.up();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __gridDrops?: unknown[] }).__gridDrops
+              ?.length ?? 0,
+        ),
+      )
+      .toBe(2);
+    expect(
+      await page.evaluate(() =>
+        (
+          window as Window & {
+            __gridDrops?: Array<{
+              anchorSourceId: string;
+              placement: string;
+              persistenceAnchorSourceId: string;
+              persistencePlacement: string;
+            }>;
+          }
+        ).__gridDrops?.map((move) => [move.anchorSourceId, move.placement]),
+      ),
+    ).toEqual([
+      ["target", "inside"],
+      ["target", "inside"],
+    ]);
+    expect(
+      await page.evaluate(() =>
+        (
+          window as Window & {
+            __gridDrops?: Array<{
+              persistenceAnchorSourceId: string;
+              persistencePlacement: string;
+            }>;
+          }
+        ).__gridDrops?.map((move) => [
+          move.persistenceAnchorSourceId,
+          move.persistencePlacement,
+        ]),
+      ),
+    ).toEqual([
+      ["occupied", "before"],
+      ["b", "after"],
+    ]);
     await browser.close();
   });
 

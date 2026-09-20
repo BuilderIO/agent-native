@@ -33,6 +33,18 @@ const SELECTION_COLOR_MATCHING_ID = "selection-color-matching";
 const SELECTION_COLOR_OTHER_ID = "selection-color-other";
 const SELECTION_COLOR_MATCHING_NAME = "Matching";
 const SELECTION_COLOR_OTHER_NAME = "Other";
+const COMPONENT_OVERRIDE_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Beta component overrides</title></head>
+  <body>
+    <button data-agent-native-node-id="component-main" data-agent-native-layer-name="Component main"
+      data-agent-native-component="BetaButton" data-agent-native-component-id="beta-button"
+      data-agent-native-prop-variant="primary">Main button</button>
+    <button data-agent-native-node-id="component-instance" data-agent-native-layer-name="Component instance"
+      data-agent-native-component="BetaButton" data-agent-native-component-ref="beta-button"
+      data-agent-native-prop-variant="primary" data-agent-native-component-overrides="%5B%5D">Instance button</button>
+  </body>
+</html>`;
 
 const FIXTURE = `<!doctype html>
 <html lang="en">
@@ -106,13 +118,16 @@ async function postAction(
   page: Page,
   name: string,
   input: Record<string, unknown>,
+  allowConflict = false,
 ): Promise<any> {
   const response = await page.request.post(
     `${ORIGIN}/_agent-native/actions/${name}`,
     { data: input, headers: { "Content-Type": "application/json" } },
   );
-  if (!response.ok())
+  if (!response.ok() && !(allowConflict && response.status() === 409))
     throw new Error(`${name} failed: HTTP ${response.status()}`);
+  if (allowConflict && response.status() === 409)
+    return { conflict: true, error: await response.text() };
   return response.json();
 }
 
@@ -152,6 +167,70 @@ async function readSource(
     throw new Error("read-source-file returned no source content");
   }
   return result.content;
+}
+
+function sourceContentHash(content: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return `${content.length}:${hash.toString(36)}`;
+}
+
+async function expectedHtmlFiles(
+  page: Page,
+  designId: string,
+): Promise<Array<{ fileId: string; versionHash: string }>> {
+  const response = await page.request.get(
+    `${ORIGIN}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok())
+    throw new Error(`get-design failed: HTTP ${response.status()}`);
+  const record = (await response.json()) as {
+    files?: Array<{ id?: unknown; fileType?: unknown; content?: unknown }>;
+  };
+  return (record.files ?? [])
+    .filter(
+      (file): file is { id: string; fileType: "html"; content: string } =>
+        typeof file.id === "string" &&
+        file.fileType === "html" &&
+        typeof file.content === "string",
+    )
+    .map((file) => ({
+      fileId: file.id,
+      versionHash: sourceContentHash(file.content),
+    }));
+}
+
+async function sourceAttribute(
+  page: Page,
+  designId: string,
+  nodeId: string,
+  attribute: string,
+): Promise<string | null> {
+  const source = await readSource(page, designId);
+  return page.evaluate(
+    ({ html, nodeId: targetNodeId, attribute: targetAttribute }) => {
+      const document = new DOMParser().parseFromString(html, "text/html");
+      return (
+        document
+          .querySelector<HTMLElement>(
+            `[data-agent-native-node-id="${CSS.escape(targetNodeId)}"]`,
+          )
+          ?.getAttribute(targetAttribute) ?? null
+      );
+    },
+    { html: source, nodeId, attribute },
+  );
+}
+
+function previewNode(page: Page, nodeId: string): Locator {
+  return page
+    .locator(PREVIEW)
+    .first()
+    .contentFrame()
+    .locator(`[data-agent-native-node-id="${nodeId}"]`);
 }
 
 async function readScreenMetadata(
@@ -660,6 +739,179 @@ test.describe("authenticated beta Design interactions", () => {
 
   test.beforeEach(() => skipUnlessAuthed());
 
+  test("component variant overrides survive propagation, reload, and reset", async ({
+    browser,
+  }) => {
+    const { context, page, appErrors } = await openAuthedPage(browser);
+    let designId = "";
+    let primaryFailure = false;
+    try {
+      designId = await createFixture(
+        page,
+        (id) => {
+          designId = id;
+        },
+        COMPONENT_OVERRIDE_FIXTURE,
+      );
+      const design = await page.request.get(
+        `${ORIGIN}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+      );
+      if (!design.ok())
+        throw new Error(`get-design failed: HTTP ${design.status()}`);
+      const record = (await design.json()) as {
+        files?: Array<{ id?: unknown; filename?: unknown }>;
+      };
+      const fileId = record.files?.find(
+        (file) => file.filename === "index.html" && typeof file.id === "string",
+      )?.id;
+      if (typeof fileId !== "string")
+        throw new Error("index.html file was not created");
+
+      const apply = async (nodeId: string, value: string) => {
+        let result: any;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          result = await postAction(
+            page,
+            "apply-component-prop-edit",
+            {
+              designId,
+              fileId,
+              nodeId,
+              edit: {
+                kind: "attribute",
+                attribute: "data-agent-native-prop-variant",
+                value,
+              },
+              source: {
+                expectedFiles: await expectedHtmlFiles(page, designId),
+              },
+            },
+            true,
+          );
+          if (!result.conflict) return result;
+          await page.waitForTimeout(500);
+        }
+        return result;
+      };
+
+      const mainEdit = await apply("component-main", "secondary");
+      expect(mainEdit.persisted, JSON.stringify(mainEdit)).toBe(true);
+      await expect
+        .poll(() =>
+          sourceAttribute(
+            page,
+            designId,
+            "component-main",
+            "data-agent-native-prop-variant",
+          ),
+        )
+        .toBe("secondary");
+      await expect
+        .poll(() =>
+          sourceAttribute(
+            page,
+            designId,
+            "component-instance",
+            "data-agent-native-prop-variant",
+          ),
+        )
+        .toBe("secondary");
+
+      const instanceEdit = await apply("component-instance", "outline");
+      expect(instanceEdit.persisted, JSON.stringify(instanceEdit)).toBe(true);
+      await expect
+        .poll(() =>
+          sourceAttribute(
+            page,
+            designId,
+            "component-instance",
+            "data-agent-native-prop-variant",
+          ),
+        )
+        .toBe("outline");
+      expect(
+        decodeURIComponent(
+          (await sourceAttribute(
+            page,
+            designId,
+            "component-instance",
+            "data-agent-native-component-overrides",
+          )) ?? "",
+        ),
+      ).toContain('"property":"attribute:data-agent-native-prop-variant"');
+
+      await page.goto(`${ORIGIN}/design/${designId}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(
+        page.getByRole("button", { name: "Move", exact: true }),
+      ).toBeVisible({
+        timeout: 45_000,
+      });
+      await expect(previewNode(page, "component-instance")).toHaveAttribute(
+        "data-agent-native-prop-variant",
+        "outline",
+      );
+
+      const laterMainEdit = await apply("component-main", "quiet");
+      expect(laterMainEdit.persisted, JSON.stringify(laterMainEdit)).toBe(true);
+      await expect
+        .poll(() =>
+          sourceAttribute(
+            page,
+            designId,
+            "component-main",
+            "data-agent-native-prop-variant",
+          ),
+        )
+        .toBe("quiet");
+      await expect
+        .poll(() =>
+          sourceAttribute(
+            page,
+            designId,
+            "component-instance",
+            "data-agent-native-prop-variant",
+          ),
+        )
+        .toBe("outline");
+
+      const reset = await postAction(page, "apply-component-prop-edit", {
+        designId,
+        fileId,
+        nodeId: "component-instance",
+        edit: { kind: "resetOverrides" },
+        source: { expectedFiles: await expectedHtmlFiles(page, designId) },
+      });
+      expect(reset.persisted, JSON.stringify(reset)).toBe(true);
+      await expect
+        .poll(() =>
+          sourceAttribute(
+            page,
+            designId,
+            "component-instance",
+            "data-agent-native-prop-variant",
+          ),
+        )
+        .toBe("quiet");
+      expect(
+        decodeURIComponent(
+          (await sourceAttribute(
+            page,
+            designId,
+            "component-instance",
+            "data-agent-native-component-overrides",
+          )) ?? "",
+        ),
+      ).not.toContain("attribute:data-agent-native-prop-variant");
+    } catch (error) {
+      primaryFailure = true;
+      throw error;
+    } finally {
+      await cleanupTest({ context, page, designId, appErrors, primaryFailure });
+    }
+  });
+
   test("report path: nested drop shows its guide before release and preserves parent order", async ({
     browser,
   }) => {
@@ -803,9 +1055,11 @@ test.describe("authenticated beta Design interactions", () => {
         NESTED_FRAME_ID,
       );
 
-      await page.mouse.move(sourceBox.x + 18, sourceBox.y + 11);
+      const grabX = sourceBox.x + sourceBox.width / 2;
+      const grabY = sourceBox.y + sourceBox.height / 2;
+      await page.mouse.move(grabX, grabY);
       await page.mouse.down();
-      await page.mouse.move(sourceBox.x + 6, sourceBox.y + 11, { steps: 4 });
+      await page.mouse.move(grabX - 12, grabY, { steps: 4 });
       await page.mouse.move(
         targetBox.x + targetBox.width / 2,
         targetBox.y + targetBox.height / 2,

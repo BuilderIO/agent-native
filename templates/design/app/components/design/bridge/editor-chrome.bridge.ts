@@ -14711,9 +14711,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         childStyles.order !== "0"
       );
     });
-    // Explicit grid placement has no meaningful DOM insertion slot. Resolve
-    // the pointer against the rendered tracks and carry that cell through the
-    // drop so the source and its persisted markup move together.
+    var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
+    while (hit && hit.parentElement && hit.parentElement !== container) {
+      hit = hit.parentElement;
+    }
+    // Resolve the pointer against rendered tracks and carry the cell through
+    // the drop so the source and its persisted markup move together. The
+    // occupied cell is also retained as the source-order insertion anchor.
     if (trackLayout && hasExplicitPlacement) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
@@ -14721,6 +14725,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var row = trackLayout.rowBounds.findIndex(function (bound) {
         return clientY >= bound.start && clientY <= bound.end;
       });
+      // A spanning item includes the track gap in its rendered rectangle, but
+      // a gap is not itself a track bound. Preserve that item's authored start
+      // instead of falling through to a flow insertion at its midpoint.
+      if (
+        (column < 0 || row < 0) &&
+        hit &&
+        hit.parentElement === container &&
+        children.indexOf(hit) !== -1
+      ) {
+        var hitColumn = gridItemAxisPlacement(hit, trackLayout, "column");
+        var hitRow = gridItemAxisPlacement(hit, trackLayout, "row");
+        if (
+          column < 0 &&
+          hitColumn.span > 1 &&
+          hitColumn.authoredStart !== null
+        ) {
+          column = hitColumn.authoredStart - 1;
+        }
+        if (row < 0 && hitRow.span > 1 && hitRow.authoredStart !== null) {
+          row = hitRow.authoredStart - 1;
+        }
+      }
       if (column >= 0 && row >= 0) {
         var cellLeft = trackLayout.columnBounds[column].start;
         var cellTop = trackLayout.rowBounds[row].start;
@@ -14738,6 +14764,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return {
           anchor: container,
           placement: "inside",
+          // Grid placement is calculated against the container, but source
+          // order must follow the occupied cell so persistence matches the
+          // held preview and Figma's layer order.
+          persistenceAnchor: displaced || container,
+          persistencePlacement: displaced ? "before" : "inside",
           axis: "x",
           dropMode: "flow-insert",
           guideRect: {
@@ -14757,10 +14788,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // actual empty cells and outer grid whitespace; otherwise the projected
     // child rectangle paints a cell fill where the normal insertion line is
     // the established drag affordance.
-    var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
-    while (hit && hit.parentElement && hit.parentElement !== container) {
-      hit = hit.parentElement;
-    }
     if (
       hit &&
       hit.parentElement === container &&
@@ -16931,14 +16958,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Idempotent for already-nested members (old CB === new CB → delta 0),
     // so the visual-structure-ack replay path is safe too.
     rebaseAbsoluteMemberForContainerDrop(el, target);
-    if (target.placement === "inside") {
-      target.anchor.appendChild(el);
+    var persistenceAnchor = target.persistenceAnchor || target.anchor;
+    var persistencePlacement = target.persistencePlacement || target.placement;
+    if (persistencePlacement === "inside") {
+      persistenceAnchor.appendChild(el);
     } else {
-      var parent = target.anchor.parentElement;
-      if (target.placement === "before") {
-        parent.insertBefore(el, target.anchor);
+      var parent = persistenceAnchor.parentElement;
+      if (persistencePlacement === "before") {
+        parent.insertBefore(el, persistenceAnchor);
       } else {
-        parent.insertBefore(el, target.anchor.nextSibling);
+        parent.insertBefore(el, persistenceAnchor.nextSibling);
       }
     }
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
@@ -16962,12 +16991,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     replaced?,
     replacementSnapshotHtml?: string,
     collectMessages?: any[],
+    transactionId?: string,
   ) {
     if (!el || !target || !target.anchor) return;
+    // Batched grid messages keep the grid container as their runtime anchor;
+    // persistence fields retain each member's source-order anchor.
+    var messageAnchor = collectMessages
+      ? target.anchor
+      : target.persistenceAnchor || target.anchor;
+    var messagePlacement = collectMessages
+      ? target.placement
+      : target.persistencePlacement || target.placement;
     dndLog("post:structure-change", {
       el: getSelector(el),
       anchor: getSelector(target.anchor),
+      persistenceAnchor: getSelector(messageAnchor),
       placement: target.placement,
+      persistencePlacement: messagePlacement,
       dropMode: target.dropMode || "flow-insert",
     });
     var requestId =
@@ -16981,11 +17021,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var message = {
       type: "visual-structure-change",
       requestId: requestId,
+      transactionId: transactionId,
       selector: getSelector(el),
       sourceId: getSourceId(el),
-      anchorSelector: getSelector(target.anchor),
-      anchorSourceId: getSourceId(target.anchor),
-      placement: target.placement,
+      anchorSelector: getSelector(messageAnchor),
+      anchorSourceId: getSourceId(messageAnchor),
+      placement: messagePlacement,
+      persistenceAnchorSelector: getSelector(
+        target.persistenceAnchor || target.anchor,
+      ),
+      persistenceAnchorSourceId: getSourceId(
+        target.persistenceAnchor || target.anchor,
+      ),
+      persistencePlacement: target.persistencePlacement || target.placement,
       dropMode: target.dropMode || "flow-insert",
       forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
       gridPlacement: target.gridPlacement,
@@ -17007,7 +17055,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       sourceRect: rectInfoForElement(el),
       anchorRect: rectInfoForElement(target.anchor),
       payload: getElementInfo(el),
-      anchorPayload: getElementInfo(target.anchor),
+      anchorPayload: getElementInfo(messageAnchor),
     };
     if (collectMessages) collectMessages.push(message);
     else (window.parent as Window).postMessage(message, "*");
@@ -17020,7 +17068,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceNodeIdMap?: Array<[string, string]>,
   ) {
     if (!originalEl || !cloneEl) return;
-    var anchorEl = target && target.anchor ? target.anchor : originalEl;
+    var anchorEl =
+      target && (target.persistenceAnchor || target.anchor)
+        ? target.persistenceAnchor || target.anchor
+        : originalEl;
     // The host immediately pushes the persisted clone back through the source
     // morph. Claim the optimistic clone first so that round-trip reuses it
     // instead of importing a second copy beside it.
@@ -17044,7 +17095,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // host message so live-source persistence can replay the same relation.
         anchorSelector: getSelector(anchorEl),
         anchorSourceId: getSourceId(anchorEl),
-        placement: target && target.placement ? target.placement : "after",
+        placement:
+          target && (target.persistencePlacement || target.placement)
+            ? target.persistencePlacement || target.placement
+            : "after",
         dropMode: target && target.dropMode ? target.dropMode : undefined,
         forceFlowPositionOverride:
           target && target.forceFlowPositionOverride === true
@@ -17093,6 +17147,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     preview = false,
   ): void {
     var container = dropContainerForTarget(target);
+    var transactionId =
+      !preview && members.length > 1
+        ? "group-" + Date.now() + "-" + Math.random().toString(16).slice(2)
+        : undefined;
     var gridGroupMessages =
       !preview && target.gridCell && gridGroupBatchingEnabled ? [] : null;
     var previous: Element | null = null;
@@ -17222,6 +17280,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 gridPlacement: undefined,
                 gridDisplacementPlacements: [],
                 gridDisplacementPrevStyles: [],
+                persistenceAnchor: previous,
+                persistencePlacement: previous ? "after" : "inside",
               }
             : target.dropMode === "absolute-container"
               ? target
@@ -17265,6 +17325,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           undefined,
           undefined,
           gridGroupMessages ?? undefined,
+          transactionId,
         );
       }
       if (plannedGridCell) {
@@ -24374,66 +24435,173 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (e.data.type === "runtime-structure-move") {
       if (readOnly) return;
-      var runtimePlacement = String(e.data.placement || "");
-      if (
-        runtimePlacement !== "before" &&
-        runtimePlacement !== "after" &&
-        runtimePlacement !== "inside"
-      ) {
-        return;
+      var rawRuntimeMoves = Array.isArray(e.data.moves)
+        ? e.data.moves
+        : [e.data];
+      if (rawRuntimeMoves.length === 0) return;
+      var replayTransactionId =
+        typeof e.data.transactionId === "string"
+          ? e.data.transactionId
+          : typeof rawRuntimeMoves[0]?.transactionId === "string"
+            ? rawRuntimeMoves[0].transactionId
+            : undefined;
+      var runtimeReplayMoves: Array<{
+        subject: Element;
+        target: any;
+        origin: any;
+        transactionId?: string;
+      }> = [];
+      var replaySubjects: Element[] = [];
+      for (var rawMove of rawRuntimeMoves) {
+        var runtimePlacement = String(rawMove.placement || "");
+        if (
+          runtimePlacement !== "before" &&
+          runtimePlacement !== "after" &&
+          runtimePlacement !== "inside"
+        ) {
+          return;
+        }
+        var runtimeSubject = findUniqueRuntimeStructureTarget(
+          String(rawMove.subjectSelector || rawMove.subject?.selector || ""),
+          typeof rawMove.subjectSourceId === "string"
+            ? rawMove.subjectSourceId
+            : typeof rawMove.subject?.sourceId === "string"
+              ? rawMove.subject.sourceId
+              : "",
+        );
+        var runtimeAnchor = findUniqueRuntimeStructureTarget(
+          String(rawMove.anchorSelector || rawMove.anchor?.selector || ""),
+          typeof rawMove.anchorSourceId === "string"
+            ? rawMove.anchorSourceId
+            : typeof rawMove.anchor?.sourceId === "string"
+              ? rawMove.anchor.sourceId
+              : "",
+        );
+        if (
+          !runtimeSubject ||
+          !runtimeAnchor ||
+          runtimeSubject === runtimeAnchor ||
+          runtimeSubject.contains(runtimeAnchor)
+        ) {
+          return;
+        }
+        if (
+          (runtimePlacement === "inside" &&
+            !isContainerDropTarget(runtimeAnchor)) ||
+          (runtimePlacement !== "inside" && !runtimeAnchor.parentElement)
+        ) {
+          return;
+        }
+        var runtimeTarget: any = {
+          anchor: runtimeAnchor,
+          placement: runtimePlacement,
+          axis: parentFlowAxis(
+            runtimePlacement === "inside"
+              ? runtimeAnchor
+              : runtimeAnchor.parentElement!,
+          ),
+          dropMode:
+            runtimePlacement === "inside" &&
+            isAbsolutePrimitiveContainer(runtimeAnchor)
+              ? "absolute-container"
+              : "flow-insert",
+        };
+        if (
+          rawMove.gridPlacement &&
+          Number.isInteger(rawMove.gridPlacement.column) &&
+          Number.isInteger(rawMove.gridPlacement.row)
+        ) {
+          runtimeTarget.gridCell = {
+            column: rawMove.gridPlacement.column - 1,
+            row: rawMove.gridPlacement.row - 1,
+          };
+        }
+        runtimeReplayMoves.push({
+          subject: runtimeSubject,
+          target: runtimeTarget,
+          origin: {
+            prevParent: runtimeSubject.parentElement!,
+            prevNextSibling: runtimeSubject.nextSibling,
+            prevInlinePositionStyles:
+              snapshotInlinePositionStyles(runtimeSubject),
+            prevInlineGridStyles: snapshotInlineGridStyles(runtimeSubject),
+          },
+          transactionId:
+            typeof rawMove.transactionId === "string"
+              ? rawMove.transactionId
+              : replayTransactionId,
+        });
+        replaySubjects.push(runtimeSubject);
       }
-      var runtimeSubject = findUniqueRuntimeStructureTarget(
-        String(e.data.subjectSelector || ""),
-        typeof e.data.subjectSourceId === "string"
-          ? e.data.subjectSourceId
-          : "",
-      );
-      var runtimeAnchor = findUniqueRuntimeStructureTarget(
-        String(e.data.anchorSelector || ""),
-        typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
-      );
-      if (
-        !runtimeSubject ||
-        !runtimeAnchor ||
-        runtimeSubject === runtimeAnchor ||
-        runtimeSubject.contains(runtimeAnchor)
-      ) {
-        return;
+      for (var replayMove of runtimeReplayMoves) {
+        if (
+          replayMove.target.gridCell &&
+          replayMove.target.placement !== "inside"
+        ) {
+          var orderAnchor = replayMove.target.anchor;
+          if (!orderAnchor.parentElement) return;
+          replayMove.target.persistenceAnchor = orderAnchor;
+          replayMove.target.persistencePlacement = replayMove.target.placement;
+          replayMove.target.anchor = orderAnchor.parentElement;
+          replayMove.target.placement = "inside";
+          replayMove.target.axis = parentFlowAxis(orderAnchor.parentElement);
+        }
+        if (
+          !applyRuntimeReorder(
+            replayMove.subject,
+            replayMove.target,
+            false,
+            replaySubjects,
+          )
+        ) {
+          for (
+            var rollbackIndex = runtimeReplayMoves.indexOf(replayMove);
+            rollbackIndex >= 0;
+            rollbackIndex -= 1
+          ) {
+            var rollbackMove = runtimeReplayMoves[rollbackIndex];
+            if (!rollbackMove) continue;
+            if (
+              rollbackMove.origin.prevParent?.isConnected &&
+              rollbackMove.subject.isConnected
+            ) {
+              rollbackMove.origin.prevParent.insertBefore(
+                rollbackMove.subject,
+                rollbackMove.origin.prevNextSibling?.parentNode ===
+                  rollbackMove.origin.prevParent
+                  ? rollbackMove.origin.prevNextSibling
+                  : null,
+              );
+              restoreInlinePositionStyles(
+                rollbackMove.subject,
+                rollbackMove.origin.prevInlinePositionStyles,
+              );
+              restoreInlineGridStyles(
+                rollbackMove.subject,
+                rollbackMove.origin.prevInlineGridStyles,
+              );
+            }
+            for (var displaced of rollbackMove.target
+              .gridDisplacementPrevStyles ?? []) {
+              restoreInlineGridStyles(displaced.element, displaced.styles);
+            }
+          }
+          return;
+        }
+        selectedEl = replayMove.subject;
+        positionOverlay(selectionOverlay, selectedEl);
       }
-      if (
-        (runtimePlacement === "inside" &&
-          !isContainerDropTarget(runtimeAnchor)) ||
-        (runtimePlacement !== "inside" && !runtimeAnchor.parentElement)
-      ) {
-        return;
-      }
-      var runtimeTarget = {
-        anchor: runtimeAnchor,
-        placement: runtimePlacement,
-        axis: parentFlowAxis(
-          runtimePlacement === "inside"
-            ? runtimeAnchor
-            : runtimeAnchor.parentElement!,
-        ),
-        dropMode:
-          runtimePlacement === "inside" &&
-          isAbsolutePrimitiveContainer(runtimeAnchor)
-            ? "absolute-container"
-            : "flow-insert",
-      };
-      var runtimeOrigin = {
-        prevParent: runtimeSubject.parentElement!,
-        prevNextSibling: runtimeSubject.nextSibling,
-        prevInlinePositionStyles: snapshotInlinePositionStyles(runtimeSubject),
-      };
-      var runtimeMutationApplied = applyRuntimeReorder(
-        runtimeSubject,
-        runtimeTarget,
-      );
-      selectedEl = runtimeSubject;
-      positionOverlay(selectionOverlay, selectedEl);
-      if (runtimeMutationApplied) {
-        postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
+      for (var completedMove of runtimeReplayMoves) {
+        postVisualStructureChange(
+          completedMove.subject,
+          completedMove.target,
+          completedMove.origin,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          completedMove.transactionId,
+        );
       }
       return;
     }

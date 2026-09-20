@@ -75,6 +75,8 @@ import type {
 } from "@/pages/design-editor/pending-edits";
 import {
   mergePendingLiveNonStyleEdits,
+  pendingLiveNonStyleEditsFromUndoStack,
+  pendingLiveStructureEditsFromUndoEntry,
   mergePendingVisualStyleEdits,
   pendingVisualStyleEditsFromUndoStack,
   pendingVisualStyleUndoTargets,
@@ -660,27 +662,31 @@ export function runUndo({
     const nextUndoStack = pendingNonStyleUndoStack.slice(0, -1);
     pendingLiveNonStyleUndoStackRef.current = nextUndoStack;
     const nextPending = mergePendingLiveNonStyleEdits(
-      nextUndoStack.map((entry) => entry.edit),
+      pendingLiveNonStyleEditsFromUndoStack(nextUndoStack),
     );
     pendingLiveNonStyleEditsRef.current = nextPending;
     pendingLiveNonStyleRedoStackRef.current = [
       ...pendingLiveNonStyleRedoStackRef.current,
       pendingNonStyleUndo,
     ];
-    requestPendingLiveNonStyleRevert([
+    requestPendingLiveNonStyleRevert(
       pendingNonStyleUndo.kind === "text"
-        ? {
-            ...pendingNonStyleUndo.edit,
-            originalValue: pendingNonStyleUndo.revertValue,
-            originalHtml: pendingNonStyleUndo.revertHtml,
-          }
-        : pendingNonStyleUndo.kind === "layer-state"
-          ? {
+        ? [
+            {
               ...pendingNonStyleUndo.edit,
-              originalEnabled: pendingNonStyleUndo.revertEnabled,
-            }
-          : pendingNonStyleUndo.edit,
-    ]);
+              originalValue: pendingNonStyleUndo.revertValue,
+              originalHtml: pendingNonStyleUndo.revertHtml,
+            },
+          ]
+        : pendingNonStyleUndo.kind === "layer-state"
+          ? [
+              {
+                ...pendingNonStyleUndo.edit,
+                originalEnabled: pendingNonStyleUndo.revertEnabled,
+              },
+            ]
+          : pendingLiveStructureEditsFromUndoEntry(pendingNonStyleUndo),
+    );
     setPendingLiveNonStyleEdits(nextPending);
     // Bug fix — undo reverted the DOM via requestPendingLiveNonStyleRevert
     // above but never resynced the inspector panel's selectedElement, so

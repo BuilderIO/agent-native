@@ -67,6 +67,7 @@ export interface VisualStructureChangeArgs {
       anchorSourceId?: string;
       anchorElementInfo?: ElementInfo;
       requestId?: string;
+      transactionId?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -123,6 +124,7 @@ export function runVisualStructureChange(
     anchorSourceId?: string;
     anchorElementInfo?: ElementInfo;
     requestId?: string;
+    transactionId?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
@@ -471,10 +473,14 @@ export function planVisualGridGroupStructureChange(
         t,
       },
       move.selector,
-      move.anchorSelector,
-      "inside",
+      move.persistenceAnchorSelector ?? move.anchorSelector,
+      move.persistencePlacement ?? move.placement ?? "inside",
       undefined,
-      { ...move, dropMode: "flow-insert" },
+      {
+        ...move,
+        anchorSourceId: move.persistenceAnchorSourceId ?? move.anchorSourceId,
+        dropMode: "flow-insert",
+      },
     );
     if (applied !== true) return null;
   }
@@ -498,8 +504,10 @@ export function resolveGridGroupLinkedComponentTarget(
         {
           kind: "moveNode",
           target: { nodeId: move.sourceId },
-          anchor: { nodeId: move.anchorSourceId },
-          placement: "inside",
+          anchor: {
+            nodeId: move.persistenceAnchorSourceId ?? move.anchorSourceId,
+          },
+          placement: move.persistencePlacement ?? move.placement ?? "inside",
         },
       ],
     }),
