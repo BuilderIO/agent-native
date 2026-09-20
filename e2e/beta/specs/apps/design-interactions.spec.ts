@@ -234,10 +234,43 @@ async function installUrlGhostProbe(page: Page) {
     };
     (window as unknown as Record<string, unknown>)[probeKey] = probe;
   });
+  const boardBody = page
+    .locator(`[data-board-surface-layer] ${PREVIEW}`)
+    .first()
+    .contentFrame()
+    .locator("body");
+  await boardBody.evaluate((body) => {
+    const events: Array<Record<string, unknown>> = [];
+    const record = (event: MouseEvent) => {
+      if (events.length >= 100) return;
+      events.push({
+        type: event.type,
+        at: Math.round(performance.now()),
+        x: Math.round(event.clientX),
+        y: Math.round(event.clientY),
+        target: event.target instanceof Element ? event.target.tagName : null,
+      });
+    };
+    const frameWindow = body.ownerDocument.defaultView;
+    if (!frameWindow) return;
+    frameWindow.addEventListener("mousedown", record, true);
+    frameWindow.addEventListener("mousemove", record, true);
+    frameWindow.addEventListener("mouseup", record, true);
+    (frameWindow as unknown as Record<string, unknown>)[
+      "__agentNativeUrlGhostBoardProbe"
+    ] = {
+      read: () => events,
+      stop: () => {
+        frameWindow.removeEventListener("mousedown", record, true);
+        frameWindow.removeEventListener("mousemove", record, true);
+        frameWindow.removeEventListener("mouseup", record, true);
+      },
+    };
+  });
 }
 
 async function readUrlGhostProbe(page: Page) {
-  return page.evaluate(() => {
+  const host = await page.evaluate(() => {
     const probe = (
       window as unknown as {
         __agentNativeUrlGhostProbe?: { read: () => unknown };
@@ -245,6 +278,18 @@ async function readUrlGhostProbe(page: Page) {
     ).__agentNativeUrlGhostProbe;
     return probe?.read() ?? null;
   });
+  const boardBody = page
+    .locator(`[data-board-surface-layer] ${PREVIEW}`)
+    .first()
+    .contentFrame()
+    .locator("body");
+  const board = await boardBody.evaluate((body) => {
+    const frameWindow = body.ownerDocument.defaultView as unknown as {
+      __agentNativeUrlGhostBoardProbe?: { read: () => unknown };
+    } | null;
+    return frameWindow?.__agentNativeUrlGhostBoardProbe?.read() ?? null;
+  });
+  return { host, board };
 }
 
 async function stopUrlGhostProbe(page: Page) {
@@ -255,6 +300,17 @@ async function stopUrlGhostProbe(page: Page) {
       }
     ).__agentNativeUrlGhostProbe;
     probe?.stop();
+  });
+  const boardBody = page
+    .locator(`[data-board-surface-layer] ${PREVIEW}`)
+    .first()
+    .contentFrame()
+    .locator("body");
+  await boardBody.evaluate((body) => {
+    const frameWindow = body.ownerDocument.defaultView as unknown as {
+      __agentNativeUrlGhostBoardProbe?: { stop: () => void };
+    } | null;
+    frameWindow?.__agentNativeUrlGhostBoardProbe?.stop();
   });
 }
 
