@@ -1133,7 +1133,10 @@ describe("design connect bridge endpoints", () => {
         socketUrls.push(url);
       }
       FakeWebSocket.prototype = {};
-      const nodePrototype = { appendChild: (node: unknown) => node };
+      const iframeUrls: string[] = [];
+      const nodePrototype = {
+        appendChild: (node: unknown) => node,
+      };
       const xhrPrototype = { open: () => undefined };
       const windowObject = {
         fetch: () => undefined,
@@ -1146,6 +1149,30 @@ describe("design connect bridge endpoints", () => {
         XMLHttpRequest: { prototype: xhrPrototype },
         URL,
       });
+      const sameOriginIframe = {
+        nodeType: 1,
+        tagName: "IFRAME",
+        value: `${base}/nested-preview`,
+        getAttribute(name: string) {
+          return name === "src" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "src") {
+            this.value = value;
+            iframeUrls.push(value);
+          }
+        },
+      };
+      nodePrototype.appendChild(sameOriginIframe);
+      expect(iframeUrls).toEqual([
+        `${base}/nested-preview?previewToken=${bridge.previewToken}`,
+      ]);
+      const externalIframe = {
+        ...sameOriginIframe,
+        value: "https://external.example/nested-preview",
+      };
+      nodePrototype.appendChild(externalIframe);
+      expect(iframeUrls).toHaveLength(1);
       new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
         `ws://${new URL(base).host}/hmr`,
       );

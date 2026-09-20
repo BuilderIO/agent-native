@@ -190,6 +190,12 @@ const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
 const DUPLICATE_DRAG_THRESHOLD = 6;
 const DRAG_THRESHOLD = 3;
+
+function eventEpochMilliseconds(eventTimeStamp: number): number {
+  return eventTimeStamp >= 1_000_000_000_000
+    ? eventTimeStamp
+    : performance.timeOrigin + eventTimeStamp;
+}
 // One postMessage round trip into an iframe. 80ms was tuned on a warm local
 // dev server; a cold hosted screen or a large generated document blows it, and
 // a late reply is dropped as if the screen held nothing selectable.
@@ -3616,7 +3622,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             candidate,
             payload,
             lastBoardPoint,
-            performance.timeOrigin + ev.timeStamp,
+            eventEpochMilliseconds(ev.timeStamp),
           );
         };
         const handleParentWindowBlur = () => {
@@ -3640,13 +3646,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           crossScreenIgnoreAutoLayoutRef.current = pressed;
           if (pressed) {
             crossScreenSKeyTimesRef.current = {
-              downAt: performance.timeOrigin + eventTimeStamp,
+              downAt: eventEpochMilliseconds(eventTimeStamp),
               upAt: null,
             };
           } else if (crossScreenSKeyTimesRef.current.downAt !== null) {
             crossScreenSKeyTimesRef.current = {
               ...crossScreenSKeyTimesRef.current,
-              upAt: performance.timeOrigin + eventTimeStamp,
+              upAt: eventEpochMilliseconds(eventTimeStamp),
             };
           }
         };
@@ -3672,7 +3678,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourcePreviewIframe.contentWindow?.postMessage(
             {
               type: "agent-native:cancel-active-drag",
-              pressedAt: performance.timeOrigin + ev.timeStamp,
+              pressedAt: eventEpochMilliseconds(ev.timeStamp),
             },
             "*",
           );
@@ -3854,19 +3860,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // truth; fall back to the "end" message's own fields in case the ref
         // was cleared (e.g. a brief re-entry into the source iframe nulled it
         // via clearCrossScreenDrag while pointerOutsideIframe remained true).
-        const payload = crossScreenDragMsgRef.current ?? {
-          selector: msg.selector ?? "",
-          sourceId: msg.sourceId,
-          sourceProvenance,
-          sourcePointerOffset,
-          sourceElementSize,
-          modifiers: sourceModifiers,
-          sourceHtmlSnapshot,
-          duplicate: msg.duplicate === true,
-          sourceCloneHtml: msg.sourceCloneHtml,
-          styleSnapshot,
-          styleSnapshotCaptureFailed,
-        };
+        const cachedPayload = crossScreenDragMsgRef.current;
+        const payload = cachedPayload
+          ? {
+              ...cachedPayload,
+              modifiers: sourceModifiers ?? cachedPayload.modifiers,
+            }
+          : {
+              selector: msg.selector ?? "",
+              sourceId: msg.sourceId,
+              sourceProvenance,
+              sourcePointerOffset,
+              sourceElementSize,
+              modifiers: sourceModifiers,
+              sourceHtmlSnapshot,
+              duplicate: msg.duplicate === true,
+              sourceCloneHtml: msg.sourceCloneHtml,
+              styleSnapshot,
+              styleSnapshotCaptureFailed,
+            };
         // Derive the release point from THIS message before falling back to
         // the refs the "move" phase maintained. The refs are cleared by any
         // cancel/blur/re-render that lands between the last move and the
@@ -5010,7 +5022,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (hostUsesSForIgnoreAutoLayout() && event.key.toLowerCase() === "s") {
         crossScreenSKeyPressedRef.current = true;
         crossScreenSKeyTimesRef.current = {
-          downAt: performance.timeOrigin + event.timeStamp,
+          downAt: eventEpochMilliseconds(event.timeStamp),
           upAt: null,
         };
       }
@@ -5021,7 +5033,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         if (crossScreenSKeyTimesRef.current.downAt !== null) {
           crossScreenSKeyTimesRef.current = {
             ...crossScreenSKeyTimesRef.current,
-            upAt: performance.timeOrigin + event.timeStamp,
+            upAt: eventEpochMilliseconds(event.timeStamp),
           };
         }
       }
@@ -5046,7 +5058,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       const cancelled = cancelActiveDrag(
-        performance.timeOrigin + event.timeStamp,
+        eventEpochMilliseconds(event.timeStamp),
       );
       if (cancelled) {
         event.preventDefault();
