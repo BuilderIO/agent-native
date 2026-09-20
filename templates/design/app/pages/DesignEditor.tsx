@@ -4077,10 +4077,6 @@ function DesignEditor() {
     skipActionQueryInvalidation: true,
   });
   const createFileAsync = createFileMutation.mutateAsync;
-  const createDesignVersionMutation = useActionMutation(
-    "create-design-version",
-  );
-  const createDesignVersionAsync = createDesignVersionMutation.mutateAsync;
   const deleteFileMutation = useActionMutation("delete-file");
   const updateDesignMutation = useActionMutation("update-design");
   const updateDesignAsync = updateDesignMutation.mutateAsync;
@@ -15738,12 +15734,6 @@ function DesignEditor() {
     handleDeleteSelection();
   }, [handleCopySelection, handleDeleteSelection]);
 
-  const captureDeleteHistoryCheckpoint = useCallback(async () => {
-    if (!id) throw new Error(t("common.genericError"));
-    const version = await createDesignVersionAsync({ designId: id });
-    return version.id;
-  }, [createDesignVersionAsync, id, t]);
-
   const performDeleteFiles = useCallback(
     (
       filesToDelete: DesignFile[],
@@ -15756,7 +15746,7 @@ function DesignEditor() {
         // the entry undoFileCreation just pushed, leaving redo permanently
         // empty after every screen-create/duplicate undo.
         skipFileCreationRedoPrune?: boolean;
-        // A user-confirmed screen deletion is a normal editor operation, not
+        // A screen deletion is a normal editor operation, not
         // an irreversible special case. Capture the complete rows + frame
         // geometry and add one grouped undo entry after every delete succeeds.
         recordDeletionHistory?: boolean;
@@ -15784,7 +15774,6 @@ function DesignEditor() {
           fileCreationUndoStackRef,
           fileDeletionUndoStackRef,
           fileHistoryMutationPendingRef,
-          captureHistoryCheckpoint: captureDeleteHistoryCheckpoint,
           clearPendingHistory: clearPendingHistoryDirections,
           files,
           geometryRedoStackRef,
@@ -15815,7 +15804,6 @@ function DesignEditor() {
     [
       activeFile,
       canvasFrameGeometryById,
-      captureDeleteHistoryCheckpoint,
       clearRedoStacks,
       clearPendingHistoryDirections,
       deleteFileMutation,

@@ -109,7 +109,6 @@ export interface DeleteFilesArgs {
   fileCreationUndoStackRef: RefObject<FileCreationHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
-  captureHistoryCheckpoint?: () => Promise<string>;
   clearPendingHistory?: () => void;
   files: DesignFile[];
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
@@ -151,7 +150,6 @@ export async function runDeleteFiles(
     fileCreationUndoStackRef,
     fileDeletionUndoStackRef,
     fileHistoryMutationPendingRef,
-    captureHistoryCheckpoint,
     clearPendingHistory,
     files,
     geometryRedoStackRef,
@@ -180,7 +178,7 @@ export async function runDeleteFiles(
     // the entry undoFileCreation just pushed, leaving redo permanently
     // empty after every screen-create/duplicate undo.
     skipFileCreationRedoPrune?: boolean;
-    // A user-confirmed screen deletion is a normal editor operation, not
+    // A screen deletion is a normal editor operation, not
     // an irreversible special case. Capture the complete rows + frame
     // geometry and add one grouped undo entry after every delete succeeds.
     recordDeletionHistory?: boolean;
@@ -197,7 +195,10 @@ export async function runDeleteFiles(
   }
   const deleteIds = new Set(filesToDelete.map((file) => file.id));
   const nextActiveFile = files.find((file) => !deleteIds.has(file.id));
+  const previousGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
   const nextGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
+  const designQueryKey = ["action", "get-design", { id }] as const;
+  const previousDesignQuery = queryClient.getQueryData?.(designQueryKey);
   const deletionHistoryEntry: FileDeletionHistoryEntry | null =
     options?.recordDeletionHistory
       ? {
@@ -208,23 +209,9 @@ export async function runDeleteFiles(
           })),
         }
       : null;
-  let historyCheckpointId: string | undefined;
   if (deletionHistoryEntry) {
     fileHistoryMutationPendingRef.current = true;
     syncUndoRedoState();
-    if (captureHistoryCheckpoint) {
-      try {
-        historyCheckpointId = await captureHistoryCheckpoint();
-      } catch (error) {
-        fileHistoryMutationPendingRef.current = false;
-        clearPendingHistory?.();
-        syncUndoRedoState();
-        toast.error(
-          error instanceof Error ? error.message : t("common.genericError"),
-        );
-        return;
-      }
-    }
     clearRedoStacks();
   }
   filesToDelete.forEach((file) => {
@@ -376,7 +363,7 @@ export async function runDeleteFiles(
   }
 
   writeFrameGeometrySnapshot(nextGeometry);
-  queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+  queryClient.setQueryData(designQueryKey, (old: any) => {
     if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
       return old;
     }
@@ -392,22 +379,34 @@ export async function runDeleteFiles(
   setSelectedElement(null);
   setSelectedLayerIdsState([]);
 
-  const results = await Promise.allSettled(
-    filesToDelete.map((file) =>
-      deleteFileMutation.mutateAsync({
-        id: file.id,
-        allowLockedLayers: true,
-        ...(historyCheckpointId ? { historyCheckpointId } : {}),
-      } as any),
-    ),
+  const results = await Promise.allSettled([
+    deleteFileMutation.mutateAsync({
+      id: filesToDelete[0]!.id,
+      ...(filesToDelete.length > 1
+        ? { fileIds: filesToDelete.map((file) => file.id) }
+        : {}),
+      allowLockedLayers: true,
+    } as any),
+  ]);
+  const mutationResult = results[0];
+  const mutationValue =
+    mutationResult?.status === "fulfilled"
+      ? (mutationResult.value as
+          | { deleted?: boolean; deletedIds?: string[]; id?: string }
+          | undefined)
+      : undefined;
+  const deletedIdsFromServer = new Set(
+    Array.isArray(mutationValue?.deletedIds)
+      ? mutationValue.deletedIds
+      : mutationValue?.deleted && mutationValue.id
+        ? [mutationValue.id]
+        : mutationValue?.deleted && filesToDelete.length === 1
+          ? [filesToDelete[0]!.id]
+          : [],
   );
-  const deletedFiles = filesToDelete.filter((_, index) => {
-    const result = results[index];
-    return (
-      result?.status === "fulfilled" &&
-      (result.value as { deleted?: boolean } | undefined)?.deleted !== false
-    );
-  });
+  const deletedFiles = filesToDelete.filter((file) =>
+    deletedIdsFromServer.has(file.id),
+  );
   const deletedIds = new Set(deletedFiles.map((file) => file.id));
   const failedFiles = filesToDelete.filter((file) => !deletedIds.has(file.id));
 
@@ -426,6 +425,13 @@ export async function runDeleteFiles(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   );
   if (failedFiles.length > 0) {
+    writeFrameGeometrySnapshot(previousGeometry);
+    if (previousDesignQuery !== undefined) {
+      queryClient.setQueryData(designQueryKey, previousDesignQuery);
+    }
+    if (activeFile && deleteIds.has(activeFile.id)) {
+      setActiveFileId(activeFile.id);
+    }
     void queryClient.invalidateQueries({
       queryKey: ["action", "get-design"],
     });

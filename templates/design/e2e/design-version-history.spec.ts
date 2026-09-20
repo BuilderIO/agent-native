@@ -185,3 +185,74 @@ test("editor checkpoints survive browser restart and restore screen identity", a
     await restartedPage.close();
   }
 });
+
+test("multi-screen delete uses one durable checkpoint and one Undo", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const designId = await newDesign(page, HOME_HTML);
+  await postAction(page, "create-file", {
+    designId,
+    filename: "second.html",
+    content:
+      "<!doctype html><html><head><title>Second</title></head><body>Second</body></html>",
+    fileType: "html",
+  });
+  await postAction(page, "create-file", {
+    designId,
+    filename: "third.html",
+    content:
+      "<!doctype html><html><head><title>Third</title></head><body>Third</body></html>",
+    fileType: "html",
+  });
+
+  await openEditor(page, designId);
+  const screens = page
+    .getByRole("tree", { name: "Layers" })
+    .locator('[role="treeitem"][aria-level="1"]');
+  await expect(screens).toHaveCount(3);
+  await screens.nth(0).locator("[data-layer-row-button]").click();
+  await page.keyboard.press(
+    `${process.platform === "darwin" ? "Meta" : "Control"}+A`,
+  );
+  await screens
+    .nth(2)
+    .locator("[data-layer-row-button]")
+    .click({
+      modifiers: [process.platform === "darwin" ? "Meta" : "Control"],
+    });
+  await expect(screens.nth(0)).toHaveAttribute("aria-selected", "true");
+  await expect(screens.nth(1)).toHaveAttribute("aria-selected", "true");
+  await expect(screens.nth(2)).toHaveAttribute("aria-selected", "false");
+  const versionsBeforeDelete = await listVersions(page, designId);
+  const fullDesignVersionCountBeforeDelete =
+    versionsBeforeDelete.versions.filter(
+      (version) => version.source === "editor" && version.fileCount === 4,
+    ).length;
+
+  await page.keyboard.press("Delete");
+  await expect
+    .poll(async () =>
+      (await filenames(page, designId)).filter(
+        (filename) => filename !== "__board__.html",
+      ),
+    )
+    .toHaveLength(1);
+  await expect(screens).toHaveCount(1);
+
+  await expect
+    .poll(async () => {
+      const result = await listVersions(page, designId);
+      return (
+        result.versions.filter(
+          (version) => version.source === "editor" && version.fileCount === 4,
+        ).length - fullDesignVersionCountBeforeDelete
+      );
+    })
+    .toBe(1);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect
+    .poll(async () => (await filenames(page, designId)).sort())
+    .toEqual(["__board__.html", "index.html", "second.html", "third.html"]);
+});

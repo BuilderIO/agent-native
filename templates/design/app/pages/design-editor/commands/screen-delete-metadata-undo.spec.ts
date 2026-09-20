@@ -160,7 +160,7 @@ describe("screen deletion metadata history", () => {
                 // still pending.
               },
             };
-            return { deleted: true };
+            return { deleted: true, id: deletedId };
           }),
         } as any,
         fileCreationRedoStackRef: ref([]),
@@ -628,7 +628,7 @@ describe("screen deletion metadata history", () => {
             deleteFileMutation: {
               mutateAsync: vi.fn(async ({ id }: { id: string }) => {
                 pruneDesignDataFile(id);
-                return { deleted: true };
+                return { deleted: true, id };
               }),
             } as any,
             fileCreationRedoStackRef: ref([]),

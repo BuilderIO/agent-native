@@ -574,7 +574,10 @@ describe("screen deletion history identity", () => {
         contentUndoSelectionStackRef,
         contentUndoStackRef,
         deleteFileMutation: {
-          mutateAsync: vi.fn(async () => ({ deleted: true })),
+          mutateAsync: vi.fn(async () => ({
+            deleted: true,
+            id: sourceFile.id,
+          })),
         } as any,
         fileCreationRedoStackRef,
         fileCreationUndoStackRef,
@@ -970,7 +973,14 @@ describe("screen deletion history identity", () => {
         [failedScreen.id]: { title: "failed" },
       },
     });
+    const initialCanvasFrames = {
+      ...(designDataJsonRef.current.canvasFrames as Record<string, unknown>),
+    };
+    const originalDesignQuery = {
+      files: [deletedScreen, failedScreen, remainingScreen],
+    };
     const queryClient = {
+      getQueryData: vi.fn(() => originalDesignQuery),
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;
@@ -999,8 +1009,11 @@ describe("screen deletion history identity", () => {
         contentUndoSelectionStackRef,
         contentUndoStackRef,
         deleteFileMutation: {
-          mutateAsync: vi.fn(async ({ id }: { id: string }) =>
-            id === deletedScreen.id ? { deleted: true } : { deleted: false },
+          mutateAsync: vi.fn(
+            async ({ id }: { id: string; fileIds?: string[] }) =>
+              id === deletedScreen.id
+                ? { deleted: true, deletedIds: [deletedScreen.id] }
+                : { deleted: false, deletedIds: [] },
           ),
         } as any,
         fileCreationRedoStackRef: ref([]),
@@ -1040,6 +1053,11 @@ describe("screen deletion history identity", () => {
     expect(result.deleted.map((file) => file.id)).toEqual([deletedScreen.id]);
     expect(result.failed.map((file) => file.id)).toEqual([failedScreen.id]);
     expect(fileHistoryMutationPendingRef.current).toBe(false);
+    expect(designDataJsonRef.current.canvasFrames).toEqual(initialCanvasFrames);
+    expect(queryClient.setQueryData).toHaveBeenLastCalledWith(
+      ["action", "get-design", { id: "design" }],
+      originalDesignQuery,
+    );
     expect(fileDeletionUndoStackRef.current).toHaveLength(1);
     expect(
       fileDeletionUndoStackRef.current[0]?.files.map((file) => file.id),

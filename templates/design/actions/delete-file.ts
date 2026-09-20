@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -92,9 +92,14 @@ function parseDesignData(
 
 export default defineAction({
   description:
-    "Delete a file from a design project. Idempotent: if the file is already gone, returns deleted=false so cleanup retries can continue. Validates ownership via the parent design's access when the file exists.",
+    "Delete one or more files from a design project. Idempotent: if a file is already gone, returns deleted=false so cleanup retries can continue. Validates ownership via the parent design's access when the file exists.",
   schema: z.object({
     id: z.string().describe("File ID to delete"),
+    fileIds: z
+      .array(z.string())
+      .max(100)
+      .optional()
+      .describe("Additional file IDs to delete in the same transaction."),
     allowLockedLayers: z
       .boolean()
       .optional()
@@ -106,14 +111,18 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Existing frontend editor checkpoint to reuse for one grouped screen deletion.",
+        "Legacy frontend checkpoint to validate before a delete; the live pre-delete version is always captured in the delete transaction.",
       ),
   }),
-  run: async ({ id, allowLockedLayers, historyCheckpointId }, context) => {
+  run: async (
+    { id, fileIds, allowLockedLayers, historyCheckpointId },
+    context,
+  ) => {
     const db = getDb();
+    const requestedIds = [...new Set([id, ...(fileIds ?? [])])];
 
-    // Look up the file to get its designId for access check
-    const [file] = await db
+    // Look up the files to get their designId for access checks.
+    const scopedFiles = await db
       .select({
         id: schema.designFiles.id,
         designId: schema.designFiles.designId,
@@ -128,23 +137,50 @@ export default defineAction({
       )
       .where(
         and(
-          eq(schema.designFiles.id, id),
+          requestedIds.length === 1
+            ? eq(schema.designFiles.id, requestedIds[0]!)
+            : inArray(schema.designFiles.id, requestedIds),
           accessFilter(schema.designs, schema.designShares),
         ),
       )
-      .limit(1);
+      .limit(requestedIds.length);
 
-    if (!file) return { id, deleted: false, alreadyMissing: true };
+    const file = scopedFiles.find((candidate) => candidate.id === id);
+
+    if (!file) {
+      if (requestedIds.length > 1) {
+        throw new Error(
+          "One or more selected screens are no longer available. Refresh and try again.",
+        );
+      }
+      return { id, deleted: false, alreadyMissing: true };
+    }
+
+    if (requestedIds.length > 1 && scopedFiles.length !== requestedIds.length) {
+      throw new Error(
+        "One or more selected screens are no longer available. Refresh and try again.",
+      );
+    }
+
+    if (scopedFiles.some((candidate) => candidate.designId !== file.designId)) {
+      throw new Error(
+        "All files in one delete must belong to the same design.",
+      );
+    }
 
     await assertAccess("design", file.designId, "editor");
     // Locks exist to stop an agent destroying template branding in passing.
     // A person deleting their own screen has already decided, and every
     // template-backed screen carries locked layers — without this opt-in they
     // could not be removed at all.
-    if (!allowLockedLayers && countLockedLayers(file.content) > 0) {
-      throw new Error(
-        "This screen contains locked layers. Unlock them before deleting the screen, or pass allowLockedLayers when the user asked for the whole screen to go.",
-      );
+    if (!allowLockedLayers) {
+      for (const candidate of scopedFiles) {
+        if (countLockedLayers(candidate.content) > 0) {
+          throw new Error(
+            "This screen contains locked layers. Unlock them before deleting the screen, or pass allowLockedLayers when the user asked for the whole screen to go.",
+          );
+        }
+      }
     }
 
     if (historyCheckpointId !== undefined) {
@@ -176,7 +212,7 @@ export default defineAction({
     // Restore locks the same design and updates file rows before designs.data.
     // Keep the checkpoint and mutation under the same table/version boundary so
     // history cannot capture a state that interleaves with the delete.
-    const deleted = await withDesignVersionLock(file.designId, async () => {
+    const deletedIds = await withDesignVersionLock(file.designId, async () => {
       return db.transaction(async (tx) => {
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(file.designId)}, 0::bigint))`,
@@ -191,39 +227,55 @@ export default defineAction({
           .from(schema.designFiles)
           .where(eq(schema.designFiles.designId, file.designId))
           .for("update");
-        const currentFile = currentFiles.find(
-          (candidate) => candidate.id === id,
+        const currentTargetFiles = currentFiles.filter((candidate) =>
+          requestedIds.includes(candidate.id),
         );
-        if (!currentFile) return false;
-        if (
-          isOverviewScreenFile(currentFile) &&
-          currentFiles.filter(isOverviewScreenFile).length <= 1
-        ) {
+        if (currentTargetFiles.length !== requestedIds.length) {
+          if (requestedIds.length === 1) return [];
+          throw new Error(
+            "A selected screen changed while it was being deleted. Refresh and try again.",
+          );
+        }
+        if (!currentTargetFiles.length) return [];
+        const currentUserScreenCount =
+          currentFiles.filter(isOverviewScreenFile).length;
+        const deletingUserScreenCount =
+          currentTargetFiles.filter(isOverviewScreenFile).length;
+        if (currentUserScreenCount - deletingUserScreenCount <= 0) {
           throw new Error(
             "A design must keep at least one user screen. Delete another screen first.",
           );
         }
-        if (historyCheckpointId === undefined) {
-          await snapshotDesignBeforeAgentEditInVersionLock(
-            file.designId,
-            context,
-            tx,
-          );
-        }
+        // A browser checkpoint may have been created by an older client before
+        // this request arrived. Capture again here so that any edit between
+        // those requests is included in the durable pre-delete version.
+        await snapshotDesignBeforeAgentEditInVersionLock(
+          file.designId,
+          context,
+          tx,
+        );
 
+        const targetIds = currentTargetFiles.map((candidate) => candidate.id);
         const deleteResult = await tx
           .delete(schema.designFiles)
           .where(
             and(
-              eq(schema.designFiles.id, id),
+              targetIds.length === 1
+                ? eq(schema.designFiles.id, targetIds[0]!)
+                : inArray(schema.designFiles.id, targetIds),
               eq(schema.designFiles.designId, file.designId),
             ),
           );
         const affected = affectedRowCount(deleteResult);
-        if (affected === 0) return false;
+        if (affected === 0) {
+          if (requestedIds.length === 1) return [];
+          throw new Error(
+            "A selected screen changed while it was being deleted. Refresh and try again.",
+          );
+        }
         if (affected === undefined)
           throw new Error("Could not verify that the design file was deleted.");
-        if (affected !== 1)
+        if (affected !== targetIds.length)
           throw new Error("Unexpected design file delete result.");
 
         const [design] = await tx
@@ -237,10 +289,10 @@ export default defineAction({
         if (!design) throw new Error(`Design "${file.designId}" not found.`);
 
         const updatedAt = nextUpdatedAt(design.updatedAt, new Date());
-        const data = pruneDeletedFileMetadata(
-          parseDesignData(file.designId, design.data),
-          id,
-        );
+        let data = parseDesignData(file.designId, design.data);
+        for (const targetId of targetIds) {
+          data = pruneDeletedFileMetadata(data, targetId);
+        }
         data.updatedAt = updatedAt;
         const designUpdateResult = await tx
           .update(schema.designs)
@@ -255,12 +307,20 @@ export default defineAction({
         if (designAffected !== 1) {
           throw new Error("Unexpected design metadata update result.");
         }
-        return true;
+        return targetIds;
       });
     });
 
-    return deleted
-      ? { id, deleted: true }
-      : { id, deleted: false, alreadyMissing: true };
+    if (requestedIds.length === 1) {
+      return deletedIds.includes(id)
+        ? { id, deleted: true }
+        : { id, deleted: false, alreadyMissing: true };
+    }
+    return {
+      id,
+      deleted: deletedIds.includes(id),
+      deletedIds,
+      ...(deletedIds.includes(id) ? {} : { alreadyMissing: true }),
+    };
   },
 });
