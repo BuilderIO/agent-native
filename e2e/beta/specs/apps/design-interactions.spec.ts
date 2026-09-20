@@ -1055,9 +1055,11 @@ test.describe("authenticated beta Design interactions", () => {
         NESTED_FRAME_ID,
       );
 
-      await page.mouse.move(sourceBox.x + 18, sourceBox.y + 11);
+      const grabX = sourceBox.x + sourceBox.width / 2;
+      const grabY = sourceBox.y + sourceBox.height / 2;
+      await page.mouse.move(grabX, grabY);
       await page.mouse.down();
-      await page.mouse.move(sourceBox.x + 6, sourceBox.y + 11, { steps: 4 });
+      await page.mouse.move(grabX - 12, grabY, { steps: 4 });
       await page.mouse.move(
         targetBox.x + targetBox.width / 2,
         targetBox.y + targetBox.height / 2,
