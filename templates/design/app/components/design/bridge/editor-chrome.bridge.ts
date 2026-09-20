@@ -14761,15 +14761,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             rect.bottom > cellTop
           );
         });
+        var autoFlow = (styles.gridAutoFlow || "row").split(/\s+/);
+        var gridAxis = autoFlow[0] === "column" ? "y" : "x";
+        var pointer = gridAxis === "x" ? clientX : clientY;
+        var midpoint =
+          gridAxis === "x"
+            ? (cellLeft + cellRight) / 2
+            : (cellTop + cellBottom) / 2;
         return {
           anchor: container,
+          // Grid placement is calculated against the container, while the
+          // insertion line communicates the layer-order position within the
+          // occupied cell. Keep the structural target as "inside" so the
+          // grid placement path still owns persistence and displacement.
           placement: "inside",
           // Grid placement is calculated against the container, but source
           // order must follow the occupied cell so persistence matches the
           // held preview and Figma's layer order.
           persistenceAnchor: displaced || container,
           persistencePlacement: displaced ? "before" : "inside",
-          axis: "x",
+          axis: gridAxis,
           dropMode: "flow-insert",
           guideRect: {
             left: cellLeft,
@@ -14777,7 +14788,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             width: cellRight - cellLeft,
             height: cellBottom - cellTop,
           },
-          guideMode: "grid-cell",
+          guideMode: displaced ? "grid-line" : "grid-cell",
+          guidePlacement: pointer <= midpoint ? "before" : "after",
           gridCell: { column, row },
           gridDisplacement: displaced,
         };
@@ -15758,6 +15770,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             dropMode: "flow-insert",
             guideRect: betweenContainerChildren.guideRect,
             guideMode: betweenContainerChildren.guideMode,
+            guidePlacement: betweenContainerChildren.guidePlacement,
           };
         }
         return {
@@ -15816,6 +15829,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               dropMode: "flow-insert",
               guideRect: cloneFallback.guideRect,
               guideMode: cloneFallback.guideMode,
+              guidePlacement: cloneFallback.guidePlacement,
             };
           }
           return {
@@ -15975,6 +15989,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     insertionGuide.style.borderRadius = "999px";
     insertionGuide.style.boxShadow =
       "0 0 0 1px var(--design-editor-accent-color)";
+    if (target.guideMode === "grid-line") {
+      if (target.axis === "x") {
+        var x = target.guidePlacement === "before" ? rect.left : rect.right;
+        insertionGuide.style.left = x - line / 2 + "px";
+        insertionGuide.style.top = rect.top + "px";
+        insertionGuide.style.width = line + "px";
+        insertionGuide.style.height = rect.height + "px";
+      } else {
+        var y = target.guidePlacement === "before" ? rect.top : rect.bottom;
+        insertionGuide.style.left = rect.left + "px";
+        insertionGuide.style.top = y - line / 2 + "px";
+        insertionGuide.style.width = rect.width + "px";
+        insertionGuide.style.height = line + "px";
+      }
+      return;
+    }
     if (target.placement === "inside") {
       insertionGuide.style.left = rect.left + "px";
       insertionGuide.style.top = rect.top + "px";
