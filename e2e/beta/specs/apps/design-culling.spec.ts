@@ -117,6 +117,24 @@ async function installChurnObserver(page: Page): Promise<void> {
   });
 }
 
+async function resetChurn(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const state = (
+      window as typeof window & {
+        __betaCullingPerf?: {
+          iframeAdded: number;
+          iframeRemoved: number;
+          iframeLoads: number;
+        };
+      }
+    ).__betaCullingPerf;
+    if (!state) throw new Error("culling observer was not installed");
+    state.iframeAdded = 0;
+    state.iframeRemoved = 0;
+    state.iframeLoads = 0;
+  });
+}
+
 test("Design culling preserves a bounded preview pool during physical pan and zoom", async ({
   browser,
 }) => {
@@ -155,6 +173,7 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
       .locator("..");
     const surfaceBox = await surface.boundingBox();
     if (!surfaceBox) throw new Error("missing overview canvas surface");
+    await resetChurn(page);
     await page.mouse.move(
       surfaceBox.x + surfaceBox.width / 2,
       surfaceBox.y + surfaceBox.height / 2,
