@@ -1076,6 +1076,23 @@ test.describe("authenticated beta Design interactions", () => {
       await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
         timeout: 10_000,
       });
+      await expect
+        .poll(() => readSource(page, designId, "__board__.html"), {
+          timeout: 5_000,
+        })
+        .toBe(beforeBoard);
+      await expect
+        .poll(() => readSource(page, designId), { timeout: 5_000 })
+        .toBe(beforeInline);
+      await expect
+        .poll(async () =>
+          directChildIds(
+            page,
+            await readSource(page, designId),
+            NESTED_FRAME_ID,
+          ),
+        )
+        .toEqual(beforeInlineNestedOrder);
       await page.mouse.up();
       await expect(
         urlTarget

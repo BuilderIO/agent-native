@@ -1106,10 +1106,12 @@ export function runCrossScreenElementDrop(
     });
     if (rollback.status !== "accepted") {
       toast.error(t("designEditor.toasts.saveConflict"));
+      clearPendingHistory?.();
       releasePendingHistory();
       return;
     }
     if (!rollback.saveCompletion) {
+      clearPendingHistory?.();
       releasePendingHistory();
       return;
     }
@@ -1118,10 +1120,12 @@ export function runCrossScreenElementDrop(
         if (status !== "persisted") {
           toast.error(t("designEditor.toasts.saveConflict"));
         }
+        clearPendingHistory?.();
         releasePendingHistory();
       },
       () => {
         toast.error(t("designEditor.toasts.saveConflict"));
+        clearPendingHistory?.();
         releasePendingHistory();
       },
     );
@@ -1279,6 +1283,27 @@ export function runCrossScreenElementDrop(
     );
   };
 
+  const restoreRetryablePublication = (
+    publication: typeof targetPublication,
+    fileId: string,
+    content: string,
+  ): boolean => {
+    // Offline saves remain in the outbox, but a two-file move has no safe way
+    // to finalize one history entry when only a later replay succeeds. Restore
+    // both optimistic files and cancel only the publication still visible in
+    // the editor; a newer edit must remain untouched.
+    if (!isCurrentPublication(fileId, publication)) return true;
+    return (
+      applyFileContentUpdate(fileId, content, {
+        recordHistory: false,
+        refreshPreview: false,
+        forcePreviewFullDocument: true,
+        persist: false,
+        historyBeforeContent: publication.content,
+      }).status === "accepted"
+    );
+  };
+
   const targetSave = targetPublication.saveCompletion;
   const sourceSave = sourcePublication.saveCompletion;
   if (!targetSave && !sourceSave) {
@@ -1295,11 +1320,16 @@ export function runCrossScreenElementDrop(
       targetResult.status === "fulfilled" && targetResult.value === "persisted";
     const sourceSaved =
       sourceResult.status === "fulfilled" && sourceResult.value === "persisted";
-    const retryableSave =
+    const targetRetryable =
+      targetResult.status === "fulfilled" && targetResult.value === "retryable";
+    const sourceRetryable =
+      sourceResult.status === "fulfilled" && sourceResult.value === "retryable";
+    const retryableSave = targetRetryable || sourceRetryable;
+    const saveConflict =
       (targetResult.status === "fulfilled" &&
-        targetResult.value === "retryable") ||
+        targetResult.value === "conflict") ||
       (sourceResult.status === "fulfilled" &&
-        sourceResult.value === "retryable");
+        sourceResult.value === "conflict");
     const saveFailed =
       targetResult.status === "rejected" || sourceResult.status === "rejected";
     if (targetSaved && sourceSaved) {
@@ -1308,6 +1338,48 @@ export function runCrossScreenElementDrop(
       return;
     }
     if (retryableSave) {
+      const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
+      const localRestores: boolean[] = [];
+      if (targetSaved) {
+        rollbackResults.push(
+          rollbackAfterSaveConflict(
+            targetPublication,
+            targetScreenId,
+            rawDestContent,
+          ),
+        );
+      } else if (targetRetryable) {
+        localRestores.push(
+          restoreRetryablePublication(
+            targetPublication,
+            targetScreenId,
+            rawDestContent,
+          ),
+        );
+      }
+      if (sourceSaved) {
+        rollbackResults.push(
+          rollbackAfterSaveConflict(
+            sourcePublication,
+            sourceScreenId,
+            sourceContent,
+          ),
+        );
+      } else if (sourceRetryable) {
+        localRestores.push(
+          restoreRetryablePublication(
+            sourcePublication,
+            sourceScreenId,
+            sourceContent,
+          ),
+        );
+      }
+      const rollbackFailed = (await Promise.all(rollbackResults)).some(
+        (status) => status !== "persisted",
+      );
+      if (rollbackFailed || localRestores.some((restored) => !restored)) {
+        toast.error(t("designEditor.toasts.saveConflict"));
+      }
       clearPendingHistory?.();
       releasePendingHistory();
       return;
@@ -1331,14 +1403,13 @@ export function runCrossScreenElementDrop(
         ),
       );
     }
-    if (
-      saveFailed ||
-      (await Promise.all(rollbackResults)).some(
-        (status) => status !== "persisted",
-      )
-    ) {
+    const rollbackFailed = (await Promise.all(rollbackResults)).some(
+      (status) => status !== "persisted",
+    );
+    if (saveFailed || saveConflict || rollbackFailed) {
       toast.error(t("designEditor.toasts.saveConflict"));
     }
+    clearPendingHistory?.();
     releasePendingHistory();
   });
 }
