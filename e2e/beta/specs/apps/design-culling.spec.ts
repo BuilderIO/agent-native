@@ -1,0 +1,204 @@
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
+
+import {
+  assertSignedInOnBeta,
+  signedInContext,
+  skipUnlessAuthed,
+} from "../../lib/authed";
+import { originFor, selectedSites, siteById } from "../../lib/fleet";
+
+skipUnlessAuthed();
+
+const selected = new Set(selectedSites().map((site) => site.id));
+test.skip(!selected.has("design"), "design not in this run's selection");
+
+const SCREEN_COUNT = 48;
+const LIVE_IFRAME_BUDGET = 32;
+
+function screenHtml(index: number): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+    <body style="margin:0;background:#020617;color:#f8fafc"><main data-cull-layer="screen-${index}" style="width:720px;height:420px;padding:24px;box-sizing:border-box;font:20px system-ui">Screen ${index + 1}</main></body></html>`;
+}
+
+async function postAction(
+  request: APIRequestContext,
+  origin: string,
+  name: string,
+  input: Record<string, unknown>,
+): Promise<any> {
+  const response = await request.post(
+    `${origin}/_agent-native/actions/${name}`,
+    {
+      data: input,
+      headers: { "Content-Type": "application/json" },
+      timeout: 60_000,
+    },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `${name} failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return response.json();
+}
+
+async function createCullingDesign(
+  request: APIRequestContext,
+  origin: string,
+): Promise<string> {
+  const created = await postAction(request, origin, "create-design", {
+    title: `Beta E2E culling ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = String(
+    created?.id ?? created?.data?.id ?? created?.design?.id ?? "",
+  );
+  if (!designId) throw new Error("create-design did not return an id");
+
+  try {
+    for (let start = 0; start < SCREEN_COUNT; start += 8) {
+      await Promise.all(
+        Array.from({ length: Math.min(8, SCREEN_COUNT - start) }, (_, offset) =>
+          postAction(request, origin, "create-file", {
+            designId,
+            filename: `screen-${String(start + offset).padStart(3, "0")}.html`,
+            content: screenHtml(start + offset),
+            fileType: "html",
+          }),
+        ),
+      );
+    }
+    return designId;
+  } catch (error) {
+    await postAction(request, origin, "delete-design", { id: designId }).catch(
+      () => undefined,
+    );
+    throw error;
+  }
+}
+
+async function installChurnObserver(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const state = { iframeAdded: 0, iframeRemoved: 0, iframeLoads: 0 };
+    (
+      window as typeof window & { __betaCullingPerf?: typeof state }
+    ).__betaCullingPerf = state;
+    const count = (node: Node): number => {
+      if (!(node instanceof Element)) return 0;
+      return (
+        (node.matches("iframe[data-design-preview-iframe]") ? 1 : 0) +
+        node.querySelectorAll("iframe[data-design-preview-iframe]").length
+      );
+    };
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) state.iframeAdded += count(node);
+        for (const node of record.removedNodes)
+          state.iframeRemoved += count(node);
+      }
+    }).observe(document, { childList: true, subtree: true });
+    document.addEventListener(
+      "load",
+      (event) => {
+        if (
+          event.target instanceof HTMLIFrameElement &&
+          event.target.matches("iframe[data-design-preview-iframe]")
+        ) {
+          state.iframeLoads += 1;
+        }
+      },
+      true,
+    );
+  });
+}
+
+test("Design culling preserves a bounded preview pool during physical pan and zoom", async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const site = siteById("design");
+  const origin = originFor(site);
+  const context = await signedInContext(browser, site, { seedModel: false });
+  let designId: string | undefined;
+  try {
+    await assertSignedInOnBeta(context, site);
+    const page = await context.newPage();
+    await installChurnObserver(page);
+    designId = await createCullingDesign(page.request, origin);
+    await page.goto(`${origin}/design/${designId}`, {
+      waitUntil: "domcontentloaded",
+      timeout: 90_000,
+    });
+    await expect(page.locator("[data-multi-screen-canvas-world]")).toHaveCount(
+      1,
+    );
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(SCREEN_COUNT);
+    await expect
+      .poll(() => page.locator("iframe[data-design-preview-iframe]").count(), {
+        timeout: 45_000,
+      })
+      .toBeGreaterThan(0);
+
+    const initialIframes = await page
+      .locator("iframe[data-design-preview-iframe]")
+      .count();
+    const placeholders = await page
+      .locator('[data-screen-content][data-cull-tier="placeholder"]')
+      .count();
+    const surface = page
+      .locator("[data-multi-screen-canvas-world]")
+      .locator("..");
+    const surfaceBox = await surface.boundingBox();
+    if (!surfaceBox) throw new Error("missing overview canvas surface");
+    await page.mouse.move(
+      surfaceBox.x + surfaceBox.width / 2,
+      surfaceBox.y + surfaceBox.height / 2,
+    );
+    for (let index = 0; index < 10; index += 1) await page.mouse.wheel(24, 18);
+    await page.keyboard.down("Control");
+    for (let index = 0; index < 6; index += 1) {
+      await page.mouse.wheel(0, index % 2 === 0 ? -28 : 28);
+    }
+    await page.keyboard.up("Control");
+    await page.waitForTimeout(700);
+
+    const afterIframes = await page
+      .locator("iframe[data-design-preview-iframe]")
+      .count();
+    const perf = await page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __betaCullingPerf?: {
+              iframeAdded: number;
+              iframeRemoved: number;
+              iframeLoads: number;
+            };
+          }
+        ).__betaCullingPerf,
+    );
+    console.info(
+      `[beta-design-culling] ${JSON.stringify({ initialIframes, afterIframes, placeholders, ...perf })}`,
+    );
+    expect(initialIframes).toBeLessThanOrEqual(LIVE_IFRAME_BUDGET);
+    expect(afterIframes).toBeLessThanOrEqual(LIVE_IFRAME_BUDGET);
+    expect(placeholders).toBeGreaterThanOrEqual(
+      SCREEN_COUNT - LIVE_IFRAME_BUDGET,
+    );
+    expect(
+      (perf?.iframeAdded ?? 0) + (perf?.iframeRemoved ?? 0),
+    ).toBeLessThanOrEqual(12);
+    expect(perf?.iframeLoads ?? 0).toBeLessThanOrEqual(6);
+  } finally {
+    if (designId)
+      await postAction(context.request, origin, "delete-design", {
+        id: designId,
+      }).catch(() => undefined);
+    await context.close();
+  }
+});
