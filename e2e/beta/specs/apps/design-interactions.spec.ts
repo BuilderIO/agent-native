@@ -756,18 +756,25 @@ test.describe("authenticated beta Design interactions", () => {
       if (typeof fileId !== "string")
         throw new Error("index.html file was not created");
 
-      const apply = async (nodeId: string, value: string) =>
-        postAction(page, "apply-component-prop-edit", {
-          designId,
-          fileId,
-          nodeId,
-          edit: {
-            kind: "attribute",
-            attribute: "data-agent-native-prop-variant",
-            value,
-          },
-          source: { expectedFiles: await expectedHtmlFiles(page, designId) },
-        });
+      const apply = async (nodeId: string, value: string) => {
+        let result: any;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          result = await postAction(page, "apply-component-prop-edit", {
+            designId,
+            fileId,
+            nodeId,
+            edit: {
+              kind: "attribute",
+              attribute: "data-agent-native-prop-variant",
+              value,
+            },
+            source: { expectedFiles: await expectedHtmlFiles(page, designId) },
+          });
+          if (!result.conflict) return result;
+          await page.waitForTimeout(500);
+        }
+        return result;
+      };
 
       const mainEdit = await apply("component-main", "secondary");
       expect(mainEdit.persisted, JSON.stringify(mainEdit)).toBe(true);
