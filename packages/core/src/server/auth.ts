@@ -36,7 +36,10 @@ import {
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
-import type { H3AppShim } from "./framework-request-handler.js";
+import {
+  getPublicFrameworkPathname,
+  type H3AppShim,
+} from "./framework-request-handler.js";
 import {
   canonicalFrameworkPathname,
   getFrameworkRoutePrefix,
@@ -62,7 +65,9 @@ function toWebRequest(event: H3Event): Request {
       // Better Auth is configured with the PUBLIC base path (it builds its
       // own callback and verification URLs from it), so hand it the public
       // form of the internal pathname the boundary dispatched on.
-      const mountedPathname = publicFrameworkPath(ctx._mountedPathname);
+      const mountedPathname =
+        getPublicFrameworkPathname(event) ??
+        publicFrameworkPath(ctx._mountedPathname);
       if (url.pathname !== mountedPathname) {
         url.pathname = mountedPathname;
         const method = req.method.toUpperCase();

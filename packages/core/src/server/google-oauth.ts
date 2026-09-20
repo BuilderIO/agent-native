@@ -32,6 +32,7 @@ import {
 } from "./better-auth-instance.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
+import { getPublicFrameworkPathname } from "./framework-request-handler.js";
 import {
   canonicalFrameworkPathname,
   isRetiredInternalFrameworkPath,
@@ -422,6 +423,9 @@ function isFrameworkOAuthCallbackPath(pathname: string): boolean {
 }
 
 function getOriginalRequestPath(event: H3Event): string {
+  const publicPathname = getPublicFrameworkPathname(event);
+  if (publicPathname) return publicPathname;
+
   const mountedPathname = (event as any).context?._mountedPathname;
   if (typeof mountedPathname === "string" && mountedPathname) {
     return mountedPathname;
@@ -449,9 +453,12 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
   const basePath = getAppBasePath();
   if (!basePath) return false;
   const requestPath = getOriginalRequestPath(event);
-  return (
-    requestPath === `${basePath}/_agent-native` ||
-    requestPath.startsWith(`${basePath}/_agent-native/`)
+  const frameworkPrefixes = [
+    `${basePath}/_agent-native`,
+    `${basePath}${publicFrameworkPath("/_agent-native")}`,
+  ];
+  return frameworkPrefixes.some(
+    (prefix) => requestPath === prefix || requestPath.startsWith(`${prefix}/`),
   );
 }
 

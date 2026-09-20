@@ -5661,8 +5661,9 @@ describe("server/auth", () => {
         },
         headers: request.headers,
         context: {
-          _mountedPathname: fullPath,
-          _mountPrefix: "/docs/_agent-native/auth/ba",
+          _mountedPathname: "/_agent-native/auth/ba/sign-in/email",
+          _frameworkPublicPathname: "/docs/_platform/auth/ba/sign-in/email",
+          _mountPrefix: "/_agent-native/auth/ba",
         },
         path: "/sign-in/email",
       };
