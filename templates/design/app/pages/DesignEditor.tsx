@@ -15391,11 +15391,19 @@ function DesignEditor() {
           canEditDesign,
           clearPendingOverviewLayerSelectionTimer,
           codeLayerOwnerByNodeIdRef,
+          clearPendingHistory: clearPendingHistoryDirections,
           contentUndoStackRef,
           contentHistorySelectionAfterRef,
           designSourceType,
           fileHistoryMutationPendingRef,
           fileSaveOperationRevisionRef,
+          getCurrentFileSnapshot: (fileId) => {
+            const file = rawServerFilesByIdRef.current.get(fileId);
+            return {
+              content: file?.content ?? "",
+              updatedAt: file?.updatedAt,
+            };
+          },
           getCurrentSelectionFingerprint: () => {
             const selectedElement = selectedElementRef.current;
             const selectedElementSourceScreenId =
@@ -15465,6 +15473,7 @@ function DesignEditor() {
       applyFileContentUpdate,
       boardFileId,
       canEditDesign,
+      clearPendingHistoryDirections,
       clearPendingOverviewLayerSelectionTimer,
       getScreenContent,
       id,

@@ -97,6 +97,10 @@ export function absolutePlacePointForDrop(args: {
 }
 
 export interface CrossScreenElementDropArgs {
+  getCurrentFileSnapshot?: (fileId: string) => {
+    content: string;
+    updatedAt?: string | null;
+  };
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -140,6 +144,7 @@ export interface CrossScreenElementDropArgs {
   contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
   contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
+  clearPendingHistory?: () => void;
   syncUndoRedoState?: () => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   sendRuntimeLayerMoveSemanticHandoff: (
@@ -172,6 +177,7 @@ export function runCrossScreenElementDrop(
     codeLayerOwnerByNodeIdRef,
     designSourceType,
     fileHistoryMutationPendingRef,
+    getCurrentFileSnapshot,
     fileSaveOperationRevisionRef,
     getScreenContent,
     getCurrentSelectionFingerprint,
@@ -182,6 +188,7 @@ export function runCrossScreenElementDrop(
     contentUndoStackRef,
     contentHistorySelectionAfterRef,
     recordContentHistoryEntry,
+    clearPendingHistory,
     syncUndoRedoState,
     runtimeStructureInsertRevisionRef,
     sendRuntimeLayerMoveSemanticHandoff,
@@ -1095,10 +1102,29 @@ export function runCrossScreenElementDrop(
       refreshPreview: false,
       forcePreviewFullDocument: true,
       historyBeforeContent: targetPublication.content,
+      awaitSave: true,
     });
-    if (rollback.status !== "accepted")
+    if (rollback.status !== "accepted") {
       toast.error(t("designEditor.toasts.saveConflict"));
-    releasePendingHistory();
+      releasePendingHistory();
+      return;
+    }
+    if (!rollback.saveCompletion) {
+      releasePendingHistory();
+      return;
+    }
+    void rollback.saveCompletion.then(
+      (status) => {
+        if (status !== "persisted") {
+          toast.error(t("designEditor.toasts.saveConflict"));
+        }
+        releasePendingHistory();
+      },
+      () => {
+        toast.error(t("designEditor.toasts.saveConflict"));
+        releasePendingHistory();
+      },
+    );
     return;
   }
 
@@ -1110,26 +1136,62 @@ export function runCrossScreenElementDrop(
     [targetScreenId]: fileSaveOperationRevisionRef?.current[targetScreenId],
     [sourceScreenId]: fileSaveOperationRevisionRef?.current[sourceScreenId],
   };
+  const serverSnapshotsAtPublication = getCurrentFileSnapshot
+    ? {
+        [targetScreenId]: getCurrentFileSnapshot(targetScreenId),
+        [sourceScreenId]: getCurrentFileSnapshot(sourceScreenId),
+      }
+    : undefined;
   const isCurrentPublication = (
     fileId: string,
     publication: Extract<ApplyFileContentUpdateResult, { status: "accepted" }>,
-    savesPersisted = false,
   ) => {
     const expectedRevision = saveOperationRevisionsAtPublication[fileId];
     if (expectedRevision !== undefined && fileSaveOperationRevisionRef) {
-      return fileSaveOperationRevisionRef.current[fileId] === expectedRevision;
+      if (fileSaveOperationRevisionRef.current[fileId] !== expectedRevision) {
+        return false;
+      }
     }
-    if (savesPersisted) return true;
-    return getScreenContent(fileId) === publication.content;
+    const serverSnapshot = getCurrentFileSnapshot?.(fileId);
+    const initialServerSnapshot = serverSnapshotsAtPublication?.[fileId];
+    const currentContent = getScreenContent(fileId);
+    // A refetch can repaint stale bytes after the optimistic overlay retires;
+    // an unchanged server revision is still the same publication. A changed
+    // server revision with different bytes is an authoritative peer update.
+    if (
+      serverSnapshot &&
+      initialServerSnapshot &&
+      serverSnapshot.updatedAt !== initialServerSnapshot.updatedAt &&
+      serverSnapshot.content !== publication.content
+    ) {
+      return false;
+    }
+    return (
+      currentContent === publication.content ||
+      serverSnapshot?.content === publication.content ||
+      Boolean(
+        serverSnapshot &&
+        initialServerSnapshot &&
+        serverSnapshot.updatedAt === initialServerSnapshot.updatedAt,
+      )
+    );
   };
-  const canFinalizePublication = (savesPersisted = false) =>
-    isCurrentPublication(targetScreenId, targetPublication, savesPersisted) &&
-    isCurrentPublication(sourceScreenId, sourcePublication, savesPersisted);
+  const canFinalizePublication = () => {
+    const targetCurrent = isCurrentPublication(
+      targetScreenId,
+      targetPublication,
+    );
+    const sourceCurrent = isCurrentPublication(
+      sourceScreenId,
+      sourcePublication,
+    );
+    return targetCurrent && sourceCurrent;
+  };
 
-  const finalizePublication = (savesPersisted = false) => {
+  const finalizePublication = () => {
     // Save completion is asynchronous. Do not append stale whole-document
     // history; selection restoration is guarded separately below.
-    if (!canFinalizePublication(savesPersisted)) return;
+    if (!canFinalizePublication()) return;
     // History must replay the bytes the publisher accepted. Canonical identity
     // publication may stamp IDs into submitted HTML, and the post-action
     // selection snapshot must resolve against those same final documents.
@@ -1241,11 +1303,12 @@ export function runCrossScreenElementDrop(
     const saveFailed =
       targetResult.status === "rejected" || sourceResult.status === "rejected";
     if (targetSaved && sourceSaved) {
-      finalizePublication(true);
+      finalizePublication();
       releasePendingHistory();
       return;
     }
     if (retryableSave) {
+      clearPendingHistory?.();
       releasePendingHistory();
       return;
     }
