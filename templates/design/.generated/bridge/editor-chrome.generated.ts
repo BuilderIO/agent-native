@@ -2796,19 +2796,31 @@ export const editorChromeBridgeScript: string = `"use strict";
       return false;
     }
     var portableStyleProbeDoc;
+    var portableStyleProbeUsesFallback = false;
     function portableStyleProbeDocument() {
       if (portableStyleProbeDoc !== void 0) return portableStyleProbeDoc;
+      if (!document.body) return null;
+      var frame;
       try {
-        var frame = document.createElement("iframe");
+        frame = document.createElement("iframe");
         frame.setAttribute("aria-hidden", "true");
         frame.tabIndex = -1;
         frame.style.cssText = "position:fixed!important;width:0!important;height:0!important;border:0!important;visibility:hidden!important;pointer-events:none!important;";
         document.body.appendChild(frame);
-        portableStyleProbeDoc = frame.contentDocument;
-      } catch (_err) {
-        portableStyleProbeDoc = null;
+        var probeDoc = frame.contentDocument;
+        if (probeDoc) {
+          portableStyleProbeDoc = probeDoc;
+        } else {
+          frame.remove();
+          portableStyleProbeDoc = document;
+          portableStyleProbeUsesFallback = true;
+        }
+      } catch (err) {
+        frame?.remove();
+        console.warn("Portable style probe unavailable", err);
+        return null;
       }
-      return portableStyleProbeDoc;
+      return portableStyleProbeDoc ?? null;
     }
     var portableStyleTagDefaultsCache = {};
     function portableStyleTagDefaults(el) {
@@ -2821,6 +2833,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         return null;
       }
       var probe = el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml" ? probeDoc.createElementNS(el.namespaceURI, el.tagName) : probeDoc.createElement(el.tagName);
+      if (portableStyleProbeUsesFallback) {
+        probe.setAttribute(
+          "style",
+          "all: revert !important;position: fixed !important;width: 0 !important;height: 0 !important;visibility: hidden !important;pointer-events: none !important;"
+        );
+      }
       probeDoc.body.appendChild(probe);
       var probeWindow = probeDoc.defaultView || window;
       var probeCs = probeWindow.getComputedStyle(probe);
@@ -10404,7 +10422,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (phase === "start") {
-        activeCrossScreenStyleSnapshot = options?.styleSnapshot ?? collectPortableStyleSnapshot(el ?? null);
+        activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -12912,9 +12930,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var originalSelectedEl = selectedEl;
       var duplicatedForDrag = false;
+      var duplicateStyleSnapshot;
       var duplicatedSourceNodeIdMap;
       var duplicateGrabOffset = null;
       if (e.altKey && selectedEl && selectedEl !== document.body && selectedEl !== document.documentElement) {
+        duplicateStyleSnapshot = collectPortableStyleSnapshot(selectedEl);
         var grabbedRect = selectedEl.getBoundingClientRect();
         var clone = selectedEl.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
@@ -13976,6 +13996,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!isGroupDrag) {
         postCrossScreenDrag("start", dragEl, pointerStartParam || e, {
           duplicate: duplicatedForDrag,
+          styleSnapshot: duplicateStyleSnapshot,
           modifiers: {
             metaKey: !!e.metaKey,
             ctrlKey: !!e.ctrlKey,
@@ -14018,6 +14039,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       function activateLateDuplicate(ev) {
         if (duplicatedForDrag || isGroupDrag || !originalSelectedEl) return;
         var source = originalSelectedEl;
+        duplicateStyleSnapshot = collectPortableStyleSnapshot(source);
         var sourceState = memberStates.filter(function(state) {
           return state.el === source;
         })[0];
@@ -14078,7 +14100,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         currentAutoLayoutTarget = null;
         crossScreenClaimedByHost = false;
         postCrossScreenDrag("cancel");
-        postCrossScreenDrag("start", clone2, ev, { duplicate: true });
+        postCrossScreenDrag("start", clone2, ev, {
+          duplicate: true,
+          styleSnapshot: duplicateStyleSnapshot
+        });
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
       }

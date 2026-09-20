@@ -2900,22 +2900,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // namespace since a portable-style snapshot walks up to 80 descendants
   // per drag.
   var portableStyleProbeDoc: Document | null | undefined;
+  var portableStyleProbeUsesFallback = false;
 
   function portableStyleProbeDocument(): Document | null {
     if (portableStyleProbeDoc !== undefined) return portableStyleProbeDoc;
+    if (!document.body) return null;
+    var frame: HTMLIFrameElement | undefined;
     try {
-      var frame = document.createElement("iframe");
+      frame = document.createElement("iframe");
       frame.setAttribute("aria-hidden", "true");
       frame.tabIndex = -1;
       frame.style.cssText =
         "position:fixed!important;width:0!important;height:0!important;" +
         "border:0!important;visibility:hidden!important;pointer-events:none!important;";
       document.body.appendChild(frame);
-      portableStyleProbeDoc = frame.contentDocument;
-    } catch (_err) {
-      portableStyleProbeDoc = null;
+      var probeDoc = frame.contentDocument;
+      if (probeDoc) {
+        portableStyleProbeDoc = probeDoc;
+      } else {
+        frame.remove();
+        // URL previews are sandboxed without allow-same-origin, so a child
+        // probe iframe has no readable document. Revert author styles on a
+        // same-document probe instead; this keeps UA defaults measurable.
+        portableStyleProbeDoc = document;
+        portableStyleProbeUsesFallback = true;
+      }
+    } catch (err) {
+      frame?.remove();
+      console.warn("Portable style probe unavailable", err);
+      return null;
     }
-    return portableStyleProbeDoc;
+    return portableStyleProbeDoc ?? null;
   }
 
   var portableStyleTagDefaultsCache: Record<
@@ -2949,6 +2964,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml"
         ? probeDoc.createElementNS(el.namespaceURI, el.tagName)
         : probeDoc.createElement(el.tagName);
+    if (portableStyleProbeUsesFallback) {
+      probe.setAttribute(
+        "style",
+        "all: revert !important;position: fixed !important;width: 0 !important;height: 0 !important;visibility: hidden !important;pointer-events: none !important;",
+      );
+    }
     probeDoc.body.appendChild(probe);
     var probeWindow = probeDoc.defaultView || window;
     var probeCs = probeWindow.getComputedStyle(probe);
@@ -14230,7 +14251,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (phase === "start") {
       activeCrossScreenStyleSnapshot =
-        options?.styleSnapshot ?? collectPortableStyleSnapshot(el ?? null);
+        options?.styleSnapshot !== undefined
+          ? options.styleSnapshot
+          : collectPortableStyleSnapshot(el ?? null);
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -18341,6 +18364,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var originalSelectedEl = selectedEl;
     var duplicatedForDrag = false;
+    var duplicateStyleSnapshot;
     var duplicatedSourceNodeIdMap: Array<[string, string]> | undefined;
     // Client-space vector from the clone's own layout box back to the box the
     // pointer grabbed. A flow clone is inserted one slot after its source, so
@@ -18355,6 +18379,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectedEl !== document.body &&
       selectedEl !== document.documentElement
     ) {
+      duplicateStyleSnapshot = collectPortableStyleSnapshot(selectedEl);
       var grabbedRect = selectedEl.getBoundingClientRect();
       var clone = selectedEl.cloneNode(true);
       duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
@@ -19890,6 +19915,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!isGroupDrag) {
       postCrossScreenDrag("start", dragEl, pointerStartParam || e, {
         duplicate: duplicatedForDrag,
+        styleSnapshot: duplicateStyleSnapshot,
         modifiers: {
           metaKey: !!e.metaKey,
           ctrlKey: !!e.ctrlKey,
@@ -19947,6 +19973,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function activateLateDuplicate(ev): void {
       if (duplicatedForDrag || isGroupDrag || !originalSelectedEl) return;
       var source = originalSelectedEl as HTMLElement;
+      duplicateStyleSnapshot = collectPortableStyleSnapshot(source);
       var sourceState = memberStates.filter(function (state) {
         return state.el === source;
       })[0];
@@ -20015,7 +20042,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       currentAutoLayoutTarget = null;
       crossScreenClaimedByHost = false;
       postCrossScreenDrag("cancel");
-      postCrossScreenDrag("start", clone, ev, { duplicate: true });
+      postCrossScreenDrag("start", clone, ev, {
+        duplicate: true,
+        styleSnapshot: duplicateStyleSnapshot,
+      });
       positionOverlay(selectionOverlay, selectedEl);
       postElementSelect(selectedEl);
     }
