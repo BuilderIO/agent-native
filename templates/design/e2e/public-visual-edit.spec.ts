@@ -497,7 +497,6 @@ test.describe.serial("public visual edit", () => {
       } finally {
         await modeMarkerDirect.close();
       }
-
       const consentRequest = await signedOut.page.evaluate(
         async ({ designId, connectionId }) => {
           const helper = (

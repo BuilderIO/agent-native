@@ -13,6 +13,7 @@ import {
   test,
   type APIRequestContext,
   type Frame,
+  type Locator,
   type Page,
 } from "@playwright/test";
 
@@ -127,6 +128,28 @@ function boardFrame(page: Page) {
 
 function center(box: { x: number; y: number; width: number; height: number }) {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+async function displayedFrameContentBox(
+  iframe: Locator,
+  frame: Frame,
+  locator: Locator,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const [iframeBox, localBox, viewport] = await Promise.all([
+    iframe.boundingBox(),
+    locator.evaluate((element) => element.getBoundingClientRect().toJSON()),
+    frame.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    })),
+  ]);
+  if (!iframeBox) throw new Error("preview iframe has no rendered box");
+  return {
+    x: iframeBox.x + (localBox.x / viewport.width) * iframeBox.width,
+    y: iframeBox.y + (localBox.y / viewport.height) * iframeBox.height,
+    width: (localBox.width / viewport.width) * iframeBox.width,
+    height: (localBox.height / viewport.height) * iframeBox.height,
+  };
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -376,7 +399,11 @@ test("URL-backed nested drops stay pending and root-frame Option-drag duplicates
   const rootFrame = activeFrame.locator(
     '[data-agent-native-node-id="root-frame"]',
   );
-  const rootBefore = (await rootFrame.boundingBox())!;
+  const rootBefore = await displayedFrameContentBox(
+    screenFrame(page, activeScreenId),
+    activeFrame,
+    rootFrame,
+  );
   await page.mouse.click(
     rootBefore.x + rootBefore.width / 2,
     rootBefore.y + rootBefore.height / 2,

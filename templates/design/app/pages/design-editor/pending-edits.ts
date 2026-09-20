@@ -161,6 +161,24 @@ export function mergePendingLiveNonStyleEdits(
         merged.splice(supersededInsertIndex, 1);
         continue;
       }
+      if (edit.transactionId) {
+        const transactionIndex = merged.findIndex(
+          (candidate) =>
+            candidate.kind === "structure" &&
+            candidate.transactionId === edit.transactionId,
+        );
+        if (transactionIndex !== -1) {
+          const previous = merged[transactionIndex] as PendingLiveStructureEdit;
+          merged[transactionIndex] = {
+            ...edit,
+            groupedEdits: [
+              ...(previous.groupedEdits ?? [previous]),
+              ...(edit.groupedEdits ?? [edit]),
+            ],
+          };
+          continue;
+        }
+      }
       merged.push(edit);
       continue;
     }
@@ -315,6 +333,22 @@ export interface PendingLiveStructureEdit {
   forceFlowPositionOverride?: boolean;
   sourceRect?: { x: number; y: number; width: number; height: number };
   anchorRect?: { x: number; y: number; width: number; height: number };
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements?: Array<{
+    sourceId?: string;
+    selector?: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
   /**
    * Markup this edit ADDED to the running app. Present only for a drop whose
    * subject had no counterpart in the screen's source, so the coding agent
@@ -340,6 +374,8 @@ export interface PendingLiveStructureEdit {
    */
   removed?: true;
   requestId?: string;
+  transactionId?: string;
+  groupedEdits?: PendingLiveStructureEdit[];
   updatedAt: number;
 }
 
@@ -592,6 +628,7 @@ export type PendingLiveTextUndoEntry = {
 export type PendingLiveStructureUndoEntry = {
   kind: "structure";
   edit: PendingLiveStructureEdit;
+  groupedEdits?: PendingLiveStructureEdit[];
 };
 export type PendingLiveLayerStateUndoEntry = {
   kind: "layer-state";
@@ -699,7 +736,46 @@ export function appendPendingLiveNonStyleUndoEntry(
     last.edit = entry.edit;
     return;
   }
+  if (
+    last?.kind === "structure" &&
+    entry.kind === "structure" &&
+    entry.edit.transactionId &&
+    last.edit.transactionId === entry.edit.transactionId
+  ) {
+    last.groupedEdits = [
+      ...(last.groupedEdits ?? [last.edit]),
+      ...pendingLiveStructureEditsFromUndoEntry(entry),
+    ];
+    last.edit = entry.edit;
+    return;
+  }
   stack.push(entry);
+}
+
+export function pendingLiveStructureEditsFromUndoEntry(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit[] {
+  return entry.groupedEdits ?? pendingLiveStructureEditsFromEdit(entry.edit);
+}
+
+export function pendingLiveStructureEditsFromEdit(
+  edit: PendingLiveStructureEdit,
+): PendingLiveStructureEdit[] {
+  return edit.groupedEdits ?? [edit];
+}
+
+export function pendingLiveNonStyleEditsFromUndoStack(
+  stack: readonly PendingLiveNonStyleUndoEntry[],
+): PendingLiveNonStyleEdit[] {
+  const edits: PendingLiveNonStyleEdit[] = [];
+  for (const entry of stack) {
+    if (entry.kind === "structure") {
+      edits.push(...pendingLiveStructureEditsFromUndoEntry(entry));
+    } else {
+      edits.push(entry.edit);
+    }
+  }
+  return edits;
 }
 
 /**
@@ -712,18 +788,18 @@ export function appendPendingLiveNonStyleUndoEntry(
 export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {
-  const required = [
-    ...(edit.insertedHtml && !edit.replaced
+  const required = pendingLiveStructureEditsFromEdit(edit).flatMap((member) => [
+    ...(member.insertedHtml && !member.replaced
       ? []
-      : [edit.sourceAnchor?.relPath ?? edit.sourceAnchor?.ownerRelPath]),
-    ...(edit.removed || edit.replaced
+      : [member.sourceAnchor?.relPath ?? member.sourceAnchor?.ownerRelPath]),
+    ...(member.removed || member.replaced
       ? []
       : [
-          edit.anchorSourceAnchor?.relPath ??
-            edit.anchorSourceAnchor?.ownerRelPath ??
-            (edit.insertedHtml ? edit.routeSourceFile : undefined),
+          member.anchorSourceAnchor?.relPath ??
+            member.anchorSourceAnchor?.ownerRelPath ??
+            (member.insertedHtml ? member.routeSourceFile : undefined),
         ]),
-  ];
+  ]);
   if (required.some((path) => !path)) return null;
   return required as string[];
 }
@@ -1226,6 +1302,12 @@ export function formatPendingVisualStylePrompt(args: {
                       : edit.dropMode === "absolute-container"
                         ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
                         : "Preserve the runtime layout behavior observed in the preview.",
+                    edit.gridPlacement
+                      ? `The target is grid cell column ${edit.gridPlacement.column} / ${edit.gridPlacement.columnEnd}, row ${edit.gridPlacement.row} / ${edit.gridPlacement.rowEnd}; preserve this explicit placement in source.`
+                      : "",
+                    edit.gridDisplacements?.length
+                      ? `The target cell was occupied; move ${edit.gridDisplacements.length} displaced element(s) into the recorded free grid cells.`
+                      : "",
                   ].join(" "),
                   sourceAnchors: [subjectAnchor, targetAnchor],
                   runtimeRelationship: {
@@ -1252,6 +1334,29 @@ export function formatPendingVisualStylePrompt(args: {
       screenId: edit.screenId,
       screen: nameScreen(edit.screenId, edit.filename),
       screenName: edit.screenName,
+      ...(edit.transactionId ? { transactionId: edit.transactionId } : {}),
+      ...(edit.groupedEdits
+        ? {
+            groupedEdits: edit.groupedEdits.map((member) => ({
+              selector: member.selector,
+              sourceId: member.sourceId ?? null,
+              sourceAnchor: redactReactSourceAnchor(member.sourceAnchor),
+              anchorSelector: member.anchorSelector,
+              anchorSourceId: member.anchorSourceId ?? null,
+              anchorSourceAnchor: redactReactSourceAnchor(
+                member.anchorSourceAnchor,
+              ),
+              placement: member.placement,
+              ...(member.dropMode ? { dropMode: member.dropMode } : {}),
+              ...(member.gridPlacement
+                ? { gridPlacement: member.gridPlacement }
+                : {}),
+              ...(member.gridDisplacements
+                ? { gridDisplacements: member.gridDisplacements }
+                : {}),
+            })),
+          }
+        : {}),
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
@@ -1291,6 +1396,10 @@ export function formatPendingVisualStylePrompt(args: {
         : {}),
       ...(edit.sourceRect ? { sourceRect: edit.sourceRect } : {}),
       ...(edit.anchorRect ? { anchorRect: edit.anchorRect } : {}),
+      ...(edit.gridPlacement ? { gridPlacement: edit.gridPlacement } : {}),
+      ...(edit.gridDisplacements
+        ? { gridDisplacements: edit.gridDisplacements }
+        : {}),
       ...(insertedHtml
         ? {
             insertedHtml: insertedHtml.value,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   designConnectionIdFromData,
+  designConnectionIdsFromData,
   designSourceTypeFromData,
   makeLocalhostRouteId,
   normalizeDesignSourceType,
@@ -54,6 +55,18 @@ describe("source mode helpers", () => {
       ),
     ).toBe("legacy");
     expect(designConnectionIdFromData("not-json")).toBeUndefined();
+    expect(
+      designConnectionIdsFromData({
+        connectionId: "primary",
+        screenMetadata: {
+          first: { connectionId: "primary" },
+          second: { connectionId: "secondary" },
+        },
+        localhostScreens: {
+          third: { connectionId: "legacy" },
+        },
+      }),
+    ).toEqual(["primary", "secondary", "legacy"]);
   });
 
   it("creates stable ids and titles for localhost route artboards", () => {

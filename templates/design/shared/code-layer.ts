@@ -1913,6 +1913,11 @@ function setStyleDeclaration(
     );
   }
   const key = cssPropertyKey(property);
+  if (key === "grid-column") {
+    removeStyleDeclarations(parsed, ["grid-column-start", "grid-column-end"]);
+  } else if (key === "grid-row") {
+    removeStyleDeclarations(parsed, ["grid-row-start", "grid-row-end"]);
+  }
   const matches = parsed.declarations.filter(
     (declaration) => cssPropertyKey(declaration.prop) === key,
   );

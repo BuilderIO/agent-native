@@ -76,6 +76,7 @@ import {
   vectorEditCanvasToLocalPoint,
   vectorEditLocalToCanvasPoint,
 } from "./multi-screen/vector-edit-geometry";
+import { isApplePlatform } from "./MultiScreenCanvas";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,6 +88,37 @@ type ScreenStub = {
   content: string;
   codeLayerSource?: CodeLayerSource;
 };
+
+describe("isApplePlatform", () => {
+  it("follows the physical platform over an emulated user-agent platform", () => {
+    const originalPlatform = navigator.platform;
+    const originalUserAgentData = (
+      navigator as Navigator & { userAgentData?: { platform?: string } }
+    ).userAgentData;
+
+    try {
+      Object.defineProperty(navigator, "platform", {
+        configurable: true,
+        value: "Win32",
+      });
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: { platform: "MacIntel" },
+      });
+
+      expect(isApplePlatform()).toBe(false);
+    } finally {
+      Object.defineProperty(navigator, "platform", {
+        configurable: true,
+        value: originalPlatform,
+      });
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: originalUserAgentData,
+      });
+    }
+  });
+});
 
 function makeGeom(x: number, y: number, w: number, h: number): FrameGeometry {
   return { x, y, width: w, height: h };

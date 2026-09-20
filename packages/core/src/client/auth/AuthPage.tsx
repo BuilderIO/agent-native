@@ -5,6 +5,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
+import { canonicalTrackingEvent } from "../../shared/analytics-events.js";
 import { getAppStatus } from "../../shared/app-status.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
@@ -331,24 +332,33 @@ function trackAuth(
         return "";
       }
     })();
-    const body = JSON.stringify({
-      publicKey: config.agentNativeAnalyticsPublicKey,
-      event: name,
-      properties: { app, ...properties },
-      anonymousId,
-      sessionId: sessionId || undefined,
-      timestamp: new Date().toISOString(),
-    });
     const endpoint =
       config.agentNativeAnalyticsEndpoint ??
       "https://analytics.agent-native.com/track";
-    if (navigator.sendBeacon?.(endpoint, body)) return;
-    void fetch(endpoint, {
-      method: "POST",
-      body,
-      keepalive: true,
-      headers: { "Content-Type": "text/plain;charset=UTF-8" },
-    }).catch(() => undefined);
+    const legacyProperties = { app, ...properties };
+    const events: Array<{
+      name: string;
+      properties: Record<string, unknown>;
+    }> = [{ name, properties: legacyProperties }];
+    const canonical = canonicalTrackingEvent(name, legacyProperties);
+    if (canonical) events.push(canonical);
+    for (const event of events) {
+      const body = JSON.stringify({
+        publicKey: config.agentNativeAnalyticsPublicKey,
+        event: event.name,
+        properties: event.properties,
+        anonymousId,
+        sessionId: sessionId || undefined,
+        timestamp: new Date().toISOString(),
+      });
+      if (navigator.sendBeacon?.(endpoint, body)) continue;
+      void fetch(endpoint, {
+        method: "POST",
+        body,
+        keepalive: true,
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      }).catch(() => undefined);
+    }
   } catch {
     // coercion-ok: analytics is best effort and cannot block authentication.
   }

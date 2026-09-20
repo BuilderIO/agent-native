@@ -84,6 +84,8 @@ import type {
 import {
   buildPendingVisualStyleRevertPatches,
   mergePendingLiveNonStyleEdits,
+  pendingLiveNonStyleEditsFromUndoStack,
+  pendingLiveStructureEditsFromUndoEntry,
   mergePendingVisualStyleEdits,
   pendingVisualStyleEditsFromUndoStack,
   pendingVisualStyleUndoTargets,
@@ -215,6 +217,7 @@ export interface RedoArgs {
     PendingLiveStructureUndoEntry | undefined
   >;
   pendingStructureRedoReplayTimerRef: RefObject<number | undefined>;
+  pendingStructureRedoPreparedEditsRef?: RefObject<unknown>;
   pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
@@ -388,6 +391,7 @@ export function runRedo({
   pendingLocalFileContentsRef,
   pendingStructureRedoReplayRef,
   pendingStructureRedoReplayTimerRef,
+  pendingStructureRedoPreparedEditsRef,
   pendingVisualStyleEditsRef,
   pendingVisualStyleRedoStackRef,
   pendingVisualStyleUndoStackRef,
@@ -488,7 +492,9 @@ export function runRedo({
         pendingNonStyleRedo,
       ];
       const nextPending = mergePendingLiveNonStyleEdits(
-        pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+        pendingLiveNonStyleEditsFromUndoStack(
+          pendingLiveNonStyleUndoStackRef.current,
+        ),
       );
       pendingLiveNonStyleEditsRef.current = nextPending;
       setPendingLiveNonStyleEdits(nextPending);
@@ -515,6 +521,9 @@ export function runRedo({
       }
       pendingStructureRedoReplayTimerRef.current = window.setTimeout(() => {
         pendingStructureRedoReplayRef.current = undefined;
+        if (pendingStructureRedoPreparedEditsRef) {
+          pendingStructureRedoPreparedEditsRef.current = undefined;
+        }
         pendingStructureRedoReplayTimerRef.current = undefined;
         syncUndoRedoState();
       }, 1_000);
@@ -522,24 +531,50 @@ export function runRedo({
       return;
     }
     runtimeStructureMoveRevisionRef.current += 1;
+    const replayEdits =
+      pendingLiveStructureEditsFromUndoEntry(pendingNonStyleRedo);
+    const firstReplayEdit = replayEdits[0] ?? pendingNonStyleRedo.edit;
     setRuntimeStructureMoveRequest({
       requestId: runtimeStructureMoveRevisionRef.current,
-      screenId: pendingNonStyleRedo.edit.screenId,
+      screenId: firstReplayEdit.screenId,
       subject: {
-        selector: pendingNonStyleRedo.edit.selector,
-        sourceId: pendingNonStyleRedo.edit.sourceId ?? undefined,
+        selector: firstReplayEdit.selector,
+        sourceId: firstReplayEdit.sourceId ?? undefined,
       },
       anchor: {
-        selector: pendingNonStyleRedo.edit.anchorSelector,
-        sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
+        selector: firstReplayEdit.anchorSelector,
+        sourceId: firstReplayEdit.anchorSourceId ?? undefined,
       },
-      placement: pendingNonStyleRedo.edit.placement,
+      placement: firstReplayEdit.placement,
+      transactionId: firstReplayEdit.transactionId,
+      gridPlacement: firstReplayEdit.gridPlacement,
+      gridDisplacements: firstReplayEdit.gridDisplacements,
+      moves:
+        replayEdits.length > 1
+          ? replayEdits.map((edit) => ({
+              subject: {
+                selector: edit.selector,
+                sourceId: edit.sourceId ?? undefined,
+              },
+              anchor: {
+                selector: edit.anchorSelector,
+                sourceId: edit.anchorSourceId ?? undefined,
+              },
+              placement: edit.placement,
+              transactionId: edit.transactionId,
+              gridPlacement: edit.gridPlacement,
+              gridDisplacements: edit.gridDisplacements,
+            }))
+          : undefined,
     });
     if (pendingStructureRedoReplayTimerRef.current !== undefined) {
       window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
     }
     pendingStructureRedoReplayTimerRef.current = window.setTimeout(() => {
       pendingStructureRedoReplayRef.current = undefined;
+      if (pendingStructureRedoPreparedEditsRef) {
+        pendingStructureRedoPreparedEditsRef.current = undefined;
+      }
       pendingStructureRedoReplayTimerRef.current = undefined;
       syncUndoRedoState();
     }, 1_000);
@@ -556,7 +591,9 @@ export function runRedo({
       pendingNonStyleRedo,
     ];
     const nextPending = mergePendingLiveNonStyleEdits(
-      pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+      pendingLiveNonStyleEditsFromUndoStack(
+        pendingLiveNonStyleUndoStackRef.current,
+      ),
     );
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingLayerStateReplayRequest({
@@ -585,7 +622,9 @@ export function runRedo({
       pendingTextRedo,
     ];
     const nextPending = mergePendingLiveNonStyleEdits(
-      pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+      pendingLiveNonStyleEditsFromUndoStack(
+        pendingLiveNonStyleUndoStackRef.current,
+      ),
     );
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingTextRevertRequest({

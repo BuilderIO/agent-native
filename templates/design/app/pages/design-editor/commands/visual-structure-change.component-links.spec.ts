@@ -40,21 +40,22 @@ describe("runVisualStructureChange linked component routing", () => {
 
     expect(result).toBe(true);
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
-    expect(applyLinkedComponentEdit).toHaveBeenCalledExactlyOnceWith(
-      source.fileId,
-      "main",
-      {
-        kind: "structure",
-        intents: [
-          {
-            kind: "moveNode",
-            target: { nodeId: "target" },
-            anchor: { nodeId: "anchor" },
-            placement: "after",
-          },
-        ],
-      },
-    );
+    expect(applyLinkedComponentEdit).toHaveBeenCalledOnce();
+    const [fileId, nodeId, edit] = applyLinkedComponentEdit.mock.calls[0]!;
+    expect([fileId, nodeId]).toEqual([source.fileId, "main"]);
+    expect(edit).toMatchObject({
+      kind: "structure",
+      before: content,
+      selectionNodeIds: ["target"],
+    });
+    const main = new DOMParser()
+      .parseFromString(edit.after, "text/html")
+      .querySelector("main");
+    expect(
+      Array.from(main?.children ?? [], (child) =>
+        child.getAttribute("data-agent-native-node-id"),
+      ),
+    ).toEqual(["anchor", "target"]);
   });
 
   it("uses a source snapshot when pointer positioning adds exact geometry", () => {

@@ -102,6 +102,21 @@ Score interpretation: 0-20 healthy, 20-40 friction, 40-60 dissatisfied, 60+ brok
 
 Satisfaction scoring fires automatically after each feedback POST with a threadId.
 
+### Human audit and refinement
+
+For a human output audit, provide one table row per run with a distilled ask,
+result, inferred or explicit sentiment, audit state, and app-native preview. The
+same row contract works for standalone app and workspace roll-ups; keep
+single-app surfaces independent of workspace chrome.
+
+Treat ordinary feedback separately from admin audit verdicts. Only admins can
+vote, mark audited, approve improvements, or apply them, enforced server-side
+with app-scoped roles. Let admins add reasons to downvotes across many rows,
+then run one synthesis that groups patterns, cites evidence, suggests update
+targets (skills, instructions, memories, data dictionaries, certified
+dashboards, or creative context), and shows before/after diffs. Allow feedback
+and regeneration before explicit approval; never auto-apply.
+
 ### 3. Evals
 
 Three layers, configured via `evalSampleRate` in the observability config:

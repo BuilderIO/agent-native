@@ -97,6 +97,10 @@ export function absolutePlacePointForDrop(args: {
 }
 
 export interface CrossScreenElementDropArgs {
+  getCurrentFileSnapshot?: (fileId: string) => {
+    content: string;
+    updatedAt?: string | null;
+  };
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -130,6 +134,7 @@ export interface CrossScreenElementDropArgs {
   >;
   designSourceType: "inline" | "localhost" | "fusion";
   fileSaveOperationRevisionRef?: RefObject<Record<string, number>>;
+  fileHistoryMutationPendingRef?: RefObject<boolean>;
   getScreenContent: (screenId: string) => string;
   getCurrentSelectionFingerprint?: () => string;
   id: string | undefined;
@@ -139,6 +144,8 @@ export interface CrossScreenElementDropArgs {
   contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
   contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
+  clearPendingHistory?: () => void;
+  syncUndoRedoState?: () => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
@@ -169,6 +176,8 @@ export function runCrossScreenElementDrop(
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
+    fileHistoryMutationPendingRef,
+    getCurrentFileSnapshot,
     fileSaveOperationRevisionRef,
     getScreenContent,
     getCurrentSelectionFingerprint,
@@ -179,6 +188,8 @@ export function runCrossScreenElementDrop(
     contentUndoStackRef,
     contentHistorySelectionAfterRef,
     recordContentHistoryEntry,
+    clearPendingHistory,
+    syncUndoRedoState,
     runtimeStructureInsertRevisionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setActiveFileId,
@@ -1046,6 +1057,16 @@ export function runCrossScreenElementDrop(
       after: nextDestContent,
     },
   ];
+  if (fileHistoryMutationPendingRef?.current) return;
+  const releasePendingHistory = () => {
+    if (!fileHistoryMutationPendingRef) return;
+    fileHistoryMutationPendingRef.current = false;
+    syncUndoRedoState?.();
+  };
+  if (fileHistoryMutationPendingRef) {
+    fileHistoryMutationPendingRef.current = true;
+    syncUndoRedoState?.();
+  }
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
     nextDestContent,
@@ -1058,7 +1079,10 @@ export function runCrossScreenElementDrop(
       awaitSave: true,
     },
   );
-  if (targetPublication.status !== "accepted") return;
+  if (targetPublication.status !== "accepted") {
+    releasePendingHistory();
+    return;
+  }
 
   const sourcePublication = applyFileContentUpdate(
     sourceScreenId,
@@ -1078,9 +1102,29 @@ export function runCrossScreenElementDrop(
       refreshPreview: false,
       forcePreviewFullDocument: true,
       historyBeforeContent: targetPublication.content,
+      awaitSave: true,
     });
-    if (rollback.status !== "accepted")
+    if (rollback.status !== "accepted") {
       toast.error(t("designEditor.toasts.saveConflict"));
+      releasePendingHistory();
+      return;
+    }
+    if (!rollback.saveCompletion) {
+      releasePendingHistory();
+      return;
+    }
+    void rollback.saveCompletion.then(
+      (status) => {
+        if (status !== "persisted") {
+          toast.error(t("designEditor.toasts.saveConflict"));
+        }
+        releasePendingHistory();
+      },
+      () => {
+        toast.error(t("designEditor.toasts.saveConflict"));
+        releasePendingHistory();
+      },
+    );
     return;
   }
 
@@ -1092,23 +1136,61 @@ export function runCrossScreenElementDrop(
     [targetScreenId]: fileSaveOperationRevisionRef?.current[targetScreenId],
     [sourceScreenId]: fileSaveOperationRevisionRef?.current[sourceScreenId],
   };
+  const serverSnapshotsAtPublication = getCurrentFileSnapshot
+    ? {
+        [targetScreenId]: getCurrentFileSnapshot(targetScreenId),
+        [sourceScreenId]: getCurrentFileSnapshot(sourceScreenId),
+      }
+    : undefined;
   const isCurrentPublication = (
     fileId: string,
     publication: Extract<ApplyFileContentUpdateResult, { status: "accepted" }>,
-  ) =>
-    getScreenContent(fileId) === publication.content &&
-    (fileSaveOperationRevisionRef === undefined ||
-      fileSaveOperationRevisionRef.current[fileId] ===
-        saveOperationRevisionsAtPublication[fileId]);
-  const canFinalizePublication = () =>
-    isCurrentPublication(targetScreenId, targetPublication) &&
-    isCurrentPublication(sourceScreenId, sourcePublication) &&
-    (selectionFingerprintAtPublication === undefined ||
-      selectionFingerprintAtPublication === getCurrentSelectionFingerprint?.());
+  ) => {
+    const expectedRevision = saveOperationRevisionsAtPublication[fileId];
+    if (expectedRevision !== undefined && fileSaveOperationRevisionRef) {
+      if (fileSaveOperationRevisionRef.current[fileId] !== expectedRevision) {
+        return false;
+      }
+    }
+    const serverSnapshot = getCurrentFileSnapshot?.(fileId);
+    const initialServerSnapshot = serverSnapshotsAtPublication?.[fileId];
+    const currentContent = getScreenContent(fileId);
+    // A refetch can repaint stale bytes after the optimistic overlay retires;
+    // an unchanged server revision is still the same publication. A changed
+    // server revision with different bytes is an authoritative peer update.
+    if (
+      serverSnapshot &&
+      initialServerSnapshot &&
+      serverSnapshot.updatedAt !== initialServerSnapshot.updatedAt &&
+      serverSnapshot.content !== publication.content
+    ) {
+      return false;
+    }
+    return (
+      currentContent === publication.content ||
+      serverSnapshot?.content === publication.content ||
+      Boolean(
+        serverSnapshot &&
+        initialServerSnapshot &&
+        serverSnapshot.updatedAt === initialServerSnapshot.updatedAt,
+      )
+    );
+  };
+  const canFinalizePublication = () => {
+    const targetCurrent = isCurrentPublication(
+      targetScreenId,
+      targetPublication,
+    );
+    const sourceCurrent = isCurrentPublication(
+      sourceScreenId,
+      sourcePublication,
+    );
+    return targetCurrent && sourceCurrent;
+  };
 
   const finalizePublication = () => {
     // Save completion is asynchronous. Do not append stale whole-document
-    // history or restore an old selection after a newer edit/navigation lands.
+    // history; selection restoration is guarded separately below.
     if (!canFinalizePublication()) return;
     // History must replay the bytes the publisher accepted. Canonical identity
     // publication may stamp IDs into submitted HTML, and the post-action
@@ -1116,6 +1198,11 @@ export function runCrossScreenElementDrop(
     crossScreenHistoryChanges[0].after = sourcePublication.content;
     crossScreenHistoryChanges[1].after = targetPublication.content;
     recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
+
+    const selectionStillCurrent =
+      selectionFingerprintAtPublication === undefined ||
+      selectionFingerprintAtPublication === getCurrentSelectionFingerprint?.();
+    if (!selectionStillCurrent) return;
 
     // Switch active screen to the target and select the moved node; viewMode
     // stays "overview" (no setViewMode call).
@@ -1196,6 +1283,7 @@ export function runCrossScreenElementDrop(
   const sourceSave = sourcePublication.saveCompletion;
   if (!targetSave && !sourceSave) {
     finalizePublication();
+    releasePendingHistory();
     return;
   }
 
@@ -1216,9 +1304,14 @@ export function runCrossScreenElementDrop(
       targetResult.status === "rejected" || sourceResult.status === "rejected";
     if (targetSaved && sourceSaved) {
       finalizePublication();
+      releasePendingHistory();
       return;
     }
-    if (retryableSave) return;
+    if (retryableSave) {
+      clearPendingHistory?.();
+      releasePendingHistory();
+      return;
+    }
     const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
     if (targetSaved && !sourceSaved) {
       rollbackResults.push(
@@ -1246,5 +1339,6 @@ export function runCrossScreenElementDrop(
     ) {
       toast.error(t("designEditor.toasts.saveConflict"));
     }
+    releasePendingHistory();
   });
 }

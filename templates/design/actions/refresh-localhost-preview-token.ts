@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { designConnectionIdsFromData } from "../shared/source-mode.js";
 
 export default defineAction({
   description:
@@ -24,7 +25,15 @@ export default defineAction({
   http: { method: "GET" },
   capabilityScopes: ["visual-edit"],
   run: async ({ designId, connectionId, publicVisualEdit }) => {
-    await assertAccess("design", designId, "viewer");
+    const access = await assertAccess("design", designId, "viewer");
+    const designData = (access.resource as { data?: unknown }).data;
+    if (!designConnectionIdsFromData(designData).includes(connectionId)) {
+      const error = new Error(
+        `Localhost connection "${connectionId}" is not part of design "${designId}".`,
+      ) as Error & { statusCode: number };
+      error.statusCode = 403;
+      throw error;
+    }
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
       designId,
       allowPublicViewer: publicVisualEdit === true,

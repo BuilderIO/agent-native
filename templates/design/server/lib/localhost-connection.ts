@@ -48,17 +48,6 @@ export async function resolveLocalhostConnectionScope(options?: {
   /** Public /visual-edit may read a design's read-only preview credential. */
   allowPublicViewer?: boolean;
 }): Promise<LocalhostConnectionScope> {
-  const ownerEmail = getRequestUserEmail();
-  if (ownerEmail) {
-    const requestOrgId = getRequestOrgId();
-    return {
-      ownerEmail,
-      // resolveOrgIdForEmail honors an explicit Personal selection, so this
-      // cannot promote a caller into an org they left.
-      orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
-    };
-  }
-
   const capability = getRequestAuthCapability();
   const designId = options?.designId;
   if (options?.allowPublicViewer && designId) {
@@ -77,6 +66,18 @@ export async function resolveLocalhostConnectionScope(options?: {
       };
     }
   }
+
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail) {
+    const requestOrgId = getRequestOrgId();
+    return {
+      ownerEmail,
+      // resolveOrgIdForEmail honors an explicit Personal selection, so this
+      // cannot promote a caller into an org they left.
+      orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
+    };
+  }
+
   if (
     !designId ||
     !capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) ||
