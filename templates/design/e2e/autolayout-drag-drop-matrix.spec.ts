@@ -1208,6 +1208,72 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     }
   });
 
+  test("Option-drag into an occupied explicit grid cell preserves the clone anchor", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      primaryHtml: ROOT_SCREEN_FIXTURES["grid-explicit"],
+    });
+    const childNames = () =>
+      designFrame(page, design.primaryId)
+        .locator("body > [data-agent-native-node-id]")
+        .evaluateAll((nodes) =>
+          nodes.map((node) =>
+            node.getAttribute("data-agent-native-layer-name"),
+          ),
+        );
+    try {
+      await gotoEditor(page, design.id);
+      await selectLayer(page, "Root C");
+      const source = await boxFor(page, design.primaryId, "root-c");
+      const target = await boxFor(page, design.primaryId, "root-a");
+      await page.keyboard.down("Alt");
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      try {
+        await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+        await page.mouse.move(
+          target.x + target.width / 2,
+          target.y + target.height / 2,
+          {
+            steps: 24,
+          },
+        );
+        await page.waitForTimeout(250);
+        await expect(
+          designFrame(page, design.primaryId).locator(
+            "body > [data-agent-native-node-id]",
+          ),
+        ).toHaveCount(4);
+        await expect(
+          designFrame(page, design.primaryId).locator(
+            "[data-agent-native-insertion-guide]",
+          ),
+        ).toBeVisible();
+      } finally {
+        await page.mouse.up();
+        await page.keyboard.up("Alt");
+      }
+      await expect
+        .poll(childNames)
+        .toEqual(["Root C", "Root A", "Root C", "Root B"]);
+      await settleReload(page, design.primaryId);
+      await expect
+        .poll(childNames)
+        .toEqual(["Root C", "Root A", "Root C", "Root B"]);
+      const html = await fileHtml(request, design.id, design.primaryId);
+      expect(
+        html.match(/data-agent-native-layer-name="Root C"/g) ?? [],
+      ).toHaveLength(2);
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
   test("linked component drag propagates to its instance and keeps overrides through duplicate, undo, redo, and reload", async ({
     page,
     request,

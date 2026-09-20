@@ -16972,12 +16972,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     transactionId?: string,
   ) {
     if (!el || !target || !target.anchor) return;
+    // Batched grid-group persistence is handled by the host's grid planner,
+    // which expects the grid container as its inside anchor. Single-node
+    // moves use the occupied-cell anchor so source order follows the preview.
+    var messageAnchor = collectMessages
+      ? target.anchor
+      : target.persistenceAnchor || target.anchor;
+    var messagePlacement = collectMessages
+      ? target.placement
+      : target.persistencePlacement || target.placement;
     dndLog("post:structure-change", {
       el: getSelector(el),
       anchor: getSelector(target.anchor),
-      persistenceAnchor: getSelector(target.persistenceAnchor || target.anchor),
+      persistenceAnchor: getSelector(messageAnchor),
       placement: target.placement,
-      persistencePlacement: target.persistencePlacement || target.placement,
+      persistencePlacement: messagePlacement,
       dropMode: target.dropMode || "flow-insert",
     });
     var requestId =
@@ -16994,9 +17003,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       transactionId: transactionId,
       selector: getSelector(el),
       sourceId: getSourceId(el),
-      anchorSelector: getSelector(target.persistenceAnchor || target.anchor),
-      anchorSourceId: getSourceId(target.persistenceAnchor || target.anchor),
-      placement: target.persistencePlacement || target.placement,
+      anchorSelector: getSelector(messageAnchor),
+      anchorSourceId: getSourceId(messageAnchor),
+      placement: messagePlacement,
       dropMode: target.dropMode || "flow-insert",
       forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
       gridPlacement: target.gridPlacement,
@@ -17018,7 +17027,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       sourceRect: rectInfoForElement(el),
       anchorRect: rectInfoForElement(target.anchor),
       payload: getElementInfo(el),
-      anchorPayload: getElementInfo(target.anchor),
+      anchorPayload: getElementInfo(messageAnchor),
     };
     if (collectMessages) collectMessages.push(message);
     else (window.parent as Window).postMessage(message, "*");
@@ -17031,7 +17040,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceNodeIdMap?: Array<[string, string]>,
   ) {
     if (!originalEl || !cloneEl) return;
-    var anchorEl = target && target.anchor ? target.anchor : originalEl;
+    var anchorEl =
+      target && (target.persistenceAnchor || target.anchor)
+        ? target.persistenceAnchor || target.anchor
+        : originalEl;
     // The host immediately pushes the persisted clone back through the source
     // morph. Claim the optimistic clone first so that round-trip reuses it
     // instead of importing a second copy beside it.
@@ -17055,7 +17067,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // host message so live-source persistence can replay the same relation.
         anchorSelector: getSelector(anchorEl),
         anchorSourceId: getSourceId(anchorEl),
-        placement: target && target.placement ? target.placement : "after",
+        placement:
+          target && (target.persistencePlacement || target.placement)
+            ? target.persistencePlacement || target.placement
+            : "after",
         dropMode: target && target.dropMode ? target.dropMode : undefined,
         forceFlowPositionOverride:
           target && target.forceFlowPositionOverride === true
@@ -17237,6 +17252,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 gridPlacement: undefined,
                 gridDisplacementPlacements: [],
                 gridDisplacementPrevStyles: [],
+                persistenceAnchor: previous,
+                persistencePlacement: previous ? "after" : "inside",
               }
             : target.dropMode === "absolute-container"
               ? target

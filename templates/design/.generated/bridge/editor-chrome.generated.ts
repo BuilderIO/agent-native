@@ -12028,12 +12028,14 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId) {
       if (!el || !target || !target.anchor) return;
+      var messageAnchor = collectMessages ? target.anchor : target.persistenceAnchor || target.anchor;
+      var messagePlacement = collectMessages ? target.placement : target.persistencePlacement || target.placement;
       dndLog("post:structure-change", {
         el: getSelector(el),
         anchor: getSelector(target.anchor),
-        persistenceAnchor: getSelector(target.persistenceAnchor || target.anchor),
+        persistenceAnchor: getSelector(messageAnchor),
         placement: target.placement,
-        persistencePlacement: target.persistencePlacement || target.placement,
+        persistencePlacement: messagePlacement,
         dropMode: target.dropMode || "flow-insert"
       });
       var requestId = "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -12049,9 +12051,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         transactionId,
         selector: getSelector(el),
         sourceId: getSourceId(el),
-        anchorSelector: getSelector(target.persistenceAnchor || target.anchor),
-        anchorSourceId: getSourceId(target.persistenceAnchor || target.anchor),
-        placement: target.persistencePlacement || target.placement,
+        anchorSelector: getSelector(messageAnchor),
+        anchorSourceId: getSourceId(messageAnchor),
+        placement: messagePlacement,
         dropMode: target.dropMode || "flow-insert",
         forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
         gridPlacement: target.gridPlacement,
@@ -12071,14 +12073,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
-        anchorPayload: getElementInfo(target.anchor)
+        anchorPayload: getElementInfo(messageAnchor)
       };
       if (collectMessages) collectMessages.push(message);
       else window.parent.postMessage(message, "*");
     }
     function postVisualDuplicateChange(originalEl, cloneEl, target, sourceNodeIdMap) {
       if (!originalEl || !cloneEl) return;
-      var anchorEl = target && target.anchor ? target.anchor : originalEl;
+      var anchorEl = target && (target.persistenceAnchor || target.anchor) ? target.persistenceAnchor || target.anchor : originalEl;
       recordSourceSubtree(cloneEl);
       var requestId = "duplicate-" + Date.now() + "-" + Math.random().toString(16).slice(2);
       pendingStructureMoves[requestId] = {
@@ -12098,7 +12100,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           // host message so live-source persistence can replay the same relation.
           anchorSelector: getSelector(anchorEl),
           anchorSourceId: getSourceId(anchorEl),
-          placement: target && target.placement ? target.placement : "after",
+          placement: target && (target.persistencePlacement || target.placement) ? target.persistencePlacement || target.placement : "after",
           dropMode: target && target.dropMode ? target.dropMode : void 0,
           forceFlowPositionOverride: target && target.forceFlowPositionOverride === true ? true : void 0,
           sourceRect: rectInfoForElement(cloneEl),
@@ -12199,7 +12201,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           } : target.gridCell,
           gridPlacement: void 0,
           gridDisplacementPlacements: [],
-          gridDisplacementPrevStyles: []
+          gridDisplacementPrevStyles: [],
+          persistenceAnchor: previous,
+          persistencePlacement: previous ? "after" : "inside"
         } : target.dropMode === "absolute-container" ? target : {
           anchor: previous,
           placement: "after",
