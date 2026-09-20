@@ -231,7 +231,17 @@ async function settleScreens(
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
       timeout: 5_000,
     });
-    await page.waitForTimeout(500);
+    await Promise.all(
+      [sourceId, destinationId].map(async (screenId) => {
+        const frame = page.locator(
+          `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+        );
+        await expect(frame).toHaveCount(1, { timeout: 5_000 });
+        await expect(frame.contentFrame().locator("body")).toBeVisible({
+          timeout: 5_000,
+        });
+      }),
+    );
     return;
   }
   let previous: string | null = null;
@@ -315,7 +325,7 @@ async function dragScreenNode(
   nodeId: string,
   destination: { x: number; y: number },
   onHeld?: () => Promise<void>,
-): Promise<{ guide: number; ghost: number; sourceVisible: number }> {
+): Promise<{ guide: number; ghost: number; sourceVisible: boolean }> {
   await selectScreenNode(page, screenId, nodeId);
   const source = await boxFor(page, screenId, nodeId);
   await page.mouse.move(
@@ -331,13 +341,17 @@ async function dragScreenNode(
     },
   );
   await page.mouse.move(destination.x, destination.y, { steps: 30 });
-  await page.waitForTimeout(500);
+  await expect
+    .poll(() => page.locator("[data-cross-screen-drag-ghost]").count(), {
+      timeout: 5_000,
+    })
+    .toBeGreaterThan(0);
   const evidence = {
     guide: await page.locator("[data-cross-screen-drop-guide]").count(),
     ghost: await page.locator("[data-cross-screen-drag-ghost]").count(),
     sourceVisible: await designFrame(page, screenId)
       .locator(`[data-agent-native-node-id="${nodeId}"]`)
-      .count(),
+      .isVisible(),
   };
   await onHeld?.();
   await page.mouse.up();
@@ -446,7 +460,11 @@ test.describe("physical cross-screen auto-layout parity", () => {
         steps: 30,
       },
     );
-    await page.waitForTimeout(500);
+    await expect
+      .poll(() => page.locator("[data-cross-screen-drop-guide]").count(), {
+        timeout: 5_000,
+      })
+      .toBeGreaterThan(0);
     const held = {
       guide: await page.locator("[data-cross-screen-drop-guide]").count(),
       sourceStillPersisted: (
@@ -529,7 +547,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
       boardPoint,
     );
     expect(held.ghost).toBeGreaterThan(0);
-    expect(held.sourceVisible).toBe(1);
+    expect(held.sourceVisible).toBe(true);
     await waitForMove(
       page,
       design.id,
@@ -582,7 +600,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
     });
     expect(held.guide).toBeGreaterThan(0);
     expect(held.ghost).toBeGreaterThan(0);
-    expect(held.sourceVisible).toBe(1);
+    expect(held.sourceVisible).toBe(true);
     await waitForMove(
       page,
       design.id,
@@ -672,7 +690,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
     );
     expect(held.guide).toBeGreaterThan(0);
     expect(held.ghost).toBeGreaterThan(0);
-    expect(held.sourceVisible).toBe(1);
+    expect(held.sourceVisible).toBe(true);
 
     await expect
       .poll(() =>
@@ -753,6 +771,34 @@ test.describe("physical cross-screen auto-layout parity", () => {
           ),
       )
       .toBe("nested-auto");
+    await expect
+      .poll(() =>
+        designFrame(page, design.destinationId)
+          .locator('[data-agent-native-node-id="free-source"]')
+          .evaluate((node) => {
+            const parent = node.parentElement;
+            const rect = node.getBoundingClientRect();
+            const parentRect = parent?.getBoundingClientRect();
+            return {
+              parent: parent?.getAttribute("data-agent-native-node-id"),
+              order: parent
+                ? Array.from(parent.children).map((child) =>
+                    child.getAttribute("data-agent-native-node-id"),
+                  )
+                : [],
+              position: getComputedStyle(node).position,
+              left: Math.round(rect.left - (parentRect?.left ?? 0)),
+              top: Math.round(rect.top - (parentRect?.top ?? 0)),
+            };
+          }),
+      )
+      .toEqual({
+        parent: "nested-auto",
+        order: ["destination-first", "free-source", "destination-second"],
+        position: "static",
+        left: 16,
+        top: 68,
+      });
   });
 
   test("report path: free source drops at an empty Screen root with exact pointer position, undo, and reload", async ({
@@ -802,7 +848,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
     );
     expect(held.guide).toBeGreaterThan(0);
     expect(held.ghost).toBeGreaterThan(0);
-    expect(held.sourceVisible).toBe(1);
+    expect(held.sourceVisible).toBe(true);
 
     await expect
       .poll(() =>
@@ -827,9 +873,15 @@ test.describe("physical cross-screen auto-layout parity", () => {
         moved.evaluate((node) => ({
           parent: node.parentElement?.tagName,
           position: getComputedStyle(node).position,
+          left: getComputedStyle(node).left,
+          top: getComputedStyle(node).top,
         })),
       )
-      .toEqual({ parent: "BODY", position: "absolute" });
+      .toMatchObject({ parent: "BODY", position: "absolute" });
+    const movedPosition = await moved.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return { left: style.left, top: style.top };
+    });
 
     await page.keyboard.press(`${PRIMARY}+z`);
     await expect
@@ -861,5 +913,22 @@ test.describe("physical cross-screen auto-layout parity", () => {
         '[data-agent-native-node-id="free-source"]',
       ),
     ).toBeVisible();
+    const reloadedMoved = designFrame(page, design.destinationId).locator(
+      '[data-agent-native-node-id="free-source"]',
+    );
+    await expect
+      .poll(() =>
+        reloadedMoved.evaluate((node) => ({
+          parent: node.parentElement?.tagName,
+          position: getComputedStyle(node).position,
+          left: getComputedStyle(node).left,
+          top: getComputedStyle(node).top,
+        })),
+      )
+      .toMatchObject({
+        parent: "BODY",
+        position: "absolute",
+        ...movedPosition,
+      });
   });
 });
