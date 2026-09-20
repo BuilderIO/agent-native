@@ -145,6 +145,34 @@ describe("refresh-localhost-preview-token", () => {
     expect(mocks.resolveScope).not.toHaveBeenCalled();
   });
 
+  it("allows a public mixed-source design to refresh its localhost screen", async () => {
+    mocks.connections = [
+      {
+        id: "conn_1",
+        previewToken: "preview-1",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "inline",
+          screenMetadata: { live: { connectionId: "conn_1" } },
+        }),
+      },
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        publicVisualEdit: true,
+      }),
+    ).resolves.toMatchObject({ previewToken: "preview-1" });
+  });
+
   it("returns every bound connection for the public canvas", async () => {
     mocks.connections = [
       {

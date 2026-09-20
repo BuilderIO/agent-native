@@ -599,6 +599,8 @@ interface DesignCanvasProps {
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
+  /** The public visual-edit surface may refresh owner-scoped preview tokens. */
+  publicVisualEdit?: boolean;
   zoom: number;
   onZoomChange?: (zoom: number) => void;
   deviceFrame: DeviceFrameType;
@@ -1410,6 +1412,7 @@ export function DesignCanvas({
   onExitPinMode,
   registerRuntimeBridge = true,
   designId,
+  publicVisualEdit = false,
   reviewCanPost = false,
   reviewCanResolve = false,
   reviewTargetId,
@@ -2719,6 +2722,7 @@ export function DesignCanvas({
           {
             designId,
             connectionId,
+            publicVisualEdit,
           },
           { method: "GET" },
         );
@@ -2756,6 +2760,7 @@ export function DesignCanvas({
     designId,
     effectivePreviewToken,
     liveEditBridgeKey,
+    publicVisualEdit,
     scheduleBridgeRegistrationRetry,
   ]);
   const handleDismissLocalNetworkAccessPrompt = useCallback(() => {

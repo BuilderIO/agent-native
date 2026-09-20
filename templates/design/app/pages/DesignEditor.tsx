@@ -3897,6 +3897,11 @@ function DesignEditor() {
     isVisualEditSurface &&
     !visualEditAccessLost &&
     (canEditDesign || design?.visibility === "public");
+  const publicVisualEdit =
+    isVisualEditSurface &&
+    !visualEditAccessLost &&
+    !canEditDesign &&
+    design?.visibility === "public";
   const canEditLiveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
@@ -5348,9 +5353,8 @@ function DesignEditor() {
     },
     {
       enabled:
-        isVisualEditSurface &&
+        publicVisualEdit &&
         !shellMode &&
-        !canEditDesign &&
         Boolean(id) &&
         publicVisualEditConnectionIds.length > 0,
     },
@@ -17871,9 +17875,10 @@ function DesignEditor() {
     // component has finished rendering and the binding is assigned — same
     // trick as onRename below, which already does this for a
     // later-in-file-order handler.
-    onToggleHidden: canEditDesign
-      ? () => handleToggleHiddenForSelection()
-      : undefined,
+    onToggleHidden:
+      canEditDesign || canEditLiveScreens
+        ? () => handleToggleHiddenForSelection()
+        : undefined,
     onToggleLocked: canEditDesign
       ? () => handleToggleLockedForSelection()
       : undefined,
@@ -22932,6 +22937,7 @@ function DesignEditor() {
           applyFileContentUpdate,
           applyLayerStatePreview,
           canEditDesign,
+          canEditLiveScreens: editableLiveScreenIds,
           codeLayerOwnerByNodeId,
           designSourceType,
           files,
@@ -22952,6 +22958,7 @@ function DesignEditor() {
       applyLayerStatePreview,
       applyFileContentUpdate,
       canEditDesign,
+      editableLiveScreenIds,
       codeLayerOwnerByNodeId,
       designSourceType,
       files,
@@ -22974,7 +22981,7 @@ function DesignEditor() {
   // about to become (matches the context-menu label: Hide vs. Show / Lock vs.
   // Unlock) so a mixed selection converges to one consistent state per press.
   const handleToggleHiddenForSelection = useCallback(() => {
-    if (!canEditDesign) return;
+    if (!canEditDesign && !canEditLiveScreens) return;
     const targets = selectedLayerIds.length > 0 ? selectedLayerIds : [];
     if (targets.length === 0) return;
     const nextHidden = !activeLayerHidden;
@@ -22982,6 +22989,7 @@ function DesignEditor() {
   }, [
     activeLayerHidden,
     canEditDesign,
+    canEditLiveScreens,
     handleToggleLayerHidden,
     selectedLayerIds,
   ]);
@@ -23301,6 +23309,7 @@ function DesignEditor() {
           connectionId={screen.connectionId}
           nativePreviewActive={screenIsActive}
           previewToken={screenPreviewToken}
+          publicVisualEdit={publicVisualEdit}
           externalSnapshotHtml={screenSnapshot}
           onBootStart={renderOptions?.onBootStart}
           onBootReady={renderOptions?.onBootReady}
@@ -25765,7 +25774,9 @@ function DesignEditor() {
               canEditDesign && Boolean(getSingleSelectedRenamableLayerId())
             }
             canToggleLocked={canEditDesign && Boolean(activeLayerId)}
-            canToggleHidden={canEditDesign && Boolean(activeLayerId)}
+            canToggleHidden={
+              canEditActiveVisualScreen && Boolean(activeLayerId)
+            }
             canCopyProps={Boolean(selectedElement)}
             canPasteProps={
               canEditDesign && hasPropsClipboard && Boolean(selectedElement)
@@ -26502,6 +26513,7 @@ function DesignEditor() {
                         bridgeUrl={activeScreenBridgeUrl}
                         connectionId={activeOverviewScreen?.connectionId}
                         previewToken={activeScreenPreviewToken}
+                        publicVisualEdit={publicVisualEdit}
                         externalSnapshotHtml={activeScreenExternalSnapshotHtml}
                         onExternalContentSnapshot={(snapshot) => {
                           if (!activeFile?.id) return;

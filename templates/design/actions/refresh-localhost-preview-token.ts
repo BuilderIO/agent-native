@@ -5,10 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
-import {
-  designConnectionIdsFromData,
-  designSourceTypeFromData,
-} from "../shared/source-mode.js";
+import { designConnectionIdsFromData } from "../shared/source-mode.js";
 
 export default defineAction({
   description:
@@ -35,6 +32,7 @@ export default defineAction({
   run: async ({ designId, connectionId, publicVisualEdit }) => {
     const access = await assertAccess("design", designId, "viewer");
     const designData = (access.resource as { data?: unknown }).data;
+    const designConnectionIds = designConnectionIdsFromData(designData);
     if (
       publicVisualEdit === true &&
       (access.resource as { visibility?: unknown }).visibility !== "public"
@@ -45,17 +43,13 @@ export default defineAction({
       error.statusCode = 403;
       throw error;
     }
-    if (
-      publicVisualEdit === true &&
-      designSourceTypeFromData(designData) !== "localhost"
-    ) {
+    if (publicVisualEdit === true && designConnectionIds.length === 0) {
       const error = new Error(
-        `Design "${designId}" is not a localhost design.`,
+        `Design "${designId}" does not reference a localhost connection.`,
       ) as Error & { statusCode: number };
       error.statusCode = 403;
       throw error;
     }
-    const designConnectionIds = designConnectionIdsFromData(designData);
     const requestedConnectionIds = connectionId
       ? [connectionId]
       : designConnectionIds;
