@@ -1,5 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import type { DbExecStatement } from "@agent-native/core/db";
+import { orgMembers } from "@agent-native/core/org";
+import {
+  accessFilter,
+  assertAccess,
+  currentAccess,
+} from "@agent-native/core/sharing";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -15,6 +21,22 @@ import {
 } from "../server/source-workspace.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
 import { countLockedLayers } from "../shared/locked-layers.js";
+
+function drizzleSqlForAccess(statement: DbExecStatement) {
+  if (typeof statement === "string") return sql.raw(statement);
+  const chunks: string[] = [];
+  const params: unknown[] = [];
+  const placeholder = /\$(\d+)/g;
+  let offset = 0;
+  for (const match of statement.sql.matchAll(placeholder)) {
+    const index = match.index ?? 0;
+    chunks.push(statement.sql.slice(offset, index));
+    params.push(statement.args?.[Number(match[1]) - 1]);
+    offset = index + match[0].length;
+  }
+  chunks.push(statement.sql.slice(offset));
+  return sql(chunks as unknown as TemplateStringsArray, ...params);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -88,6 +110,109 @@ function parseDesignData(
     throw new Error(`Design "${designId}" has invalid data JSON.`);
   }
   throw new Error(`Design "${designId}" has invalid data JSON.`);
+}
+
+interface DeletedFileSnapshot {
+  id: string;
+  filename: string;
+  content: string;
+  fileType: string;
+  createdAt: string;
+  updatedAt: string;
+  geometry?: Record<string, unknown>;
+  screenMetadata?: Record<string, unknown>;
+  localhostScreen?: Record<string, unknown>;
+  variantMemberships?: {
+    setId: string;
+    set: Record<string, unknown>;
+    screen: unknown;
+    index: number;
+    originalScreenIds: string[];
+  }[];
+}
+
+function deletedFileMetadataSnapshot(
+  data: Record<string, unknown>,
+  fileId: string,
+): Pick<
+  DeletedFileSnapshot,
+  "geometry" | "screenMetadata" | "localhostScreen" | "variantMemberships"
+> {
+  const canvasFrames = isRecord(data.canvasFrames)
+    ? data.canvasFrames[fileId]
+    : undefined;
+  const screenMetadata = isRecord(data.screenMetadata)
+    ? data.screenMetadata[fileId]
+    : undefined;
+  const localhostScreen = isRecord(data.localhostScreens)
+    ? data.localhostScreens[fileId]
+    : undefined;
+  const variantMemberships: NonNullable<
+    DeletedFileSnapshot["variantMemberships"]
+  > = [];
+
+  if (isRecord(data.designVariantSets)) {
+    for (const [setId, rawSet] of Object.entries(data.designVariantSets)) {
+      if (!isRecord(rawSet) || !Array.isArray(rawSet.screens)) continue;
+      const screens: unknown[] = rawSet.screens;
+      const screenIds = screens.map((screen) =>
+        typeof screen === "string"
+          ? screen
+          : isRecord(screen) && typeof screen.id === "string"
+            ? screen.id
+            : null,
+      );
+      if (screenIds.some((id) => id === null)) continue;
+      screens.forEach((screen, index) => {
+        if (screenIds[index] !== fileId) return;
+        variantMemberships.push({
+          setId,
+          set: {
+            ...rawSet,
+            screens: screens.map((member) =>
+              isRecord(member) ? { ...member } : member,
+            ),
+          },
+          screen,
+          index,
+          originalScreenIds: screenIds as string[],
+        });
+      });
+    }
+  }
+
+  return {
+    ...(isRecord(canvasFrames) ? { geometry: { ...canvasFrames } } : {}),
+    ...(isRecord(screenMetadata)
+      ? { screenMetadata: { ...screenMetadata } }
+      : {}),
+    ...(isRecord(localhostScreen)
+      ? { localhostScreen: { ...localhostScreen } }
+      : {}),
+    ...(variantMemberships.length > 0 ? { variantMemberships } : {}),
+  };
+}
+
+function snapshotDeletedFile(
+  file: {
+    id: string;
+    filename: string;
+    content: string;
+    fileType: string;
+    createdAt: string | null;
+    updatedAt: string | null;
+  },
+  data: Record<string, unknown>,
+): DeletedFileSnapshot {
+  return {
+    id: file.id,
+    filename: file.filename,
+    content: file.content,
+    fileType: file.fileType,
+    createdAt: file.createdAt ?? "",
+    updatedAt: file.updatedAt ?? "",
+    ...deletedFileMetadataSnapshot(data, file.id),
+  };
 }
 
 export default defineAction({
@@ -212,7 +337,7 @@ export default defineAction({
     // Restore locks the same design and updates file rows before designs.data.
     // Keep the checkpoint and mutation under the same table/version boundary so
     // history cannot capture a state that interleaves with the delete.
-    const deletedIds = await withDesignVersionLock(file.designId, async () => {
+    const deletion = await withDesignVersionLock(file.designId, async () => {
       return db.transaction(async (tx) => {
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(file.designId)}, 0::bigint))`,
@@ -222,7 +347,10 @@ export default defineAction({
           .select({
             id: schema.designFiles.id,
             filename: schema.designFiles.filename,
+            content: schema.designFiles.content,
             fileType: schema.designFiles.fileType,
+            createdAt: schema.designFiles.createdAt,
+            updatedAt: schema.designFiles.updatedAt,
           })
           .from(schema.designFiles)
           .where(eq(schema.designFiles.designId, file.designId))
@@ -231,12 +359,84 @@ export default defineAction({
           requestedIds.includes(candidate.id),
         );
         if (currentTargetFiles.length !== requestedIds.length) {
-          if (requestedIds.length === 1) return [];
+          if (requestedIds.length === 1) {
+            return { deletedIds: [], deletedFiles: [] };
+          }
           throw new Error(
             "A selected screen changed while it was being deleted. Refresh and try again.",
           );
         }
-        if (!currentTargetFiles.length) return [];
+        if (!currentTargetFiles.length) {
+          return { deletedIds: [], deletedFiles: [] };
+        }
+        const [design] = await tx
+          .select({
+            id: schema.designs.id,
+            data: schema.designs.data,
+            updatedAt: schema.designs.updatedAt,
+            orgId: schema.designs.orgId,
+            visibility: schema.designs.visibility,
+          })
+          .from(schema.designs)
+          .where(eq(schema.designs.id, file.designId))
+          .for("update");
+        if (!design) throw new Error("Design " + file.designId + " not found.");
+        await tx
+          .select({ id: schema.designShares.id })
+          .from(schema.designShares)
+          .where(eq(schema.designShares.resourceId, file.designId))
+          .for("update");
+        const access = currentAccess();
+        const memberEmail = access.userEmail?.trim().toLowerCase();
+        if (design.visibility === "org" && design.orgId && memberEmail) {
+          await tx
+            .select({ id: orgMembers.id })
+            .from(orgMembers)
+            .where(
+              and(
+                eq(orgMembers.orgId, design.orgId),
+                sql`lower(${orgMembers.email}) = ${memberEmail}`,
+              ),
+            )
+            .for("update");
+        }
+        const transactionAccess = {
+          ...access,
+          transaction: {
+            async execute(statement: DbExecStatement) {
+              const result = (await tx.execute(
+                drizzleSqlForAccess(statement),
+              )) as unknown as {
+                rows?: unknown[];
+                rowCount?: unknown;
+                rowsAffected?: unknown;
+              };
+              const rows = Array.isArray(result.rows) ? result.rows : [];
+              const rowsAffected =
+                typeof result.rowCount === "number"
+                  ? result.rowCount
+                  : typeof result.rowsAffected === "number"
+                    ? result.rowsAffected
+                    : rows.length;
+              return { rows, rowsAffected };
+            },
+          },
+        };
+        await assertAccess(
+          "design",
+          file.designId,
+          "editor",
+          transactionAccess,
+        );
+        if (!allowLockedLayers) {
+          for (const candidate of currentTargetFiles) {
+            if (countLockedLayers(candidate.content) > 0) {
+              throw new Error(
+                "This screen contains locked layers. Unlock them before deleting the screen, or pass allowLockedLayers when the user asked for the whole screen to go.",
+              );
+            }
+          }
+        }
         const currentUserScreenCount =
           currentFiles.filter(isOverviewScreenFile).length;
         const deletingUserScreenCount =
@@ -246,6 +446,10 @@ export default defineAction({
             "A design must keep at least one user screen. Delete another screen first.",
           );
         }
+        let data = parseDesignData(file.designId, design.data);
+        const deletedFiles = currentTargetFiles.map((candidate) =>
+          snapshotDeletedFile(candidate, data),
+        );
         // A browser checkpoint may have been created by an older client before
         // this request arrived. Capture again here so that any edit between
         // those requests is included in the durable pre-delete version.
@@ -268,7 +472,9 @@ export default defineAction({
           );
         const affected = affectedRowCount(deleteResult);
         if (affected === 0) {
-          if (requestedIds.length === 1) return [];
+          if (requestedIds.length === 1) {
+            return { deletedIds: [], deletedFiles: [] };
+          }
           throw new Error(
             "A selected screen changed while it was being deleted. Refresh and try again.",
           );
@@ -278,18 +484,7 @@ export default defineAction({
         if (affected !== targetIds.length)
           throw new Error("Unexpected design file delete result.");
 
-        const [design] = await tx
-          .select({
-            data: schema.designs.data,
-            updatedAt: schema.designs.updatedAt,
-          })
-          .from(schema.designs)
-          .where(eq(schema.designs.id, file.designId))
-          .for("update");
-        if (!design) throw new Error(`Design "${file.designId}" not found.`);
-
         const updatedAt = nextUpdatedAt(design.updatedAt, new Date());
-        let data = parseDesignData(file.designId, design.data);
         for (const targetId of targetIds) {
           data = pruneDeletedFileMetadata(data, targetId);
         }
@@ -307,20 +502,22 @@ export default defineAction({
         if (designAffected !== 1) {
           throw new Error("Unexpected design metadata update result.");
         }
-        return targetIds;
+        return { deletedIds: targetIds, deletedFiles };
       });
     });
 
     if (requestedIds.length === 1) {
-      return deletedIds.includes(id)
-        ? { id, deleted: true }
+      return deletion.deletedIds.includes(id)
+        ? { id, deleted: true, deletedFiles: deletion.deletedFiles }
         : { id, deleted: false, alreadyMissing: true };
     }
     return {
       id,
-      deleted: deletedIds.includes(id),
-      deletedIds,
-      ...(deletedIds.includes(id) ? {} : { alreadyMissing: true }),
+      deleted: deletion.deletedIds.includes(id),
+      deletedIds: deletion.deletedIds,
+      ...(deletion.deletedIds.includes(id)
+        ? { deletedFiles: deletion.deletedFiles }
+        : { alreadyMissing: true }),
     };
   },
 });

@@ -6,10 +6,7 @@ import { toast } from "sonner";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentLineage } from "@/lib/clipboard-content-lineage";
-import {
-  cloneCanvasFrameGeometry,
-  getDesignDataRecord,
-} from "@/pages/design-editor/design-data-geometry-utils";
+import { cloneCanvasFrameGeometry } from "@/pages/design-editor/design-data-geometry-utils";
 import type { UndoRedoOrderKind } from "@/pages/design-editor/editor-state";
 import type {
   ContentHistoryChange,
@@ -17,7 +14,6 @@ import type {
   FileCreationHistoryEntry,
   FileDeletionHistoryEntry,
   FileDeletionHistorySnapshot,
-  FileDeletionVariantMembershipSnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
 } from "@/pages/design-editor/history";
@@ -30,62 +26,6 @@ import {
   removeRecentUndoRedoOrderKinds,
 } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function variantScreenId(screen: unknown): string | null {
-  if (typeof screen === "string") return screen;
-  if (isRecord(screen) && typeof screen.id === "string") return screen.id;
-  return null;
-}
-
-function fileDeletionMetadataSnapshot(
-  designData: Record<string, unknown>,
-  fileId: string,
-): Pick<
-  FileDeletionHistorySnapshot,
-  "screenMetadata" | "localhostScreen" | "variantMemberships"
-> {
-  const metadata = getDesignDataRecord(designData, "screenMetadata")[fileId];
-  const localhostScreen = getDesignDataRecord(designData, "localhostScreens")[
-    fileId
-  ];
-  const variantMemberships: FileDeletionVariantMembershipSnapshot[] = [];
-
-  for (const [setId, value] of Object.entries(
-    getDesignDataRecord(designData, "designVariantSets"),
-  )) {
-    if (!isRecord(value) || !Array.isArray(value.screens)) continue;
-    const screens: unknown[] = value.screens;
-    const screenIds = screens.map(variantScreenId);
-    if (screenIds.some((id) => id === null)) continue;
-    screens.forEach((screen, index) => {
-      if (screenIds[index] !== fileId) return;
-      variantMemberships.push({
-        setId,
-        set: {
-          ...value,
-          screens: screens.map((member) =>
-            isRecord(member) ? { ...member } : member,
-          ),
-        },
-        screen,
-        index,
-        originalScreenIds: screenIds as string[],
-      });
-    });
-  }
-
-  return {
-    ...(isRecord(metadata) ? { screenMetadata: { ...metadata } } : {}),
-    ...(isRecord(localhostScreen)
-      ? { localhostScreen: { ...localhostScreen } }
-      : {}),
-    ...(variantMemberships.length > 0 ? { variantMemberships } : {}),
-  };
-}
 
 export interface DeleteFilesArgs {
   activeFile: DesignFile;
@@ -199,26 +139,16 @@ export async function runDeleteFiles(
   const nextGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
   const designQueryKey = ["action", "get-design", { id }] as const;
   const previousDesignQuery = queryClient.getQueryData?.(designQueryKey);
-  const deletionHistoryEntry: FileDeletionHistoryEntry | null =
-    options?.recordDeletionHistory
-      ? {
-          files: filesToDelete.map((file) => ({
-            ...file,
-            geometry: canvasFrameGeometryById[file.id],
-            ...fileDeletionMetadataSnapshot(designDataJsonRef.current, file.id),
-          })),
-        }
-      : null;
-  if (deletionHistoryEntry) {
+  const recordDeletionHistory = options?.recordDeletionHistory === true;
+  if (recordDeletionHistory) {
     fileHistoryMutationPendingRef.current = true;
     syncUndoRedoState();
-    clearRedoStacks();
   }
   filesToDelete.forEach((file) => {
     delete nextGeometry[file.id];
   });
 
-  if (!options?.recordDeletionHistory && !options?.preserveHistory) {
+  if (!recordDeletionHistory && !options?.preserveHistory) {
     const nextGeometryUndoStack: GeometryHistoryEntry[] = [];
     let removedGeometryUndoEntries = 0;
     geometryUndoStackRef.current.forEach((entry) => {
@@ -392,7 +322,12 @@ export async function runDeleteFiles(
   const mutationValue =
     mutationResult?.status === "fulfilled"
       ? (mutationResult.value as
-          | { deleted?: boolean; deletedIds?: string[]; id?: string }
+          | {
+              deleted?: boolean;
+              deletedIds?: string[];
+              id?: string;
+              deletedFiles?: FileDeletionHistorySnapshot[];
+            }
           | undefined)
       : undefined;
   const deletedIdsFromServer = new Set(
@@ -409,16 +344,38 @@ export async function runDeleteFiles(
   );
   const deletedIds = new Set(deletedFiles.map((file) => file.id));
   const failedFiles = filesToDelete.filter((file) => !deletedIds.has(file.id));
+  const serverDeletedFileSnapshots = Array.isArray(mutationValue?.deletedFiles)
+    ? mutationValue.deletedFiles
+    : [];
+  const hasCompleteHistorySnapshot =
+    serverDeletedFileSnapshots.length === deletedFiles.length &&
+    new Set(serverDeletedFileSnapshots.map((file) => file.id)).size ===
+      deletedFiles.length &&
+    deletedFiles.every((file) =>
+      serverDeletedFileSnapshots.some((snapshot) => snapshot.id === file.id),
+    );
+  const deletionHistoryEntry: FileDeletionHistoryEntry | null =
+    recordDeletionHistory &&
+    deletedFiles.length > 0 &&
+    hasCompleteHistorySnapshot
+      ? { files: serverDeletedFileSnapshots }
+      : null;
 
-  if (deletionHistoryEntry && deletedFiles.length > 0) {
-    fileDeletionUndoStackRef.current = [
-      ...fileDeletionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      filterFileDeletionHistoryEntry(deletionHistoryEntry, deletedIds),
-    ];
-    historyOrderRef.current = [
-      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      "file-deleted",
-    ];
+  if (recordDeletionHistory && deletedFiles.length > 0) {
+    clearRedoStacks();
+    if (deletionHistoryEntry) {
+      fileDeletionUndoStackRef.current = [
+        ...fileDeletionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        filterFileDeletionHistoryEntry(deletionHistoryEntry, deletedIds),
+      ];
+      historyOrderRef.current = [
+        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "file-deleted",
+      ];
+    } else {
+      clearPendingHistory?.();
+      toast.error(t("common.genericError"));
+    }
   }
 
   const rejected = results.find(
@@ -444,10 +401,10 @@ export async function runDeleteFiles(
     }
     // A partial/failed batch is not a safe boundary for a queued undo/redo.
     // The surviving user intent must be reissued explicitly after refresh.
-    if (deletionHistoryEntry) clearPendingHistory?.();
+    if (recordDeletionHistory) clearPendingHistory?.();
   }
 
-  if (deletionHistoryEntry) {
+  if (recordDeletionHistory) {
     fileHistoryMutationPendingRef.current = false;
     for (const fileId of deletedIds)
       latestClipboardMutationContentRef.current.delete(fileId);
