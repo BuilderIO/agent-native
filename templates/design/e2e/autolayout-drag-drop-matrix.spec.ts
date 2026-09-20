@@ -296,6 +296,17 @@ async function selectionSourceId(
   return state.selectedElement?.sourceId ?? null;
 }
 
+async function activeSelectionFileId(
+  request: APIRequestContext,
+): Promise<string | null> {
+  const response = await request.get(
+    appPath("/_agent-native/application-state/design-selection"),
+  );
+  if (!response.ok()) return null;
+  const state = (await response.json()) as { activeFileId?: string | null };
+  return state.activeFileId ?? null;
+}
+
 async function settleReload(page: Page, screenId: string): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
@@ -1945,6 +1956,38 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           };
         })
         .toEqual({ from: false, destination: true });
+      await expect.poll(() => selectionSourceId(request)).toBe("meta-source");
+      await expect
+        .poll(() => activeSelectionFileId(request))
+        .toBe(design.secondId);
+      await page.keyboard.press(`${COMMAND}+z`);
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "meta-source"),
+            destination: hasNode(to, "meta-source"),
+          };
+        })
+        .toEqual({ from: true, destination: false });
+
+      await page.keyboard.press(`${COMMAND}+Shift+z`);
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "meta-source"),
+            destination: hasNode(to, "meta-source"),
+          };
+        })
+        .toEqual({ from: false, destination: true });
+
       await settleReload(page, design.secondId!);
       await expect
         .poll(() => parentId(page, design.secondId!, "meta-source"))
