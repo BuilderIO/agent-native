@@ -114,6 +114,127 @@ interface AuthedPage {
   appErrors: string[];
 }
 
+async function installUrlGhostProbe(page: Page) {
+  await page.evaluate(() => {
+    const probeKey = "__agentNativeUrlGhostProbe";
+    const describeIframe = (iframe: HTMLIFrameElement) => {
+      const rect = iframe.getBoundingClientRect();
+      return {
+        connected: iframe.isConnected,
+        id: iframe.id,
+        screenId: iframe.getAttribute("data-screen-iframe-id"),
+        pointerEvents: iframe.style.pointerEvents,
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    };
+    const describeTarget = (target: EventTarget | null) => {
+      if (!(target instanceof Element))
+        return target?.constructor?.name ?? null;
+      return {
+        tag: target.tagName,
+        id: target.id,
+        iframe: target.closest("iframe")?.getAttribute("data-screen-iframe-id"),
+      };
+    };
+    const frames = () =>
+      Array.from(
+        document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      ).map(describeIframe);
+    const mutations: Array<Record<string, unknown>> = [];
+    const mousemoves: Array<Record<string, unknown>> = [];
+    const recordMutation = (iframe: HTMLIFrameElement, kind: string) => {
+      if (mutations.length >= 100) return;
+      mutations.push({
+        at: Math.round(performance.now()),
+        kind,
+        ...describeIframe(iframe),
+      });
+    };
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of Array.from(record.addedNodes)) {
+          if (node instanceof HTMLIFrameElement) {
+            recordMutation(node, "added");
+          }
+          if (node instanceof Element) {
+            node
+              .querySelectorAll<HTMLIFrameElement>(
+                "iframe[data-design-preview-iframe]",
+              )
+              .forEach((iframe) => recordMutation(iframe, "added-descendant"));
+          }
+        }
+        for (const node of Array.from(record.removedNodes)) {
+          if (node instanceof HTMLIFrameElement) {
+            recordMutation(node, "removed");
+          }
+          if (node instanceof Element) {
+            node
+              .querySelectorAll<HTMLIFrameElement>(
+                "iframe[data-design-preview-iframe]",
+              )
+              .forEach((iframe) =>
+                recordMutation(iframe, "removed-descendant"),
+              );
+          }
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    const handleMouseMove = (event: MouseEvent) => {
+      if (mousemoves.length >= 200) return;
+      mousemoves.push({
+        at: Math.round(performance.now()),
+        x: Math.round(event.clientX),
+        y: Math.round(event.clientY),
+        target: describeTarget(event.target),
+      });
+    };
+    window.addEventListener("mousemove", handleMouseMove, true);
+    const probe = {
+      initialFrames: frames(),
+      read: () => ({
+        initialFrames: probe.initialFrames,
+        frames: frames(),
+        mutations,
+        mousemoves,
+      }),
+      stop: () => {
+        observer.disconnect();
+        window.removeEventListener("mousemove", handleMouseMove, true);
+      },
+    };
+    (window as unknown as Record<string, unknown>)[probeKey] = probe;
+  });
+}
+
+async function readUrlGhostProbe(page: Page) {
+  return page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        __agentNativeUrlGhostProbe?: { read: () => unknown };
+      }
+    ).__agentNativeUrlGhostProbe;
+    return probe?.read() ?? null;
+  });
+}
+
+async function stopUrlGhostProbe(page: Page) {
+  await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        __agentNativeUrlGhostProbe?: { stop: () => void };
+      }
+    ).__agentNativeUrlGhostProbe;
+    probe?.stop();
+  });
+}
+
 async function postAction(
   page: Page,
   name: string,
@@ -1044,6 +1165,7 @@ test.describe("authenticated beta Design interactions", () => {
           .contentFrame()
           .locator('[data-agent-native-node-id="external-target"]'),
       ).toBeVisible({ timeout: 30_000 });
+      await installUrlGhostProbe(page);
       const sourceBox = (await source.boundingBox())!;
       const targetBox = (await urlTarget.boundingBox())!;
       const beforeBoard = await readSource(page, designId, "__board__.html");
@@ -1066,6 +1188,23 @@ test.describe("authenticated beta Design interactions", () => {
       await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
         timeout: 10_000,
       });
+      await expect
+        .poll(() => readSource(page, designId, "__board__.html"), {
+          timeout: 5_000,
+        })
+        .toBe(beforeBoard);
+      await expect
+        .poll(() => readSource(page, designId), { timeout: 5_000 })
+        .toBe(beforeInline);
+      await expect
+        .poll(async () =>
+          directChildIds(
+            page,
+            await readSource(page, designId),
+            NESTED_FRAME_ID,
+          ),
+        )
+        .toEqual(beforeInlineNestedOrder);
       await page.mouse.up();
       await expect(
         urlTarget
@@ -1105,8 +1244,12 @@ test.describe("authenticated beta Design interactions", () => {
         .toBe(URL_BACKED_TARGET_URL);
     } catch (error) {
       primaryFailure = true;
+      console.log(
+        `[url-ghost-probe] ${JSON.stringify(await readUrlGhostProbe(page))}`,
+      );
       throw error;
     } finally {
+      if (!page.isClosed()) await stopUrlGhostProbe(page);
       await cleanupTest({
         context,
         page,
