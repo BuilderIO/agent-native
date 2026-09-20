@@ -1182,12 +1182,10 @@ test.describe("authenticated beta Design interactions", () => {
         await page.keyboard.down("Alt");
         mouseHeld = true;
         await page.mouse.down();
-        // Beta renders the preview iframe at 60% CSS scale; move beyond the
-        // bridge's 3px drag threshold before asserting the duplicate cue.
         await page.mouse.move(
-          rootBefore.x + rootBefore.width / 2 + 18,
-          rootBefore.y + rootBefore.height / 2 + 9,
-          { steps: 3 },
+          rootBefore.x + rootBefore.width / 2 + 6,
+          rootBefore.y + rootBefore.height / 2 + 3,
+          { steps: 2 },
         );
         await expect(
           screen.locator("[data-agent-native-transform-badge]"),
