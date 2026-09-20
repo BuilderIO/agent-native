@@ -442,7 +442,7 @@ export function buildStandaloneHtml(
     .controls button:focus-visible { outline: 2px solid currentColor; }
     .controls button:disabled { opacity: 0.4; cursor: default; }
 
-    @media (hover: none) {
+    @media (hover: none), (any-pointer: coarse) {
       .bottom-bar { opacity: 1; }
     }
 

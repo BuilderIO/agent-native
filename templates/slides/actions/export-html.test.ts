@@ -11,12 +11,12 @@ import { buildStandaloneHtml } from "./export-html";
 
 it("navigates exported slides with controls and keyboard", async () => {
   const window = new Window({ settings: { enableJavaScriptEvaluation: true } });
-  window.document.write(
-    buildStandaloneHtml("Deck", [
-      { id: "one", content: "<p>First</p>" },
-      { id: "two", content: "<p>Second</p>" },
-    ]),
-  );
+  const html = buildStandaloneHtml("Deck", [
+    { id: "one", content: "<p>First</p>" },
+    { id: "two", content: "<p>Second</p>" },
+  ]);
+  expect(html).toContain("@media (hover: none), (any-pointer: coarse)");
+  window.document.write(html);
   await window.happyDOM.whenAsyncComplete();
 
   const counter = window.document.getElementById("counter");
