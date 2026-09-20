@@ -548,7 +548,7 @@ export function buildStandaloneHtml(
             }
             break;
           case 'Escape':
-            if (document.fullscreenElement) {
+            if (document.fullscreenElement && document.exitFullscreen) {
               document.exitFullscreen().catch(function() {});
             }
             break;
