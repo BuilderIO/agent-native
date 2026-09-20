@@ -11974,12 +11974,23 @@ export const editorChromeBridgeScript: string = `"use strict";
     function applyGroupStructureDrop(members, target, ev, originInlineStylesFor) {
       var container = dropContainerForTarget(target);
       var previous = null;
+      var gridColumnOffset = 0;
       for (var i = 0; i < members.length; i += 1) {
         var member = members[i];
+        var memberStyles = window.getComputedStyle(member);
+        var memberColumnStart = numericGridLine(memberStyles.gridColumnStart);
+        var memberColumnEnd = gridLineEnd(
+          memberStyles.gridColumnEnd,
+          memberColumnStart
+        );
+        var memberColumnSpan = memberColumnStart !== null && memberColumnEnd !== null ? Math.max(1, memberColumnEnd - memberColumnStart) : (() => {
+          var spanMatch = memberStyles.gridColumnStart.trim().match(/^span\\s+(\\d+)$/);
+          return spanMatch ? Math.max(1, Number(spanMatch[1])) : 1;
+        })();
         var memberTarget = i === 0 ? target : target.gridCell ? {
           ...target,
           gridCell: {
-            column: target.gridCell.column + i,
+            column: target.gridCell.column + gridColumnOffset,
             row: target.gridCell.row
           },
           gridPlacement: void 0,
@@ -12002,6 +12013,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             prevInlinePositionStyles
           });
         }
+        if (target.gridCell) gridColumnOffset += memberColumnSpan;
         previous = member;
       }
       postElementMarqueeSelect(members, false, ev);

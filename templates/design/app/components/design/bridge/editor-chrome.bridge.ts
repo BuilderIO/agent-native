@@ -16856,8 +16856,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): void {
     var container = dropContainerForTarget(target);
     var previous: Element | null = null;
+    var gridColumnOffset = 0;
     for (var i = 0; i < members.length; i += 1) {
       var member = members[i];
+      var memberStyles = window.getComputedStyle(member);
+      var memberColumnStart = numericGridLine(memberStyles.gridColumnStart);
+      var memberColumnEnd = gridLineEnd(
+        memberStyles.gridColumnEnd,
+        memberColumnStart,
+      );
+      var memberColumnSpan =
+        memberColumnStart !== null && memberColumnEnd !== null
+          ? Math.max(1, memberColumnEnd - memberColumnStart)
+          : (() => {
+              var spanMatch = memberStyles.gridColumnStart
+                .trim()
+                .match(/^span\s+(\d+)$/);
+              return spanMatch ? Math.max(1, Number(spanMatch[1])) : 1;
+            })();
       var memberTarget =
         i === 0
           ? target
@@ -16865,7 +16881,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? {
                 ...target,
                 gridCell: {
-                  column: target.gridCell.column + i,
+                  column: target.gridCell.column + gridColumnOffset,
                   row: target.gridCell.row,
                 },
                 gridPlacement: undefined,
@@ -16899,6 +16915,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           prevInlinePositionStyles: prevInlinePositionStyles,
         });
       }
+      if (target.gridCell) gridColumnOffset += memberColumnSpan;
       previous = member;
     }
     postElementMarqueeSelect(members, false, ev);
