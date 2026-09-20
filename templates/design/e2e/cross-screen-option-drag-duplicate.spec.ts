@@ -186,16 +186,25 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
       design.id,
       "destination.html",
     );
-    const sourceStyle = await designFrame(page, design.sourceId)
-      .locator('[data-agent-native-node-id="cross-source"]')
-      .evaluate((node) => {
-        const style = getComputedStyle(node);
-        return {
-          background: style.backgroundColor,
-          width: style.width,
-          height: style.height,
-        };
-      });
+    const sourceNode = designFrame(page, design.sourceId).locator(
+      '[data-agent-native-node-id="cross-source"]',
+    );
+    const sourceBeforeGeometry = await sourceNode.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return {
+        parentNodeId: node.parentElement?.getAttribute(
+          "data-agent-native-node-id",
+        ),
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        background: style.backgroundColor,
+        cssWidth: style.width,
+        cssHeight: style.height,
+      };
+    });
 
     await page.keyboard.down(PRIMARY);
     await page.mouse.click(
@@ -224,6 +233,31 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
       await expect
         .poll(() => page.locator("[data-cross-screen-drop-guide]").count())
         .toBeGreaterThan(0);
+      const sourceHeldGeometry = await sourceNode.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          parentNodeId: node.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        };
+      });
+      expect(sourceHeldGeometry.parentNodeId).toBe(
+        sourceBeforeGeometry.parentNodeId,
+      );
+      expect(sourceHeldGeometry.x).toBeCloseTo(sourceBeforeGeometry.x, 1);
+      expect(sourceHeldGeometry.y).toBeCloseTo(sourceBeforeGeometry.y, 1);
+      expect(sourceHeldGeometry.width).toBeCloseTo(
+        sourceBeforeGeometry.width,
+        1,
+      );
+      expect(sourceHeldGeometry.height).toBeCloseTo(
+        sourceBeforeGeometry.height,
+        1,
+      );
       const heldGuide = await page
         .locator("[data-cross-screen-drop-guide]")
         .evaluate((node) => {
@@ -329,9 +363,9 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
         };
       });
     expect(copyGeometry).toMatchObject({
-      background: sourceStyle.background,
-      cssWidth: sourceStyle.width,
-      cssHeight: sourceStyle.height,
+      background: sourceBeforeGeometry.background,
+      cssWidth: sourceBeforeGeometry.cssWidth,
+      cssHeight: sourceBeforeGeometry.cssHeight,
     });
 
     await page.keyboard.press(`${PRIMARY}+z`);
