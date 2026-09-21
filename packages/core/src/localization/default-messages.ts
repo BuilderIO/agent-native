@@ -704,6 +704,18 @@ const messages = {
     sharedKeyInEffect: "A shared key is in effect.",
     useOrganizationKey: "Use organization key",
     keyStatusUnavailable: "Key status is unavailable.",
+    chatgptSubscriptionPopupBlocked:
+      "Allow pop-ups for this site, then try again.",
+    chatgptSubscriptionTitle: "ChatGPT subscription",
+    chatgptSubscriptionDescription:
+      "Experimental Codex access through your ChatGPT subscription.",
+    chatgptSubscriptionInUse: "In use",
+    chatgptSubscriptionConnected: "Connected",
+    chatgptSubscriptionConnecting: "Connecting…",
+    chatgptSubscriptionReconnect: "Reconnect",
+    chatgptSubscriptionConnect: "Connect ChatGPT",
+    chatgptSubscriptionUse: "Use in chat",
+    chatgptSubscriptionDisconnect: "Disconnect",
     enterApiKey: "Enter your {{provider}} API key.",
     providerSetupFailed: "Could not configure this provider.",
     noApiKeyNeeded: "No API key required.",

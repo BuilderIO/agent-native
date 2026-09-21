@@ -140,6 +140,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "Une clé partagée est utilisée.",
   "agentPanel.useOrganizationKey": "Utiliser la clé de l’organisation",
   "agentPanel.keyStatusUnavailable": "L’état de la clé est indisponible.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Autorisez les fenêtres pop-up pour ce site, puis réessayez.",
+  "agentPanel.chatgptSubscriptionTitle": "Abonnement ChatGPT",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Accès expérimental à Codex via votre abonnement ChatGPT.",
+  "agentPanel.chatgptSubscriptionInUse": "Utilisé",
+  "agentPanel.chatgptSubscriptionConnected": "Connecté",
+  "agentPanel.chatgptSubscriptionConnecting": "Connexion…",
+  "agentPanel.chatgptSubscriptionReconnect": "Reconnecter",
+  "agentPanel.chatgptSubscriptionConnect": "Connecter ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "Utiliser dans le chat",
+  "agentPanel.chatgptSubscriptionDisconnect": "Déconnecter",
   "agentHostNudge.sidebarTitle": "Utiliser le chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Vous discutez déjà avec {{agent}}. Demandez-lui de travailler directement avec cette app.",

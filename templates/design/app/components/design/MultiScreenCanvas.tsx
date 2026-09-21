@@ -707,6 +707,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     controlledZoomRevisionRef.current += 1;
   }
   const lastReportedZoomRef = useRef(zoom);
+  const onZoomChangeRef = useRef(onZoomChange);
+  onZoomChangeRef.current = onZoomChange;
   const lineupRecenterCameraRef = useRef({
     x: panRef.current.x,
     y: panRef.current.y,
@@ -9038,13 +9040,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     setPan(panRef.current);
     if (lastReportedZoomRef.current !== zoomRef.current) {
       lastReportedZoomRef.current = zoomRef.current;
-      onZoomChange?.(zoomRef.current);
+      onZoomChangeRef.current?.(zoomRef.current);
     }
     // P18: the wheel/pinch gesture just settled (pan/zoom state is
     // reconciled into React here) — resync the pen ghost preview from the
     // last known cursor position now that the canvas-space mapping changed.
     recomputePenPointerForViewChange();
-  }, [onZoomChange, recomputePenPointerForViewChange, startChromeSettle]);
+  }, [recomputePenPointerForViewChange, startChromeSettle]);
 
   // Debounced: only commit to React state once the gesture has been idle for a
   // beat, so a continuous pinch produces zero re-renders until the user pauses.

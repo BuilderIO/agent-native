@@ -131,6 +131,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "مفتاح مشترك قيد الاستخدام.",
   "agentPanel.useOrganizationKey": "استخدم مفتاح المؤسسة",
   "agentPanel.keyStatusUnavailable": "حالة المفتاح غير متاحة.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول مرة أخرى.",
+  "agentPanel.chatgptSubscriptionTitle": "اشتراك ChatGPT",
+  "agentPanel.chatgptSubscriptionDescription":
+    "وصول تجريبي إلى Codex عبر اشتراك ChatGPT.",
+  "agentPanel.chatgptSubscriptionInUse": "قيد الاستخدام",
+  "agentPanel.chatgptSubscriptionConnected": "متصل",
+  "agentPanel.chatgptSubscriptionConnecting": "جارٍ الاتصال…",
+  "agentPanel.chatgptSubscriptionReconnect": "إعادة الاتصال",
+  "agentPanel.chatgptSubscriptionConnect": "توصيل ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "استخدامه في المحادثة",
+  "agentPanel.chatgptSubscriptionDisconnect": "قطع الاتصال",
   "agentHostNudge.sidebarTitle": "استخدم محادثة {{agent}}",
   "agentHostNudge.sidebarDescription":
     "أنت تتحدث مع {{agent}} بالفعل. اطلب منه العمل مع هذا التطبيق مباشرةً.",

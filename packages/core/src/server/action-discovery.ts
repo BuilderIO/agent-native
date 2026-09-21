@@ -742,6 +742,14 @@ export async function mergeCoreSharingActions(
     ["get-labs", () => import("../labs/actions/get-labs.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
+      "get-chatgpt-subscription-status",
+      () => import("../agent/actions/get-chatgpt-subscription-status.js"),
+    ],
+    [
+      "disconnect-chatgpt-subscription",
+      () => import("../agent/actions/disconnect-chatgpt-subscription.js"),
+    ],
+    [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),
     ],
