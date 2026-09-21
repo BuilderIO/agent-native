@@ -364,6 +364,37 @@ export async function getContentDatabaseNavigationPage(args: {
     }),
   ]);
   const db = getDb();
+  const accessContext = {
+    userEmail: args.userEmail,
+    orgId: args.database.orgId ?? undefined,
+  };
+
+  if (args.parentId !== null) {
+    const [parent] = await db
+      .select({ id: schema.documents.id })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, args.database.id),
+          eq(schema.documents.id, args.parentId),
+          eq(schema.documents.spaceId, args.database.spaceId),
+          isNull(schema.documents.trashedAt),
+          accessFilter(schema.documents, schema.documentShares, accessContext),
+          ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
+        ),
+      )
+      .limit(1);
+    if (!parent) {
+      fail("The Files navigation parent is unavailable.", {
+        errorCode: "invalid_navigation_parent",
+        statusCode: 400,
+      });
+    }
+  }
 
   const effectiveFilter = await navigationFilterSql({
     databaseId: args.database.id,
@@ -388,10 +419,6 @@ export async function getContentDatabaseNavigationPage(args: {
     schema.contentDatabases,
     "navigation_database_documents",
   );
-  const accessContext = {
-    userEmail: args.userEmail,
-    orgId: args.database.orgId ?? undefined,
-  };
   const siblingFilter = and(
     eq(schema.contentDatabaseItems.databaseId, args.database.id),
     args.parentId === null

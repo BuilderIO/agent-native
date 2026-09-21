@@ -375,6 +375,31 @@ describe("query-content-database-items Files navigation", () => {
     expect(remainingChildren.items).toHaveLength(2);
   });
 
+  it("rejects parents outside the Files database or the caller's access", async () => {
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    await getDb().insert(schema.documents).values({
+      id: "outside-files-parent",
+      spaceId: SPACE_ID,
+      ownerEmail: OWNER,
+      title: "Outside Files",
+      content: "",
+      visibility: "private",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await addFile({
+      id: "inaccessible-files-parent",
+      ownerEmail: OTHER,
+    });
+
+    await expect(
+      navigate({ parentId: "outside-files-parent" }),
+    ).rejects.toThrow("The Files navigation parent is unavailable.");
+    await expect(
+      navigate({ parentId: "inaccessible-files-parent" }),
+    ).rejects.toThrow("The Files navigation parent is unavailable.");
+  });
+
   it("uses stable tie IDs for every supported server sort", async () => {
     await addFile({ id: "ties-parent", position: 100 });
     for (const id of ["tie-c", "tie-a", "tie-b"]) {
