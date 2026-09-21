@@ -1,0 +1,7 @@
+pr=5561
+owner_thread=01a0c5ae-8237-7402-bcd4-295b6d0a416e
+version=1
+issued_at=1790025773
+expires_at=1790026673
+observed_legacy_version=absent
+legacy_retired=true
