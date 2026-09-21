@@ -64,6 +64,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     typeof previousEditorChromeBridge === "object"
       ? previousEditorChromeBridge.host
       : null);
+  var previousEditorChromeBridgeInstance = (window as any)
+    .__anEditorChromeBridgeInstance;
+  if (
+    previousEditorChromeBridgeInstance &&
+    typeof previousEditorChromeBridgeInstance.repair === "function"
+  ) {
+    previousEditorChromeBridgeInstance.repair();
+    return;
+  }
   if (
     previousEditorChromeHost instanceof HTMLElement &&
     previousEditorChromeHost.isConnected
@@ -25847,6 +25856,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       refreshSelectedTextAfterFontsLoad,
     );
   }
+
+  (window as any).__anEditorChromeBridgeInstance = {
+    repair: function () {
+      observeEditorChromeHost();
+      repairEditorChromeHost();
+    },
+  };
 
   // Tell the host that every message listener above is attached, then keep the
   // chrome host alive across document hydration. A React Router hydration

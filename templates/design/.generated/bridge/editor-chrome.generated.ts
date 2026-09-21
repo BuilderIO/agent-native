@@ -907,6 +907,11 @@ export const editorChromeBridgeScript: string = `"use strict";
   (function() {
     var previousEditorChromeBridge = window.__anEditorChromeBridge;
     var previousEditorChromeHost = window.__anEditorChromeBridgeHost || (previousEditorChromeBridge && typeof previousEditorChromeBridge === "object" ? previousEditorChromeBridge.host : null);
+    var previousEditorChromeBridgeInstance = window.__anEditorChromeBridgeInstance;
+    if (previousEditorChromeBridgeInstance && typeof previousEditorChromeBridgeInstance.repair === "function") {
+      previousEditorChromeBridgeInstance.repair();
+      return;
+    }
     if (previousEditorChromeHost instanceof HTMLElement && previousEditorChromeHost.isConnected) {
       window.__anEditorChromeBridge = true;
       window.__anEditorChromeBridgeHost = previousEditorChromeHost;
@@ -18218,6 +18223,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         refreshSelectedTextAfterFontsLoad
       );
     }
+    window.__anEditorChromeBridgeInstance = {
+      repair: function() {
+        observeEditorChromeHost();
+        repairEditorChromeHost();
+      }
+    };
     observeEditorChromeHost();
     sendEditorChromeReady();
   })();

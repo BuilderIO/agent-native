@@ -9247,6 +9247,8 @@ function DesignEditor() {
     const runtimeComponent = selectedElement?.runtimeComponent;
     if (
       activeCanvasSourceType === "localhost" &&
+      (selectedElement?.componentAnnotation?.trim() ||
+        selectedElement?.componentName?.trim()) &&
       runtimeComponent?.componentId?.trim() &&
       runtimeComponent.instanceId?.trim() &&
       runtimeComponent.name?.trim() &&

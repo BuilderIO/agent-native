@@ -34,6 +34,12 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
   request,
 }, workerInfo) => {
   const baseURL = workerInfo.project.use.baseURL as string;
+  const componentDetailsRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/actions/get-component-details")) {
+      componentDetailsRequests.push(request.url());
+    }
+  });
   fs.mkdirSync(path.join(process.cwd(), ".tmp"), { recursive: true });
   const rootPath = fs.mkdtempSync(
     path.join(process.cwd(), ".tmp", "url-react-"),
@@ -348,9 +354,16 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     await expect(reloaded.locator("[data-route-label]")).toHaveText(
       "Next route",
     );
-    await reloaded
-      .locator("[data-agent-native-editor-chrome-host]")
-      .evaluate((host) => host.remove());
+    await reloaded.locator("body").evaluate(() => {
+      document
+        .querySelector("[data-agent-native-editor-chrome-host]")
+        ?.remove();
+      const bridgeScript = document.querySelector(
+        "script[data-agent-native-editor-chrome-bridge]",
+      );
+      if (!bridgeScript) throw new Error("missing editor bridge script");
+      document.head.appendChild(bridgeScript.cloneNode(true));
+    });
     await expect(
       reloaded.locator('[data-agent-native-edit-overlay="shield"]'),
     ).toBeAttached();
@@ -371,6 +384,17 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     }
     const healedSelection = await waitForSelection("v1");
     expect(healedSelection.payload.sourceId).toBe("v1");
+    expect(
+      await page.evaluate(
+        () =>
+          ((window as any).__bridge ?? []).filter(
+            (message: any) =>
+              message.type === "element-select" &&
+              message.intent?.source === "pointer",
+          ).length,
+      ),
+    ).toBe(1);
+    expect(componentDetailsRequests).toEqual([]);
   } finally {
     await bridge?.server.close();
     vite?.kill();
