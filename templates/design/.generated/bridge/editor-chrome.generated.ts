@@ -14220,6 +14220,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
       var currentAutoLayoutTarget = null;
       var dragIgnoreAutoLayout = hostIgnoreAutoLayoutAtPointerDown || pointerStartParam?.ignoreAutoLayout === true || isIgnoreAutoLayoutChord(e);
+      hostIgnoreAutoLayoutAtPointerDown = false;
       function ignoreAutoLayoutHeld(ev) {
         return dragIgnoreAutoLayout || isIgnoreAutoLayoutChord(ev);
       }

@@ -20229,6 +20229,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hostIgnoreAutoLayoutAtPointerDown ||
       pointerStartParam?.ignoreAutoLayout === true ||
       isIgnoreAutoLayoutChord(e);
+    hostIgnoreAutoLayoutAtPointerDown = false;
     function ignoreAutoLayoutHeld(ev): boolean {
       return dragIgnoreAutoLayout || isIgnoreAutoLayoutChord(ev);
     }
