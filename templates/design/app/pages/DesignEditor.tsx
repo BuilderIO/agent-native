@@ -4015,7 +4015,9 @@ function DesignEditor() {
   // the pending handoff; all persisted design/source writes remain gated by
   // canEditDesign below.
   const canEditLiveScreens =
-    isVisualEditSurface && !visualEditAccessLost && canEditDesign;
+    isVisualEditSurface &&
+    !visualEditAccessLost &&
+    (canEditDesign || design?.visibility === "public");
   const publicVisualEdit =
     isVisualEditSurface &&
     !visualEditAccessLost &&
