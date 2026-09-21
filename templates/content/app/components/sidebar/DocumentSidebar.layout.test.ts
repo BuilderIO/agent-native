@@ -369,6 +369,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("enabled: Boolean(sidebarStateArgs)");
     expect(sidebar).toContain("{selectedSpace ? (");
     expect(sidebar).toContain("spaceId={selectedSpace.id}");
+    expect(sidebar).not.toContain("key={selectedSpace.id}");
     expect(sidebar).toContain('t("sidebar.contentSpace")');
     expect(sections).toContain("contentSpaceActionArgs(spaceId)");
     expect(sections).toContain("optimisticBySpace.get(spaceId)");

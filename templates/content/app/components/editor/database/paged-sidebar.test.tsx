@@ -17,7 +17,10 @@ const useActionQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", () => ({ useActionQuery }));
 
-import { PagedContentFilesSidebarView } from "./sidebar";
+import {
+  navigationItemAsDatabaseItem,
+  PagedContentFilesSidebarView,
+} from "./sidebar";
 
 function navigationItem(
   id: string,
@@ -291,6 +294,11 @@ describe("PagedContentFilesSidebarView", () => {
       'button[aria-haspopup="menu"]',
     );
     expect(menu).not.toBeNull();
+    expect(onToggleFavorite).not.toHaveBeenCalled();
+    expect(
+      navigationItemAsDatabaseItem(navigationItem("ordinary-row"), undefined)
+        .document.spaceId,
+    ).toBe("space");
 
     await act(async () => root.unmount());
   });

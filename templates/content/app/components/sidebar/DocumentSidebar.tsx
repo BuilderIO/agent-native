@@ -2551,7 +2551,6 @@ export function DocumentSidebar({
         <div className="w-full min-w-0 py-2">
           {selectedSpace ? (
             <PersonalSidebarSections
-              key={selectedSpace.id}
               spaceId={selectedSpace.id}
               pinnedCount={favoritesData?.items.length ?? 0}
               renderFiles={renderWorkspaceNavigation}

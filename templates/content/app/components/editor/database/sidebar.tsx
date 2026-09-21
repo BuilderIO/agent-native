@@ -82,7 +82,7 @@ export interface ContentFilesSidebarRenderReorder {
   labels: SidebarReorderLabels;
 }
 
-function navigationItemAsDatabaseItem(
+export function navigationItemAsDatabaseItem(
   item: ContentDatabaseNavigationItem,
   document: Document | undefined,
 ): ContentDatabaseItem {
@@ -93,6 +93,7 @@ function navigationItemAsDatabaseItem(
     properties: [],
     document: document ?? {
       id: item.documentId,
+      spaceId: item.spaceId,
       parentId: item.parentId,
       title: item.title,
       content: "",
