@@ -1824,6 +1824,7 @@ export function DesignCanvas({
     [probeBridgeReadinessUntilDrained],
   );
   useEffect(() => {
+    if (interactMode) return;
     const isInspectorTarget = (target: EventTarget | null): boolean =>
       target instanceof Element &&
       !!target.closest('[data-design-chrome-region="right-panel"]');
@@ -1990,7 +1991,13 @@ export function DesignCanvas({
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [contentKey, postOneShotBridgeMessage, registerRuntimeBridge, screenId]);
+  }, [
+    contentKey,
+    interactMode,
+    postOneShotBridgeMessage,
+    registerRuntimeBridge,
+    screenId,
+  ]);
   const [renderedDocument, setRenderedDocument] = useState(() => ({
     content,
     sourceContent: authoredSourceContent ?? content,
@@ -7966,7 +7973,7 @@ function SingleScreenCreationOverlay({
   );
 
   useEffect(() => {
-    if (tool !== "pen") return;
+    if (interactMode || tool !== "pen") return;
     const handleKeyDown = (event: KeyboardEvent) => {
       const path = penPathRef.current;
       if (!path) return;
@@ -8013,7 +8020,7 @@ function SingleScreenCreationOverlay({
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [clearPenPath, finishPenPath, tool, updatePenPath]);
+  }, [clearPenPath, finishPenPath, interactMode, tool, updatePenPath]);
 
   const cursorClass = tool === "text" ? "cursor-text" : "cursor-crosshair";
   const isLineTool = tool === "line" || tool === "arrow";
