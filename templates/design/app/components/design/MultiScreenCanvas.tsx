@@ -3748,6 +3748,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             iframeY,
             viewportW,
             viewportH,
+            frameWidth:
+              renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+              frameGeometryRef.current[sourceScreenId]?.width,
+            frameHeight:
+              renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+              frameGeometryRef.current[sourceScreenId]?.height,
           })
         ) {
           const previewPoint =
@@ -3818,6 +3824,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           iframeY,
           viewportW,
           viewportH,
+          frameWidth:
+            renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+            frameGeometryRef.current[sourceScreenId]?.width,
+          frameHeight:
+            renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+            frameGeometryRef.current[sourceScreenId]?.height,
         });
         const sourceIsBoard = sourceScreenId === boardFileId;
         // Regular screen iframes are finite artboards, so an in-bounds pointer
@@ -3911,6 +3923,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             iframeY: msg.iframeY!,
             viewportW: msg.viewportW!,
             viewportH: msg.viewportH!,
+            frameWidth:
+              renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+              frameGeometryRef.current[sourceScreenId]?.width,
+            frameHeight:
+              renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+              frameGeometryRef.current[sourceScreenId]?.height,
           });
         const lastBoardPoint =
           (endPointOutsideSource
@@ -11245,6 +11263,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           // identical Figma-style indicator between siblings.
           <span
             data-primitive-drop-target
+            data-agent-native-insertion-guide
             data-primitive-drop-placement={primitiveDropTarget.placement}
             className="pointer-events-none absolute z-40 rounded-sm"
             style={getCrossScreenDropGuideStyle({
