@@ -40,6 +40,21 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(ungrouped.content).toContain("top: 140px");
   });
 
+  it("ungroup rebases absolute children from the group origin", () => {
+    const content = `<body><div data-agent-native-node-id="red" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div><div data-agent-native-node-id="green" style="position:absolute;left:60px;top:60px;width:100px;height:80px"></div></body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["red", "green"],
+    });
+    const ungrouped = applyVisualEdit(grouped.content, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+    expect(ungrouped.content).toContain("left: 20px");
+    expect(ungrouped.content).toContain("top: 20px");
+    expect(ungrouped.content).toContain("left: 60px");
+  });
+
   it("places the group at the TOPMOST selected child's z-position, not the bottommost, for a non-adjacent selection", () => {
     // Select red (bottom) + blue (top), skipping green (middle). Figma
     // places the resulting group at blue's stacking position, so green
