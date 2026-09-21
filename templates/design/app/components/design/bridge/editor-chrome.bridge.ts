@@ -20218,6 +20218,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       needsAutoLayoutConversion?: boolean;
       conversionTarget?: Element;
     } | null = null;
+    // Preserve the modifier captured at pointerdown. Playwright and real
+    // browsers can deliver the first move/up without the held key flags.
+    var dragIgnoreAutoLayout = isIgnoreAutoLayoutChord(e);
+    function ignoreAutoLayoutHeld(ev): boolean {
+      return dragIgnoreAutoLayout || isIgnoreAutoLayoutChord(ev);
+    }
     // Snap candidates (siblings + parent content box) are computed once at
     // drag start — a single getBoundingClientRect pass per candidate — not
     // recomputed on every move event. Other group members are excluded: they
@@ -20239,7 +20245,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return target;
       }
-      if (ev && (isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev))) {
+      if (ev && (ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev))) {
         return target;
       }
       var container = dropContainerForTarget(target);
@@ -20308,7 +20314,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         modifiers: {
           metaKey: !!e.metaKey,
           ctrlKey: !!e.ctrlKey,
-          ignoreAutoLayout: isIgnoreAutoLayoutChord(e),
+          ignoreAutoLayout: dragIgnoreAutoLayout,
           forceNestedAutoLayout: isPlatformPrimaryChord(e),
         },
       });
@@ -20352,7 +20358,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         clientY: ev.clientY,
         metaKey: !!ev.metaKey,
         ctrlKey: !!ev.ctrlKey,
-        ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+        ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
         forceNestedAutoLayout: isPlatformPrimaryChord(ev),
       };
       if (crossScreenDragMoveScheduled) return;
@@ -20464,7 +20470,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // happen instead of a free absolute placement (handled below once
       // currentAutoLayoutTarget is known for this tick).
       var snapBypass =
-        isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev);
+        ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev);
       var snapResult =
         !snapBypass && !duplicatedForDrag
           ? computeMoveSnapOffset(
@@ -20547,7 +20553,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               isPlatformPrimaryChord(ev),
             )
           : null;
-        if (currentAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
+        if (currentAutoLayoutTarget && ignoreAutoLayoutHeld(ev)) {
           currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             currentAutoLayoutTarget,
           );
@@ -20705,7 +20711,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           modifiers: {
             metaKey: !!ev.metaKey,
             ctrlKey: !!ev.ctrlKey,
-            ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+            ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
             forceNestedAutoLayout: isPlatformPrimaryChord(ev),
           },
         });
@@ -20732,7 +20738,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           groupOthers,
           isPlatformPrimaryChord(ev),
         );
-        if (finalAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
+        if (finalAutoLayoutTarget && ignoreAutoLayoutHeld(ev)) {
           finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             finalAutoLayoutTarget,
           );
