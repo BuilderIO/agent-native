@@ -3812,6 +3812,7 @@ function arrayFrom<T>(value: T | T[] | undefined): T[] {
 }
 
 const LOCAL_WORKSPACE_SOURCE_ALIAS_EXCLUDES = new Set([
+  "@agent-native/core",
   "@agent-native/pinpoint",
 ]);
 
@@ -4541,6 +4542,15 @@ function createAgentNativeConfig(
             // bundle still owns and bundles the dependency, so both paths
             // share one portable module instance.
             "yjs",
+            // Nitro owns the final Core graph. Keeping Core external here
+            // prevents Vite's intermediate SSR build from duplicating it.
+            "@agent-native/core",
+            // Core's external client entries must share singleton contexts with
+            // the SSR graph or prerendering sees duplicate providers.
+            "react",
+            "react-dom",
+            "react-router",
+            "@tanstack/react-query",
             ...arrayFrom((userConfig.ssr as { external?: any })?.external),
           ],
           // Pick the workspace-core's compiled `dist/` exports in prod —
@@ -4667,9 +4677,11 @@ function createAgentNativeConfig(
         ...getReactRouterAliases(cwd),
         ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
+        // Production must use compiled exports so the React Router SSR graph
+        // and Nitro do not bundle separate copies of Core.
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
-        ...getCoreSourceAliases(cwd),
+        ...(isBuildCommand(command) ? [] : getCoreSourceAliases(cwd)),
         ...localWorkspacePackageResolveAliases,
         // Standard path aliases (prefix matching is fine here)
         { find: "@", replacement: path.resolve(cwd, "./app") },
