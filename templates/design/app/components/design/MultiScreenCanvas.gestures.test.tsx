@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { findCanvasIframeForScreen } from "./multi-screen/iframe-targeting";
 import { SURFACE_PADDING } from "./multi-screen/overview-layout";
-import type { MultiScreenCanvasTool } from "./multi-screen/types";
+import type {
+  DuplicateRequest,
+  MultiScreenCanvasTool,
+} from "./multi-screen/types";
 import { MultiScreenCanvas } from "./MultiScreenCanvas";
 
 (
@@ -329,7 +332,27 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           ) {
             return;
           }
-          const data = message as { correlationId: string };
+          const data = message as {
+            correlationId: string;
+            includePortableStyleSnapshot?: boolean;
+          };
+          if (data.includePortableStyleSnapshot) {
+            window.dispatchEvent(
+              new MessageEvent("message", {
+                data: {
+                  type: "agent-native:selectable-rects-result",
+                  correlationId: data.correlationId,
+                  payload: [
+                    candidate(
+                      iframe === screenA ? "screen-a-layer" : "screen-b-layer",
+                    ),
+                  ],
+                },
+                source: iframe.contentWindow,
+              }),
+            );
+            return;
+          }
           if (iframe === screenA) {
             window.dispatchEvent(
               new MessageEvent("message", {
@@ -970,6 +993,44 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
   });
 
+  it("reserves live URL screen bodies for frame selection until selected", async () => {
+    const render = async (selectedScreenIds: string[] = []) => {
+      await act(async () => {
+        root.render(
+          <MultiScreenCanvas
+            screens={[
+              {
+                id: "screen-a",
+                filename: "screen-a.html",
+                content: "http://localhost:3102/library",
+                sourceType: "localhost",
+              },
+            ]}
+            zoom={100}
+            activeTool="move"
+            selectedScreenIds={selectedScreenIds}
+            geometryById={{
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            }}
+            renderScreenContent={() => (
+              <div className="design-canvas-iframe-wrapper" />
+            )}
+            onPick={() => {}}
+          />,
+        );
+      });
+    };
+
+    await render();
+    const interactiveBody = container.querySelector<HTMLElement>(
+      ".design-canvas-iframe-wrapper",
+    );
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("none");
+
+    await render(["screen-a"]);
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
+  });
+
   it("drags a selected frame from its selection outline", async () => {
     const { frame } = await renderSelectedFrame();
     const dragSurface = container.querySelector<HTMLElement>(
@@ -1203,6 +1264,73 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(onDuplicate.mock.calls[0]![0]).toBe("screen-a");
   });
 
+  it("duplicates a multi-selection on Cmd+D as one selected batch", async () => {
+    const duplicateResolvers: Array<() => void> = [];
+    const onDuplicate = vi.fn(
+      (id: string, _request: DuplicateRequest) =>
+        new Promise<string>((resolve) => {
+          duplicateResolvers.push(() => resolve(`duplicate-${id}`));
+        }),
+    );
+    const onSelectionChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+            {
+              id: "screen-b",
+              filename: "screen-b.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          selectedScreenIds={["screen-a", "screen-b"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+          }}
+          onDuplicate={onDuplicate}
+          onSelectionChange={onSelectionChange}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "d",
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onDuplicate).toHaveBeenCalledTimes(2);
+    expect(
+      new Set(
+        onDuplicate.mock.calls.map(([, request]) => request.historyBatchId),
+      ).size,
+    ).toBe(1);
+
+    await act(async () => {
+      duplicateResolvers.forEach((resolve) => resolve());
+      await Promise.resolve();
+    });
+
+    expect(onSelectionChange).toHaveBeenLastCalledWith([
+      "duplicate-screen-a",
+      "duplicate-screen-b",
+    ]);
+  });
+
   it("copies a selected frame on alt-drag from its selection outline instead of moving it", async () => {
     const onDuplicate = vi.fn();
     await act(async () => {
@@ -1255,7 +1383,14 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   });
 
   it("copies every frame in a multi-selection on alt-drag, keeping their relative layout", async () => {
-    const onDuplicate = vi.fn();
+    const duplicateResolvers: Array<(id: string) => void> = [];
+    const onDuplicate = vi.fn(
+      (id: string, _request: DuplicateRequest) =>
+        new Promise<string>((resolve) => {
+          duplicateResolvers.push(() => resolve(`duplicate-${id}`));
+        }),
+    );
+    const onSelectionChange = vi.fn();
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -1279,6 +1414,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             "screen-b": { x: 420, y: 100, width: 320, height: 640 },
           }}
           onDuplicate={onDuplicate}
+          onSelectionChange={onSelectionChange}
           onPick={() => {}}
         />,
       );
@@ -1314,6 +1450,15 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(placedA.x).toBeGreaterThan(0);
     expect(placedB.x - placedA.x).toBeCloseTo(420);
     expect(placedB.y - placedA.y).toBeCloseTo(100);
+
+    await act(async () => {
+      duplicateResolvers.forEach((resolve) => resolve("done"));
+      await Promise.resolve();
+    });
+    expect(onSelectionChange).toHaveBeenLastCalledWith([
+      "duplicate-screen-a",
+      "duplicate-screen-b",
+    ]);
   });
 
   it("keeps pending review discoverable in constant-size frame chrome", async () => {
@@ -1504,6 +1649,71 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(selectionBox!.style.width).toBe(before.boxWidth);
     expect(selectionBox!.style.height).toBe(before.boxHeight);
   });
+
+  it.each(["release", "Escape", "unmount"])(
+    "portals transform feedback at viewport coordinates and removes it on %s",
+    async (cleanup) => {
+      rectSpy.mockReturnValue({
+        x: 160,
+        y: 80,
+        top: 80,
+        right: 960,
+        bottom: 680,
+        left: 160,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      });
+      const surface = await renderHarness("rect");
+      const draft = await createSelectedDraft(surface);
+      const resizeHandle = container.querySelector<HTMLElement>(
+        '[data-frame-selection-box] [data-resize-handle="se"]',
+      );
+      expect(resizeHandle).not.toBeNull();
+      expect(surface.style.contain).toBe("layout paint");
+      const beforeWidth = draft.style.width;
+
+      await act(async () => {
+        dispatchMouse(resizeHandle!, "mousedown", 400, 400);
+        dispatchMouse(window, "mousemove", 450, 450);
+        await nextAnimationFrame();
+      });
+
+      const badge = document.querySelector<HTMLElement>(
+        "[data-transform-badge]",
+      );
+      expect(draft.style.width).not.toBe(beforeWidth);
+      expect(badge).not.toBeNull();
+      expect(badge!.parentElement).toBe(document.body);
+      expect(surface.contains(badge)).toBe(false);
+      expect(badge!.style.left).toBe("462px");
+      expect(badge!.style.top).toBe("462px");
+      expect(badge!.classList.contains("fixed")).toBe(true);
+      expect(badge!.classList.contains("bg-background/95")).toBe(true);
+      expect(badge!.classList.contains("text-foreground")).toBe(true);
+      expect(badge!.textContent).toBe(
+        `${Math.round(Number.parseFloat(draft.style.width))} x ${Math.round(Number.parseFloat(draft.style.height))}`,
+      );
+
+      await act(async () => {
+        if (cleanup === "release") {
+          dispatchMouse(window, "mouseup", 450, 450);
+        } else if (cleanup === "Escape") {
+          window.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        } else {
+          root.render(null);
+        }
+      });
+      expect(document.querySelector("[data-transform-badge]")).toBeNull();
+      expect(badge!.isConnected).toBe(false);
+    },
+  );
 
   it("does not deselect an already-selected frame for shift-marquee jitter below the drag threshold", async () => {
     await renderSelectedFrame();

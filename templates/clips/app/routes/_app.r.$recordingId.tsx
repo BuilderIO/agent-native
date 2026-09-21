@@ -94,6 +94,7 @@ import {
   REACTION_NAMES,
 } from "@/components/player/reaction-emojis";
 import { RecordingSidePanel } from "@/components/player/recording-side-panel";
+import { RecordingTagsBar } from "@/components/player/recording-tags-bar";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
@@ -2641,6 +2642,11 @@ export default function RecordingPage() {
                         ) : null}
                       </div>
                     ) : null}
+                    <RecordingTagsBar
+                      recordingId={recording.id}
+                      tags={playerDataQ.data?.tags ?? []}
+                      canEdit={canEdit}
+                    />
                   </div>
                 </div>
 

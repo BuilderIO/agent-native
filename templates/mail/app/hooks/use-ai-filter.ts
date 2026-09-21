@@ -1,4 +1,8 @@
-import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useActionMutation,
+  useChangeVersions,
+} from "@agent-native/core/client/hooks";
 import type {
   AiFilterDecision,
   AiFilterState,
@@ -42,6 +46,23 @@ export function useManageAiFilter() {
       void queryClient.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
       void invalidateInboxThreads(queryClient);
     },
+  });
+}
+
+export function usePreviewAiFilter() {
+  return useActionMutation("preview-ai-filter", {
+    skipActionQueryInvalidation: true,
+    timeoutMs: 15_000,
+  });
+}
+
+export function useRefineAiFilter() {
+  const queryClient = useQueryClient();
+  return useActionMutation("refine-ai-filter", {
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["automations"] });
+    },
+    timeoutMs: 20_000,
   });
 }
 

@@ -1,3 +1,24 @@
+## 0.2.630
+
+### Patch Changes
+
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+- Updated dependencies [a2f21dc]
+  - @agent-native/core@0.164.0
+
 ## 0.2.629
 
 ### Patch Changes

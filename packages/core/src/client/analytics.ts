@@ -1,8 +1,10 @@
 import type * as amplitude from "@amplitude/analytics-browser";
 import type * as Sentry from "@sentry/browser";
 
+import { recordTrackingEvent } from "../observability/tracing.js";
 import {
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  canonicalTrackingEvent,
   legacyLifecycleEvent,
   normalizeTrackingDimension,
   withCanonicalTrackingProperties,
@@ -2250,6 +2252,28 @@ function sendAgentNativeAnalytics(
   }
 }
 
+function emitBrowserTrackingEvent(
+  name: string,
+  props: Record<string, unknown>,
+  options: {
+    gtagProperties?: Record<string, unknown>;
+    sendGtag?: boolean;
+  } = {},
+): void {
+  const { gtagProperties = props, sendGtag = true } = options;
+  const amplitudeProps = amplitudeEventProperties(name, props);
+  if (sendGtag)
+    window.gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+  if (ensureAmplitude()) {
+    _amplitudeModule?.track(name, amplitudeProps);
+  } else if (_amplitudeApiKey) {
+    if (_pendingAmplitudeEvents.length < 100) {
+      _pendingAmplitudeEvents.push([name, amplitudeProps]);
+    }
+  }
+  sendAgentNativeAnalytics(name, props);
+}
+
 export function trackEvent(
   name: string,
   params?: Record<string, unknown>,
@@ -2259,16 +2283,18 @@ export function trackEvent(
   if (isQaTrackingIdentity(_trackingIdentity)) return;
   ensureSentry();
   const props = resolveProps(name, params);
-  const amplitudeProps = amplitudeEventProperties(name, props);
-  window.gtag?.("event", name.replace(/\s+/g, "_"), props);
-  if (ensureAmplitude()) {
-    _amplitudeModule?.track(name, amplitudeProps);
-  } else if (_amplitudeApiKey) {
-    if (_pendingAmplitudeEvents.length < 100) {
-      _pendingAmplitudeEvents.push([name, amplitudeProps]);
-    }
+  const canonical = canonicalTrackingEvent(name, props);
+  const gtagNameMatchesCanonical =
+    canonical !== null && name.replace(/\s+/g, "_") === canonical.name;
+  emitBrowserTrackingEvent(name, props, {
+    gtagProperties: gtagNameMatchesCanonical ? canonical.properties : props,
+  });
+  if (canonical) {
+    emitBrowserTrackingEvent(canonical.name, canonical.properties, {
+      sendGtag: !gtagNameMatchesCanonical,
+    });
   }
-  sendAgentNativeAnalytics(name, props);
+  void recordTrackingEvent(name, props, "client");
   const lifecycle = legacyLifecycleEvent(name, props);
   if (lifecycle) trackEvent(lifecycle.name, lifecycle.properties);
 }

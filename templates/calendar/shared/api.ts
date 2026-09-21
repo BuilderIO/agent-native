@@ -62,6 +62,8 @@ export interface CalendarEvent {
     self?: boolean;
     /** When true, the attendee is optional (Google Calendar `optional`). */
     optional?: boolean;
+    /** Number of additional guests represented by this attendee (Google Calendar `additionalGuests`). */
+    additionalGuests?: number;
     /**
      * Optional IANA timezone for this attendee (e.g. America/New_York).
      * Used to show their local time for the event start when known.
@@ -141,6 +143,49 @@ export interface CalendarEvent {
   _tempId?: string;
   /** Client-only: prior provider id retained while open UI state rebinds after replacement */
   _replacedId?: string;
+}
+
+type CalendarAttendee = NonNullable<CalendarEvent["attendees"]>[number];
+
+function additionalGuestCount(attendee: CalendarAttendee): number {
+  return typeof attendee.additionalGuests === "number" &&
+    Number.isFinite(attendee.additionalGuests) &&
+    attendee.additionalGuests > 0
+    ? Math.floor(attendee.additionalGuests)
+    : 0;
+}
+
+export function getCalendarAttendeeCount(
+  attendees: CalendarEvent["attendees"],
+): number {
+  return (attendees ?? []).reduce(
+    (count, attendee) => count + 1 + additionalGuestCount(attendee),
+    0,
+  );
+}
+
+export function getCalendarGuestCount(
+  attendees: CalendarEvent["attendees"],
+): number {
+  return (attendees ?? []).reduce(
+    (count, attendee) =>
+      count + (attendee.self ? 0 : 1) + additionalGuestCount(attendee),
+    0,
+  );
+}
+
+export function getCalendarAttendeeStatusCounts(
+  attendees: CalendarEvent["attendees"],
+): Record<string, number> {
+  return (attendees ?? []).reduce<Record<string, number>>(
+    (counts, attendee) => {
+      const status = attendee.responseStatus ?? "unknown";
+      counts[status] =
+        (counts[status] ?? 0) + 1 + additionalGuestCount(attendee);
+      return counts;
+    },
+    {},
+  );
 }
 
 export interface CalendarEventDraft {

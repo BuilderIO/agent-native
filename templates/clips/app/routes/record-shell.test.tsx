@@ -148,7 +148,7 @@ describe("record route lifecycle shell", () => {
     );
     expect(callout).toContain('variant="ghost"');
     expect(callout).toContain("pt-3");
-    expect(callout).toContain("DesktopPlatformIcon");
+    expect(callout).toContain("CaptureInstallMenu");
     expect(callout).toContain("text-sm font-medium");
     expect(source).not.toContain("xl:grid-cols-[288px_320px_288px]");
     expect(source).not.toContain("xl:absolute");

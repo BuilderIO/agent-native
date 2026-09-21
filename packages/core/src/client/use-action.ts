@@ -45,7 +45,9 @@ import {
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
-const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
+function actionPrefix(): string {
+  return agentNativePath("/_agent-native/actions");
+}
 
 /**
  * Upper bound on how long a single action fetch may stay in flight (headers
@@ -216,6 +218,8 @@ export interface ClientActionCallOptions {
   signal?: AbortSignal;
   /** Override the default 60s fetch timeout for long-running actions. */
   timeoutMs?: number;
+  /** Additional same-origin headers for a narrowly scoped capability call. */
+  headers?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,11 +287,34 @@ export interface ActionFetchOptions {
   serializedBody?: string;
   /** Omit the tab echo-suppression tag for imperative callers. */
   includeRequestSource?: boolean;
+  /** Additional same-origin headers for a narrowly scoped capability call. */
+  headers?: Record<string, string>;
 }
 
 type InternalActionFetchOptions = ActionFetchOptions & {
   onResponse?: (response: Response) => void;
+  uiCapabilityRetry?: boolean;
 };
+
+let uiCapabilityRequest: Promise<void> | undefined;
+
+async function ensureUiActionCapability(): Promise<void> {
+  const request =
+    uiCapabilityRequest ??
+    (uiCapabilityRequest = fetch(
+      agentNativePath("/_agent-native/ui-capability"),
+      { credentials: "same-origin", cache: "no-store" },
+    )
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Could not establish the browser UI capability.");
+        }
+      })
+      .finally(() => {
+        uiCapabilityRequest = undefined;
+      }));
+  return request;
+}
 
 /**
  * Conservative per-document keepalive body budget. Browsers commonly enforce
@@ -326,7 +353,7 @@ async function performActionFetch<T>(
   options?: InternalActionFetchOptions,
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
-  let url = `${ACTION_PREFIX}/${name}`;
+  let url = `${actionPrefix()}/${name}`;
   const browserTabId = getBrowserTabId();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -345,6 +372,7 @@ async function performActionFetch<T>(
           "X-Request-Source": browserTabId,
         }
       : {}),
+    ...(options?.headers ?? {}),
   };
   const compatibilityVersion = clientCompatibilityVersion();
   if (compatibilityVersion) {
@@ -494,6 +522,19 @@ async function performActionFetch<T>(
   }
 
   if (!res.ok) {
+    if (
+      res.status === 403 &&
+      data?.errorCode === "ui_capability_required" &&
+      !options?.uiCapabilityRetry &&
+      typeof window !== "undefined"
+    ) {
+      await ensureUiActionCapability();
+      return performActionFetch<T>(name, method, params, {
+        ...options,
+        uiCapabilityRetry: true,
+      });
+    }
+
     // The server does not recognise this browser any more. Nothing else
     // tells the session gate that, so without this the shell stays mounted
     // on a stale authenticated answer and the failure reaches the user as a
@@ -610,23 +651,33 @@ function parseServerTiming(
   return timings;
 }
 
-function shouldTrackActionResponse(
+type ActionResponseSampling = {
+  track: boolean;
+  sampleRate: number;
+  sampled: boolean;
+};
+
+function getActionResponseSampling(
   error: unknown,
   durationMs: number,
   response: Response | undefined,
-): boolean {
-  if (error || durationMs >= 1_000) return true;
-  if (response && response.status >= 400 && response.status < 500) return true;
+): ActionResponseSampling {
+  if (error || durationMs >= 1_000) {
+    return { track: true, sampleRate: 1, sampled: false };
+  }
+  if (response && response.status >= 400 && response.status < 500) {
+    return { track: true, sampleRate: 1, sampled: false };
+  }
   if (
     /\bstartup(?:-db)?\s*;/i.test(response?.headers.get("server-timing") ?? "")
   ) {
-    return true;
+    return { track: true, sampleRate: 1, sampled: false };
   }
   const raw = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE;
   const parsed = raw === undefined ? 0.1 : Number(raw);
   const rate = Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.1;
-  return Math.random() < rate;
+  return { track: Math.random() < rate, sampleRate: rate, sampled: true };
 }
 
 async function actionFetch<T>(
@@ -656,7 +707,8 @@ async function actionFetch<T>(
     try {
       const completedAt = actionTelemetryNow();
       const durationMs = Math.max(0, completedAt - startedAt);
-      if (shouldTrackActionResponse(error, durationMs, response)) {
+      const sampling = getActionResponseSampling(error, durationMs, response);
+      if (sampling.track) {
         const ttfbMs =
           responseAt === undefined
             ? undefined
@@ -679,6 +731,9 @@ async function actionFetch<T>(
             response?.headers.get("x-agent-native-request-id") ?? undefined,
           action: name,
           method,
+          sample_rate: sampling.sampleRate,
+          sample_weight: 1 / sampling.sampleRate,
+          sampled: sampling.sampled,
           status_code: statusCode,
           status_class:
             statusCode === undefined
@@ -744,6 +799,7 @@ export function callAction<
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
+    headers: options.headers,
   });
 }
 

@@ -64,6 +64,12 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(editorSource).toContain(
       "isSelectedElementDraggable && selectedElementFrame",
     );
+    expect(editorSource).toContain("data-slide-move-handle");
+    expect(editorSource).toContain(
+      "selectedElementRect && !multiSelectionBounds",
+    );
+    expect(editorSource).toContain("allowBodyMove");
+    expect(editorSource).toContain("richTextEditorRevision,");
   });
 
   it("keeps drag chrome and snap guides in the object coordinate root", () => {
@@ -100,6 +106,24 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(groupSource).toContain("groupContainingBlock = containingBlock");
     expect(groupSource).toContain(
       "updateAlignmentGuides(snap.guides, containingBlock, snapCanvas)",
+    );
+  });
+
+  it("refreshes layer hover geometry after canvas zoom and nested row transitions", () => {
+    const hoverStart = editorSource.indexOf(
+      "useLayoutEffect(() => {\n    if (!layersOpen || !hoveredLayerId)",
+    );
+    const hoverEnd = editorSource.indexOf(
+      "useEffect(() => {\n    if (!layersOpen) setHoveredLayerId(null);",
+      hoverStart,
+    );
+    expect(hoverStart).toBeGreaterThanOrEqual(0);
+    expect(hoverEnd).toBeGreaterThan(hoverStart);
+    expect(editorSource.slice(hoverStart, hoverEnd)).toContain(
+      "[canvasZoom, getSlideContent, hoveredLayerId, layersOpen, slide.content]",
+    );
+    expect(editorSource).toContain(
+      "setHoveredLayerId((current) => (current === id ? null : current))",
     );
   });
 });

@@ -3,6 +3,44 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-21
+
+### Fixed
+
+- Keep slide additions aligned with the deck's existing design system
+
+## 2026-09-20
+
+### Fixed
+
+- Continue is available only after selecting a reference or design system.
+
+## 2026-09-19
+
+### Fixed
+
+- HTML exports have clickable slide and fullscreen controls
+- Creating another presentation in chat keeps the existing deck intact.
+
+## 2026-09-18
+
+### Improved
+
+- New decks now keep the selected design system as the default
+- Share Presentation now keeps its heading inset and shows the relevant link clearly
+
+### Fixed
+
+- Inline slide editing now preserves text changes through teardown and reload
+- Slides keeps chat controls, queued prompts, sharing, and design-system status in sync.
+- Slides now hydrates configured design system defaults when references load after opening.
+
+## 2026-09-17
+
+### Fixed
+
+- Text editing keeps its focus, toolbar controls, and selection outline consistent
+
 ## 2026-09-16
 
 ### Fixed

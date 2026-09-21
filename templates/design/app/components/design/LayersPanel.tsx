@@ -1194,6 +1194,7 @@ function LayersPanelImpl(
     const frame = window.requestAnimationFrame(() => {
       rowElementRefs.current.get(selectedScrollRowKey)?.scrollIntoView({
         block: "nearest",
+        inline: "nearest",
       });
     });
     return () => window.cancelAnimationFrame(frame);
@@ -1327,7 +1328,7 @@ function LayersPanelImpl(
     if (!rowKey) return;
     const frame = window.requestAnimationFrame(() => {
       const rowElement = rowElementRefs.current.get(rowKey);
-      rowElement?.scrollIntoView({ block: "nearest" });
+      rowElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
       rowElement
         ?.querySelector<HTMLInputElement>("input")
         ?.focus({ preventScroll: true });

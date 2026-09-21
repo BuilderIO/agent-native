@@ -65,6 +65,7 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import { LOADING_LABELS } from "../shared/loading-labels.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
@@ -1090,6 +1091,44 @@ interface ReactRouterAssetManifestRoute {
   hydrateFallbackModule?: string;
 }
 
+/**
+ * Resolve `runtime.frameworkRoutePrefix` from the app config once, before any
+ * bundle is written, and publish it to this process's env. Every later reader
+ * in the build — the Vite define, the Nitro replacement map, the generated
+ * worker, the Netlify headers — reads that one env key, so the browser bundle,
+ * the server bundle and the platform routing cannot disagree.
+ */
+async function resolveDeployFrameworkRoutePrefix(): Promise<void> {
+  const mode =
+    process.env.NODE_ENV === "development" ? "development" : "production";
+  const workspaceRoot = findAgentNativeWorkspaceRoot(cwd);
+  const environment = {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
+  const config = await loadResolvedAgentNativeConfig(
+    cwd,
+    createAgentNativeConfigContext("build", mode),
+    { environment },
+  );
+  // guard:allow-env-mutation — build-time process, set once before any bundle is written; no request ever runs here
+  process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+    config.runtime?.frameworkRoutePrefix ?? "";
+}
+
+/** The public prefix baked into generated worker sources. */
+function resolveBuildFrameworkRoutePrefix(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return normalizeFrameworkRoutePrefix(
+    env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || undefined,
+    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+  );
+}
+
 function normalizeConfiguredAppBasePath(): string {
   return normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
@@ -1191,6 +1230,7 @@ export function generateWorkerEntry(
   immutableAssetPaths: string[] = [],
   builtAppBasePath = normalizeConfiguredAppBasePath(),
   options: GenerateWorkerEntryOptions = {},
+  builtFrameworkRoutePrefix = resolveBuildFrameworkRoutePrefix(),
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
   // The worker ships as a static bundle with no access to runtime env, so the
@@ -1200,6 +1240,7 @@ export function generateWorkerEntry(
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
   );
+  const hasActions = actions.length > 0;
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -1243,6 +1284,20 @@ export function generateWorkerEntry(
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  const ${handlerName} = defineEventHandler(async (event) => {
+    setResponseHeader(event, "Cache-Control", "no-" + "store");
+    const actionIsUiOnly = ${a.uiOnly ? "true" : `${varName}.uiOnly === true`};
+    const uiActionContext = actionIsUiOnly
+      ? await getGeneratedUiActionContext(event)
+      : undefined;
+    if (actionIsUiOnly && !uiActionContext) {
+      return new Response(
+        JSON.stringify({
+          error: "This action can only be called from the signed-in app UI.",
+          errorCode: "ui_capability_required",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
     const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
     const requestMethod = event.req.method;
     const isFrontendMutation =
@@ -1261,7 +1316,21 @@ export function generateWorkerEntry(
         event.req.headers.get("x-agent-native-frontend") === "1"
           ? "frontend"
           : "http";
-      const result = await ${varName}.run(params, { caller });
+      const actionRunContext = {
+        caller,
+        requestHeaders: event.req.headers,
+        actionName: ${JSON.stringify(a.name)},
+        ...(uiActionContext
+          ? {
+              userEmail: uiActionContext.userEmail,
+              orgId: uiActionContext.orgId ?? null,
+            }
+          : {}),
+      };
+      const runAction = () => ${varName}.run(params, actionRunContext);
+      const result = actionIsUiOnly
+        ? await runWithGeneratedRequestContext(uiActionContext, runAction)
+        : await runAction();
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
@@ -1290,8 +1359,10 @@ ${["post", "put", "delete"]
   pluginImports.push(
     `import {
   getAppConfig as getAgentNativeAppConfig,
+  getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
+${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  isSameOriginRequest as isGeneratedSameOriginRequest,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -1348,7 +1419,7 @@ ${["post", "put", "delete"]
     );
   }
   const generatedPluginMarks =
-    providedPluginStems.size > 0
+    providedPluginStems.size > 0 || hasActions
       ? [
           ...new Set([
             ...Object.keys(DEFAULT_PLUGIN_REGISTRY),
@@ -1375,7 +1446,13 @@ ${["post", "put", "delete"]
 
   return `
 // Auto-generated worker entry point for ${preset}
-import { H3, defineEventHandler, readBody, toResponse } from "h3";
+import {
+  H3,
+  defineEventHandler,
+  readBody,
+  setResponseHeader,
+  toResponse,
+} from "h3";
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 ${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}
@@ -1386,6 +1463,11 @@ function normalizeAppBasePath(value) {
   if (!trimmed || trimmed === "/") return "";
   return "/" + trimmed.replace(/^\\/+/, "").replace(/\\/+$/, "");
 }
+
+// The public framework route prefix this bundle was built for. Only path
+// CLASSIFICATION happens here; the h3 boundary inside the handler is what
+// translates the public prefix to the internal one, exactly once.
+const builtFrameworkRoutePrefix = ${JSON.stringify(builtFrameworkRoutePrefix)};
 
 function getAppBasePath() {
   const builtAppBasePath = ${JSON.stringify(builtAppBasePath)};
@@ -1400,6 +1482,7 @@ function stripAppBasePath(pathname) {
   const basePath = getAppBasePath();
   if (!basePath) return pathname;
   if (pathname === basePath) return "/";
+  if (pathname === basePath + "//") return "/";
   if (pathname.startsWith(basePath + "/")) {
     return pathname.slice(basePath.length) || "/";
   }
@@ -1430,8 +1513,8 @@ function isApiPath(pathname) {
 }
 
 function isFrameworkPath(pathname) {
-  return (
-    pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")
+  return ["/_agent-native", builtFrameworkRoutePrefix].some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + "/"),
   );
 }
 
@@ -1817,6 +1900,7 @@ function getAgentNativeAuthRedirectScript() {
   return getAgentNativeSsrAuthRedirectScript(
     SSR_AUTH_REDIRECT_COOKIE_NAME,
     resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app),
+    getAgentNativeFrameworkRoutePrefix(),
   );
 }
 
@@ -2012,7 +2096,7 @@ function isStaticAppShellRequest(request) {
   const p = stripAppBasePath(new URL(request.url).pathname);
   if (
     p.startsWith("/.well-known/") ||
-    p.startsWith("/_agent-native/") ||
+    isFrameworkPath(p) ||
     isApiPath(p) ||
     p === "/favicon.ico" ||
     p === "/favicon.png" ||
@@ -2100,7 +2184,28 @@ async function getHandler() {
   // framework defaults before later custom plugins get a chance to mark
   // themselves as provided.
 ${generatedPluginMarks.map((stem) => `  markGeneratedPluginProvided(nitroApp, ${JSON.stringify(stem)});`).join("\n")}
+${hasActions ? `  mountGeneratedUiActionCapabilityRoute(nitroApp, "/_agent-native", ${JSON.stringify(builtAppBasePath)});` : ""}
 ${pluginCalls.join("\n")}
+
+${
+  hasActions
+    ? `  async function getGeneratedUiActionContext(event) {
+    const session = await getGeneratedSession(event);
+    const userEmail =
+      typeof session?.email === "string" ? session.email.trim().toLowerCase() : undefined;
+    if (
+      !userEmail ||
+      !isGeneratedSameOriginRequest(event) ||
+      !hasGeneratedUiActionCapability(event, userEmail)
+    ) {
+      return null;
+    }
+    const orgId = (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;
+    return { userEmail, orgId };
+  }
+`
+    : ""
+}
 
   // Register API routes
 ${routeRegistrations.join("\n")}
@@ -2117,7 +2222,7 @@ ${
     const p = stripAppBasePath(new URL(event.req.url).pathname);
     if (
       p.startsWith("/.well-known/") ||
-      p.startsWith("/_agent-native/") ||
+      isFrameworkPath(p) ||
       isApiPath(p) ||
       p === "/favicon.ico" ||
       p === "/favicon.png" ||
@@ -2230,6 +2335,58 @@ function findReactRouterManifest(distDir: string): ReactRouterAssetManifest {
   }
 
   return JSON.parse(match[1].replace(/;$/, "")) as ReactRouterAssetManifest;
+}
+
+function clientAssetLogicalName(fileName: string): string {
+  const extension = path.extname(fileName);
+  if (!extension) return fileName;
+  const stem = fileName.slice(0, -extension.length);
+  return `${stem.replace(/-[A-Za-z0-9_-]{8,}$/, "")}${extension}`;
+}
+
+function createPairedClientAssetReplacements(
+  trustedClientDirectory: string,
+  pairedClientDirectory: string,
+): Map<string, string> {
+  const trustedAssetsDirectory = path.join(trustedClientDirectory, "assets");
+  const pairedAssetsDirectory = path.join(pairedClientDirectory, "assets");
+  if (
+    !fs.existsSync(trustedAssetsDirectory) ||
+    !fs.existsSync(pairedAssetsDirectory)
+  ) {
+    return new Map();
+  }
+
+  const pairedByLogicalName = new Map<string, string | undefined>();
+  for (const fileName of fs.readdirSync(pairedAssetsDirectory)) {
+    const logicalName = clientAssetLogicalName(fileName);
+    if (!pairedByLogicalName.has(logicalName)) {
+      pairedByLogicalName.set(logicalName, fileName);
+    } else {
+      pairedByLogicalName.set(logicalName, undefined);
+    }
+  }
+
+  const replacements = new Map<string, string>();
+  for (const fileName of fs.readdirSync(trustedAssetsDirectory)) {
+    const pairedFileName = pairedByLogicalName.get(
+      clientAssetLogicalName(fileName),
+    );
+    if (pairedFileName && pairedFileName !== fileName) {
+      replacements.set(`/assets/${fileName}`, `/assets/${pairedFileName}`);
+    }
+  }
+  return replacements;
+}
+
+function replacePairedClientAssetReferences(
+  source: string,
+  replacements: Map<string, string>,
+): string {
+  return source.replace(
+    /[/]assets[/][A-Za-z0-9][A-Za-z0-9._-]*/g,
+    (reference) => replacements.get(reference) ?? reference,
+  );
 }
 
 const REACT_ROUTER_ASSET_MANIFEST_FIELDS = [
@@ -2443,21 +2600,33 @@ function patchReactRouterServerManifestSource(
 
 function patchReactRouterServerManifestInOutput(
   serverDirectory: string,
-  clientDirectory: string,
+  trustedClientDirectory: string,
+  pairedClientDirectory: string,
 ): void {
-  const clientManifest = findReactRouterManifest(clientDirectory);
+  const clientManifest = findReactRouterManifest(pairedClientDirectory);
+  const assetReplacements = createPairedClientAssetReplacements(
+    trustedClientDirectory,
+    pairedClientDirectory,
+  );
   let patchedFile: string | undefined;
   walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
-    if (patchedFile) return;
     const source = fs.readFileSync(serverBuildFile, "utf8");
-    const patched = patchReactRouterServerManifestSource(
+    let rewritten = replacePairedClientAssetReferences(
       source,
-      serverBuildFile,
-      clientManifest,
+      assetReplacements,
     );
-    if (patched === undefined) return;
-    fs.writeFileSync(serverBuildFile, patched);
-    patchedFile = serverBuildFile;
+    if (!patchedFile) {
+      const patched = patchReactRouterServerManifestSource(
+        rewritten,
+        serverBuildFile,
+        clientManifest,
+      );
+      if (patched !== undefined) {
+        rewritten = patched;
+        patchedFile = serverBuildFile;
+      }
+    }
+    if (rewritten !== source) fs.writeFileSync(serverBuildFile, rewritten);
   });
   if (!patchedFile) {
     throw new Error(
@@ -2465,7 +2634,7 @@ function patchReactRouterServerManifestInOutput(
     );
   }
   console.log(
-    `[deploy] Paired React Router server manifest in ${path.relative(process.cwd(), patchedFile)} with ${path.basename(clientDirectory)}`,
+    `[deploy] Paired React Router server manifest in ${path.relative(process.cwd(), patchedFile)} with ${path.basename(pairedClientDirectory)}`,
   );
 }
 
@@ -5349,6 +5518,7 @@ export async function runNitroBuildPipeline(
     cwd,
     includeImmutableAssetRouteRules = true,
   } = opts;
+  const trustedClientDirectory = path.resolve(cwd, clientDir);
   const resolvedClientDir = resolveNitroClientDirectory(cwd, clientDir);
   const hasClientBuild =
     fs.existsSync(resolvedClientDir) && Boolean(publicOutputDir);
@@ -5393,6 +5563,7 @@ export async function runNitroBuildPipeline(
   if (hasClientBuild && usingPairedClientArtifact) {
     patchReactRouterServerManifestInOutput(
       nitro.options.output.serverDir,
+      trustedClientDirectory,
       resolvedClientDir,
     );
   }
@@ -5683,6 +5854,13 @@ export function resolveNitroBuildReplacements(
           ),
         }
       : {}),
+    // The public framework route prefix was resolved from the app config at
+    // the start of this deploy build and written to the env; the deployed
+    // function's single reader is this literal key.
+    "process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX":
+      JSON.stringify(
+        env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || "",
+      ),
   };
 }
 
@@ -6396,6 +6574,7 @@ export default bundle;
 
 async function main() {
   console.log(`[deploy] Building for ${preset}...`);
+  await resolveDeployFrameworkRoutePrefix();
 
   switch (preset) {
     case "cloudflare_pages":

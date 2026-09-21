@@ -1174,7 +1174,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   align-items: center;
   gap: 10px;
   min-height: 30px;
-  padding: 5px 8px;
+  padding: 5px 10px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
@@ -1206,6 +1206,22 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .bottom-btn:active {
   transform: scale(0.96);
+}
+
+.bottom-btn-hint {
+  cursor: default;
+}
+
+.bottom-btn-hint:hover {
+  background: transparent;
+}
+
+.bottom-btn-hint:hover .bottom-icon {
+  color: var(--fg-muted);
+}
+
+.bottom-btn-hint:active {
+  transform: none;
 }
 
 .bottom-label {
@@ -3930,41 +3946,36 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
 }
 
-.flow-bar-transcript-preview {
-  max-width: 560px;
-  max-height: 90px;
-  padding: 5px 10px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  background: rgba(18, 18, 20, 0.92);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
-  text-align: center;
-  word-break: break-word;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-}
-
 .flow-bar {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 32px;
   border-radius: 16px;
-  background: rgba(18, 18, 20, 0.92);
+  background: var(--pill-chrome);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: white;
+  border: 1px solid color-mix(in srgb, var(--pill-on-chrome) 6%, transparent);
+  color: var(--pill-on-chrome);
   pointer-events: auto;
   /* Subtle fade-in so the pill doesn't hard-pop on appear. */
   animation: flow-bar-in 140ms ease-out;
   /* Fade out to opacity 0 when state goes idle (after Fn release).
      Keeping the pill in the DOM lets the waveform fade instead of pop. */
   transition: opacity 220ms ease-out;
+}
+
+.flow-bar-listening {
+  position: relative;
+  width: 112px;
+  overflow: hidden;
+  transition:
+    width 160ms ease-out,
+    opacity 220ms ease-out;
+}
+
+.flow-bar-listening:hover {
+  width: 148px;
 }
 
 /* When the dictation engine reports idle, fade the pill out without
@@ -3980,6 +3991,130 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out,
+    padding 120ms ease-out;
+}
+
+.flow-bar-listening:hover .flow-bar-recording {
+  padding-inline: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.82);
+}
+
+.flow-bar-controls {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+.flow-bar-listening:hover .flow-bar-controls {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.flow-bar-time {
+  min-width: 38px;
+  color: var(--pill-q-ink);
+  font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+}
+
+.flow-bar-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--pill-on-chrome) 12%, transparent);
+  border-radius: 50%;
+  background: var(--pill-soft);
+  color: var(--pill-q-ink);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    background 100ms ease-out,
+    color 100ms ease-out;
+}
+
+.flow-bar-control:hover {
+  background: color-mix(in srgb, var(--pill-on-chrome) 28%, transparent);
+  color: var(--pill-on-chrome);
+}
+
+.flow-bar-control:active {
+  background: color-mix(in srgb, var(--pill-on-chrome) 36%, transparent);
+}
+
+.flow-bar-accept {
+  border-color: var(--status-ok);
+  background: var(--status-ok);
+  color: var(--pill-on-chrome);
+}
+
+.flow-bar-accept:hover {
+  background: var(--status-ok);
+  filter: brightness(1.08);
+}
+
+.flow-bar-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 0 2px;
+}
+
+.flow-bar-notice-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--status-warn);
+}
+
+.flow-bar-notice-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.flow-bar-notice-copy strong,
+.flow-bar-notice-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-bar-notice-copy strong {
+  color: var(--pill-q-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.flow-bar-notice-copy span {
+  color: var(--pill-ghost-ink);
+  font-size: 11px;
 }
 
 .flow-bar-meter {
@@ -3993,10 +4128,29 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   justify-content: center;
 }
 
+.flow-bar-complete {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  color: var(--pill-q-ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.flow-bar-copied {
+  width: 260px;
+  min-height: 48px;
+  height: auto;
+  padding: 8px 12px;
+  border-radius: 14px;
+  justify-content: flex-start;
+}
+
 .flow-bar-shimmer {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--pill-q-ink);
   letter-spacing: 0.1px;
   animation: flow-shimmer 1.2s ease-in-out infinite;
 }
@@ -4004,7 +4158,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .flow-bar-error {
   font-size: 12px;
   font-weight: 500;
-  color: #fecaca;
+  color: var(--status-warn);
 }
 
 /* Right-edge cancel — subtle monochrome chip, only there if the user
@@ -4023,8 +4177,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.6);
+  background: var(--pill-soft);
+  color: var(--pill-ghost-ink);
   cursor: pointer;
   /* Override the root's `pointer-events: none` so the click registers. */
   pointer-events: auto;
@@ -4033,13 +4187,19 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     color 100ms ease-out;
 }
 
+.flow-bar-controls .flow-bar-cancel {
+  width: 30px;
+  height: 30px;
+  margin: 0;
+}
+
 .flow-bar-cancel:hover {
-  background: rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--pill-on-chrome) 22%, transparent);
+  color: var(--pill-on-chrome);
 }
 
 .flow-bar-cancel:active {
-  background: rgba(255, 255, 255, 0.3);
+  background: color-mix(in srgb, var(--pill-on-chrome) 30%, transparent);
 }
 
 .flow-bar-cancel svg {
@@ -4067,11 +4227,29 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: crosshair;
   user-select: none;
   background: rgba(0, 0, 0, 0.015);
+  isolation: isolate;
   touch-action: none;
+}
+
+.region-guide-selection-mask {
+  position: absolute;
+  z-index: 0;
+  box-sizing: border-box;
+  /* guard:allow-raw-color — selection bounds need fixed contrast over arbitrary captured pixels. */
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  /* guard:allow-raw-color — selection fill is a capture-surface affordance, not app chrome. */
+  background: rgba(255, 255, 255, 0.035);
+  /* The spread creates one cheap, click-through cutout for the selected area. */
+  /* guard:allow-raw-color — dimming must remain legible over light and dark desktop content. */
+  box-shadow: 0 0 0 100vmax rgba(5, 8, 14, 0.64);
+  pointer-events: none;
 }
 
 .region-guide-rect {
   position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
   border: 1.5px solid rgba(255, 255, 255, 0.62);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.018);
@@ -4085,18 +4263,44 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .region-guide-rect-editable:hover,
 .region-guide-rect-editable.selected {
-  border-color: rgba(255, 255, 255, 0.92);
+  border-width: 2px;
+  /* guard:allow-raw-color — selected bounds need fixed contrast over arbitrary captured pixels. */
+  border-color: rgba(255, 255, 255, 0.98);
+}
+
+.region-guide-rect-editable.selected {
+  /* A dark keyline keeps the white bounds legible over pale screen content. */
+  box-shadow:
+    /* guard:allow-raw-color — selected bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 1px rgba(8, 11, 18, 0.92),
+    /* guard:allow-raw-color — selected bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 4px rgba(255, 255, 255, 0.72);
 }
 
 .region-guide-rect-editable:focus-visible {
   outline: none;
+  /* guard:allow-raw-color — focused bounds need fixed contrast over arbitrary captured pixels. */
   border-color: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    /* guard:allow-raw-color — focused bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 1px rgba(8, 11, 18, 0.92),
+    /* guard:allow-raw-color — focused bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 4px rgba(255, 255, 255, 0.72);
 }
 
 .region-guide-rect-draft {
+  z-index: 2;
   border-style: dashed;
-  border-color: rgba(255, 255, 255, 0.86);
+  border-width: 2px;
+  /* guard:allow-raw-color — draft bounds need fixed contrast over arbitrary captured pixels. */
+  border-color: rgba(255, 255, 255, 0.98);
+  /* guard:allow-raw-color — draft fill is a capture-surface affordance, not app chrome. */
   background: rgba(255, 255, 255, 0.035);
+  box-shadow:
+    /* guard:allow-raw-color — draft bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 1px rgba(8, 11, 18, 0.92),
+    /* guard:allow-raw-color — draft bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 4px rgba(255, 255, 255, 0.58);
 }
 
 .region-guide-handle {
@@ -4145,7 +4349,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: min(760px, calc(100vw - 36px));
+  width: min(760px, calc(100vw - 36px));
+  min-height: 48px;
+  box-sizing: border-box;
   padding: 9px 10px 9px 12px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 12px;
@@ -4153,12 +4359,14 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: #f8fafc;
   transform: translateX(-50%);
   backdrop-filter: blur(18px);
+  pointer-events: auto;
 }
 
 .region-guide-editor-title {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  flex: 1 1 auto;
   min-width: 0;
   font-size: 12px;
   font-weight: 700;
@@ -4175,6 +4383,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
 }
 
 .region-guide-editor-button,
@@ -4232,12 +4441,26 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .region-guide-editor-message {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 12px;
+  max-width: min(260px, calc(100vw - 60px));
   min-width: 78px;
+  overflow: hidden;
   color: rgba(248, 250, 252, 0.68);
   font-size: 11px;
   font-weight: 600;
   text-align: right;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.region-guide-editor-message.is-visible {
+  opacity: 1;
+  visibility: visible;
 }
 
 .region-guide-editor-hint {
@@ -4245,16 +4468,37 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   left: 50%;
   bottom: 18px;
   z-index: 10;
-  max-width: min(420px, calc(100vw - 36px));
+  width: min(520px, calc(100vw - 36px));
+  box-sizing: border-box;
   padding: 7px 10px;
   border-radius: 999px;
   background: rgba(15, 17, 21, 0.6);
   color: rgba(248, 250, 252, 0.76);
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.3;
   text-align: center;
   transform: translateX(-50%);
   backdrop-filter: blur(14px);
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .region-guide-editor-bar {
+    gap: 8px;
+    padding-right: 8px;
+    padding-left: 10px;
+  }
+
+  .region-guide-editor-count {
+    display: none;
+  }
+
+  .region-guide-editor-button {
+    min-width: auto;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -4272,53 +4516,19 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .region-record-border-frame {
   position: absolute;
+  box-sizing: border-box;
   border-radius: 5px;
   /* No fill, and the stroke is painted OUTWARD with an outset box-shadow so it
-     lands just outside the captured rect — never inside the recorded video. */
+     lands just outside the captured rect — never inside the recorded video.
+     Keep this static: a full-screen capture-excluded webview should not spend
+     its frame budget animating blurred shadows. */
   box-shadow:
     /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
     0 0 0 1px rgba(255, 255, 255, 0.96),
     /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
     0 0 0 3px rgba(220, 38, 38, 0.98),
     /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-    0 0 0 6px rgba(17, 24, 39, 0.78),
-    /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-    0 0 30px 8px rgba(220, 38, 38, 0.28);
-  animation: region-record-border-pulse 1.8s ease-in-out infinite;
-}
-
-/* Gentle pulse that mirrors the live recording dot, signalling "recording
-   now". Honour reduced-motion by holding the frame steady. */
-@keyframes region-record-border-pulse {
-  0%,
-  100% {
-    box-shadow:
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-      0 0 0 1px rgba(255, 255, 255, 0.98),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 0 3px rgba(220, 38, 38, 1),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 0 6px rgba(17, 24, 39, 0.76),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 24px 7px rgba(220, 38, 38, 0.22);
-  }
-  50% {
-    box-shadow:
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-      0 0 0 1px rgba(255, 255, 255, 1),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 0 3px rgba(220, 38, 38, 1),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 0 6px rgba(17, 24, 39, 0.88),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 34px 10px rgba(220, 38, 38, 0.36);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .region-record-border-frame {
-    animation: none;
-  }
+    0 0 0 6px rgba(17, 24, 39, 0.84);
 }
 
 @keyframes flow-bar-in {

@@ -1,3 +1,7 @@
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { appStateGet } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
@@ -81,6 +85,7 @@ export type PublicAgentAccessResult =
   | { ok: false; failure: PublicAgentFailure };
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
+const DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES = 512 * 1024 * 1024;
 export const MAX_PUBLIC_AGENT_HISTORY_ITEMS = 100;
 export const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 export { CLIPS_AGENT_ACCESS_PARAM };
@@ -129,6 +134,14 @@ function maxAgentFrameMediaBytes(): number {
   return DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES;
 }
 
+function maxAgentFrameMediaFileBytes(): number {
+  const configured = Number(process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.max(1, Math.floor(configured));
+  }
+  return DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES;
+}
+
 function frameMediaTooLargeMessage(size: number, maxBytes: number) {
   return `Recording media is too large for on-demand frame extraction (${size} bytes, max ${maxBytes}).`;
 }
@@ -136,6 +149,14 @@ function frameMediaTooLargeMessage(size: number, maxBytes: number) {
 function assertFrameMediaSize(size: number | null | undefined) {
   if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
   const maxBytes = maxAgentFrameMediaBytes();
+  if ((size ?? 0) > maxBytes) {
+    throw new Error(frameMediaTooLargeMessage(size ?? 0, maxBytes));
+  }
+}
+
+function assertFrameMediaFileSize(size: number | null | undefined) {
+  if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
+  const maxBytes = maxAgentFrameMediaFileBytes();
   if ((size ?? 0) > maxBytes) {
     throw new Error(frameMediaTooLargeMessage(size ?? 0, maxBytes));
   }
@@ -198,6 +219,49 @@ async function readResponseBytesWithLimit(
 
   const buffer = Buffer.concat(chunks, totalBytes);
   return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
+async function writeResponseBodyToFileWithLimit(
+  response: Response,
+  path: string,
+): Promise<void> {
+  const maxBytes = maxAgentFrameMediaFileBytes();
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error(frameMediaTooLargeMessage(contentLength, maxBytes));
+  }
+
+  const file = await open(path, "wx");
+  let totalBytes = 0;
+  try {
+    if (!response.body) {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength > maxBytes) {
+        throw new Error(frameMediaTooLargeMessage(bytes.byteLength, maxBytes));
+      }
+      await file.write(bytes);
+      return;
+    }
+
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new Error(frameMediaTooLargeMessage(totalBytes, maxBytes));
+        }
+        await file.write(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  } finally {
+    await file.close();
+  }
 }
 
 export async function loadPublicAgentAccess(
@@ -791,41 +855,16 @@ function messageForMediaFetchError(err: unknown): string {
   return "Recording media could not be fetched.";
 }
 
-export async function loadRecordingMediaBytes(
-  recording: PublicAgentRecording,
-): Promise<{ bytes: Uint8Array; mimeType: string }> {
-  const videoUrl = recording.videoUrl ?? "";
-  if (!videoUrl) throw new Error("Recording has no videoUrl");
-  if (isLoomEmbedBackedRecording(recording)) {
-    throw new Error(
-      "Frame extraction is not available for legacy Loom embed imports.",
-    );
-  }
-  assertFrameMediaSize(recording.videoSizeBytes);
-
-  const fallbackMimeType = recordingFallbackMimeType(recording);
-  const isLocalBlob =
+function isLocalRecordingBlob(videoUrl: string): boolean {
+  return (
     videoUrl.startsWith("/api/video/") ||
-    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"));
+    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"))
+  );
+}
 
-  if (isLocalBlob) {
-    const stash = await appStateGet(
-      recording.ownerEmail,
-      `recording-blob-${recording.id}`,
-    );
-    const b64 = typeof stash?.data === "string" ? stash.data : null;
-    if (!b64) throw new Error("recording-blob app-state missing");
-    assertFrameMediaSize(estimateBase64DecodedByteLength(b64));
-    const bytes = Buffer.from(normalizeBase64Payload(b64), "base64");
-    assertFrameMediaSize(bytes.byteLength);
-    const mimeType =
-      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
-    return {
-      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-      mimeType: pickSourceMimeType(mimeType, fallbackMimeType),
-    };
-  }
-
+async function fetchRecordingMediaResponse(
+  videoUrl: string,
+): Promise<Response> {
   let resolvedVideoUrl = videoUrl;
   const isAppRelativeUrl =
     resolvedVideoUrl.startsWith("/") && !resolvedVideoUrl.startsWith("//");
@@ -860,6 +899,43 @@ export async function loadRecordingMediaBytes(
       response.status,
     );
   }
+  return response;
+}
+
+export async function loadRecordingMediaBytes(
+  recording: PublicAgentRecording,
+): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  const videoUrl = recording.videoUrl ?? "";
+  if (!videoUrl) throw new Error("Recording has no videoUrl");
+  if (isLoomEmbedBackedRecording(recording)) {
+    throw new Error(
+      "Frame extraction is not available for legacy Loom embed imports.",
+    );
+  }
+  assertFrameMediaSize(recording.videoSizeBytes);
+
+  const fallbackMimeType = recordingFallbackMimeType(recording);
+  const isLocalBlob = isLocalRecordingBlob(videoUrl);
+
+  if (isLocalBlob) {
+    const stash = await appStateGet(
+      recording.ownerEmail,
+      `recording-blob-${recording.id}`,
+    );
+    const b64 = typeof stash?.data === "string" ? stash.data : null;
+    if (!b64) throw new Error("recording-blob app-state missing");
+    assertFrameMediaSize(estimateBase64DecodedByteLength(b64));
+    const bytes = Buffer.from(normalizeBase64Payload(b64), "base64");
+    assertFrameMediaSize(bytes.byteLength);
+    const mimeType =
+      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
+    return {
+      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      mimeType: pickSourceMimeType(mimeType, fallbackMimeType),
+    };
+  }
+
+  const response = await fetchRecordingMediaResponse(videoUrl);
 
   const bytes = await readResponseBytesWithLimit(response);
   return {
@@ -869,4 +945,47 @@ export async function loadRecordingMediaBytes(
       fallbackMimeType,
     ),
   };
+}
+
+export async function loadRecordingMediaFile(
+  recording: PublicAgentRecording,
+): Promise<{ path: string; mimeType: string; cleanup: () => Promise<void> }> {
+  const videoUrl = recording.videoUrl ?? "";
+  if (!videoUrl) throw new Error("Recording has no videoUrl");
+  if (isLoomEmbedBackedRecording(recording)) {
+    throw new Error(
+      "Frame extraction is not available for legacy Loom embed imports.",
+    );
+  }
+  assertFrameMediaFileSize(recording.videoSizeBytes);
+
+  const fallbackMimeType = recordingFallbackMimeType(recording);
+  const dir = await mkdtemp(join(tmpdir(), "clips-agent-frame-"));
+  const path = join(
+    dir,
+    recording.videoFormat === "mp4" ? "input.mp4" : "input.webm",
+  );
+  const cleanup = () => rm(dir, { recursive: true, force: true });
+
+  try {
+    if (isLocalRecordingBlob(videoUrl)) {
+      const media = await loadRecordingMediaBytes(recording);
+      await writeFile(path, media.bytes);
+      return { path, mimeType: media.mimeType, cleanup };
+    }
+
+    const response = await fetchRecordingMediaResponse(videoUrl);
+    await writeResponseBodyToFileWithLimit(response, path);
+    return {
+      path,
+      mimeType: pickSourceMimeType(
+        response.headers.get("content-type"),
+        fallbackMimeType,
+      ),
+      cleanup,
+    };
+  } catch (error) {
+    await cleanup().catch(() => {});
+    throw error;
+  }
 }

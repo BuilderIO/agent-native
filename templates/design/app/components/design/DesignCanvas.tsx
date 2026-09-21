@@ -20,6 +20,7 @@ import {
   DEFAULT_CANVAS_MIN_ZOOM,
   getDraftGeometryFromPoints,
 } from "@shared/canvas-math";
+import type { InteractionState } from "@shared/interaction-states";
 import {
   appendPenNode,
   clonePenPath,
@@ -72,7 +73,10 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
-import { runtimeStyleTarget } from "@/pages/design-editor/pending-edits";
+import {
+  pendingVisualStyleRouteMatches,
+  runtimeStyleTarget,
+} from "@/pages/design-editor/pending-edits";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
@@ -115,6 +119,8 @@ import {
 import {
   classifyBridgeRegistrationFailure,
   getDesignCanvasIframeSandbox,
+  getDesignCanvasIframeAllow,
+  getLocalNetworkAccessPermissionState,
   getSnapshotRetryDelayMs,
   isPreviewTokenStaleStatus,
   resolveLiveEditPreviewUrl,
@@ -122,6 +128,7 @@ import {
   shouldFetchExternalSourceSnapshot,
   shouldUseIframeLoadReadyFallback,
   type BridgeRegistrationFailureKind,
+  type LocalNetworkAccessPermissionState,
   useBrowserOrigin,
 } from "./design-canvas/external-preview";
 import { isOsFileDragEvent } from "./design-canvas/file-drop";
@@ -172,16 +179,37 @@ import {
   sendLinkedScreenPreviewStyleChange,
 } from "./multi-screen/linked-screen-preview";
 import type { KScaleStyleChange } from "./multi-screen/types";
-import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
+import {
+  getIframePaintRetentionStyle,
+  SCALED_IFRAME_PAINT_RETENTION_STYLE,
+} from "./scaled-iframe-paint";
 import type {
   ElementInfo,
+  GridGroupStructureMove,
   ElementSelectionIntent,
   DeviceFrameType,
+  RuntimeStructureDeleteRequest,
+  RuntimeLayerRenameRequest,
   RuntimeStructureInsertRequest,
   RuntimeStructureMoveRequest,
+  RuntimeStructureRollbackRequest,
   RuntimeVerificationRequest,
   TextEditingState,
 } from "./types";
+
+function getSingleScreenZoomTransform(
+  zoom: number,
+  deviceFrame: DeviceFrameType,
+  centerInteractPreview: boolean,
+) {
+  const scale = zoom / 100;
+  if (centerInteractPreview || deviceFrame !== "none") {
+    return `scale(${scale})`;
+  }
+  return zoom < 100
+    ? `translate(${(100 - zoom) / 2}%, ${(100 - zoom) / 2}%) scale(${scale})`
+    : `scale(${scale})`;
+}
 
 function parseKScaleStyleChangeBatch(
   value: unknown,
@@ -240,6 +268,11 @@ function parseKScaleStyleChangeBatch(
         string
       >;
     }
+    let elementInfo: ElementInfo | undefined;
+    if (candidate.elementInfo !== undefined) {
+      if (!isElementInfoPayload(candidate.elementInfo)) return null;
+      elementInfo = candidate.elementInfo;
+    }
     if (
       candidate.preserveSelection !== undefined &&
       typeof candidate.preserveSelection !== "boolean"
@@ -251,6 +284,7 @@ function parseKScaleStyleChangeBatch(
       ...(typeof candidate.sourceId === "string"
         ? { sourceId: candidate.sourceId }
         : {}),
+      ...(elementInfo ? { elementInfo } : {}),
       styles: Object.fromEntries(styleEntries) as Record<string, string>,
       ...(originalStyles ? { originalStyles } : {}),
       ...(candidate.preserveSelection === true
@@ -407,6 +441,43 @@ ${navBridgeScript}
 </script>
 `;
 
+// URL-backed frames keep running their app in Interact mode, so the editor
+// chrome is intentionally absent there. Report client-side router changes
+// through the same trusted frame channel so returning to Edit reopens the
+// route the user was actually viewing instead of the screen's seed URL.
+const LIVE_ROUTE_BRIDGE_SCRIPT = `
+<script data-agent-native-live-route-bridge>
+(function () {
+  function report() {
+    try {
+      window.parent.postMessage({
+        type: "agent-native:live-route-path",
+        routePath: window.location.pathname + window.location.search + window.location.hash
+      }, "*");
+    // A frame can be torn down while reporting navigation; there is no parent
+    // message to recover or retry after that document disappears.
+    // coercion-ok: frame teardown makes this best-effort report unreachable.
+    } catch (_) {}
+  }
+  var pushState = window.history.pushState;
+  var replaceState = window.history.replaceState;
+  window.history.pushState = function () {
+    var result = pushState.apply(this, arguments);
+    report();
+    return result;
+  };
+  window.history.replaceState = function () {
+    var result = replaceState.apply(this, arguments);
+    report();
+    return result;
+  };
+  window.addEventListener("popstate", report);
+  window.addEventListener("hashchange", report);
+  report();
+})();
+</script>
+`;
+
 const EDITOR_BRIDGE_VAR_NAMES = [
   "--design-editor-accent-color",
   "--design-editor-accent-hover-color",
@@ -453,7 +524,7 @@ function createEditorBridgeThemeScript(vars: Record<string, string>) {
  * editing is enabled only while the editor is specifically in Edit mode.
  */
 const EDITOR_CHROME_BRIDGE_SCRIPT = `
-<script data-agent-native-editor-chrome-bridge>
+<script type="module" data-agent-native-editor-chrome-bridge>
 ${editorChromeBridgeScript}
 </script>
 `;
@@ -486,11 +557,26 @@ type StyleReplayPatch = {
   sourceId?: string | null;
   runtimeSelector?: string | null;
   runtimeSourceId?: string | null;
+  routePath?: string;
   styles: Record<string, string>;
-  interactionState?: string;
+  interactionState?: InteractionState;
 };
 
 type BridgeRegistrationAttemptResult = boolean | "stale-preview-token" | null;
+
+export type EditorDragStateChange = {
+  active: boolean;
+  screenId?: string;
+  dragId?: string;
+  eventAt?: number;
+  preview?: {
+    phase: "preview" | "clear";
+    sourceId?: string;
+    anchorId?: string;
+    placement?: "before" | "after" | "inside";
+    insert?: boolean;
+  };
+};
 
 interface DesignCanvasProps {
   content: string;
@@ -543,6 +629,13 @@ interface DesignCanvasProps {
   }) => void;
   /** Called once when this document has a usable runtime bridge. */
   onBridgeReady?: () => void;
+  /** Publishes a refreshed localhost preview credential to the host editor. */
+  onPreviewTokenChange?: (
+    screenId: string | undefined,
+    previewToken: string,
+  ) => void;
+  /** Keeps route-scoped pending edits aligned with the live document. */
+  onRoutePathChange?: (screenId: string | undefined, routePath: string) => void;
   /** Called once when the live document finishes its browser load. */
   onBootStart?: () => void;
   onBootReady?: () => void;
@@ -572,6 +665,8 @@ interface DesignCanvasProps {
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
+  /** The public visual-edit surface may refresh owner-scoped preview tokens. */
+  publicVisualEdit?: boolean;
   zoom: number;
   onZoomChange?: (zoom: number) => void;
   deviceFrame: DeviceFrameType;
@@ -613,18 +708,64 @@ interface DesignCanvasProps {
       sourceId?: string | null;
       value: string;
       html?: string;
+      routePath?: string;
     }>;
   } | null;
   structureAckRequest?: {
     requestId: number;
-    acks: Array<{ requestId: string; applied: boolean }>;
+    acks: Array<{ requestId: string; applied: boolean; routePath?: string }>;
   } | null;
   /** One-shot host request to optimistically move a runtime-only layer. */
   runtimeStructureMoveRequest?: RuntimeStructureMoveRequest | null;
   /** One-shot host request to insert new markup into the running DOM. */
   runtimeStructureInsertRequest?: RuntimeStructureInsertRequest | null;
+  /** One-shot host request to delete a runtime layer in this screen. */
+  runtimeStructureDeleteRequest?: RuntimeStructureDeleteRequest | null;
+  /** One-shot cleanup for a destination whose paired source delete failed. */
+  runtimeStructureRollbackRequest?: RuntimeStructureRollbackRequest | null;
+  runtimeLayerRenameRequest?: RuntimeLayerRenameRequest | null;
+  runtimeLayerSnapshotRequest?: number | null;
   /** The bridge could not honor a runtimeStructureInsertRequest. */
-  onRuntimeStructureInsertRejected?: (reason: string) => void;
+  onRuntimeStructureInsertRejected?: (
+    reason: string,
+    transactionId?: string,
+  ) => void;
+  onRuntimeStructureInsertApplied?: (details: {
+    requestId: string;
+    transactionId?: string;
+    routePath?: string;
+    selector: string;
+    sourceId?: string;
+  }) => void;
+  onRuntimeStructureDeleteApplied?: (details: {
+    screenId?: string;
+    requestId: string;
+    selector: string;
+    sourceId?: string;
+    routePath?: string;
+    info?: ElementInfo;
+  }) => void;
+  onRuntimeStructureDeleteRejected?: (details: {
+    screenId?: string;
+    requestId: string;
+    transactionId?: string;
+    routePath?: string;
+    reason: string;
+  }) => void;
+  onRuntimeStructureRollbackResult?: (details: {
+    requestId: string;
+    transactionId?: string;
+    applied: boolean;
+    reason?: string;
+  }) => void;
+  onRuntimeLayerRenameApplied?: (details: {
+    requestId: number;
+    selector: string;
+    sourceId?: string;
+    routePath?: string;
+    name: string;
+    previousName?: string;
+  }) => void;
   /** Mounts a separate hidden runtime only after a guarded source hash
    * changes. The editable iframe remains untouched and fully undoable. */
   runtimeVerificationRequest?: RuntimeVerificationRequest | null;
@@ -656,6 +797,7 @@ interface DesignCanvasProps {
       phase?: "preview" | "commit";
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
+      routePath?: string;
     },
   ) => void;
   onVisualStyleBatchChange?: (changes: KScaleStyleChange[]) => boolean | void;
@@ -667,6 +809,7 @@ interface DesignCanvasProps {
       html?: string;
       originalValue?: string;
       originalHtml?: string;
+      routePath?: string;
     },
   ) => void;
   onTextEditingStateChange?: (
@@ -677,7 +820,7 @@ interface DesignCanvasProps {
   onFigmaClipboardPaste?: (event: IframeFigmaClipboardPastePayload) => void;
   onImagePaste?: (event: IframeImagePastePayload) => void;
   onIframeContextMenu?: (event: IframeContextMenuPayload) => void;
-  onEditorDragStateChange?: (active: boolean) => void;
+  onEditorDragStateChange?: (state: EditorDragStateChange) => void;
   onVisualStructureChange?: (
     selector: string,
     anchorSelector: string,
@@ -687,10 +830,28 @@ interface DesignCanvasProps {
       sourceId?: string;
       anchorSourceId?: string;
       requestId?: string;
+      transactionId?: string;
+      routePath?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
+      gridPlacement?: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+      gridDisplacements?: Array<{
+        sourceId?: string;
+        selector?: string;
+        placement: {
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        };
+      }>;
       anchorElementInfo?: ElementInfo;
       /** Set when the subject is markup this change introduced, not an
        * element the running app already had. */
@@ -703,6 +864,9 @@ interface DesignCanvasProps {
       replacementSnapshotHtml?: string;
     },
   ) => boolean | "pending" | void;
+  onVisualGridGroupChange?: (
+    moves: GridGroupStructureMove[],
+  ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
     selector: string,
     cloneHtml: string,
@@ -712,9 +876,16 @@ interface DesignCanvasProps {
       sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
       anchorSelector?: string;
       anchorSourceId?: string;
+      anchorElementInfo?: ElementInfo;
+      requestId?: string;
+      transactionId?: string;
+      dropMode?: "flow-insert" | "absolute-container";
+      forceFlowPositionOverride?: boolean;
+      sourceRect?: { x: number; y: number; width: number; height: number };
+      anchorRect?: { x: number; y: number; width: number; height: number };
       placement?: "before" | "after" | "inside";
     },
-  ) => boolean | void;
+  ) => boolean | "pending" | void;
   tweakValues: Record<string, string>;
   /** Whether draw-to-prompt mode is active (overlays the iframe). */
   drawMode?: boolean;
@@ -1285,6 +1456,8 @@ export function DesignCanvas({
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
   onBridgeReady,
+  onPreviewTokenChange,
+  onRoutePathChange,
   onBootStart,
   onBootReady,
   onScreenRootComputedStyles,
@@ -1307,7 +1480,16 @@ export function DesignCanvas({
   structureAckRequest,
   runtimeStructureMoveRequest,
   runtimeStructureInsertRequest,
+  runtimeStructureDeleteRequest,
+  runtimeStructureRollbackRequest,
+  runtimeLayerRenameRequest,
+  runtimeLayerSnapshotRequest,
   onRuntimeStructureInsertRejected,
+  onRuntimeStructureInsertApplied,
+  onRuntimeStructureDeleteApplied,
+  onRuntimeStructureDeleteRejected,
+  onRuntimeStructureRollbackResult,
+  onRuntimeLayerRenameApplied,
   runtimeVerificationRequest,
   embeddedFrameBackground,
   transparentBackground = false,
@@ -1335,6 +1517,7 @@ export function DesignCanvas({
   onIframeContextMenu,
   onEditorDragStateChange,
   onVisualStructureChange,
+  onVisualGridGroupChange,
   onVisualDuplicateChange,
   tweakValues,
   drawMode,
@@ -1355,6 +1538,7 @@ export function DesignCanvas({
   onExitPinMode,
   registerRuntimeBridge = true,
   designId,
+  publicVisualEdit = false,
   reviewCanPost = false,
   reviewCanResolve = false,
   reviewTargetId,
@@ -1415,7 +1599,81 @@ export function DesignCanvas({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const reviewCanvasId = useId();
   const zoomLayerRef = useRef<HTMLDivElement>(null);
+  const zoomSizeLayerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
+  const imperativeZoomRef = useRef<number | null>(null);
+  const zoomPropRef = useRef(zoom);
+  const zoomGestureGenerationRef = useRef(0);
+  const zoomCommitTimerRef = useRef<number | null>(null);
+  const applyZoomFrame = useCallback(
+    (nextZoom: number) => {
+      imperativeZoomRef.current = nextZoom;
+      zoomRef.current = nextZoom;
+      const layer = zoomLayerRef.current;
+      if (layer) {
+        layer.style.transform = getSingleScreenZoomTransform(
+          nextZoom,
+          deviceFrame,
+          centerInteractPreview,
+        );
+      }
+      const sizeLayer = zoomSizeLayerRef.current;
+      if (sizeLayer && centerInteractPreview) {
+        if (previewWidthPx === undefined) {
+          sizeLayer.style.removeProperty("width");
+        } else {
+          sizeLayer.style.width = `${previewWidthPx * (nextZoom / 100)}px`;
+        }
+        if (previewHeightPx === undefined) {
+          sizeLayer.style.removeProperty("height");
+        } else {
+          sizeLayer.style.height = `${previewHeightPx * (nextZoom / 100)}px`;
+        }
+      }
+    },
+    [centerInteractPreview, deviceFrame, previewHeightPx, previewWidthPx],
+  );
+  const commitZoom = useCallback(
+    (nextZoom: number) => {
+      if (nextZoom !== zoomRef.current) return;
+      if (zoomCommitTimerRef.current !== null) {
+        window.clearTimeout(zoomCommitTimerRef.current);
+        zoomCommitTimerRef.current = null;
+      }
+      imperativeZoomRef.current = nextZoom;
+      zoomRef.current = nextZoom;
+      zoomPropRef.current = nextZoom;
+      onZoomChange?.(nextZoom);
+    },
+    [onZoomChange],
+  );
+  const scheduleZoomCommit = useCallback(
+    (nextZoom: number) => {
+      applyZoomFrame(nextZoom);
+      const generation = zoomGestureGenerationRef.current;
+      if (zoomCommitTimerRef.current !== null) {
+        window.clearTimeout(zoomCommitTimerRef.current);
+      }
+      zoomCommitTimerRef.current = window.setTimeout(() => {
+        zoomCommitTimerRef.current = null;
+        if (
+          generation !== zoomGestureGenerationRef.current ||
+          zoomRef.current !== nextZoom
+        ) {
+          return;
+        }
+        commitZoom(zoomRef.current);
+      }, 120);
+    },
+    [applyZoomFrame, commitZoom],
+  );
+  useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current !== null) {
+        window.clearTimeout(zoomCommitTimerRef.current);
+      }
+    };
+  }, []);
   // Zoom-invariant chrome: the non-embedded-frame render path below wraps the
   // iframe in its own CSS `transform: scale(zoom / 100)` (see the
   // `deviceFrame === "none"` and framed branches further down) — a purely
@@ -1462,6 +1720,7 @@ export function DesignCanvas({
   const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
+  const liveRoutePathRef = useRef<string | null>(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
   const pendingOneShotMessagesRef = useRef<unknown[]>([]);
   const flushPendingOneShotMessages = useCallback(() => {
@@ -1740,7 +1999,8 @@ export function DesignCanvas({
     useState(previewToken);
   useEffect(() => {
     setEffectivePreviewToken(previewToken);
-  }, [previewToken]);
+    if (previewToken) onPreviewTokenChange?.(screenId, previewToken);
+  }, [onPreviewTokenChange, previewToken]);
   const renderedContent = renderedDocument.content;
   // What a freshly loaded document already contains, since srcdoc is built from
   // it. The load handler below needs this to skip redundant pushes.
@@ -1787,6 +2047,7 @@ export function DesignCanvas({
   // ever be written to state, or an earlier failure resolving after a later
   // success would incorrectly flip the UI back to "still blocked".
   const bridgeRegistrationAttemptGenerationRef = useRef(0);
+  const previewTokenRefreshAttemptRef = useRef<string | null>(null);
   const [bridgeRegistrationRetryNonce, setBridgeRegistrationRetryNonce] =
     useState(0);
   // Scoped strictly to the registration fetch() itself failing — drives
@@ -1828,6 +2089,10 @@ export function DesignCanvas({
   ] = useState<string | null>(null);
   const [connectingLocalNetworkAccess, setConnectingLocalNetworkAccess] =
     useState(false);
+  const [
+    localNetworkAccessPermissionState,
+    setLocalNetworkAccessPermissionState,
+  ] = useState<LocalNetworkAccessPermissionState | null>(null);
   // Cache of the bridgeInstanceId returned by the client's LAST successful
   // /live-edit-bridge registration POST (see the registration effect below).
   // Compared against a later /health probe's bridgeInstanceId to tell "the
@@ -1993,7 +2258,8 @@ export function DesignCanvas({
   const includeLiveEditEditorChrome = !interactMode && !readOnly;
   const liveEditBridgeScript = useMemo(
     () =>
-      includeLiveEditEditorChrome
+      (includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +
+      (includeLiveEditEditorChrome
         ? MOTION_PREVIEW_BRIDGE_SCRIPT +
           SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
           TWEAK_BRIDGE_SCRIPT +
@@ -2001,7 +2267,7 @@ export function DesignCanvas({
           LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
           embeddedGestureBridgeForCurrentState +
           editorChromeBridgeForCurrentState
-        : embeddedGestureBridgeForCurrentState,
+        : embeddedGestureBridgeForCurrentState),
     [
       editorChromeBridgeForCurrentState,
       embeddedGestureBridgeForCurrentState,
@@ -2019,6 +2285,19 @@ export function DesignCanvas({
   const usesLiveEditInjectedBridge =
     sourceType === "localhost" &&
     Boolean(bridgeUrl && effectivePreviewToken && rawExternalPreviewUrl);
+  useEffect(() => {
+    if (!usesLiveEditInjectedBridge) {
+      setLocalNetworkAccessPermissionState(null);
+      return;
+    }
+    let cancelled = false;
+    void getLocalNetworkAccessPermissionState().then((state) => {
+      if (!cancelled) setLocalNetworkAccessPermissionState(state);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [usesLiveEditInjectedBridge]);
   // Hoisted above usesLiveEditEditorBridge (rather than declared next to
   // externalPreviewUrl/usingRawFallbackPreview below, which reuse it) because
   // a failed registration's raw-URL fallback document has no injected editor
@@ -2133,11 +2412,11 @@ export function DesignCanvas({
   //
   // A FAILED registration (most commonly Chrome's Local Network Access
   // permission blocking the fetch — see classifyBridgeRegistrationFailure)
-  // falls back the same way: the dev server itself is still reachable via a
-  // plain iframe navigation (unlike fetch/XHR, navigations aren't subject to
-  // that permission check), so showing it read-only beats hiding a working
-  // app behind an indefinite loading state. LocalNetworkAccessPrompt offers
-  // the way to actually enable editing from here.
+  // falls back the same way: the dev server URL remains the honest live
+  // fallback, although Chrome may gate this loopback iframe navigation behind
+  // the same Local Network Access permission. The iframe's explicit policy
+  // allows that prompt; LocalNetworkAccessPrompt offers the way to enable
+  // editing from here.
   const usingRawFallbackPreview =
     usesLiveEditInjectedBridge &&
     !liveEditExternalPreviewUrl &&
@@ -2159,7 +2438,28 @@ export function DesignCanvas({
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
     usesLiveEditInjectedBridge && !liveEditBridgeRegistered;
-  zoomRef.current = zoom;
+  const showProactiveLocalNetworkAccessPrompt =
+    usesLiveEditInjectedBridge &&
+    localNetworkAccessPermissionState === "prompt" &&
+    !liveEditBridgeRegistered &&
+    localNetworkAccessDismissedForKey !== liveEditBridgeKey;
+  useLayoutEffect(() => {
+    if (zoomPropRef.current === zoom) return;
+    zoomPropRef.current = zoom;
+    if (imperativeZoomRef.current === zoom) {
+      imperativeZoomRef.current = null;
+      return;
+    }
+    if (zoomCommitTimerRef.current !== null) {
+      window.clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    imperativeZoomRef.current = null;
+    zoomRef.current = zoom;
+    zoomGestureGenerationRef.current += 1;
+  }, [zoom]);
+  if (imperativeZoomRef.current === zoom) imperativeZoomRef.current = null;
+  zoomRef.current = imperativeZoomRef.current ?? zoom;
   runtimeReplacementContentRef.current = runtimeReplacementContent;
   runtimeReplacementSourceRef.current =
     authoredSourceContent ?? runtimeReplacementContent;
@@ -2184,21 +2484,9 @@ export function DesignCanvas({
   }, [externalPreviewUrl, usesLiveEditInjectedBridge]);
   const installedBridgeKeyRef = useRef<string | null>(null);
   const sendBridgeToContainer = useCallback(() => {
-    if (!containerPreview || !includeLiveEditEditorChrome) {
-      console.log("[design:bridge] install skipped", {
-        containerPreview,
-        includeLiveEditEditorChrome,
-      });
-      return;
-    }
+    if (!containerPreview || !includeLiveEditEditorChrome) return;
     const target = iframeRef.current?.contentWindow;
-    if (!target || !externalPreviewUrl) {
-      console.log("[design:bridge] install skipped", {
-        hasTarget: Boolean(target),
-        externalPreviewUrl,
-      });
-      return;
-    }
+    if (!target || !externalPreviewUrl) return;
     if (installedBridgeKeyRef.current === liveEditBridgeKey) return;
     let origin: string;
     try {
@@ -2355,10 +2643,60 @@ export function DesignCanvas({
           body: JSON.stringify({
             script: liveEditBridgeScript,
             bridgeKey: liveEditBridgeKey,
+            designId,
           }),
         });
         if (isPreviewTokenStaleStatus(response.status)) {
           if (!isCurrent()) return null;
+          // A public viewer may outlive the local bridge process. Refresh the
+          // read-only credential automatically so a reboot is a recoverable
+          // registration event, not a dead iframe that waits for a manual
+          // reconnect click. The action never returns the write-capable bridge
+          // token; it derives the paired preview credential server-side.
+          if (designId && connectionId) {
+            try {
+              const refreshAttemptKey = `${liveEditBridgeKey}:${effectivePreviewToken}`;
+              if (previewTokenRefreshAttemptRef.current === refreshAttemptKey) {
+                throw new Error("preview token refresh already retried");
+              }
+              const refreshed = await callAction<{
+                previewToken?: string;
+              }>(
+                "refresh-localhost-preview-token",
+                { designId, connectionId, publicVisualEdit },
+                { method: "GET" },
+              );
+              const nextPreviewToken = refreshed?.previewToken;
+              if (isCurrent() && nextPreviewToken) {
+                previewTokenRefreshAttemptRef.current = refreshAttemptKey;
+                if (registrationHandoffKey) {
+                  liveEditRegistrationHandoff.delete(registrationHandoffKey);
+                }
+                setRegisteredLiveEditBridgeKey(null);
+                setBridgeRegistrationError(null);
+                setBridgeRegistrationFailureKind(null);
+                setConnectingLocalNetworkAccess(false);
+                if (nextPreviewToken !== effectivePreviewToken) {
+                  setEffectivePreviewToken(nextPreviewToken);
+                  onPreviewTokenChange?.(screenId, nextPreviewToken);
+                } else {
+                  // State equality would otherwise suppress the retry after a
+                  // bridge reboot that preserved its deterministic token.
+                  setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
+                }
+                return true;
+              }
+            } catch (refreshError) {
+              // Keep the explicit stale-token error below when the public
+              // refresh endpoint cannot recover this connection.
+              console.debug(
+                "[design:bridge] preview token refresh failed",
+                refreshError instanceof Error
+                  ? refreshError.message
+                  : String(refreshError),
+              );
+            }
+          }
           if (registrationHandoffKey) {
             liveEditRegistrationHandoff.delete(registrationHandoffKey);
           }
@@ -2395,6 +2733,7 @@ export function DesignCanvas({
           bridgeInstanceIdRef.current = payload.bridgeInstanceId;
         }
         bridgeRegistrationRetryAttemptRef.current = 0;
+        previewTokenRefreshAttemptRef.current = null;
         if (registrationHandoffKey) {
           liveEditRegistrationHandoff.set(registrationHandoffKey, Date.now());
         }
@@ -2437,6 +2776,11 @@ export function DesignCanvas({
       effectivePreviewToken,
       registrationHandoffKey,
       usesLiveEditInjectedBridge,
+      onPreviewTokenChange,
+      designId,
+      connectionId,
+      publicVisualEdit,
+      screenId,
     ]);
   useEffect(() => {
     if (!usesLiveEditInjectedBridge || !bridgeUrl || !effectivePreviewToken) {
@@ -2503,6 +2847,7 @@ export function DesignCanvas({
   // MAX_LIVE_EDIT_RESTART_ATTEMPTS budget it guards would never trip (see
   // that effect's own comment).
   useEffect(() => {
+    previewTokenRefreshAttemptRef.current = null;
     liveEditRestartAttemptRef.current = 0;
     liveEditSameInstanceElapsedMsRef.current = 0;
     liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
@@ -2552,16 +2897,28 @@ export function DesignCanvas({
           {
             designId,
             connectionId,
+            publicVisualEdit,
           },
           { method: "GET" },
         );
         const nextPreviewToken = refreshed?.previewToken;
-        if (!nextPreviewToken || nextPreviewToken === effectivePreviewToken) {
+        if (!nextPreviewToken) {
           throw new Error(
-            "The bridge token is still stale. Run design connect again, then retry.",
+            "The refreshed preview token is empty. Run design connect again, then retry.",
           );
         }
-        setEffectivePreviewToken(nextPreviewToken);
+        previewTokenRefreshAttemptRef.current = `${liveEditBridgeKey}:${effectivePreviewToken}`;
+        if (nextPreviewToken !== effectivePreviewToken) {
+          setEffectivePreviewToken(nextPreviewToken);
+          onPreviewTokenChange?.(screenId, nextPreviewToken);
+        }
+        if (registrationHandoffKey) {
+          liveEditRegistrationHandoff.delete(registrationHandoffKey);
+        }
+        setRegisteredLiveEditBridgeKey(null);
+        setBridgeRegistrationError(null);
+        setBridgeRegistrationFailureKind(null);
+        setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
         setConnectingLocalNetworkAccess(false);
         return;
       } catch (error) {
@@ -2589,6 +2946,9 @@ export function DesignCanvas({
     designId,
     effectivePreviewToken,
     liveEditBridgeKey,
+    onPreviewTokenChange,
+    publicVisualEdit,
+    screenId,
     scheduleBridgeRegistrationRetry,
   ]);
   const handleDismissLocalNetworkAccessPrompt = useCallback(() => {
@@ -3033,7 +3393,9 @@ export function DesignCanvas({
     min: DEFAULT_CANVAS_MIN_ZOOM,
     max: DEFAULT_CANVAS_MAX_ZOOM,
     zoomToCursor: deviceFrame === "none" && !centerInteractPreview,
-    enabled: Boolean(onZoomChange),
+    enabled: Boolean(onZoomChange) && !interactMode,
+    onZoomFrame: onZoomChange ? applyZoomFrame : undefined,
+    onZoomEnd: onZoomChange ? commitZoom : undefined,
   });
 
   // T-zoom-anchor: the "none"-mode zoom layer now uses `transform-origin: top
@@ -3257,6 +3619,30 @@ export function DesignCanvas({
     bridgeReadyRef.current = false;
     bootReadyRef.current = false;
   }
+  // Edit mode must never let a live URL receive native app input before the
+  // injected editor bridge has proved that it owns the document. A cached
+  // registration can outlive a bridge restart, and a 401/409 can otherwise
+  // leave an ordinary app iframe interactive while the canvas looks editable.
+  // Interact mode is the deliberate exception: it is the one mode where the
+  // running app, rather than the editor, owns pointer and keyboard input.
+  // A URL-backed localhost frame in Edit mode is never allowed to receive
+  // native app input until the editor bridge is ready. This also covers the
+  // short window before the public visual-edit token query resolves: the raw
+  // URL is useful as a loading surface, but releasing it early makes a failed
+  // registration look like a working editor and lets clicks mutate the app.
+  const liveEditFrameRequiresBridge =
+    sourceType === "localhost" &&
+    Boolean(rawExternalPreviewUrl) &&
+    !interactMode &&
+    !readOnly;
+  const liveEditInteractionBlocked =
+    liveEditFrameRequiresBridge &&
+    (!usesLiveEditInjectedBridge ||
+      bridgeRegistrationFailedForCurrentKey ||
+      !liveEditBridgeRegistered ||
+      readyIframeDocumentIdentity !== iframeDocumentIdentity);
+  const liveEditBridgeConfigurationPending =
+    liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
   // an onLoad that already fired would strand a spinner over finished content.
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
@@ -3277,6 +3663,12 @@ export function DesignCanvas({
     Boolean(externalPreviewUrl) &&
     !usingRawFallbackPreview &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
+  // A failed registration may still leave the raw dev-server URL mounted as a
+  // visual fallback. In Edit mode that fallback is not an editor: cover it
+  // with the same blocking surface used during bridge boot, so a 401/409 or a
+  // denied local-network permission can never hand clicks to the app.
+  const liveEditRegistrationFailurePending =
+    liveEditFrameRequiresBridge && bridgeRegistrationFailedForCurrentKey;
   // A proxied container paints its own app immediately, so without this the
   // canvas looks ready while hover, selection and layers are still dead.
   const sameOriginBridgePending =
@@ -3367,6 +3759,13 @@ export function DesignCanvas({
         return;
       }
       if (!e.data || !e.data.type) return;
+      if (e.data.type === "agent-native:live-route-path") {
+        if (typeof e.data.routePath === "string" && e.data.routePath) {
+          liveRoutePathRef.current = e.data.routePath;
+          onRoutePathChange?.(screenId, e.data.routePath);
+        }
+        return;
+      }
       if (e.data.type === "agent-native:screen-root-computed-styles") {
         const rawStyles = e.data.computedStyles;
         if (!isComputedStyleMap(rawStyles)) return;
@@ -3388,6 +3787,7 @@ export function DesignCanvas({
         // document's ready handshake clears this fallback again.
         if (usesLiveEditEditorBridge) {
           bootReadyRef.current = false;
+          liveRoutePathRef.current = null;
           onBootStart?.();
           setReadyIframeDocumentIdentity(null);
         }
@@ -3407,6 +3807,10 @@ export function DesignCanvas({
         onBridgeReady?.();
         setReadyIframeDocumentIdentity(iframeDocumentIdentity);
         flushPendingOneShotMessages();
+      }
+      if (typeof e.data.routePath === "string" && e.data.routePath) {
+        liveRoutePathRef.current = e.data.routePath;
+        onRoutePathChange?.(screenId, e.data.routePath);
       }
       if (e.data.type === "agent-native:runtime-layer-snapshot") {
         const payload = e.data.payload;
@@ -3448,6 +3852,10 @@ export function DesignCanvas({
           return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
+        if (typeof e.data.routePath === "string" && e.data.routePath) {
+          liveRoutePathRef.current = e.data.routePath;
+          onRoutePathChange?.(screenId, e.data.routePath);
+        }
         bridgeReadyRef.current = true;
         onBridgeReady?.();
         setReadyIframeDocumentIdentity(iframeDocumentIdentity);
@@ -3478,7 +3886,7 @@ export function DesignCanvas({
       }
       if (e.data.type === "element-select") {
         const reported = e.data.payload as
-          | { selector?: string; sourceId?: string }
+          | { selector?: string; sourceId?: string; runtimeSourceId?: string }
           | undefined;
         const reportedCandidates: string[] = [];
         if (reported?.selector) reportedCandidates.push(reported.selector);
@@ -3487,12 +3895,14 @@ export function DesignCanvas({
             `[data-agent-native-node-id="${reported.sourceId}"]`,
           );
         }
+        const reportedRuntimeSourceId = reported?.runtimeSourceId?.trim();
         if (e.data.intent) {
           // User click (carries intent): iframe already shows it — suppress the
           // echo-back to avoid the fast-click bounce.
           suppressMirrorSelectorsRef.current =
             reportedCandidates.length > 0 ? reportedCandidates : null;
         } else if (
+          !reportedRuntimeSourceId &&
           selectedSelectorRef.current &&
           reportedCandidates.length > 0 &&
           !reportedCandidates.includes(selectedSelectorRef.current) &&
@@ -3522,7 +3932,39 @@ export function DesignCanvas({
         onElementHover(e.data.payload);
       }
       if (e.data.type === "agent-native:editor-drag-state") {
-        onEditorDragStateChange?.(Boolean(e.data.active));
+        onEditorDragStateChange?.({
+          active: Boolean(e.data.active),
+          screenId:
+            typeof e.data.screenId === "string" ? e.data.screenId : undefined,
+          dragId: typeof e.data.dragId === "string" ? e.data.dragId : undefined,
+          eventAt:
+            typeof e.data.eventAt === "number" ? e.data.eventAt : undefined,
+          preview:
+            e.data.preview && typeof e.data.preview === "object"
+              ? {
+                  phase:
+                    e.data.preview.phase === "preview" ? "preview" : "clear",
+                  sourceId:
+                    typeof e.data.preview.sourceId === "string"
+                      ? e.data.preview.sourceId
+                      : undefined,
+                  anchorId:
+                    typeof e.data.preview.anchorId === "string"
+                      ? e.data.preview.anchorId
+                      : undefined,
+                  placement:
+                    e.data.preview.placement === "before" ||
+                    e.data.preview.placement === "after" ||
+                    e.data.preview.placement === "inside"
+                      ? e.data.preview.placement
+                      : undefined,
+                  insert:
+                    typeof e.data.preview.insert === "boolean"
+                      ? e.data.preview.insert
+                      : undefined,
+                }
+              : undefined,
+        });
         return;
       }
       if (e.data.type === "visual-style-change") {
@@ -3544,6 +3986,10 @@ export function DesignCanvas({
               phase: e.data.phase === "preview" ? "preview" : "commit",
               originalStyles,
               preserveSelection: e.data.preserveSelection === true,
+              routePath:
+                typeof e.data.routePath === "string"
+                  ? e.data.routePath
+                  : (liveRoutePathRef.current ?? undefined),
             },
           );
         }
@@ -3586,12 +4032,165 @@ export function DesignCanvas({
             html,
             originalValue,
             originalHtml,
+            routePath:
+              typeof e.data.routePath === "string"
+                ? e.data.routePath
+                : (liveRoutePathRef.current ?? undefined),
           });
         }
         return;
       }
       if (e.data.type === "runtime-structure-insert-rejected") {
-        onRuntimeStructureInsertRejected?.(String(e.data.reason || "unknown"));
+        onRuntimeStructureInsertRejected?.(
+          String(e.data.reason || "unknown"),
+          typeof e.data.transactionId === "string"
+            ? e.data.transactionId
+            : undefined,
+        );
+        return;
+      }
+      if (e.data.type === "runtime-structure-insert-applied") {
+        const requestId = String(e.data.requestId || "");
+        if (!requestId) return;
+        onRuntimeStructureInsertApplied?.({
+          requestId,
+          transactionId:
+            typeof e.data.transactionId === "string"
+              ? e.data.transactionId
+              : undefined,
+          routePath:
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined),
+          selector: typeof e.data.selector === "string" ? e.data.selector : "",
+          sourceId:
+            typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+        });
+        return;
+      }
+      if (e.data.type === "runtime-element-deleted") {
+        const requestId =
+          typeof e.data.requestId === "string" ? e.data.requestId : "";
+        if (!requestId) return;
+        onRuntimeStructureDeleteApplied?.({
+          screenId,
+          requestId,
+          selector: typeof e.data.selector === "string" ? e.data.selector : "",
+          sourceId:
+            typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+          routePath:
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined),
+          info: isElementInfoPayload(e.data.payload)
+            ? e.data.payload
+            : undefined,
+        });
+        return;
+      }
+      if (e.data.type === "runtime-element-delete-rejected") {
+        const requestId = String(e.data.requestId || "");
+        if (!requestId) return;
+        onRuntimeStructureDeleteRejected?.({
+          screenId,
+          requestId,
+          transactionId:
+            typeof e.data.transactionId === "string"
+              ? e.data.transactionId
+              : undefined,
+          routePath:
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined),
+          reason: String(e.data.reason || "unknown"),
+        });
+        return;
+      }
+      if (e.data.type === "runtime-structure-rollback-result") {
+        const requestId = String(e.data.requestId || "");
+        if (!requestId) return;
+        onRuntimeStructureRollbackResult?.({
+          requestId,
+          transactionId:
+            typeof e.data.transactionId === "string"
+              ? e.data.transactionId
+              : undefined,
+          applied: e.data.applied === true,
+          reason: typeof e.data.reason === "string" ? e.data.reason : undefined,
+        });
+        return;
+      }
+      if (e.data.type === "runtime-layer-name-applied") {
+        const requestId = Number(e.data.requestId);
+        const name = typeof e.data.name === "string" ? e.data.name : "";
+        if (!Number.isFinite(requestId) || !name) return;
+        onRuntimeLayerRenameApplied?.({
+          requestId,
+          selector: typeof e.data.selector === "string" ? e.data.selector : "",
+          sourceId:
+            typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+          routePath:
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined),
+          name,
+          previousName:
+            typeof e.data.previousName === "string"
+              ? e.data.previousName
+              : undefined,
+        });
+        return;
+      }
+      if (e.data.type === "visual-grid-group-change") {
+        const rawMoves = e.data.moves;
+        const validPlacement = (value: any) =>
+          value &&
+          ["column", "columnEnd", "row", "rowEnd"].every(
+            (key) => Number.isInteger(value[key]) && value[key] > 0,
+          ) &&
+          value.columnEnd > value.column &&
+          value.rowEnd > value.row;
+        const valid =
+          Array.isArray(rawMoves) &&
+          rawMoves.length >= 2 &&
+          rawMoves.length <= 100 &&
+          rawMoves.every(
+            (move: any) =>
+              move?.type === "visual-structure-change" &&
+              typeof move.requestId === "string" &&
+              typeof move.selector === "string" &&
+              typeof move.sourceId === "string" &&
+              typeof move.anchorSelector === "string" &&
+              typeof move.anchorSourceId === "string" &&
+              (move.placement === "before" ||
+                move.placement === "after" ||
+                move.placement === "inside") &&
+              move.dropMode === "flow-insert" &&
+              validPlacement(move.gridPlacement) &&
+              Array.isArray(move.gridDisplacements) &&
+              move.gridDisplacements.every(
+                (entry: any) =>
+                  typeof entry.sourceId === "string" &&
+                  typeof entry.selector === "string" &&
+                  validPlacement(entry.placement),
+              ),
+          );
+        const applied = valid
+          ? onVisualGridGroupChange?.(rawMoves as GridGroupStructureMove[])
+          : false;
+        if (applied !== "pending" && Array.isArray(rawMoves)) {
+          for (const move of rawMoves) {
+            if (typeof move?.requestId !== "string") continue;
+            iframeRef.current?.contentWindow?.postMessage(
+              {
+                type: "visual-structure-ack",
+                requestId: move.requestId,
+                applied: applied === true,
+              },
+              "*",
+            );
+          }
+        }
         return;
       }
       if (e.data.type === "visual-structure-change") {
@@ -3677,6 +4276,14 @@ export function DesignCanvas({
               : e.data.payload,
             {
               requestId,
+              transactionId:
+                typeof e.data.transactionId === "string"
+                  ? e.data.transactionId
+                  : undefined,
+              routePath:
+                typeof e.data.routePath === "string"
+                  ? e.data.routePath
+                  : (liveRoutePathRef.current ?? undefined),
               sourceId: replaced ? anchorSourceId : sourceId,
               anchorSourceId: replaced ? undefined : anchorSourceId,
               dropMode,
@@ -3684,6 +4291,48 @@ export function DesignCanvas({
                 e.data.forceFlowPositionOverride === true,
               sourceRect,
               anchorRect,
+              gridPlacement:
+                e.data.gridPlacement &&
+                Number.isFinite(e.data.gridPlacement.column) &&
+                Number.isFinite(e.data.gridPlacement.columnEnd) &&
+                Number.isFinite(e.data.gridPlacement.row) &&
+                Number.isFinite(e.data.gridPlacement.rowEnd)
+                  ? {
+                      column: Number(e.data.gridPlacement.column),
+                      columnEnd: Number(e.data.gridPlacement.columnEnd),
+                      row: Number(e.data.gridPlacement.row),
+                      rowEnd: Number(e.data.gridPlacement.rowEnd),
+                    }
+                  : undefined,
+              gridDisplacements: Array.isArray(e.data.gridDisplacements)
+                ? e.data.gridDisplacements.map(
+                    (entry: {
+                      sourceId?: unknown;
+                      selector?: unknown;
+                      placement: {
+                        column: number;
+                        columnEnd: number;
+                        row: number;
+                        rowEnd: number;
+                      };
+                    }) => ({
+                      sourceId:
+                        typeof entry.sourceId === "string"
+                          ? entry.sourceId
+                          : undefined,
+                      selector:
+                        typeof entry.selector === "string"
+                          ? entry.selector
+                          : undefined,
+                      placement: {
+                        column: Number(entry.placement.column),
+                        columnEnd: Number(entry.placement.columnEnd),
+                        row: Number(entry.placement.row),
+                        rowEnd: Number(entry.placement.rowEnd),
+                      },
+                    }),
+                  )
+                : undefined,
               anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
                 ? e.data.anchorPayload
                 : undefined,
@@ -3745,7 +4394,7 @@ export function DesignCanvas({
                 )
               ? (rawSourceNodeIdMap as [string, string][])
               : null;
-        let applied = false;
+        let applied: boolean | "pending" = false;
         if (
           selector &&
           cloneHtml &&
@@ -3753,28 +4402,73 @@ export function DesignCanvas({
             placement === "after" ||
             placement === "inside")
         ) {
-          applied =
-            typeof onVisualDuplicateChange === "function" &&
-            onVisualDuplicateChange(selector, cloneHtml, e.data.payload, {
-              sourceId:
-                typeof e.data.sourceId === "string"
-                  ? e.data.sourceId
-                  : undefined,
-              sourceNodeIdMap,
-              anchorSelector:
-                typeof e.data.anchorSelector === "string"
-                  ? e.data.anchorSelector
-                  : undefined,
-              anchorSourceId:
-                typeof e.data.anchorSourceId === "string"
-                  ? e.data.anchorSourceId
-                  : undefined,
-              placement,
-            }) !== false;
+          const result =
+            typeof onVisualDuplicateChange === "function"
+              ? onVisualDuplicateChange(selector, cloneHtml, e.data.payload, {
+                  sourceId:
+                    typeof e.data.sourceId === "string"
+                      ? e.data.sourceId
+                      : undefined,
+                  sourceNodeIdMap,
+                  anchorSelector:
+                    typeof e.data.anchorSelector === "string"
+                      ? e.data.anchorSelector
+                      : undefined,
+                  anchorSourceId:
+                    typeof e.data.anchorSourceId === "string"
+                      ? e.data.anchorSourceId
+                      : undefined,
+                  anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
+                    ? e.data.anchorPayload
+                    : undefined,
+                  requestId,
+                  dropMode:
+                    e.data.dropMode === "flow-insert" ||
+                    e.data.dropMode === "absolute-container"
+                      ? e.data.dropMode
+                      : undefined,
+                  forceFlowPositionOverride:
+                    e.data.forceFlowPositionOverride === true,
+                  sourceRect:
+                    e.data.sourceRect &&
+                    typeof e.data.sourceRect === "object" &&
+                    Number.isFinite(e.data.sourceRect.x) &&
+                    Number.isFinite(e.data.sourceRect.y) &&
+                    Number.isFinite(e.data.sourceRect.width) &&
+                    Number.isFinite(e.data.sourceRect.height)
+                      ? {
+                          x: Number(e.data.sourceRect.x),
+                          y: Number(e.data.sourceRect.y),
+                          width: Number(e.data.sourceRect.width),
+                          height: Number(e.data.sourceRect.height),
+                        }
+                      : undefined,
+                  anchorRect:
+                    e.data.anchorRect &&
+                    typeof e.data.anchorRect === "object" &&
+                    Number.isFinite(e.data.anchorRect.x) &&
+                    Number.isFinite(e.data.anchorRect.y) &&
+                    Number.isFinite(e.data.anchorRect.width) &&
+                    Number.isFinite(e.data.anchorRect.height)
+                      ? {
+                          x: Number(e.data.anchorRect.x),
+                          y: Number(e.data.anchorRect.y),
+                          width: Number(e.data.anchorRect.width),
+                          height: Number(e.data.anchorRect.height),
+                        }
+                      : undefined,
+                  placement,
+                })
+              : false;
+          applied = result === "pending" ? "pending" : result !== false;
         }
-        if (requestId) {
+        if (requestId && applied !== "pending") {
           iframeRef.current?.contentWindow?.postMessage(
-            { type: "visual-structure-ack", requestId, applied },
+            {
+              type: "visual-structure-ack",
+              requestId,
+              applied: true === applied,
+            },
             "*",
           );
         }
@@ -4099,6 +4793,7 @@ export function DesignCanvas({
         // gets the same gesture as embedded-canvas-wheel. Both bridges are
         // installed in every document, so without this the two apply twice.
         if (isEmbeddedFrame) return;
+        if (interactMode) return;
         if (!onZoomChange) return;
         const iframe = iframeRef.current;
         const scroll = scrollContainerRef.current;
@@ -4139,7 +4834,7 @@ export function DesignCanvas({
           const rawClientX = Number(e.data.clientX);
           const rawClientY = Number(e.data.clientY);
           if (!Number.isFinite(rawClientX) || !Number.isFinite(rawClientY)) {
-            onZoomChange(nextZoom);
+            scheduleZoomCommit(nextZoom);
             return;
           }
           // The iframe lives inside a `transform: scale(zoom/100)` wrapper, so
@@ -4161,13 +4856,13 @@ export function DesignCanvas({
             scroll,
             ratio,
           );
-          onZoomChange(nextZoom);
+          scheduleZoomCommit(nextZoom);
           requestAnimationFrame(() => {
             scroll.scrollLeft += dx;
             scroll.scrollTop += dy;
           });
         } else {
-          onZoomChange(nextZoom);
+          scheduleZoomCommit(nextZoom);
         }
       }
     }
@@ -4195,9 +4890,17 @@ export function DesignCanvas({
     onIframeContextMenu,
     onEditorDragStateChange,
     onVisualStructureChange,
+    onVisualGridGroupChange,
     onRuntimeStructureInsertRejected,
+    onRuntimeStructureInsertApplied,
+    onRuntimeLayerRenameApplied,
+    onRuntimeStructureDeleteApplied,
+    onRuntimeStructureDeleteRejected,
+    onRuntimeStructureRollbackResult,
+    onRoutePathChange,
     onVisualDuplicateChange,
     onZoomChange,
+    scheduleZoomCommit,
     centerInteractPreview,
     deviceFrame,
     onPrototypeNavigate,
@@ -4210,6 +4913,7 @@ export function DesignCanvas({
     fusionUrl,
     flushPendingOneShotMessages,
     postOneShotBridgeMessage,
+    iframeDocumentIdentity,
   ]);
 
   // Mirror the selection down only when it changes, so stale re-posts can't
@@ -4232,6 +4936,10 @@ export function DesignCanvas({
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+    iframe.contentWindow?.postMessage(
+      { type: "agent-native:editor-chrome-ready-probe" },
+      "*",
+    );
     iframe.contentWindow?.postMessage(
       {
         type: "embedded-canvas-pan-mode",
@@ -4678,6 +5386,25 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly]);
 
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const sendGridGroupBatching = () =>
+      iframe.contentWindow?.postMessage(
+        {
+          type: "set-grid-group-batching-enabled",
+          enabled:
+            sourceType !== "localhost" &&
+            sourceType !== "fusion" &&
+            !rawExternalPreviewUrl,
+        },
+        "*",
+      );
+    sendGridGroupBatching();
+    iframe.addEventListener("load", sendGridGroupBatching);
+    return () => iframe.removeEventListener("load", sendGridGroupBatching);
+  }, [sourceType, rawExternalPreviewUrl]);
+
   // Sync editMode to the bridge IN-PLACE via postMessage so toggling Edit ⇄
   // Preview does not rebuild srcdoc / reload every screen iframe (which was
   // PF21: __TEXT_EDITING_ENABLED__ used to be baked into srcdoc, so flipping
@@ -5013,7 +5740,13 @@ export function DesignCanvas({
       nodeId?: string | null;
       state: string;
       styles: Record<string, string>;
+      routePath?: string;
+      screenId?: string;
     }) => {
+      if (!screenId || args.screenId !== screenId) return false;
+      if (!pendingVisualStyleRouteMatches(args, liveRoutePathRef.current)) {
+        return false;
+      }
       postOneShotBridgeMessage({
         type: "interaction-state-style-preview",
         selector: args.selector,
@@ -5022,14 +5755,17 @@ export function DesignCanvas({
         state: args.state,
         styles: args.styles,
       });
+      return true;
     },
-    [postOneShotBridgeMessage],
+    [postOneShotBridgeMessage, screenId],
   );
 
   const lastStyleRevertRequestIdRef = useRef<number | null>(null);
   const replayStylePatches = useCallback(
     (patches: Array<StyleReplayPatch>) => {
       for (const patch of patches) {
+        if (!pendingVisualStyleRouteMatches(patch, liveRoutePathRef.current))
+          continue;
         const target = runtimeStyleTarget(patch);
         if (target.selectorCandidates.length === 0) continue;
         if (patch.interactionState) {
@@ -5069,7 +5805,9 @@ export function DesignCanvas({
     if (!screenId) return;
     replayStylePatches(
       (pendingStylePreviewPatches ?? []).filter(
-        (patch) => patch.screenId === screenId,
+        (patch) =>
+          patch.screenId === screenId &&
+          pendingVisualStyleRouteMatches(patch, liveRoutePathRef.current),
       ),
     );
   }, [
@@ -5106,6 +5844,9 @@ export function DesignCanvas({
     }
     lastTextRevertRequestIdRef.current = textRevertRequest.requestId;
     for (const patch of textRevertRequest.patches) {
+      if (patch.routePath && patch.routePath !== liveRoutePathRef.current) {
+        continue;
+      }
       const selectorCandidates = [
         patch.selector,
         patch.sourceId
@@ -5132,6 +5873,9 @@ export function DesignCanvas({
     }
     lastStructureAckRequestIdRef.current = structureAckRequest.requestId;
     for (const ack of structureAckRequest.acks) {
+      if (ack.routePath && ack.routePath !== liveRoutePathRef.current) {
+        continue;
+      }
       postOneShotBridgeMessage({
         type: "visual-structure-ack",
         requestId: ack.requestId,
@@ -5151,6 +5895,7 @@ export function DesignCanvas({
     }
     lastRuntimeStructureMoveRequestIdRef.current =
       runtimeStructureMoveRequest.requestId;
+    const moves = runtimeStructureMoveRequest.moves;
     postOneShotBridgeMessage({
       type: "runtime-structure-move",
       subjectSelector: runtimeStructureMoveRequest.subject.selector,
@@ -5158,6 +5903,19 @@ export function DesignCanvas({
       anchorSelector: runtimeStructureMoveRequest.anchor.selector,
       anchorSourceId: runtimeStructureMoveRequest.anchor.sourceId,
       placement: runtimeStructureMoveRequest.placement,
+      transactionId: runtimeStructureMoveRequest.transactionId,
+      gridPlacement: runtimeStructureMoveRequest.gridPlacement,
+      gridDisplacements: runtimeStructureMoveRequest.gridDisplacements,
+      moves: moves?.map((move) => ({
+        subjectSelector: move.subject.selector,
+        subjectSourceId: move.subject.sourceId,
+        anchorSelector: move.anchor.selector,
+        anchorSourceId: move.anchor.sourceId,
+        placement: move.placement,
+        transactionId: move.transactionId,
+        gridPlacement: move.gridPlacement,
+        gridDisplacements: move.gridDisplacements,
+      })),
     });
   }, [postOneShotBridgeMessage, runtimeStructureMoveRequest]);
 
@@ -5181,6 +5939,7 @@ export function DesignCanvas({
       postOneShotBridgeMessage({
         type: "runtime-structure-insert",
         requestId: runtimeStructureInsertRequest.requestId + index / 1_000,
+        transactionId: runtimeStructureInsertRequest.transactionId,
         html,
         anchorSelector,
         anchorSourceId,
@@ -5205,6 +5964,87 @@ export function DesignCanvas({
       }
     });
   }, [postOneShotBridgeMessage, runtimeStructureInsertRequest]);
+
+  const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!runtimeStructureDeleteRequest) return;
+    if (runtimeStructureDeleteRequest.waitForInsertTransaction) return;
+    if (
+      lastRuntimeStructureDeleteRequestIdRef.current ===
+      runtimeStructureDeleteRequest.requestId
+    ) {
+      return;
+    }
+    lastRuntimeStructureDeleteRequestIdRef.current =
+      runtimeStructureDeleteRequest.requestId;
+    postOneShotBridgeMessage({
+      type: "delete-element",
+      selector: runtimeStructureDeleteRequest.selector,
+      selectorCandidates:
+        runtimeStructureDeleteRequest.selectorCandidates ?? [],
+      requestId: runtimeStructureDeleteRequest.requestId,
+      transactionId: runtimeStructureDeleteRequest.transactionId,
+    });
+  }, [postOneShotBridgeMessage, runtimeStructureDeleteRequest]);
+
+  const lastRuntimeStructureRollbackRequestIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!runtimeStructureRollbackRequest) return;
+    if (
+      lastRuntimeStructureRollbackRequestIdRef.current ===
+      runtimeStructureRollbackRequest.requestId
+    ) {
+      return;
+    }
+    lastRuntimeStructureRollbackRequestIdRef.current =
+      runtimeStructureRollbackRequest.requestId;
+    postOneShotBridgeMessage({
+      type: "runtime-structure-rollback-insert",
+      selector: runtimeStructureRollbackRequest.selector,
+      sourceId: runtimeStructureRollbackRequest.sourceId,
+      requestId: runtimeStructureRollbackRequest.requestId,
+      transactionId: runtimeStructureRollbackRequest.transactionId,
+    });
+  }, [postOneShotBridgeMessage, runtimeStructureRollbackRequest]);
+
+  const lastRuntimeLayerRenameRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!runtimeLayerRenameRequest) return;
+    if (
+      runtimeLayerRenameRequest.routePath &&
+      runtimeLayerRenameRequest.routePath !== liveRoutePathRef.current
+    ) {
+      return;
+    }
+    if (
+      lastRuntimeLayerRenameRequestIdRef.current ===
+      runtimeLayerRenameRequest.requestId
+    ) {
+      return;
+    }
+    lastRuntimeLayerRenameRequestIdRef.current =
+      runtimeLayerRenameRequest.requestId;
+    postOneShotBridgeMessage({
+      type: "runtime-layer-rename",
+      requestId: runtimeLayerRenameRequest.requestId,
+      selector: runtimeLayerRenameRequest.selector,
+      sourceId: runtimeLayerRenameRequest.sourceId,
+      name: runtimeLayerRenameRequest.name,
+    });
+  }, [postOneShotBridgeMessage, runtimeLayerRenameRequest]);
+
+  const lastRuntimeLayerSnapshotRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (runtimeLayerSnapshotRequest == null) return;
+    if (
+      lastRuntimeLayerSnapshotRequestIdRef.current ===
+      runtimeLayerSnapshotRequest
+    ) {
+      return;
+    }
+    lastRuntimeLayerSnapshotRequestIdRef.current = runtimeLayerSnapshotRequest;
+    postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
+  }, [postOneShotBridgeMessage, runtimeLayerSnapshotRequest]);
 
   /**
    * Send a motion-preview scrub tick to the iframe.  `t` is the normalised
@@ -5548,10 +6388,12 @@ export function DesignCanvas({
     return registerLinkedScreenPreviewHandlers(frameId, {
       replaceContent: replacePreviewContentFromHost,
       sendStyleChange,
+      sendInteractionStatePreviewStyle,
     });
   }, [
     previewFrameId,
     replacePreviewContentFromHost,
+    sendInteractionStatePreviewStyle,
     screenId,
     sendStyleChange,
   ]);
@@ -5587,10 +6429,41 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        routePath?: string;
+        interactionState?: InteractionState;
+      },
     ) => {
       if (!screenId || targetScreenId !== screenId) return false;
-      return sendStyleChangeLinked(selector, property, value, options);
+      if (
+        !pendingVisualStyleRouteMatches(options ?? {}, liveRoutePathRef.current)
+      ) {
+        return false;
+      }
+      if (options?.interactionState) {
+        return sendInteractionStatePreviewStyle({
+          selector,
+          selectorCandidates: options.selectorCandidates,
+          nodeId: options.nodeId,
+          state: options.interactionState,
+          styles: { [property]: value },
+          routePath: options.routePath,
+          screenId,
+        });
+      }
+      return sendStyleChangeLinked(
+        selector,
+        property,
+        value,
+        options
+          ? {
+              selectorCandidates: options.selectorCandidates,
+              nodeId: options.nodeId,
+            }
+          : undefined,
+      );
     };
     const replacePreviewContentLinked = (
       nextContent: string,
@@ -5711,6 +6584,19 @@ export function DesignCanvas({
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
   const embeddedFrameFluid = embeddedFrame?.fluid === true;
+  const embeddedFramePaintScaleX =
+    embeddedFrame && !embeddedFrameFluid
+      ? embeddedFrame.displayWidth / Math.max(1, embeddedFrame.viewportWidth)
+      : 1;
+  const embeddedFramePaintScaleY =
+    embeddedFrame && !embeddedFrameFluid
+      ? embeddedFrame.displayHeight / Math.max(1, embeddedFrame.viewportHeight)
+      : 1;
+  // One oversized axis can force the whole iframe backing surface onto the
+  // compositor path, so use the larger inner and editor scale conservatively.
+  const embeddedPaintScale =
+    Math.max(1, embeddedFramePaintScaleX, embeddedFramePaintScaleY) *
+    Math.max(1, editorChromeScaleX, editorChromeScaleY);
   const iframeBackgroundColor = getEmbeddedIframeBackgroundColor({
     embeddedFrameBackground,
     transparentBackground,
@@ -5997,6 +6883,7 @@ export function DesignCanvas({
             previewUrl: externalPreviewUrl,
             parentOrigin: browserOrigin ?? undefined,
           })}
+          allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
           onLoad={(event) => {
             setPreviewFrameLoaded(true);
@@ -6005,6 +6892,10 @@ export function DesignCanvas({
               onBootReady();
             }
             sendBridgeToContainer();
+            event.currentTarget.contentWindow?.postMessage(
+              { type: "agent-native:editor-chrome-ready-probe" },
+              "*",
+            );
             // The bridge logs into the IFRAME console and cannot read
             // import.meta.env, so dev has to switch it on from out here.
             if (!import.meta.env?.DEV) return;
@@ -6034,7 +6925,24 @@ export function DesignCanvas({
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
+            pointerEvents: liveEditInteractionBlocked ? "none" : undefined,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+            ...getIframePaintRetentionStyle({
+              viewportWidth:
+                embeddedFrame?.viewportWidth ??
+                previewWidthPx ??
+                Number.parseFloat(iframeWidth),
+              viewportHeight:
+                embeddedFrame?.viewportHeight ??
+                previewHeightPx ??
+                Number.parseFloat(iframeHeight ?? "900px"),
+              effectiveScale: embeddedFrame
+                ? embeddedPaintScale
+                : (zoom / 100) * editorChromeScaleX,
+              effectiveScaleY: embeddedFrame
+                ? embeddedPaintScale
+                : (zoom / 100) * editorChromeScaleY,
+            }),
           }}
           title={t("designEditor.designPreview")}
         />
@@ -6058,6 +6966,7 @@ export function DesignCanvas({
             previewUrl: runtimeVerificationUrl,
             parentOrigin: browserOrigin,
           })}
+          allow={getDesignCanvasIframeAllow(runtimeVerificationUrl)}
           data-runtime-verification-iframe
           aria-hidden="true"
           tabIndex={-1}
@@ -6145,7 +7054,17 @@ export function DesignCanvas({
           </div>
         </div>
       ) : null}
+      {showProactiveLocalNetworkAccessPrompt ? (
+        <LocalNetworkAccessPrompt
+          kind={bridgeRegistrationFailureKind ?? "maybePermissionBlocked"}
+          connecting={connectingLocalNetworkAccess}
+          onConnect={handleConnectLocalNetworkAccess}
+          onDismiss={handleDismissLocalNetworkAccessPrompt}
+          proactive
+        />
+      ) : null}
       {bridgeRegistrationFailedForCurrentKey &&
+      !showProactiveLocalNetworkAccessPrompt &&
       localNetworkAccessDismissedForKey !== liveEditBridgeKey ? (
         // Deliberately NOT inside the blocking overlay below: usingRawFallback
         // Preview means the iframe right underneath is the real running dev
@@ -6159,9 +7078,11 @@ export function DesignCanvas({
         />
       ) : null}
       {waitingForEditableExternalSnapshot ||
+      liveEditBridgeConfigurationPending ||
       (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
       sameOriginBridgePending ||
-      liveEditDocumentPending ? (
+      liveEditDocumentPending ||
+      liveEditRegistrationFailurePending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
             // handleSuspectedBridgeRestart's destructive terminal state (see
@@ -6194,6 +7115,39 @@ export function DesignCanvas({
               >
                 <IconRefresh className="size-3.5" />
                 {"Retry" /* i18n-ignore local dev bridge retry button */}
+              </Button>
+            </div>
+          ) : bridgeRegistrationFailedForCurrentKey ? (
+            <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
+                {
+                  "Live editing is waiting for a connection" /* i18n-ignore blocked localhost edit state */
+                }
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {
+                  "The running app is shielded until Design connects to the local bridge." /* i18n-ignore blocked localhost edit state */
+                }
+              </div>
+              {bridgeRegistrationError?.message ? (
+                <div className="w-full truncate rounded bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">
+                  {bridgeRegistrationError.message}
+                </div>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleConnectLocalNetworkAccess}
+                disabled={connectingLocalNetworkAccess}
+              >
+                <IconRefresh className="size-3.5" />
+                {
+                  connectingLocalNetworkAccess
+                    ? "Connecting…"
+                    : "Retry" /* i18n-ignore blocked localhost edit retry */
+                }
               </Button>
             </div>
           ) : waitingForLiveEditBridge || sameOriginBridgePending ? (
@@ -6378,7 +7332,7 @@ export function DesignCanvas({
           tabIndex={-1}
           onPointerEnter={focusScrollSurface}
           onMouseEnter={focusScrollSurface}
-          className="relative h-full w-full overflow-hidden"
+          className="relative h-full w-full overflow-clip"
         >
           {iframeElement}
           {reviewCanvasPins}
@@ -6396,7 +7350,7 @@ export function DesignCanvas({
         tabIndex={-1}
         onPointerEnter={focusScrollSurface}
         onMouseEnter={focusScrollSurface}
-        className="relative h-full w-full overflow-hidden"
+        className="relative h-full w-full overflow-clip"
         style={{
           width: embeddedFrame.displayWidth,
           height: embeddedFrame.displayHeight,
@@ -6439,6 +7393,7 @@ export function DesignCanvas({
           framed modes are centered inside the canvas with zoom applied. */}
       {centerInteractPreview ? (
         <div
+          ref={zoomSizeLayerRef}
           className="relative flex min-h-full min-w-full items-center justify-center"
           style={{ justifyContent: "safe center", alignItems: "safe center" }}
         >
@@ -6458,7 +7413,11 @@ export function DesignCanvas({
             <div
               ref={zoomLayerRef}
               style={{
-                transform: `scale(${zoom / 100})`,
+                transform: getSingleScreenZoomTransform(
+                  zoom,
+                  deviceFrame,
+                  centerInteractPreview,
+                ),
                 transformOrigin: "top left",
               }}
             >
@@ -6503,10 +7462,11 @@ export function DesignCanvas({
             // >= 100% the offset is exactly 0 and the original top-left
             // contract holds verbatim. The offset is also continuous at
             // 100% (0), so crossing the boundary mid-gesture cannot jump.
-            transform:
-              zoom < 100
-                ? `translate(${(100 - zoom) / 2}%, ${(100 - zoom) / 2}%) scale(${zoom / 100})`
-                : `scale(${zoom / 100})`,
+            transform: getSingleScreenZoomTransform(
+              zoom,
+              deviceFrame,
+              centerInteractPreview,
+            ),
             transformOrigin: "top left",
           }}
         >
@@ -6515,8 +7475,13 @@ export function DesignCanvas({
       ) : (
         <div className="relative flex items-center justify-center min-h-full">
           <div
+            ref={zoomLayerRef}
             style={{
-              transform: `scale(${zoom / 100})`,
+              transform: getSingleScreenZoomTransform(
+                zoom,
+                deviceFrame,
+                centerInteractPreview,
+              ),
               transformOrigin: "center center",
             }}
           >

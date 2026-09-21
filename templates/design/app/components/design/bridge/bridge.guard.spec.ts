@@ -42,6 +42,9 @@ import {
   isTextElement,
 } from "../edit-panel/element-classification";
 
+const PLATFORM_PRIMARY_KEY = process.platform === "darwin" ? "Meta" : "Control";
+const IGNORE_AUTO_LAYOUT_KEY = process.platform === "darwin" ? "Control" : "s";
+
 declare global {
   interface Window {
     __bridgeMessages?: Array<{ type?: string; phase?: string }>;
@@ -2010,7 +2013,7 @@ it(
       // Holding Cmd/Ctrl bypasses snapping entirely (Figma behavior) — nudge
       // one px further (still well within snap range if snapping were
       // active) and hold Meta so the raw (unsnapped) position is used.
-      await page.keyboard.down("Meta");
+      await page.keyboard.down(PLATFORM_PRIMARY_KEY);
       await page.mouse.move(174 + 278, 244);
       const bypassedLeft = await page.evaluate(() => {
         const target = document.querySelector<HTMLElement>("#target")!;
@@ -2028,7 +2031,7 @@ it(
         );
       });
       expect(guideHiddenDuringBypass).toBe(true);
-      await page.keyboard.up("Meta");
+      await page.keyboard.up(PLATFORM_PRIMARY_KEY);
 
       await page.mouse.up();
       await page.waitForTimeout(30);
@@ -4965,6 +4968,35 @@ describe("editor chrome bridge — text editing session", () => {
         }));
         expect(state.editing).toBe(false);
         expect(state.rangeCount).toBe(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "blurs an active text edit when bridge reconfiguration disables text editing",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const bridge = (window as any).__anEditorChromeBridgeInstance;
+          if (!bridge || typeof bridge.updateConfig !== "function") {
+            throw new Error("missing editor chrome config updater");
+          }
+          bridge.updateConfig({
+            readOnly: false,
+            textEditingEnabled: false,
+          });
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]", {
+          state: "detached",
+        });
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();
@@ -7990,10 +8022,10 @@ it(
       );
       await page.mouse.move(controlStartX, controlStartY);
       await page.mouse.down();
-      await page.keyboard.down("Control");
+      await page.keyboard.down(IGNORE_AUTO_LAYOUT_KEY);
       await page.mouse.move(450, 115, { steps: 8 });
       await page.mouse.up();
-      await page.keyboard.up("Control");
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT_KEY);
       await page.waitForTimeout(50);
 
       const ignored = await page.evaluate(() => {
@@ -11076,10 +11108,10 @@ it(
 
 // ── Hover-info postMessage de-duplication (perf) ────────────────────────────
 //
-it(
-  "editor chrome bridge flow-inserts grid children and CSS grid tracks reflow when the parent resizes",
+it.each(["row", "column"] as const)(
+  "editor chrome bridge flow-inserts %s-flow grid children without freezing auto placement",
   { timeout: 30_000 },
-  async () => {
+  async (flow) => {
     const browser = await chromium.launch({ headless: true });
     const pageErrors: string[] = [];
     try {
@@ -11090,7 +11122,7 @@ it(
       await page.setContent(`<!doctype html>
 <html><head><style>
   html, body { margin: 0; width: 100%; height: 100%; }
-  #grid { position:absolute; left:100px; top:80px; width:400px; display:grid;
+  #grid { position:absolute; left:100px; top:80px; width:400px; display:grid; grid-auto-flow:${flow};
     grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,80px);
     column-gap:20px; row-gap:16px; padding:12px; }
   .cell { background:#a5b4fc; }
@@ -11147,6 +11179,96 @@ it(
       expect(structureMessages[structureMessages.length - 1]?.dropMode).toBe(
         "flow-insert",
       );
+      if (flow === "column") {
+        const styles = await page.evaluate(() =>
+          Array.from(
+            document.querySelectorAll<HTMLElement>("#grid > .cell"),
+          ).map((element) => ({
+            gridColumn: element.style.gridColumn,
+            gridRow: element.style.gridRow,
+          })),
+        );
+        expect(styles).toEqual(
+          styles.map(() => ({ gridColumn: "", gridRow: "" })),
+        );
+        expect(
+          (
+            structureMessages[structureMessages.length - 1] as {
+              gridPlacement?: unknown;
+            }
+          )?.gridPlacement,
+        ).toBeUndefined();
+      }
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge shows an insertion line over an occupied explicit grid cell",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><body>
+        <div id="source" data-agent-native-node-id="source"
+          style="position:absolute;left:40px;top:400px;width:80px;height:44px;background:#6366f1">Source</div>
+        <div id="grid" data-agent-native-node-id="grid"
+          style="position:absolute;left:300px;top:80px;width:320px;height:220px;padding:12px;display:grid;grid-template-columns:repeat(3,80px);grid-auto-rows:56px;gap:16px;box-sizing:border-box">
+          <div id="span" data-agent-native-node-id="span" style="grid-column:1 / span 2;background:#a855f7">Span</div>
+          <div id="target" data-agent-native-node-id="target" style="grid-column:3;background:#ec4899">Target</div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#source");
+
+      const source = await page.locator("#source").boundingBox();
+      const target = await page.locator("#target").boundingBox();
+      expect(source).toBeTruthy();
+      expect(target).toBeTruthy();
+      await page.mouse.move(
+        source!.x + source!.width / 2,
+        source!.y + source!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        source!.x + source!.width / 2 + 10,
+        source!.y + source!.height / 2 + 6,
+        { steps: 4 },
+      );
+      await page.mouse.move(target!.x + 4, target!.y + target!.height / 2, {
+        steps: 12,
+      });
+      await page.mouse.move(target!.x + 10, target!.y + target!.height / 2, {
+        steps: 4,
+      });
+      await page.waitForFunction(() => {
+        const guide = document.querySelector<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        );
+        return guide && getComputedStyle(guide).display === "block";
+      });
+
+      const guide = await page.evaluate(() => {
+        const element = document.querySelector<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        );
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+      await page.mouse.up();
+      expect(guide).toBeTruthy();
+      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -13961,6 +14083,54 @@ it(
   },
 );
 
+it(
+  "forced nested hit testing refuses a locked descendant subtree",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="outer" data-agent-native-node-id="outer" style="display:flex;width:500px;height:300px">
+          <div id="locked" data-agent-native-locked="true" style="display:flex;width:300px;height:200px">
+            <div id="child" data-agent-native-node-id="child" style="width:100px;height:100px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "locked-nested",
+                x: 50,
+                y: 50,
+                preview: false,
+                modifiers: { forceNestedAutoLayout: true },
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string };
+
+      expect(reply.anchorNodeId).toBe("");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it("keeps isAbsolutePrimitiveContainer identical in both bridges", () => {
   const extract = (filename: string) => {
     const source = readFileSync(join(bridgeDir, filename), "utf-8");
@@ -14000,6 +14170,20 @@ it("keeps the authored inline-style key list in sync with the bridge", () => {
   expect([...AUTHORED_INLINE_STYLE_PROPERTIES].sort()).toEqual(
     bridgeKeys.sort(),
   );
+});
+
+it("retains grid placement for authored grouped and cross-grid sources", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var sourceHasAuthoredPlacement = Boolean(");
+  const end = bridge.indexOf("var hasAuthoredSingleCellSourcePlacement", start);
+  expect(start).toBeGreaterThan(-1);
+  const classifier = bridge.slice(start, end);
+  expect(classifier).toContain("excluded?.some");
+  expect(classifier).toContain("hasAuthoredPlacement");
+  expect(classifier).not.toContain("parentElement === container");
 });
 
 it(

@@ -11,7 +11,6 @@ import {
 
 import { getAppConfig } from "../app-config/index.js";
 import { getEffectiveDatabaseEnvStatus } from "../db/runtime-diagnostics.js";
-import { getOrgContext } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -21,19 +20,15 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import { getRuntimeConfigReport } from "../shared/runtime-config.js";
-import { getSession } from "./auth.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
-import { resolveSecret } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
-import {
-  findUnsupportedScopedKeyNames,
-  saveKeyValuesToScopedSecrets,
-  ScopedKeyStorageError,
-  type ScopedKeySaveRequestScope,
-} from "./scoped-key-storage.js";
+import type { ScopedKeySaveRequestScope } from "./scoped-key-storage.js";
+
+const getSession: (typeof import("./auth.js"))["getSession"] = (...args) =>
+  import("./auth.js").then(({ getSession }) => getSession(...args));
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */
@@ -241,10 +236,12 @@ export function createServer(
     router.get(
       "/_agent-native/env-status",
       defineEventHandler(async (event) => {
+        const { resolveSecret } = await import("./credential-provider.js");
         const session = await getSession(event).catch(() => null);
         const userEmail = session?.email;
         let orgId: string | undefined;
         if (userEmail) {
+          const { getOrgContext } = await import("../org/context.js");
           const orgCtx = await getOrgContext(event).catch(() => null);
           orgId = orgCtx?.orgId ?? undefined;
         }
@@ -279,6 +276,11 @@ export function createServer(
           vars?: Array<{ key: string; value: string }>;
           scope?: ScopedKeySaveRequestScope;
         };
+        const {
+          findUnsupportedScopedKeyNames,
+          saveKeyValuesToScopedSecrets,
+          ScopedKeyStorageError,
+        } = await import("./scoped-key-storage.js");
         const unsupportedKeys = findUnsupportedScopedKeyNames(
           vars,
           allowedEnvKeyNames,

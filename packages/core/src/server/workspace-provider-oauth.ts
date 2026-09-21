@@ -32,6 +32,7 @@ import {
   safeReturnPath,
 } from "./auth.js";
 import { resolveSecret } from "./credential-provider.js";
+import { canonicalFrameworkPathname } from "./framework-route-prefix.js";
 import {
   decodeOAuthState,
   encodeOAuthState,
@@ -260,7 +261,8 @@ export async function handleWorkspaceProviderOAuthStart(
       return oauthFlowFailure(event, 400, "Invalid OAuth redirect URI.");
     }
     if (
-      parsedRedirectUri.pathname !== "/_agent-native/google/callback" ||
+      canonicalFrameworkPathname(parsedRedirectUri.pathname) !==
+        "/_agent-native/google/callback" ||
       parsedRedirectUri.search ||
       parsedRedirectUri.hash
     ) {

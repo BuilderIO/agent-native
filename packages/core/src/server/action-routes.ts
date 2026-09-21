@@ -58,9 +58,17 @@ import {
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
 } from "./embed-session.js";
-import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
+import {
+  getHttpRequestTelemetryId,
+  registerHttpRequestTelemetryActionRoute,
+  setHttpRequestTelemetryActionName,
+} from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  isSameOriginRequest,
+} from "./request-origin.js";
+import { hasUiActionCapability } from "./ui-action-capability.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -452,6 +460,22 @@ function allowsWebMcpCapability(
   );
 }
 
+function allowsWebMcpCapabilityResource(
+  authCapability: string | undefined,
+  params: Record<string, unknown>,
+): boolean {
+  const prefix = "capability:visual-edit:";
+  if (!authCapability?.startsWith(prefix)) return true;
+  const match = /^design:([^:]+)$/.exec(authCapability.slice(prefix.length));
+  if (!match || typeof params.designId !== "string") return false;
+  try {
+    return decodeURIComponent(match[1]) === params.designId;
+  } catch {
+    // coercion-ok: malformed capability scope is invalid and must fail closed.
+    return false;
+  }
+}
+
 async function resolveRequestAuthCapability(
   event: any,
 ): Promise<string | undefined> {
@@ -486,7 +510,28 @@ function mountActionRoutesInternal(
     const http = entry.http || undefined;
     const method = options?.forcePost ? "POST" : (http?.method ?? "POST");
     const path = options?.forcePost ? name : (http?.path ?? name);
-    const routePath = `${options?.routePrefix ?? ROUTE_PREFIX}/${path}`;
+    const routePrefix = options?.routePrefix ?? ROUTE_PREFIX;
+    const routePath = `${routePrefix}/${path}`;
+    const routeTemplate =
+      !options?.forcePost && http?.path ? routePath : `${routePrefix}/:action`;
+    registerHttpRequestTelemetryActionRoute(
+      routePath,
+      name,
+      routeTemplate,
+      nitroApp,
+    );
+
+    // Capability-scoped actions authenticate inside this handler so a signed
+    // embed token can authorize the exact action without becoming a session.
+    // Let those routes reach that verifier. Anonymous actions keep their
+    // existing contract for non-WebMCP routes; unrelated actions stay behind
+    // the normal auth guard.
+    if (
+      (entry.requiresAuth === false && !options?.caller) ||
+      (Array.isArray(entry.capabilityScopes) && entry.capabilityScopes.length)
+    ) {
+      registerAuthPublicPaths([routePath], app);
+    }
 
     // These two actions authenticate with a scoped A2A bearer rather than a
     // browser session. Let that verifier see the request before the cookie
@@ -502,6 +547,7 @@ function mountActionRoutesInternal(
     app.use(
       routePath,
       defineEventHandler(async (event) => {
+        setHttpRequestTelemetryActionName(event, name, routeTemplate);
         const reqMethod = getMethod(event);
         const effectiveMethod =
           reqMethod === "HEAD" && method === "GET" ? "GET" : reqMethod;
@@ -712,6 +758,21 @@ function mountActionRoutesInternal(
             orgId = await storedActiveOrgId(userEmail);
           }
         }
+        const frontendCaller =
+          !options?.caller && !resolvedCaller && isFrontendActionRequest(event);
+        if (
+          entry.uiOnly === true &&
+          (!frontendCaller ||
+            !userEmail ||
+            !isSameOriginRequest(event) ||
+            !hasUiActionCapability(event, userEmail))
+        ) {
+          setResponseStatus(event, 403);
+          return {
+            error: "This action can only be called from the signed-in app UI.",
+            errorCode: "ui_capability_required",
+          };
+        }
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
@@ -817,6 +878,16 @@ function mountActionRoutesInternal(
                 throw new ActionContractError(paramsError, {
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
+                });
+              }
+              if (
+                capabilityAllowed &&
+                !userEmail &&
+                !allowsWebMcpCapabilityResource(authCapability, params)
+              ) {
+                throw createError({
+                  statusCode: 401,
+                  statusMessage: "Unauthorized",
                 });
               }
               const caller =
@@ -1118,7 +1189,8 @@ export function mountWebMcpActionRoutes(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
         isActionExposedToExternalAgents(entry) &&
-        entry.agentTool !== false,
+        entry.agentTool !== false &&
+        entry.uiOnly !== true,
     ),
   );
   const publicEligible = Object.fromEntries(

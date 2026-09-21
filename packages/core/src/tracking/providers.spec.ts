@@ -64,6 +64,45 @@ describe("tracking providers", () => {
     });
   });
 
+  it("sends server exception events to Agent-Native Analytics when configured", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    const { flushTracking, registerBuiltinProviders } =
+      await freshTrackingModules();
+    const { captureException } = await import("./error-capture.js");
+
+    registerBuiltinProviders();
+    captureException(new Error("server boom"), {
+      handled: false,
+      runtime: "node",
+      source: "server",
+      environment: "production",
+    });
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://analytics.example.test/track");
+    expect(JSON.parse(init.body)).toMatchObject({
+      publicKey: "anpk_test",
+      event: "$exception",
+      properties: {
+        exceptionType: "Error",
+        exceptionMessage: "server boom",
+        handled: false,
+        runtime: "node",
+        source: "server",
+        environment: "production",
+      },
+    });
+  });
+
   it("maps the browser session onto each provider's own session field", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);

@@ -283,6 +283,7 @@ import {
 } from "./scoped-key-storage.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
 
@@ -1994,6 +1995,9 @@ export function createOAuthPopupWaitingHandler() {
       "default-src 'none'; frame-ancestors 'none'",
     );
     setResponseHeader(event, "X-Frame-Options", "DENY");
+    // Match the opener's policy so the client can navigate this inert page
+    // before the provider navigation creates a new browsing-context group.
+    setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
     return OAUTH_POPUP_WAITING_HTML;
   });
 }
@@ -2090,6 +2094,7 @@ export function createCoreRoutesPlugin(
     });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
+      mountUiActionCapabilityRoute(nitroApp, P);
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
@@ -4838,6 +4843,7 @@ export function createCoreRoutesPlugin(
             track(validation.name as string, properties, {
               userId: userEmail,
               sessionId: readBrowserSessionIdHeader(event),
+              telemetryOrigin: "client",
             });
           } catch {
             // best-effort

@@ -283,7 +283,7 @@
   margin-left: 0;
 }
 
-.recording-playhead__extras-restart {
+.recording-playhead__restart {
   margin-left: 6px;
 }
 
@@ -291,8 +291,11 @@
   margin-left: 0;
 }
 
-.recording-playhead[data-orientation="vertical"]
-  .recording-playhead__extras-restart,
+.recording-playhead[data-orientation="vertical"] .recording-playhead__restart {
+  margin-top: 0;
+  margin-left: 0;
+}
+
 .recording-playhead[data-orientation="vertical"]
   .recording-playhead__extras-delete {
   margin-top: 0;

@@ -325,6 +325,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-auth-methods": "userProfile",
   "set-password": "userProfile",
   "change-password": "userProfile",
+  "request-privacy-right": "userProfile",
   "change-appearance": "userProfile",
 
   "list-audit-events": "audit",

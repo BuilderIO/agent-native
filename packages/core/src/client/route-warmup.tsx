@@ -7,6 +7,7 @@ import {
   type AgentNativeRouteWarmupResolvedConfig,
   type AgentNativeRouteWarmupStrategy,
 } from "../shared/route-warmup-config.js";
+import { isFrameworkRoutePath } from "./api-path.js";
 
 declare const __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__:
   | AgentNativeRouteWarmupConfigInput
@@ -115,8 +116,7 @@ function stripBasename(pathname: string): string {
 function isFrameworkOrApiPath(pathname: string): boolean {
   const appPath = stripBasename(pathname);
   return (
-    appPath === "/_agent-native" ||
-    appPath.startsWith("/_agent-native/") ||
+    isFrameworkRoutePath(appPath) ||
     appPath === "/api" ||
     appPath.startsWith("/api/") ||
     appPath === "/cdn-cgi" ||

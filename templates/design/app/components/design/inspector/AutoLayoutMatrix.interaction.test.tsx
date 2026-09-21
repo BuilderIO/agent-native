@@ -138,4 +138,98 @@ describe("AutoLayoutMatrix Flow interactions", () => {
     await act(async () => root.unmount());
     container.remove();
   });
+
+  it("maps F and H to the focused width and height sizing fields", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onChildSizingChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AutoLayoutMatrix
+          value={{
+            ...value,
+            resolvedSize: { horizontal: 320, vertical: 180 },
+          }}
+          onDirectionChange={vi.fn()}
+          onWrapChange={vi.fn()}
+          onAlignmentChange={vi.fn()}
+          onGapChange={vi.fn()}
+          onPaddingChange={vi.fn()}
+          onPaddingLinkedChange={vi.fn()}
+          onChildSizingChange={onChildSizingChange}
+          onChildSizeChange={vi.fn()}
+        />,
+      );
+    });
+
+    const width = container.querySelector<HTMLInputElement>(
+      'input[aria-label="W size in pixels"]',
+    );
+    const height = container.querySelector<HTMLInputElement>(
+      'input[aria-label="H size in pixels"]',
+    );
+    expect(width).not.toBeNull();
+    expect(height).not.toBeNull();
+
+    await act(async () => {
+      width?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "f", bubbles: true }),
+      );
+      height?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "h", bubbles: true }),
+      );
+    });
+
+    expect(onChildSizingChange).toHaveBeenNthCalledWith(
+      1,
+      "horizontal",
+      "fill",
+    );
+    expect(onChildSizingChange).toHaveBeenNthCalledWith(2, "vertical", "hug");
+    expect(onChildSizingChange).toHaveBeenCalledTimes(2);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("maps A to auto gap on the focused gap field", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onGapModeChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AutoLayoutMatrix
+          value={{ ...value, display: "flex" }}
+          onDirectionChange={vi.fn()}
+          onWrapChange={vi.fn()}
+          onAlignmentChange={vi.fn()}
+          onGapChange={vi.fn()}
+          onGapModeChange={onGapModeChange}
+          onPaddingChange={vi.fn()}
+          onPaddingLinkedChange={vi.fn()}
+          onChildSizingChange={vi.fn()}
+        />,
+      );
+    });
+
+    const gap = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Gap"]',
+    );
+    expect(gap).not.toBeNull();
+    await act(async () => {
+      gap?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "a", bubbles: true }),
+      );
+    });
+
+    expect(onGapModeChange).toHaveBeenCalledTimes(1);
+    expect(onGapModeChange).toHaveBeenCalledWith("auto", "horizontal");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
 });

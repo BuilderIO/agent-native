@@ -159,6 +159,40 @@ describe("computeSlideFitTransform", () => {
 });
 
 describe("SlideInner autofit", () => {
+  it("updates an uploaded image source without replacing its live node", async () => {
+    const previewContent =
+      '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const finalContent = previewContent.replace(
+      "blob:preview",
+      "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+    );
+    const slide = {
+      id: "slide-image-upload",
+      content: previewContent,
+      layout: "blank",
+    } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} />);
+    const image = document.querySelector<HTMLImageElement>(
+      '[data-slide-object-id="image-1"]',
+    );
+    if (!image) throw new Error("expected preview image");
+    image.style.left = "184px";
+
+    rerender(
+      <SlideInner slide={{ ...slide, content: finalContent } as Slide} />,
+    );
+
+    await waitFor(() => {
+      expect(image.getAttribute("src")).toBe(
+        "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+      );
+    });
+    expect(document.querySelector('[data-slide-object-id="image-1"]')).toBe(
+      image,
+    );
+    expect(image.style.left).toBe("184px");
+  });
+
   beforeEach(() => {
     vi.stubGlobal(
       "ResizeObserver",

@@ -23,6 +23,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => "org_1",
 }));
@@ -108,6 +109,11 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("grant-localhost-write-consent", () => {
+  it("is available to the capability-scoped visual-edit editor", () => {
+    expect(action.capabilityScopes).toEqual(["visual-edit"]);
+    expect(action.agentTool).toBe(false);
+  });
+
   it("persists the connection bridgeToken without returning it to the browser", async () => {
     mockConnection = {
       id: "conn_1",

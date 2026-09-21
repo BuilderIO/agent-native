@@ -1,0 +1,492 @@
+---
+title: "幻灯片：开发者指南"
+description: "幻灯片的数据模型、持久化模型、完整的 action 清单、路由，以及在定制或扩展该模板时应该修改哪些常见位置。"
+---
+
+# 开发者指南
+
+本页适用于任何想要定制或扩展幻灯片模板的人：SQL 数据模型、如何确保并发写入者的安全、每一个可供代理调用的 action、路由结构，以及应该在哪些常见位置进行修改。
+
+## 快速入门
+
+```bash
+npx @agent-native/core@latest create my-slides --standalone --template slides
+```
+
+剩余的搭建步骤（`cd`、`pnpm install`、`pnpm dev`）以及框架基础知识，请参阅[快速入门](/docs/getting-started)。
+
+## 持久化模型
+
+每一份演示文稿都是 `decks.data` 中的一个 JSON 数据块。每一次写入都会经过一个持有按演示文稿加锁的服务器端读取-修改-写入 action，因此并发写入者——一个人和代理，或者两个人——即使同时操作同一份演示文稿的不同幻灯片，也永远不会覆盖对方的工作成果。
+
+- **代理 actions**（`add-slide`、`update-slide`）使用各自专属的细粒度 action，并共享同一个锁。
+- **浏览器编辑器**通过 `patch-deck` 将细粒度操作（`patch-slide`、`delete-slide`、`reorder-slides`、`add-slide`、`patch-deck-fields`）加入队列，而不是发起一次全量演示文稿的 PUT 请求。
+
+<Callout id="doc-block-slides10" tone="warning">
+
+如果您要扩展编辑器的保存路径，请通过 `patch-deck` 将新的操作加入队列。不要新增一个全量演示文稿的 PUT 请求，那样会重新引入这个锁本来就是为了防止的“后写入者获胜”竞争问题。
+
+</Callout>
+
+## 数据模型
+
+所有演示文稿数据都通过 Drizzle ORM 存储在 SQL 中。架构定义于：`templates/slides/server/db/schema.ts`。
+
+<DataModel
+  id="doc-block-slides7"
+  title="幻灯片数据模型"
+  summary={
+    "一份演示文稿以 JSON 形式将其幻灯片保存在 decks.data 中。评论、版本、共享和设计系统都挂在它下面。"
+  }
+  entities={[
+    {
+      id: "decks",
+      name: "decks",
+      note: "幻灯片以 JSON 形式存放在 data 字段中，并带有 ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          note: "例如 deck-1712345-abc",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "JSON: { title, slides: [{ id, content, layout }] }",
+        },
+        {
+          name: "design_system_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "slide_comments",
+      name: "slide_comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "slide_id",
+          type: "text",
+          note: "评论所在的幻灯片",
+        },
+        {
+          name: "thread_id",
+          type: "text",
+          note: "用于线程化",
+        },
+        {
+          name: "parent_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "quoted_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "author_email",
+          type: "text",
+        },
+        {
+          name: "author_name",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "resolved",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_versions",
+      name: "deck_versions",
+      note: "用于恢复的时间点快照",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "完整的演示文稿 JSON",
+        },
+        {
+          name: "change_label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "可复用的品牌令牌，带有 ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "颜色 / 版式 / 间距",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_share_links",
+      name: "deck_share_links",
+      note: "持久化的公开共享链接快照",
+      fields: [
+        {
+          name: "token",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "slides",
+          type: "text",
+          note: "JSON 幻灯片快照",
+        },
+        {
+          name: "aspect_ratio",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "decks",
+      to: "slide_comments",
+      kind: "1-n",
+      label: "评论",
+    },
+    {
+      from: "decks",
+      to: "deck_versions",
+      kind: "1-n",
+      label: "快照",
+    },
+    {
+      from: "design_systems",
+      to: "decks",
+      kind: "1-n",
+      label: "应用于",
+    },
+  ]}
+/>
+
+框架共享表（`deck_shares`、`design_system_shares`）将主体（用户或组织）映射到每个资源的查看者 / 编辑者 / 管理员角色，并通过共享的 `createSharesTable` 辅助函数创建，而不是手写的。
+
+#### 幻灯片结构
+
+`decks.data` 内部的每一张幻灯片为：
+
+```json
+{
+  "id": "slide-1",
+  "layout": "title",
+  "content": "<div class=\"fmd-slide\" style=\"...\">...</div>"
+}
+```
+
+`content` 是原始的 HTML。渲染器负责提供固定的宽高比和背景，HTML 则负责提供其内部的所有内容。富媒体嵌入同样受支持：手绘图表和实时渲染的图表都可以和普通 HTML 一起存在于一张幻灯片内部。
+
+## Action 清单
+
+### 演示文稿生命周期
+
+- `create-deck` — 新建一份演示文稿，可以选择预先填充幻灯片，也可以对现有演示文稿的幻灯片进行一次原子化的批量替换。省略 `slides` 或传入 `[]` 即可创建一份空的演示文稿。该 action 会通过应用状态打开新建的演示文稿。
+- `get-deck` — 完整的演示文稿 JSON，或一个精简的幻灯片摘要视图
+- `list-decks` — 调用者可见的每一份演示文稿，提供轻量/精简/全幻灯片三种投影，便于低成本轮询
+- `duplicate-deck` — 复制一份演示文稿，并为其中的幻灯片生成全新的 id
+- `update-deck-aspect-ratio` — 16:9、1:1、9:16 或 4:5
+
+`add-deck`、`save-deck` 和 `delete-deck` 分别支撑浏览器编辑器的乐观创建、撤销/重做和删除流程。代理则改用 `create-deck`、`add-slide`/`update-slide`/`patch-deck`，以及框架自带的共享 actions。
+
+### 访问请求
+
+- `request-deck-access`、`approve-deck-access-request`、`get-deck-access-status` — 私密演示文稿的访问请求流程：没有访问权限的访问者提出请求，所有者从应用内或 `/access-request/approve` 路由批准或拒绝该请求，双方都可以轮询当前状态
+
+### 幻灯片编辑
+
+- `add-slide` — 追加一张幻灯片（或插入到指定位置）。在一次空的 `create-deck` 之后依次调用它，编辑器就能展示生成进度。
+- `update-slide` — 对幻灯片进行精确的查找/替换编辑，或整体替换其内容
+- `patch-deck` — 浏览器编辑器使用的细粒度操作队列，用来替代全量演示文稿的 PUT 请求
+- `get-layout-overflows` — 读取浏览器测量得到的幻灯片排版结果，以便捕获并修正那些不再适配其布局的编辑
+
+### 历史记录
+
+- `list-deck-versions`、`get-deck-version`、`restore-deck-version` — 每一次写入都会先创建快照，因此任意一个时间点都可以被列出并恢复
+
+### 评论
+
+- `list-slide-comments`、`add-slide-comment`、`update-slide-comment`、`delete-slide-comment`
+
+### 导入
+
+- `import-pptx`、`import-docx`、`import-google-doc` — 各自专用的单格式导入器
+- `import-google-slides-reference` — 将一份 Google Slides 演示文稿导入为可复用的参考演示文稿，而不是把其内容拉入当前正在编辑的演示文稿中
+- `import-file` — PPTX、DOCX、PDF 或 Figma `.fig` 文件的统一入口（`.fig` 文件会被导向 Builder 设计系统索引，而不是幻灯片导入）
+- `extract-pdf` — 仅限 CLI 使用的 PDF 原始文本导出，主要用于本地调试
+
+### 导出
+
+- `export-pptx` — 原生、可编辑的 PowerPoint
+- `export-google-slides` — 生成同一份 PPTX，并附带一个可直接使用的 Google Slides 导入链接
+- `export-html` — 一个内置键盘导航的独立、自包含 HTML 文件
+
+### 设计系统
+
+- `create-design-system`、`update-design-system`、`delete-design-system`、`get-design-system`、`list-design-systems`、`set-default-design-system`、`apply-design-system`（将某个设计系统关联到一份演示文稿）
+- `get-workspace-defaults`、`set-workspace-defaults` — 工作区范围内的默认演示文稿和默认设计系统。设置它们仅限管理员操作
+- `analyze-brand-assets`、`import-document`、`import-from-url`、`import-code` — 收集原始品牌信号（网站的 CSS/字体、上传的文档或代码文件内容），用于生成一个**本地**的、由代理起草的设计系统
+- `index-design-system-with-builder`、`sync-design-system-with-builder`、`import-design-project` — 针对 Figma 文件、已连接的代码/GitHub 仓库以及 `design.md` 的 Builder 索引路径。`import-design-project` 从一个已有的设计系统开始，而不是从一个原始素材来源开始
+
+### Creative Context
+
+- `clone-context-slide` — 将 Library 中固定的一张幻灯片原样插入到一份演示文稿中，不重新生成其 HTML/CSS
+- `clone-creative-context-deck` — 重新创建一个精确的、受管控的演示文稿版本
+- `get-deck-reference-context` — 从一份现有的演示文稿中提取其视觉语言，形成一个可复用的模式库
+- 检索和 Library 提交（搜索、获取一个上下文条目、管理 Library 成员资格）都是共享的框架 actions，代理在每一个支持 Creative Context 的应用中都以相同的方式调用它们。检索流程和复用阶梯请参阅 `creative-context` skill。
+
+### 升级调用与暂存数据
+
+- `provider-api-catalog`、`provider-api-docs`、`provider-api-request` — 当一个预设的导入/导出 action 覆盖范围过窄时，直接访问原始的 Google Drive API。幻灯片会从用户已连接的 Google Docs 账户中解析身份验证信息
+- `list-staged-datasets`、`query-staged-dataset`、`delete-staged-dataset` — 在不重新获取的情况下，对一个已暂存的大规模 provider 结果进行聚合处理
+
+### 导航和上下文
+
+- `view-screen` — 用户当前正在查看的内容：打开的演示文稿、当前幻灯片，以及任何激活中的可视化选择
+- `navigate` — 将界面切换到某份演示文稿、某张幻灯片或某个视图
+
+## 路由参考
+
+| 路由                             | 渲染内容                                                     |
+| -------------------------------- | ------------------------------------------------------------ |
+| `/`                              | 公开的营销/SEO 落地页                                        |
+| `/home`                          | 演示文稿列表，私有的应用主页                                 |
+| `/deck/:id`                      | 编辑器                                                       |
+| `/deck/:id/present`              | 全屏演示                                                     |
+| `/p/:id`                         | 公开/可供代理读取的实时演示文稿预览，与 `/share/:token` 不同 |
+| `/share/:token`                  | 公开只读快照，冻结于共享时的状态                             |
+| `/slide`                         | 用于聊天预览的单张幻灯片嵌入                                 |
+| `/design-systems`                | 管理已保存的设计系统                                         |
+| `/access-request/approve`        | 批准对某份私密演示文稿的访问请求                             |
+| `/agent`、`/extensions`、`/team` | 重定向到相应的 `/settings` 标签页                            |
+
+## 自定义
+
+幻灯片模板是完全可定制的。扩展时需要关注的关键位置：
+
+#### Actions — `templates/slides/actions/`
+
+每一个可供代理调用的操作都以 TypeScript 文件的形式存放在这里，自动挂载在 `POST /_agent-native/actions/:name` 上，并且可以从 CLI 以 `pnpm action <name>` 的方式调用。在此处新增一个文件，即可赋予代理一项新的能力。
+
+<AnnotatedCode
+  id="doc-block-slides9"
+  title="一个幻灯片编辑 action 的剖析"
+  filename="actions/update-slide.ts (simplified)"
+  language="ts"
+  code={
+    'import { defineAction, fail } from "@agent-native/core/action";\nimport { assertAccess } from "@agent-native/core/sharing";\nimport { eq } from "drizzle-orm";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { notifyClients } from "../server/handlers/decks.js";\nimport { withDeckLock } from "./patch-deck.js";\n\nexport default defineAction({\n  description:\n    "Surgically edit a slide\'s content using search-replace or full replacement. " +\n    "Syncs live to open editors. Prefer this over full deck rewrites.",\n  schema: z.object({\n    deckId: z.string(),\n    slideId: z.string(),\n    find: z.string().optional(),\n    replace: z.string().optional(),\n    fullContent: z.string().optional(),\n  }),\n  run: async ({ deckId, slideId, find, replace, fullContent }) => {\n    await assertAccess("deck", deckId, "editor");\n    return withDeckLock(deckId, async () => {\n      const db = getDb();\n      const [row] = await db\n        .select()\n        .from(schema.decks)\n        .where(eq(schema.decks.id, deckId));\n      if (!row) {\n        fail(`Deck ${deckId} not found`, { errorCode: "deck_not_found", statusCode: 404 });\n      }\n\n      const deck = JSON.parse(row.data);\n      const slide = deck.slides.find((s: { id: string }) => s.id === slideId);\n      if (!slide) {\n        fail(`Slide ${slideId} not found`, { errorCode: "slide_not_found", statusCode: 404 });\n      }\n\n      if (fullContent) {\n        slide.content = fullContent;\n      } else if (find) {\n        const idx = slide.content.indexOf(find);\n        if (idx === -1) {\n          fail("Text not found", { errorCode: "slide_find_no_match" });\n        }\n        slide.content =\n          slide.content.slice(0, idx) +\n          (replace ?? "") +\n          slide.content.slice(idx + find.length);\n      }\n\n      deck.updatedAt = new Date().toISOString();\n      await db\n        .update(schema.decks)\n        .set({ data: JSON.stringify(deck), updatedAt: deck.updatedAt })\n        .where(eq(schema.decks.id, deckId));\n\n      notifyClients(deckId, { slideId, actor: "agent" });\n      return { ok: true, deckId, slideId };\n    });\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "22",
+      label: "访问检查",
+      note: "如果调用者在这份演示文稿上的权限还没有达到编辑者级别，`assertAccess` 会在任何其他逻辑运行之前就抛出异常。",
+    },
+    {
+      lines: "23",
+      label: "按演示文稿加锁",
+      note: "`withDeckLock` 会将这次写入与对同一份演示文稿的所有其他写入操作序列化。`add-slide` 和浏览器端的 `patch-deck` 共享同一个锁，因此两个写入者即使操作不同的幻灯片，也永远不会互相覆盖。",
+    },
+    {
+      lines: "29-37",
+      label: "响亮地失败，而不是悄悄返回",
+      note: '`fail(...)` 会抛出一个结构化错误，而不是返回一个普通值。这个 action 过去在匹配失败时会返回 `{ ok: false, message: "Text not found" }`，调用者很容易把它误读为成功。抛出异常是唯一能够可靠地表明这份演示文稿未被修改的通道。',
+    },
+    {
+      lines: "39-51",
+      label: "精确编辑",
+      note: "一对 `find`/`replace` 只会改变匹配到的文本，并且现在在找不到匹配时也会响亮地失败。`fullContent` 会替换整张幻灯片。对于真实的编辑，请优先使用范围更窄的那种形式。",
+    },
+    {
+      lines: "53-57",
+      label: "SQL 是唯一可信数据源",
+      note: "整份演示文稿是 `decks.data` 中的一个 JSON 数据块。这里没有单独的 `slides` 表，因此每一次写入都需要读取、编辑并重写这一个列。",
+    },
+    {
+      lines: "59",
+      label: "实时同步",
+      note: "`notifyClients` 会立即将这次更改推送给所有打开的编辑器。轮询是它的回退路径。参见[实时协作](/docs/real-time-collaboration)。",
+    },
+  ]}
+/>
+
+真实的这个 action 还会验证是否恰好提供了一种编辑模式，在写入之前先创建一次版本快照，并带着乐观并发检查进行写入，因此一次过时的读取永远不会悄悄覆盖一次更新的写入，此外还会记录 Creative Context 的复用溯源信息，并短暂等待编辑器上报一次布局溢出测量结果。这个示例把所有这些都精简为访问检查、加锁、读取-修改-写入、通知这一核心形态。
+
+#### 目录结构
+
+<FileTree
+  id="doc-block-slides8"
+  title="templates/slides/ 的目录结构"
+  entries={[
+    {
+      path: "actions/create-deck.ts",
+      note: "新建演示文稿，可以选择预先填充幻灯片，也可以进行一次原子化的批量替换",
+    },
+    {
+      path: "actions/add-slide.ts",
+      note: "追加一张幻灯片，用于流式生成",
+    },
+    {
+      path: "actions/update-slide.ts",
+      note: "查找/替换或整体替换幻灯片内容",
+    },
+    {
+      path: "actions/patch-deck.ts",
+      note: "浏览器编辑器使用的细粒度操作，用来替代全量演示文稿的 PUT 请求",
+    },
+    {
+      path: "actions/index-design-system-with-builder.ts",
+      note: "从 Figma、GitHub 或代码启动 Builder 设计系统索引",
+    },
+    {
+      path: "app/routes/deck.$id.tsx",
+      note: "演示文稿编辑器",
+    },
+    {
+      path: "app/routes/deck.$id_.present.tsx",
+      note: "全屏演示模式",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "全页面 Agent 标签页",
+    },
+    {
+      path: "app/routes/p.$id.tsx",
+      note: "公开/可供代理读取的单份演示文稿预览",
+    },
+    {
+      path: "app/routes/share.$token.tsx",
+      note: "公开只读快照页面",
+    },
+    {
+      path: "app/components/editor/",
+      note: "幻灯片画布、工具栏、侧边栏和各个面板",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "decks, slide_comments, deck_versions, design_systems, deck_share_links",
+    },
+    {
+      path: ".agents/skills/create-deck/SKILL.md",
+      note: "每种布局的精确幻灯片 HTML 模板",
+    },
+    {
+      path: ".agents/skills/creative-context/SKILL.md",
+      note: "复用阶梯和检索流程",
+    },
+  ]}
+/>
+
+大部分编辑器界面的定制都发生在 `app/components/editor/` 下：幻灯片画布、工具栏、侧边栏、气泡菜单、斜线菜单，以及历史记录面板。
+
+#### Skills — `templates/slides/.agents/skills/`
+
+当代理需要修改代码时，用于解释相应模式的代理 skills：
+
+- `create-deck` — 如何创建一份新的演示文稿，包含每种布局的精确幻灯片 HTML 模板
+- `slide-editing` — 如何编辑单张幻灯片
+- `deck-management` — 演示文稿如何被存储和访问
+- `design-systems` — 设计系统的数据结构，以及令牌如何应用到生成的幻灯片上
+- `creative-context` — 复用阶梯、检索流程，以及 Library 提交
+
+#### AGENTS.md
+
+`templates/slides/AGENTS.md` 是代理在每次对话中都会读取的简短路由器。它指向 `.agents/skills/` 下的各个 skills，并列出了核心规则、持久化模型和应用状态约定。每当您新增或更改一种幻灯片布局或设计系统素材来源时，请更新相应的 skill。
+
+## 接下来
+
+- [**功能**](/docs/template-slides-features) — 这个数据模型所支撑的用户可见编辑、演示、共享、设计系统和导入导出流程
+- [**与 Agent 对话**](/docs/template-slides-agent) — 按任务分类的提示以及代理能看到什么
+- [**多应用工作区中的幻灯片**](/docs/template-slides-integrations) — 这些 actions 如何在幻灯片之外被调用
+- [**共享**](/docs/sharing) — `deck_shares` 和 `design_system_shares` 所依托的共享授权模型
+- [**实时协作**](/docs/real-time-collaboration) — 演示文稿与其他协作界面共用的 Yjs 流水线
+- [**幻灯片概览**](/docs/template-slides) — 返回应用概览

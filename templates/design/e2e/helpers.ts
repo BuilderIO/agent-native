@@ -196,7 +196,14 @@ async function selectableNodeByText(
     const candidate = candidates.nth(index);
     const { candidateText, priority } = await candidate.evaluate((node) => ({
       candidateText: (node.textContent ?? "").replace(/\s+/g, " ").trim(),
-      priority: node.hasAttribute("data-an-text") ? 1 : 0,
+      // Ancestors repeat the same text as their text-bearing descendants.
+      // Prefer an explicit text root, then a leaf, so a click targets the
+      // element the editor's hit-test will select rather than its container.
+      priority: node.hasAttribute("data-an-text")
+        ? 0
+        : node.children.length === 0
+          ? 1
+          : 2,
     }));
     if (candidateText !== normalizedText) continue;
     const box = await candidate.boundingBox().catch(() => null);

@@ -45,6 +45,8 @@ export interface SlidesLayersPanelProps {
   layers: SlidesLayerNode[];
   selectedIds: string[] | ReadonlySet<string>;
   onSelectLayer: (id: string, additive: boolean) => void;
+  onHoverLayer?: (id: string) => void;
+  onLeaveLayer?: (id: string) => void;
   contextMenuContent?: ReactNode;
   onContextMenuLayer?: (id: string) => void;
   onContextMenuClose?: () => void;
@@ -125,6 +127,8 @@ function LayerRow({
   node,
   depth,
   selectedIds,
+  onHoverLayer,
+  onLeaveLayer,
   contextMenuContent,
   onContextMenuLayer,
   onContextMenuClose,
@@ -135,6 +139,8 @@ function LayerRow({
   node: SlidesLayerNode;
   depth: number;
   selectedIds: string[] | ReadonlySet<string>;
+  onHoverLayer?: SlidesLayersPanelProps["onHoverLayer"];
+  onLeaveLayer?: SlidesLayersPanelProps["onLeaveLayer"];
   labels: SlidesLayersPanelLabels;
   onSelectLayer: SlidesLayersPanelProps["onSelectLayer"];
   contextMenuContent?: SlidesLayersPanelProps["contextMenuContent"];
@@ -165,6 +171,8 @@ function LayerRow({
       data-layer-depth={depth}
       data-layer-selection={selected ? "primary" : undefined}
       className={`group flex h-8 w-max min-w-full items-center pr-1 text-[12px] text-foreground/90 transition-colors ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-foreground"} ${dragging ? "opacity-50" : ""}`}
+      onMouseEnter={() => onHoverLayer?.(node.id)}
+      onMouseLeave={() => onLeaveLayer?.(node.id)}
       onDragOver={(event) => event.preventDefault()}
       onDragEnter={() => setDragging(true)}
       onDragLeave={() => setDragging(false)}
@@ -253,6 +261,8 @@ function LayerRow({
               node={child}
               depth={depth + 1}
               selectedIds={selectedIds}
+              onHoverLayer={onHoverLayer}
+              onLeaveLayer={onLeaveLayer}
               contextMenuContent={contextMenuContent}
               onContextMenuLayer={onContextMenuLayer}
               onContextMenuClose={onContextMenuClose}
@@ -270,6 +280,8 @@ function LayerRow({
 export function SlidesLayersPanel({
   layers,
   selectedIds,
+  onHoverLayer,
+  onLeaveLayer,
   contextMenuContent,
   onContextMenuLayer,
   onContextMenuClose,
@@ -308,6 +320,8 @@ export function SlidesLayersPanel({
               node={node}
               depth={0}
               selectedIds={selectedIds}
+              onHoverLayer={onHoverLayer}
+              onLeaveLayer={onLeaveLayer}
               contextMenuContent={contextMenuContent}
               onContextMenuLayer={onContextMenuLayer}
               onContextMenuClose={onContextMenuClose}

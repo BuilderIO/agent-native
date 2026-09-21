@@ -15,6 +15,10 @@ import { defineConfig, devices } from "@playwright/test";
  * server on :9300); then `webServer.reuseExistingServer` keeps it.
  */
 const PORT = Number(process.env.E2E_PORT ?? 9333);
+const USE_SIDEBAR_LOOPBACK = process.env.E2E_AI_SIDEBAR_LOOPBACK === "1";
+const LOOPBACK_PORT = Number(
+  process.env.E2E_LOOPBACK_PORT ?? 41000 + (process.pid % 1000),
+);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
 const E2E_RUN_ID =
   process.env.E2E_RUN_ID ?? `${Date.now()}-${process.pid}-${randomUUID()}`;
@@ -62,6 +66,7 @@ const ADVANCED_PANEL_SPEC_FILES = [
 ];
 
 export default defineConfig({
+  metadata: { sidebarLoopbackPort: LOOPBACK_PORT },
   testDir: "./e2e",
   // These suites intentionally exercise panels that are not mounted in the
   // disabled profile. Ignoring them keeps that profile focused on verifying
@@ -102,7 +107,7 @@ export default defineConfig({
         // generic DATABASE_URL, but set both to an absolute PGlite URL so a
         // `.env` Postgres URL or a changed command cwd can never override this
         // throwaway local db.
-        command: `APP_NAME=design ${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm dev`,
+        command: `APP_NAME=design ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=sk-agentkit-loopback-not-a-real-key OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm dev`,
         url: BASE_URL,
         // The panel flag is compiled into the Vite bundle. Reusing a local
         // server can therefore run this profile with the opposite setting.

@@ -40,4 +40,11 @@ describe("chat-first macOS window controls", () => {
     );
     expect(shellCss).not.toContain("translateX(-4px) scale(0.8)");
   });
+
+  it("keeps the collapsed controls inside the narrow rail", () => {
+    expect(shellCss).toContain("left: 8px;\n  width: 48px;");
+    expect(shellCss).toContain(
+      ".collapsed-mac-window-controls .win-btn--maximize {\n  left: 34px;",
+    );
+  });
 });

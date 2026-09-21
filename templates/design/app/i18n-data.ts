@@ -419,7 +419,26 @@ const enUS = {
     },
   },
   designEditor: {
+    vectorEndpoints: {
+      startPoint: "Start point",
+      endPoint: "End point",
+      swap: "Swap start and end points",
+      options: {
+        none: "None",
+        round: "Round",
+        square: "Square",
+        line: "Line arrow",
+        triangle: "Triangle arrow",
+        reversedTriangle: "Reversed triangle",
+        circle: "Circle arrow",
+        diamond: "Diamond arrow",
+      },
+    },
     askAgent: "Ask agent",
+    deepSelectGuidance: {
+      message: "Hold {{modifier}} and click to select an inner layer.",
+      dismiss: "Dismiss layer selection tip",
+    },
     autoLayoutSuggestion: {
       menuLabel: "Suggest auto layout…",
       title: "Suggest auto layout",
@@ -745,6 +764,21 @@ const enUS = {
       "Generation stopped before creating files. Check the agent message or try again.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
+    designNotFoundDescription:
+      "This design does not exist or has been deleted.",
+    requestAccessTitle: "Request access to this design",
+    requestAccessDescription:
+      "This design is private. Request access from the owner.",
+    requestAccess: "Request access",
+    accessRequested: "Access requested",
+    accessRequestSentDescription:
+      "Your request has been recorded. You can open this design once access is approved.",
+    signInToRequestAccessTitle: "Sign in to request access",
+    signInToRequestAccessDescription:
+      "Sign in or create an account to request access from the owner.",
+    signInOrSignUp: "Sign in or sign up",
+    accessCheckFailed: "Could not check access to this design.",
+    retryAccessCheck: "Try again",
     saveAsTemplate: "Save as template…",
     saveTemplateDescription:
       "Capture the current screens, dimensions, defaults, and locked layers as a reusable starting point.",
@@ -759,7 +793,7 @@ const enUS = {
     clickToRename: "Click to rename",
     collaborators: "Collaborators",
     share: "Share",
-    signUpToSave: "Sign up free to save",
+    signUpToSave: "Sign up",
     signUpToSaveDescription:
       "Sign up for a free account to save designs, screen layouts, and generate new ones.",
     signUpToShare: "Sign up to share",
@@ -1020,6 +1054,8 @@ const enUS = {
       keep: "Keep",
       selectorMissing:
         "The selected element has no editable match in this screen's source. If a component renders it, apply the change through the agent.",
+      noRenderedBox:
+        "The selected layer has no rendered box, so the style change was not applied.",
       clientRenderedShell:
         "This screen is client-rendered, so the HTML it serves contains no app markup to patch. Ask the agent to apply this change to the component source.",
       snapshotNotLoaded:
@@ -1483,9 +1519,9 @@ const enUS = {
   },
   visualEdit: {
     eyebrow: "Visual edit",
-    title: "Inspect local app screens before you sign in",
+    title: "Start with /visual-edit",
     description:
-      "Open visual-edit without an account. Sign up only when you want to save designs, keep screen layouts, share with others, or generate new directions.",
+      "Install the skill in your coding agent, then use /visual-edit to inspect and edit a running local app.",
     saveCta: "Save",
     openDesign: "Open Design",
     templatesCta: "Browse templates",
@@ -1979,6 +2015,25 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "按住 {{modifier}} 并点击以选择内部图层。",
+        dismiss: "关闭图层选择提示",
+      },
+      vectorEndpoints: {
+        startPoint: "起点",
+        endPoint: "终点",
+        swap: "交换起点和终点",
+        options: {
+          none: "无",
+          round: "圆头",
+          square: "方形",
+          line: "线箭头",
+          triangle: "三角箭头",
+          reversedTriangle: "反向三角形",
+          circle: "圆形箭头",
+          diamond: "菱形箭头",
+        },
+      },
       generationMayHaveStopped:
         "创建文件之前生成可能已停止。检查代理消息或重试。",
       generationMayHaveStoppedToast: "创建文件之前生成可能已停止。",
@@ -2421,6 +2476,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Mantén presionada la tecla {{modifier}} y haz clic para seleccionar una capa interna.",
+        dismiss: "Descartar el consejo de selección de capas",
+      },
+      vectorEndpoints: {
+        startPoint: "Punto inicial",
+        endPoint: "Punto final",
+        swap: "Intercambiar puntos inicial y final",
+        options: {
+          none: "Ninguno",
+          round: "Redondo",
+          square: "Cuadrado",
+          line: "Flecha lineal",
+          triangle: "Flecha triangular",
+          reversedTriangle: "Triángulo invertido",
+          circle: "Flecha circular",
+          diamond: "Flecha de diamante",
+        },
+      },
       generationMayHaveStopped:
         "Es posible que la generación se haya detenido antes de crear archivos. Verifique el mensaje del agente o inténtelo nuevamente.",
       generationMayHaveStoppedToast:
@@ -2891,6 +2966,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Maintenez {{modifier}} enfoncé et cliquez pour sélectionner un calque interne.",
+        dismiss: "Fermer l’astuce de sélection des calques",
+      },
+      vectorEndpoints: {
+        startPoint: "Point de départ",
+        endPoint: "Point d'arrivée",
+        swap: "Inverser les points de départ et d'arrivée",
+        options: {
+          none: "Aucun",
+          round: "Arrondi",
+          square: "Carré",
+          line: "Flèche linéaire",
+          triangle: "Flèche triangulaire",
+          reversedTriangle: "Triangle inversé",
+          circle: "Flèche circulaire",
+          diamond: "Flèche en losange",
+        },
+      },
       generationMayHaveStopped:
         "La génération s'est peut-être arrêtée avant la création des fichiers. Vérifiez le message de l'agent ou réessayez.",
       generationMayHaveStoppedToast:
@@ -3365,6 +3460,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Halte {{modifier}} gedrückt und klicke, um eine innere Ebene auszuwählen.",
+        dismiss: "Tipp zur Ebenenauswahl schließen",
+      },
+      vectorEndpoints: {
+        startPoint: "Startpunkt",
+        endPoint: "Endpunkt",
+        swap: "Start- und Endpunkt tauschen",
+        options: {
+          none: "Keine",
+          round: "Rund",
+          square: "Quadrat",
+          line: "Linienpfeil",
+          triangle: "Dreieckspfeil",
+          reversedTriangle: "Umgekehrtes Dreieck",
+          circle: "Kreispfeil",
+          diamond: "Rautenpfeil",
+        },
+      },
       generationMayHaveStopped:
         "Die Generierung wurde möglicherweise vor dem Erstellen der Dateien gestoppt. Überprüfen Sie die Agentennachricht oder versuchen Sie es erneut.",
       generationMayHaveStoppedToast:
@@ -3838,6 +3953,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "{{modifier}}を押しながらクリックすると、内側のレイヤーを選択できます。",
+        dismiss: "レイヤー選択のヒントを閉じる",
+      },
+      vectorEndpoints: {
+        startPoint: "始点",
+        endPoint: "終点",
+        swap: "始点と終点を入れ替え",
+        options: {
+          none: "なし",
+          round: "丸",
+          square: "四角",
+          line: "線矢印",
+          triangle: "三角矢印",
+          reversedTriangle: "反転三角形",
+          circle: "円矢印",
+          diamond: "ひし形矢印",
+        },
+      },
       generationMayHaveStopped:
         "ファイルを作成する前に生成が停止している可能性があります。エージェントのメッセージを確認するか、再試行してください。",
       generationMayHaveStoppedToast:
@@ -4306,6 +4441,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "{{modifier}}를 누른 채 클릭하면 내부 레이어를 선택할 수 있습니다.",
+        dismiss: "레이어 선택 팁 닫기",
+      },
+      vectorEndpoints: {
+        startPoint: "시작점",
+        endPoint: "끝점",
+        swap: "시작점과 끝점 바꾸기",
+        options: {
+          none: "없음",
+          round: "둥근형",
+          square: "사각형",
+          line: "선 화살표",
+          triangle: "삼각형 화살표",
+          reversedTriangle: "반전 삼각형",
+          circle: "원형 화살표",
+          diamond: "다이아몬드 화살표",
+        },
+      },
       generationMayHaveStopped:
         "파일을 생성하기 전에 생성이 중지되었을 수 있습니다. 상담원 메시지를 확인하거나 다시 시도하세요.",
       generationMayHaveStoppedToast:
@@ -4766,6 +4921,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Segure {{modifier}} e clique para selecionar uma camada interna.",
+        dismiss: "Fechar dica de seleção de camadas",
+      },
+      vectorEndpoints: {
+        startPoint: "Ponto inicial",
+        endPoint: "Ponto final",
+        swap: "Trocar pontos inicial e final",
+        options: {
+          none: "Nenhum",
+          round: "Redondo",
+          square: "Quadrado",
+          line: "Seta linear",
+          triangle: "Seta triangular",
+          reversedTriangle: "Triângulo invertido",
+          circle: "Seta circular",
+          diamond: "Seta de losango",
+        },
+      },
       generationMayHaveStopped:
         "A geração pode ter parado antes da criação dos arquivos. Verifique a mensagem do agente ou tente novamente.",
       generationMayHaveStoppedToast:
@@ -5234,6 +5409,25 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "{{modifier}} दबाकर क्लिक करें और अंदर की लेयर चुनें।",
+        dismiss: "लेयर चयन की टिप बंद करें",
+      },
+      vectorEndpoints: {
+        startPoint: "प्रारंभ बिंदु",
+        endPoint: "अंतिम बिंदु",
+        swap: "प्रारंभ और अंत बिंदु बदलें",
+        options: {
+          none: "कोई नहीं",
+          round: "गोल",
+          square: "वर्ग",
+          line: "रेखा तीर",
+          triangle: "त्रिभुज तीर",
+          reversedTriangle: "उलटा त्रिभुज",
+          circle: "वृत्त तीर",
+          diamond: "हीरा तीर",
+        },
+      },
       generationMayHaveStopped:
         "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा. एजेंट संदेश की जाँच करें या पुनः प्रयास करें।",
       generationMayHaveStoppedToast: "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा.",
@@ -5690,6 +5884,25 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "اضغط باستمرار على {{modifier}} وانقر لتحديد طبقة داخلية.",
+        dismiss: "إغلاق تلميح تحديد الطبقات",
+      },
+      vectorEndpoints: {
+        startPoint: "نقطة البداية",
+        endPoint: "نقطة النهاية",
+        swap: "تبديل نقطتي البداية والنهاية",
+        options: {
+          none: "بلا",
+          round: "مستدير",
+          square: "مربع",
+          line: "سهم خطي",
+          triangle: "سهم مثلثي",
+          reversedTriangle: "مثلث معكوس",
+          circle: "سهم دائري",
+          diamond: "سهم ماسي",
+        },
+      },
       generationMayHaveStopped:
         "ربما توقف الإنشاء قبل إنشاء الملفات. تحقق من رسالة الوكيل أو حاول مرة أخرى.",
       generationMayHaveStoppedToast: "ربما توقف الإنشاء قبل إنشاء الملفات.",
@@ -8451,6 +8664,7 @@ const designModeFeatureOverrides = {
         rollback: "回復",
         keep: "保留",
         selectorMissing: "選取的元素已不在此畫面中。",
+        noRenderedBox: "選取的圖層沒有可見框，因此未套用樣式變更。",
         clientRenderedShell:
           "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
         snapshotNotLoaded:
@@ -8625,6 +8839,7 @@ const designModeFeatureOverrides = {
         rollback: "回滚",
         keep: "保留",
         selectorMissing: "选中的元素已不在此屏幕中。",
+        noRenderedBox: "选中的图层没有可渲染的框，因此未应用样式更改。",
         clientRenderedShell:
           "此屏幕由客户端渲染，因此其提供的 HTML 不包含可修补的应用标记。请让代理将此更改应用到组件源码。",
         snapshotNotLoaded:
@@ -8799,6 +9014,8 @@ const designModeFeatureOverrides = {
         keep: "Conservar",
         selectorMissing:
           "El elemento seleccionado ya no existe en esta pantalla.",
+        noRenderedBox:
+          "La capa seleccionada no tiene un cuadro renderizado, por lo que no se aplicó el cambio de estilo.",
         clientRenderedShell:
           "Esta pantalla se renderiza en el cliente, por lo que el HTML que entrega no contiene marcado de la aplicación que se pueda modificar. Pide al agente que aplique este cambio al código fuente del componente.",
         snapshotNotLoaded:
@@ -8995,6 +9212,8 @@ const designModeFeatureOverrides = {
         rollback: "Revenir",
         keep: "Garder",
         selectorMissing: "L’élément sélectionné n’existe plus dans cet écran.",
+        noRenderedBox:
+          "Le calque sélectionné n’a aucune boîte rendue ; la modification de style n’a pas été appliquée.",
         clientRenderedShell:
           "Cet écran est rendu côté client ; le HTML qu’il fournit ne contient donc aucun balisage d’application à modifier. Demandez à l’agent d’appliquer cette modification au code source du composant.",
         snapshotNotLoaded:
@@ -9188,6 +9407,8 @@ const designModeFeatureOverrides = {
         keep: "Behalten",
         selectorMissing:
           "Das ausgewählte Element existiert in diesem Screen nicht mehr.",
+        noRenderedBox:
+          "Die ausgewählte Ebene hat keine gerenderte Box, daher wurde die Stiländerung nicht angewendet.",
         clientRenderedShell:
           "Dieser Screen wird clientseitig gerendert. Daher enthält das bereitgestellte HTML kein App-Markup, das gepatcht werden kann. Bitte den Agenten, diese Änderung am Komponentenquellcode vorzunehmen.",
         snapshotNotLoaded:
@@ -9386,6 +9607,8 @@ const designModeFeatureOverrides = {
         rollback: "戻す",
         keep: "保持",
         selectorMissing: "選択した要素はこの画面に存在しません。",
+        noRenderedBox:
+          "選択したレイヤーには描画されたボックスがないため、スタイル変更は適用されませんでした。",
         clientRenderedShell:
           "この画面はクライアント側でレンダリングされるため、配信される HTML にはパッチ可能なアプリのマークアップが含まれていません。エージェントに、この変更をコンポーネントのソースへ適用するよう依頼してください。",
         snapshotNotLoaded:
@@ -9579,6 +9802,8 @@ const designModeFeatureOverrides = {
         rollback: "롤백",
         keep: "유지",
         selectorMissing: "선택한 요소가 이 화면에 더 이상 없습니다.",
+        noRenderedBox:
+          "선택한 레이어에는 렌더링된 상자가 없어 스타일 변경이 적용되지 않았습니다.",
         clientRenderedShell:
           "이 화면은 클라이언트에서 렌더링되므로 제공되는 HTML에 패치할 앱 마크업이 없습니다. 에이전트에게 이 변경 사항을 컴포넌트 소스에 적용하도록 요청하세요.",
         snapshotNotLoaded:
@@ -9769,6 +9994,8 @@ const designModeFeatureOverrides = {
         rollback: "Reverter",
         keep: "Manter",
         selectorMissing: "O elemento selecionado não existe mais nesta tela.",
+        noRenderedBox:
+          "A camada selecionada não tem uma caixa renderizada, então a alteração de estilo não foi aplicada.",
         clientRenderedShell:
           "Esta tela é renderizada no cliente, então o HTML fornecido não contém marcação do app que possa ser modificada. Peça ao agente para aplicar esta alteração ao código-fonte do componente.",
         snapshotNotLoaded:
@@ -9959,6 +10186,8 @@ const designModeFeatureOverrides = {
         rollback: "वापस लें",
         keep: "रखें",
         selectorMissing: "चुना गया तत्व अब इस स्क्रीन में नहीं है।",
+        noRenderedBox:
+          "चयनित लेयर में रेंडर किया गया बॉक्स नहीं है, इसलिए शैली परिवर्तन लागू नहीं किया गया।",
         clientRenderedShell:
           "यह स्क्रीन क्लाइंट पर रेंडर होती है, इसलिए इसके HTML में पैच करने योग्य ऐप मार्कअप नहीं है। एजेंट से इस बदलाव को कंपोनेंट सोर्स में लागू करने के लिए कहें।",
         snapshotNotLoaded:
@@ -10149,6 +10378,8 @@ const designModeFeatureOverrides = {
         rollback: "تراجع",
         keep: "احتفاظ",
         selectorMissing: "العنصر المحدد لم يعد موجوداً في هذه الشاشة.",
+        noRenderedBox:
+          "لا تحتوي الطبقة المحددة على مربع مُرندر، لذلك لم يتم تطبيق تغيير النمط.",
         clientRenderedShell:
           "يتم عرض هذه الشاشة من جهة العميل، لذلك لا يحتوي HTML الذي تقدمه على ترميز للتطبيق يمكن تعديله. اطلب من الوكيل تطبيق هذا التغيير على مصدر المكوّن.",
         snapshotNotLoaded:
@@ -11482,7 +11713,7 @@ const designPublicShareOverrides = {
   "zh-TW": {
     designEditor: {
       share: "分享",
-      signUpToSave: "註冊以儲存",
+      signUpToSave: "註冊",
       signUpToSaveDescription:
         "註冊免費帳號即可儲存設計、畫面版面，並產生新的方向。",
       signUpToShare: "註冊以分享",
@@ -11511,7 +11742,7 @@ const designPublicShareOverrides = {
   "zh-CN": {
     designEditor: {
       share: "分享",
-      signUpToSave: "注册以保存",
+      signUpToSave: "注册",
       signUpToSaveDescription:
         "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
       signUpToShare: "注册以共享",
@@ -11541,7 +11772,7 @@ const designPublicShareOverrides = {
   "es-ES": {
     designEditor: {
       share: "Compartir",
-      signUpToSave: "Registrarse para guardar",
+      signUpToSave: "Registrarse",
       signUpToSaveDescription:
         "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
       signUpToShare: "Registrarse para compartir",
@@ -11571,7 +11802,7 @@ const designPublicShareOverrides = {
   "fr-FR": {
     designEditor: {
       share: "Partager",
-      signUpToSave: "S'inscrire pour enregistrer",
+      signUpToSave: "S'inscrire",
       signUpToSaveDescription:
         "Creez un compte gratuit pour enregistrer des designs, des mises en page et generer de nouvelles directions.",
       signUpToShare: "S'inscrire pour partager",
@@ -11601,7 +11832,7 @@ const designPublicShareOverrides = {
   "de-DE": {
     designEditor: {
       share: "Teilen",
-      signUpToSave: "Zum Speichern registrieren",
+      signUpToSave: "Registrieren",
       signUpToSaveDescription:
         "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
       signUpToShare: "Zum Teilen registrieren",
@@ -11632,7 +11863,7 @@ const designPublicShareOverrides = {
   "ja-JP": {
     designEditor: {
       share: "共有",
-      signUpToSave: "登録して保存",
+      signUpToSave: "登録",
       signUpToSaveDescription:
         "無料アカウントを作成して、デザインや画面レイアウトを保存し、新しい案を生成できます。",
       signUpToShare: "登録して共有",
@@ -11662,7 +11893,7 @@ const designPublicShareOverrides = {
   "ko-KR": {
     designEditor: {
       share: "공유",
-      signUpToSave: "가입하고 저장",
+      signUpToSave: "가입",
       signUpToSaveDescription:
         "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
       signUpToShare: "가입하고 공유",
@@ -11692,7 +11923,7 @@ const designPublicShareOverrides = {
   "pt-BR": {
     designEditor: {
       share: "Compartilhar",
-      signUpToSave: "Criar conta para salvar",
+      signUpToSave: "Criar conta",
       signUpToSaveDescription:
         "Crie uma conta gratis para salvar designs, layouts de tela e gerar novas direcoes.",
       signUpToShare: "Criar conta para compartilhar",
@@ -11722,7 +11953,7 @@ const designPublicShareOverrides = {
   "hi-IN": {
     designEditor: {
       share: "साझा करें",
-      signUpToSave: "सहेजने के लिए साइन अप करें",
+      signUpToSave: "साइन अप करें",
       signUpToSaveDescription:
         "designs, screen layouts सहेजने और नए options generate करने के लिए free account बनाएं।",
       signUpToShare: "साझा करने के लिए sign up करें",
@@ -11752,7 +11983,7 @@ const designPublicShareOverrides = {
   "ar-SA": {
     designEditor: {
       share: "مشاركة",
-      signUpToSave: "سجل للحفظ",
+      signUpToSave: "سجل",
       signUpToSaveDescription:
         "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
       signUpToShare: "سجل للمشاركة",
@@ -11785,9 +12016,9 @@ const designVisualEditOverrides = {
   "zh-TW": {
     visualEdit: {
       eyebrow: "視覺編輯",
-      title: "登入前先檢查本機應用畫面",
+      title: "從 /visual-edit 開始",
       description:
-        "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
+        "在你的 coding agent 中安裝此 skill，然後使用 /visual-edit 檢視並編輯正在執行的本機應用程式。",
       saveCta: "儲存",
       openDesign: "開啟 Design",
       templatesCta: "瀏覽範本",
@@ -11801,9 +12032,9 @@ const designVisualEditOverrides = {
   "zh-CN": {
     visualEdit: {
       eyebrow: "视觉编辑",
-      title: "登录前检查本地应用屏幕",
+      title: "从 /visual-edit 开始",
       description:
-        "无需账号即可打开 visual-edit。只有在想保存设计、保留屏幕布局、与他人共享或生成新方向时才需要注册。",
+        "在你的 coding agent 中安装此 skill，然后使用 /visual-edit 检查并编辑正在运行的本地应用。",
       saveCta: "保存",
       openDesign: "打开 Design",
       templatesCta: "浏览模板",
@@ -11817,9 +12048,9 @@ const designVisualEditOverrides = {
   "es-ES": {
     visualEdit: {
       eyebrow: "Edicion visual",
-      title: "Inspecciona pantallas locales de la app antes de iniciar sesion",
+      title: "Empieza con /visual-edit",
       description:
-        "Abre visual-edit sin cuenta. Registrate solo cuando quieras guardar disenos, conservar layouts de pantalla, compartir con otros o generar nuevas direcciones.",
+        "Instala el skill en tu agente de codigo y usa /visual-edit para inspeccionar y editar una aplicacion local en ejecucion.",
       saveCta: "Guardar",
       openDesign: "Abrir Design",
       templatesCta: "Ver plantillas",
@@ -11833,9 +12064,9 @@ const designVisualEditOverrides = {
   "fr-FR": {
     visualEdit: {
       eyebrow: "Edition visuelle",
-      title: "Inspectez les ecrans locaux de l'app avant connexion",
+      title: "Commencez avec /visual-edit",
       description:
-        "Ouvrez visual-edit sans compte. Inscrivez-vous seulement pour enregistrer des designs, conserver les mises en page, partager ou generer de nouvelles directions.",
+        "Installez le skill dans votre agent de code, puis utilisez /visual-edit pour inspecter et modifier une application locale en cours d'execution.",
       saveCta: "Enregistrer",
       openDesign: "Ouvrir Design",
       templatesCta: "Parcourir les modeles",
@@ -11849,9 +12080,9 @@ const designVisualEditOverrides = {
   "de-DE": {
     visualEdit: {
       eyebrow: "Visuelle Bearbeitung",
-      title: "Lokale App-Bildschirme vor der Anmeldung pruefen",
+      title: "Mit /visual-edit beginnen",
       description:
-        "Oeffne visual-edit ohne Konto. Melde dich nur an, wenn du Designs speichern, Layouts behalten, teilen oder neue Richtungen generieren willst.",
+        "Installiere den Skill in deinem Coding-Agent und verwende dann /visual-edit, um eine laufende lokale App zu pruefen und zu bearbeiten.",
       saveCta: "Speichern",
       openDesign: "Design oeffnen",
       templatesCta: "Vorlagen durchsuchen",
@@ -11865,9 +12096,9 @@ const designVisualEditOverrides = {
   "ja-JP": {
     visualEdit: {
       eyebrow: "ビジュアル編集",
-      title: "サインイン前にローカルアプリ画面を確認",
+      title: "/visual-edit から始める",
       description:
-        "アカウントなしで visual-edit を開けます。デザイン保存、画面レイアウト保持、共有、新しい方向の生成が必要なときだけ登録します。",
+        "コーディングエージェントにスキルをインストールし、/visual-edit で実行中のローカルアプリを確認・編集します。",
       saveCta: "保存",
       openDesign: "Design を開く",
       templatesCta: "テンプレートを見る",
@@ -11881,9 +12112,9 @@ const designVisualEditOverrides = {
   "ko-KR": {
     visualEdit: {
       eyebrow: "시각 편집",
-      title: "로그인 전에 로컬 앱 화면 검사",
+      title: "/visual-edit로 시작하기",
       description:
-        "계정 없이 visual-edit를 열 수 있습니다. 디자인 저장, 화면 레이아웃 유지, 공유, 새 방향 생성을 원할 때만 가입하세요.",
+        "코딩 에이전트에 스킬을 설치한 다음 /visual-edit로 실행 중인 로컬 앱을 검사하고 편집하세요.",
       saveCta: "저장",
       openDesign: "Design 열기",
       templatesCta: "템플릿 둘러보기",
@@ -11897,9 +12128,9 @@ const designVisualEditOverrides = {
   "pt-BR": {
     visualEdit: {
       eyebrow: "Edicao visual",
-      title: "Inspecione telas locais do app antes de entrar",
+      title: "Comece com /visual-edit",
       description:
-        "Abra visual-edit sem conta. Cadastre-se apenas para salvar designs, manter layouts de tela, compartilhar ou gerar novas direcoes.",
+        "Instale o skill no seu agente de codigo e use /visual-edit para inspecionar e editar um app local em execucao.",
       saveCta: "Salvar",
       openDesign: "Abrir Design",
       templatesCta: "Ver modelos",
@@ -11913,9 +12144,9 @@ const designVisualEditOverrides = {
   "hi-IN": {
     visualEdit: {
       eyebrow: "विजुअल एडिट",
-      title: "Sign in से पहले local app screens जांचें",
+      title: "/visual-edit से शुरू करें",
       description:
-        "बिना account visual-edit खोलें। Designs save करने, screen layouts रखने, share करने या नई directions generate करने पर ही sign up करें।",
+        "अपने coding agent में skill install करें, फिर /visual-edit से चल रहे local app को देखें और edit करें।",
       saveCta: "सहेजें",
       openDesign: "Design खोलें",
       templatesCta: "Templates देखें",
@@ -11929,9 +12160,9 @@ const designVisualEditOverrides = {
   "ar-SA": {
     visualEdit: {
       eyebrow: "تحرير مرئي",
-      title: "افحص شاشات التطبيق المحلية قبل تسجيل الدخول",
+      title: "ابدأ بـ /visual-edit",
       description:
-        "افتح visual-edit بدون حساب. سجل فقط عندما تريد حفظ التصاميم أو الاحتفاظ بتخطيطات الشاشة أو المشاركة أو توليد اتجاهات جديدة.",
+        "ثبّت المهارة في وكيل البرمجة، ثم استخدم /visual-edit لفحص تطبيق محلي قيد التشغيل وتحريره.",
       saveCta: "حفظ",
       openDesign: "فتح Design",
       templatesCta: "تصفح القوالب",
