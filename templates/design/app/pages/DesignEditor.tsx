@@ -16900,6 +16900,7 @@ function DesignEditor() {
           selectedElement,
           selectedLayerIdsState,
           selectedLayerTargetsRef,
+          renderedElementInfoByLayerKeyRef,
           setSelectedElement,
           setSelectedLayerIdsState,
           viewModeRef,

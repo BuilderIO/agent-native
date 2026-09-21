@@ -77,6 +77,7 @@ export interface NudgeSelectionArgs {
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
   selectedLayerTargetsRef: RefObject<SelectedLayerTarget[]>;
+  renderedElementInfoByLayerKeyRef: RefObject<Map<string, ElementInfo>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   viewModeRef: RefObject<"single" | "overview">;
@@ -104,6 +105,7 @@ export function runNudgeSelection(
     selectedElement,
     selectedLayerIdsState,
     selectedLayerTargetsRef,
+    renderedElementInfoByLayerKeyRef,
     setSelectedElement,
     setSelectedLayerIdsState,
     viewModeRef,
@@ -171,9 +173,17 @@ export function runNudgeSelection(
   // Selecting in the layers tree fills selectedLayerTargets before the
   // bridge round-trip fills selectedElement, so keying off the latter
   // alone silently drops the first nudge after every tree selection.
-  const nudgeTarget = selectedElement?.selector
-    ? selectedElement
-    : selectedLayerTargetsRef.current[0]?.elementInfo;
+  const selectedLayerTarget = selectedLayerTargetsRef.current[0];
+  const renderedTarget = selectedLayerTarget
+    ? renderedElementInfoByLayerKeyRef.current.get(
+        `${selectedLayerTarget.fileId}:${selectedLayerTarget.layerId}`,
+      )
+    : undefined;
+  const nudgeTarget =
+    renderedTarget ??
+    (selectedElement?.selector
+      ? selectedElement
+      : selectedLayerTarget?.elementInfo);
   if (!nudgeTarget?.selector) return;
 
   if (isRunningAppSource && canEditLiveScreen) {
