@@ -476,10 +476,15 @@ async function heldSnapshot(
             )
           : null;
         const sourceStyle = source ? getComputedStyle(source) : null;
-        const guide =
-          body.ownerDocument.documentElement.querySelector<HTMLElement>(
+        const guide = Array.from(
+          body.ownerDocument.documentElement.querySelectorAll<HTMLElement>(
             "[data-agent-native-insertion-guide]",
-          );
+          ),
+        ).find((candidate) => {
+          const style = getComputedStyle(candidate);
+          const rect = candidate.getBoundingClientRect();
+          return style.display !== "none" && rect.width > 0 && rect.height > 0;
+        });
         const guideStyle = guide ? getComputedStyle(guide) : null;
         const guideRect = guide?.getBoundingClientRect();
         const targetRect = target?.getBoundingClientRect();
@@ -758,19 +763,27 @@ async function dragHeld(
     }
     await page.mouse.move(end.x, end.y, { steps: 24 });
     await page.waitForTimeout(250);
-    const guide = designFrame(page, screenId).locator(
-      "[data-agent-native-insertion-guide]",
-    );
-    const during = await guide.evaluate((element) => {
-      const style = getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return {
-        display: style.display,
-        width: rect.width,
-        height: rect.height,
-        border: style.border,
-      };
-    });
+    const during = await designFrame(page, screenId)
+      .locator("body")
+      .evaluate((body) => {
+        const guide = Array.from(
+          body.ownerDocument.documentElement.querySelectorAll<HTMLElement>(
+            "[data-agent-native-insertion-guide]",
+          ),
+        ).find((candidate) => {
+          const style = getComputedStyle(candidate);
+          const rect = candidate.getBoundingClientRect();
+          return style.display !== "none" && rect.width > 0 && rect.height > 0;
+        });
+        const style = guide ? getComputedStyle(guide) : null;
+        const rect = guide?.getBoundingClientRect();
+        return {
+          display: style?.display ?? "none",
+          width: rect?.width ?? 0,
+          height: rect?.height ?? 0,
+          border: style?.border ?? "",
+        };
+      });
     return { source, target, during };
   } finally {
     if (mouseHeld) await page.mouse.up();
