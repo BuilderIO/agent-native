@@ -201,8 +201,8 @@ function findLiveIdentityMatches(
   let current: Node | null = walker.currentNode;
   while (current) {
     if (
-      current instanceof Element &&
-      current.getAttribute(attribute) === value
+      current.nodeType === 1 &&
+      (current as Element).getAttribute(attribute) === value
     ) {
       matches.push(current);
       if (matches.length === 2) break;
