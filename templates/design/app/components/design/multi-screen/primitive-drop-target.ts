@@ -140,10 +140,17 @@ function gridTrackCount(template: string): number {
 }
 
 function gridTracks(template: string): string[] {
-  return template
+  const tokens = template
     .trim()
     .split(/\s+(?![^()]*\))/)
     .filter((track) => track && !/^\[[^\]]+\]$/.test(track));
+  return tokens.flatMap((track) => {
+    const repeat = track.match(/^repeat\(\s*(\d+)\s*,([\s\S]+)\)$/i);
+    if (!repeat) return [track];
+    return Array.from({ length: Number(repeat[1]) }, () =>
+      gridTracks(repeat[2]),
+    ).flat();
+  });
 }
 
 function gridLine(template: string, value: string, fallback: number): number {
