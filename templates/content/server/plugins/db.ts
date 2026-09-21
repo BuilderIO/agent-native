@@ -1189,7 +1189,6 @@ export const runContentMigrations = runMigrations(
       name: "content-document-actor-attribution",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_by TEXT;
         ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_by TEXT;
-        DROP INDEX IF EXISTS documents_trash_order_idx;
         CREATE INDEX IF NOT EXISTS documents_trash_deleted_at_idx ON documents (trashed_at, id) WHERE trashed_at IS NOT NULL;
         CREATE INDEX IF NOT EXISTS documents_trash_created_by_idx ON documents (lower(created_by), trashed_at, id) WHERE trashed_at IS NOT NULL;
         CREATE INDEX IF NOT EXISTS documents_trash_updated_by_idx ON documents (lower(updated_by), trashed_at, id) WHERE trashed_at IS NOT NULL;
