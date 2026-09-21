@@ -336,7 +336,16 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     await expect
       .poll(() => order(reloaded), { timeout: 15_000 })
       .toEqual(["v2", "v3", "v1"]);
-
+    await expect
+      .poll(
+        () =>
+          page
+            .locator("iframe[data-design-preview-iframe]")
+            .first()
+            .evaluate((iframe) => getComputedStyle(iframe).pointerEvents),
+        { timeout: 15_000 },
+      )
+      .toBe("auto");
     // React Router/framework hydration can replace the whole document body
     // after the iframe first boots. The editor host lives outside that tree;
     // prove a real physical click still selects after both a route render and

@@ -25881,4 +25881,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // the host's Edit-mode gate cannot silently reopen native app input.
   observeEditorChromeHost();
   sendEditorChromeReady();
+  if (document.readyState === "complete") {
+    sendEditorChromeReady();
+  } else {
+    window.addEventListener("load", sendEditorChromeReady, { once: true });
+  }
 })();

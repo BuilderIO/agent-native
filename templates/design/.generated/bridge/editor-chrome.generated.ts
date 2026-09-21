@@ -18239,6 +18239,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
     observeEditorChromeHost();
     sendEditorChromeReady();
+    if (document.readyState === "complete") {
+      sendEditorChromeReady();
+    } else {
+      window.addEventListener("load", sendEditorChromeReady, { once: true });
+    }
   })();
 })();
 `;
