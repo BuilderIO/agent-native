@@ -153,6 +153,11 @@ const ROOT_SCREEN_FIXTURES = {
   <div data-agent-native-node-id="root-d" data-agent-native-layer-name="Root D" style="min-height:48px;background:#34d399"></div>
   <div data-agent-native-node-id="root-e" data-agent-native-layer-name="Root E" style="min-height:48px;background:#fb7185"></div>
   </body></html>`,
+  "grid-authored-column-flow": `<!doctype html><html><body style="margin:0;width:620px;height:420px;box-sizing:border-box;display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));grid-template-rows:repeat(2,minmax(72px,1fr));grid-auto-flow:column;gap:18px;padding:28px;background:#111827;color:#f8fafc">
+  <div data-agent-native-node-id="root-a" data-agent-native-layer-name="Root A" style="min-height:48px;background:#38bdf8">A</div>
+  <div data-agent-native-node-id="root-b" data-agent-native-layer-name="Root B" style="min-height:48px;background:#a78bfa">B</div>
+  <div data-agent-native-node-id="root-c" data-agent-native-layer-name="Root C" style="min-height:48px;background:#fbbf24">C</div>
+  </body></html>`,
 } as const;
 
 type RootFixture = keyof typeof ROOT_SCREEN_FIXTURES;
@@ -1918,6 +1923,36 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           await deleteDesign(request, design.id);
         }
       });
+    }
+  });
+
+  test("authored grid column flow with repeat/minmax keeps held guide and persists insertion", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      primaryHtml: ROOT_SCREEN_FIXTURES["grid-authored-column-flow"],
+    });
+    try {
+      await gotoEditor(page, design.id);
+      const result = await dragHeld(
+        page,
+        design.primaryId,
+        "root-c",
+        "root-a",
+        { targetEdge: "leading", axis: "vertical" },
+      );
+      expect(result.during.display).toBe("block");
+      expect(result.during.width).toBeGreaterThan(result.during.height);
+      await expect
+        .poll(() => rootChildIds(page, design.primaryId))
+        .toEqual(["root-c", "root-a", "root-b"]);
+      await settleReload(page, design.primaryId);
+      await expect
+        .poll(() => rootChildIds(page, design.primaryId))
+        .toEqual(["root-c", "root-a", "root-b"]);
+    } finally {
+      await deleteDesign(request, design.id);
     }
   });
 

@@ -204,6 +204,16 @@ function gridLine(template: string, value: string, fallback: number): number {
   return fallback;
 }
 
+function gridStartValue(
+  style: CSSStyleDeclaration,
+  axis: "column" | "row",
+): string {
+  const start = axis === "column" ? style.gridColumnStart : style.gridRowStart;
+  if (start) return start;
+  const shorthand = axis === "column" ? style.gridColumn : style.gridRow;
+  return shorthand.split("/")[0]?.trim() ?? "";
+}
+
 /**
  * Resolves a between-children flow-insert slot inside `container` from a
  * screen-local drop point — the nearest child (by flow-axis center, or
@@ -842,16 +852,8 @@ export function authoredElementPosition(
       if (isGrid) {
         const columns = gridTracks(parentStyle.gridTemplateColumns);
         const rows = gridTracks(parentStyle.gridTemplateRows);
-        const columnValue = (
-          style.gridColumnStart ||
-          style.gridColumn.split("/")[0] ||
-          ""
-        ).trim();
-        const rowValue = (
-          style.gridRowStart ||
-          style.gridRow.split("/")[0] ||
-          ""
-        ).trim();
+        const columnValue = gridStartValue(style, "column");
+        const rowValue = gridStartValue(style, "row");
         const autoChildren = siblings.filter(
           (sibling) => !isOutOfFlow(sibling),
         );
@@ -859,12 +861,13 @@ export function authoredElementPosition(
         const rowCount = Math.max(1, rows.length);
         const occupied = new Set<string>();
         for (const sibling of autoChildren) {
+          const siblingStyle = (sibling as HTMLElement).style;
           const explicitColumn = Number.parseInt(
-            (sibling as HTMLElement).style.gridColumnStart,
+            gridStartValue(siblingStyle, "column"),
             10,
           );
           const explicitRow = Number.parseInt(
-            (sibling as HTMLElement).style.gridRowStart,
+            gridStartValue(siblingStyle, "row"),
             10,
           );
           if (Number.isFinite(explicitColumn) || Number.isFinite(explicitRow)) {
@@ -875,15 +878,13 @@ export function authoredElementPosition(
         }
         let autoSlot = 0;
         for (const sibling of autoChildren) {
+          const siblingStyle = (sibling as HTMLElement).style;
           const hasExplicit =
             Number.isFinite(
-              Number.parseInt(
-                (sibling as HTMLElement).style.gridColumnStart,
-                10,
-              ),
+              Number.parseInt(gridStartValue(siblingStyle, "column"), 10),
             ) ||
             Number.isFinite(
-              Number.parseInt((sibling as HTMLElement).style.gridRowStart, 10),
+              Number.parseInt(gridStartValue(siblingStyle, "row"), 10),
             );
           if (hasExplicit) continue;
           while (

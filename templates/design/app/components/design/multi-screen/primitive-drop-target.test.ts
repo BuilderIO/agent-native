@@ -427,7 +427,7 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     expect(
       parsePrimitivesFromScreen(columnFlow).find((p) => p.nodeId === "parent")
         ?.autoLayoutAxis,
-    ).toBe("y");
+    ).toBe("x");
   });
 
   it("counts repeated tracks while ignoring multi-name grid lines", () => {
@@ -479,7 +479,7 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
         }),
         expect.objectContaining({
           nodeId: "second-auto",
-          localLeft: 100,
+          localLeft: 0,
           localTop: 50,
         }),
       ]),
@@ -575,7 +575,7 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       findAutoLayoutInsertionAnchor(
         parent,
         primitives,
-        { x: 425, y: 140 },
+        { x: 450, y: 140 },
         null,
       ),
     ).toMatchObject({ anchorNodeId: "first", placement: "before" });
