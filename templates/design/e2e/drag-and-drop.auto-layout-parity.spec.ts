@@ -504,27 +504,31 @@ test("physical command-drag overrides auto-layout resistance", async ({
       x: source.x + source.width / 2,
       y: source.y + source.height / 2,
     };
+    await preview(page).focus();
     await page.keyboard.down(IGNORE_AUTO_LAYOUT);
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
-    await page.mouse.move(start.x + 460, start.y + 220, { steps: 20 });
-    await expect
-      .poll(() =>
-        preview(page).evaluate(() => {
-          const element = document.documentElement.querySelector<HTMLElement>(
-            "[data-agent-native-transform-badge]",
-          );
-          return Boolean(
-            element &&
-            getComputedStyle(element).display !== "none" &&
-            element.textContent === "Move layer",
-          );
-        }),
-      )
-      .toBe(true);
-    await page.mouse.up();
-    await page.keyboard.up(IGNORE_AUTO_LAYOUT);
+    try {
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
+      await page.mouse.move(start.x + 460, start.y + 220, { steps: 20 });
+      await expect
+        .poll(() =>
+          preview(page).evaluate(() => {
+            const element = document.documentElement.querySelector<HTMLElement>(
+              "[data-agent-native-transform-badge]",
+            );
+            return Boolean(
+              element &&
+              getComputedStyle(element).display !== "none" &&
+              element.textContent === "Move layer",
+            );
+          }),
+        )
+        .toBe(true);
+      await page.mouse.up();
+    } finally {
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT);
+    }
     await expect
       .poll(
         () =>

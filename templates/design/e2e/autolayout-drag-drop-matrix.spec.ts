@@ -460,7 +460,7 @@ async function heldSnapshot(
   page: Page,
   screenId: string,
   sourceId: string,
-  targetId: string,
+  targetId: string | null,
   stage: string,
 ): Promise<HeldSnapshot> {
   return designFrame(page, screenId)
@@ -470,9 +470,11 @@ async function heldSnapshot(
         const source = body.querySelector<HTMLElement>(
           `[data-agent-native-node-id="${ids.sourceId}"]`,
         );
-        const target = body.querySelector<HTMLElement>(
-          `[data-agent-native-node-id="${ids.targetId}"]`,
-        );
+        const target = ids.targetId
+          ? body.querySelector<HTMLElement>(
+              `[data-agent-native-node-id="${ids.targetId}"]`,
+            )
+          : null;
         const sourceStyle = source ? getComputedStyle(source) : null;
         const guide =
           body.ownerDocument.documentElement.querySelector<HTMLElement>(
@@ -551,7 +553,7 @@ async function settledHeldSnapshot(
   page: Page,
   screenId: string,
   sourceId: string,
-  targetId: string,
+  targetId: string | null,
   stage: string,
 ): Promise<HeldSnapshot> {
   await expect
@@ -569,7 +571,7 @@ async function settledHeldSnapshot(
           snapshot.guide.display !== "none" &&
           snapshot.guide.width > 0 &&
           snapshot.guide.height > 0 &&
-          snapshot.guide.overlapsTarget,
+          (targetId === null || snapshot.guide.overlapsTarget),
         );
       },
       {
@@ -901,11 +903,16 @@ async function assertReloadedOrder(
 }
 
 function serializedOrder(html: string, ids: string[]): string[] {
-  return [...ids].sort(
-    (left, right) =>
-      html.indexOf(`data-agent-native-node-id="${left}"`) -
-      html.indexOf(`data-agent-native-node-id="${right}"`),
-  );
+  const positions = ids.map((id) => ({
+    id,
+    index: html.indexOf(`data-agent-native-node-id="${id}"`),
+  }));
+  // A missing marker must fail the caller's expected-order assertion rather
+  // than sorting ahead of every present marker as if it were valid HTML.
+  if (positions.some(({ index }) => index < 0)) return [];
+  return positions
+    .sort((left, right) => left.index - right.index)
+    .map(({ id }) => id);
 }
 
 test.use({ viewport: { width: 1600, height: 1100 } });
@@ -2840,7 +2847,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             page,
             design.primaryId,
             "flow-child",
-            "flow-origin",
+            null,
             "free-canvas",
           ),
         );
