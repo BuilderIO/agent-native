@@ -17110,6 +17110,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         activateProgrammaticTextEdit(resumeTarget, false, resumeBookmark);
         return;
       }
+      if (e.data.type === "design-hotkey") {
+        if (!isApplePlatformBridge() && String(e.data.key).toLowerCase() === "s") {
+          bridgeIgnoreAutoLayoutKeyPressed = true;
+        }
+        return;
+      }
+      if (e.data.type === "design-hotkey-up") {
+        if (!isApplePlatformBridge() && String(e.data.key).toLowerCase() === "s") {
+          bridgeIgnoreAutoLayoutKeyPressed = false;
+        }
+        return;
+      }
       if (e.data.type === "text-edit-inspector-focus") {
         if (typeof e.data.focused !== "boolean") return;
         textEditInspectorFocused = e.data.focused;
