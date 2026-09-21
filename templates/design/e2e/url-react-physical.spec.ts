@@ -394,6 +394,39 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       if (!bridgeScript) throw new Error("missing editor bridge script");
       document.head.appendChild(bridgeScript.cloneNode(true));
     });
+    // A document-hydrating app can execute a viewer bridge before the editor
+    // bridge arrives. Reinstall both configurations in one document and prove
+    // the second install updates the live instance instead of only repairing
+    // the old read-only host.
+    await reloaded.locator("body").evaluate(() => {
+      const bridgeScript = document.querySelector(
+        "script[data-agent-native-editor-chrome-bridge]",
+      );
+      if (!bridgeScript?.textContent)
+        throw new Error("missing editor bridge source");
+      const ownerSource = bridgeScript.textContent;
+      const viewerSource = ownerSource.replace(
+        "var readOnly = false;",
+        "var readOnly = true;",
+      );
+      if (viewerSource === ownerSource)
+        throw new Error("bridge readOnly marker was not found");
+      for (const source of [viewerSource, ownerSource]) {
+        const script = document.createElement("script");
+        script.type = "module";
+        script.textContent = source;
+        document.head.appendChild(script);
+      }
+    });
+    await expect
+      .poll(
+        () =>
+          reloaded
+            .locator("[data-agent-native-editor-chrome-host]")
+            .evaluate((host) => getComputedStyle(host).zIndex),
+        { timeout: 5_000 },
+      )
+      .toBe("2147483647");
     await expect(
       reloaded.locator('[data-agent-native-edit-overlay="shield"]'),
     ).toBeAttached();

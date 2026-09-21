@@ -48,6 +48,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 declare var __INITIAL_SOURCE_HEAD__: string;
 
 (function () {
+  var readOnly = __READ_ONLY__;
+  var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
+  var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
+  var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
+  var designCanvasContentOffsetX =
+    Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
+  var designCanvasContentOffsetY =
+    Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
   // re-injecting this script into a document where a previous instance's
   // listeners, overlays, and observers are still alive (e.g. a head-only
@@ -70,6 +79,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     previousEditorChromeBridgeInstance &&
     typeof previousEditorChromeBridgeInstance.repair === "function"
   ) {
+    if (typeof previousEditorChromeBridgeInstance.updateConfig === "function") {
+      previousEditorChromeBridgeInstance.updateConfig({
+        readOnly: readOnly,
+        textEditingEnabled: textEditingEnabledFlag,
+        screenId: designCanvasScreenId,
+        boardSurface: designCanvasBoardSurface,
+        contentOffsetX: designCanvasContentOffsetX,
+        contentOffsetY: designCanvasContentOffsetY,
+      });
+    }
     previousEditorChromeBridgeInstance.repair();
     return;
   }
@@ -82,7 +101,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return;
   }
 
-  var readOnly = __READ_ONLY__;
   var editorChromeNodes: HTMLElement[] = [];
   var editorChromeHost: HTMLElement | null = null;
   var editorChromeHostObserver: MutationObserver | null = null;
@@ -106,6 +124,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       editorChromeHost.isConnected &&
       editorChromeHost.parentNode === document.documentElement
     ) {
+      syncEditorChromeHostStyle(editorChromeHost);
       (window as any).__anEditorChromeBridgeHost = editorChromeHost;
       return editorChromeHost;
     }
@@ -115,13 +134,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "true",
     );
     editorChromeHost.setAttribute("aria-hidden", "true");
-    editorChromeHost.style.cssText =
-      "position:fixed;inset:0;z-index:" +
-      (readOnly ? "2147483000" : "2147483647") +
-      ";pointer-events:none;overflow:visible;";
+    syncEditorChromeHostStyle(editorChromeHost);
     (document.documentElement || document.body).appendChild(editorChromeHost);
     (window as any).__anEditorChromeBridgeHost = editorChromeHost;
     return editorChromeHost;
+  }
+
+  function syncEditorChromeHostStyle(host: HTMLElement): void {
+    host.style.position = "fixed";
+    host.style.inset = "0px";
+    host.style.zIndex = readOnly ? "2147483000" : "2147483647";
+    host.style.pointerEvents = "none";
+    host.style.overflow = "visible";
   }
 
   function appendEditorChromeNode(node: HTMLElement): void {
@@ -192,14 +216,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // srcdoc, exactly like `set-read-only`. See that handler for why: baking
   // edit/preview-mode toggles into srcdoc would reload every screen iframe on
   // every mode switch (white flash + lost in-iframe/Alpine state).
-  var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
   var textEditingEnabled = !readOnly && textEditingEnabledFlag;
-  var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
-  var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
-  var designCanvasContentOffsetX =
-    Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
-  var designCanvasContentOffsetY =
-    Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
   var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
   // Figma-parity live-reflow drag (Phase 0 + 1: hysteresis-stabilized target
   // resolution, size guard, transform lift/follow, live sibling reflow,
@@ -25871,6 +25888,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     repair: function () {
       observeEditorChromeHost();
       repairEditorChromeHost();
+    },
+    updateConfig: function (next) {
+      if (!next || typeof next !== "object") return;
+      var nextReadOnly =
+        typeof next.readOnly === "boolean" ? next.readOnly : readOnly;
+      var nextTextEditingEnabledFlag =
+        typeof next.textEditingEnabled === "boolean"
+          ? next.textEditingEnabled
+          : textEditingEnabledFlag;
+      if (readOnly !== nextReadOnly) {
+        readOnly = nextReadOnly;
+        textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
+        if (readOnly) {
+          if (activeTextEditEl) activeTextEditEl.blur();
+          clearPendingShieldDrag();
+          cancelActiveBridgeDrag();
+          setSelectionOverlayResizeChromeVisible(false);
+          shieldOverlay.style.pointerEvents = "auto";
+        } else {
+          setSelectionOverlayResizeChromeVisible(true);
+          shieldOverlay.style.pointerEvents = "auto";
+        }
+      } else {
+        textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
+      }
+      textEditingEnabledFlag = nextTextEditingEnabledFlag;
+      if (typeof next.screenId === "string") {
+        designCanvasScreenId = next.screenId;
+      }
+      if (typeof next.boardSurface === "boolean") {
+        designCanvasBoardSurface = next.boardSurface;
+      }
+      if (Number.isFinite(next.contentOffsetX)) {
+        designCanvasContentOffsetX = next.contentOffsetX;
+      }
+      if (Number.isFinite(next.contentOffsetY)) {
+        designCanvasContentOffsetY = next.contentOffsetY;
+      }
+      if (editorChromeHost) syncEditorChromeHostStyle(editorChromeHost);
     },
   };
 
