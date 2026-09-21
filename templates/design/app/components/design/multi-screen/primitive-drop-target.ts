@@ -84,6 +84,25 @@ function primitiveMatchesNodeId(
   );
 }
 
+function isPrimitiveAncestor(
+  ancestor: ParsedScreenPrimitive,
+  descendant: ParsedScreenPrimitive,
+  primitives: ParsedScreenPrimitive[],
+): boolean {
+  let parentId = descendant.parentNodeId ?? descendant.parentProjectionNodeId;
+  const seen = new Set<string>();
+  while (parentId && !seen.has(parentId)) {
+    const currentParentId = parentId;
+    seen.add(currentParentId);
+    if (primitiveMatchesNodeId(ancestor, currentParentId)) return true;
+    const parent = primitives.find((primitive) =>
+      primitiveMatchesNodeId(primitive, currentParentId),
+    );
+    parentId = parent?.parentNodeId ?? parent?.parentProjectionNodeId;
+  }
+  return false;
+}
+
 /**
  * Mirrors hit-test.bridge.ts's parentFlowAxis: resolves the flow axis new
  * children are inserted along for a flex/grid container, or undefined when
@@ -1359,6 +1378,7 @@ export function getPrimitiveDropTargetForPoint(
   const metadata = getMetadata(topScreen.screen);
   const primitives = parsePrimitivesFromScreen(topScreen.screen);
   let best: PrimitiveDropTarget | null = null;
+  let bestPrimitive: ParsedScreenPrimitive | null = null;
   for (const primitive of primitives) {
     if (!primitive.isContainer) continue;
     if (draggedNodeId && primitiveMatchesNodeId(primitive, draggedNodeId)) {
@@ -1383,12 +1403,38 @@ export function getPrimitiveDropTargetForPoint(
       continue;
     }
     if (geometryContainsPoint(boardRect, point)) {
+      // Prefer the deepest eligible container.  DOM order is not paint order:
+      // overwriting `best` made a later ancestor steal nested flow drops and
+      // left the held insertion guide anchored to the wrong layout owner.
+      if (
+        bestPrimitive &&
+        !isPrimitiveAncestor(bestPrimitive, primitive, primitives) &&
+        !isPrimitiveAncestor(primitive, bestPrimitive, primitives)
+      ) {
+        // Parsed order follows DOM paint order, so the later overlapping
+        // sibling is the visible target. Nested targets are handled above.
+        best = {
+          nodeId: primitive.nodeId,
+          screenId: topScreen.screen.id,
+          boardRect,
+          targetIdentity: primitive.projectionIdentity,
+        };
+        bestPrimitive = primitive;
+        continue;
+      }
+      if (
+        bestPrimitive &&
+        !isPrimitiveAncestor(bestPrimitive, primitive, primitives)
+      ) {
+        continue;
+      }
       best = {
         nodeId: primitive.nodeId,
         screenId: topScreen.screen.id,
         boardRect,
         targetIdentity: primitive.projectionIdentity,
       };
+      bestPrimitive = primitive;
     }
   }
 
