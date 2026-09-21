@@ -2766,17 +2766,24 @@ export default function RecordRoute() {
 
       // Esc cancels the pre-record countdown. Once recording is live, it
       // finishes the clip just like the stop button.
-      if (e.key === "Escape") {
+      const isEscape =
+        e.key === "Escape" || e.key === "Esc" || e.code === "Escape";
+      if (isEscape) {
         if (uiState === "countdown") {
           e.preventDefault();
           e.stopPropagation();
           void doCancel();
           return;
         }
-        if (uiState === "recording") {
+        const engineState = engineRef.current?.getState();
+        if (
+          uiState === "recording" ||
+          engineState === "recording" ||
+          engineState === "paused"
+        ) {
           e.preventDefault();
           e.stopPropagation();
-          void doStop();
+          void doStopRef.current();
           return;
         }
       }
@@ -3047,7 +3054,7 @@ export default function RecordRoute() {
         <div className="pointer-events-none fixed inset-0 bg-foreground">
           <div
             aria-live="polite"
-            className="absolute inset-0 flex items-center justify-center px-6 text-center text-background/70"
+            className="absolute inset-0 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-6 text-center text-background/70"
           >
             <div className="flex items-center gap-2 text-sm">
               <span
