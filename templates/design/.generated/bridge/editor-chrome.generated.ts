@@ -10881,15 +10881,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           container
         );
       }
-      var placementCandidates = children.concat(excluded || []);
-      var hasExplicitPlacement = placementCandidates.some(function(child) {
-        var childStyles = window.getComputedStyle(child);
-        return childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0";
-      });
       var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
       var singleSourceStyles = singleSource ? window.getComputedStyle(singleSource) : null;
       var singleSourceColumn = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "column") : null;
       var singleSourceRow = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "row") : null;
+      var sourceHasAuthoredPlacement = Boolean(
+        excluded?.some(function(source) {
+          var columnPlacement = trackLayout ? gridItemAxisPlacement(source, trackLayout, "column") : null;
+          var rowPlacement = trackLayout ? gridItemAxisPlacement(source, trackLayout, "row") : null;
+          return Boolean(
+            columnPlacement?.hasAuthoredPlacement || rowPlacement?.hasAuthoredPlacement
+          );
+        })
+      );
       var hasAuthoredSingleCellSourcePlacement = Boolean(
         singleSource && singleSource.parentElement === container && singleSourceStyles && singleSourceStyles.gridColumnStart !== "auto" && singleSourceStyles.gridColumnStart.indexOf("span") !== 0 && singleSourceStyles.gridRowStart !== "auto" && singleSourceStyles.gridRowStart.indexOf("span") !== 0 && (singleSourceStyles.gridColumnEnd === "auto" || singleSourceColumn?.span === 1) && (singleSourceStyles.gridRowEnd === "auto" || singleSourceRow?.span === 1)
       );
@@ -10897,7 +10901,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       while (hit && hit.parentElement && hit.parentElement !== container) {
         hit = hit.parentElement;
       }
-      if (trackLayout && hasExplicitPlacement && !hasAuthoredSingleCellSourcePlacement) {
+      if (trackLayout && !hasAuthoredSingleCellSourcePlacement) {
         var column = trackLayout.columnBounds.findIndex(function(bound) {
           return clientX >= bound.start && clientX <= bound.end;
         });
@@ -10950,7 +10954,10 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             guideMode: displaced ? "grid-line" : "grid-cell",
             guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
-            gridCell: { column, row },
+            // Column auto-flow derives placement from source order. Persisting
+            // measured coordinates here would freeze responsive auto-flow into
+            // explicit gridColumn/gridRow styles.
+            ...autoFlow[0] === "column" && !sourceHasAuthoredPlacement ? {} : { gridCell: { column, row } },
             gridDisplacement: displaced
           };
         }
@@ -11432,7 +11439,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           if (rootChildSlot) return rootChildSlot;
         }
-        if (parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && !isTextBearingLeaf(parent) && !forceNestedAutoLayout && !isTemplateCloneElement(cursor)) {
+        if (parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && (!isContainerDropTarget(cursor) || cursor.tagName.toLowerCase() !== "section" || isTemplateCloneElement(cursor)) && !isTextBearingLeaf(parent) && !forceNestedAutoLayout && !isTemplateCloneElement(cursor)) {
           var directChildSlot = nearestChildInsertionTarget(
             parent,
             clientX,
@@ -11460,7 +11467,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             dropMode: "absolute-container"
           };
         }
-        if (cursor !== document.body && isContainerDropTarget(cursor) && !(!forceNestedAutoLayout && parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame")) {
+        if (cursor !== document.body && isContainerDropTarget(cursor) && !(!forceNestedAutoLayout && parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && (cursor.tagName.toLowerCase() !== "section" || isTemplateCloneElement(cursor)))) {
           if (!isAutoLayoutElement(cursor)) {
             if (cursor === el.parentElement) return null;
             return {
@@ -11830,6 +11837,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var start = gridLinePosition(startValue, layout, axis);
       var end = gridLinePosition(endValue, layout, axis);
       var authoredSpan = endValue.trim().match(/^span\\s+(\\d+)$/) || startValue.trim().match(/^span\\s+(\\d+)$/);
+      var hasAuthoredPlacement = authoredSpan !== null || startValue.trim() !== "auto" && startValue.trim() !== "" || endValue.trim() !== "auto" && endValue.trim() !== "" || styles.order !== "0";
       var geometricRange = layout ? gridTrackRangeForRect(
         el.getBoundingClientRect(),
         axis === "column" ? layout.columnBounds : layout.rowBounds,
@@ -11840,6 +11848,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (start === null && end !== null && authoredSpan) start = end - span;
       return {
         authoredStart: start,
+        hasAuthoredPlacement,
         start: start ?? (geometricRange ? geometricRange.start + 1 : null),
         span
       };
@@ -12092,6 +12101,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var sourceColumn = gridItemAxisPlacement(el, sourceGridLayout, "column");
         var sourceRow = gridItemAxisPlacement(el, sourceGridLayout, "row");
+        var sourceHasAuthoredPlacement = sourceColumn.hasAuthoredPlacement || sourceRow.hasAuthoredPlacement;
         var columnStart = sourceColumn.start ?? NaN;
         var columnSpan = sourceColumn.span;
         var columnEnd = columnStart + columnSpan;
@@ -12170,6 +12180,18 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           };
           targetDisplacements.forEach(function(displaced) {
+            var displacedColumnPlacement = gridItemAxisPlacement(
+              displaced,
+              targetGridLayout,
+              "column"
+            );
+            var displacedRowPlacement = gridItemAxisPlacement(
+              displaced,
+              targetGridLayout,
+              "row"
+            );
+            var displacedHasAuthoredPlacement = displacedColumnPlacement.hasAuthoredPlacement || displacedRowPlacement.hasAuthoredPlacement;
+            if (!displacedHasAuthoredPlacement) return;
             var displacedRange = gridTrackRangeForRect(
               displaced.getBoundingClientRect(),
               targetGridLayout.columnBounds,
@@ -12236,14 +12258,16 @@ export const editorChromeBridgeScript: string = `"use strict";
             displaced.style.gridRow = \`\${displacementPlacement.row} / \${displacementPlacement.rowEnd}\`;
           });
         }
-        el.style.gridColumn = \`\${target.gridCell.column + 1} / \${target.gridCell.column + 1 + columnSpan}\`;
-        el.style.gridRow = \`\${target.gridCell.row + 1} / \${target.gridCell.row + 1 + rowSpan}\`;
-        target.gridPlacement = {
-          column: target.gridCell.column + 1,
-          columnEnd: target.gridCell.column + 1 + columnSpan,
-          row: target.gridCell.row + 1,
-          rowEnd: target.gridCell.row + 1 + rowSpan
-        };
+        if (sourceHasAuthoredPlacement) {
+          el.style.gridColumn = \`\${target.gridCell.column + 1} / \${target.gridCell.column + 1 + columnSpan}\`;
+          el.style.gridRow = \`\${target.gridCell.row + 1} / \${target.gridCell.row + 1 + rowSpan}\`;
+          target.gridPlacement = {
+            column: target.gridCell.column + 1,
+            columnEnd: target.gridCell.column + 1 + columnSpan,
+            row: target.gridCell.row + 1,
+            rowEnd: target.gridCell.row + 1 + rowSpan
+          };
+        }
       }
       rebaseAbsoluteMemberForContainerDrop(el, target);
       var persistenceAnchor = target.persistenceAnchor || target.anchor;

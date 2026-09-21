@@ -284,17 +284,19 @@ query.
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
-Read every open issue's body, comments, author, labels, linked PRs, and state.
-Treat prior `fixed`, `shipped`, or `merged` comments as leads; recheck the
-reported surface and residual scope. When the fix is verified merged, thank the
-reporter, link it, and close immediately. Do not wait for publication, beta, or
-live proof. Track missing release/runtime evidence separately; keep open only
-when accepted scope remains unfixed, unmerged, or needs reporter input.
+Read each issue's body, comments, author, labels, linked PRs. Treat
+prior `fixed`, `shipped`, or `merged` comments as leads; recheck the surface.
+When a fix merges, thank the reporter, link it, and close. Track release/runtime
+gaps separately; keep open only while scope is unfixed, unmerged, or needs input.
 
-For every clear GitHub defect, fix the root cause or ask one unblock question;
-do not skip old, bot-filed, or maintainer-commented issues. Feature requests
-and subjective feedback need user or `:upvote:` authorization. Ask at most
-three questions per run and re-read before posting or closing.
+Before claiming an issue, check comments for handoffs. If someone offers a PR,
+or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
+ship, reply, or close it. A direct request overrides this.
+
+Fix every defect at its root or ask an unblock question; do not
+skip old, bot-filed, or maintainer-commented issues. Feature requests and
+subjective feedback need user/`:upvote:` authorization. Ask three questions max;
+re-read before posting/closing.
 
 Query both production Sentry projects - frontend/browser and backend/CLI -
 paginate unresolved issues, and record representative events, releases, and

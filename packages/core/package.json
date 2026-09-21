@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.182.1",
+  "version": "0.183.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -180,6 +180,8 @@
     "./client/clipboard": "./dist/client/clipboard.js",
     "./client/route-state": "./dist/client/route-state.js",
     "./client/observability": "./dist/client/observability/index.js",
+    "./observability/actions/list-observability-reviews": "./dist/observability/actions/list-observability-reviews.js",
+    "./observability/actions/save-observability-instruction-update": "./dist/observability/actions/save-observability-instruction-update.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
     "./client/setup-connections/runtime": "./dist/client/setup-connections/runtime.js",

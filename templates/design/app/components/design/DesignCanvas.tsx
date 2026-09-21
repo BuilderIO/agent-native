@@ -2225,7 +2225,10 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [boardSurface, contentKey, runtimeLayerSnapshotEnabled, screenId],
   );
-  // Keep the installed gesture script identical between Edit and Interact.
+  // Keep the installed gesture script identical between overview and focused
+  // mode. The live flags are posted below; baking `isEmbeddedFrame` into the
+  // script changed the bridge key during responsive Interact and defeated the
+  // registration handoff cache, forcing an avoidable iframe navigation.
   // Interaction ownership is switched in-place after the bridge handshake;
   // baking the mode into this script changes the live bridge key and reloads
   // the running app.
@@ -5392,6 +5395,22 @@ export function DesignCanvas({
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+    function sendInteractionMode() {
+      iframe!.contentWindow?.postMessage(
+        { type: "set-interaction-mode", interact: interactModeRef.current },
+        "*",
+      );
+    }
+    sendInteractionMode();
+    iframe.addEventListener("load", sendInteractionMode);
+    return () => iframe.removeEventListener("load", sendInteractionMode);
+    // Only re-run when interaction ownership changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interactMode]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
     const sendGridGroupBatching = () =>
       iframe.contentWindow?.postMessage(
         {
@@ -5435,25 +5454,6 @@ export function DesignCanvas({
     // Only re-run when editMode changes; iframe identity is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editMode]);
-
-  // Interact is a runtime ownership change, not a new live document. Keep the
-  // localhost iframe and bridge registration stable, then hand pointer input
-  // to the app (or back to the editor shield) in place.
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    function sendInteractionMode() {
-      iframe!.contentWindow?.postMessage(
-        { type: "set-interaction-mode", interact: interactModeRef.current },
-        "*",
-      );
-    }
-    sendInteractionMode();
-    iframe.addEventListener("load", sendInteractionMode);
-    return () => iframe.removeEventListener("load", sendInteractionMode);
-    // Only re-run when interaction ownership changes; iframe identity is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interactMode]);
 
   /**
    * Trigger immediate text-editing mode for a specific node inside the iframe,
