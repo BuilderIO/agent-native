@@ -430,6 +430,20 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     ).toBe("y");
   });
 
+  it("keeps nested minmax functions inside a repeat track", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:repeat(1, minmax(0, 1fr))",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("y");
+  });
+
   it("findAutoLayoutInsertionAnchor resolves 'before' the nearest child when the point sits in the leading padding", () => {
     const primitives = parsePrimitivesFromScreen(flexScreen);
     const parent = primitives.find((p) => p.nodeId === "parent")!;

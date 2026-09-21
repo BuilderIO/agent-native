@@ -114,8 +114,25 @@ function computeAutoLayoutAxis(style: {
 
 function gridTrackCount(template: string): number {
   let count = 0;
-  for (const token of template.trim().match(/repeat\([^)]*\)|[^\s]+/gi) ?? []) {
-    const repeatCount = token.match(/^repeat\(\s*(\d+)\s*,/i)?.[1];
+  let token = "";
+  let depth = 0;
+  const tokens: string[] = [];
+  const flush = () => {
+    if (token) tokens.push(token);
+    token = "";
+  };
+  for (const character of template.trim()) {
+    if (/\s/.test(character) && depth === 0) {
+      flush();
+      continue;
+    }
+    token += character;
+    if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+  }
+  flush();
+  for (const track of tokens) {
+    const repeatCount = track.match(/^repeat\(\s*(\d+)\s*,/i)?.[1];
     count += repeatCount ? Number(repeatCount) : 1;
   }
   return count;
