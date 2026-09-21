@@ -547,6 +547,39 @@ async function heldSnapshot(
     );
 }
 
+async function settledHeldSnapshot(
+  page: Page,
+  screenId: string,
+  sourceId: string,
+  targetId: string,
+  stage: string,
+): Promise<HeldSnapshot> {
+  await expect
+    .poll(
+      async () => {
+        const snapshot = await heldSnapshot(
+          page,
+          screenId,
+          sourceId,
+          targetId,
+          stage,
+        );
+        return Boolean(
+          snapshot.guide &&
+          snapshot.guide.display !== "none" &&
+          snapshot.guide.width > 0 &&
+          snapshot.guide.height > 0,
+        );
+      },
+      {
+        timeout: 5_000,
+        message: `${stage} insertion guide did not settle while held`,
+      },
+    )
+    .toBe(true);
+  return heldSnapshot(page, screenId, sourceId, targetId, stage);
+}
+
 function childMoved(
   before: ChildSnapshot[],
   during: ChildSnapshot[],
@@ -2778,7 +2811,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         await page.mouse.move(destination.x, destination.y, { steps: 24 });
         await page.waitForTimeout(16);
         snapshots.push(
-          await heldSnapshot(
+          await settledHeldSnapshot(
             page,
             design.primaryId,
             "flow-child",
