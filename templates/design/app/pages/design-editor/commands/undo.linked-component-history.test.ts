@@ -1018,6 +1018,8 @@ describe("pending live multi-target style gestures", () => {
       pendingVisualStyleEditsRef: state.args.pendingVisualStyleEditsRef,
       pendingVisualStyleRedoStackRef: state.args.pendingVisualStyleRedoStackRef,
       pendingVisualStyleUndoStackRef: state.args.pendingVisualStyleUndoStackRef,
+      recordPendingHistoryEntry: (kind: string) =>
+        state.args.historyOrderRef.current.push(kind),
       responsiveEditScopeRef: { current: "cascade-smaller" as const },
       runtimeLayerSnapshotsById: {},
       selectedElement,
