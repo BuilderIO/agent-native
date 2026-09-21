@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import type { H3Event } from "h3";
+import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -45,14 +46,21 @@ describe("framework request context", () => {
       expect(source).toContain(
         'getPublicFrameworkPathname } from "./framework-request-context.js"',
       );
-      const handlerImports = Array.from(
-        source.matchAll(
-          /(?:^|\n)(import\s+[^;]+?\s+from\s+"\.\/framework-request-handler\.js";)/g,
-        ),
-        (match) => match[1].trim(),
+      const sourceFile = ts.createSourceFile(
+        file,
+        source,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS,
+      );
+      const handlerImports = sourceFile.statements.filter(
+        (statement): statement is ts.ImportDeclaration =>
+          ts.isImportDeclaration(statement) &&
+          ts.isStringLiteral(statement.moduleSpecifier) &&
+          statement.moduleSpecifier.text === "./framework-request-handler.js",
       );
       expect(
-        handlerImports.every((statement) => /^import\s+type\b/.test(statement)),
+        handlerImports.every((statement) => statement.importClause?.isTypeOnly),
       ).toBe(true);
       expect(source).not.toContain('import("./framework-request-handler.js")');
     }
