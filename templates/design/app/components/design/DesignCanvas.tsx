@@ -72,7 +72,10 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
-import { runtimeStyleTarget } from "@/pages/design-editor/pending-edits";
+import {
+  pendingVisualStyleRouteMatches,
+  runtimeStyleTarget,
+} from "@/pages/design-editor/pending-edits";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
@@ -5749,9 +5752,8 @@ export function DesignCanvas({
   const replayStylePatches = useCallback(
     (patches: Array<StyleReplayPatch>) => {
       for (const patch of patches) {
-        if (patch.routePath && patch.routePath !== liveRoutePathRef.current) {
+        if (!pendingVisualStyleRouteMatches(patch, liveRoutePathRef.current))
           continue;
-        }
         const target = runtimeStyleTarget(patch);
         if (target.selectorCandidates.length === 0) continue;
         if (patch.interactionState) {
@@ -5793,7 +5795,7 @@ export function DesignCanvas({
       (pendingStylePreviewPatches ?? []).filter(
         (patch) =>
           patch.screenId === screenId &&
-          (!patch.routePath || patch.routePath === liveRoutePathRef.current),
+          pendingVisualStyleRouteMatches(patch, liveRoutePathRef.current),
       ),
     );
   }, [
@@ -6413,10 +6415,29 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        routePath?: string;
+      },
     ) => {
       if (!screenId || targetScreenId !== screenId) return false;
-      return sendStyleChangeLinked(selector, property, value, options);
+      if (
+        !pendingVisualStyleRouteMatches(options ?? {}, liveRoutePathRef.current)
+      ) {
+        return false;
+      }
+      return sendStyleChangeLinked(
+        selector,
+        property,
+        value,
+        options
+          ? {
+              selectorCandidates: options.selectorCandidates,
+              nodeId: options.nodeId,
+            }
+          : undefined,
+      );
     };
     const replacePreviewContentLinked = (
       nextContent: string,

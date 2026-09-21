@@ -14,6 +14,7 @@ import {
   mergePendingLiveNonStyleEdit,
   nextPendingLiveEditTimestamp,
   pendingLiveLayerNameUndoRevertValue,
+  pendingVisualStyleRouteMatches,
   pendingVisualStyleGestureIdForPhase,
   resolveOverviewScreenSourceType,
 } from "./pending-edits";
@@ -244,6 +245,18 @@ describe("appendPendingVisualStyleUndoEntry", () => {
     expect(
       pendingVisualStyleGestureIdForPhase(state, undefined, true),
     ).not.toBe(nextPreview);
+  });
+});
+
+describe("pendingVisualStyleRouteMatches", () => {
+  it("does not replay a history patch into a different or unknown live route", () => {
+    expect(
+      pendingVisualStyleRouteMatches({ routePath: "/library" }, "/record"),
+    ).toBe(false);
+    expect(
+      pendingVisualStyleRouteMatches({ routePath: "/library" }, null),
+    ).toBe(false);
+    expect(pendingVisualStyleRouteMatches({}, "/record")).toBe(true);
   });
 });
 

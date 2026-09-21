@@ -1118,8 +1118,16 @@ export type SendPendingVisualStyleRuntimeProperty = (
   options: {
     selectorCandidates: string[];
     nodeId?: string | null;
+    routePath?: string;
   },
 ) => boolean;
+
+export function pendingVisualStyleRouteMatches(
+  patch: Pick<PendingVisualStyleRuntimePatch, "routePath">,
+  currentRoutePath: string | null | undefined,
+): boolean {
+  return !patch.routePath || patch.routePath === currentRoutePath;
+}
 
 /**
  * Forward, undo, and redo all use this exact per-property runtime channel.
@@ -1143,6 +1151,7 @@ export function replayPendingVisualStyleRuntimePatch(
     sendProperty(patch.screenId, target.selector, property, value, {
       selectorCandidates: target.selectorCandidates,
       nodeId: target.nodeId,
+      ...(patch.routePath ? { routePath: patch.routePath } : {}),
     }),
   );
 }
