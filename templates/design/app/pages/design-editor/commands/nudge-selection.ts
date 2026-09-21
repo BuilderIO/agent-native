@@ -85,9 +85,15 @@ export interface NudgeSelectionArgs {
 
 export function resolveNudgeTarget(
   selectedElement: ElementInfo | null,
-  selectedLayerTarget: SelectedLayerTarget | undefined,
+  selectedLayerTargets: readonly SelectedLayerTarget[],
   renderedElementInfoByLayerKey: ReadonlyMap<string, ElementInfo>,
 ): ElementInfo | null {
+  const selectedLayerTarget =
+    selectedLayerTargets.find(
+      (target) =>
+        selectedElement?.sourceId === target.layerId ||
+        selectedElement?.sourceId === target.node.id,
+    ) ?? selectedLayerTargets[0];
   return (
     (selectedLayerTarget
       ? renderedElementInfoByLayerKey.get(
@@ -193,7 +199,7 @@ export function runNudgeSelection(
   // alone silently drops the first nudge after every tree selection.
   const nudgeTarget = resolveNudgeTarget(
     selectedElement,
-    selectedLayerTargetsRef.current[0],
+    selectedLayerTargetsRef.current,
     renderedElementInfoByLayerKeyRef.current,
   );
   if (!nudgeTarget?.selector) return;

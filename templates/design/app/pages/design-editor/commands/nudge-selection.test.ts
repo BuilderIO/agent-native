@@ -18,10 +18,41 @@ describe("resolveNudgeTarget", () => {
       fileId: "screen-a",
       layerId: "box",
       elementInfo: stale,
+      node: { id: "box" },
     } as any;
 
     expect(
-      resolveNudgeTarget(stale, target, new Map([["screen-a:box", rendered]])),
+      resolveNudgeTarget(
+        stale,
+        [target],
+        new Map([["screen-a:box", rendered]]),
+      ),
+    ).toBe(rendered);
+  });
+
+  it("uses the focused layer when multiple layers are selected", () => {
+    const focused = element("30px");
+    focused.sourceId = "focused";
+    const first = {
+      fileId: "screen-a",
+      layerId: "first",
+      elementInfo: element("10px"),
+      node: { id: "first" },
+    } as any;
+    const second = {
+      fileId: "screen-a",
+      layerId: "focused",
+      elementInfo: focused,
+      node: { id: "focused" },
+    } as any;
+    const rendered = element("230px");
+
+    expect(
+      resolveNudgeTarget(
+        focused,
+        [first, second],
+        new Map([["screen-a:focused", rendered]]),
+      ),
     ).toBe(rendered);
   });
 });
