@@ -14726,6 +14726,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return "y";
     }
     if (cs.display === "grid" || cs.display === "inline-grid") {
+      if ((cs.gridAutoFlow || "row").split(/\s+/)[0] === "column") {
+        return "y";
+      }
       var cols = (cs.gridTemplateColumns || "")
         .split(" ")
         .filter(Boolean).length;

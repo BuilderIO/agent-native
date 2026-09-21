@@ -110,6 +110,7 @@ function computeAutoLayoutAxis(style: {
     ) {
       return undefined;
     }
+    if (/^column(?:-dense)?\b/i.test(style.gridAutoFlow)) return "y";
     const columns = gridTrackCount(style.gridTemplateColumns);
     return columns > 1 ? "x" : "y";
   }

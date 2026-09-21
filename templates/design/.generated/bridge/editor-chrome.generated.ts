@@ -10761,6 +10761,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return "y";
       }
       if (cs.display === "grid" || cs.display === "inline-grid") {
+        if ((cs.gridAutoFlow || "row").split(/\\s+/)[0] === "column") {
+          return "y";
+        }
         var cols = (cs.gridTemplateColumns || "").split(" ").filter(Boolean).length;
         return cols > 1 ? "x" : "y";
       }

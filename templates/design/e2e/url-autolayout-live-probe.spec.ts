@@ -318,6 +318,7 @@ test.describe("URL-backed live auto-layout probe", () => {
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .contentFrame();
+    const iframe = page.locator("iframe[data-design-preview-iframe]").first();
     const source = frame.locator('[data-agent-native-node-id="v1"]');
     const target = frame.locator('[data-agent-native-node-id="v3"]');
     const sourceBox = await source.boundingBox();
@@ -709,12 +710,17 @@ test.describe("URL-backed live auto-layout probe", () => {
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .contentFrame();
+    const iframe = page.locator("iframe[data-design-preview-iframe]").first();
     const groupA = frame.locator('[data-agent-native-node-id="group-a"]');
     const groupB = frame.locator('[data-agent-native-node-id="group-b"]');
     const occupied = frame.locator(
       '[data-agent-native-node-id="group-occupied"]',
     );
     await expect(groupA).toBeVisible({ timeout: 15_000 });
+    const iframeSrcBeforeDrag = await iframe.getAttribute("src");
+    await iframe.evaluate((element) => {
+      element.setAttribute("data-iframe-identity-regression", "stable");
+    });
     let componentDetailsRequests = 0;
     page.on("request", (request) => {
       if (
@@ -808,6 +814,11 @@ test.describe("URL-backed live auto-layout probe", () => {
       );
     await page.waitForTimeout(500);
     expect(componentDetailsRequests).toBe(0);
+    await expect(iframe).toHaveAttribute(
+      "data-iframe-identity-regression",
+      "stable",
+    );
+    await expect(iframe).toHaveAttribute("src", iframeSrcBeforeDrag ?? "");
     await page.mouse.move(
       groupABox.x + groupABox.width / 2,
       groupABox.y + groupABox.height / 2,
@@ -835,6 +846,11 @@ test.describe("URL-backed live auto-layout probe", () => {
           };
         }),
       );
+    await expect(iframe).toHaveAttribute(
+      "data-iframe-identity-regression",
+      "stable",
+    );
+    await expect(iframe).toHaveAttribute("src", iframeSrcBeforeDrag ?? "");
     expect(
       heldGuides.some(
         (guide) =>

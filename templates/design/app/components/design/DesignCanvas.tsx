@@ -2220,7 +2220,7 @@ export function DesignCanvas({
         editMode,
         editorChromeScaleX: 1,
         editorChromeScaleY: 1,
-        screenId: screenId ?? contentKey ?? "",
+        screenId: screenId ?? "",
         boardSurface,
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
@@ -2230,7 +2230,7 @@ export function DesignCanvas({
         initialSourceHead: "",
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [boardSurface, contentKey, runtimeLayerSnapshotEnabled, screenId],
+    [boardSurface, runtimeLayerSnapshotEnabled, screenId],
   );
   // Keep the installed gesture script identical between overview and focused
   // mode. The live flags are posted below; baking `isEmbeddedFrame` into the
