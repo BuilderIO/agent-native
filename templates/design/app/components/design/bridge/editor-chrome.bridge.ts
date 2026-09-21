@@ -9765,7 +9765,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function frameLabelText(frame: Element): string {
     var name =
       layerNameForElement(frame) || frame.getAttribute("aria-label") || "";
-    return name.trim() || "Frame" /* i18n-ignore canvas frame label */;
+    return name.trim() || "Frame"; /* i18n-ignore canvas frame label */
   }
 
   function selectFrameFromLabel(frame: Element, e: MouseEvent): void {
@@ -14963,20 +14963,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container,
       );
     }
-    var placementCandidates = children.concat(excluded || []);
-    var hasExplicitPlacement = placementCandidates.some(function (child) {
-      var childStyles = window.getComputedStyle(child);
-      return (
-        childStyles.gridColumnStart !== "auto" ||
-        childStyles.gridColumnEnd !== "auto" ||
-        childStyles.gridRowStart !== "auto" ||
-        childStyles.gridRowEnd !== "auto" ||
-        childStyles.order !== "0"
-      );
-    });
-    // Preserve a single-cell authored slot only for a single source already
-    // owned by this grid. Cross-grid and grouped drops must resolve the
-    // destination cell normally.
+    // Preserve authored placement for any dragged source. Cross-grid and
+    // grouped drops still need the destination cell for every authored item.
     var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
     var singleSourceStyles = singleSource
       ? window.getComputedStyle(singleSource)
@@ -14989,6 +14977,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       singleSource && trackLayout
         ? gridItemAxisPlacement(singleSource, trackLayout, "row")
         : null;
+    var sourceHasAuthoredPlacement = Boolean(
+      excluded?.some(function (source) {
+        var columnPlacement = trackLayout
+          ? gridItemAxisPlacement(source, trackLayout, "column")
+          : null;
+        var rowPlacement = trackLayout
+          ? gridItemAxisPlacement(source, trackLayout, "row")
+          : null;
+        return Boolean(
+          columnPlacement?.hasAuthoredPlacement ||
+          rowPlacement?.hasAuthoredPlacement,
+        );
+      }),
+    );
     var hasAuthoredSingleCellSourcePlacement = Boolean(
       singleSource &&
       singleSource.parentElement === container &&
@@ -15008,11 +15010,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Resolve the pointer against rendered tracks and carry the cell through
     // the drop so the source and its persisted markup move together. The
     // occupied cell is also retained as the source-order insertion anchor.
-    if (
-      trackLayout &&
-      hasExplicitPlacement &&
-      !hasAuthoredSingleCellSourcePlacement
-    ) {
+    if (trackLayout && !hasAuthoredSingleCellSourcePlacement) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
       });
@@ -15088,7 +15086,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           guideMode: displaced ? "grid-line" : "grid-cell",
           guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
-          gridCell: { column, row },
+          // Column auto-flow derives placement from source order. Persisting
+          // measured coordinates here would freeze responsive auto-flow into
+          // explicit gridColumn/gridRow styles.
+          ...(autoFlow[0] === "column" && !sourceHasAuthoredPlacement
+            ? {}
+            : { gridCell: { column, row } }),
           gridDisplacement: displaced,
         };
       }
@@ -16569,6 +16572,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var authoredSpan =
       endValue.trim().match(/^span\s+(\d+)$/) ||
       startValue.trim().match(/^span\s+(\d+)$/);
+    var hasAuthoredPlacement =
+      authoredSpan !== null ||
+      (startValue.trim() !== "auto" && startValue.trim() !== "") ||
+      (endValue.trim() !== "auto" && endValue.trim() !== "") ||
+      styles.order !== "0";
     var geometricRange = layout
       ? gridTrackRangeForRect(
           el.getBoundingClientRect(),
@@ -16587,6 +16595,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (start === null && end !== null && authoredSpan) start = end - span;
     return {
       authoredStart: start,
+      hasAuthoredPlacement: hasAuthoredPlacement,
       start: start ?? (geometricRange ? geometricRange.start + 1 : null),
       span,
     };
@@ -17047,6 +17056,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       var sourceColumn = gridItemAxisPlacement(el, sourceGridLayout, "column");
       var sourceRow = gridItemAxisPlacement(el, sourceGridLayout, "row");
+      var sourceHasAuthoredPlacement =
+        sourceColumn.hasAuthoredPlacement || sourceRow.hasAuthoredPlacement;
       var columnStart = sourceColumn.start ?? NaN;
       var columnSpan = sourceColumn.span;
       var columnEnd = columnStart + columnSpan;
@@ -17183,6 +17194,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           });
         };
         targetDisplacements.forEach(function (displaced) {
+          var displacedColumnPlacement = gridItemAxisPlacement(
+            displaced,
+            targetGridLayout,
+            "column",
+          );
+          var displacedRowPlacement = gridItemAxisPlacement(
+            displaced,
+            targetGridLayout,
+            "row",
+          );
+          var displacedHasAuthoredPlacement =
+            displacedColumnPlacement.hasAuthoredPlacement ||
+            displacedRowPlacement.hasAuthoredPlacement;
+          if (!displacedHasAuthoredPlacement) return;
           var displacedRange = gridTrackRangeForRect(
             displaced.getBoundingClientRect(),
             targetGridLayout!.columnBounds,
@@ -17275,14 +17300,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           displaced.style.gridRow = `${displacementPlacement.row} / ${displacementPlacement.rowEnd}`;
         });
       }
-      el.style.gridColumn = `${target.gridCell.column + 1} / ${target.gridCell.column + 1 + columnSpan}`;
-      el.style.gridRow = `${target.gridCell.row + 1} / ${target.gridCell.row + 1 + rowSpan}`;
-      target.gridPlacement = {
-        column: target.gridCell.column + 1,
-        columnEnd: target.gridCell.column + 1 + columnSpan,
-        row: target.gridCell.row + 1,
-        rowEnd: target.gridCell.row + 1 + rowSpan,
-      };
+      if (sourceHasAuthoredPlacement) {
+        el.style.gridColumn = `${target.gridCell.column + 1} / ${target.gridCell.column + 1 + columnSpan}`;
+        el.style.gridRow = `${target.gridCell.row + 1} / ${target.gridCell.row + 1 + rowSpan}`;
+        target.gridPlacement = {
+          column: target.gridCell.column + 1,
+          columnEnd: target.gridCell.column + 1 + columnSpan,
+          row: target.gridCell.row + 1,
+          rowEnd: target.gridCell.row + 1 + rowSpan,
+        };
+      }
     }
     // Must run BEFORE the DOM move below: the delta math reads the member's
     // CURRENT containing block via offsetParent. Called here (the single
