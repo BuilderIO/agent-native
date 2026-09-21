@@ -67,6 +67,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/labs/actions/set-lab",
   },
   {
+    name: "get-chatgpt-subscription-status",
+    specifier:
+      "@agent-native/core/agent/actions/get-chatgpt-subscription-status",
+  },
+  {
+    name: "disconnect-chatgpt-subscription",
+    specifier:
+      "@agent-native/core/agent/actions/disconnect-chatgpt-subscription",
+  },
+  {
     name: "get-hosted-harness-config",
     specifier:
       "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",
