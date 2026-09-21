@@ -458,6 +458,34 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     ).toBe("x");
   });
 
+  it("skips an occupied explicit grid column during auto placement", () => {
+    const screen = {
+      id: "grid-occupancy-screen",
+      filename: "grid-occupancy-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:grid;grid-template-columns:100px 100px;grid-template-rows:50px 50px">
+          <div data-agent-native-node-id="explicit" data-an-primitive="rectangle" style="grid-column:2;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="first-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="second-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    expect(parsePrimitivesFromScreen(screen)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "first-auto",
+          localLeft: 0,
+          localTop: 0,
+        }),
+        expect.objectContaining({
+          nodeId: "second-auto",
+          localLeft: 100,
+          localTop: 50,
+        }),
+      ]),
+    );
+  });
+
   it("keeps nested minmax functions inside a repeat track", () => {
     const screen = {
       ...flexScreen,
