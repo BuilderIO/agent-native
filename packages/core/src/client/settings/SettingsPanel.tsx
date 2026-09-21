@@ -5,6 +5,7 @@ import {
   TextField,
 } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import {
   Command,
   CommandEmpty,
@@ -139,24 +140,6 @@ import {
   useSettingsPanelController,
 } from "./useSettingsPanelController.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
-
-const Button = React.forwardRef<
-  HTMLButtonElement,
-  React.ComponentPropsWithoutRef<typeof ToolkitButton>
->(({ className, ...props }, ref) => (
-  <ToolkitButton
-    ref={ref}
-    variant="ghost"
-    className={cn(
-      "h-auto p-0 hover:bg-transparent active:scale-100 [&_svg]:!size-auto",
-      props.emphasis === "solid" ? null : "hover:text-inherit",
-      className,
-    )}
-    {...props}
-  />
-));
-Button.displayName = "SettingsPrimitiveButton";
-
 const ManageButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof ToolkitButton>

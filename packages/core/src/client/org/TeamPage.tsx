@@ -16,6 +16,7 @@ import {
   AvatarImage,
 } from "@agent-native/toolkit/ui/avatar";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import {
   Command,
@@ -64,12 +65,10 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import {
-  forwardRef,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
 
@@ -143,24 +142,6 @@ import {
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
-
-const Button = forwardRef<
-  HTMLButtonElement,
-  ComponentPropsWithoutRef<typeof ToolkitButton>
->(({ className, ...props }, ref) => (
-  <ToolkitButton
-    ref={ref}
-    variant="ghost"
-    className={cn(
-      "h-auto p-0 hover:bg-transparent active:scale-100 [&_svg]:!size-auto",
-      props.emphasis === "solid" ? null : "hover:text-inherit",
-      className,
-    )}
-    {...props}
-  />
-));
-Button.displayName = "TeamPrimitiveButton";
-
 export interface TeamPageProps {
   /**
    * Optional wrapper around the page contents. Templates pass their own Layout
