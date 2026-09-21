@@ -1514,7 +1514,7 @@ function LLMSectionInner({
                       {ollamaModels && ollamaModels.length > 0 ? (
                         <div className="flex flex-wrap gap-1.5">
                           {ollamaModels.map((modelOption) => (
-                            <button
+                            <Button
                               key={modelOption}
                               type="button"
                               disabled={saving}
@@ -1536,7 +1536,7 @@ function LLMSectionInner({
                               )}
                             >
                               {modelOption}
-                            </button>
+                            </Button>
                           ))}
                         </div>
                       ) : null}
@@ -1898,8 +1898,13 @@ function AppDefaultModelPicker({
   // The static catalog only has the curated suggestion models for Ollama.
   // Ask the configured Ollama server what it actually has installed and
   // swap those in — a second, later render, so it never blocks this
-  // picker's first paint on a local network round trip.
+  // picker's first paint on a local network round trip. Gated on the
+  // popover actually being opened (a deliberate user action), not merely
+  // Ollama's presence in the catalog, which it always has by default —
+  // an unconditional probe would 502 for the vast majority of setups that
+  // never touched Ollama and never even open this picker.
   useEffect(() => {
+    if (!open) return;
     if (!engines.some((engine) => engine.name === "ai-sdk:ollama")) return;
     let cancelled = false;
     void fetchOllamaModels()
@@ -1912,7 +1917,7 @@ function AppDefaultModelPicker({
     return () => {
       cancelled = true;
     };
-  }, [engines]);
+  }, [open, engines]);
   const selectedModel = value.includes("::")
     ? value.slice(value.indexOf("::") + 2)
     : null;
@@ -2108,11 +2113,12 @@ function AppModelDefaultsSectionInner({
   // The static catalog only has the curated suggestion models for Ollama.
   // Ask the configured Ollama server what it actually has installed and
   // swap those in — a second, later render, so it never blocks this
-  // section's first paint on a local network round trip.
+  // section's first paint on a local network round trip. Gated on Ollama
+  // actually being the selected engine here (not merely present in the
+  // catalog, which it always is by default) — an unconditional probe would
+  // 502 for the vast majority of setups that never touched Ollama.
   useEffect(() => {
-    if (!settings?.engines.some((engine) => engine.name === "ai-sdk:ollama")) {
-      return;
-    }
+    if (selectedEngine !== "ai-sdk:ollama") return;
     let cancelled = false;
     void fetchOllamaModels()
       .then((models) => {
@@ -2124,7 +2130,7 @@ function AppModelDefaultsSectionInner({
     return () => {
       cancelled = true;
     };
-  }, [settings]);
+  }, [selectedEngine]);
 
   if (!loading && !settings) return null;
 

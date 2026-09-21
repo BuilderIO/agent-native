@@ -315,8 +315,12 @@ export function useChatModels({
           // Ollama. Once the engine list is in, ask the configured Ollama
           // server what it actually has installed and swap those in — a
           // second, later render, so it never blocks the picker's first
-          // paint on a local network round trip.
-          if (enginesData.engines.some((e) => e.name === "ai-sdk:ollama")) {
+          // paint on a local network round trip. Gated on Ollama actually
+          // being the current engine (not merely present in the catalog,
+          // which it always is): every app registers it by default, so an
+          // unconditional probe would 502 on every chat load for the vast
+          // majority of setups that never touched Ollama.
+          if (currentEngineName === "ai-sdk:ollama") {
             void fetchOllamaModels()
               .then((liveModels) => {
                 if (!isCurrentRefresh() || liveModels.length === 0) return;
