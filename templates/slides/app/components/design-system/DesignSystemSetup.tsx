@@ -1435,24 +1435,14 @@ function BuilderSourceStatus({
   const t = useT();
   const docs = builder.docCount ?? builder.docs?.length ?? 0;
   const tokens = Object.keys(builder.tokenValues ?? {}).length;
-  const normalizedStatus = builder.builderStatus?.toLowerCase();
 
-  // Primary indicator: if docCount > 0, indexing is complete regardless of status.
-  // This is more robust than status alone, which can get stuck.
+  // docCount > 0 is proof indexing completed, independent of status stability (ENG-13035)
   const hasIndexedResults = docs > 0 || tokens > 0;
-  const isTerminalFailure = ["error", "failed", "cancelled", "canceled"].includes(
-    normalizedStatus ?? "",
-  );
-  const isIndexing = ["in-progress", "pending", "processing"].includes(
-    normalizedStatus ?? "",
-  );
   const state = hasIndexedResults
     ? "indexed"
-    : builder.warning || isTerminalFailure
+    : builder.warning
       ? "unavailable"
-      : isIndexing
-        ? "indexing"
-        : "indexing"; // Fallback for uninitialized/unknown status
+      : "indexing";
   const sourceKind = builder.sourceKind;
   const SourceIcon =
     sourceKind === "figma"
