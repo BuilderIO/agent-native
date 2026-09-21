@@ -15901,7 +15901,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var deepestContainer = null;
     var deepestDepth = -1;
-    document.querySelectorAll("*").forEach(function (node) {
+    var pointCandidates = document.elementsFromPoint
+      ? document.elementsFromPoint(clientX, clientY)
+      : [hit];
+    pointCandidates.forEach(function (node) {
       if (!isContainerDropTarget(node) || isDraggedOrInsideDragged(node))
         return;
       var rect = node.getBoundingClientRect();
