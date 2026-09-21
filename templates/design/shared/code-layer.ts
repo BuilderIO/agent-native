@@ -7087,9 +7087,7 @@ function applyWrapNodes(
   const wrapperKindAttr = wrapperIsFrame
     ? ' data-an-primitive="frame"'
     : ' data-agent-native-group="true"';
-  const hasMeasuredGroupRuntime = Boolean(
-    measuredFlowGeometry && !wrapperIsFrame,
-  );
+  const hasMeasuredGroupRuntime = Boolean(measuredFlowGeometry);
   const measuredFlowAttr = hasMeasuredGroupRuntime
     ? ` ${MEASURED_FLOW_GROUP_ATTR}="true"`
     : "";
@@ -8089,8 +8087,8 @@ function applyUnwrap(
     return "unsupported";
   }
 
-  // If the wrapper itself is absolutely positioned with pixel left/top,
-  // rebase each direct child's own absolute left/top by that offset before
+  // If the wrapper has a measured flow origin or is positioned with pixel
+  // left/top, rebase each direct child's own absolute left/top before
   // splicing, so children keep their absolute screen position once
   // reparented. Re-parse the wrapper's inner HTML in isolation so child
   // element spans are relative to that fragment (matches how
@@ -8105,21 +8103,23 @@ function applyUnwrap(
   const measuredGroupTop = parsePixelLength(
     attributeValue(element, "data-agent-native-group-origin-top") ?? undefined,
   );
-  const shouldRebase =
+  const hasPositionedOffset =
     (wrapperStyle.position === "absolute" ||
       wrapperStyle.position === "relative") &&
     (wrapperLeft !== null || wrapperTop !== null);
-  const shouldRebaseMeasuredFlowGroup =
-    !shouldRebase && (measuredGroupLeft !== null || measuredGroupTop !== null);
+  const hasMeasuredFlowOrigin =
+    measuredGroupLeft !== null || measuredGroupTop !== null;
+  const shouldRebase = hasPositionedOffset || hasMeasuredFlowOrigin;
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
-  if (shouldRebase || shouldRebaseMeasuredFlowGroup) {
-    const deltaLeftPx = shouldRebase
-      ? (wrapperLeft ?? 0)
-      : (measuredGroupLeft ?? 0);
-    const deltaTopPx = shouldRebase
-      ? (wrapperTop ?? 0)
-      : (measuredGroupTop ?? 0);
+  if (shouldRebase) {
+    // A relative wrapper contributes both its normal-flow origin and its
+    // authored inset. Dropping either term shifts children when the wrapper
+    // is removed and they become siblings of the original flow parent.
+    const deltaLeftPx =
+      (measuredGroupLeft ?? 0) + (hasPositionedOffset ? (wrapperLeft ?? 0) : 0);
+    const deltaTopPx =
+      (measuredGroupTop ?? 0) + (hasPositionedOffset ? (wrapperTop ?? 0) : 0);
     const fragmentElements = parseHtmlElements(innerContent);
     const directChildren = fragmentElements.filter(
       (fe) => fe.parentIndex === undefined,

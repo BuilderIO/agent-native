@@ -459,6 +459,33 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
     expect(wrapperOpenTag).toContain("height: 19px");
   });
 
+  it("persists the measured origin for an in-flow Frame Selection wrapper", () => {
+    const content = `<body><div data-agent-native-node-id="label">Save</div></body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["label"],
+      wrapperKind: "frame",
+      sizeHints: {
+        label: { width: 35, height: 19, left: 24, top: 48 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperId = (patch.result as { wrapperNodeId?: string })
+      .wrapperNodeId;
+    const wrapperStart = patch.content.indexOf(
+      `data-agent-native-node-id="${wrapperId}"`,
+    );
+    const wrapperOpenTagEnd = patch.content.indexOf(">", wrapperStart);
+    const wrapperOpenTag = patch.content.slice(wrapperStart, wrapperOpenTagEnd);
+    expect(wrapperOpenTag).toContain(
+      'data-agent-native-group-origin-left="24px"',
+    );
+    expect(wrapperOpenTag).toContain(
+      'data-agent-native-group-origin-top="48px"',
+    );
+  });
+
   it("never overrides an explicit width/height with a hint", () => {
     const explicit = `<body>
   <div data-agent-native-node-id="box" style="position:absolute;left:0px;top:0px;width:100px;height:80px"></div>

@@ -72,6 +72,8 @@ export interface ParsedScreenPrimitive {
   autoLayoutWrapped?: boolean;
   /** Grid containers choose anchors by two-dimensional cell distance. */
   autoLayoutGrid?: boolean;
+  /** Authored stacking level used before DOM-order tie breaking. */
+  zIndex?: number;
 }
 
 function primitiveMatchesNodeId(
@@ -89,7 +91,10 @@ function isPrimitiveAncestor(
   descendant: ParsedScreenPrimitive,
   primitives: ParsedScreenPrimitive[],
 ): boolean {
-  let parentId = descendant.parentNodeId ?? descendant.parentProjectionNodeId;
+  // Projection ids are unique even when authored data-agent-native-node-id
+  // values are duplicated. Prefer that identity for ancestry; the authored
+  // id is only a legacy fallback when no projection identity exists.
+  let parentId = descendant.parentProjectionNodeId ?? descendant.parentNodeId;
   const seen = new Set<string>();
   while (parentId && !seen.has(parentId)) {
     const currentParentId = parentId;
@@ -1238,6 +1243,7 @@ export function parsePrimitivesFromScreen(
         (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
       const autoLayoutGrid =
         style.display === "grid" || style.display === "inline-grid";
+      const parsedZIndex = Number.parseInt(style.zIndex, 10);
 
       // Nearest ancestor primitive id, used to resolve direct children of a
       // container for auto-layout before/after anchor resolution — see
@@ -1267,6 +1273,7 @@ export function parsePrimitivesFromScreen(
         autoLayoutAxis,
         ...(autoLayoutWrapped ? { autoLayoutWrapped: true } : {}),
         ...(autoLayoutGrid ? { autoLayoutGrid: true } : {}),
+        ...(Number.isFinite(parsedZIndex) ? { zIndex: parsedZIndex } : {}),
       });
     });
   } catch {
@@ -1420,6 +1427,8 @@ export function getPrimitiveDropTargetForPoint(
         !isPrimitiveAncestor(bestPrimitive, primitive, primitives) &&
         !isPrimitiveAncestor(primitive, bestPrimitive, primitives)
       ) {
+        const bestZIndex = bestPrimitive.zIndex ?? 0;
+        if ((primitive.zIndex ?? 0) < bestZIndex) continue;
         // Parsed order follows DOM paint order, so the later overlapping
         // sibling is the visible target. Nested targets are handled above.
         best = {

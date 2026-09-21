@@ -2744,6 +2744,23 @@ describe("unwrap", () => {
     expect(patch.content).toContain("top: 35px");
   });
 
+  it("L3: rebases a measured flow origin and relative wrapper inset on unwrap", () => {
+    const html =
+      `<main>` +
+      `<div data-agent-native-node-id="wrapper" data-agent-native-group-wrapper="true" data-agent-native-group-origin-left="100px" data-agent-native-group-origin-top="80px" style="position:relative;left:10px;top:5px">` +
+      `<div data-agent-native-node-id="child" style="position:absolute;left:2px;top:3px">Child</div>` +
+      `</div>` +
+      `</main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("left: 112px");
+    expect(patch.content).toContain("top: 88px");
+  });
+
   it("L3: does not rebase children when the wrapper itself is not absolutely positioned", () => {
     const html =
       `<main>` +

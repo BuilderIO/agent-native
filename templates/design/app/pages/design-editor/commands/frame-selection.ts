@@ -287,14 +287,26 @@ function measureParentRelativePosition(
   const parentStyle = iframeWindow.getComputedStyle(parent);
   const borderLeft = Number.parseFloat(parentStyle.borderLeftWidth || "0");
   const borderTop = Number.parseFloat(parentStyle.borderTopWidth || "0");
+  let scrollLeft = 0;
+  let scrollTop = 0;
+  for (
+    let ancestor = element.parentElement;
+    ancestor && ancestor !== parent;
+    ancestor = ancestor.parentElement
+  ) {
+    scrollLeft += ancestor.scrollLeft;
+    scrollTop += ancestor.scrollTop;
+  }
+  scrollLeft += parent.scrollLeft;
+  scrollTop += parent.scrollTop;
   const left =
     childRect.left +
-    parent.scrollLeft -
+    scrollLeft -
     parentRect.left -
     (Number.isFinite(borderLeft) ? borderLeft : 0);
   const top =
     childRect.top +
-    parent.scrollTop -
+    scrollTop -
     parentRect.top -
     (Number.isFinite(borderTop) ? borderTop : 0);
   return Number.isFinite(left) &&

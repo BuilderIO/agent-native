@@ -56,6 +56,56 @@ describe("primitive drop target authored layout fallback", () => {
     ).toBe("front");
   });
 
+  it("honors explicit z-index before DOM order for overlapping siblings", () => {
+    const screen = {
+      id: "z-index-screen",
+      filename: "z-index-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="back" data-an-primitive="frame" style="position:absolute;z-index:10;left:0;top:0;width:200px;height:200px"></div>
+        <div data-agent-native-node-id="front" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:200px;height:200px"></div>
+      </body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 50, y: 50 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 200, height: 200 } },
+        () => ({ width: 200, height: 200 }),
+      )?.nodeId,
+    ).toBe("back");
+  });
+
+  it("uses projection ancestry when authored ids are duplicated", () => {
+    const screen = {
+      id: "duplicate-id-screen",
+      filename: "duplicate-id-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="duplicate" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px">
+          <div data-agent-native-node-id="duplicate" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 50, y: 50 },
+      null,
+      [screen],
+      { [screen.id]: { x: 0, y: 0, width: 200, height: 200 } },
+      () => ({ width: 200, height: 200 }),
+    );
+    expect(result?.nodeId).toBe("duplicate");
+    expect(
+      primitives.filter((primitive) => primitive.nodeId === "duplicate"),
+    ).toHaveLength(2);
+    expect(primitives[1]?.parentProjectionNodeId).toBe(
+      primitives[0]?.projectionIdentity?.nodeId,
+    );
+    expect(result?.targetIdentity?.nodeId).toBe(
+      primitives[1]?.projectionIdentity?.nodeId,
+    );
+  });
+
   it("treats semantic section containers as nested drop targets", () => {
     const screen = {
       id: "semantic-nested-screen",
