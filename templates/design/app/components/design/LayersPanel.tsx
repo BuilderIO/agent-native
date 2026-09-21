@@ -153,7 +153,7 @@ export interface LayersPanelSelectionIntent {
   source: "keyboard" | "pointer";
 }
 
-export interface LayersPanelMoveIntent {
+interface LayersPanelMoveIntent {
   draggedIds: string[];
   targetId: string;
   placement: "before" | "after" | "inside";
@@ -319,7 +319,7 @@ const SECTION_ELEMENT_ID = "__design_layers_elements__";
 let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
 let activeDropIntent: LayersPanelMoveIntent | null = null;
 
-export function canUseActiveDragStateForDrop(
+function canUseActiveDragStateForDrop(
   dragState: { sourceId: string; draggedIds: string[] } | null,
   dropIntent: LayersPanelMoveIntent | null,
   targetId: string,
@@ -331,6 +331,9 @@ export function canUseActiveDragStateForDrop(
     dropIntent?.targetId === targetId,
   );
 }
+
+export { canUseActiveDragStateForDrop };
+export type { LayersPanelMoveIntent };
 
 // Module-level continuous-toggle-drag state for the eye/lock icon
 // "click-drag across a run of rows" gesture (Figma parity, unique-paths.md
