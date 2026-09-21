@@ -175,7 +175,22 @@ describe("primitive drop target authored layout fallback", () => {
 
     expect(
       parsePrimitivesFromScreen(screen).map((primitive) => primitive.nodeId),
-    ).toEqual(["grid"]);
+    ).toEqual(["grid", "grid-child"]);
+  });
+
+  it("sizes an auto grid child from its authored track", () => {
+    const screen = {
+      id: "grid-auto-size-screen",
+      filename: "grid-auto-size-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:grid;grid-template-columns:100px 200px;grid-template-rows:100px">
+          <div data-agent-native-node-id="child" data-an-primitive="rectangle" style="grid-column:2;grid-row:1;width:auto;height:auto"></div>
+        </div>
+      </body></html>`,
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "child"),
+    ).toMatchObject({ localWidth: 200, localHeight: 100 });
   });
 
   it("uses flex-basis for fixed items when estimating a Fill sibling", () => {
@@ -402,6 +417,290 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     expect(second?.parentNodeId).toBe("parent");
     // Plain rectangle children are never themselves auto-layout containers.
     expect(first?.autoLayoutAxis).toBeUndefined();
+  });
+
+  it("counts repeat grid columns and respects column auto-flow", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));grid-auto-flow:row dense",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("x");
+
+    const columnFlow = {
+      ...screen,
+      content: screen.content.replace(
+        "grid-auto-flow:row dense",
+        "grid-auto-flow:column dense",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(columnFlow).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("x");
+  });
+
+  it("counts repeated tracks while ignoring multi-name grid lines", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:[a b] repeat(2, 1fr 2fr) [c d]",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("x");
+  });
+
+  it("keeps multi-name bracket groups as one grid line", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:[content-start sidebar-start] 1fr 1fr [content-end]",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("x");
+  });
+
+  it("skips an occupied explicit grid column during auto placement", () => {
+    const screen = {
+      id: "grid-occupancy-screen",
+      filename: "grid-occupancy-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:grid;grid-template-columns:100px 100px;grid-template-rows:50px 50px">
+          <div data-agent-native-node-id="explicit" data-an-primitive="rectangle" style="grid-column:2;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="first-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="second-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    expect(parsePrimitivesFromScreen(screen)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "first-auto",
+          localLeft: 0,
+          localTop: 0,
+        }),
+        expect.objectContaining({
+          nodeId: "second-auto",
+          localLeft: 0,
+          localTop: 50,
+        }),
+      ]),
+    );
+  });
+
+  it("resolves named, negative, and spanning grid starts for fallback geometry", () => {
+    const screen = {
+      id: "grid-line-variants-screen",
+      filename: "grid-line-variants-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:grid;grid-template-columns:[first] 100px [second] 100px [third] 100px;grid-template-rows:50px 50px">
+          <div data-agent-native-node-id="named" data-an-primitive="rectangle" style="grid-column:second;grid-row:1;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="negative" data-an-primitive="rectangle" style="grid-column:-2;grid-row:2;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="spanning" data-an-primitive="rectangle" style="grid-column:span 2;width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    expect(primitives).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "named",
+          localLeft: 100,
+          localTop: 0,
+        }),
+        expect.objectContaining({
+          nodeId: "negative",
+          localLeft: 200,
+          localTop: 50,
+        }),
+        expect.objectContaining({
+          nodeId: "spanning",
+          localLeft: 0,
+          localTop: 50,
+        }),
+      ]),
+    );
+  });
+
+  it("distributes remaining space above a minmax grid minimum", () => {
+    const screen = {
+      id: "grid-minmax-screen",
+      filename: "grid-minmax-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:grid;grid-template-columns:minmax(100px,1fr) 1fr;gap:10px">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    expect(parsePrimitivesFromScreen(screen)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeId: "second", localLeft: 155 }),
+      ]),
+    );
+  });
+
+  it("does not reserve row one for a one-axis explicit grid placement", () => {
+    const screen = {
+      id: "grid-one-axis-screen",
+      filename: "grid-one-axis-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:grid;grid-template-columns:100px 100px">
+          <div data-agent-native-node-id="explicit" data-an-primitive="rectangle" style="grid-column:2;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    const auto = parsePrimitivesFromScreen(screen).find(
+      (primitive) => primitive.nodeId === "auto",
+    );
+    expect(auto).toMatchObject({ localLeft: 0, localTop: 0 });
+  });
+
+  it("places later auto children on modeled implicit rows", () => {
+    const screen = {
+      id: "grid-implicit-rows-screen",
+      filename: "grid-implicit-rows-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:150px;display:grid;grid-template-columns:100px 100px">
+          <div data-agent-native-node-id="explicit" data-an-primitive="rectangle" style="grid-column:2;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="first-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="second-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="third-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    const third = parsePrimitivesFromScreen(screen).find(
+      (p) => p.nodeId === "third-auto",
+    );
+    expect(third?.localLeft).toBe(100);
+    expect(third?.localTop).toBeGreaterThan(0);
+  });
+
+  it("extends a one-row grid for later auto children", () => {
+    const screen = {
+      id: "grid-explicit-row-screen",
+      filename: "grid-explicit-row-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:100px;height:200px;display:grid;grid-template-columns:100px;grid-template-rows:50px">
+          <div data-agent-native-node-id="one" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="two" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="three" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="four" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    const four = parsePrimitivesFromScreen(screen).find(
+      (primitive) => primitive.nodeId === "four",
+    );
+    expect(four?.localTop).toBeGreaterThan(0);
+    expect(Number.isFinite(four?.localTop)).toBe(true);
+  });
+
+  it("does not advertise fallback anchors for opaque auto-fit and auto-fill repeats", () => {
+    for (const repeat of ["auto-fit", "auto-fill"]) {
+      const screen = {
+        ...flexScreen,
+        content: flexScreen.content.replace(
+          "display:flex;flex-direction:row",
+          `display:grid;grid-template-columns:repeat(${repeat}, minmax(120px, 1fr))`,
+        ),
+      };
+      expect(
+        parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+          ?.autoLayoutAxis,
+      ).toBeUndefined();
+    }
+  });
+
+  it("keeps nested minmax functions inside a repeat track", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:repeat(1, minmax(0, 1fr))",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("y");
+  });
+
+  it("keeps direct grid children as before/after insertion anchors", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:repeat(2, minmax(0, 1fr))",
+      ),
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find((p) => p.nodeId === "parent")!;
+    expect(primitives.map((p) => p.nodeId)).toEqual([
+      "parent",
+      "first",
+      "second",
+    ]);
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 310, y: 135 },
+        null,
+      ),
+    ).toMatchObject({ anchorNodeId: "first", placement: "before" });
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 375, y: 135 },
+        null,
+      ),
+    ).toMatchObject({ anchorNodeId: "first", placement: "after" });
+  });
+
+  it("uses authored grid placement when resolving direct child anchors", () => {
+    const screen = {
+      ...flexScreen,
+      id: "grid-authored-position-screen",
+      content: flexScreen.content
+        .replace(
+          "display:flex;flex-direction:row",
+          "display:grid;grid-template-columns:[start] 100px [end] 200px;grid-template-rows:100px;gap:10px",
+        )
+        .replace(
+          'data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:50px;height:40px"',
+          'data-agent-native-node-id="first" data-an-primitive="rectangle" style="grid-column:2;grid-row:1;width:200px;height:100px"',
+        ),
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find((p) => p.nodeId === "parent")!;
+    expect(primitives.find((p) => p.nodeId === "first")).toMatchObject({
+      localLeft: 430,
+      localTop: 115,
+    });
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 450, y: 140 },
+        null,
+      ),
+    ).toMatchObject({ anchorNodeId: "first", placement: "before" });
   });
 
   it("findAutoLayoutInsertionAnchor resolves 'before' the nearest child when the point sits in the leading padding", () => {

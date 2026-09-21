@@ -15074,7 +15074,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // held preview and Figma's layer order.
           persistenceAnchor: displaced || container,
           persistencePlacement: displaced
-            ? pointer <= midpoint
+            ? pointer <= midpoint + 0.5
               ? "before"
               : "after"
             : "inside",
@@ -15087,7 +15087,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             height: cellBottom - cellTop,
           },
           guideMode: displaced ? "grid-line" : "grid-cell",
-          guidePlacement: pointer <= midpoint ? "before" : "after",
+          guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
           gridCell: { column, row },
           gridDisplacement: displaced,
         };

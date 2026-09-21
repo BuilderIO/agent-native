@@ -70,6 +70,8 @@ export interface ParsedScreenPrimitive {
   autoLayoutAxis?: CrossScreenDropAxis;
   /** Wrapped flex containers choose the nearest child by two-dimensional distance. */
   autoLayoutWrapped?: boolean;
+  /** Grid containers choose anchors by two-dimensional cell distance. */
+  autoLayoutGrid?: boolean;
 }
 
 function primitiveMatchesNodeId(
@@ -95,6 +97,7 @@ function computeAutoLayoutAxis(style: {
   flexDirection: string;
   flexWrap: string;
   gridTemplateColumns: string;
+  gridAutoFlow: string;
 }): CrossScreenDropAxis | undefined {
   if (style.display === "flex" || style.display === "inline-flex") {
     const direction = style.flexDirection || "row";
@@ -102,12 +105,150 @@ function computeAutoLayoutAxis(style: {
     return isRow ? "x" : "y";
   }
   if (style.display === "grid" || style.display === "inline-grid") {
-    const columns = (style.gridTemplateColumns || "")
-      .split(" ")
-      .filter(Boolean).length;
+    if (
+      /repeat\(\s*(?:auto-fit|auto-fill)\s*,/i.test(style.gridTemplateColumns)
+    ) {
+      return undefined;
+    }
+    const columns = gridTrackCount(style.gridTemplateColumns);
     return columns > 1 ? "x" : "y";
   }
   return undefined;
+}
+
+function gridTrackCount(template: string): number {
+  let count = 0;
+  for (const track of gridTemplateTokens(template)) {
+    if (/^\[[^\]]+\]$/.test(track)) continue;
+    const repeat = track.match(/^repeat\(\s*(\d+)\s*,([\s\S]+)\)$/i);
+    count += repeat ? Number(repeat[1]) * gridTrackCount(repeat[2]) : 1;
+  }
+  return count;
+}
+
+function gridTemplateTokens(template: string): string[] {
+  const tokens: string[] = [];
+  let token = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  const flush = () => {
+    if (token) tokens.push(token);
+    token = "";
+  };
+  for (const character of template.trim()) {
+    if (/\s/.test(character) && parenDepth === 0 && bracketDepth === 0) {
+      flush();
+      continue;
+    }
+    token += character;
+    if (character === "(") parenDepth += 1;
+    else if (character === ")") parenDepth = Math.max(0, parenDepth - 1);
+    else if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+  }
+  flush();
+  return tokens;
+}
+
+function gridTracks(template: string): string[] {
+  const tokens = gridTemplateTokens(template).filter(
+    (track) => track && !/^\[[^\]]+\]$/.test(track),
+  );
+  return tokens.flatMap((track) => {
+    const repeat = track.match(/^repeat\(\s*(\d+)\s*,([\s\S]+)\)$/i);
+    if (!repeat) return [track];
+    return Array.from({ length: Number(repeat[1]) }, () =>
+      gridTracks(repeat[2]),
+    ).flat();
+  });
+}
+
+function extendGridTracks(tracks: string[], minimumCount: number): string[] {
+  const result = tracks.length ? [...tracks] : ["1fr"];
+  const fill = result[result.length - 1] ?? "1fr";
+  while (result.length < minimumCount) result.push(fill);
+  return result;
+}
+
+function gridTrackPixels(
+  tracks: string[],
+  available: number,
+  gap: number,
+): number[] {
+  const fixed = tracks.map((track) => {
+    const px = cssPixelNumber(track);
+    if (px) return { size: px, fr: 0 };
+    const minmax = track.match(
+      /^minmax\(\s*(\d+(?:\.\d+)?)px\s*,\s*([^,]+)\)$/i,
+    );
+    const fr = (minmax?.[2] ?? track).match(/(?:^|,)\s*(\d+(?:\.\d+)?)fr/);
+    return {
+      size: minmax ? Number(minmax[1]) : 0,
+      fr: fr ? Number(fr[1]) : 0,
+    };
+  });
+  const remaining = Math.max(
+    0,
+    available -
+      gap * Math.max(0, tracks.length - 1) -
+      fixed.reduce((sum, item) => sum + (item.fr ? 0 : item.size), 0),
+  );
+  const frTotal = fixed.reduce((sum, item) => sum + item.fr, 0);
+  return fixed.map((item) =>
+    item.fr
+      ? Math.max(item.size, frTotal ? (remaining * item.fr) / frTotal : 0)
+      : item.size,
+  );
+}
+
+function gridLine(template: string, value: string, fallback: number): number {
+  if (/^span(?:\s|$)/i.test(value.trim())) return fallback;
+  const numeric = Number.parseInt(value, 10);
+  if (Number.isFinite(numeric)) {
+    return numeric < 0
+      ? Math.max(1, gridTrackCount(template) + numeric + 2)
+      : numeric;
+  }
+  const match = value.match(/^(?:[\w-]+\s+)?([\w-]+)$/)?.[1];
+  if (!match) return fallback;
+  for (const group of template.matchAll(/\[([^\]]+)\]/g)) {
+    if (group[1].split(/\s+/).includes(match)) {
+      return gridTrackCount(template.slice(0, group.index ?? 0)) + 1;
+    }
+  }
+  return fallback;
+}
+
+function gridStartValue(
+  style: CSSStyleDeclaration,
+  axis: "column" | "row",
+): string {
+  const start = axis === "column" ? style.gridColumnStart : style.gridRowStart;
+  if (start) return start;
+  const shorthand = axis === "column" ? style.gridColumn : style.gridRow;
+  return shorthand.split("/")[0]?.trim() ?? "";
+}
+
+function gridStartIndex(
+  style: CSSStyleDeclaration,
+  axis: "column" | "row",
+  template: string,
+): number | undefined {
+  const value = gridStartValue(style, axis);
+  if (!value || /^auto$/i.test(value)) return undefined;
+  const line = gridLine(template, value, Number.NaN);
+  return Number.isFinite(line) ? line : undefined;
+}
+
+function gridSpan(style: CSSStyleDeclaration, axis: "column" | "row") {
+  const shorthand = axis === "column" ? style.gridColumn : style.gridRow;
+  const end = axis === "column" ? style.gridColumnEnd : style.gridRowEnd;
+  const values = [gridStartValue(style, axis), end, shorthand.split("/")[1]];
+  for (const value of values) {
+    const match = value?.trim().match(/^span\s+(\d+)/i);
+    if (match) return Math.max(1, Number(match[1]));
+  }
+  return 1;
 }
 
 /**
@@ -153,12 +294,20 @@ export function findAutoLayoutInsertionAnchor(
         ? sibling.localLeft + sibling.localWidth / 2
         : sibling.localTop + sibling.localHeight / 2;
     const pointer = axis === "x" ? localPoint.x : localPoint.y;
-    const distance = container.autoLayoutWrapped
-      ? Math.hypot(
-          localPoint.x - (sibling.localLeft + sibling.localWidth / 2),
-          localPoint.y - (sibling.localTop + sibling.localHeight / 2),
-        )
-      : Math.abs(pointer - center);
+    const gridHasRows =
+      container.autoLayoutGrid === true &&
+      screenPrimitives.some(
+        (candidate) =>
+          candidate.parentNodeId === container.nodeId &&
+          candidate.localTop !== sibling.localTop,
+      );
+    const distance =
+      container.autoLayoutWrapped || gridHasRows
+        ? Math.hypot(
+            localPoint.x - (sibling.localLeft + sibling.localWidth / 2),
+            localPoint.y - (sibling.localTop + sibling.localHeight / 2),
+          )
+        : Math.abs(pointer - center);
     if (distance < bestDistance) {
       bestDistance = distance;
       best = sibling;
@@ -404,6 +553,37 @@ function parentContentSize(
   return style.boxSizing === "border-box" ? Math.max(0, size - padding) : size;
 }
 
+function authoredGridTrackSize(
+  element: Element,
+  parent: Element,
+  axis: AuthoredSizeAxis,
+  reference: number,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  const parentStyle = (parent as HTMLElement).style;
+  const template =
+    axis === "x"
+      ? parentStyle.gridTemplateColumns
+      : parentStyle.gridTemplateRows;
+  const tracks = gridTracks(template);
+  const line = gridStartIndex(
+    (element as HTMLElement).style,
+    axis === "x" ? "column" : "row",
+    template,
+  );
+  if (!tracks.length || line === undefined || line < 1) return reference;
+  return (
+    gridTrackPixels(
+      tracks,
+      parentContentSize(parent, axis, cache, visiting),
+      cssPixelNumber(
+        parentStyle[axis === "x" ? "columnGap" : "rowGap"] || parentStyle.gap,
+      ),
+    )[line - 1] ?? reference
+  );
+}
+
 function flexItemBaseSize(
   element: Element,
   axis: AuthoredSizeAxis,
@@ -564,7 +744,16 @@ function authoredElementSize(
           );
         } else if (mainAxis === axis) {
           size = flexItemBaseSize(element, axis, reference, cache, visiting);
-        } else if (mainAxis !== axis || parentIsGrid) {
+        } else if (parentIsGrid) {
+          size = authoredGridTrackSize(
+            element,
+            parent,
+            axis,
+            reference,
+            cache,
+            visiting,
+          );
+        } else if (mainAxis !== axis) {
           const alignSelf =
             style.alignSelf || parentStyle.alignItems || "stretch";
           if (alignSelf === "stretch" || parentIsGrid) size = reference;
@@ -588,11 +777,16 @@ function authoredElementSize(
   return resolved;
 }
 
-function hasUnsupportedGridAncestor(element: Element) {
+function hasNestedGridAncestor(element: Element) {
   let ancestor = element.parentElement;
   while (ancestor) {
     const display = (ancestor as HTMLElement).style.display;
-    if (display === "grid" || display === "inline-grid") return true;
+    if (
+      (display === "grid" || display === "inline-grid") &&
+      ancestor !== element.parentElement
+    ) {
+      return true;
+    }
     ancestor = ancestor.parentElement;
   }
   return false;
@@ -724,6 +918,7 @@ export function authoredElementPosition(
       const index = siblings.indexOf(cursor);
       const display = parentStyle.display;
       const isFlex = display === "flex" || display === "inline-flex";
+      const isGrid = display === "grid" || display === "inline-grid";
       const isRow =
         isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
       const gap = isFlex ? flexMainAxisGap(parent, isRow ? "x" : "y") : 0;
@@ -731,7 +926,162 @@ export function authoredElementPosition(
         if (isRow) x += inlineNumber(cursor, "marginLeft");
         else y += inlineNumber(cursor, "marginTop");
       }
-      if (index > 0) {
+      if (isGrid) {
+        const columnValue = gridStartValue(style, "column");
+        const rowValue = gridStartValue(style, "row");
+        const autoChildren = siblings.filter(
+          (sibling) => !isOutOfFlow(sibling),
+        );
+        const columns = gridTracks(parentStyle.gridTemplateColumns);
+        const rows = gridTracks(parentStyle.gridTemplateRows);
+        const baseColumnCount = Math.max(1, columns.length);
+        const baseRowCount = Math.max(1, rows.length);
+        const columnTracks = extendGridTracks(
+          columns,
+          parentStyle.gridAutoFlow.includes("column")
+            ? Math.ceil(autoChildren.length / baseRowCount)
+            : baseColumnCount,
+        );
+        const rowTracks = extendGridTracks(
+          rows,
+          parentStyle.gridAutoFlow.includes("column")
+            ? baseRowCount
+            : Math.ceil(autoChildren.length / columnTracks.length),
+        );
+        const columnCount = columnTracks.length;
+        const rowCount = rowTracks.length;
+        const occupied = new Set<string>();
+        for (const sibling of autoChildren) {
+          const siblingStyle = (sibling as HTMLElement).style;
+          const explicitColumn = gridStartIndex(
+            siblingStyle,
+            "column",
+            parentStyle.gridTemplateColumns,
+          );
+          const explicitRow = gridStartIndex(
+            siblingStyle,
+            "row",
+            parentStyle.gridTemplateRows,
+          );
+          if (explicitColumn !== undefined || explicitRow !== undefined) {
+            const rowStart = explicitRow ?? 1;
+            const rowEnd = rowStart + gridSpan(siblingStyle, "row");
+            const columnStart = explicitColumn ?? 1;
+            const columnEnd = columnStart + gridSpan(siblingStyle, "column");
+            for (let row = rowStart; row < rowEnd; row += 1) {
+              for (let column = columnStart; column < columnEnd; column += 1) {
+                occupied.add(`${row}:${column}`);
+              }
+            }
+          }
+        }
+        let autoSlot = 0;
+        for (const sibling of autoChildren) {
+          const siblingStyle = (sibling as HTMLElement).style;
+          const explicitColumn = gridStartIndex(
+            siblingStyle,
+            "column",
+            parentStyle.gridTemplateColumns,
+          );
+          const explicitRow = gridStartIndex(
+            siblingStyle,
+            "row",
+            parentStyle.gridTemplateRows,
+          );
+          const hasExplicit =
+            explicitColumn !== undefined || explicitRow !== undefined;
+          if (hasExplicit) continue;
+          if (parentStyle.gridAutoFlow.includes("dense")) autoSlot = 0;
+          while (true) {
+            const row = parentStyle.gridAutoFlow.includes("column")
+              ? (autoSlot % rowCount) + 1
+              : Math.floor(autoSlot / columnCount) + 1;
+            const column = parentStyle.gridAutoFlow.includes("column")
+              ? Math.floor(autoSlot / rowCount) + 1
+              : (autoSlot % columnCount) + 1;
+            const rowSpan = gridSpan(siblingStyle, "row");
+            const columnSpan = gridSpan(siblingStyle, "column");
+            const rowFitsExplicitTracks =
+              row > rowCount ? true : row + rowSpan - 1 <= rowCount;
+            const columnFitsExplicitTracks =
+              column > columnCount
+                ? true
+                : column + columnSpan - 1 <= columnCount;
+            const fitsExplicitTracks =
+              rowFitsExplicitTracks && columnFitsExplicitTracks;
+            const fits =
+              fitsExplicitTracks &&
+              Array.from({ length: rowSpan }).every((_, rowOffset) =>
+                Array.from({ length: columnSpan }).every(
+                  (_, columnOffset) =>
+                    !occupied.has(
+                      `${row + rowOffset}:${column + columnOffset}`,
+                    ),
+                ),
+              );
+            if (fits) break;
+            autoSlot += 1;
+          }
+          if (sibling === cursor) break;
+          const row = parentStyle.gridAutoFlow.includes("column")
+            ? (autoSlot % rowCount) + 1
+            : Math.floor(autoSlot / columnCount) + 1;
+          const column = parentStyle.gridAutoFlow.includes("column")
+            ? Math.floor(autoSlot / rowCount) + 1
+            : (autoSlot % columnCount) + 1;
+          for (
+            let rowOffset = 0;
+            rowOffset < gridSpan(siblingStyle, "row");
+            rowOffset += 1
+          ) {
+            for (
+              let columnOffset = 0;
+              columnOffset < gridSpan(siblingStyle, "column");
+              columnOffset += 1
+            ) {
+              occupied.add(`${row + rowOffset}:${column + columnOffset}`);
+            }
+          }
+          autoSlot += 1;
+        }
+        const autoIndex = autoSlot;
+        const column = gridLine(
+          parentStyle.gridTemplateColumns,
+          columnValue,
+          parentStyle.gridAutoFlow.includes("column")
+            ? Math.floor(autoIndex / rowCount) + 1
+            : (autoIndex % columnCount) + 1,
+        );
+        const row = gridLine(
+          parentStyle.gridTemplateRows,
+          rowValue,
+          parentStyle.gridAutoFlow.includes("column")
+            ? (autoIndex % rowCount) + 1
+            : Math.floor(autoIndex / columnCount) + 1,
+        );
+        const gapX = cssPixelNumber(parentStyle.columnGap || parentStyle.gap);
+        const gapY = cssPixelNumber(parentStyle.rowGap || parentStyle.gap);
+        const columnSizes = gridTrackPixels(
+          columnTracks,
+          parentContentSize(parent, "x", cache, visiting),
+          gapX,
+        );
+        const rowSizes = gridTrackPixels(
+          rowTracks,
+          parentContentSize(parent, "y", cache, visiting),
+          gapY,
+        );
+        if (column > 1) {
+          x += columnTracks
+            .slice(0, column - 1)
+            .reduce((sum, _track, index) => sum + columnSizes[index] + gapX, 0);
+        }
+        if (row > 1) {
+          y += rowTracks
+            .slice(0, row - 1)
+            .reduce((sum, _track, index) => sum + rowSizes[index] + gapY, 0);
+        }
+      } else if (index > 0) {
         const previous = siblings.slice(0, index);
         for (const sibling of previous as Element[]) {
           if (isOutOfFlow(sibling)) continue;
@@ -827,10 +1177,9 @@ export function parsePrimitivesFromScreen(
     nodes.forEach((element) => {
       const nodeId = element.getAttribute("data-agent-native-node-id");
       if (!nodeId) return;
-      // ponytail: grid placement stays in the live bridge; omit descendants
-      // here until authored track parsing exists instead of returning the
-      // entire grid bounds as a false hit target.
-      if (hasUnsupportedGridAncestor(element)) return;
+      // Keep direct grid children as insertion anchors, but leave deeper
+      // descendants to the live bridge until authored track parsing exists.
+      if (hasNestedGridAncestor(element)) return;
 
       const htmlElement = element as HTMLElement;
       const style = htmlElement.style;
@@ -854,10 +1203,13 @@ export function parsePrimitivesFromScreen(
         flexDirection: style.flexDirection,
         flexWrap: style.flexWrap,
         gridTemplateColumns: style.gridTemplateColumns,
+        gridAutoFlow: style.gridAutoFlow,
       });
       const autoLayoutWrapped =
         (style.display === "flex" || style.display === "inline-flex") &&
         (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
+      const autoLayoutGrid =
+        style.display === "grid" || style.display === "inline-grid";
 
       // Nearest ancestor primitive id, used to resolve direct children of a
       // container for auto-layout before/after anchor resolution — see
@@ -886,6 +1238,7 @@ export function parsePrimitivesFromScreen(
         isContainer,
         autoLayoutAxis,
         ...(autoLayoutWrapped ? { autoLayoutWrapped: true } : {}),
+        ...(autoLayoutGrid ? { autoLayoutGrid: true } : {}),
       });
     });
   } catch {

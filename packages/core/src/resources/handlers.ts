@@ -44,7 +44,9 @@ import {
   isLocalWorkspaceResourceId,
   isLegacyOrganizationWorkspaceFile,
   isLegacySharedResourceVisibleToOrganization,
+  isWorkspaceResourceOwner,
   organizationIdFromResourceOwner,
+  organizationIdFromWorkspaceResourceOwner,
   sharedResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
@@ -69,7 +71,9 @@ function canReadOwner(
   email: string,
   orgId?: string | null,
 ): boolean {
-  const ownerOrgId = organizationIdFromResourceOwner(owner);
+  const ownerOrgId =
+    organizationIdFromResourceOwner(owner) ??
+    organizationIdFromWorkspaceResourceOwner(owner);
   return (
     owner === email ||
     owner === SHARED_OWNER ||
@@ -580,8 +584,8 @@ export async function handleUpdateResource(event: any) {
     return { error: "Resource not found" };
   }
   const isLocalWorkspaceResource =
-    existing.owner === WORKSPACE_OWNER && isLocalWorkspaceResourceId(id);
-  if (existing.owner === WORKSPACE_OWNER && !isLocalWorkspaceResource) {
+    isWorkspaceResourceOwner(existing.owner) && isLocalWorkspaceResourceId(id);
+  if (isWorkspaceResourceOwner(existing.owner) && !isLocalWorkspaceResource) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }
@@ -703,14 +707,14 @@ export async function handleDeleteResource(event: any) {
     return { error: "Resource not found" };
   }
   if (
-    existing.owner === WORKSPACE_OWNER &&
+    isWorkspaceResourceOwner(existing.owner) &&
     !isLocalWorkspaceResourceId(existing.id)
   ) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }
   const isLocalWorkspaceResource =
-    existing.owner === WORKSPACE_OWNER &&
+    isWorkspaceResourceOwner(existing.owner) &&
     isLocalWorkspaceResourceId(existing.id);
   const existingOrganizationId = organizationIdFromResourceOwner(
     existing.owner,
