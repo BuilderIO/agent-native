@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { z } from "zod";
 
 import { fail, defineAction } from "../../action.js";
@@ -25,7 +27,7 @@ export default defineAction({
       fail("That agent output is no longer available.", { statusCode: 404 });
     const now = Date.now();
     const update: InstructionUpdate = {
-      id: `instruction-${now}-${Math.random().toString(36).slice(2, 10)}`,
+      id: `instruction-${randomUUID()}`,
       runId: args.runId,
       threadId: args.threadId ?? summary.threadId,
       target: args.target,

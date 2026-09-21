@@ -1,4 +1,4 @@
-import { resolveThreadAccess } from "../chat-threads/store.js";
+import { resolveThreadsAccess } from "../chat-threads/store.js";
 import {
   getFeedback,
   getInstructionUpdates,
@@ -75,7 +75,14 @@ function readThreadMessages(threadData: string): Array<{
       ) {
         return [];
       }
-      const text = messageText(message.content).trim();
+      if (!Object.prototype.hasOwnProperty.call(message, "content")) {
+        return [];
+      }
+      const content = message.content;
+      if (typeof content !== "string" && !Array.isArray(content)) {
+        return [];
+      }
+      const text = messageText(content).trim();
       return text
         ? [{ role: message.role, text, runId: messageRunId(message) }]
         : [];
@@ -96,15 +103,22 @@ function askAndAnswer(
   const askIndex = messages.findIndex(
     (message) => message.role === "user" && message.runId === summary.runId,
   );
-  const fallbackAskIndex = messages.findIndex(
-    (message) => message.role === "user",
-  );
-  const resolvedAskIndex = askIndex >= 0 ? askIndex : fallbackAskIndex;
-  const answerIndex = messages.findIndex(
-    (message, index) =>
-      message.role === "assistant" &&
-      (message.runId === summary.runId || index > resolvedAskIndex),
-  );
+  const resolvedAskIndex =
+    askIndex >= 0
+      ? askIndex
+      : messages.filter((message) => message.role === "user").length === 1
+        ? messages.findIndex((message) => message.role === "user")
+        : -1;
+  const answerIndex =
+    resolvedAskIndex < 0
+      ? -1
+      : messages.findIndex((message, index) => {
+          if (index <= resolvedAskIndex || message.role === "user") {
+            return false;
+          }
+          if (message.role !== "assistant") return false;
+          return message.runId === summary.runId || !message.runId;
+        });
   return {
     ask: resolvedAskIndex >= 0 ? messages[resolvedAskIndex]!.text : "",
     answer: answerIndex >= 0 ? messages[answerIndex]!.text : "",
@@ -139,30 +153,30 @@ export async function listOutputReviews(opts: {
     if (!updateByRun.has(update.runId)) updateByRun.set(update.runId, update);
   }
 
-  return (
-    await Promise.all(
-      summaries.map(async (summary) => {
-        const thread = summary.threadId
-          ? await resolveThreadAccess(opts.userId, summary.threadId)
-          : null;
-        if (summary.threadId && !thread) return null;
-        const { ask, answer } = askAndAnswer(
-          summary,
-          thread?.threadData ?? null,
-        );
-        return {
-          runId: summary.runId,
-          threadId: summary.threadId,
-          ask,
-          answer,
-          model: summary.model,
-          createdAt: summary.createdAt,
-          feedback: feedbackByRun.get(summary.runId) ?? [],
-          instructionUpdate: updateByRun.get(summary.runId) ?? null,
-        } satisfies OutputReviewRow;
-      }),
-    )
-  ).filter((row): row is OutputReviewRow => row !== null);
+  const threadIds = summaries.flatMap((summary) =>
+    summary.threadId ? [summary.threadId] : [],
+  );
+  const threads = await resolveThreadsAccess(opts.userId, threadIds);
+
+  return summaries
+    .map((summary) => {
+      const thread = summary.threadId
+        ? (threads.get(summary.threadId) ?? null)
+        : null;
+      if (summary.threadId && !thread) return null;
+      const { ask, answer } = askAndAnswer(summary, thread?.threadData ?? null);
+      return {
+        runId: summary.runId,
+        threadId: summary.threadId,
+        ask,
+        answer,
+        model: summary.model,
+        createdAt: summary.createdAt,
+        feedback: feedbackByRun.get(summary.runId) ?? [],
+        instructionUpdate: updateByRun.get(summary.runId) ?? null,
+      } satisfies OutputReviewRow;
+    })
+    .filter((row): row is OutputReviewRow => row !== null);
 }
 
 function groupByRun(entries: FeedbackEntry[]): Map<string, FeedbackEntry[]> {

@@ -16,7 +16,7 @@ import {
   IconAlertTriangle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
@@ -705,10 +705,21 @@ function ReviewTab({ days }: { days: number }) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [feedbackNote, setFeedbackNote] = useState("");
   const [instruction, setInstruction] = useState("");
+  const [instructionSaved, setInstructionSaved] = useState(false);
   const [target, setTarget] = useState<"agent" | "developer" | "skill">(
     "agent",
   );
   const selected = reviews?.find((review) => review.runId === selectedRunId);
+
+  useEffect(() => {
+    if (
+      selectedRunId &&
+      reviews &&
+      !reviews.some((review) => review.runId === selectedRunId)
+    ) {
+      setSelectedRunId(null);
+    }
+  }, [reviews, selectedRunId]);
 
   if (isLoading) return <LoadingState />;
   if (!reviews || reviews.length === 0) {
@@ -719,6 +730,7 @@ function ReviewTab({ days }: { days: number }) {
     setSelectedRunId((current) => (current === runId ? null : runId));
     setFeedbackNote("");
     setInstruction("");
+    setInstructionSaved(false);
     setTarget("agent");
   };
 
@@ -773,6 +785,7 @@ function ReviewTab({ days }: { days: number }) {
         onSuccess: () => {
           setFeedbackNote("");
           setInstruction("");
+          setInstructionSaved(true);
           setTarget("agent");
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-observability-reviews"],
@@ -940,9 +953,10 @@ function ReviewTab({ days }: { days: number }) {
                               </div>
                               <textarea
                                 value={instruction}
-                                onChange={(event) =>
-                                  setInstruction(event.target.value)
-                                }
+                                onChange={(event) => {
+                                  setInstruction(event.target.value);
+                                  setInstructionSaved(false);
+                                }}
                                 rows={4}
                                 className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
                                 placeholder={t(
@@ -958,7 +972,7 @@ function ReviewTab({ days }: { days: number }) {
                                 }
                                 className="mt-2 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
                               >
-                                {instructionMutation.isSuccess
+                                {instructionSaved
                                   ? t("observability.draftSaved")
                                   : t("observability.saveUpdate")}
                               </button>

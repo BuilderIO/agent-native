@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockResolveThreadAccess = vi.hoisted(() => vi.fn());
+const mockResolveThreadsAccess = vi.hoisted(() => vi.fn());
 const mockGetTraceSummaries = vi.hoisted(() => vi.fn());
 const mockGetFeedback = vi.hoisted(() => vi.fn());
 const mockGetInstructionUpdates = vi.hoisted(() => vi.fn());
 
 vi.mock("../chat-threads/store.js", () => ({
-  resolveThreadAccess: (...args: unknown[]) => mockResolveThreadAccess(...args),
+  resolveThreadsAccess: (...args: unknown[]) =>
+    mockResolveThreadsAccess(...args),
 }));
 
 vi.mock("./store.js", () => ({
@@ -40,27 +41,34 @@ describe("listOutputReviews", () => {
       },
     ]);
     mockGetInstructionUpdates.mockResolvedValue([]);
-    mockResolveThreadAccess.mockResolvedValue({
-      ownerEmail: "alice@example.com",
-      threadData: JSON.stringify({
-        messages: [
+    mockResolveThreadsAccess.mockResolvedValue(
+      new Map([
+        [
+          "thread-1",
           {
-            message: {
-              role: "user",
-              content: [{ type: "text", text: "Summarize this" }],
-              metadata: { custom: { submittedRunId: "run-1" } },
-            },
-          },
-          {
-            message: {
-              role: "assistant",
-              content: [{ type: "text", text: "Here is the summary." }],
-              metadata: { runId: "run-1" },
-            },
+            ownerEmail: "alice@example.com",
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "user",
+                    content: [{ type: "text", text: "Summarize this" }],
+                    metadata: { custom: { submittedRunId: "run-1" } },
+                  },
+                },
+                {
+                  message: {
+                    role: "assistant",
+                    content: [{ type: "text", text: "Here is the summary." }],
+                    metadata: { runId: "run-1" },
+                  },
+                },
+              ],
+            }),
           },
         ],
-      }),
-    });
+      ]),
+    );
   });
 
   it("pairs a run's ask and answer and groups human feedback", async () => {
@@ -81,7 +89,7 @@ describe("listOutputReviews", () => {
   });
 
   it("does not return a thread owned by another user", async () => {
-    mockResolveThreadAccess.mockResolvedValueOnce(null);
+    mockResolveThreadsAccess.mockResolvedValueOnce(new Map());
     await expect(
       listOutputReviews({
         sinceMs: 0,
@@ -89,5 +97,66 @@ describe("listOutputReviews", () => {
         userId: "alice@example.com",
       }),
     ).resolves.toEqual([]);
+  });
+
+  it("does not cross-pair an unmatched run with another ask and answer", async () => {
+    mockGetTraceSummaries.mockResolvedValueOnce([
+      {
+        runId: "run-missing",
+        threadId: "thread-1",
+        model: "test-model",
+        createdAt: 123,
+      },
+    ]);
+    mockResolveThreadsAccess.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            ownerEmail: "alice@example.com",
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "user",
+                    content: "First ask",
+                    metadata: { runId: "run-1" },
+                  },
+                },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "First answer",
+                    metadata: { runId: "run-1" },
+                  },
+                },
+                {
+                  message: {
+                    role: "user",
+                    content: "Second ask",
+                    metadata: { runId: "run-2" },
+                  },
+                },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "Second answer",
+                    metadata: { runId: "run-2" },
+                  },
+                },
+              ],
+            }),
+          },
+        ],
+      ]),
+    );
+
+    await expect(
+      listOutputReviews({
+        sinceMs: 0,
+        limit: 10,
+        userId: "alice@example.com",
+      }),
+    ).resolves.toMatchObject([{ ask: "", answer: "" }]);
   });
 });
