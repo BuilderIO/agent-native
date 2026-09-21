@@ -70,6 +70,16 @@ const STANDALONE_API_KEY_PATTERN =
 const CREDENTIAL_NAME =
   "authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token";
 
+const UNQUOTED_CREDENTIAL_TERMINATORS = new Set([
+  ",",
+  ";",
+  ")",
+  "}",
+  "]",
+  "\n",
+  "\r",
+]);
+
 export function sha256Hex(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
@@ -141,26 +151,96 @@ function dropMcpSecretFields(value: unknown): {
   return { value: next, redacted };
 }
 
+function endOfQuotedCredentialValue(
+  input: string,
+  start: number,
+  quote: '"' | "'",
+): number | null {
+  let index = start + 1;
+  while (index < input.length) {
+    const char = input[index];
+    if (char === "\\") {
+      index += index + 1 < input.length ? 2 : 1;
+      continue;
+    }
+    if (quote === "'" && char === "'" && input[index + 1] === "'") {
+      index += 2;
+      continue;
+    }
+    if (char === quote) return index + 1;
+    index += 1;
+  }
+  return null;
+}
+
+function endOfUnquotedCredentialValue(input: string, start: number): number {
+  let index = start;
+  while (
+    index < input.length &&
+    !UNQUOTED_CREDENTIAL_TERMINATORS.has(input[index] ?? "")
+  ) {
+    index += 1;
+  }
+  return index;
+}
+
+function endOfCredentialValue(input: string, start: number): number {
+  if (start >= input.length) return start;
+  const quote = input[start];
+  if (quote === '"' || quote === "'") {
+    const closed = endOfQuotedCredentialValue(input, start, quote);
+    if (closed === start + 2) return start;
+    if (closed !== null) return closed;
+  }
+  return endOfUnquotedCredentialValue(input, start);
+}
+
+function redactLabeledCredentials(value: string): {
+  content: string;
+  redacted: boolean;
+} {
+  const pattern = new RegExp(
+    `["']?\\b(?:${CREDENTIAL_NAME})\\b["']?\\s*[:=]\\s*`,
+    "gi",
+  );
+  let content = "";
+  let cursor = 0;
+  let redacted = false;
+
+  for (let match = pattern.exec(value); match; match = pattern.exec(value)) {
+    const valueStart = match.index + match[0].length;
+    const valueEnd = endOfCredentialValue(value, valueStart);
+    if (valueEnd <= valueStart) continue;
+
+    // Preserve the original quoting. Replacing the quotes along with the value
+    // would turn a redacted JSON or YAML resource into an unparseable one.
+    const quote = value[valueStart];
+    const wasQuoted =
+      (quote === '"' || quote === "'") && value[valueEnd - 1] === quote;
+
+    content += value.slice(cursor, valueStart);
+    content += wasQuoted ? `${quote}[REDACTED]${quote}` : "[REDACTED]";
+    cursor = valueEnd;
+    redacted = true;
+    pattern.lastIndex = valueEnd;
+  }
+
+  content += value.slice(cursor);
+  return { content, redacted };
+}
+
 function redactCredentialStrings(value: string): {
   content: string;
   redacted: boolean;
 } {
-  const labeledCredential = `(["']?\\b(?:${CREDENTIAL_NAME})\\b["']?\\s*[:=]\\s*["']?)`;
-  const content = value
-    .replace(
-      new RegExp(
-        `${labeledCredential}(?:Bearer|Basic)\\s+[^"'\\s,;)}\\]]+`,
-        "gi",
-      ),
-      "$1[REDACTED]",
-    )
-    .replace(
-      new RegExp(`${labeledCredential}[^"'\\s,;)}\\[\\]]+`, "gi"),
-      "$1[REDACTED]",
-    )
+  const labeled = redactLabeledCredentials(value);
+  const content = labeled.content
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
     .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
-  return { content, redacted: content !== value };
+  return {
+    content,
+    redacted: labeled.redacted || content !== labeled.content,
+  };
 }
 
 export function redactResourceContent(

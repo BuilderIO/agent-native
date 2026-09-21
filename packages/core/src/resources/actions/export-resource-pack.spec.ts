@@ -6,29 +6,29 @@ const mockResourceListAccessible = vi.fn();
 const mockResourceListOrganization = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
 
-vi.mock("../store.js", () => ({
-  SHARED_OWNER: "__shared__",
-  WORKSPACE_OWNER: "__workspace__",
-  ensurePersonalDefaults: (...args: unknown[]) =>
-    mockEnsurePersonalDefaults(...args),
-  isBinaryResourceMimeType: (mimeType: string) =>
-    mimeType.startsWith("image/") ||
-    mimeType.startsWith("audio/") ||
-    mimeType.startsWith("video/") ||
-    mimeType === "application/octet-stream",
-  packScopeFromOwner: (owner: string, userEmail: string) =>
-    owner === userEmail
-      ? "personal"
-      : owner === "__workspace__"
-        ? "workspace"
-        : "organization",
-  resourceGet: (...args: unknown[]) => mockResourceGet(...args),
-  resourceList: (...args: unknown[]) => mockResourceList(...args),
-  resourceListAccessible: (...args: unknown[]) =>
-    mockResourceListAccessible(...args),
-  resourceListOrganization: (...args: unknown[]) =>
-    mockResourceListOrganization(...args),
-}));
+vi.mock("../store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../store.js")>();
+  return {
+    SHARED_OWNER: "__shared__",
+    WORKSPACE_OWNER: "__workspace__",
+    ensurePersonalDefaults: (...args: unknown[]) =>
+      mockEnsurePersonalDefaults(...args),
+    isBinaryResourceMimeType: (mimeType: string) =>
+      actual.isBinaryResourceMimeType(mimeType),
+    packScopeFromOwner: (owner: string, userEmail: string) =>
+      owner === userEmail
+        ? "personal"
+        : owner === "__workspace__"
+          ? "workspace"
+          : "organization",
+    resourceGet: (...args: unknown[]) => mockResourceGet(...args),
+    resourceList: (...args: unknown[]) => mockResourceList(...args),
+    resourceListAccessible: (...args: unknown[]) =>
+      mockResourceListAccessible(...args),
+    resourceListOrganization: (...args: unknown[]) =>
+      mockResourceListOrganization(...args),
+  };
+});
 
 vi.mock("../../app-config/index.js", () => ({
   getAppConfig: () => ({ app: { id: "forms" } }),
@@ -161,6 +161,47 @@ describe("export-resource-pack", () => {
       { path: "notes.md", reason: "secret" },
       { path: "missing.md", reason: "unreadable" },
       { path: "mcp-servers/linear.json", reason: "secret" },
+    ]);
+  });
+
+  it("omits pdf, zip, and office documents from the pack", async () => {
+    const payloads = {
+      "brief.pdf": "pdf-bytes-must-not-export",
+      "archive.zip": "zip-bytes-must-not-export",
+      "memo.docx": "docx-bytes-must-not-export",
+    };
+    mockResourceListAccessible.mockResolvedValue([
+      meta("brief.pdf", { mimeType: "application/pdf" }),
+      meta("archive.zip", { mimeType: "application/zip" }),
+      meta("memo.docx", {
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+      meta("notes.md"),
+    ]);
+    mockResourceGet.mockImplementation(async (id: string) => {
+      if (id === "notes.md") return resource("notes.md", "keep-this-visible\n");
+      const content = payloads[id as keyof typeof payloads];
+      return content ? resource(id, content) : null;
+    });
+
+    const result = await exportResourcePack.run(
+      { scope: "accessible" },
+      { userEmail: "alice@x.com", caller: "http" },
+    );
+    const serialized = JSON.stringify(result.pack);
+
+    expect(result.pack.resources.map((entry) => entry.path)).toEqual([
+      "notes.md",
+    ]);
+    expect(serialized).toContain("keep-this-visible");
+    for (const content of Object.values(payloads)) {
+      expect(serialized).not.toContain(content);
+    }
+    expect(result.pack.redactions).toEqual([
+      { path: "brief.pdf", reason: "binary" },
+      { path: "archive.zip", reason: "binary" },
+      { path: "memo.docx", reason: "binary" },
     ]);
   });
 

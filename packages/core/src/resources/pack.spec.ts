@@ -153,4 +153,58 @@ describe("redactResourceContent", () => {
       redacted: false,
     });
   });
+
+  it("redacts spaced secrets through the closing quote and the whole unquoted value", () => {
+    const doubleQuoted = "super secret value";
+    const singleQuoted = "single quoted secret phrase";
+    const unquoted = "unquoted secret phrase";
+    const escaped = "inside escaped quote";
+    const source = [
+      `token: "${doubleQuoted}"`,
+      `password: '${singleQuoted}'`,
+      `api_key: ${unquoted}`,
+      `api-key=${unquoted}`,
+      `secret: "say \\"${escaped}\\" please"`,
+      `refresh_token: 'it\\'s ${singleQuoted}'`,
+      "keep-this-visible",
+    ].join("\n");
+
+    const result = redactResourceContent("AGENTS.md", source);
+    const pack = buildResourcePack(
+      [{ path: "AGENTS.md", scope: "personal", content: result.content }],
+      { exportedAt: 1, source: { scope: "personal" } },
+    );
+    const serialized = JSON.stringify(pack);
+
+    expect(result.redacted).toBe(true);
+    expect(serialized).toContain("[REDACTED]");
+    expect(serialized).toContain("keep-this-visible");
+    for (const secret of [doubleQuoted, singleQuoted, unquoted, escaped]) {
+      expect(result.content).not.toContain(secret);
+      expect(serialized).not.toContain(secret);
+    }
+  });
+
+  it("keeps redacted JSON parseable by preserving the quoting", () => {
+    const secret = "json secret value";
+    const source = JSON.stringify({ token: secret, keep: "visible" });
+
+    const result = redactResourceContent("config.json", source);
+
+    expect(result.redacted).toBe(true);
+    expect(result.content).not.toContain(secret);
+    // Stripping the quotes along with the value would leave `"token": [REDACTED]`,
+    // which no longer parses.
+    const reparsed = JSON.parse(result.content) as Record<string, string>;
+    expect(reparsed.token).toBe("[REDACTED]");
+    expect(reparsed.keep).toBe("visible");
+  });
+
+  it("preserves single quotes when redacting a single-quoted value", () => {
+    const secret = "single quoted secret phrase";
+
+    const result = redactResourceContent("AGENTS.md", `password: '${secret}'`);
+
+    expect(result.content).toBe("password: '[REDACTED]'");
+  });
 });

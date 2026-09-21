@@ -66,12 +66,8 @@ export function sharedResourceOwner(orgId?: string | null): string {
 }
 
 export function isBinaryResourceMimeType(mimeType: string): boolean {
-  return (
-    mimeType.startsWith("image/") ||
-    mimeType.startsWith("audio/") ||
-    mimeType.startsWith("video/") ||
-    mimeType === "application/octet-stream"
-  );
+  const normalized = mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
+  return !(normalized.startsWith("text/") || normalized === "application/json");
 }
 
 export function packScopeFromOwner(
