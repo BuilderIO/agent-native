@@ -10880,15 +10880,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           container
         );
       }
-      var placementCandidates = children.concat(excluded || []);
-      var hasExplicitPlacement = placementCandidates.some(function(child) {
-        var childStyles = window.getComputedStyle(child);
-        return childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0";
-      });
       var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
       var singleSourceStyles = singleSource ? window.getComputedStyle(singleSource) : null;
       var singleSourceColumn = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "column") : null;
       var singleSourceRow = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "row") : null;
+      var sourceHasAuthoredPlacement = Boolean(
+        excluded?.some(function(source) {
+          var columnPlacement = trackLayout ? gridItemAxisPlacement(source, trackLayout, "column") : null;
+          var rowPlacement = trackLayout ? gridItemAxisPlacement(source, trackLayout, "row") : null;
+          return Boolean(
+            columnPlacement?.hasAuthoredPlacement || rowPlacement?.hasAuthoredPlacement
+          );
+        })
+      );
       var hasAuthoredSingleCellSourcePlacement = Boolean(
         singleSource && singleSource.parentElement === container && singleSourceStyles && singleSourceStyles.gridColumnStart !== "auto" && singleSourceStyles.gridColumnStart.indexOf("span") !== 0 && singleSourceStyles.gridRowStart !== "auto" && singleSourceStyles.gridRowStart.indexOf("span") !== 0 && (singleSourceStyles.gridColumnEnd === "auto" || singleSourceColumn?.span === 1) && (singleSourceStyles.gridRowEnd === "auto" || singleSourceRow?.span === 1)
       );
@@ -10896,7 +10900,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       while (hit && hit.parentElement && hit.parentElement !== container) {
         hit = hit.parentElement;
       }
-      if (trackLayout && hasExplicitPlacement && !hasAuthoredSingleCellSourcePlacement) {
+      if (trackLayout && !hasAuthoredSingleCellSourcePlacement) {
         var column = trackLayout.columnBounds.findIndex(function(bound) {
           return clientX >= bound.start && clientX <= bound.end;
         });
@@ -10949,7 +10953,10 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             guideMode: displaced ? "grid-line" : "grid-cell",
             guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
-            gridCell: { column, row },
+            // Column auto-flow derives placement from source order. Persisting
+            // measured coordinates here would freeze responsive auto-flow into
+            // explicit gridColumn/gridRow styles.
+            ...autoFlow[0] === "column" && !sourceHasAuthoredPlacement ? {} : { gridCell: { column, row } },
             gridDisplacement: displaced
           };
         }
@@ -11431,7 +11438,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           if (rootChildSlot) return rootChildSlot;
         }
-        if (parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && !isTextBearingLeaf(parent) && !forceNestedAutoLayout && !isTemplateCloneElement(cursor)) {
+        if (parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && (!isContainerDropTarget(cursor) || cursor.tagName.toLowerCase() !== "section" || isTemplateCloneElement(cursor)) && !isTextBearingLeaf(parent) && !forceNestedAutoLayout && !isTemplateCloneElement(cursor)) {
           var directChildSlot = nearestChildInsertionTarget(
             parent,
             clientX,
@@ -11459,7 +11466,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             dropMode: "absolute-container"
           };
         }
-        if (cursor !== document.body && isContainerDropTarget(cursor) && !(!forceNestedAutoLayout && parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame")) {
+        if (cursor !== document.body && isContainerDropTarget(cursor) && !(!forceNestedAutoLayout && parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && (cursor.tagName.toLowerCase() !== "section" || isTemplateCloneElement(cursor)))) {
           if (!isAutoLayoutElement(cursor)) {
             if (cursor === el.parentElement) return null;
             return {
@@ -11829,6 +11836,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var start = gridLinePosition(startValue, layout, axis);
       var end = gridLinePosition(endValue, layout, axis);
       var authoredSpan = endValue.trim().match(/^span\\s+(\\d+)$/) || startValue.trim().match(/^span\\s+(\\d+)$/);
+      var hasAuthoredPlacement = authoredSpan !== null || startValue.trim() !== "auto" && startValue.trim() !== "" || endValue.trim() !== "auto" && endValue.trim() !== "" || styles.order !== "0";
       var geometricRange = layout ? gridTrackRangeForRect(
         el.getBoundingClientRect(),
         axis === "column" ? layout.columnBounds : layout.rowBounds,
@@ -11839,6 +11847,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (start === null && end !== null && authoredSpan) start = end - span;
       return {
         authoredStart: start,
+        hasAuthoredPlacement,
         start: start ?? (geometricRange ? geometricRange.start + 1 : null),
         span
       };
@@ -12091,6 +12100,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var sourceColumn = gridItemAxisPlacement(el, sourceGridLayout, "column");
         var sourceRow = gridItemAxisPlacement(el, sourceGridLayout, "row");
+        var sourceHasAuthoredPlacement = sourceColumn.hasAuthoredPlacement || sourceRow.hasAuthoredPlacement;
         var columnStart = sourceColumn.start ?? NaN;
         var columnSpan = sourceColumn.span;
         var columnEnd = columnStart + columnSpan;
@@ -12169,6 +12179,18 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           };
           targetDisplacements.forEach(function(displaced) {
+            var displacedColumnPlacement = gridItemAxisPlacement(
+              displaced,
+              targetGridLayout,
+              "column"
+            );
+            var displacedRowPlacement = gridItemAxisPlacement(
+              displaced,
+              targetGridLayout,
+              "row"
+            );
+            var displacedHasAuthoredPlacement = displacedColumnPlacement.hasAuthoredPlacement || displacedRowPlacement.hasAuthoredPlacement;
+            if (!displacedHasAuthoredPlacement) return;
             var displacedRange = gridTrackRangeForRect(
               displaced.getBoundingClientRect(),
               targetGridLayout.columnBounds,
@@ -12235,14 +12257,16 @@ export const editorChromeBridgeScript: string = `"use strict";
             displaced.style.gridRow = \`\${displacementPlacement.row} / \${displacementPlacement.rowEnd}\`;
           });
         }
-        el.style.gridColumn = \`\${target.gridCell.column + 1} / \${target.gridCell.column + 1 + columnSpan}\`;
-        el.style.gridRow = \`\${target.gridCell.row + 1} / \${target.gridCell.row + 1 + rowSpan}\`;
-        target.gridPlacement = {
-          column: target.gridCell.column + 1,
-          columnEnd: target.gridCell.column + 1 + columnSpan,
-          row: target.gridCell.row + 1,
-          rowEnd: target.gridCell.row + 1 + rowSpan
-        };
+        if (sourceHasAuthoredPlacement) {
+          el.style.gridColumn = \`\${target.gridCell.column + 1} / \${target.gridCell.column + 1 + columnSpan}\`;
+          el.style.gridRow = \`\${target.gridCell.row + 1} / \${target.gridCell.row + 1 + rowSpan}\`;
+          target.gridPlacement = {
+            column: target.gridCell.column + 1,
+            columnEnd: target.gridCell.column + 1 + columnSpan,
+            row: target.gridCell.row + 1,
+            rowEnd: target.gridCell.row + 1 + rowSpan
+          };
+        }
       }
       rebaseAbsoluteMemberForContainerDrop(el, target);
       var persistenceAnchor = target.persistenceAnchor || target.anchor;
@@ -15881,7 +15905,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       return Boolean(child);
     }
     var crossScreenClaimedByHost = false;
+    var lastPointerDownTimestamp = 0;
     function beginPotentialShieldDrag(e) {
+      if (readOnly) return;
+      if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
+        return;
+      }
+      if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
       stopNativeInteraction(e);
       clearGridProjectionCaches();
       pendingMoveCommitRevert = null;
@@ -16031,6 +16061,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       true
     );
     shieldOverlay.addEventListener("pointerdown", beginPotentialShieldDrag, true);
+    shieldOverlay.addEventListener("mousedown", beginPotentialShieldDrag, true);
+    document.addEventListener(
+      "pointerdown",
+      function(e) {
+        if (isOverlayElement(e.target)) return;
+        if (e.button === 0) beginPotentialShieldDrag(e);
+      },
+      true
+    );
+    document.addEventListener(
+      "mousedown",
+      function(e) {
+        if (isOverlayElement(e.target)) return;
+        if (e.button === 0) beginPotentialShieldDrag(e);
+      },
+      true
+    );
     shieldOverlay.addEventListener("wheel", scrollUnderlyingElementAtWheel, {
       passive: false,
       capture: true
@@ -16889,64 +16936,89 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
-    shieldOverlay.addEventListener(
+    function handleShieldPointerMove(e) {
+      if (readOnly) return;
+      stopNativeInteraction(e);
+      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
+      hoveredEl = resolveHoverTarget(
+        e.clientX,
+        e.clientY,
+        e.metaKey || e.ctrlKey
+      );
+      if (!hoveredEl) {
+        highlightOverlay.style.display = "none";
+        if (!spacingDrag) {
+          scheduleSpacingHoverClear(e);
+        }
+        hideMeasurements();
+        lastHoverInfoPostedEl = null;
+        return;
+      }
+      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+        return;
+      if (!spacingDrag) {
+        var hoveringSelectedSpacingSurface = Boolean(
+          selectedEl && hoveredEl && (hoveredEl === selectedEl || selectedEl.contains && selectedEl.contains(hoveredEl))
+        );
+        if (hoveringSelectedSpacingSurface) {
+          clearSpacingHoverTimer();
+          lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
+          updateSpacingOverlay(selectedEl);
+          var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
+          if (pointSpacingKey) {
+            activateSpacingHandle(pointSpacingKey);
+          } else if (hoveredSpacingHandleKey) {
+            hoveredSpacingHandleKey = "";
+            updateSpacingOverlay(selectedEl);
+          }
+        } else {
+          scheduleSpacingHoverClear(e);
+        }
+      }
+      if (hoveredEl === selectedEl) {
+        highlightOverlay.style.display = "none";
+      } else {
+        positionOverlay(highlightOverlay, hoveredEl);
+      }
+      if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
+        showMeasurements(selectedEl, hoveredEl);
+      } else {
+        hideMeasurements();
+      }
+      if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
+        lastHoverInfoPostedEl = hoveredEl;
+        var info = getLightElementInfo(hoveredEl);
+        window.parent.postMessage(
+          { type: "element-hover", payload: info },
+          "*"
+        );
+      }
+    }
+    shieldOverlay.addEventListener("pointermove", handleShieldPointerMove, true);
+    shieldOverlay.addEventListener("mousemove", handleShieldPointerMove, true);
+    document.addEventListener(
       "pointermove",
       function(e) {
-        stopNativeInteraction(e);
-        lastHoverClientPoint = { x: e.clientX, y: e.clientY };
-        hoveredEl = resolveHoverTarget(
-          e.clientX,
-          e.clientY,
-          e.metaKey || e.ctrlKey
-        );
-        if (!hoveredEl) {
-          highlightOverlay.style.display = "none";
-          if (!spacingDrag) {
-            scheduleSpacingHoverClear(e);
-          }
-          hideMeasurements();
-          lastHoverInfoPostedEl = null;
+        if (isOverlayElement(e.target)) return;
+        if (pendingShieldDrag || activeDragCancel) {
+          if (e.cancelable) e.preventDefault();
+          e.stopPropagation();
           return;
         }
-        if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+        handleShieldPointerMove(e);
+      },
+      true
+    );
+    document.addEventListener(
+      "mousemove",
+      function(e) {
+        if (isOverlayElement(e.target)) return;
+        if (pendingShieldDrag || activeDragCancel) {
+          if (e.cancelable) e.preventDefault();
+          e.stopPropagation();
           return;
-        if (!spacingDrag) {
-          var hoveringSelectedSpacingSurface = Boolean(
-            selectedEl && hoveredEl && (hoveredEl === selectedEl || selectedEl.contains && selectedEl.contains(hoveredEl))
-          );
-          if (hoveringSelectedSpacingSurface) {
-            clearSpacingHoverTimer();
-            lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
-            updateSpacingOverlay(selectedEl);
-            var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
-            if (pointSpacingKey) {
-              activateSpacingHandle(pointSpacingKey);
-            } else if (hoveredSpacingHandleKey) {
-              hoveredSpacingHandleKey = "";
-              updateSpacingOverlay(selectedEl);
-            }
-          } else {
-            scheduleSpacingHoverClear(e);
-          }
         }
-        if (hoveredEl === selectedEl) {
-          highlightOverlay.style.display = "none";
-        } else {
-          positionOverlay(highlightOverlay, hoveredEl);
-        }
-        if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
-          showMeasurements(selectedEl, hoveredEl);
-        } else {
-          hideMeasurements();
-        }
-        if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
-          lastHoverInfoPostedEl = hoveredEl;
-          var info = getLightElementInfo(hoveredEl);
-          window.parent.postMessage(
-            { type: "element-hover", payload: info },
-            "*"
-          );
-        }
+        handleShieldPointerMove(e);
       },
       true
     );

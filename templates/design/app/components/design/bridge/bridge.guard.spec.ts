@@ -11108,10 +11108,10 @@ it(
 
 // ── Hover-info postMessage de-duplication (perf) ────────────────────────────
 //
-it(
-  "editor chrome bridge flow-inserts grid children and CSS grid tracks reflow when the parent resizes",
+it.each(["row", "column"] as const)(
+  "editor chrome bridge flow-inserts %s-flow grid children without freezing auto placement",
   { timeout: 30_000 },
-  async () => {
+  async (flow) => {
     const browser = await chromium.launch({ headless: true });
     const pageErrors: string[] = [];
     try {
@@ -11122,7 +11122,7 @@ it(
       await page.setContent(`<!doctype html>
 <html><head><style>
   html, body { margin: 0; width: 100%; height: 100%; }
-  #grid { position:absolute; left:100px; top:80px; width:400px; display:grid;
+  #grid { position:absolute; left:100px; top:80px; width:400px; display:grid; grid-auto-flow:${flow};
     grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,80px);
     column-gap:20px; row-gap:16px; padding:12px; }
   .cell { background:#a5b4fc; }
@@ -11179,6 +11179,26 @@ it(
       expect(structureMessages[structureMessages.length - 1]?.dropMode).toBe(
         "flow-insert",
       );
+      if (flow === "column") {
+        const styles = await page.evaluate(() =>
+          Array.from(
+            document.querySelectorAll<HTMLElement>("#grid > .cell"),
+          ).map((element) => ({
+            gridColumn: element.style.gridColumn,
+            gridRow: element.style.gridRow,
+          })),
+        );
+        expect(styles).toEqual(
+          styles.map(() => ({ gridColumn: "", gridRow: "" })),
+        );
+        expect(
+          (
+            structureMessages[structureMessages.length - 1] as {
+              gridPlacement?: unknown;
+            }
+          )?.gridPlacement,
+        ).toBeUndefined();
+      }
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -14150,6 +14170,20 @@ it("keeps the authored inline-style key list in sync with the bridge", () => {
   expect([...AUTHORED_INLINE_STYLE_PROPERTIES].sort()).toEqual(
     bridgeKeys.sort(),
   );
+});
+
+it("retains grid placement for authored grouped and cross-grid sources", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var sourceHasAuthoredPlacement = Boolean(");
+  const end = bridge.indexOf("var hasAuthoredSingleCellSourcePlacement", start);
+  expect(start).toBeGreaterThan(-1);
+  const classifier = bridge.slice(start, end);
+  expect(classifier).toContain("excluded?.some");
+  expect(classifier).toContain("hasAuthoredPlacement");
+  expect(classifier).not.toContain("parentElement === container");
 });
 
 it(

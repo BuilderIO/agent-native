@@ -1183,7 +1183,7 @@ describe("server/auth", () => {
       );
     });
 
-    it("does not set first-run onboarding for an unauthenticated callback", async () => {
+    it("sets first-run onboarding when the new-user callback has no resolved session", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
       vi.doMock("./better-auth-instance.js", () => ({
@@ -1225,7 +1225,7 @@ describe("server/auth", () => {
 
       expect(response.status).toBe(302);
       expect(response.headers.get("location")).toBe("/welcome");
-      expect(response.headers.get("set-cookie") ?? "").not.toContain(
+      expect(response.headers.get("set-cookie") ?? "").toContain(
         "agent-native-first-run=1",
       );
     });
@@ -8724,6 +8724,34 @@ describe("server/auth", () => {
       expect(html).toContain("token=token-1");
       expect(html).toContain("state=state-1");
       expect(html).not.toContain("return to Mail");
+    });
+
+    it("uses the Nightly deep link for Nightly desktop exchange completion", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 ... Electron/41.2.2 AgentNativeDesktop/0.1.7 AgentNativeDesktopNightly/0.1.7",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          {
+            desktop: true,
+            flowId: "flow-1",
+            sessionToken: "token-1",
+          },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).toContain("agentnative-nightly://oauth-complete");
+      expect(html).toContain("token=token-1");
+      expect(html).toContain("state=state-1");
+      expect(html).not.toContain("agentnative://oauth-complete");
     });
 
     it("returns a staged session cookie to a bound native WebView", async () => {

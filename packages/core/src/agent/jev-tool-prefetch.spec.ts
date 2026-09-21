@@ -243,21 +243,27 @@ describe("preloadJevTools", () => {
     ).toMatchObject({ model: "jev-latest" });
   });
 
-  it("keeps the Builder proxy disabled in production", async () => {
+  it("uses the Builder proxy in production when Builder auth is available", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
-    systemOne.mockResolvedValue({
-      answers: {
-        best_tool: {
-          probabilities: { "search-crm": 0.8, "send-email": 0.2 },
-        },
-      },
-    });
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            answers: {
+              best_tool: {
+                choice: "search-crm",
+                probabilities: { "search-crm": 0.8, "send-email": 0.2 },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
 
     await expect(
       rankJevCandidates({
-        apiKey: "jev-test-key",
         builderAuth: {
           authorization: "Bearer builder-test-token",
           spaceId: "space-test",
@@ -274,8 +280,8 @@ describe("preloadJevTools", () => {
       }),
     ).resolves.toEqual(["search-crm", "send-email"]);
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(systemOne).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalled();
+    expect(systemOne).not.toHaveBeenCalled();
   });
 
   it("ranks context candidates from metadata without sending their bodies", async () => {

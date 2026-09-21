@@ -1,5 +1,56 @@
 # @agent-native/skills
 
+## 0.2.730
+
+### Patch Changes
+
+- 58ab3d6: Emit canonical lowercase `snake_case` aliases for legacy tracking event names while retaining the original events for dashboard migration.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [8896610]
+- Updated dependencies [7123aff]
+- Updated dependencies [93d3a58]
+- Updated dependencies [5773315]
+- Updated dependencies [d956241]
+- Updated dependencies [3aff346]
+- Updated dependencies [e89db81]
+- Updated dependencies [58ab3d6]
+- Updated dependencies [03a95c4]
+- Updated dependencies [183547e]
+- Updated dependencies [1c19d3b]
+- Updated dependencies [3e27c13]
+- Updated dependencies [8057255]
+- Updated dependencies [6fbbdc3]
+- Updated dependencies [8b48456]
+- Updated dependencies [2655b30]
+- Updated dependencies [6c59bb1]
+- Updated dependencies [1aaaa25]
+- Updated dependencies [aae373c]
+- Updated dependencies [01f4ecb]
+- Updated dependencies [4167cef]
+- Updated dependencies [49172c7]
+- Updated dependencies
+- Updated dependencies [2655b30]
+- Updated dependencies [694d6b4]
+- Updated dependencies [5adca82]
+- Updated dependencies [301be50]
+- Updated dependencies [85c432a]
+- Updated dependencies [f8969ca]
+- Updated dependencies [a1e550b]
+- Updated dependencies [9aa4fec]
+- Updated dependencies [15ec2fb]
+- Updated dependencies [49172c7]
+- Updated dependencies [a40f522]
+- Updated dependencies [93d3a58]
+- Updated dependencies [1f4c3eb]
+- Updated dependencies [f1de62e]
+- Updated dependencies [8d2276f]
+- Updated dependencies [22b54e6]
+- Updated dependencies [e0745b9]
+- Updated dependencies [62816b1]
+- Updated dependencies [80429c7]
+- Updated dependencies [412dbf5]
+  - @agent-native/core@0.183.0
+
 ## 0.2.729
 
 ### Patch Changes
@@ -1367,26 +1418,5 @@
 
 - Updated dependencies [5a05b04]
   - @agent-native/core@0.164.1
-
-## 0.2.630
-
-### Patch Changes
-
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-- Updated dependencies [a2f21dc]
-  - @agent-native/core@0.164.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

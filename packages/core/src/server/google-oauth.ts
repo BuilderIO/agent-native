@@ -121,6 +121,14 @@ export function isElectron(event: H3Event): boolean {
   return /AgentNativeDesktop/i.test(getHeader(event, "user-agent") || "");
 }
 
+function getDesktopOAuthProtocol(
+  event: H3Event,
+): "agentnative" | "agentnative-nightly" {
+  return /AgentNativeDesktopNightly/i.test(getHeader(event, "user-agent") || "")
+    ? "agentnative-nightly"
+    : "agentnative";
+}
+
 /** Detect requests from a mobile browser (iOS/Android). */
 export function isMobile(event: H3Event): boolean {
   return /iPhone|iPad|iPod|Android/i.test(getHeader(event, "user-agent") || "");
@@ -1115,6 +1123,7 @@ export function oauthCallbackResponse(
   // not the app root (else signed-out visitors land on the homepage).
   if (mobile) {
     const deepLink = buildOAuthCompleteDeepLink(
+      event,
       opts.sessionToken,
       callbackState,
     );
@@ -1281,20 +1290,22 @@ function resolveOAuthAppName(explicit?: string): string {
 }
 
 function buildOAuthCompleteDeepLink(
+  event: H3Event,
   sessionToken?: string,
   state?: string,
 ): string {
+  const protocol = getDesktopOAuthProtocol(event);
   const params = new URLSearchParams();
   if (sessionToken) params.set("token", sessionToken);
   if (state) params.set("state", state);
   const suffix = params.toString();
   return suffix
-    ? `agentnative://oauth-complete?${suffix}`
-    : "agentnative://oauth-complete";
+    ? `${protocol}://oauth-complete?${suffix}`
+    : `${protocol}://oauth-complete`;
 }
 
 function desktopSuccessPage(
-  _event: H3Event,
+  event: H3Event,
   email?: string,
   sessionToken?: string,
   state?: string,
@@ -1302,7 +1313,7 @@ function desktopSuccessPage(
   const safeEmail = email ? escapeHtml(email) : "";
   const msg = safeEmail ? `Connected ${safeEmail}!` : "Connected!";
   if (sessionToken) {
-    const deepLink = buildOAuthCompleteDeepLink(sessionToken, state);
+    const deepLink = buildOAuthCompleteDeepLink(event, sessionToken, state);
     const deepLinkJson = JSON.stringify(deepLink);
     // Defence in depth: if this page somehow gets served to a UA that isn't
     // the Agent-Native desktop app (server gate bypassed, stale link, etc.),

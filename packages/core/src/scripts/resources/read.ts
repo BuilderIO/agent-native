@@ -56,7 +56,10 @@ Options:
   }
 
   if (scope === "workspace") {
-    const resource = await resourceGetByPath(WORKSPACE_OWNER, resourcePath);
+    const orgId = getRequestOrgId() ?? null;
+    const resource = await resourceGetByPath(WORKSPACE_OWNER, resourcePath, {
+      orgId,
+    });
     if (!resource) {
       console.log(
         `Resource not found: ${resourcePath} (scope: workspace). Workspace resources are managed from Dispatch.`,
@@ -112,7 +115,9 @@ Options:
     return;
   }
 
-  const workspace = await resourceGetByPath(WORKSPACE_OWNER, resourcePath);
+  const workspace = await resourceGetByPath(WORKSPACE_OWNER, resourcePath, {
+    orgId,
+  });
   if (workspace) {
     process.stdout.write(workspace.content);
     return;

@@ -9765,7 +9765,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function frameLabelText(frame: Element): string {
     var name =
       layerNameForElement(frame) || frame.getAttribute("aria-label") || "";
-    return name.trim() || "Frame" /* i18n-ignore canvas frame label */;
+    return name.trim() || "Frame"; /* i18n-ignore canvas frame label */
   }
 
   function selectFrameFromLabel(frame: Element, e: MouseEvent): void {
@@ -14963,20 +14963,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container,
       );
     }
-    var placementCandidates = children.concat(excluded || []);
-    var hasExplicitPlacement = placementCandidates.some(function (child) {
-      var childStyles = window.getComputedStyle(child);
-      return (
-        childStyles.gridColumnStart !== "auto" ||
-        childStyles.gridColumnEnd !== "auto" ||
-        childStyles.gridRowStart !== "auto" ||
-        childStyles.gridRowEnd !== "auto" ||
-        childStyles.order !== "0"
-      );
-    });
-    // Preserve a single-cell authored slot only for a single source already
-    // owned by this grid. Cross-grid and grouped drops must resolve the
-    // destination cell normally.
+    // Preserve authored placement for any dragged source. Cross-grid and
+    // grouped drops still need the destination cell for every authored item.
     var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
     var singleSourceStyles = singleSource
       ? window.getComputedStyle(singleSource)
@@ -14989,6 +14977,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       singleSource && trackLayout
         ? gridItemAxisPlacement(singleSource, trackLayout, "row")
         : null;
+    var sourceHasAuthoredPlacement = Boolean(
+      excluded?.some(function (source) {
+        var columnPlacement = trackLayout
+          ? gridItemAxisPlacement(source, trackLayout, "column")
+          : null;
+        var rowPlacement = trackLayout
+          ? gridItemAxisPlacement(source, trackLayout, "row")
+          : null;
+        return Boolean(
+          columnPlacement?.hasAuthoredPlacement ||
+          rowPlacement?.hasAuthoredPlacement,
+        );
+      }),
+    );
     var hasAuthoredSingleCellSourcePlacement = Boolean(
       singleSource &&
       singleSource.parentElement === container &&
@@ -15008,11 +15010,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Resolve the pointer against rendered tracks and carry the cell through
     // the drop so the source and its persisted markup move together. The
     // occupied cell is also retained as the source-order insertion anchor.
-    if (
-      trackLayout &&
-      hasExplicitPlacement &&
-      !hasAuthoredSingleCellSourcePlacement
-    ) {
+    if (trackLayout && !hasAuthoredSingleCellSourcePlacement) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
       });
@@ -15088,7 +15086,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           guideMode: displaced ? "grid-line" : "grid-cell",
           guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
-          gridCell: { column, row },
+          // Column auto-flow derives placement from source order. Persisting
+          // measured coordinates here would freeze responsive auto-flow into
+          // explicit gridColumn/gridRow styles.
+          ...(autoFlow[0] === "column" && !sourceHasAuthoredPlacement
+            ? {}
+            : { gridCell: { column, row } }),
           gridDisplacement: displaced,
         };
       }
@@ -15956,6 +15959,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         parent !== document.body &&
         isAutoLayoutElement(parent) &&
         cursor.getAttribute("data-an-primitive") !== "frame" &&
+        (!isContainerDropTarget(cursor) ||
+          cursor.tagName.toLowerCase() !== "section" ||
+          isTemplateCloneElement(cursor)) &&
         !isTextBearingLeaf(parent) &&
         !forceNestedAutoLayout &&
         !isTemplateCloneElement(cursor)
@@ -16036,7 +16042,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           parent &&
           parent !== document.body &&
           isAutoLayoutElement(parent) &&
-          cursor.getAttribute("data-an-primitive") !== "frame"
+          cursor.getAttribute("data-an-primitive") !== "frame" &&
+          (cursor.tagName.toLowerCase() !== "section" ||
+            isTemplateCloneElement(cursor))
         )
       ) {
         // Free (absolute) element into a non-auto-layout container stays free:
@@ -16564,6 +16572,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var authoredSpan =
       endValue.trim().match(/^span\s+(\d+)$/) ||
       startValue.trim().match(/^span\s+(\d+)$/);
+    var hasAuthoredPlacement =
+      authoredSpan !== null ||
+      (startValue.trim() !== "auto" && startValue.trim() !== "") ||
+      (endValue.trim() !== "auto" && endValue.trim() !== "") ||
+      styles.order !== "0";
     var geometricRange = layout
       ? gridTrackRangeForRect(
           el.getBoundingClientRect(),
@@ -16582,6 +16595,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (start === null && end !== null && authoredSpan) start = end - span;
     return {
       authoredStart: start,
+      hasAuthoredPlacement: hasAuthoredPlacement,
       start: start ?? (geometricRange ? geometricRange.start + 1 : null),
       span,
     };
@@ -17042,6 +17056,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       var sourceColumn = gridItemAxisPlacement(el, sourceGridLayout, "column");
       var sourceRow = gridItemAxisPlacement(el, sourceGridLayout, "row");
+      var sourceHasAuthoredPlacement =
+        sourceColumn.hasAuthoredPlacement || sourceRow.hasAuthoredPlacement;
       var columnStart = sourceColumn.start ?? NaN;
       var columnSpan = sourceColumn.span;
       var columnEnd = columnStart + columnSpan;
@@ -17178,6 +17194,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           });
         };
         targetDisplacements.forEach(function (displaced) {
+          var displacedColumnPlacement = gridItemAxisPlacement(
+            displaced,
+            targetGridLayout,
+            "column",
+          );
+          var displacedRowPlacement = gridItemAxisPlacement(
+            displaced,
+            targetGridLayout,
+            "row",
+          );
+          var displacedHasAuthoredPlacement =
+            displacedColumnPlacement.hasAuthoredPlacement ||
+            displacedRowPlacement.hasAuthoredPlacement;
+          if (!displacedHasAuthoredPlacement) return;
           var displacedRange = gridTrackRangeForRect(
             displaced.getBoundingClientRect(),
             targetGridLayout!.columnBounds,
@@ -17270,14 +17300,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           displaced.style.gridRow = `${displacementPlacement.row} / ${displacementPlacement.rowEnd}`;
         });
       }
-      el.style.gridColumn = `${target.gridCell.column + 1} / ${target.gridCell.column + 1 + columnSpan}`;
-      el.style.gridRow = `${target.gridCell.row + 1} / ${target.gridCell.row + 1 + rowSpan}`;
-      target.gridPlacement = {
-        column: target.gridCell.column + 1,
-        columnEnd: target.gridCell.column + 1 + columnSpan,
-        row: target.gridCell.row + 1,
-        rowEnd: target.gridCell.row + 1 + rowSpan,
-      };
+      if (sourceHasAuthoredPlacement) {
+        el.style.gridColumn = `${target.gridCell.column + 1} / ${target.gridCell.column + 1 + columnSpan}`;
+        el.style.gridRow = `${target.gridCell.row + 1} / ${target.gridCell.row + 1 + rowSpan}`;
+        target.gridPlacement = {
+          column: target.gridCell.column + 1,
+          columnEnd: target.gridCell.column + 1 + columnSpan,
+          row: target.gridCell.row + 1,
+          rowEnd: target.gridCell.row + 1 + rowSpan,
+        };
+      }
     }
     // Must run BEFORE the DOM move below: the delta math reads the member's
     // CURRENT containing block via offsetParent. Called here (the single
@@ -22394,8 +22426,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // "the release was inside my viewport" cannot decide who owns the drop. The
   // host claims the gesture whenever the pointer is over a screen frame.
   var crossScreenClaimedByHost = false;
+  var lastPointerDownTimestamp = 0;
 
   function beginPotentialShieldDrag(e) {
+    // A read-only bridge may still expose passive inspection chrome, but it
+    // must never become a document-level interaction blocker. In particular,
+    // the host is intentionally below high-z app portals in this mode, so
+    // this fallback sees the app's real target and must leave it untouched.
+    if (readOnly) return;
+    if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
+      return;
+    }
+    if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
     stopNativeInteraction(e);
     clearGridProjectionCaches();
     // A new interaction starting is unambiguous proof the previous gesture is
@@ -22639,6 +22681,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
 
   shieldOverlay.addEventListener("pointerdown", beginPotentialShieldDrag, true);
+  shieldOverlay.addEventListener("mousedown", beginPotentialShieldDrag, true);
+  document.addEventListener(
+    "pointerdown",
+    function (e) {
+      if (isOverlayElement(e.target)) return;
+      if (e.button === 0) beginPotentialShieldDrag(e);
+    },
+    true,
+  );
+  document.addEventListener(
+    "mousedown",
+    function (e) {
+      if (isOverlayElement(e.target)) return;
+      if (e.button === 0) beginPotentialShieldDrag(e);
+    },
+    true,
+  );
   shieldOverlay.addEventListener("wheel", scrollUnderlyingElementAtWheel, {
     passive: false,
     capture: true,
@@ -23932,82 +23991,116 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
     true,
   );
-  shieldOverlay.addEventListener(
+  function handleShieldPointerMove(e) {
+    if (readOnly) return;
+    stopNativeInteraction(e);
+    lastHoverClientPoint = { x: e.clientX, y: e.clientY };
+    hoveredEl = resolveHoverTarget(
+      e.clientX,
+      e.clientY,
+      e.metaKey || e.ctrlKey,
+    );
+    if (!hoveredEl) {
+      highlightOverlay.style.display = "none";
+      if (!spacingDrag) {
+        scheduleSpacingHoverClear(e);
+      }
+      hideMeasurements();
+      // Re-arm the hover-info post gate below: leaving all content (e.g.
+      // pointer over empty canvas or off the iframe entirely) means the
+      // NEXT element this pointer lands on — even if it's the same one
+      // hovered before — is a genuinely new hover the host hasn't heard
+      // about since.
+      lastHoverInfoPostedEl = null;
+      return;
+    }
+    if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      return;
+    if (!spacingDrag) {
+      var hoveringSelectedSpacingSurface = Boolean(
+        selectedEl &&
+        hoveredEl &&
+        (hoveredEl === selectedEl ||
+          (selectedEl.contains && selectedEl.contains(hoveredEl))),
+      );
+      if (hoveringSelectedSpacingSurface) {
+        clearSpacingHoverTimer();
+        lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
+        updateSpacingOverlay(selectedEl);
+        // Reliable padding/gap hover: hit-test the handle geometry
+        // directly from the pointer position instead of depending on the
+        // pointermove's event target being the region node (see
+        // spacingHandleKeyAtPoint). Shows/updates the "Npx" value box
+        // while hovering the handle line; clears it when the pointer
+        // leaves the tolerance zone.
+        var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
+        if (pointSpacingKey) {
+          activateSpacingHandle(pointSpacingKey);
+        } else if (hoveredSpacingHandleKey) {
+          hoveredSpacingHandleKey = "";
+          updateSpacingOverlay(selectedEl);
+        }
+      } else {
+        scheduleSpacingHoverClear(e);
+      }
+    }
+    if (hoveredEl === selectedEl) {
+      highlightOverlay.style.display = "none";
+    } else {
+      positionOverlay(highlightOverlay, hoveredEl);
+    }
+    if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
+      showMeasurements(selectedEl, hoveredEl);
+    } else {
+      hideMeasurements();
+    }
+    // While Alt is held (measurement mode) keep hover local: posting it would
+    // update the host's hoveredSelector, re-run replayIframeEditorState, and
+    // echo selection/hover back every move — a loop that jitters selection
+    // and flickers the measurement lines.
+    if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
+      lastHoverInfoPostedEl = hoveredEl;
+      var info = getLightElementInfo(hoveredEl);
+      (window.parent as Window).postMessage(
+        { type: "element-hover", payload: info },
+        "*",
+      );
+    }
+  }
+
+  shieldOverlay.addEventListener("pointermove", handleShieldPointerMove, true);
+  // Chromium's embedded-frame path can expose the legacy mouse stream even
+  // when the pointer stream stops at the iframe boundary. Keep hover on both
+  // streams; the same-element gate makes duplicate delivery harmless.
+  shieldOverlay.addEventListener("mousemove", handleShieldPointerMove, true);
+
+  // Some Chromium embedding paths deliver the live iframe's pointer stream to
+  // the document under the fixed editor host even though the shield owns the
+  // click. Capture those events at document level so hover uses the same
+  // hit-test path as shield-delivered clicks instead of reaching the app.
+  document.addEventListener(
     "pointermove",
     function (e) {
-      stopNativeInteraction(e);
-      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
-      hoveredEl = resolveHoverTarget(
-        e.clientX,
-        e.clientY,
-        e.metaKey || e.ctrlKey,
-      );
-      if (!hoveredEl) {
-        highlightOverlay.style.display = "none";
-        if (!spacingDrag) {
-          scheduleSpacingHoverClear(e);
-        }
-        hideMeasurements();
-        // Re-arm the hover-info post gate below: leaving all content (e.g.
-        // pointer over empty canvas or off the iframe entirely) means the
-        // NEXT element this pointer lands on — even if it's the same one
-        // hovered before — is a genuinely new hover the host hasn't heard
-        // about since.
-        lastHoverInfoPostedEl = null;
+      if (isOverlayElement(e.target)) return;
+      if (pendingShieldDrag || activeDragCancel) {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
         return;
       }
-      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      handleShieldPointerMove(e);
+    },
+    true,
+  );
+  document.addEventListener(
+    "mousemove",
+    function (e) {
+      if (isOverlayElement(e.target)) return;
+      if (pendingShieldDrag || activeDragCancel) {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
         return;
-      if (!spacingDrag) {
-        var hoveringSelectedSpacingSurface = Boolean(
-          selectedEl &&
-          hoveredEl &&
-          (hoveredEl === selectedEl ||
-            (selectedEl.contains && selectedEl.contains(hoveredEl))),
-        );
-        if (hoveringSelectedSpacingSurface) {
-          clearSpacingHoverTimer();
-          lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
-          updateSpacingOverlay(selectedEl);
-          // Reliable padding/gap hover: hit-test the handle geometry
-          // directly from the pointer position instead of depending on the
-          // pointermove's event target being the region node (see
-          // spacingHandleKeyAtPoint). Shows/updates the "Npx" value box
-          // while hovering the handle line; clears it when the pointer
-          // leaves the tolerance zone.
-          var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
-          if (pointSpacingKey) {
-            activateSpacingHandle(pointSpacingKey);
-          } else if (hoveredSpacingHandleKey) {
-            hoveredSpacingHandleKey = "";
-            updateSpacingOverlay(selectedEl);
-          }
-        } else {
-          scheduleSpacingHoverClear(e);
-        }
       }
-      if (hoveredEl === selectedEl) {
-        highlightOverlay.style.display = "none";
-      } else {
-        positionOverlay(highlightOverlay, hoveredEl);
-      }
-      if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
-        showMeasurements(selectedEl, hoveredEl);
-      } else {
-        hideMeasurements();
-      }
-      // While Alt is held (measurement mode) keep hover local: posting it would
-      // update the host's hoveredSelector, re-run replayIframeEditorState, and
-      // echo selection/hover back every move — a loop that jitters selection
-      // and flickers the measurement lines.
-      if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
-        lastHoverInfoPostedEl = hoveredEl;
-        var info = getLightElementInfo(hoveredEl);
-        (window.parent as Window).postMessage(
-          { type: "element-hover", payload: info },
-          "*",
-        );
-      }
+      handleShieldPointerMove(e);
     },
     true,
   );

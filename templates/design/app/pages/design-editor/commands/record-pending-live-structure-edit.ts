@@ -18,6 +18,7 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdits,
+  nextPendingLiveEditTimestamp,
   pendingLiveStructureEditsFromUndoEntry,
   pendingLiveStructureEditsMatch,
   projectRelativeSourcePath,
@@ -54,6 +55,10 @@ export interface RecordPendingLiveStructureEditArgs {
     | undefined
   >;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  recordPendingHistoryEntry?: (
+    kind: "pending-style" | "pending-live",
+    replayedRedo?: boolean,
+  ) => void;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   setPendingLiveNonStyleEdits: Dispatch<
     SetStateAction<PendingLiveNonStyleEdit[]>
@@ -194,7 +199,7 @@ export function preparePendingLiveStructureEdit(
     ...(details?.removed ? { removed: true as const } : {}),
     requestId: details?.requestId,
     transactionId: details?.transactionId,
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
   };
   nextEdit.subjectSignature = runtimeStructureNodeSignature({
     info: subjectInfo,
@@ -231,6 +236,7 @@ export function commitPendingLiveStructureEdits(
     pendingStructureRedoReplayRef,
     pendingStructureRedoReplayTimerRef,
     pendingVisualStyleRedoStackRef,
+    recordPendingHistoryEntry,
     setPendingLiveNonStyleEdits,
   }: Pick<
     RecordPendingLiveStructureEditArgs,
@@ -241,6 +247,7 @@ export function commitPendingLiveStructureEdits(
     | "pendingStructureRedoReplayRef"
     | "pendingStructureRedoReplayTimerRef"
     | "pendingVisualStyleRedoStackRef"
+    | "recordPendingHistoryEntry"
     | "setPendingLiveNonStyleEdits"
   >,
   edits: readonly PendingLiveStructureEdit[],
@@ -276,11 +283,15 @@ export function commitPendingLiveStructureEdits(
     }
     pendingVisualStyleRedoStackRef.current = [];
   }
+  const previousUndoLength = pendingLiveNonStyleUndoStackRef.current.length;
   appendPendingLiveNonStyleUndoEntry(pendingLiveNonStyleUndoStackRef.current, {
     kind: "structure",
     edit: nextEdit,
     ...(edits.length > 1 ? { groupedEdits: [...edits] } : {}),
   });
+  if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
+    recordPendingHistoryEntry?.("pending-live", replaysUndoneStructure);
+  }
   const nextPending = mergePendingLiveNonStyleEdits([
     ...pendingLiveNonStyleEditsRef.current,
     ...edits,
@@ -304,6 +315,7 @@ export function runRecordPendingLiveStructureEdit(
     pendingStructureRedoReplayTimerRef,
     pendingStructureRedoPreparedEditsRef,
     pendingVisualStyleRedoStackRef,
+    recordPendingHistoryEntry,
     runtimeLayerSnapshotsById,
     setPendingLiveNonStyleEdits,
   }: RecordPendingLiveStructureEditArgs,
@@ -405,6 +417,7 @@ export function runRecordPendingLiveStructureEdit(
         pendingStructureRedoReplayRef,
         pendingStructureRedoReplayTimerRef,
         pendingVisualStyleRedoStackRef,
+        recordPendingHistoryEntry,
         setPendingLiveNonStyleEdits,
       },
       replayEdits.map(
@@ -428,6 +441,7 @@ export function runRecordPendingLiveStructureEdit(
       pendingStructureRedoReplayRef,
       pendingStructureRedoReplayTimerRef,
       pendingVisualStyleRedoStackRef,
+      recordPendingHistoryEntry,
       setPendingLiveNonStyleEdits,
     },
     [nextEdit],

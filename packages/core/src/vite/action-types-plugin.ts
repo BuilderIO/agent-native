@@ -184,6 +184,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/history/actions/list-resource-history",
   },
   {
+    name: "list-observability-reviews",
+    specifier:
+      "@agent-native/core/observability/actions/list-observability-reviews",
+  },
+  {
+    name: "save-observability-instruction-update",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-instruction-update",
+  },
+  {
     name: "list-review-comments",
     specifier: "@agent-native/core/review/actions/list-review-comments",
   },
