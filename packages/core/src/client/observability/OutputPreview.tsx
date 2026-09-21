@@ -280,9 +280,12 @@ export function OutputPreview({
 
   if (preview.kind === "chart") {
     const maxValue = Math.max(...preview.data.map((point) => point.value), 1);
+    const chartSummary = preview.data
+      .map((point) => `${point.label}: ${point.value}${preview.unit ?? ""}`)
+      .join(", ");
     return (
       <div
-        aria-label={preview.title ?? previewLabel}
+        aria-label={`${preview.title ?? previewLabel}: ${chartSummary}`}
         className={frameClassName}
         data-preview-kind="chart"
         role="img"
