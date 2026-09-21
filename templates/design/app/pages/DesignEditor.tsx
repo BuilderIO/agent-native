@@ -12705,6 +12705,11 @@ function DesignEditor() {
           lastLocalContentRef,
           latestActiveContentRef,
           liveScreenSnapshotsById,
+          onNoRenderedBox: () =>
+            toast.error(t("designEditor.patchProof.noRenderedBox"), {
+              id: "design-no-rendered-box",
+              duration: 4000,
+            }),
           queueFileContentSave,
           recordContentHistoryEntry,
           recordLocalContentHistoryChangeFallback,

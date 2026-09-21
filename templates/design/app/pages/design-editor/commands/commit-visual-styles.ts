@@ -77,6 +77,7 @@ export interface CommitVisualStylesArgs {
   activeProjectionContent: string;
   canEditDesign: boolean;
   canApplyContentEdit: (fileId: string) => boolean;
+  onNoRenderedBox?: () => void;
   applyLinkedComponentEdit?: (
     fileId: string,
     nodeId: string,
@@ -199,6 +200,7 @@ export function runCommitVisualStyles(
     lastLocalContentRef,
     latestActiveContentRef,
     liveScreenSnapshotsById,
+    onNoRenderedBox,
     queueFileContentSave,
     recordContentHistoryEntry,
     recordLocalContentHistoryChangeFallback,
@@ -302,18 +304,7 @@ export function runCommitVisualStyles(
         });
       }
     }
-    recordPendingVisualStyleEdit(
-      activeFile.id,
-      selector,
-      styles,
-      liveTargetInfo,
-      {
-        originalStyles: options.originalStyles,
-        pendingUndoGestureId: options.pendingUndoGestureId,
-        preserveSelection: options.preserveSelection,
-        routePath: options.routePath,
-      },
-    );
+    onNoRenderedBox?.();
     return;
   }
   upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
