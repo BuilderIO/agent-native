@@ -1,6 +1,9 @@
 import { orgMembers as distOrgMembers } from "@agent-native/core/org";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { registerFeatureFlags } from "../../../packages/core/src/feature-flags/registry.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "../../../packages/core/src/org/feature-flags.js";
 import { orgMembers as sourceOrgMembers } from "../../../packages/core/src/org/schema.js";
 import { runWithRequestContext } from "../../../packages/core/src/server/request-context.js";
 import { registerShareableResource } from "../../../packages/core/src/sharing/registry.js";
@@ -9,6 +12,8 @@ import * as schema from "../server/db/schema.js";
 const mocks = vi.hoisted(() => ({
   db: undefined as any,
   executeCalls: 0,
+  executedStatements: [] as unknown[],
+  linkedOrganization: false,
 }));
 
 vi.mock("../server/db/index.js", async () => {
@@ -94,6 +99,7 @@ function makeChain(transaction: boolean) {
       return Promise.resolve()
         .then(() => {
           if (table === distOrgMembers || table === sourceOrgMembers) {
+            if (mocks.linkedOrganization) return [{ id: "member-1" }];
             throw new Error('relation "org_members" does not exist');
           }
           if (table === schema.designFiles) {
@@ -114,7 +120,8 @@ function makeChain(transaction: boolean) {
 function makeDatabase() {
   const tx = {
     select: vi.fn(() => makeChain(true)),
-    execute: vi.fn(async () => {
+    execute: vi.fn(async (statement: unknown) => {
+      mocks.executedStatements.push(statement);
       const call = mocks.executeCalls++;
       if (call === 0) return { rows: [], rowsAffected: 0 };
       if (call === 1) {
@@ -137,6 +144,21 @@ function makeDatabase() {
           ],
           rowsAffected: 1,
         };
+      }
+      if (mocks.linkedOrganization) {
+        if (call === 2) {
+          return { rows: [{ id: "member-1" }], rowsAffected: 1 };
+        }
+        if (call === 3) {
+          return {
+            rows: [{ identity_authority: "dispatch", identity_id: null }],
+            rowsAffected: 1,
+          };
+        }
+        if (call === 4 || call === 5) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        return { rows: [{ role: "editor" }], rowsAffected: 1 };
       }
       if (call === 2) {
         throw new Error('relation "org_members" does not exist');
@@ -164,7 +186,10 @@ function makeDatabase() {
 describe("delete-file transactional access compatibility", () => {
   beforeEach(() => {
     mocks.executeCalls = 0;
+    mocks.executedStatements = [];
+    mocks.linkedOrganization = false;
     mocks.db = makeDatabase();
+    registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     registerShareableResource({
       type: "design",
       resourceTable: schema.designs,
@@ -188,5 +213,37 @@ describe("delete-file transactional access compatibility", () => {
     expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.db.tx.delete).toHaveBeenCalledTimes(1);
     expect(mocks.executeCalls).toBe(4);
+  });
+
+  it("translates feature-flag settings placeholders inside the transaction", async () => {
+    mocks.linkedOrganization = true;
+    mocks.db = makeDatabase();
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "shared@example.com", orgId: "org-1" },
+        () => action.run({ id: file.id, allowLockedLayers: true }),
+      ),
+    ).resolves.toMatchObject({ deleted: true });
+
+    const settingsQueries = mocks.executedStatements
+      .map((statement) => {
+        try {
+          return new PgDialect().sqlToQuery(statement as any);
+        } catch {
+          return null;
+        }
+      })
+      .filter((query) => query?.sql.includes("public.settings"));
+    expect(settingsQueries).toHaveLength(2);
+    expect(settingsQueries.every((query) => !query?.sql.includes("?"))).toBe(
+      true,
+    );
+    expect(settingsQueries.map((query) => query?.params)).toEqual(
+      expect.arrayContaining([
+        ["o:org-1:feature-flag:organization.cross-app-federation"],
+        ["feature-flag:organization.cross-app-federation"],
+      ]),
+    );
   });
 });

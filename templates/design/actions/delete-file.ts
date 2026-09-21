@@ -29,12 +29,19 @@ function drizzleSqlForAccess(statement: DbExecStatement) {
   if (typeof statement === "string") return sql.raw(statement);
   const chunks: string[] = [];
   const params: unknown[] = [];
-  const placeholder = /\$(\d+)/g;
+  const usesQuestionPlaceholders = statement.sql.includes("?");
+  const placeholder = usesQuestionPlaceholders ? /\?/g : /\$(\d+)/g;
   let offset = 0;
   for (const match of statement.sql.matchAll(placeholder)) {
     const index = match.index ?? 0;
     chunks.push(statement.sql.slice(offset, index));
-    params.push(statement.args?.[Number(match[1]) - 1]);
+    const argumentIndex = usesQuestionPlaceholders
+      ? params.length
+      : Number(match[1]) - 1;
+    if (argumentIndex < 0 || argumentIndex >= (statement.args?.length ?? 0)) {
+      throw new Error("Transactional access query has mismatched parameters.");
+    }
+    params.push(statement.args?.[argumentIndex]);
     offset = index + match[0].length;
   }
   chunks.push(statement.sql.slice(offset));
