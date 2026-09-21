@@ -3719,6 +3719,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           window.removeEventListener("blur", handleParentWindowBlur, true);
           window.removeEventListener("keydown", handleParentKeyDown, true);
           window.removeEventListener("keyup", handleParentKeyUp, true);
+          // Finalization may remove this listener before Apple Control is
+          // released; never carry its transient state into the next drag.
+          crossScreenControlPressedRef.current = false;
           restorePreviewPointerEvents();
           if (crossScreenParentDragCleanupRef.current === cleanup) {
             crossScreenParentDragCleanupRef.current = null;

@@ -5944,7 +5944,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function resetBridgeDragModifierStateOnCancel(): void {
     bridgeSpaceKeyPressed = false;
     bridgeSpaceKeyConsumedByDrag = false;
-    bridgeIgnoreAutoLayoutKeyPressed = false;
+    // Keep a physically held non-Apple S modifier live until its keyup. The
+    // cancel path can run before that keyup and must not make the next move
+    // disagree with the host's active-key tracking.
     hostIgnoreAutoLayoutAtPointerDown = false;
   }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;

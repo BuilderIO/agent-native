@@ -4777,7 +4777,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     function resetBridgeDragModifierStateOnCancel() {
       bridgeSpaceKeyPressed = false;
       bridgeSpaceKeyConsumedByDrag = false;
-      bridgeIgnoreAutoLayoutKeyPressed = false;
+      // Keep a physically held non-Apple S modifier live until its keyup.
+      // Cancel can run before that keyup and must not disagree with host key tracking.
       hostIgnoreAutoLayoutAtPointerDown = false;
     }
     var activeCrossScreenStyleSnapshot = void 0;
