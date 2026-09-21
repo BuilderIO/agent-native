@@ -244,6 +244,37 @@ function waitForExportFrame(signal?: AbortSignal): Promise<void> {
   });
 }
 
+function waitForDocumentFonts(signal?: AbortSignal): Promise<void> {
+  const ready = document.fonts?.ready;
+  if (!ready) return Promise.resolve();
+  if (!signal) return ready.then(() => undefined);
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      cleanup();
+      try {
+        throwIfExportAborted(signal);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    ready.then(
+      () => {
+        cleanup();
+        resolve();
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+    if (signal.aborted) onAbort();
+  });
+}
+
 /**
  * modern-screenshot can only embed @font-face rules from readable stylesheets.
  * Google Fonts links are cross-origin, so make their already-loaded CSS
@@ -606,9 +637,7 @@ export async function exportDeckAsPdf(
   // Web fonts (Poppins) must finish loading before capture — otherwise
   // text lays out with fallback metrics and draws with the real font,
   // producing severely overlapping characters.
-  if (typeof document !== "undefined" && document.fonts?.ready) {
-    await document.fonts.ready;
-  }
+  await waitForDocumentFonts(signal);
   throwIfExportAborted(signal);
 
   // Defensive fallback: getAspectRatioDims returns undefined for unknown
@@ -633,9 +662,8 @@ export async function exportDeckAsPdf(
   try {
     // The injected same-origin styles let modern-screenshot fetch the exact
     // font files instead of cloning text against the browser's fallback font.
-    if (typeof document !== "undefined" && document.fonts?.ready) {
-      await document.fonts.ready;
-    }
+    await waitForDocumentFonts(signal);
+    throwIfExportAborted(signal);
     for (let i = 0; i < slides.length; i++) {
       throwIfExportAborted(signal);
       const slideId = slides[i].id;

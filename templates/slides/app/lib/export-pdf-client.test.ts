@@ -320,6 +320,69 @@ describe("exportDeckAsPdf", () => {
     expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
   });
 
+  it("cleans up temporary font styles when font readiness is cancelled", async () => {
+    const fontCss =
+      '@font-face { font-family: "Geist"; src: url(https://fonts.gstatic.com/geist.woff2); }';
+    const controller = new AbortController();
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.dataset.pdfExportTest = "font";
+    link.href = "https://fonts.googleapis.com/css2?family=Geist";
+    const querySelectorAll = document.querySelectorAll.bind(document);
+    vi.spyOn(document, "querySelectorAll").mockImplementation((selector) => {
+      if (selector === 'link[rel~="stylesheet"][href]') {
+        return [link] as unknown as NodeListOf<Element>;
+      }
+      return querySelectorAll(selector);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => fontCss,
+      }),
+    );
+    let releaseSecondReady!: () => void;
+    const originalFonts = document.fonts;
+    const secondReadyStarted = new Promise<void>((resolve) => {
+      releaseSecondReady = resolve;
+    });
+    let readyCalls = 0;
+    const fonts = {};
+    Object.defineProperty(fonts, "ready", {
+      get: () => {
+        readyCalls += 1;
+        if (readyCalls === 2) releaseSecondReady();
+        return readyCalls === 1
+          ? Promise.resolve()
+          : new Promise<void>(() => {});
+      },
+    });
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: fonts,
+    });
+    renderSlide("s1");
+
+    try {
+      const exportPromise = exportDeckAsPdf(
+        "Q3 review",
+        [{ id: "s1", content: "<div></div>" }],
+        undefined,
+        { signal: controller.signal },
+      );
+      await secondReadyStarted;
+      controller.abort(new Error("PDF export cancelled"));
+      await expect(exportPromise).rejects.toThrow("PDF export cancelled");
+      expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
+    } finally {
+      Object.defineProperty(document, "fonts", {
+        configurable: true,
+        value: originalFonts,
+      });
+    }
+  });
+
   it("still writes a text layer for a slide measured from a sidebar thumbnail", async () => {
     // Inside the scaled, contained thumbnail subtree Chrome measures every
     // Range as 0x0 while element boxes still measure. Every slide but the one
