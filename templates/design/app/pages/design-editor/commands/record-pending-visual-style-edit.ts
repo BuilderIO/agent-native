@@ -57,6 +57,10 @@ export interface RecordPendingVisualStyleEditArgs {
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
+  recordPendingHistoryEntry?: (
+    kind: "pending-style" | "pending-live",
+    replayedRedo?: boolean,
+  ) => void;
   selectedElement: ElementInfo | null;
   onNoRenderedBox?: () => void;
   setPatchProof: Dispatch<SetStateAction<PatchProofState | null>>;
@@ -87,6 +91,7 @@ export function runRecordPendingVisualStyleEdit(
     pendingVisualStyleRedoStackRef,
     pendingVisualStyleUndoStackRef,
     responsiveEditScopeRef,
+    recordPendingHistoryEntry,
     runtimeLayerSnapshotsById,
     selectedElement,
     onNoRenderedBox,
@@ -231,6 +236,7 @@ export function runRecordPendingVisualStyleEdit(
   // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
   // stay painted until Apply, so sharing that cap silently drops them from
   // the Apply payload. Consecutive ticks on the same target coalesce.
+  const previousUndoLength = pendingVisualStyleUndoStackRef.current.length;
   appendPendingVisualStyleUndoEntry(pendingVisualStyleUndoStackRef.current, {
     edit: nextEdit,
     revertStyles,
@@ -238,6 +244,9 @@ export function runRecordPendingVisualStyleEdit(
       ? { gestureId: metadata.pendingUndoGestureId }
       : {}),
   });
+  if (pendingVisualStyleUndoStackRef.current.length > previousUndoLength) {
+    recordPendingHistoryEntry?.("pending-style");
+  }
   const nextPending = mergePendingVisualStyleEdit(
     pendingVisualStyleEditsRef.current,
     nextEdit,

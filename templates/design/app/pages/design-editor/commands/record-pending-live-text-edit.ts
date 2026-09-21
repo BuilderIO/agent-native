@@ -42,6 +42,10 @@ export interface RecordPendingLiveTextEditArgs {
   >;
   pendingStructureRedoReplayTimerRef: RefObject<number | undefined>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  recordPendingHistoryEntry?: (
+    kind: "pending-style" | "pending-live",
+    replayedRedo?: boolean,
+  ) => void;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   selectedElement: ElementInfo | null;
   setPendingLiveNonStyleEdits: Dispatch<
@@ -64,6 +68,7 @@ export function runRecordPendingLiveTextEdit(
     pendingStructureRedoReplayRef,
     pendingStructureRedoReplayTimerRef,
     pendingVisualStyleRedoStackRef,
+    recordPendingHistoryEntry,
     runtimeLayerSnapshotsById,
     selectedElement,
     setPendingLiveNonStyleEdits,
@@ -141,12 +146,16 @@ export function runRecordPendingLiveTextEdit(
   // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
   // stay painted until Apply, so sharing that cap silently drops them from
   // the Apply payload. Consecutive keystrokes on the same node coalesce.
+  const previousUndoLength = pendingLiveNonStyleUndoStackRef.current.length;
   appendPendingLiveNonStyleUndoEntry(pendingLiveNonStyleUndoStackRef.current, {
     kind: "text",
     edit: nextEdit,
     revertValue: revert.value,
     revertHtml: revert.html,
   });
+  if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
+    recordPendingHistoryEntry?.("pending-live");
+  }
   const nextPending = mergePendingLiveNonStyleEdit(
     pendingLiveNonStyleEditsRef.current,
     nextEdit,
