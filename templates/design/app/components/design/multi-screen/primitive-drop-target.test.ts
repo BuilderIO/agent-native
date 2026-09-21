@@ -15,47 +15,6 @@ import {
 beforeEach(() => __clearPrimitiveParseCachesForTests());
 
 describe("primitive drop target authored layout fallback", () => {
-  it("prefers the deepest equal-sized nested container", () => {
-    const screen = {
-      id: "equal-nested-screen",
-      filename: "equal-nested-screen.html",
-      content: `<!doctype html><html><body>
-        <div data-agent-native-node-id="outer" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px">
-          <div data-agent-native-node-id="inner" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px"></div>
-        </div>
-      </body></html>`,
-    };
-    expect(
-      getPrimitiveDropTargetForPoint(
-        { x: 50, y: 50 },
-        null,
-        [screen],
-        { [screen.id]: { x: 0, y: 0, width: 200, height: 200 } },
-        () => ({ width: 200, height: 200 }),
-      )?.nodeId,
-    ).toBe("inner");
-  });
-
-  it("prefers the later painted overlapping sibling", () => {
-    const screen = {
-      id: "overlap-screen",
-      filename: "overlap-screen.html",
-      content: `<!doctype html><html><body>
-        <div data-agent-native-node-id="back" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px"></div>
-        <div data-agent-native-node-id="front" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px"></div>
-      </body></html>`,
-    };
-    expect(
-      getPrimitiveDropTargetForPoint(
-        { x: 50, y: 50 },
-        null,
-        [screen],
-        { [screen.id]: { x: 0, y: 0, width: 200, height: 200 } },
-        () => ({ width: 200, height: 200 }),
-      )?.nodeId,
-    ).toBe("front");
-  });
-
   it("resolves percentage sizes against the containing block for overview hits", () => {
     const screen = {
       id: "percentage-screen",

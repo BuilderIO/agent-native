@@ -11408,29 +11408,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!hit || hit === document.documentElement || hit === document.body) {
         return screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) || unnestAbsoluteToScreenRoot(el, clientX, clientY);
       }
-      var deepestContainer = null;
-      var deepestDepth = -1;
-      var pointCandidates = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [hit];
-      pointCandidates.forEach(function(node) {
-        if (!node.hasAttribute("data-agent-native-node-id") && !node.hasAttribute("data-an-primitive"))
-          return;
-        if (!isContainerDropTarget(node) || isDraggedOrInsideDragged(node))
-          return;
-        var rect = node.getBoundingClientRect();
-        if (clientX < rect.left || clientY < rect.top || clientX > rect.right || clientY > rect.bottom)
-          return;
-        var depth = 0;
-        var parent2 = node.parentElement;
-        while (parent2) {
-          depth += 1;
-          parent2 = parent2.parentElement;
-        }
-        if (depth > deepestDepth) {
-          deepestContainer = node;
-          deepestDepth = depth;
-        }
-      });
-      if (deepestContainer) hit = deepestContainer;
       var explicitFrame = hit.closest('[data-an-primitive="frame"]');
       if (explicitFrame && explicitFrame !== document.body && !isDraggedOrInsideDragged(explicitFrame) && isAutoLayoutElement(explicitFrame.parentElement)) {
         return {
@@ -11459,7 +11436,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           if (rootChildSlot) return rootChildSlot;
         }
-        if (parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && !isContainerDropTarget(cursor) && !isTextBearingLeaf(parent) && !forceNestedAutoLayout && !isTemplateCloneElement(cursor)) {
+        if (parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && !isTextBearingLeaf(parent) && !forceNestedAutoLayout && !isTemplateCloneElement(cursor)) {
           var directChildSlot = nearestChildInsertionTarget(
             parent,
             clientX,
@@ -11487,7 +11464,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             dropMode: "absolute-container"
           };
         }
-        if (cursor !== document.body && isContainerDropTarget(cursor) && !(!forceNestedAutoLayout && parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && !isContainerDropTarget(cursor))) {
+        if (cursor !== document.body && isContainerDropTarget(cursor) && !(!forceNestedAutoLayout && parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame")) {
           if (!isAutoLayoutElement(cursor)) {
             if (cursor === el.parentElement) return null;
             return {

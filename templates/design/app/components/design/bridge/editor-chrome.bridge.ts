@@ -15899,39 +15899,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         unnestAbsoluteToScreenRoot(el, clientX, clientY)
       );
     }
-    var deepestContainer = null;
-    var deepestDepth = -1;
-    var pointCandidates = document.elementsFromPoint
-      ? document.elementsFromPoint(clientX, clientY)
-      : [hit];
-    pointCandidates.forEach(function (node) {
-      if (
-        !node.hasAttribute("data-agent-native-node-id") &&
-        !node.hasAttribute("data-an-primitive")
-      )
-        return;
-      if (!isContainerDropTarget(node) || isDraggedOrInsideDragged(node))
-        return;
-      var rect = node.getBoundingClientRect();
-      if (
-        clientX < rect.left ||
-        clientY < rect.top ||
-        clientX > rect.right ||
-        clientY > rect.bottom
-      )
-        return;
-      var depth = 0;
-      var parent = node.parentElement;
-      while (parent) {
-        depth += 1;
-        parent = parent.parentElement;
-      }
-      if (depth > deepestDepth) {
-        deepestContainer = node;
-        deepestDepth = depth;
-      }
-    });
-    if (deepestContainer) hit = deepestContainer;
     var explicitFrame = hit.closest('[data-an-primitive="frame"]');
     if (
       explicitFrame &&
@@ -15990,7 +15957,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         parent !== document.body &&
         isAutoLayoutElement(parent) &&
         cursor.getAttribute("data-an-primitive") !== "frame" &&
-        !isContainerDropTarget(cursor) &&
         !isTextBearingLeaf(parent) &&
         !forceNestedAutoLayout &&
         !isTemplateCloneElement(cursor)
@@ -16071,8 +16037,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           parent &&
           parent !== document.body &&
           isAutoLayoutElement(parent) &&
-          cursor.getAttribute("data-an-primitive") !== "frame" &&
-          !isContainerDropTarget(cursor)
+          cursor.getAttribute("data-an-primitive") !== "frame"
         )
       ) {
         // Free (absolute) element into a non-auto-layout container stays free:
