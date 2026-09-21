@@ -3047,7 +3047,7 @@ export default function RecordRoute() {
         <div className="pointer-events-none fixed inset-0 bg-foreground">
           <div
             aria-live="polite"
-            className="absolute inset-0 flex items-center justify-center px-6 text-center text-background/70"
+            className="absolute inset-0 flex items-center justify-center gap-2 px-6 text-center text-background/70"
           >
             <div className="flex items-center gap-2 text-sm">
               <span
@@ -3063,12 +3063,12 @@ export default function RecordRoute() {
                 : t("recordRoute.recordingScreen")}
             </div>
             {!isPaused && (
-              <div className="text-[11px] text-background/50">
-                Press{" "}
+              <div className="flex items-center gap-1.5 text-[11px] text-background/50">
+                <span>Press</span>
                 <Kbd className="h-auto min-w-0 rounded bg-background/10 px-1.5 py-0.5 text-background">
                   Esc
-                </Kbd>{" "}
-                to stop
+                </Kbd>
+                <span>to stop</span>
               </div>
             )}
           </div>

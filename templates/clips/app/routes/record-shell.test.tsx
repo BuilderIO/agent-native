@@ -163,6 +163,30 @@ describe("record route lifecycle shell", () => {
     );
   });
 
+  it("keeps the Esc-to-stop hint spaced from the status label and vertically aligned", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const overlayStart = source.indexOf("recordRoute.recordingScreen");
+    const overlay = source.slice(overlayStart, overlayStart + 600);
+
+    // The status label and the "Press Esc to stop" hint must not sit flush
+    // against each other (previously rendered as "capturePress Esc to stop").
+    expect(source).toContain(
+      "flex items-center justify-center gap-2 px-6 text-center text-background/70",
+    );
+    // "Press", the Kbd, and "to stop" are flex siblings sharing a gap instead
+    // of manual `{" "}` text-node spacing, which also keeps the keycap
+    // vertically centered against the surrounding text.
+    expect(overlay).toContain(
+      "flex items-center gap-1.5 text-[11px] text-background/50",
+    );
+    expect(overlay).toContain("<span>Press</span>");
+    expect(overlay).toContain("<span>to stop</span>");
+    expect(overlay).not.toMatch(/Press\{" "\}/);
+  });
+
   it("keeps upload handoff outside the recorder panel", () => {
     const source = readFileSync(
       resolve(process.cwd(), "app/routes/record.tsx"),
