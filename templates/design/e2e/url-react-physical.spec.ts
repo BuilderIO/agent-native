@@ -358,6 +358,14 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       document
         .querySelector("[data-agent-native-editor-chrome-host]")
         ?.remove();
+    });
+    await expect(
+      reloaded.locator("[data-agent-native-editor-chrome-host]"),
+    ).toHaveCount(1);
+    await expect(
+      reloaded.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached();
+    await reloaded.locator("body").evaluate(() => {
       const bridgeScript = document.querySelector(
         "script[data-agent-native-editor-chrome-bridge]",
       );
