@@ -262,16 +262,16 @@ function isOutOfFlowHintTarget(node: CodeLayerNode): boolean {
 }
 
 /**
- * Match measureFreeformGeometry's padding-box coordinate convention while
- * staying scoped to the active preview document. Client rects keep parent
- * transforms and scrolling in the same coordinate space as the child; the
- * border inset converts the parent's border box to its positioning origin.
+ * Measure in the coordinate space used by released absolute children. The
+ * immediate parent is not necessarily the containing block: static wrappers
+ * can sit inside an offset ancestor, so using parent-relative values here
+ * would shift children when the measured wrapper is removed.
  */
 function measureParentRelativePosition(
   element: HTMLElement,
   iframeWindow: Window,
 ): { left: number; top: number; width: number; height: number } | null {
-  const parent = element.parentElement;
+  const parent = element.offsetParent ?? element.parentElement;
   if (!parent) return null;
   const childRect = element.getBoundingClientRect();
   const parentRect = parent.getBoundingClientRect();
