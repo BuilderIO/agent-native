@@ -63,14 +63,12 @@ synonym in the recap or Slack reply:
   needed**, or **Blocked on reporter**.
 - **Foreign ownership, preserve the other workflow's eye:** **Owned elsewhere**.
 
-Once the verified source fix is merged into the shipping snapshot, **Fixed** is
-terminal. Publication, beta delivery, and live reruns are separate follow-ups.
-Before releasing the eye and closing the source issue, create or link a durable
-follow-up for any remaining publication, beta, or live work. Include the
-original issue, target package/release/runtime, owner, and verification command
-or URL in that follow-up and this recap. Never rely on an open-issues scan to
-rediscover a closed source issue, and never reopen it for release work.
-**Clustered** closes a duplicate row without erasing its row.
+After the verified source fix merges, **Fixed** is terminal; publication, beta,
+and live reruns are separate follow-ups. Before closing, link a durable
+follow-up for remaining work with the original issue, target package/release/
+runtime, owner, and verification command or URL. Do not use open-issue scans to
+rediscover closed fixes or reopen them for release work. **Clustered** closes a
+duplicate row without erasing it.
 
 Use `✅` only for **Fixed**, **Shipped**, or **Live verified**; use
 `:no_entry_sign:` for other terminal states. Never delete `👀` as a substitute
@@ -284,13 +282,12 @@ If a source cannot be read, record it as **unavailable**. Never report
 
 ### GitHub issues and Sentry are first-class feedback
 
-Enumerate every open issue and read its body, comments, author, labels, linked
-PRs, and state. Treat prior `fixed`, `shipped`, or `merged` comments as leads:
-recheck the reporter's surface and residual scope. When the source-fix bar
-holds and the fix is merged, thank the human reporter, link the fix, and close
-it immediately. Do not wait for publication, beta delivery, or live proof.
-Record missing release/runtime evidence separately, and keep the issue open only
-when the accepted scope remains unfixed, unmerged, or needs reporter input.
+Read every open issue's body, comments, author, labels, linked PRs, and state.
+Treat prior `fixed`, `shipped`, or `merged` comments as leads; recheck the
+reported surface and residual scope. When the fix is verified merged, thank the
+reporter, link it, and close immediately. Do not wait for publication, beta, or
+live proof. Track missing release/runtime evidence separately; keep open only
+when accepted scope remains unfixed, unmerged, or needs reporter input.
 
 For every clear GitHub defect, fix the root cause or ask one unblock question;
 do not skip old, bot-filed, or maintainer-commented issues. Feature requests
@@ -448,11 +445,10 @@ instruction or prompt exception.
 
 Say **Fixed** only when all four hold: named symptom; exact pre/post
 reproduction; clean or triaged sibling sweep; and verified change in the merged
-shipping snapshot with its source or built layer named. **Shipped** adds
+shipping snapshot with source or built layer named. **Shipped** adds
 build/deploy provenance; **Live verified** adds target-runtime proof. Otherwise
-use a narrower disposition and never imply beta or production health. Upvoted
-improvements state requested versus actual behavior and use **Shipped**, not
-**Fixed**.
+use a narrower disposition without implying beta or production health. Upvoted
+improvements state requested versus actual behavior and use **Shipped**.
 
 ## Phase 3: reply
 
