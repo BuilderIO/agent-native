@@ -22952,6 +22952,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
     true,
   );
+  // The preview iframe may not own focus when a drag begins. Mirror the
+  // host document's S modifier so a pre-pointerdown shortcut reaches the
+  // same drag state as an iframe-focused keydown.
+  try {
+    window.parent.document.addEventListener(
+      "keydown",
+      function (e) {
+        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          bridgeIgnoreAutoLayoutKeyPressed = true;
+        }
+      },
+      true,
+    );
+    window.parent.document.addEventListener(
+      "keyup",
+      function (e) {
+        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          bridgeIgnoreAutoLayoutKeyPressed = false;
+        }
+      },
+      true,
+    );
+  } catch (_err) {
+    // Cross-origin previews cannot inspect the host document.
+  }
 
   // Space-pan release: keydown forwarding above arms the parent's temporary
   // hand tool (see postDesignHotkey/"design-hotkey"), but the parent also

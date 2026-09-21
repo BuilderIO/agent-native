@@ -16258,6 +16258,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    try {
+      window.parent.document.addEventListener(
+        "keydown",
+        function(e) {
+          if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+            bridgeIgnoreAutoLayoutKeyPressed = true;
+          }
+        },
+        true
+      );
+      window.parent.document.addEventListener(
+        "keyup",
+        function(e) {
+          if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+            bridgeIgnoreAutoLayoutKeyPressed = false;
+          }
+        },
+        true
+      );
+    } catch (_err) {
+    }
     document.addEventListener(
       "keyup",
       function(e) {
