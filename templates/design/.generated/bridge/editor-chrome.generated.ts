@@ -3582,29 +3582,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (probeFailed) {
         dndLog("style:snapshot-skipped", { el: getSelector(root) });
-        var typedOmUnavailable = typeof root.computedStyleMap !== "function";
-        if (!typedOmUnavailable) return null;
-        var fallbackComputed = rootComputedStyle || window.getComputedStyle(root);
-        var fallbackStyles = {};
-        ["color", "backgroundColor", "width", "height", "borderRadius"].forEach(
-          function(property) {
-            var value = fallbackComputed[property] || fallbackComputed.getPropertyValue(property);
-            if (value && value.trim()) fallbackStyles[property] = value.trim();
-          }
-        );
-        if (Object.keys(fallbackStyles).length > 0) {
-          return {
-            version: 1,
-            rootSourceId: getSourceId(root) || void 0,
-            nodes: [
-              {
-                sourceId: getSourceId(root) || void 0,
-                path: [],
-                styles: fallbackStyles
-              }
-            ]
-          };
-        }
         return null;
       }
       if (cache) recordPortableStyleAnimationState(cache, root);
