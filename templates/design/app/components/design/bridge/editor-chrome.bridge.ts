@@ -22397,6 +22397,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var lastPointerDownTimestamp = 0;
 
   function beginPotentialShieldDrag(e) {
+    // A read-only bridge may still expose passive inspection chrome, but it
+    // must never become a document-level interaction blocker. In particular,
+    // the host is intentionally below high-z app portals in this mode, so
+    // this fallback sees the app's real target and must leave it untouched.
+    if (readOnly) return;
     if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
       return;
     }

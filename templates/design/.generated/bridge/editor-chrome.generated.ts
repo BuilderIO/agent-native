@@ -15883,6 +15883,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var crossScreenClaimedByHost = false;
     var lastPointerDownTimestamp = 0;
     function beginPotentialShieldDrag(e) {
+      if (readOnly) return;
       if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
         return;
       }
