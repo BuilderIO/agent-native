@@ -859,15 +859,24 @@ export function authoredElementPosition(
             (sibling as HTMLElement).style.gridRowStart,
             10,
           );
-          if (Number.isFinite(explicitColumn) && Number.isFinite(explicitRow)) {
-            occupied.add(`${explicitRow}:${explicitColumn}`);
+          if (Number.isFinite(explicitColumn) || Number.isFinite(explicitRow)) {
+            occupied.add(
+              `${Number.isFinite(explicitRow) ? explicitRow : 1}:${Number.isFinite(explicitColumn) ? explicitColumn : 1}`,
+            );
           }
         }
         let autoSlot = 0;
         for (const sibling of autoChildren) {
-          const hasExplicit = Number.isFinite(
-            Number.parseInt((sibling as HTMLElement).style.gridColumnStart, 10),
-          );
+          const hasExplicit =
+            Number.isFinite(
+              Number.parseInt(
+                (sibling as HTMLElement).style.gridColumnStart,
+                10,
+              ),
+            ) ||
+            Number.isFinite(
+              Number.parseInt((sibling as HTMLElement).style.gridRowStart, 10),
+            );
           if (hasExplicit) continue;
           while (
             occupied.has(
