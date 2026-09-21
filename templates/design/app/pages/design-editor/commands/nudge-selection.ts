@@ -126,6 +126,7 @@ export function runNudgeSelection(
   if (
     viewModeRef.current === "overview" &&
     overviewSelectedScreenIds.length > 0 &&
+    canEditDesign &&
     !overviewSelectionTargetsElement({
       selectedElement,
       selectedLayerIds: selectedLayerIdsState,

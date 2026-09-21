@@ -12909,7 +12909,15 @@ function DesignEditor() {
 
   const commitInteractionStateStyles = useCallback(
     (state: InteractionState, styles: Record<string, string>): boolean => {
-      if (!canEditDesign || !activeFile?.id || !selectedElement?.sourceId) {
+      const canEditInteractionState =
+        canEditDesign ||
+        (isRunningAppSourceType(activeCanvasSourceType) &&
+          canEditActiveVisualScreen);
+      if (
+        !canEditInteractionState ||
+        !activeFile?.id ||
+        !selectedElement?.sourceId
+      ) {
         return false;
       }
       const entries = Object.entries(styles).filter(
@@ -12976,6 +12984,7 @@ function DesignEditor() {
       activeBreakpointUpperBoundPx,
       activeFile?.id,
       applyFileContentUpdate,
+      canEditActiveVisualScreen,
       canEditDesign,
       getFreshActiveContent,
       previewInteractionStateStyles,
