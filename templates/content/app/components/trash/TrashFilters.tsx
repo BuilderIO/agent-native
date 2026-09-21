@@ -70,7 +70,6 @@ export function TrashFilters({
   const clearFilters = () =>
     onChange({
       query: filters.query,
-      spaceId: filters.spaceId,
       sort: filters.sort,
       direction: filters.direction,
     });
