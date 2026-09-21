@@ -151,10 +151,10 @@ function gridLine(template: string, value: string, fallback: number): number {
   if (Number.isFinite(numeric)) return numeric;
   const match = value.match(/^(?:[\w-]+\s+)?([\w-]+)$/)?.[1];
   if (!match) return fallback;
-  let line = 1;
   for (const group of template.matchAll(/\[([^\]]+)\]/g)) {
-    if (group[1].split(/\s+/).includes(match)) return line;
-    line += 1;
+    if (group[1].split(/\s+/).includes(match)) {
+      return gridTrackCount(template.slice(0, group.index ?? 0)) + 1;
+    }
   }
   return fallback;
 }
