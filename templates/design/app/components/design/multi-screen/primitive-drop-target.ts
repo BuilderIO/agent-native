@@ -103,6 +103,9 @@ function computeAutoLayoutAxis(style: {
     return isRow ? "x" : "y";
   }
   if (style.display === "grid" || style.display === "inline-grid") {
+    if (style.gridAutoFlow.trim().split(/\s+/).includes("column")) {
+      return "y";
+    }
     const columns = gridTrackCount(style.gridTemplateColumns);
     return columns > 1 ? "x" : "y";
   }
@@ -134,6 +137,25 @@ function gridTrackCount(template: string): number {
     count += repeatCount ? Number(repeatCount) : 1;
   }
   return count;
+}
+
+function gridTracks(template: string): string[] {
+  return template
+    .trim()
+    .split(/\s+(?![^()]*\))/)
+    .filter((track) => track && !/^\[[^\]]+\]$/.test(track));
+}
+
+function gridLine(template: string, value: string, fallback: number): number {
+  const numeric = Number.parseInt(value, 10);
+  if (Number.isFinite(numeric)) return numeric;
+  const match = value.match(/^(?:[\w-]+\s+)?([\w-]+)$/)?.[1];
+  if (!match) return fallback;
+  const names = [...template.matchAll(/\[([^\]]+)\]/g)].flatMap((m) =>
+    m[1].split(/\s+/),
+  );
+  const index = names.indexOf(match);
+  return index >= 0 ? index + 1 : fallback;
 }
 
 /**
@@ -764,22 +786,31 @@ export function authoredElementPosition(
         else y += inlineNumber(cursor, "marginTop");
       }
       if (isGrid) {
-        const column = Number.parseInt(
-          (style.gridColumnStart || style.gridColumn || "").split("/")[0],
-          10,
+        const columns = gridTracks(parentStyle.gridTemplateColumns);
+        const rows = gridTracks(parentStyle.gridTemplateRows);
+        const columnValue =
+          style.gridColumnStart || style.gridColumn.split("/")[0] || "";
+        const rowValue =
+          style.gridRowStart || style.gridRow.split("/")[0] || "";
+        const autoChildren = siblings.filter(
+          (sibling) => !isOutOfFlow(sibling),
         );
-        const row = Number.parseInt(
-          (style.gridRowStart || style.gridRow || "").split("/")[0],
-          10,
+        const autoIndex = autoChildren.indexOf(cursor);
+        const columnCount = Math.max(1, columns.length);
+        const column = gridLine(
+          parentStyle.gridTemplateColumns,
+          columnValue,
+          parentStyle.gridAutoFlow.includes("column")
+            ? Math.floor(autoIndex / Math.max(1, rows.length)) + 1
+            : (autoIndex % columnCount) + 1,
         );
-        const columns = parentStyle.gridTemplateColumns
-          .trim()
-          .split(/\s+/)
-          .filter((track) => !/^\[[^\]]+\]$/.test(track));
-        const rows = parentStyle.gridTemplateRows
-          .trim()
-          .split(/\s+/)
-          .filter((track) => !/^\[[^\]]+\]$/.test(track));
+        const row = gridLine(
+          parentStyle.gridTemplateRows,
+          rowValue,
+          parentStyle.gridAutoFlow.includes("column")
+            ? (autoIndex % Math.max(1, rows.length)) + 1
+            : Math.floor(autoIndex / columnCount) + 1,
+        );
         const gapX = cssPixelNumber(parentStyle.columnGap || parentStyle.gap);
         const gapY = cssPixelNumber(parentStyle.rowGap || parentStyle.gap);
         const trackSize = (track: string) => cssPixelNumber(track);
