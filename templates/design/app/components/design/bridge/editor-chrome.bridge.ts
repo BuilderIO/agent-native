@@ -15905,6 +15905,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? document.elementsFromPoint(clientX, clientY)
       : [hit];
     pointCandidates.forEach(function (node) {
+      if (
+        !node.hasAttribute("data-agent-native-node-id") &&
+        !node.hasAttribute("data-an-primitive")
+      )
+        return;
       if (!isContainerDropTarget(node) || isDraggedOrInsideDragged(node))
         return;
       var rect = node.getBoundingClientRect();

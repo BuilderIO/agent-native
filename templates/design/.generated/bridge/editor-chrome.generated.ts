@@ -11412,6 +11412,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var deepestDepth = -1;
       var pointCandidates = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [hit];
       pointCandidates.forEach(function(node) {
+        if (!node.hasAttribute("data-agent-native-node-id") && !node.hasAttribute("data-an-primitive"))
+          return;
         if (!isContainerDropTarget(node) || isDraggedOrInsideDragged(node))
           return;
         var rect = node.getBoundingClientRect();
@@ -16278,7 +16280,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         true
       );
     } catch (_err) {
-      // coercion-ok: cross-origin previews intentionally cannot inspect the host document.
     }
     document.addEventListener(
       "keyup",
