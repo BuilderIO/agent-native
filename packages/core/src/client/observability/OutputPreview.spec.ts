@@ -26,6 +26,25 @@ describe("parseOutputPreview", () => {
     });
   });
 
+  it("rejects negative chart values instead of rendering them inaccurately", () => {
+    expect(
+      parseOutputPreview(
+        JSON.stringify({
+          type: "chart",
+          data: [
+            { label: "loss", value: -10 },
+            { label: "gain", value: 10 },
+          ],
+        }),
+      ),
+    ).toEqual({
+      kind: "chart",
+      title: undefined,
+      unit: undefined,
+      data: [{ label: "gain", value: 10 }],
+    });
+  });
+
   it("renders Markdown tables as table previews", () => {
     expect(
       parseOutputPreview("| Name | Score |\n| --- | ---: |\n| Ada | 0.9 |"),
@@ -53,6 +72,16 @@ describe("parseOutputPreview", () => {
     });
   });
 
+  it("bounds oversized answers before parsing or scanning", () => {
+    const answer = Array.from({ length: 4_000 }, () => "noise").join("\n");
+    const preview = parseOutputPreview(answer);
+
+    expect(preview).toEqual({
+      kind: "text",
+      text: `${answer.slice(0, 20_000)}…`,
+    });
+  });
+
   it("does not turn untrusted image protocols into image previews", () => {
     expect(parseOutputPreview("![preview](javascript:alert(1))")).toEqual({
       kind: "text",
@@ -65,6 +94,14 @@ describe("parseOutputPreview", () => {
     ).toEqual({
       kind: "text",
       text: '{"type":"image","src":"http://localhost:3000/image"}',
+    });
+    expect(
+      parseOutputPreview(
+        JSON.stringify({ type: "image", src: "https://192.168.0.2/image" }),
+      ),
+    ).toEqual({
+      kind: "text",
+      text: '{"type":"image","src":"https://192.168.0.2/image"}',
     });
   });
 });

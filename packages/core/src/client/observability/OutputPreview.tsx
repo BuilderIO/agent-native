@@ -17,8 +17,10 @@ export type OutputPreviewModel =
     };
 
 const MAX_STRING_LENGTH = 600;
+const MAX_ANSWER_LENGTH = 20_000;
 const MAX_COLUMNS = 8;
 const MAX_ROWS = 24;
+const MAX_MARKDOWN_LINES = MAX_ROWS * 2 + 2;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -39,12 +41,47 @@ function tableCell(value: unknown): string {
   return "";
 }
 
+function isPrivateHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/\.$/, "");
+  if (
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized === "localhost.localdomain" ||
+    normalized.endsWith(".local") ||
+    normalized.endsWith(".internal") ||
+    normalized.endsWith(".lan") ||
+    normalized.includes(":")
+  ) {
+    return true;
+  }
+
+  const octets = normalized.split(".").map(Number);
+  if (
+    octets.length !== 4 ||
+    octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  ) {
+    return false;
+  }
+
+  const [first, second] = octets;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
 function safeImageUrl(value: unknown): string | undefined {
   const candidate = boundedString(value);
   if (!candidate) return undefined;
   try {
     const url = new URL(candidate);
-    if (url.protocol === "https:") return url.toString();
+    if (url.protocol === "https:" && !isPrivateHost(url.hostname)) {
+      return url.toString();
+    }
     // coercion-ok: invalid image URLs are an explicit typed absence.
   } catch {
     return undefined;
@@ -64,7 +101,7 @@ function splitTableRow(line: string): string[] {
 
 function parseMarkdownTable(answer: string): OutputPreviewModel | undefined {
   const lines = answer
-    .split(/\r?\n/)
+    .split(/\r?\n/, MAX_MARKDOWN_LINES)
     .map((line) => line.trim())
     .filter(Boolean);
 
@@ -116,7 +153,7 @@ function parseStructuredPreview(
           : typeof point.value === "string"
             ? Number(point.value)
             : Number.NaN;
-      return label && Number.isFinite(numericValue)
+      return label && Number.isFinite(numericValue) && numericValue >= 0
         ? [{ label, value: numericValue }]
         : [];
     });
@@ -141,7 +178,12 @@ function parseStructuredPreview(
           })
           .slice(0, MAX_COLUMNS)
       : objectRows[0]
-        ? Object.keys(objectRows[0]).slice(0, MAX_COLUMNS)
+        ? Object.keys(objectRows[0])
+            .flatMap((header) => {
+              const text = boundedString(header);
+              return text ? [text] : [];
+            })
+            .slice(0, MAX_COLUMNS)
         : [];
     const rows = sourceRows.slice(0, MAX_ROWS).flatMap((row) => {
       if (Array.isArray(row)) {
@@ -191,6 +233,9 @@ function parseStructuredPreview(
 export function parseOutputPreview(answer: string): OutputPreviewModel {
   const text = answer.trim();
   if (!text) return { kind: "text", text: "-" };
+  if (text.length > MAX_ANSWER_LENGTH) {
+    return { kind: "text", text: `${text.slice(0, MAX_ANSWER_LENGTH)}…` };
+  }
 
   const jsonText = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try {
