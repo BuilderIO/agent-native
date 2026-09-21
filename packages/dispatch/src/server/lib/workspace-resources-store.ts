@@ -63,6 +63,30 @@ function ctxScope<T extends { ownerEmail: any; orgId: any }>(
   return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
 }
 
+function workspaceResourceSnapshotScope(
+  resource: {
+    id: string;
+    updatedAt: number;
+    name: string;
+    description: string | null;
+    content: string;
+    scope: string;
+  },
+  ctx: WorkspaceResourceCtx,
+) {
+  return and(
+    eq(schema.workspaceResources.id, resource.id),
+    ctxScope(schema.workspaceResources, ctx),
+    eq(schema.workspaceResources.updatedAt, resource.updatedAt),
+    eq(schema.workspaceResources.name, resource.name),
+    resource.description === null
+      ? isNull(schema.workspaceResources.description)
+      : eq(schema.workspaceResources.description, resource.description),
+    eq(schema.workspaceResources.content, resource.content),
+    eq(schema.workspaceResources.scope, resource.scope),
+  );
+}
+
 function id() {
   return crypto.randomUUID();
 }
@@ -1185,22 +1209,52 @@ export async function applyWorkspaceResourceUpdate(
   if (!existing) throw new Error("Workspace resource not found");
   const previous = { ...existing };
 
-  const updates: Record<string, unknown> = { updatedAt: now() };
+  const updates: Record<string, unknown> = {
+    updatedAt: Math.max(now(), existing.updatedAt + 1),
+  };
   if (input.name !== undefined) updates.name = input.name;
   if (input.description !== undefined)
     updates.description = input.description || null;
   if (input.content !== undefined) updates.content = input.content;
   if (input.scope !== undefined) updates.scope = input.scope;
 
-  await db
+  const [updated] = await db
     .update(schema.workspaceResources)
     .set(updates)
-    .where(
-      and(
-        eq(schema.workspaceResources.id, resourceId),
-        ctxScope(schema.workspaceResources, ctx),
-      ),
-    );
+    .where(workspaceResourceSnapshotScope(existing, ctx))
+    .returning();
+  if (!updated) {
+    throw new Error("Workspace resource changed before it could be updated");
+  }
+
+  try {
+    await materializeGlobalResource(updated, previous);
+  } catch (error) {
+    try {
+      const [restored] = await db
+        .update(schema.workspaceResources)
+        .set({
+          name: previous.name,
+          description: previous.description,
+          content: previous.content,
+          scope: previous.scope,
+          updatedAt: Math.max(now(), updated.updatedAt + 1),
+        })
+        .where(workspaceResourceSnapshotScope(updated, ctx))
+        .returning({ id: schema.workspaceResources.id });
+      if (!restored) {
+        throw new Error(
+          `Workspace resource changed before materialization could be rolled back: ${updated.path}`,
+        );
+      }
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        `Workspace resource materialization failed and could not be rolled back: ${updated.path}`,
+      );
+    }
+    throw error;
+  }
 
   await recordAudit({
     action: `workspace.${existing.kind}.updated`,
@@ -1211,9 +1265,6 @@ export async function applyWorkspaceResourceUpdate(
     ownerEmail: ctx.ownerEmail,
     orgId: ctx.orgId,
   });
-
-  const updated = await getWorkspaceResource(resourceId, ctx);
-  if (updated) await materializeGlobalResource(updated, previous);
   return updated;
 }
 

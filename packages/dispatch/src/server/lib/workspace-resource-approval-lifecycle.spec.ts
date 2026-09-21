@@ -450,4 +450,164 @@ describe("workspace resource approval lifecycle", () => {
       }
     }
   }, 60_000);
+
+  it("restores the All-app row when a matching materialization cannot be removed", async () => {
+    const conflictPath = "context/materialization-rollback.md";
+    const previousName = "All-app rollback instructions";
+    const previousContent = "# All-app rollback instructions";
+    const nextName = "Selected-app rollback instructions";
+    const nextContent = "# Selected-app rollback instructions";
+    const [
+      { getDbExec },
+      { runWithRequestContext },
+      coreResources,
+      { applyWorkspaceResourceUpdate, createWorkspaceResource },
+    ] = await Promise.all([
+      import("@agent-native/core/db"),
+      import("@agent-native/core/server"),
+      import("@agent-native/core/resources/store"),
+      import("./workspace-resources-store.js"),
+    ]);
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const created = await createWorkspaceResource({
+        kind: "instruction",
+        name: previousName,
+        path: conflictPath,
+        content: previousContent,
+        scope: "all",
+      });
+      const resourceId = (created as { id: string }).id;
+      const deleteSpy = vi
+        .spyOn(coreResources, "resourceDeleteIfCurrent")
+        .mockResolvedValue(false);
+
+      try {
+        await expect(
+          applyWorkspaceResourceUpdate(resourceId, {
+            name: nextName,
+            content: nextContent,
+            scope: "selected",
+          }),
+        ).rejects.toThrow(
+          `Workspace resource materialization changed concurrently: ${conflictPath}`,
+        );
+      } finally {
+        deleteSpy.mockRestore();
+      }
+
+      await expect(
+        getDbExec().execute({
+          sql: "SELECT name, content, scope FROM workspace_resources WHERE id = ?",
+          args: [resourceId],
+        }),
+      ).resolves.toMatchObject({
+        rows: [
+          {
+            name: previousName,
+            content: previousContent,
+            scope: "all",
+          },
+        ],
+      });
+      await expect(
+        coreResources.resourceGetByPath(
+          coreResources.WORKSPACE_OWNER,
+          conflictPath,
+          { orgId },
+        ),
+      ).resolves.toMatchObject({
+        owner: coreResources.workspaceResourceOwner(orgId),
+        content: previousContent,
+      });
+      await expect(
+        getDbExec().execute({
+          sql: "SELECT action FROM dispatch_audit_events WHERE target_id = ? AND action = ?",
+          args: [resourceId, "workspace.instruction.updated"],
+        }),
+      ).resolves.toMatchObject({ rows: [] });
+    });
+  }, 60_000);
+
+  it("does not overwrite a newer row when materialization rollback loses its snapshot", async () => {
+    const conflictPath = "context/materialization-rollback-concurrent.md";
+    const previousContent = "# All-app concurrent rollback instructions";
+    const concurrentName = "Concurrent selected instructions";
+    const concurrentContent = "# Concurrent selected instructions";
+    const [
+      { getDbExec },
+      { runWithRequestContext },
+      coreResources,
+      { applyWorkspaceResourceUpdate, createWorkspaceResource },
+    ] = await Promise.all([
+      import("@agent-native/core/db"),
+      import("@agent-native/core/server"),
+      import("@agent-native/core/resources/store"),
+      import("./workspace-resources-store.js"),
+    ]);
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const created = await createWorkspaceResource({
+        kind: "instruction",
+        name: "All-app concurrent rollback instructions",
+        path: conflictPath,
+        content: previousContent,
+        scope: "all",
+      });
+      const resourceId = (created as { id: string }).id;
+      let injected = false;
+      const deleteSpy = vi
+        .spyOn(coreResources, "resourceDeleteIfCurrent")
+        .mockImplementation(async () => {
+          if (!injected) {
+            injected = true;
+            await getDbExec().execute({
+              sql: "UPDATE workspace_resources SET name = ?, content = ?, scope = ?, updated_at = ? WHERE id = ?",
+              args: [
+                concurrentName,
+                concurrentContent,
+                "selected",
+                Date.now() + 10_000,
+                resourceId,
+              ],
+            });
+          }
+          return false;
+        });
+
+      try {
+        await expect(
+          applyWorkspaceResourceUpdate(resourceId, {
+            content: "# Attempted selected instructions",
+            scope: "selected",
+          }),
+        ).rejects.toThrow(
+          `Workspace resource materialization failed and could not be rolled back: ${conflictPath}`,
+        );
+      } finally {
+        deleteSpy.mockRestore();
+      }
+
+      await expect(
+        getDbExec().execute({
+          sql: "SELECT name, content, scope FROM workspace_resources WHERE id = ?",
+          args: [resourceId],
+        }),
+      ).resolves.toMatchObject({
+        rows: [
+          {
+            name: concurrentName,
+            content: concurrentContent,
+            scope: "selected",
+          },
+        ],
+      });
+      await expect(
+        getDbExec().execute({
+          sql: "SELECT action FROM dispatch_audit_events WHERE target_id = ? AND action = ?",
+          args: [resourceId, "workspace.instruction.updated"],
+        }),
+      ).resolves.toMatchObject({ rows: [] });
+    });
+  }, 60_000);
 });

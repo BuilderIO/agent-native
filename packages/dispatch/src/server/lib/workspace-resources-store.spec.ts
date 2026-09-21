@@ -182,11 +182,20 @@ interface GrantRow {
   updatedAt: number;
 }
 
-function createFakeDb(state: {
-  resources: ResourceRow[];
-  grants?: GrantRow[];
-}) {
+function createFakeDb(
+  state: {
+    resources: ResourceRow[];
+    grants?: GrantRow[];
+  },
+  options?: {
+    beforeUpdate?: (
+      call: number,
+      updates: Partial<ResourceRow | GrantRow>,
+    ) => boolean;
+  },
+) {
   const latestResource = () => state.resources.at(-1);
+  let updateCall = 0;
 
   return {
     insert: vi.fn(() => ({
@@ -214,12 +223,32 @@ function createFakeDb(state: {
       }),
     })),
     update: vi.fn(() => ({
-      set: vi.fn((updates: Partial<ResourceRow | GrantRow>) => ({
-        where: vi.fn(async () => {
-          const resource = latestResource();
-          if (resource) Object.assign(resource, updates);
-        }),
-      })),
+      set: vi.fn((updates: Partial<ResourceRow | GrantRow>) => {
+        let updated = false;
+        let result: ResourceRow | undefined;
+        const apply = () => {
+          if (!updated) {
+            updated = true;
+            updateCall += 1;
+            if (options?.beforeUpdate?.(updateCall, updates)) return;
+            const resource = latestResource();
+            if (resource) {
+              Object.assign(resource, updates);
+              result = { ...resource };
+            }
+          }
+        };
+        return {
+          where: vi.fn(() => {
+            apply();
+            return {
+              returning: vi.fn(async () => {
+                return result ? [result] : [];
+              }),
+            };
+          }),
+        };
+      }),
     })),
     delete: vi.fn(() => ({
       where: vi.fn(async () => {
@@ -944,6 +973,69 @@ describe("workspace resource materialization", () => {
 
     expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(existing);
     expect(mocks.resourceGetByPath).toHaveBeenCalledTimes(2);
+    expect(state.resources[0]).toMatchObject({
+      scope: "all",
+      content: "# Starter",
+      name: "Starter guardrails",
+    });
+    expect(mocks.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a newer update when materialization rollback conflicts", async () => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Starter guardrails",
+          description: null,
+          path: "instructions/starter.md",
+          content: "# Starter",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(
+      createFakeDb(state, {
+        beforeUpdate(call) {
+          if (call !== 2) return false;
+          Object.assign(state.resources[0]!, {
+            name: "Concurrent guardrails",
+            content: "# Concurrent",
+            scope: "all",
+            updatedAt: 99,
+          });
+          return true;
+        },
+      }),
+    );
+    const existing = {
+      id: "materialized_1",
+      owner: ORG_WORKSPACE_OWNER,
+      path: "instructions/starter.md",
+      metadata: dispatchMetadata(state.resources[0]),
+    };
+    mocks.resourceGetByPath.mockResolvedValue(existing);
+    mocks.resourceDeleteIfCurrent.mockResolvedValue(false);
+
+    await expect(
+      updateWorkspaceResource("resource_1", { scope: "selected" }),
+    ).rejects.toThrow(
+      "Workspace resource materialization failed and could not be rolled back",
+    );
+
+    expect(state.resources[0]).toMatchObject({
+      name: "Concurrent guardrails",
+      content: "# Concurrent",
+      scope: "all",
+      updatedAt: 99,
+    });
+    expect(mocks.recordAudit).not.toHaveBeenCalled();
   });
 
   it("accepts a concurrent replacement by a different Dispatch resource", async () => {
