@@ -383,10 +383,13 @@ surface is the contract:
    beta/production URL when those layers are in scope. These strengthen
    **Shipped** and **Live verified**; they do not keep a verified, merged source
    fix open.
-5. Record untested layers/variants and use the narrowest evidence-limited
-   disposition. Never release `✅` or call **Fixed**, **Shipped**, or **Live
-   verified** on partial source evidence. A post-checkmark repeat reopens the
-   item and needs a fresh failing pre-change reproduction.
+5. Record untested layers/variants. Before a verified merge, use the narrowest
+   evidence-limited disposition. Once the source fix is verified in the merged
+   shipping snapshot, use **Fixed** even when publication, beta, or live layers
+   remain; create or link the durable follow-up required above. Use **Shipped**
+   or **Live verified** only after their additional bars hold. Never release
+   `✅` or call **Fixed** without merged source proof. A post-checkmark repeat
+   reopens the item and needs a fresh failing pre-change reproduction.
 
 ### Reproduction ledger - required for every row
 
@@ -395,12 +398,14 @@ reproduction command/click/URL/account state, expected and pre/post actuals,
 tested commit/build, sibling fingerprint results, untested layers, and runtime
 layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
 
-If the full bar was not exercised, use **Verified locally**, **Built - live
+If no merged source proof exists, use **Verified locally**, **Built - live
 unverified**, **Deployed - live unverified**, **Not reproducible - attempted**,
-**Asked**, **Blocked on reporter**, or **Clustered**. **Live verified** is valid
-only after all four bars hold. Never promote `handled`/`completed`, reactions,
-or source tests without a verified regression to **Fixed**. Repeats require a
-new failing pre-change reproduction and the earlier false claim.
+**Asked**, **Blocked on reporter**, or **Clustered**. Once it exists, **Fixed**
+is valid while remaining release/runtime layers are tracked in the durable
+follow-up. **Live verified** is valid only after all four bars hold. Never
+promote `handled`/`completed`, reactions, or source tests without a verified
+regression to **Fixed**. Repeats require a new failing pre-change reproduction
+and the earlier false claim.
 
 Regression claims require Red/Green proof: reverse-apply hunk with
 `git apply -R`, record failure, reapply, record pass. Repeat timing checks 10x.
