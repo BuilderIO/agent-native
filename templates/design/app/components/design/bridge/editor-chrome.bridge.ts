@@ -4025,6 +4025,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (probeFailed) {
       dndLog("style:snapshot-skipped", { el: getSelector(root) });
+      var fallbackComputed = rootComputedStyle || window.getComputedStyle(root);
+      var fallbackStyles: Record<string, string> = {};
+      ["color", "backgroundColor", "width", "height", "borderRadius"].forEach(
+        function (property) {
+          var value =
+            fallbackComputed[property] ||
+            fallbackComputed.getPropertyValue(property);
+          if (value && value.trim()) fallbackStyles[property] = value.trim();
+        },
+      );
+      if (Object.keys(fallbackStyles).length > 0) {
+        return {
+          version: 1,
+          rootSourceId: getSourceId(root) || undefined,
+          nodes: [
+            {
+              sourceId: getSourceId(root) || undefined,
+              path: "",
+              styles: fallbackStyles,
+            },
+          ],
+        };
+      }
       // `null` (not `undefined`) marks CAPTURE FAILED, distinct from a
       // legitimately absent snapshot (isDocumentRootElement/no root above,
       // which returns `undefined`). Callers that post this cross-screen must
