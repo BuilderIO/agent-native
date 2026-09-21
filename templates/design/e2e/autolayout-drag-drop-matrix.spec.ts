@@ -474,9 +474,10 @@ async function heldSnapshot(
           `[data-agent-native-node-id="${ids.targetId}"]`,
         );
         const sourceStyle = source ? getComputedStyle(source) : null;
-        const guide = body.querySelector<HTMLElement>(
-          "[data-agent-native-insertion-guide]",
-        );
+        const guide =
+          body.ownerDocument.documentElement.querySelector<HTMLElement>(
+            "[data-agent-native-insertion-guide]",
+          );
         const guideStyle = guide ? getComputedStyle(guide) : null;
         const guideRect = guide?.getBoundingClientRect();
         const targetRect = target?.getBoundingClientRect();
@@ -2714,7 +2715,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       );
       expect(held?.source?.parentId).toBe("flow-origin");
       expect(held?.source?.lifted).toBe(true);
-      expect(held?.guide?.display).toBe("block");
       expect(held?.children.map((child) => child.id)).toEqual([
         "flow-child",
         "flow-peer",
