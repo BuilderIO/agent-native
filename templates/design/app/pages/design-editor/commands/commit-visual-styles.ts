@@ -262,6 +262,28 @@ export function runCommitVisualStyles(
     ([, value]) => value !== undefined,
   );
   if (entries.length === 0) return;
+  const liveTargetInfo = isRunningAppSourceType(activeCanvasSourceType)
+    ? (options.elementInfo ?? selectedElement ?? undefined)
+    : undefined;
+  if (
+    liveTargetInfo &&
+    (liveTargetInfo.boundingRect.width <= 0 ||
+      liveTargetInfo.boundingRect.height <= 0)
+  ) {
+    recordPendingVisualStyleEdit(
+      activeFile.id,
+      selector,
+      styles,
+      liveTargetInfo,
+      {
+        originalStyles: options.originalStyles,
+        pendingUndoGestureId: options.pendingUndoGestureId,
+        preserveSelection: options.preserveSelection,
+        routePath: options.routePath,
+      },
+    );
+    return;
+  }
   upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
   // §gesture-persistence — a localhost screen's source of truth is the
   // running app's own files, which this client cannot write. Everything
@@ -273,7 +295,7 @@ export function runCommitVisualStyles(
   // (handleVisualStyleChange delegates here with runtimeApplied set
   // because its gesture already moved the live DOM).
   if (isRunningAppSourceType(activeCanvasSourceType)) {
-    const targetInfo = options.elementInfo ?? selectedElement ?? undefined;
+    const targetInfo = liveTargetInfo;
     // Breakpoint-scoped writes are excluded for the same reason as the
     // base path below (Item 5, edit-flash): the agent persists them as a
     // width-scoped class or an `@media` rule, which an inline style would

@@ -5735,7 +5735,13 @@ export function DesignCanvas({
       nodeId?: string | null;
       state: string;
       styles: Record<string, string>;
+      routePath?: string;
+      screenId?: string;
     }) => {
+      if (!screenId || args.screenId !== screenId) return false;
+      if (!pendingVisualStyleRouteMatches(args, liveRoutePathRef.current)) {
+        return false;
+      }
       postOneShotBridgeMessage({
         type: "interaction-state-style-preview",
         selector: args.selector,
@@ -5744,8 +5750,9 @@ export function DesignCanvas({
         state: args.state,
         styles: args.styles,
       });
+      return true;
     },
-    [postOneShotBridgeMessage],
+    [postOneShotBridgeMessage, screenId],
   );
 
   const lastStyleRevertRequestIdRef = useRef<number | null>(null);
@@ -6376,10 +6383,12 @@ export function DesignCanvas({
     return registerLinkedScreenPreviewHandlers(frameId, {
       replaceContent: replacePreviewContentFromHost,
       sendStyleChange,
+      sendInteractionStatePreviewStyle,
     });
   }, [
     previewFrameId,
     replacePreviewContentFromHost,
+    sendInteractionStatePreviewStyle,
     screenId,
     sendStyleChange,
   ]);

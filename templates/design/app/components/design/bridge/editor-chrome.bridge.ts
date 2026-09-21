@@ -23960,6 +23960,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     true,
   );
   function handleShieldPointerMove(e) {
+    if (readOnly) return;
     stopNativeInteraction(e);
     lastHoverClientPoint = { x: e.clientX, y: e.clientY };
     hoveredEl = resolveHoverTarget(

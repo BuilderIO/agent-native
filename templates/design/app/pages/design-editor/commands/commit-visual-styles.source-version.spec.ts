@@ -98,4 +98,27 @@ it("uses the projected source and refuses a style commit while source actions ar
   runCommitVisualStyles(args, "#target", { color: "green" });
   expect(queueFileContentSave).not.toHaveBeenCalled();
   expect(latestActiveContentRef.current).toBe(savedContent);
+
+  const recordPendingVisualStyleEdit = vi.mocked(
+    args.recordPendingVisualStyleEdit,
+  );
+  const upsertMotionKeyframesFromStyles = vi.mocked(
+    args.upsertMotionKeyframesFromStyles,
+  );
+  canApplyContentEdit.mockReturnValue(true);
+  recordPendingVisualStyleEdit.mockClear();
+  upsertMotionKeyframesFromStyles.mockClear();
+  runCommitVisualStyles(
+    {
+      ...args,
+      activeCanvasSourceType: "localhost",
+      selectedElement: {
+        boundingRect: { width: 0, height: 0 },
+      } as any,
+    },
+    "#provider",
+    { borderRadius: "12px" },
+  );
+  expect(recordPendingVisualStyleEdit).toHaveBeenCalledOnce();
+  expect(upsertMotionKeyframesFromStyles).not.toHaveBeenCalled();
 });

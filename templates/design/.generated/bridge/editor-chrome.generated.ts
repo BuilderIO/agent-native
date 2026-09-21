@@ -16913,6 +16913,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       true
     );
     function handleShieldPointerMove(e) {
+      if (readOnly) return;
       stopNativeInteraction(e);
       lastHoverClientPoint = { x: e.clientX, y: e.clientY };
       hoveredEl = resolveHoverTarget(
