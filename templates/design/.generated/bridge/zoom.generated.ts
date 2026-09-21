@@ -4,7 +4,7 @@
 /** Compiled IIFE string for zoom.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const zoomBridgeScript: string = `"use strict";
 (() => {
-  // templates/design/app/components/design/bridge/zoom.bridge.ts
+  // app/components/design/bridge/zoom.bridge.ts
   (function() {
     var target = document.documentElement || document.body || document;
     function onWheel(e) {

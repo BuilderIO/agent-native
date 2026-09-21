@@ -4,7 +4,7 @@
 /** Compiled IIFE string for group-runtime.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const groupRuntimeBridgeScript: string = `"use strict";
 (() => {
-  // templates/design/app/components/design/bridge/group-runtime.bridge.ts
+  // app/components/design/bridge/group-runtime.bridge.ts
   (function() {
     const W = window;
     if (W.__anGroupRuntime?.version === 2) {

@@ -4,7 +4,7 @@
 /** Compiled IIFE string for hit-test.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const hitTestBridgeScript: string = `"use strict";
 (() => {
-  // templates/design/app/components/design/bridge/hit-test.bridge.ts
+  // app/components/design/bridge/hit-test.bridge.ts
   (function() {
     var insertionGuide = null;
     function ensureInsertionGuide() {

@@ -4,7 +4,7 @@
 /** Compiled IIFE string for embedded-wheel.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const embeddedWheelBridgeScript: string = `"use strict";
 (() => {
-  // templates/design/app/components/design/bridge/embedded-wheel.bridge.ts
+  // app/components/design/bridge/embedded-wheel.bridge.ts
   (function() {
     var wheelEnabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
     var spaceKeyForwardingEnabled = __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__;

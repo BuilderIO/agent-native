@@ -58,8 +58,10 @@ reminder or leave a scheduler repeating an unchanged status. For each PR:
 - If required CI is failing, open the failing run logs, fix only an actionable
   repo-owned failure, publish one coherent update, and recheck the same head.
 - If CI is green, the PR is mergeable, and review items are addressed, use the
-  authorized admin merge after the unchanged 10-minute soak:
-  `gh pr merge <number> --squash --admin`.
+  authorized admin merge after the unchanged 10-minute soak. Capture the final
+  live `headRefOid` immediately before merging and bind the operation to it:
+  `gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>`.
+  If the command rejects because the head changed, restart the soak.
 - If an external dependency is unchanged, record the exact blocker once and
   keep the watcher quiet until a meaningful state change. Do not send repeated
   "continue" prompts that only renew a lease or restate CI status.
@@ -200,11 +202,13 @@ continuous minutes on the unchanged live PR head:
 Then use the explicit squash-admin merge:
 
 ```bash
-gh pr merge <number> --squash --admin
+gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
 ```
 
-This admin merge is the normal `/ship` completion step once the gates hold; do
-not wait for an additional approval or enable auto-merge.
+Capture `<verified-head-oid>` from the final live PR check immediately before
+this command. This admin merge is the normal `/ship` completion step once the
+gates hold; do not wait for an additional approval or enable auto-merge. If the
+head-match guard rejects the merge, restart the soak for the new head.
 
 Never enable auto-merge. If a gate fails, fix the actionable cause, publish one
 coherent update to the same PR, and restart the soak. A queued, skipped,

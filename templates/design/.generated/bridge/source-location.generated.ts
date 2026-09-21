@@ -4,7 +4,7 @@
 /** Compiled IIFE string for source-location.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const sourceLocationBridgeScript: string = `"use strict";
 (() => {
-  // templates/design/app/components/design/bridge/source-location.bridge.ts
+  // app/components/design/bridge/source-location.bridge.ts
   (function() {
     var FIBER_KEY_PREFIXES = [
       "__reactFiber$",

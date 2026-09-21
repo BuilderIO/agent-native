@@ -30,9 +30,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     mod
   ));
 
-  // node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
+  // ../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
   var require_resolve_uri_umd = __commonJS({
-    "node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
+    "../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
       (function(global, factory) {
         typeof exports === "object" && typeof module !== "undefined" ? module.exports = factory() : typeof define === "function" && define.amd ? define(factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, global.resolveURI = factory());
       })(exports, (function() {
@@ -209,7 +209,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
   });
 
-  // packages/toolkit/dist/canvas-interactions/canvas-interactions.js
+  // ../../packages/toolkit/dist/canvas-interactions/canvas-interactions.js
   var DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
   var DEFAULT_CANVAS_NUDGE = 1;
   var DEFAULT_CANVAS_ACCELERATED_NUDGE = 10;
@@ -617,7 +617,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
   }
 
-  // node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
+  // ../../node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
   var comma = ",".charCodeAt(0);
   var semicolon = ";".charCodeAt(0);
   var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -716,7 +716,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     return a[0] - b[0];
   }
 
-  // node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
+  // ../../node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
   var import_resolve_uri = __toESM(require_resolve_uri_umd(), 1);
   function stripFilename(path) {
     if (!path) return "";
@@ -903,7 +903,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
-  // templates/design/app/components/design/bridge/editor-chrome.bridge.ts
+  // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     var readOnly = __READ_ONLY__;
     var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
