@@ -14305,6 +14305,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
           if (currentAutoLayoutTarget) {
             showInsertionGuideFor(currentAutoLayoutTarget);
+            if (currentAutoLayoutTarget.dropMode !== "absolute-container") {
+              dragChromeSuppressed = true;
+              hideSnapGuides();
+              hideSizeBadge();
+              hideConstraintGuides();
+            }
           } else {
             hideInsertionGuide();
           }
@@ -14500,6 +14506,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           } else {
             cancelAutoLayoutTargetResolution();
             currentAutoLayoutTarget = null;
+            hideInsertionGuide();
           }
         }
         var flowInsertPending = !!currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode !== "absolute-container";

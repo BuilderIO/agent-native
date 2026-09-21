@@ -14186,7 +14186,17 @@ it("snapshots drag modifiers before queued target resolution", () => {
     "if (point.spaceKeyPressed || bridgeSpaceKeyPressed)",
   );
   expect(dragScheduler).toContain("isIgnoreAutoLayoutChordForDragPoint(point)");
+  expect(dragScheduler).toContain("dragChromeSuppressed = true");
+  expect(dragScheduler).toContain("hideSnapGuides()");
+  expect(dragScheduler).toContain("hideSizeBadge()");
+  expect(dragScheduler).toContain("hideConstraintGuides()");
   expect(dragScheduler).not.toContain("isIgnoreAutoLayoutChord(point)");
+
+  const moveStart = bridge.indexOf("        if (!bridgeSpaceKeyPressed) {");
+  const moveEnd = bridge.indexOf("// Snap guides only make sense", moveStart);
+  expect(moveStart).toBeGreaterThan(-1);
+  expect(moveEnd).toBeGreaterThan(moveStart);
+  expect(bridge.slice(moveStart, moveEnd)).toContain("hideInsertionGuide()");
 
   // Pointerup remains the authoritative live resolution for the final event.
   const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));

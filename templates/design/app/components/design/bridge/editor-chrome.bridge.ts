@@ -20350,6 +20350,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
+          if (currentAutoLayoutTarget.dropMode !== "absolute-container") {
+            dragChromeSuppressed = true;
+            hideSnapGuides();
+            hideSizeBadge();
+            hideConstraintGuides();
+          }
         } else {
           hideInsertionGuide();
         }
@@ -20621,6 +20627,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         } else {
           cancelAutoLayoutTargetResolution();
           currentAutoLayoutTarget = null;
+          hideInsertionGuide();
         }
       }
       // Snap guides only make sense for a free absolute placement — never at
