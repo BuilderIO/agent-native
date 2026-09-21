@@ -318,7 +318,6 @@ test.describe("URL-backed live auto-layout probe", () => {
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .contentFrame();
-    const iframe = page.locator("iframe[data-design-preview-iframe]").first();
     const source = frame.locator('[data-agent-native-node-id="v1"]');
     const target = frame.locator('[data-agent-native-node-id="v3"]');
     const sourceBox = await source.boundingBox();
