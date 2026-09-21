@@ -6,14 +6,34 @@ import { runUndo } from "./commands/undo";
 const ref = <T>(current: T) => ({ current });
 
 describe("pending live history order", () => {
-  it("undoes and redoes mixed style and text edits in one strict LIFO order", () => {
-    const styleEdit = {
+  it("undoes and redoes interleaved style and text edits in strict LIFO order", () => {
+    const radius24Edit = {
       screenId: "home",
+      filename: "index.html",
+      screenName: "Home",
       selector: "#card",
       sourceId: "card",
+      classes: [],
+      styles: { borderRadius: "24px" },
+      originalStyles: { borderRadius: "0px" },
+      updatedAt: 1,
+    };
+    const radius48Edit = {
+      ...radius24Edit,
       styles: { borderRadius: "48px" },
       originalStyles: { borderRadius: "24px" },
-      updatedAt: 1,
+      updatedAt: 2,
+    };
+    const fillEdit = {
+      screenId: "home",
+      filename: "index.html",
+      screenName: "Home",
+      selector: "#card",
+      sourceId: "card",
+      classes: [],
+      styles: { backgroundColor: "blue" },
+      originalStyles: { backgroundColor: "white" },
+      updatedAt: 3,
     };
     const textEdit = {
       kind: "text" as const,
@@ -22,17 +42,24 @@ describe("pending live history order", () => {
       sourceId: "title",
       value: "Updated",
       originalValue: "Original",
-      updatedAt: 2,
+      updatedAt: 4,
     };
     const pendingStyleUndoStackRef = ref([
-      { edit: styleEdit, revertStyles: { borderRadius: "24px" } },
+      { edit: radius24Edit, revertStyles: { borderRadius: "0px" } },
+      { edit: radius48Edit, revertStyles: { borderRadius: "24px" } },
+      { edit: fillEdit, revertStyles: { backgroundColor: "white" } },
     ]);
     const pendingLiveNonStyleUndoStackRef = ref([
       { kind: "text" as const, edit: textEdit, revertValue: "Original" },
     ]);
     const pendingStyleRedoStackRef = ref<any[]>([]);
     const pendingLiveRedoStackRef = ref<any[]>([]);
-    const historyOrderRef = ref<any[]>(["pending-style", "pending-live"]);
+    const historyOrderRef = ref<any[]>([
+      "pending-style",
+      "pending-style",
+      "pending-style",
+      "pending-live",
+    ]);
     const redoOrderRef = ref<any[]>([]);
     const undoArgs = {
       activeEditorDragRef: ref(false),
@@ -43,7 +70,7 @@ describe("pending live history order", () => {
       pendingLiveNonStyleEditsRef: ref([textEdit]),
       pendingLiveNonStyleRedoStackRef: pendingLiveRedoStackRef,
       pendingLiveNonStyleUndoStackRef,
-      pendingVisualStyleEditsRef: ref([styleEdit]),
+      pendingVisualStyleEditsRef: ref([radius24Edit, radius48Edit, fillEdit]),
       pendingVisualStyleRedoStackRef: pendingStyleRedoStackRef,
       pendingVisualStyleUndoStackRef: pendingStyleUndoStackRef,
       redoOrderRef,
@@ -59,13 +86,35 @@ describe("pending live history order", () => {
     runUndo(undoArgs);
     expect(undoArgs.requestPendingLiveNonStyleRevert).toHaveBeenCalledTimes(1);
     expect(undoArgs.requestPendingVisualStyleRevert).not.toHaveBeenCalled();
-    expect(historyOrderRef.current).toEqual(["pending-style"]);
+    expect(historyOrderRef.current).toEqual([
+      "pending-style",
+      "pending-style",
+      "pending-style",
+    ]);
     expect(redoOrderRef.current).toEqual(["pending-live"]);
 
     runUndo(undoArgs);
-    expect(undoArgs.requestPendingVisualStyleRevert).toHaveBeenCalledTimes(1);
+    expect(undoArgs.requestPendingVisualStyleRevert).toHaveBeenNthCalledWith(
+      1,
+      [expect.objectContaining({ styles: { backgroundColor: "blue" } })],
+    );
+    runUndo(undoArgs);
+    expect(undoArgs.requestPendingVisualStyleRevert).toHaveBeenNthCalledWith(
+      2,
+      [expect.objectContaining({ styles: { borderRadius: "48px" } })],
+    );
+    runUndo(undoArgs);
+    expect(undoArgs.requestPendingVisualStyleRevert).toHaveBeenNthCalledWith(
+      3,
+      [expect.objectContaining({ styles: { borderRadius: "24px" } })],
+    );
     expect(historyOrderRef.current).toEqual([]);
-    expect(redoOrderRef.current).toEqual(["pending-live", "pending-style"]);
+    expect(redoOrderRef.current).toEqual([
+      "pending-live",
+      "pending-style",
+      "pending-style",
+      "pending-style",
+    ]);
 
     const redoArgs = {
       ...undoArgs,
@@ -73,15 +122,41 @@ describe("pending live history order", () => {
       setPendingVisualStyleRevertRequest: vi.fn(),
     } as any;
     runRedo(redoArgs);
-    expect(redoArgs.setPendingVisualStyleRevertRequest).toHaveBeenCalledTimes(
+    expect(redoArgs.setPendingVisualStyleRevertRequest).toHaveBeenNthCalledWith(
       1,
+      expect.objectContaining({
+        patches: [
+          expect.objectContaining({ styles: { borderRadius: "24px" } }),
+        ],
+      }),
     );
-    expect(historyOrderRef.current).toEqual(["pending-style"]);
-    expect(redoOrderRef.current).toEqual(["pending-live"]);
 
     runRedo(redoArgs);
+    expect(redoArgs.setPendingVisualStyleRevertRequest).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        patches: [
+          expect.objectContaining({ styles: { borderRadius: "48px" } }),
+        ],
+      }),
+    );
+    runRedo(redoArgs);
+    expect(redoArgs.setPendingVisualStyleRevertRequest).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        patches: [
+          expect.objectContaining({ styles: { backgroundColor: "blue" } }),
+        ],
+      }),
+    );
+    runRedo(redoArgs);
     expect(redoArgs.setPendingTextRevertRequest).toHaveBeenCalledTimes(1);
-    expect(historyOrderRef.current).toEqual(["pending-style", "pending-live"]);
+    expect(historyOrderRef.current).toEqual([
+      "pending-style",
+      "pending-style",
+      "pending-style",
+      "pending-live",
+    ]);
     expect(redoOrderRef.current).toEqual([]);
   });
 });

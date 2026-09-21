@@ -714,8 +714,8 @@ export type PendingLiveNonStyleUndoEntry =
   | PendingLiveLayerNameUndoEntry
   | PendingLiveStructureUndoEntry;
 
-/** Coalesce consecutive same-target ticks so slider/keystroke streams stay O(1)
- * per event. The first revert is kept so one undo still restores the pre-gesture value. */
+/** Coalesce only explicit multi-target gesture ticks. A missing gesture id is
+ * one committed change, so it must stay an independent undo step. */
 export function appendPendingVisualStyleUndoEntry(
   stack: PendingVisualStyleUndoEntry[],
   entry: PendingVisualStyleUndoEntry,
@@ -761,26 +761,6 @@ export function appendPendingVisualStyleUndoEntry(
     // Undo ordering compares the primary edit's timestamp with other pending
     // edit kinds, so keep it at the time of the latest tick in this gesture.
     last.edit = { ...last.edit, updatedAt: entry.edit.updatedAt };
-    return;
-  }
-  if (
-    !entry.gestureId &&
-    !last?.gestureId &&
-    last &&
-    pendingVisualStyleEditKey(last.edit) ===
-      pendingVisualStyleEditKey(entry.edit) &&
-    pendingVisualStylePropertyKey(last.edit) ===
-      pendingVisualStylePropertyKey(entry.edit)
-  ) {
-    last.edit = {
-      ...entry.edit,
-      styles: { ...last.edit.styles, ...entry.edit.styles },
-      originalStyles: {
-        ...entry.edit.originalStyles,
-        ...last.edit.originalStyles,
-      },
-    };
-    last.revertStyles = { ...entry.revertStyles, ...last.revertStyles };
     return;
   }
   stack.push(entry);

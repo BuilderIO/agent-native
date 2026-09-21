@@ -113,7 +113,7 @@ describe("appendPendingVisualStyleUndoEntry", () => {
     expect(second).toBeGreaterThan(first);
   });
 
-  it("coalesces consecutive ticks on the same target and keeps the first revert", () => {
+  it("coalesces explicit gesture ticks and keeps the first revert", () => {
     const stack: Array<{
       edit: PendingVisualStyleEdit;
       revertStyles: Record<string, string>;
@@ -121,14 +121,45 @@ describe("appendPendingVisualStyleUndoEntry", () => {
     appendPendingVisualStyleUndoEntry(stack, {
       edit: styleEdit("h1", { color: "blue" }),
       revertStyles: { color: "red" },
+      gestureId: "gesture-1",
     });
     appendPendingVisualStyleUndoEntry(stack, {
       edit: styleEdit("h1", { color: "green" }),
       revertStyles: { color: "blue" },
+      gestureId: "gesture-1",
     });
     expect(stack).toHaveLength(1);
     expect(stack[0]?.edit.styles).toEqual({ color: "green" });
     expect(stack[0]?.revertStyles).toEqual({ color: "red" });
+  });
+
+  it("keeps separate committed ticks for the same target and property", () => {
+    const stack: Array<{
+      edit: PendingVisualStyleEdit;
+      revertStyles: Record<string, string>;
+    }> = [];
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { borderRadius: "24px" }),
+      revertStyles: { borderRadius: "0px" },
+    });
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { borderRadius: "48px" }),
+      revertStyles: { borderRadius: "24px" },
+    });
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { backgroundColor: "blue" }),
+      revertStyles: { backgroundColor: "white" },
+    });
+    expect(stack.map((entry) => entry.edit.styles)).toEqual([
+      { borderRadius: "24px" },
+      { borderRadius: "48px" },
+      { backgroundColor: "blue" },
+    ]);
+    expect(stack.map((entry) => entry.revertStyles)).toEqual([
+      { borderRadius: "0px" },
+      { borderRadius: "24px" },
+      { backgroundColor: "white" },
+    ]);
   });
 
   it("keeps adjacent property changes as separate undo steps", () => {
