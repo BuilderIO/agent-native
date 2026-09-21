@@ -8280,16 +8280,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           { type: "agent-native:cancel-active-drag", pressedAt },
           "*",
         );
+        iframe.contentWindow?.postMessage(
+          { type: "agent-native:drag-modifiers", ignoreAutoLayout: false },
+          "*",
+        );
+        crossScreenControlPressedRef.current = false;
       };
       const handleMouseUp = (ev: MouseEvent) => {
         if (!bridgeDragStarted) {
           finishDrag();
           return;
         }
-        iframe.contentWindow?.postMessage(
-          { type: "agent-native:drag-modifiers", ignoreAutoLayout: false },
-          "*",
-        );
         // The host selection box sits above every Screen and follows the
         // moving board object, so DOM hit testing sees the chrome instead of
         // the card underneath it. Resolve the release in board-space geometry
