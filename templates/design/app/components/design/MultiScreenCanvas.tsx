@@ -3640,13 +3640,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         };
         const handleParentWindowBlur = () => {
           cancelPendingParentDrag();
-          crossScreenIgnoreAutoLayoutRef.current = false;
           // An iframe-focus handoff also emits blur on some browsers, while the
           // top document remains focused. Only a real window blur may discard
-          // the S timeline before the source end message arrives.
+          // the modifier timeline before the source end message arrives.
           if (
             shouldClearCrossScreenSKeyTimesOnWindowBlur(document.hasFocus())
           ) {
+            crossScreenIgnoreAutoLayoutRef.current = false;
+            crossScreenControlPressedRef.current = false;
             crossScreenSKeyTimesRef.current = { downAt: null, upAt: null };
           }
           clearCrossScreenDrag();
