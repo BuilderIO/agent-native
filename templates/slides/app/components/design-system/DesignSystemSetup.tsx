@@ -1445,10 +1445,13 @@ function BuilderSourceStatus({
   const isIndexing = ["in-progress", "pending", "processing"].includes(
     normalizedStatus ?? "",
   );
+  const isTerminalFailure = ["error", "failed", "cancelled", "canceled"].includes(
+    normalizedStatus ?? "",
+  );
   const state =
     isIndexing && !isIndexed
       ? "indexing"
-      : builder.warning
+      : builder.warning || isTerminalFailure
         ? "unavailable"
         : isIndexed
           ? "indexed"
