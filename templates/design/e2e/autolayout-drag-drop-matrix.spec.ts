@@ -940,7 +940,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await page.mouse.down();
       try {
         await page.mouse.move(first.x, first.y, { steps: 12 });
-        const firstGuide = await heldSnapshot(
+        const firstGuide = await settledHeldSnapshot(
           page,
           design.primaryId,
           "h-last",
@@ -948,7 +948,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           "first-target",
         );
         await page.mouse.move(second.x, second.y, { steps: 12 });
-        const secondGuide = await heldSnapshot(
+        const secondGuide = await settledHeldSnapshot(
           page,
           design.primaryId,
           "h-last",
@@ -972,6 +972,13 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           initialHtml,
         );
         await page.mouse.move(first.x, first.y, { steps: 12 });
+        await settledHeldSnapshot(
+          page,
+          design.primaryId,
+          "h-last",
+          "h-first",
+          "final-first-target",
+        );
       } finally {
         await page.mouse.up();
       }
@@ -981,7 +988,12 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         .toEqual(["h-last", "h-first", "h-middle"]);
       await expect
         .poll(() => fileHtml(request, design.id, design.primaryId))
-        .not.toBe(initialHtml);
+        .toContain('data-agent-native-node-id="h-last"');
+      await assertReloadedOrder(page, design.primaryId, "hrow", [
+        "h-last",
+        "h-first",
+        "h-middle",
+      ]);
     } finally {
       await deleteDesign(request, design.id);
     }
