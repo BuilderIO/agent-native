@@ -3510,19 +3510,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             iframeY * (iframeRect.height / Math.max(1, viewportH)),
         );
       };
-      const isBoardPointInsideSourceFrame = (point: Point | null): boolean => {
-        if (sourceScreenId === boardFileId || !point) return false;
-        const frame =
-          renderedFrameGeometryRef.current[sourceScreenId] ??
-          frameGeometryRef.current[sourceScreenId];
-        return Boolean(
-          frame &&
-          point.x >= frame.x &&
-          point.y >= frame.y &&
-          point.x <= frame.x + frame.width &&
-          point.y <= frame.y + frame.height,
-        );
-      };
 
       if (msg.phase !== "move") {
         dndHostLog("overview:cross-screen", {
@@ -3754,24 +3741,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // become negative or otherwise out of range. The parent window drag
         // listener has the real board point then; stale iframe coordinates
         // must not clear a valid board target.
-        const parentPoint = boardPointFromParentPointer(
-          iframeX,
-          iframeY,
-          viewportW,
-          viewportH,
-        );
         const localPointerInside = isPointerInsideSourceIframe({
           iframeX,
           iframeY,
           viewportW,
           viewportH,
         });
-        if (
-          sourceScreenId !== boardFileId &&
-          (!localPointerInside || !isBoardPointInsideSourceFrame(parentPoint))
-        ) {
+        if (sourceScreenId !== boardFileId && !localPointerInside) {
           const previewPoint =
-            parentPoint ?? crossScreenLastBoardPointRef.current;
+            boardPointFromParentPointer(
+              iframeX,
+              iframeY,
+              viewportW,
+              viewportH,
+            ) ?? crossScreenLastBoardPointRef.current;
           if (previewPoint) {
             updateCrossScreenTargetFromBoardPoint(previewPoint, sourceScreenId);
           }
@@ -3829,8 +3812,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         };
 
         const pointerInsideSourceIframe =
-          sourceScreenId === boardFileId ||
-          (localPointerInside && isBoardPointInsideSourceFrame(parentPoint));
+          sourceScreenId === boardFileId || localPointerInside;
         const sourceIsBoard = sourceScreenId === boardFileId;
         // Regular screen iframes are finite artboards, so an in-bounds pointer
         // means the source bridge should keep handling the drag. The board
@@ -3918,20 +3900,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           Number.isFinite(msg.iframeY) &&
           Number.isFinite(msg.viewportW) &&
           Number.isFinite(msg.viewportH) &&
-          (!isPointerInsideSourceIframe({
+          !isPointerInsideSourceIframe({
             iframeX: msg.iframeX!,
             iframeY: msg.iframeY!,
             viewportW: msg.viewportW!,
             viewportH: msg.viewportH!,
-          }) ||
-            !isBoardPointInsideSourceFrame(
-              boardPointFromParentPointer(
-                msg.iframeX!,
-                msg.iframeY!,
-                msg.viewportW!,
-                msg.viewportH!,
-              ),
-            ));
+          });
         const lastBoardPoint =
           (endPointOutsideSource
             ? boardPointFromParentPointer(
