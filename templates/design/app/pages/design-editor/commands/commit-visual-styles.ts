@@ -60,6 +60,7 @@ import {
   applyScopedVisualStyleEdit,
   replayPendingVisualStyleRuntimePatch,
   resolveVisualStyleCommitContent,
+  runtimeStyleTarget,
 } from "@/pages/design-editor/pending-edits";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { applyInlineStylesToHtml } from "@/pages/design-editor/screen-command-utils";
@@ -262,6 +263,59 @@ export function runCommitVisualStyles(
     ([, value]) => value !== undefined,
   );
   if (entries.length === 0) return;
+  const liveTargetInfo = isRunningAppSourceType(activeCanvasSourceType)
+    ? (options.elementInfo ?? selectedElement ?? undefined)
+    : undefined;
+  if (
+    liveTargetInfo &&
+    (liveTargetInfo.boundingRect.width <= 0 ||
+      liveTargetInfo.boundingRect.height <= 0)
+  ) {
+    // A live gesture may have already painted the wrapper before its measured
+    // box proved non-rendered. Roll that preview back through the same bridge
+    // identity used by undo, then reject the invisible edit below.
+    if (options.runtimeApplied && options.originalStyles) {
+      const runtimePatch = {
+        screenId: activeFile.id,
+        selector,
+        sourceId: liveTargetInfo.sourceId,
+        runtimeSelector: liveTargetInfo.runtimeSelector,
+        runtimeSourceId: liveTargetInfo.runtimeSourceId,
+        ...(options.routePath ? { routePath: options.routePath } : {}),
+        styles: options.originalStyles,
+      };
+      const sendStyleChangeForScreen = (window as any)
+        .__designCanvasSendStyleForScreen;
+      const sendStyleChange = (window as any).__designCanvasSendStyle;
+      if (typeof sendStyleChangeForScreen === "function") {
+        replayPendingVisualStyleRuntimePatch(
+          runtimePatch,
+          sendStyleChangeForScreen,
+        );
+      } else if (typeof sendStyleChange === "function") {
+        const target = runtimeStyleTarget(runtimePatch);
+        Object.entries(runtimePatch.styles).forEach(([property, value]) => {
+          sendStyleChange(target.selector, property, value, {
+            selectorCandidates: target.selectorCandidates,
+            nodeId: target.nodeId,
+          });
+        });
+      }
+    }
+    recordPendingVisualStyleEdit(
+      activeFile.id,
+      selector,
+      styles,
+      liveTargetInfo,
+      {
+        originalStyles: options.originalStyles,
+        pendingUndoGestureId: options.pendingUndoGestureId,
+        preserveSelection: options.preserveSelection,
+        routePath: options.routePath,
+      },
+    );
+    return;
+  }
   upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
   // §gesture-persistence — a localhost screen's source of truth is the
   // running app's own files, which this client cannot write. Everything
@@ -273,7 +327,7 @@ export function runCommitVisualStyles(
   // (handleVisualStyleChange delegates here with runtimeApplied set
   // because its gesture already moved the live DOM).
   if (isRunningAppSourceType(activeCanvasSourceType)) {
-    const targetInfo = options.elementInfo ?? selectedElement ?? undefined;
+    const targetInfo = liveTargetInfo;
     // Breakpoint-scoped writes are excluded for the same reason as the
     // base path below (Item 5, edit-flash): the agent persists them as a
     // width-scoped class or an `@media` rule, which an inline style would

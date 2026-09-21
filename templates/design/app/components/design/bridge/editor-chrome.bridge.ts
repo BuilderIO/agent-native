@@ -22394,8 +22394,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // "the release was inside my viewport" cannot decide who owns the drop. The
   // host claims the gesture whenever the pointer is over a screen frame.
   var crossScreenClaimedByHost = false;
+  var lastPointerDownTimestamp = 0;
 
   function beginPotentialShieldDrag(e) {
+    // A read-only bridge may still expose passive inspection chrome, but it
+    // must never become a document-level interaction blocker. In particular,
+    // the host is intentionally below high-z app portals in this mode, so
+    // this fallback sees the app's real target and must leave it untouched.
+    if (readOnly) return;
+    if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
+      return;
+    }
+    if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
     stopNativeInteraction(e);
     clearGridProjectionCaches();
     // A new interaction starting is unambiguous proof the previous gesture is
@@ -22639,6 +22649,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
 
   shieldOverlay.addEventListener("pointerdown", beginPotentialShieldDrag, true);
+  shieldOverlay.addEventListener("mousedown", beginPotentialShieldDrag, true);
+  document.addEventListener(
+    "pointerdown",
+    function (e) {
+      if (isOverlayElement(e.target)) return;
+      if (e.button === 0) beginPotentialShieldDrag(e);
+    },
+    true,
+  );
+  document.addEventListener(
+    "mousedown",
+    function (e) {
+      if (isOverlayElement(e.target)) return;
+      if (e.button === 0) beginPotentialShieldDrag(e);
+    },
+    true,
+  );
   shieldOverlay.addEventListener("wheel", scrollUnderlyingElementAtWheel, {
     passive: false,
     capture: true,
@@ -23932,82 +23959,116 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
     true,
   );
-  shieldOverlay.addEventListener(
+  function handleShieldPointerMove(e) {
+    if (readOnly) return;
+    stopNativeInteraction(e);
+    lastHoverClientPoint = { x: e.clientX, y: e.clientY };
+    hoveredEl = resolveHoverTarget(
+      e.clientX,
+      e.clientY,
+      e.metaKey || e.ctrlKey,
+    );
+    if (!hoveredEl) {
+      highlightOverlay.style.display = "none";
+      if (!spacingDrag) {
+        scheduleSpacingHoverClear(e);
+      }
+      hideMeasurements();
+      // Re-arm the hover-info post gate below: leaving all content (e.g.
+      // pointer over empty canvas or off the iframe entirely) means the
+      // NEXT element this pointer lands on — even if it's the same one
+      // hovered before — is a genuinely new hover the host hasn't heard
+      // about since.
+      lastHoverInfoPostedEl = null;
+      return;
+    }
+    if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      return;
+    if (!spacingDrag) {
+      var hoveringSelectedSpacingSurface = Boolean(
+        selectedEl &&
+        hoveredEl &&
+        (hoveredEl === selectedEl ||
+          (selectedEl.contains && selectedEl.contains(hoveredEl))),
+      );
+      if (hoveringSelectedSpacingSurface) {
+        clearSpacingHoverTimer();
+        lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
+        updateSpacingOverlay(selectedEl);
+        // Reliable padding/gap hover: hit-test the handle geometry
+        // directly from the pointer position instead of depending on the
+        // pointermove's event target being the region node (see
+        // spacingHandleKeyAtPoint). Shows/updates the "Npx" value box
+        // while hovering the handle line; clears it when the pointer
+        // leaves the tolerance zone.
+        var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
+        if (pointSpacingKey) {
+          activateSpacingHandle(pointSpacingKey);
+        } else if (hoveredSpacingHandleKey) {
+          hoveredSpacingHandleKey = "";
+          updateSpacingOverlay(selectedEl);
+        }
+      } else {
+        scheduleSpacingHoverClear(e);
+      }
+    }
+    if (hoveredEl === selectedEl) {
+      highlightOverlay.style.display = "none";
+    } else {
+      positionOverlay(highlightOverlay, hoveredEl);
+    }
+    if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
+      showMeasurements(selectedEl, hoveredEl);
+    } else {
+      hideMeasurements();
+    }
+    // While Alt is held (measurement mode) keep hover local: posting it would
+    // update the host's hoveredSelector, re-run replayIframeEditorState, and
+    // echo selection/hover back every move — a loop that jitters selection
+    // and flickers the measurement lines.
+    if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
+      lastHoverInfoPostedEl = hoveredEl;
+      var info = getLightElementInfo(hoveredEl);
+      (window.parent as Window).postMessage(
+        { type: "element-hover", payload: info },
+        "*",
+      );
+    }
+  }
+
+  shieldOverlay.addEventListener("pointermove", handleShieldPointerMove, true);
+  // Chromium's embedded-frame path can expose the legacy mouse stream even
+  // when the pointer stream stops at the iframe boundary. Keep hover on both
+  // streams; the same-element gate makes duplicate delivery harmless.
+  shieldOverlay.addEventListener("mousemove", handleShieldPointerMove, true);
+
+  // Some Chromium embedding paths deliver the live iframe's pointer stream to
+  // the document under the fixed editor host even though the shield owns the
+  // click. Capture those events at document level so hover uses the same
+  // hit-test path as shield-delivered clicks instead of reaching the app.
+  document.addEventListener(
     "pointermove",
     function (e) {
-      stopNativeInteraction(e);
-      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
-      hoveredEl = resolveHoverTarget(
-        e.clientX,
-        e.clientY,
-        e.metaKey || e.ctrlKey,
-      );
-      if (!hoveredEl) {
-        highlightOverlay.style.display = "none";
-        if (!spacingDrag) {
-          scheduleSpacingHoverClear(e);
-        }
-        hideMeasurements();
-        // Re-arm the hover-info post gate below: leaving all content (e.g.
-        // pointer over empty canvas or off the iframe entirely) means the
-        // NEXT element this pointer lands on — even if it's the same one
-        // hovered before — is a genuinely new hover the host hasn't heard
-        // about since.
-        lastHoverInfoPostedEl = null;
+      if (isOverlayElement(e.target)) return;
+      if (pendingShieldDrag || activeDragCancel) {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
         return;
       }
-      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      handleShieldPointerMove(e);
+    },
+    true,
+  );
+  document.addEventListener(
+    "mousemove",
+    function (e) {
+      if (isOverlayElement(e.target)) return;
+      if (pendingShieldDrag || activeDragCancel) {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
         return;
-      if (!spacingDrag) {
-        var hoveringSelectedSpacingSurface = Boolean(
-          selectedEl &&
-          hoveredEl &&
-          (hoveredEl === selectedEl ||
-            (selectedEl.contains && selectedEl.contains(hoveredEl))),
-        );
-        if (hoveringSelectedSpacingSurface) {
-          clearSpacingHoverTimer();
-          lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
-          updateSpacingOverlay(selectedEl);
-          // Reliable padding/gap hover: hit-test the handle geometry
-          // directly from the pointer position instead of depending on the
-          // pointermove's event target being the region node (see
-          // spacingHandleKeyAtPoint). Shows/updates the "Npx" value box
-          // while hovering the handle line; clears it when the pointer
-          // leaves the tolerance zone.
-          var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
-          if (pointSpacingKey) {
-            activateSpacingHandle(pointSpacingKey);
-          } else if (hoveredSpacingHandleKey) {
-            hoveredSpacingHandleKey = "";
-            updateSpacingOverlay(selectedEl);
-          }
-        } else {
-          scheduleSpacingHoverClear(e);
-        }
       }
-      if (hoveredEl === selectedEl) {
-        highlightOverlay.style.display = "none";
-      } else {
-        positionOverlay(highlightOverlay, hoveredEl);
-      }
-      if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
-        showMeasurements(selectedEl, hoveredEl);
-      } else {
-        hideMeasurements();
-      }
-      // While Alt is held (measurement mode) keep hover local: posting it would
-      // update the host's hoveredSelector, re-run replayIframeEditorState, and
-      // echo selection/hover back every move — a loop that jitters selection
-      // and flickers the measurement lines.
-      if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
-        lastHoverInfoPostedEl = hoveredEl;
-        var info = getLightElementInfo(hoveredEl);
-        (window.parent as Window).postMessage(
-          { type: "element-hover", payload: info },
-          "*",
-        );
-      }
+      handleShieldPointerMove(e);
     },
     true,
   );

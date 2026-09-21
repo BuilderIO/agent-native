@@ -134,6 +134,17 @@ export interface PendingVisualStyleEdit {
   };
 }
 
+let lastPendingLiveEditTimestamp = 0;
+
+/** Keep mixed pending edits strictly ordered even when several land in one millisecond. */
+export function nextPendingLiveEditTimestamp(now = Date.now()): number {
+  lastPendingLiveEditTimestamp = Math.max(
+    lastPendingLiveEditTimestamp + 1,
+    now,
+  );
+  return lastPendingLiveEditTimestamp;
+}
+
 function pendingLiveEditSubjectKey(edit: PendingLiveNonStyleEdit): string {
   return `${edit.screenId}:${edit.routePath ?? ""}:${edit.sourceId?.trim() || edit.selector.trim()}`;
 }
@@ -703,14 +714,19 @@ export type PendingLiveNonStyleUndoEntry =
   | PendingLiveLayerNameUndoEntry
   | PendingLiveStructureUndoEntry;
 
-/** Coalesce consecutive same-target ticks so slider/keystroke streams stay O(1)
- * per event. The first revert is kept so one undo still restores the pre-gesture value. */
+/** Coalesce only explicit multi-target gesture ticks. A missing gesture id is
+ * one committed change, so it must stay an independent undo step. */
 export function appendPendingVisualStyleUndoEntry(
   stack: PendingVisualStyleUndoEntry[],
   entry: PendingVisualStyleUndoEntry,
 ): void {
   const last = stack[stack.length - 1];
-  if (entry.gestureId && last?.gestureId === entry.gestureId) {
+  if (
+    entry.gestureId &&
+    last?.gestureId === entry.gestureId &&
+    pendingVisualStylePropertyKey(last.edit) ===
+      pendingVisualStylePropertyKey(entry.edit)
+  ) {
     const targets = pendingVisualStyleUndoTargets(last);
     const index = targets.findIndex(
       (target) =>
@@ -747,24 +763,6 @@ export function appendPendingVisualStyleUndoEntry(
     last.edit = { ...last.edit, updatedAt: entry.edit.updatedAt };
     return;
   }
-  if (
-    !entry.gestureId &&
-    !last?.gestureId &&
-    last &&
-    pendingVisualStyleEditKey(last.edit) ===
-      pendingVisualStyleEditKey(entry.edit)
-  ) {
-    last.edit = {
-      ...entry.edit,
-      styles: { ...last.edit.styles, ...entry.edit.styles },
-      originalStyles: {
-        ...entry.edit.originalStyles,
-        ...last.edit.originalStyles,
-      },
-    };
-    last.revertStyles = { ...entry.revertStyles, ...last.revertStyles };
-    return;
-  }
   stack.push(entry);
 }
 
@@ -788,9 +786,11 @@ export function pendingVisualStyleEditsFromUndoStack(
 export function appendPendingLiveNonStyleUndoEntry(
   stack: PendingLiveNonStyleUndoEntry[],
   entry: PendingLiveNonStyleUndoEntry,
+  coalesceAdjacent = true,
 ): void {
   const last = stack[stack.length - 1];
   if (
+    coalesceAdjacent &&
     last?.kind === "text" &&
     entry.kind === "text" &&
     pendingLiveEditSubjectKey(last.edit) ===
@@ -813,6 +813,7 @@ export function appendPendingLiveNonStyleUndoEntry(
     return;
   }
   if (
+    coalesceAdjacent &&
     last?.kind === "layer-name" &&
     entry.kind === "layer-name" &&
     pendingLiveEditSubjectKey(last.edit) ===
@@ -926,6 +927,10 @@ function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
     edit.sourceId?.trim() || edit.selector.trim() || "unknown",
     edit.interactionState ?? "default",
   ].join("::");
+}
+
+function pendingVisualStylePropertyKey(edit: PendingVisualStyleEdit): string {
+  return Object.keys(edit.styles).sort().join("::");
 }
 
 export function mergePendingVisualStyleEdit(
@@ -1096,8 +1101,16 @@ export type SendPendingVisualStyleRuntimeProperty = (
   options: {
     selectorCandidates: string[];
     nodeId?: string | null;
+    routePath?: string;
   },
 ) => boolean;
+
+export function pendingVisualStyleRouteMatches(
+  patch: Pick<PendingVisualStyleRuntimePatch, "routePath">,
+  currentRoutePath: string | null | undefined,
+): boolean {
+  return !patch.routePath || patch.routePath === currentRoutePath;
+}
 
 /**
  * Forward, undo, and redo all use this exact per-property runtime channel.
@@ -1121,6 +1134,7 @@ export function replayPendingVisualStyleRuntimePatch(
     sendProperty(patch.screenId, target.selector, property, value, {
       selectorCandidates: target.selectorCandidates,
       nodeId: target.nodeId,
+      ...(patch.routePath ? { routePath: patch.routePath } : {}),
     }),
   );
 }

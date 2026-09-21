@@ -1,103 +1,38 @@
-import { renameFactoryActionMentions } from "./factory-action-names.js";
+export const SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS = `Classify risk and confidence on every item, including ones you skip — this
+data is read later even when Builder is never tagged.
 
-const PASTED_SKIP_GUARD =
-  "After classifying each processed item, call dispatch-factory-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.";
+Risk is how bad it is if this item is mishandled, not how likely it is to be
+real: negligible (cosmetic noise, barely a bug), low (a clear, narrowly
+scoped defect you would be comfortable seeing fixed with no further review),
+medium (ambiguous scope, or touches shared or critical code), high (serious
+functional or data breakage), or critical (security, auth, tenant isolation,
+payments, or data loss). When in doubt, pick the higher tier.
 
-const PASTED_MENTION_GUARD =
-  "Never post Slack messages, reactions, or plaintext @handles yourself. Call dispatch-factory-item; that action pings Builder with a Slack user id. Plaintext @builder.io does not notify anyone.";
+Confidence is how sure you are this can be correctly diagnosed and fixed as
+a code or test change from the evidence already gathered, without
+reproducing it in a browser: high (the thread pins down a specific failing
+path — an error message, stack trace, log line, or a concrete reproducible
+input and output — and correctness does not depend on rendering or manually
+interacting with the UI), medium (a plausible cause but real uncertainty:
+one thin report, no stack trace, or more than one reasonable fix), or low
+(needs visual or browser reproduction to confirm, or the root cause is
+genuinely unclear). A visual/UI defect is still a clear bug, but rarely
+earns confidence high — mark it medium or low unless the thread already
+shows the exact broken state and the fix is obvious from that alone.
 
-const PASTED_HANDOFF_INSTRUCTION = `Do not post to Slack, add reactions, or type @handles yourself. Call
-dispatch-factory-item; that action adds 👀 and pings Builder with a Slack
-user id so it runs /address-feedback. The posted reply points Builder at the
-relevant repository skills, the representative source, every related source,
-and the need to fix the underlying boundary across the whole cluster. Never
-call that action for owner-managed Clips, Design, or Content work, or for a
-non-bug report.`;
-
-const OBSOLETE_SLACK_TAG_PARAGRAPH =
-  /The Builder reply must tag @builder\.io[\s\S]*?non-bug\s+report\.\s*/;
-
-const RETIRED_UNCONDITIONAL_ROBOT_FACE = `For each item, call dispatch-factory-item with clearBug true or false,
-productUxImplications false unless it is a pure product or design decision
-with no single correct fix, a short reason, and reaction robot_face 🤖.`;
-
-const RETIRED_CLAIMED_SKIP_VIA_CLEAR_BUG_FALSE = `Look at the parent message reactions from get-slack-feedback-context. If the
-parent already has eyes 👀 or robot_face 🤖, it has already been looked at:
-call dispatch-factory-item with clearBug false, omit reaction, and a short
-reason that names the existing marker. Do not start Builder work on it.
-
-For every other item, call dispatch-factory-item with clearBug true or false,
-productUxImplications false unless it is a pure product or design decision
-with no single correct fix, and a short reason. Pass reaction robot_face 🤖
-only when clearBug is true and the parent has neither eyes nor robot_face.
-Omit reaction on skips.`;
-
-const RETIRED_CLAIMED_SKIP_OMITS_CLEAR_BUG = `Look at the parent message reactions from get-slack-feedback-context. If the
-parent already has eyes 👀 or robot_face 🤖, it has already been looked at:
-call dispatch-factory-item with alreadyClaimed true, omit reaction, and a short
-reason that names the existing marker. Do not start Builder work on it.
-
-For every other item, call dispatch-factory-item with clearBug true or false,
-productUxImplications false unless it is a pure product or design decision
-with no single correct fix, and a short reason. Pass reaction robot_face 🤖
-only when clearBug is true and the parent has neither eyes nor robot_face.
-Omit reaction on skips.`;
-
-const RETIRED_CLAIMED_ROBOT_FACE_MARKER = `Look at the parent message reactions from get-slack-feedback-context. If the
-parent already has eyes 👀 or robot_face 🤖, it has already been looked at:
-call dispatch-factory-item with alreadyClaimed true (clearBug may be omitted
-or false), omit reaction, and a short reason that names the existing marker.
-Do not start Builder work on it.
-
-For every other item, call dispatch-factory-item with clearBug true or false,
-productUxImplications false unless it is a pure product or design decision
-with no single correct fix, and a short reason. Pass reaction robot_face 🤖
-only when clearBug is true and the parent has neither eyes nor robot_face.
-Omit reaction on skips.`;
-
-export const SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS = `Look at the parent message reactions from get-slack-feedback-context. If the
+Look at the parent message reactions from get-slack-feedback-context. If the
 parent already has eyes 👀, it has already been looked at: call
 dispatch-factory-item with alreadyClaimed true (clearBug may be omitted or
-false), omit reaction, and a short reason that names the existing 👀 marker.
-Do not start Builder work on it.
+false), your risk and confidence classification, omit reaction, and a short
+reason that names the existing 👀 marker. Do not start Builder work on it.
 
-For every other item, call dispatch-factory-item with clearBug true or false,
-productUxImplications false unless it is a pure product or design decision
-with no single correct fix, and a short reason. When clearBug is true and the
-parent has no eyes 👀, you MUST pass reaction eyes 👀 on every dispatch —
-never call dispatch-factory-item for a clear bug without reaction eyes. The
-action adds 👀 on Slack; omit reaction only when clearBug is false or
-alreadyClaimed is true.`;
-
-function stripPastedGuard(content: string, pasted: string): string {
-  return content.split(pasted).join("");
-}
-
-export function repairSlackFeedbackPrompt(content: string): string {
-  let next = renameFactoryActionMentions(content).replace(
-    OBSOLETE_SLACK_TAG_PARAGRAPH,
-    "",
-  );
-  if (/tag @builder\.io/i.test(next)) {
-    next = next
-      .split("\n")
-      .filter((line) => !/tag @builder\.io/i.test(line))
-      .join("\n");
-  }
-  next = stripPastedGuard(next, PASTED_HANDOFF_INSTRUCTION);
-  next = stripPastedGuard(next, PASTED_MENTION_GUARD);
-  next = stripPastedGuard(next, PASTED_SKIP_GUARD);
-  next = next
-    .split(RETIRED_UNCONDITIONAL_ROBOT_FACE)
-    .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
-  next = next
-    .split(RETIRED_CLAIMED_SKIP_VIA_CLEAR_BUG_FALSE)
-    .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
-  next = next
-    .split(RETIRED_CLAIMED_SKIP_OMITS_CLEAR_BUG)
-    .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
-  next = next
-    .split(RETIRED_CLAIMED_ROBOT_FACE_MARKER)
-    .join(SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS);
-  return `${next.replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
-}
+For every other item, call dispatch-factory-item with clearBug true or
+false, risk, confidence, productUxImplications false unless it is a pure
+product or design decision with no single correct fix, and a short reason.
+The action only tags Builder when clearBug is true, risk is low, and
+confidence is high — everything else is recorded as a skip no matter what
+reaction you pass. When those three hold and the parent has no eyes 👀, you
+MUST pass reaction eyes 👀 — never call dispatch-factory-item for a
+dispatch-eligible item without reaction eyes. The action adds 👀 on Slack;
+omit reaction on every skip (clearBug false, risk above low, confidence
+below high, or alreadyClaimed true).`;
