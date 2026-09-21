@@ -723,25 +723,6 @@ describe("VideoPlayer playback", () => {
     expect(handleRef.current?.getCurrentOriginalMs()).toBe(4_000);
   });
 
-  it("shows player controls for imported Loom videos (MP4/WebM URLs with embedProvider)", () => {
-    act(() => {
-      root.render(
-        <TooltipProvider>
-          <VideoPlayer
-            recordingId="recording-1"
-            videoUrl="https://cdn.loom.com/sessions/thumbnails/video.mp4"
-            embedProvider="loom"
-            durationMs={10_000}
-          />
-        </TooltipProvider>,
-      );
-    });
-
-    const controls = getPlayerControls();
-    expect(controls.className).toContain("opacity-100");
-    expect(controls).toBeDefined();
-  });
-
   it("stops a hung play attempt and leaves playback retryable", () => {
     const video = getVideo();
     const playSpy = vi

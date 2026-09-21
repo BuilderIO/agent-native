@@ -2161,7 +2161,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ) : null}
 
         {/* Controls */}
-        {!hideChrome && !isLoomEmbedUrl(resolvedVideoSrc) ? (
+        {!hideChrome && !isLoomEmbed ? (
           <div
             className={cn(
               "absolute inset-x-0 bottom-0 opacity-100 transition-opacity duration-200",
