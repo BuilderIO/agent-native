@@ -10885,7 +10885,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var singleSourceColumn = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "column") : null;
       var singleSourceRow = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "row") : null;
       var sourceHasAuthoredPlacement = Boolean(
-        singleSource?.parentElement === container && (singleSourceColumn?.hasAuthoredPlacement || singleSourceRow?.hasAuthoredPlacement)
+        excluded?.some(function(source) {
+          var columnPlacement = trackLayout ? gridItemAxisPlacement(source, trackLayout, "column") : null;
+          var rowPlacement = trackLayout ? gridItemAxisPlacement(source, trackLayout, "row") : null;
+          return Boolean(
+            columnPlacement?.hasAuthoredPlacement || rowPlacement?.hasAuthoredPlacement
+          );
+        })
       );
       var hasAuthoredSingleCellSourcePlacement = Boolean(
         singleSource && singleSource.parentElement === container && singleSourceStyles && singleSourceStyles.gridColumnStart !== "auto" && singleSourceStyles.gridColumnStart.indexOf("span") !== 0 && singleSourceStyles.gridRowStart !== "auto" && singleSourceStyles.gridRowStart.indexOf("span") !== 0 && (singleSourceStyles.gridColumnEnd === "auto" || singleSourceColumn?.span === 1) && (singleSourceStyles.gridRowEnd === "auto" || singleSourceRow?.span === 1)

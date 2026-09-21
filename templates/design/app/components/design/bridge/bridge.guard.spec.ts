@@ -14172,6 +14172,20 @@ it("keeps the authored inline-style key list in sync with the bridge", () => {
   );
 });
 
+it("retains grid placement for authored grouped and cross-grid sources", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var sourceHasAuthoredPlacement = Boolean(");
+  const end = bridge.indexOf("var hasAuthoredSingleCellSourcePlacement", start);
+  expect(start).toBeGreaterThan(-1);
+  const classifier = bridge.slice(start, end);
+  expect(classifier).toContain("excluded?.some");
+  expect(classifier).toContain("hasAuthoredPlacement");
+  expect(classifier).not.toContain("parentElement === container");
+});
+
 it(
   "carries an authored grid-auto-flow into the selection's inline-style payload",
   { timeout: 30_000 },

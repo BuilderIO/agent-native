@@ -14963,9 +14963,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container,
       );
     }
-    // Preserve a single-cell authored slot only for a single source already
-    // owned by this grid. Cross-grid and grouped drops must resolve the
-    // destination cell normally.
+    // Preserve authored placement for any dragged source. Cross-grid and
+    // grouped drops still need the destination cell for every authored item.
     var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
     var singleSourceStyles = singleSource
       ? window.getComputedStyle(singleSource)
@@ -14979,9 +14978,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ? gridItemAxisPlacement(singleSource, trackLayout, "row")
         : null;
     var sourceHasAuthoredPlacement = Boolean(
-      singleSource?.parentElement === container &&
-      (singleSourceColumn?.hasAuthoredPlacement ||
-        singleSourceRow?.hasAuthoredPlacement),
+      excluded?.some(function (source) {
+        var columnPlacement = trackLayout
+          ? gridItemAxisPlacement(source, trackLayout, "column")
+          : null;
+        var rowPlacement = trackLayout
+          ? gridItemAxisPlacement(source, trackLayout, "row")
+          : null;
+        return Boolean(
+          columnPlacement?.hasAuthoredPlacement ||
+          rowPlacement?.hasAuthoredPlacement,
+        );
+      }),
     );
     var hasAuthoredSingleCellSourcePlacement = Boolean(
       singleSource &&
