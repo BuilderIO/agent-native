@@ -568,7 +568,8 @@ async function settledHeldSnapshot(
           snapshot.guide &&
           snapshot.guide.display !== "none" &&
           snapshot.guide.width > 0 &&
-          snapshot.guide.height > 0,
+          snapshot.guide.height > 0 &&
+          snapshot.guide.overlapsTarget,
         );
       },
       {
@@ -899,6 +900,14 @@ async function assertReloadedOrder(
     .toEqual(expected);
 }
 
+function serializedOrder(html: string, ids: string[]): string[] {
+  return [...ids].sort(
+    (left, right) =>
+      html.indexOf(`data-agent-native-node-id="${left}"`) -
+      html.indexOf(`data-agent-native-node-id="${right}"`),
+  );
+}
+
 test.use({ viewport: { width: 1600, height: 1100 } });
 
 test.describe("physical Figma auto-layout drag/drop matrix", () => {
@@ -987,8 +996,12 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         .poll(() => directChildren(page, design.primaryId, "hrow"))
         .toEqual(["h-last", "h-first", "h-middle"]);
       await expect
-        .poll(() => fileHtml(request, design.id, design.primaryId))
-        .toContain('data-agent-native-node-id="h-last"');
+        .poll(() =>
+          fileHtml(request, design.id, design.primaryId).then((html) =>
+            serializedOrder(html, ["h-last", "h-first", "h-middle"]),
+          ),
+        )
+        .toEqual(["h-last", "h-first", "h-middle"]);
       await assertReloadedOrder(page, design.primaryId, "hrow", [
         "h-last",
         "h-first",
