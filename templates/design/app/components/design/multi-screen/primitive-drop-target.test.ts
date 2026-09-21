@@ -493,6 +493,31 @@ describe("primitive drop target authored layout fallback", () => {
     expect(lowZoomHitRect.width).toBe(300);
     expect(lowZoomHitRect.height).toBe(300);
   });
+  it("ignores z-index on static non-flex/grid items", () => {
+    const screen = {
+      id: "static-z",
+      filename: "static-z.html",
+      content: `<!doctype html><html><body><div data-agent-native-node-id="a" data-an-primitive="frame" style="position:static;z-index:10;width:100px;height:100px"></div></body></html>`,
+    };
+    expect(parsePrimitivesFromScreen(screen)[0]?.zIndex).toBeUndefined();
+  });
+
+  it("orders ancestor stacking context before descendant z-index", () => {
+    const screen = {
+      id: "nested-z",
+      filename: "nested-z.html",
+      content: `<!doctype html><html><body><div data-agent-native-node-id="low" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:100px;height:100px"><div data-agent-native-node-id="child" data-an-primitive="frame" style="position:absolute;z-index:999;left:0;top:0;width:100px;height:100px"></div></div><div data-agent-native-node-id="high" data-an-primitive="frame" style="position:absolute;z-index:2;left:0;top:0;width:100px;height:100px"></div></body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 10, y: 10 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 100, height: 100 } },
+        () => ({ width: 100, height: 100 }),
+      )?.nodeId,
+    ).toBe("high");
+  });
 });
 
 describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {

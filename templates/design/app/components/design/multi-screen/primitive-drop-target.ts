@@ -74,6 +74,7 @@ export interface ParsedScreenPrimitive {
   autoLayoutGrid?: boolean;
   /** Authored stacking level used before DOM-order tie breaking. */
   zIndex?: number;
+  stackingContextZIndices?: number[];
 }
 
 function primitiveMatchesNodeId(
@@ -106,6 +107,24 @@ function isPrimitiveAncestor(
     parentId = parent?.parentNodeId ?? parent?.parentProjectionNodeId;
   }
   return false;
+}
+
+function compareStackingContexts(
+  left: ParsedScreenPrimitive,
+  right: ParsedScreenPrimitive,
+): number {
+  const leftContexts = left.stackingContextZIndices ?? [];
+  const rightContexts = right.stackingContextZIndices ?? [];
+  for (
+    let index = 0;
+    index < Math.min(leftContexts.length, rightContexts.length);
+    index += 1
+  ) {
+    if (leftContexts[index] !== rightContexts[index]) {
+      return (leftContexts[index] ?? 0) - (rightContexts[index] ?? 0);
+    }
+  }
+  return (left.zIndex ?? 0) - (right.zIndex ?? 0);
 }
 
 /**
@@ -1244,6 +1263,30 @@ export function parsePrimitivesFromScreen(
       const autoLayoutGrid =
         style.display === "grid" || style.display === "inline-grid";
       const parsedZIndex = Number.parseInt(style.zIndex, 10);
+      const stackingContextZIndices: number[] = [];
+      let contextElement: Element | null = element;
+      while (contextElement) {
+        const contextStyle = (contextElement as HTMLElement).style;
+        const parentDisplay = contextElement.parentElement
+          ? (contextElement.parentElement as HTMLElement).style.display
+          : "";
+        const contextZIndex = Number.parseInt(contextStyle.zIndex, 10);
+        if (
+          Number.isFinite(contextZIndex) &&
+          ((contextStyle.position || "static") !== "static" ||
+            /^(?:flex|inline-flex|grid|inline-grid)$/.test(parentDisplay))
+        ) {
+          stackingContextZIndices.unshift(contextZIndex);
+        }
+        contextElement = contextElement.parentElement;
+      }
+      const zIndexApplies =
+        (style.position || "static") !== "static" ||
+        /^(?:flex|inline-flex|grid|inline-grid)$/.test(
+          element.parentElement
+            ? (element.parentElement as HTMLElement).style.display
+            : "",
+        );
 
       // Nearest ancestor primitive id, used to resolve direct children of a
       // container for auto-layout before/after anchor resolution — see
@@ -1273,7 +1316,10 @@ export function parsePrimitivesFromScreen(
         autoLayoutAxis,
         ...(autoLayoutWrapped ? { autoLayoutWrapped: true } : {}),
         ...(autoLayoutGrid ? { autoLayoutGrid: true } : {}),
-        ...(Number.isFinite(parsedZIndex) ? { zIndex: parsedZIndex } : {}),
+        ...(Number.isFinite(parsedZIndex) && zIndexApplies
+          ? { zIndex: parsedZIndex }
+          : {}),
+        ...(stackingContextZIndices.length ? { stackingContextZIndices } : {}),
       });
     });
   } catch {
@@ -1427,8 +1473,7 @@ export function getPrimitiveDropTargetForPoint(
         !isPrimitiveAncestor(bestPrimitive, primitive, primitives) &&
         !isPrimitiveAncestor(primitive, bestPrimitive, primitives)
       ) {
-        const bestZIndex = bestPrimitive.zIndex ?? 0;
-        if ((primitive.zIndex ?? 0) < bestZIndex) continue;
+        if (compareStackingContexts(primitive, bestPrimitive) < 0) continue;
         // Parsed order follows DOM paint order, so the later overlapping
         // sibling is the visible target. Nested targets are handled above.
         best = {
