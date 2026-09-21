@@ -450,6 +450,9 @@ const LIVE_ROUTE_BRIDGE_SCRIPT = `
         type: "agent-native:live-route-path",
         routePath: window.location.pathname + window.location.search + window.location.hash
       }, "*");
+    // A frame can be torn down while reporting navigation; there is no parent
+    // message to recover or retry after that document disappears.
+    // coercion-ok: frame teardown makes this best-effort report unreachable.
     } catch (_) {}
   }
   var pushState = window.history.pushState;

@@ -87,6 +87,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var editorChromeHostObserver: MutationObserver | null = null;
   var editorChromeDocumentObserver: MutationObserver | null = null;
   var repairingEditorChromeHost = false;
+  var readOnly = __READ_ONLY__;
 
   function sendEditorChromeReady(): void {
     (window.parent as Window).postMessage(
@@ -114,7 +115,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     editorChromeHost.setAttribute("aria-hidden", "true");
     editorChromeHost.style.cssText =
-      "position:fixed;inset:0;z-index:2147483000;pointer-events:none;overflow:visible;";
+      "position:fixed;inset:0;z-index:" +
+      (readOnly ? "2147483000" : "2147483647") +
+      ";pointer-events:none;overflow:visible;";
     (document.documentElement || document.body).appendChild(editorChromeHost);
     (window as any).__anEditorChromeBridgeHost = editorChromeHost;
     return editorChromeHost;
@@ -174,7 +177,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   (window as any).__anEditorChromeBridge = true;
   (window as any).__anEditorChromeBridgeHost = editorChromeHost;
 
-  var readOnly = __READ_ONLY__;
   var gridGroupBatchingEnabled = false;
   // Raw host-controlled flag, kept separate from the derived
   // `textEditingEnabled` below. The host (DesignCanvas.tsx) live-updates this

@@ -278,6 +278,7 @@ export interface RedoArgs {
         selector: string;
         sourceId?: string | null;
         name: string;
+        routePath?: string;
       }>;
     } | null>
   >;
@@ -289,6 +290,7 @@ export interface RedoArgs {
         layerId: string;
         state: "hidden" | "locked";
         enabled: boolean;
+        routePath?: string;
       }>;
     } | null>
   >;
@@ -304,6 +306,7 @@ export interface RedoArgs {
         sourceId?: string | null;
         value: string;
         html?: string;
+        routePath?: string;
       }>;
     } | null>
   >;
@@ -618,6 +621,7 @@ export function runRedo({
           layerId: pendingNonStyleRedo.edit.layerId,
           state: pendingNonStyleRedo.edit.state,
           enabled: pendingNonStyleRedo.edit.enabled,
+          routePath: pendingNonStyleRedo.edit.routePath,
         },
       ],
     });
@@ -648,6 +652,7 @@ export function runRedo({
           selector: pendingNonStyleRedo.edit.selector,
           sourceId: pendingNonStyleRedo.edit.sourceId,
           name: pendingNonStyleRedo.edit.name,
+          routePath: pendingNonStyleRedo.edit.routePath,
         },
       ],
     });
@@ -680,6 +685,7 @@ export function runRedo({
           sourceId: pendingTextRedo.edit.sourceId,
           value: pendingTextRedo.edit.value,
           html: pendingTextRedo.edit.html,
+          routePath: pendingTextRedo.edit.routePath,
         },
       ],
     });
@@ -742,6 +748,7 @@ export function runRedo({
           // pair explicitly or it re-applies into the wrong namespace.
           runtimeSelector: edit.runtimeSelector,
           runtimeSourceId: edit.runtimeSourceId,
+          routePath: edit.routePath,
           styles: edit.styles,
           interactionState: edit.interactionState,
         }),

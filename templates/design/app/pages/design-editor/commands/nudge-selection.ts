@@ -51,6 +51,7 @@ export interface NudgeSelectionArgs {
   boardFileId: string | undefined;
   boardFrameGeometry: FrameGeometry | undefined;
   canEditDesign: boolean;
+  canEditLiveScreen?: boolean;
   commitVisualStyles: (
     selector: string,
     styles: Record<string, string>,
@@ -88,6 +89,7 @@ export function runNudgeSelection(
     boardFileId,
     boardFrameGeometry,
     canEditDesign,
+    canEditLiveScreen,
     commitVisualStyles,
     designDataJsonRef,
     editorPreferences,
@@ -108,7 +110,7 @@ export function runNudgeSelection(
   largeStep: boolean,
 ) {
   trace("structure", "nudge", { direction, largeStep });
-  if (!canEditDesign) return;
+  if (!canEditDesign && !canEditLiveScreen) return;
   const nudgeAmounts = editorPreferences.nudge;
   const freeTranslation = resolveNudgeIntent({
     direction,
@@ -170,6 +172,25 @@ export function runNudgeSelection(
     ? selectedElement
     : selectedLayerTargetsRef.current[0]?.elementInfo;
   if (!nudgeTarget?.selector) return;
+
+  if (!canEditDesign && canEditLiveScreen) {
+    hideSelectionChromeForNudge();
+    const left = parseFloat(nudgeTarget.computedStyles.left || "0") || 0;
+    const top = parseFloat(nudgeTarget.computedStyles.top || "0") || 0;
+    commitVisualStyles(
+      nudgeTarget.selector,
+      {
+        position:
+          nudgeTarget.computedStyles.position === "static"
+            ? "relative"
+            : nudgeTarget.computedStyles.position || "relative",
+        left: `${Math.round(left + dx)}px`,
+        top: `${Math.round(top + dy)}px`,
+      },
+      { runtimeApplied: true, elementInfo: nudgeTarget },
+    );
+    return;
+  }
 
   const intent = resolveElementNudgeIntent({
     content: activeFile ? getFreshActiveContent() : "",

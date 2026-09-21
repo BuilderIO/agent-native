@@ -922,6 +922,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var editorChromeHostObserver = null;
     var editorChromeDocumentObserver = null;
     var repairingEditorChromeHost = false;
+    var readOnly = __READ_ONLY__;
     function sendEditorChromeReady() {
       window.parent.postMessage(
         {
@@ -942,7 +943,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "true"
       );
       editorChromeHost.setAttribute("aria-hidden", "true");
-      editorChromeHost.style.cssText = "position:fixed;inset:0;z-index:2147483000;pointer-events:none;overflow:visible;";
+      editorChromeHost.style.cssText = "position:fixed;inset:0;z-index:" + (readOnly ? "2147483000" : "2147483647") + ";pointer-events:none;overflow:visible;";
       (document.documentElement || document.body).appendChild(editorChromeHost);
       window.__anEditorChromeBridgeHost = editorChromeHost;
       return editorChromeHost;
@@ -992,7 +993,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     ensureEditorChromeHost();
     window.__anEditorChromeBridge = true;
     window.__anEditorChromeBridgeHost = editorChromeHost;
-    var readOnly = __READ_ONLY__;
     var gridGroupBatchingEnabled = false;
     var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
     var textEditingEnabled = !readOnly && textEditingEnabledFlag;
