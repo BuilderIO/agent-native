@@ -631,7 +631,10 @@ export {
   type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
 export {
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";

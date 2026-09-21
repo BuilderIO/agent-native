@@ -1,7 +1,8 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -9,6 +10,7 @@ import type {
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceExecution,
+  ContentDatabaseSourceFieldChange,
   ContentDatabaseSourcePushMode,
   ContentDatabaseSourceReviewPayload,
   ContentDatabaseSourceRiskLevel,
@@ -16,6 +18,14 @@ import type {
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
 } from "../shared/api.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  deleteBuilderPrivatePayload,
+  readBuilderExecutionPayload,
+  storeBuilderExecutionPayload,
+} from "./_builder-cms-blob-custody.js";
+import { BUILDER_CMS_WRITE_CANONICAL_JSON_KEY } from "./_builder-cms-source-adapter.js";
 import {
   buildBuilderCmsExecutionPlan,
   resolveBuilderCmsWriteEffect,
@@ -25,7 +35,6 @@ import { claimBuilderSourceExecutionGate } from "./_builder-source-execution-cla
 import { shouldPreserveBuilderExecution } from "./_builder-source-execution-preservation.js";
 import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
-  canRefreshLocallyBlockedBuilderReview,
   findOpenSourceChangeSet,
   getContentDatabaseSourceSnapshotForReview,
   getContentDatabaseSourceSnapshotForWrite,
@@ -164,6 +173,152 @@ function dryRunStatus(execution: ContentDatabaseSourceExecution | null) {
     : null;
 }
 
+const BUILDER_REVIEW_ABSENT_VALUE = "(absent)";
+
+function reviewRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stableReviewJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableReviewJson(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableReviewJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
+
+function builderReviewValue(
+  value: unknown,
+  present: boolean,
+): ContentDatabaseSourceFieldChange["currentValue"] {
+  if (!present || value === undefined) return BUILDER_REVIEW_ABSENT_VALUE;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value as ContentDatabaseSourceFieldChange["currentValue"];
+  }
+  return stableReviewJson(value);
+}
+
+function builderReviewJsonPointer(path: string[], key: string) {
+  return [...path, key]
+    .map((part) => part.replace(/~/g, "~0").replace(/\//g, "~1"))
+    .map((part) => `/${part}`)
+    .join("");
+}
+
+export function builderPublishPayloadReviewChanges(args: {
+  canonical: Record<string, unknown>;
+  publishedBody: Record<string, unknown>;
+}): ContentDatabaseSourceFieldChange[] {
+  const publishedBody = Object.fromEntries(
+    Object.entries(args.publishedBody).filter(([key]) => key !== "__write"),
+  );
+  const changes: ContentDatabaseSourceFieldChange[] = [];
+  const visit = (
+    current: unknown,
+    proposed: unknown,
+    path: string[],
+    currentPresent: boolean,
+    proposedPresent: boolean,
+  ) => {
+    if (
+      currentPresent &&
+      proposedPresent &&
+      stableReviewJson(current) === stableReviewJson(proposed)
+    ) {
+      return;
+    }
+    const currentRecord = reviewRecord(current);
+    const proposedRecord = reviewRecord(proposed);
+    const keys = new Set([
+      ...Object.keys(currentRecord ?? {}),
+      ...Object.keys(proposedRecord ?? {}),
+    ]);
+    if (
+      currentPresent &&
+      proposedPresent &&
+      currentRecord &&
+      proposedRecord &&
+      keys.size > 0
+    ) {
+      for (const key of [...keys].sort()) {
+        visit(
+          currentRecord?.[key],
+          proposedRecord?.[key],
+          [...path, key],
+          currentRecord
+            ? Object.prototype.hasOwnProperty.call(currentRecord, key)
+            : false,
+          proposedRecord
+            ? Object.prototype.hasOwnProperty.call(proposedRecord, key)
+            : false,
+        );
+      }
+      return;
+    }
+    const pointer = builderReviewJsonPointer(
+      path.slice(0, -1),
+      path[path.length - 1]!,
+    );
+    changes.push({
+      propertyId: null,
+      propertyName: `Builder publish payload ${pointer}`,
+      localFieldKey: `__builder.publish${pointer}`,
+      sourceFieldKey: pointer,
+      currentValue: builderReviewValue(current, currentPresent),
+      proposedValue: builderReviewValue(proposed, proposedPresent),
+    });
+  };
+  visit(args.canonical, publishedBody, [], true, true);
+  return changes;
+}
+
+export function builderPublicationReviewChanges(args: {
+  row: ContentDatabaseSource["rows"][number] | null;
+  execution: ContentDatabaseSourceExecution | null;
+}) {
+  if (args.execution?.payload.effect !== "publish") return [];
+  const request = reviewRecord(args.execution.payload.request);
+  const publishedBody = reviewRecord(request?.body);
+  const writeGuard = reviewRecord(publishedBody?.__write);
+  const isGuardedPublish =
+    typeof writeGuard?.version === "string" && writeGuard.version.length > 0;
+  const canonicalJson =
+    args.row?.sourceValues?.[BUILDER_CMS_WRITE_CANONICAL_JSON_KEY];
+  if (!publishedBody) return [];
+  const reviewBaseUnavailable = () => {
+    throw new ActionContractError(
+      "Builder publish review requires the guarded canonical source payload.",
+      {
+        errorCode: "BUILDER_PUBLISH_REVIEW_BASE_UNAVAILABLE",
+        statusCode: 409,
+      },
+    );
+  };
+  if (typeof canonicalJson !== "string") {
+    if (isGuardedPublish) reviewBaseUnavailable();
+    return [];
+  }
+  try {
+    const canonical = reviewRecord(JSON.parse(canonicalJson) as unknown);
+    if (!canonical) {
+      if (isGuardedPublish) reviewBaseUnavailable();
+      return [];
+    }
+    return builderPublishPayloadReviewChanges({ canonical, publishedBody });
+  } catch {
+    if (isGuardedPublish) reviewBaseUnavailable();
+    return [];
+  }
+}
+
 export function buildBuilderSourceReviewPayload(args: {
   source: ContentDatabaseSource;
   changeSets: ContentDatabaseSourceChangeSet[];
@@ -188,10 +343,18 @@ export function buildBuilderSourceReviewPayload(args: {
     const changedTitle =
       changeSet.fieldChanges.find((field) => field.localFieldKey === "title")
         ?.proposedValue ?? null;
-    const effect = resolveBuilderCmsWriteEffect({
-      source: args.source,
-      changeSet,
-    });
+    const plannedEffect = latestExecution?.payload.effect;
+    const effect =
+      plannedEffect === "autosave" ||
+      plannedEffect === "update_in_place" ||
+      plannedEffect === "create_draft" ||
+      plannedEffect === "publish" ||
+      plannedEffect === "unpublish"
+        ? plannedEffect
+        : resolveBuilderCmsWriteEffect({
+            source: args.source,
+            changeSet,
+          });
 
     return {
       changeSetId: changeSet.id,
@@ -203,7 +366,10 @@ export function buildBuilderSourceReviewPayload(args: {
           : row?.sourceDisplayKey || "Untitled",
       targetEntryId:
         effect === "create_draft" ? null : (row?.sourceRowId ?? null),
-      fieldChanges: changeSet.fieldChanges,
+      fieldChanges: [
+        ...changeSet.fieldChanges,
+        ...builderPublicationReviewChanges({ row, execution: latestExecution }),
+      ],
       bodyChange: changeSet.bodyChange,
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
@@ -346,25 +512,11 @@ async function approveChangeSetForReview(args: {
         : null);
 
   if (existing) {
-    const existingExecutions = await db
-      .select({
-        state: schema.contentDatabaseSourceExecutions.state,
-        payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
-        attemptToken: schema.contentDatabaseSourceExecutions.attemptToken,
-      })
-      .from(schema.contentDatabaseSourceExecutions)
-      .where(
-        and(
-          eq(schema.contentDatabaseSourceExecutions.sourceId, args.sourceId),
-          eq(schema.contentDatabaseSourceExecutions.changeSetId, existing.id),
-        ),
-      );
-    const mayRefreshApprovedPayload =
-      canRefreshLocallyBlockedBuilderReview(existingExecutions);
-
-    // Once dispatch may have happened, the approved payload is evidence. Keep
-    // it byte-for-byte and let reconciliation decide what can happen next.
-    if (existing.state === "approved" && !mayRefreshApprovedPayload) {
+    // An approved payload is immutable execution evidence. Even a locally
+    // blocked gate can be claimed after this read, so a materially changed
+    // proposal always receives a new revision identity instead of rewriting
+    // the proposal beneath an in-flight execution.
+    if (existing.state === "approved") {
       if (existingPayloadMatches(existing)) {
         return {
           id: existing.id,
@@ -384,11 +536,9 @@ async function approveChangeSetForReview(args: {
           },
         };
       }
-      // A failed, dispatched, or otherwise non-refreshable gate owns its exact
-      // approved payload forever. A materially different local edit must fall
-      // through to a new revision identity instead of aliasing that evidence.
+      // Fall through to a revision-bound change-set ID below.
     } else {
-      await db
+      const [updated] = await db
         .update(schema.contentDatabaseSourceChangeSets)
         .set({
           direction: "outbound",
@@ -402,7 +552,26 @@ async function approveChangeSetForReview(args: {
             : null,
           updatedAt: args.now,
         })
-        .where(eq(schema.contentDatabaseSourceChangeSets.id, existing.id));
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceChangeSets.id, existing.id),
+            eq(schema.contentDatabaseSourceChangeSets.state, existing.state),
+            eq(
+              schema.contentDatabaseSourceChangeSets.fieldChangesJson,
+              existing.fieldChangesJson,
+            ),
+            existing.bodyChangeJson === null
+              ? isNull(schema.contentDatabaseSourceChangeSets.bodyChangeJson)
+              : eq(
+                  schema.contentDatabaseSourceChangeSets.bodyChangeJson,
+                  existing.bodyChangeJson,
+                ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceChangeSets.id });
+      if (!updated) {
+        throw new Error("Builder change set changed during approval.");
+      }
       if (existing.state !== "approved") {
         await db.insert(schema.contentDatabaseSourceChangeReviews).values({
           id: crypto.randomUUID(),
@@ -513,18 +682,96 @@ async function upsertExecutionGate(args: {
     return;
   }
   if (existing) {
-    await db
-      .update(schema.contentDatabaseSourceExecutions)
-      .set({
-        state: plan.state,
-        summary: plan.summary,
-        payloadJson: JSON.stringify(plan.payload),
-        lastError: plan.lastError,
-        updatedAt: args.now,
-      })
-      .where(eq(schema.contentDatabaseSourceExecutions.id, existing.id));
-  } else {
+    const payloadJson = await storeBuilderExecutionPayload({
+      payload: plan.payload as unknown as Record<string, unknown>,
+      binding: {
+        ownerEmail: args.ownerEmail,
+        sourceId: args.source.id,
+        changeSetId: args.changeSet.id,
+        executionId: existing.id,
+        idempotencyKey: plan.idempotencyKey,
+      },
+    });
+    const nextReference = builderExecutionPayloadReference(payloadJson);
+    const previousReference = builderExecutionPayloadReference(
+      existing.payloadJson,
+    );
     try {
+      const [updated] = await db
+        .update(schema.contentDatabaseSourceExecutions)
+        .set({
+          state: plan.state,
+          summary: plan.summary,
+          payloadJson,
+          lastError: plan.lastError,
+          updatedAt: args.now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceExecutions.id, existing.id),
+            eq(
+              schema.contentDatabaseSourceExecutions.payloadJson,
+              existing.payloadJson,
+            ),
+            eq(schema.contentDatabaseSourceExecutions.state, existing.state),
+            existing.attemptToken
+              ? eq(
+                  schema.contentDatabaseSourceExecutions.attemptToken,
+                  existing.attemptToken,
+                )
+              : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceExecutions.id });
+      if (!updated)
+        throw new Error("Builder execution changed during prepare.");
+    } catch (error) {
+      let currentPayloadJson: string | null | undefined;
+      try {
+        const [current] = await db
+          .select({
+            payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+          })
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(eq(schema.contentDatabaseSourceExecutions.id, existing.id))
+          .limit(1);
+        currentPayloadJson = current?.payloadJson;
+      } catch {
+        // Inconclusive readback retains both refs.
+      }
+      if (currentPayloadJson === payloadJson) {
+        // The replacement committed despite an ambiguous acknowledgement.
+      } else {
+        if (currentPayloadJson !== undefined && nextReference) {
+          await deleteBuilderPrivatePayload(nextReference).catch(
+            () => undefined,
+          );
+        }
+        throw error;
+      }
+    }
+    if (previousReference && previousReference !== nextReference) {
+      await cleanupBuilderPrivatePayload(
+        previousReference,
+        "superseded prepared execution",
+      );
+    }
+  } else {
+    let insertedReference: string | null = null;
+    let insertedPayloadJson: string | null = null;
+    try {
+      const payloadJson = await storeBuilderExecutionPayload({
+        payload: plan.payload as unknown as Record<string, unknown>,
+        binding: {
+          ownerEmail: args.ownerEmail,
+          sourceId: args.source.id,
+          changeSetId: args.changeSet.id,
+          executionId,
+          idempotencyKey: plan.idempotencyKey,
+        },
+      });
+      insertedReference = builderExecutionPayloadReference(payloadJson);
+      insertedPayloadJson = payloadJson;
       await db.insert(schema.contentDatabaseSourceExecutions).values({
         id: executionId,
         ownerEmail: args.ownerEmail,
@@ -535,18 +782,33 @@ async function upsertExecutionGate(args: {
         state: plan.state,
         idempotencyKey: plan.idempotencyKey,
         summary: plan.summary,
-        payloadJson: JSON.stringify(plan.payload),
+        payloadJson,
         lastError: plan.lastError,
         createdAt: args.now,
         updatedAt: args.now,
       });
     } catch (error) {
-      const [winner] = await db
-        .select()
-        .from(schema.contentDatabaseSourceExecutions)
-        .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
-        .limit(1);
+      let winner:
+        | typeof schema.contentDatabaseSourceExecutions.$inferSelect
+        | null
+        | undefined;
+      try {
+        [winner] = await db
+          .select()
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
+          .limit(1);
+      } catch {
+        // Inconclusive readback retains the new ref.
+      }
       if (!winner) throw error;
+      if (winner.payloadJson === insertedPayloadJson) {
+        // The insert committed despite an ambiguous acknowledgement.
+      } else if (insertedReference) {
+        await deleteBuilderPrivatePayload(insertedReference).catch(
+          () => undefined,
+        );
+      }
       if (
         shouldPreserveBuilderExecution({
           state: winner.state,
@@ -567,8 +829,18 @@ async function upsertExecutionGate(args: {
     .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
   if (!execution) return;
 
+  const storedPayload = await readBuilderExecutionPayload({
+    payloadJson: execution.payloadJson,
+    binding: {
+      ownerEmail: execution.ownerEmail,
+      sourceId: execution.sourceId,
+      changeSetId: execution.changeSetId,
+      executionId: execution.id,
+      idempotencyKey: execution.idempotencyKey,
+    },
+  });
   const payload = validateBuilderCmsExecutionDryRun({
-    storedPayload: parsePayload(execution.payloadJson),
+    storedPayload,
     plan,
     now: args.now,
   });
@@ -580,17 +852,77 @@ async function upsertExecutionGate(args: {
         ? `${plan.summary} Dry run validated blockers locally.`
         : `${plan.summary} Dry run found a stale execution gate.`;
 
-  await db
-    .update(schema.contentDatabaseSourceExecutions)
-    .set({
-      state: dryRun?.status === "stale" ? "blocked" : plan.state,
-      summary,
-      payloadJson: JSON.stringify(payload),
-      lastError:
-        dryRun?.status === "stale" ? dryRun.mismatches[0] : plan.lastError,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
+  const payloadJson = await storeBuilderExecutionPayload({
+    payload,
+    binding: {
+      ownerEmail: execution.ownerEmail,
+      sourceId: execution.sourceId,
+      changeSetId: execution.changeSetId,
+      executionId: execution.id,
+      idempotencyKey: execution.idempotencyKey,
+    },
+  });
+  const nextReference = builderExecutionPayloadReference(payloadJson);
+  const previousReference = builderExecutionPayloadReference(
+    execution.payloadJson,
+  );
+  try {
+    const [updated] = await db
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({
+        state: dryRun?.status === "stale" ? "blocked" : plan.state,
+        summary,
+        payloadJson,
+        lastError:
+          dryRun?.status === "stale" ? dryRun.mismatches[0] : plan.lastError,
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceExecutions.id, executionId),
+          eq(
+            schema.contentDatabaseSourceExecutions.payloadJson,
+            execution.payloadJson,
+          ),
+          eq(schema.contentDatabaseSourceExecutions.state, execution.state),
+          execution.attemptToken
+            ? eq(
+                schema.contentDatabaseSourceExecutions.attemptToken,
+                execution.attemptToken,
+              )
+            : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseSourceExecutions.id });
+    if (!updated)
+      throw new Error("Builder execution changed during validation.");
+  } catch (error) {
+    let currentPayloadJson: string | null | undefined;
+    try {
+      const [current] = await db
+        .select({
+          payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+        })
+        .from(schema.contentDatabaseSourceExecutions)
+        .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
+        .limit(1);
+      currentPayloadJson = current?.payloadJson;
+    } catch {
+      // Inconclusive readback retains both refs.
+    }
+    if (currentPayloadJson !== payloadJson) {
+      if (currentPayloadJson !== undefined && nextReference) {
+        await deleteBuilderPrivatePayload(nextReference).catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+  if (previousReference && previousReference !== nextReference) {
+    await cleanupBuilderPrivatePayload(
+      previousReference,
+      "superseded validated execution",
+    );
+  }
 }
 
 export default defineAction({

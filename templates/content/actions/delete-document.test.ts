@@ -14,6 +14,11 @@ vi.mock("drizzle-orm", async (importOriginal) => {
 
 const mutationLock = vi.hoisted(() => vi.fn());
 const membershipLock = vi.hoisted(() => vi.fn());
+const deletePrivateBlob = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/private-blob", () => ({
+  deletePrivateBlob,
+}));
 
 vi.mock("./_content-database-mutation-lock.js", () => ({
   lockContentDatabaseMutation: mutationLock,
@@ -66,6 +71,8 @@ const { schema } = vi.hoisted(() => ({
     },
     contentDatabaseSourceExecutions: {
       sourceId: "contentDatabaseSourceExecutions.sourceId",
+      ownerEmail: "contentDatabaseSourceExecutions.ownerEmail",
+      payloadJson: "contentDatabaseSourceExecutions.payloadJson",
     },
     contentDatabaseSourceChangeReviews: {
       sourceId: "contentDatabaseSourceChangeReviews.sourceId",
@@ -75,6 +82,8 @@ const { schema } = vi.hoisted(() => ({
     },
     contentDatabaseSourceRows: {
       sourceId: "contentDatabaseSourceRows.sourceId",
+      ownerEmail: "contentDatabaseSourceRows.ownerEmail",
+      sourceValuesJson: "contentDatabaseSourceRows.sourceValuesJson",
     },
     contentDatabaseSourceFields: {
       sourceId: "contentDatabaseSourceFields.sourceId",
@@ -157,6 +166,11 @@ describe("deleteDocumentRecursive", () => {
   beforeEach(() => {
     mutationLock.mockReset();
     membershipLock.mockReset();
+    deletePrivateBlob.mockReset();
+    deletePrivateBlob.mockImplementation(async () => {
+      expect(transactionDepth).toBe(0);
+      return { deleted: true, provider: "test" };
+    });
     deleteCalls = [];
     selectRows = {
       documents: [],
@@ -177,11 +191,15 @@ describe("deleteDocumentRecursive", () => {
         }),
       }),
       delete: (table: Record<string, string>) => ({
-        where: async (cond: any) => {
+        where: (cond: any) => {
           const name = tableNameFor(Object.values(table)[0] as string);
           if (transactionDepth === 0)
             operationsOutsideTransaction.push(`delete:${name}`);
           deleteCalls.push({ table: name, cond });
+          return {
+            returning: async () =>
+              (selectRows[name] ?? []).filter((row) => matches(row, cond)),
+          };
         },
       }),
       update: () => ({
@@ -198,6 +216,74 @@ describe("deleteDocumentRecursive", () => {
         }
       },
     };
+  });
+
+  function seedBuilderSourceBlobs() {
+    const ownerEmail = "owner-a@example.com";
+    const sourceId = "source-1";
+    const reference = (id: string, boundSourceId = sourceId) =>
+      JSON.stringify({
+        kind: "agent-native.builder-private-payload",
+        version: 1,
+        binding: { ownerEmail, sourceId: boundSourceId },
+        sha256: "test-digest",
+        handle: { id, provider: "test", opaque: true, encrypted: true },
+      });
+    selectRows.contentDatabases = [
+      { id: "database-1", documentId: "database-doc", ownerEmail },
+    ];
+    selectRows.contentDatabaseSources = [
+      { id: sourceId, databaseId: "database-1" },
+    ];
+    selectRows.contentDatabaseSourceRows = [
+      {
+        sourceId,
+        ownerEmail,
+        sourceValuesJson: JSON.stringify({
+          "__builder.write.snapshotBlob": reference("snapshot"),
+        }),
+      },
+      {
+        sourceId,
+        ownerEmail,
+        sourceValuesJson: JSON.stringify({
+          "__builder.write.snapshotBlob": reference(
+            "foreign",
+            "different-source",
+          ),
+        }),
+      },
+    ];
+    selectRows.contentDatabaseSourceExecutions = [
+      {
+        sourceId,
+        ownerEmail,
+        payloadJson: JSON.stringify({
+          "__builder.execution.privatePayload": reference("execution"),
+        }),
+      },
+    ];
+  }
+
+  it("cleans only matching deleted Builder blobs after transaction acknowledgement", async () => {
+    seedBuilderSourceBlobs();
+    await deleteDocumentRecursive(db, "database-doc", "owner-a@example.com");
+    expect(
+      deletePrivateBlob.mock.calls.map(([handle]) => handle.id).sort(),
+    ).toEqual(["execution", "snapshot"]);
+  });
+
+  it("retains deleted-row blob references when commit acknowledgement is uncertain", async () => {
+    seedBuilderSourceBlobs();
+    const transaction = db.transaction;
+    db.transaction = async (run: (tx: unknown) => Promise<unknown>) => {
+      await transaction(run);
+      throw new Error("commit acknowledgement lost");
+    };
+    await expect(
+      deleteDocumentRecursive(db, "database-doc", "owner-a@example.com"),
+    ).rejects.toThrow("commit acknowledgement lost");
+    expect(deletePrivateBlob).not.toHaveBeenCalled();
   });
 
   it("keeps lock, final recollection, and cleanup on one transaction handle", async () => {

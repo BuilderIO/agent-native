@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,6 +8,13 @@ import type {
   ContentDatabaseResponse,
   ValidateBuilderSourceExecutionRequest,
 } from "../shared/api.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  deleteBuilderPrivatePayload,
+  readBuilderExecutionPayload,
+  storeBuilderExecutionPayload,
+} from "./_builder-cms-blob-custody.js";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
@@ -119,8 +126,19 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
+    const binding = {
+      ownerEmail: execution.ownerEmail,
+      sourceId: execution.sourceId,
+      changeSetId: execution.changeSetId,
+      executionId: execution.id,
+      idempotencyKey: execution.idempotencyKey,
+    };
+    const storedPayload = await readBuilderExecutionPayload({
+      payloadJson: execution.payloadJson,
+      binding,
+    });
     const payload = validateBuilderCmsExecutionDryRun({
-      storedPayload: parsePayload(execution.payloadJson),
+      storedPayload,
       plan,
       now,
     });
@@ -136,17 +154,73 @@ export default defineAction({
           ? `${plan.summary} Dry run validated blockers locally.`
           : `${plan.summary} Dry run found a stale execution gate.${stale}`;
 
-    await db
-      .update(schema.contentDatabaseSourceExecutions)
-      .set({
-        state: dryRun?.status === "stale" ? "blocked" : plan.state,
-        summary,
-        payloadJson: JSON.stringify(payload),
-        lastError:
-          dryRun?.status === "stale" ? dryRun.mismatches[0] : plan.lastError,
-        updatedAt: now,
-      })
-      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+    const payloadJson = await storeBuilderExecutionPayload({
+      payload,
+      binding,
+    });
+    const nextReference = builderExecutionPayloadReference(payloadJson);
+    const previousReference = builderExecutionPayloadReference(
+      execution.payloadJson,
+    );
+    try {
+      const [updated] = await db
+        .update(schema.contentDatabaseSourceExecutions)
+        .set({
+          state: dryRun?.status === "stale" ? "blocked" : plan.state,
+          summary,
+          payloadJson,
+          lastError:
+            dryRun?.status === "stale" ? dryRun.mismatches[0] : plan.lastError,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceExecutions.id, execution.id),
+            eq(
+              schema.contentDatabaseSourceExecutions.payloadJson,
+              execution.payloadJson,
+            ),
+            eq(schema.contentDatabaseSourceExecutions.state, execution.state),
+            execution.attemptToken
+              ? eq(
+                  schema.contentDatabaseSourceExecutions.attemptToken,
+                  execution.attemptToken,
+                )
+              : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceExecutions.id });
+      if (!updated)
+        throw new Error("Builder execution changed during validation.");
+    } catch (error) {
+      let currentPayloadJson: string | null | undefined;
+      try {
+        const [current] = await db
+          .select({
+            payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+          })
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id))
+          .limit(1);
+        currentPayloadJson = current?.payloadJson;
+      } catch {
+        // Inconclusive readback retains both refs.
+      }
+      if (currentPayloadJson !== payloadJson) {
+        if (currentPayloadJson !== undefined && nextReference) {
+          await deleteBuilderPrivatePayload(nextReference).catch(
+            () => undefined,
+          );
+        }
+        throw error;
+      }
+    }
+    if (previousReference && previousReference !== nextReference) {
+      await cleanupBuilderPrivatePayload(
+        previousReference,
+        "superseded validated execution",
+      );
+    }
 
     await db
       .update(schema.contentDatabaseSources)
