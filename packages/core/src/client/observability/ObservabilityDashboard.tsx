@@ -719,6 +719,7 @@ function ReviewTab({ days }: { days: number }) {
     setSelectedRunId((current) => (current === runId ? null : runId));
     setFeedbackNote("");
     setInstruction("");
+    setTarget("agent");
   };
 
   const saveFeedback = (feedbackType: "thumbs_up" | "thumbs_down") => {
@@ -748,10 +749,12 @@ function ReviewTab({ days }: { days: number }) {
         value: feedbackNote.trim(),
       },
       {
-        onSuccess: () =>
+        onSuccess: () => {
+          setFeedbackNote("");
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-observability-reviews"],
-          }),
+          });
+        },
       },
     );
   };
@@ -768,7 +771,9 @@ function ReviewTab({ days }: { days: number }) {
       },
       {
         onSuccess: () => {
+          setFeedbackNote("");
           setInstruction("");
+          setTarget("agent");
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-observability-reviews"],
           });
