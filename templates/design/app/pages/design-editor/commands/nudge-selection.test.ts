@@ -8,7 +8,7 @@ const element = (left: string): ElementInfo =>
   ({
     selector: "[data-agent-native-node-id=box]",
     computedStyles: { left },
-  }) as ElementInfo;
+  }) as unknown as ElementInfo;
 
 describe("resolveNudgeTarget", () => {
   it("prefers the post-drag rendered measurement over stale selection", () => {
