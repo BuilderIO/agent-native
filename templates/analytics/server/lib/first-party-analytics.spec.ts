@@ -290,6 +290,17 @@ describe("isMarketingWebsiteSessionEvent", () => {
     ).toBe(true);
   });
 
+  it("keeps canonical session-status aliases out of signed-in session cohorts", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session_status",
+        hostname: "www.agent-native.com",
+        app: "www",
+        template: "www",
+      }),
+    ).toBe(true);
+  });
+
   it("keeps legacy host-derived www events out when hostname was omitted", () => {
     expect(
       isMarketingWebsiteSessionEvent({

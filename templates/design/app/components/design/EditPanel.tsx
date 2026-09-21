@@ -55,6 +55,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 import type { EditorMode } from "@/pages/design-editor/types";
 
@@ -386,6 +387,7 @@ interface EditPanelProps {
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  onFontUploaded?: (font: UploadedFont) => void | Promise<void>;
   onExport?: (settings: ExportSettingsValue[]) => void;
   /** Rasterizes the current selection for the export preview. Must go through
    *  the same renderer as `onExport`, or the preview lies about the output. */
@@ -1863,7 +1865,11 @@ function PageProperties({
   const baseFontFamilyOptions = sortFontFamilyOptions(
     FONT_FAMILY_OPTIONS.map((option) => ({
       value: option.value,
-      label: t(`editPanel.fontFamilies.${option.key}`),
+      label:
+        option.label ??
+        (option.key
+          ? t(`editPanel.fontFamilies.${option.key}`)
+          : displayFontFamilyName(option.value)),
     })),
   );
   const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
@@ -2478,6 +2484,7 @@ export const EditPanel = memo(function EditPanel({
   designId,
   onComponentPropApplied,
   onShaderSourceApplied,
+  onFontUploaded,
   reviewPanelProps,
   reviewCommentsPanelProps,
   reviewCommentsCount = 0,
@@ -3324,6 +3331,8 @@ export const EditPanel = memo(function EditPanel({
                       onStylesChange={
                         onStylesChangeProp ? onStylesChange : undefined
                       }
+                      designId={designId}
+                      onFontUploaded={onFontUploaded}
                     />
                   ) : null}
                   {selectionIsGroup ? (

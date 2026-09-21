@@ -64,11 +64,9 @@ import {
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
-  EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -4766,9 +4764,6 @@ export function App({
           <div data-tw-surface>
             <Empty className="w-full border-none">
               <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <Spinner />
-                </EmptyMedia>
                 <EmptyTitle>Sign in from your browser</EmptyTitle>
                 <EmptyDescription>
                   We opened a tab for {serverHostForSignIn}. Approve access

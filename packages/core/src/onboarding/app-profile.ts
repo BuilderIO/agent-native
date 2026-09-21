@@ -13,7 +13,7 @@ const LLM_CAPABILITY: OnboardingCapability = {
 
 const SYSTEM_ONE_CAPABILITY: OnboardingCapability = {
   id: "system-one",
-  label: "System one model (Jev)",
+  label: "Decision model (Jev)",
   required: false,
   suggested: true,
   builderIncluded: true,
