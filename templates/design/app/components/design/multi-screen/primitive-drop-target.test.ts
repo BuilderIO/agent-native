@@ -15,6 +15,25 @@ import {
 beforeEach(() => __clearPrimitiveParseCachesForTests());
 
 describe("primitive drop target authored layout fallback", () => {
+  it("treats semantic section containers as nested drop targets", () => {
+    const screen = {
+      id: "semantic-nested-screen",
+      filename: "semantic-nested-screen.html",
+      content: `<section data-agent-native-node-id="outer" style="display:flex;width:400px;height:190px">
+        <section data-agent-native-node-id="inner" style="display:flex;width:360px;height:92px"></section>
+      </section>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 40, y: 40 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 400, height: 190 } },
+        () => ({ width: 400, height: 190 }),
+      )?.nodeId,
+    ).toBe("inner");
+  });
+
   it("resolves percentage sizes against the containing block for overview hits", () => {
     const screen = {
       id: "percentage-screen",
