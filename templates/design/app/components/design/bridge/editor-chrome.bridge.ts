@@ -9765,7 +9765,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function frameLabelText(frame: Element): string {
     var name =
       layerNameForElement(frame) || frame.getAttribute("aria-label") || "";
-    return name.trim() || "Frame" /* i18n-ignore canvas frame label */;
+    return name.trim() || "Frame"; /* i18n-ignore canvas frame label */
   }
 
   function selectFrameFromLabel(frame: Element, e: MouseEvent): void {
@@ -14980,8 +14980,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         : null;
     var sourceHasAuthoredPlacement = Boolean(
       singleSource?.parentElement === container &&
-        (singleSourceColumn?.hasAuthoredPlacement ||
-          singleSourceRow?.hasAuthoredPlacement),
+      (singleSourceColumn?.hasAuthoredPlacement ||
+        singleSourceRow?.hasAuthoredPlacement),
     );
     var hasAuthoredSingleCellSourcePlacement = Boolean(
       singleSource &&
