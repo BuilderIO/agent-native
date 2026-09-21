@@ -2,7 +2,7 @@
 
 import { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   captureVisualEditorSelection,
@@ -85,5 +85,17 @@ describe("visual editor selection handoff", () => {
     expect(
       resolveVisualEditorSelection(source.state.doc, snapshot!),
     ).toBeNull();
+  });
+
+  it("serializes an unchanged ProseMirror document only once", () => {
+    const source = createEditor();
+    const toJson = vi.spyOn(source.state.doc, "toJSON");
+    source.commands.setTextSelection(7);
+
+    captureVisualEditorSelection(source.state.doc, source.state.selection);
+    source.commands.setTextSelection(11);
+    captureVisualEditorSelection(source.state.doc, source.state.selection);
+
+    expect(toJson).toHaveBeenCalledTimes(1);
   });
 });

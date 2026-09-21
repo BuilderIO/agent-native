@@ -1478,6 +1478,16 @@ export interface VisualEditorSelectionController {
   restoreSelection: (snapshot: VisualEditorSelectionSnapshot) => boolean;
 }
 
+const visualEditorDocJsonCache = new WeakMap<ProseMirrorNode, string>();
+
+function visualEditorDocJson(doc: ProseMirrorNode) {
+  const cached = visualEditorDocJsonCache.get(doc);
+  if (cached) return cached;
+  const serialized = JSON.stringify(doc.toJSON());
+  visualEditorDocJsonCache.set(doc, serialized);
+  return serialized;
+}
+
 export function captureVisualEditorSelection(
   doc: ProseMirrorNode,
   selection: Selection,
@@ -1486,7 +1496,7 @@ export function captureVisualEditorSelection(
   return {
     anchor: selection.anchor,
     head: selection.head,
-    docJson: JSON.stringify(doc.toJSON()),
+    docJson: visualEditorDocJson(doc),
   };
 }
 
@@ -1494,7 +1504,7 @@ export function resolveVisualEditorSelection(
   doc: ProseMirrorNode,
   snapshot: VisualEditorSelectionSnapshot,
 ): TextSelection | null {
-  if (snapshot.docJson !== JSON.stringify(doc.toJSON())) return null;
+  if (snapshot.docJson !== visualEditorDocJson(doc)) return null;
   const { anchor, head } = snapshot;
   if (
     ![anchor, head].every(
@@ -2992,6 +3002,9 @@ export function VisualEditor({
   const preservedContentEditableRef = useRef<string | null | undefined>(
     undefined,
   );
+  useEffect(() => {
+    lastFocusedSelectionRef.current = null;
+  }, [documentId]);
   const notifyHistoryStateChange = useCallback(
     (state: VisualEditorHistoryState) => {
       historyStateNotificationRef.current = state;

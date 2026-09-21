@@ -27,7 +27,10 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
-import { shouldResumeSelectedSuggestionFromPageActions } from "./DocumentEditor";
+import {
+  restoreCapturedEditorSelection,
+  shouldResumeSelectedSuggestionFromPageActions,
+} from "./DocumentEditor";
 import {
   VisualEditor,
   type VisualEditorSelectionController,
@@ -79,6 +82,7 @@ describe("DocumentEditor selection handoff", () => {
       controller: VisualEditorSelectionController | null,
     ) => void,
     initialSelection: VisualEditorSelectionSnapshot | null = null,
+    documentId = "document-a",
   ) {
     await act(async () => {
       root.render(
@@ -95,6 +99,7 @@ describe("DocumentEditor selection handoff", () => {
                 key: mode,
                 content: "Alpha beta gamma.\nSecond paragraph.",
                 contentUpdatedAt: "2026-09-21T00:00:00.000Z",
+                documentId,
                 onChange: vi.fn(),
                 editable: true,
                 suggesting: mode === "suggesting",
@@ -188,5 +193,57 @@ describe("DocumentEditor selection handoff", () => {
       shouldResumeSelectedSuggestionFromPageActions(capturedSelection),
     ).toBe(false);
     expect(shouldResumeSelectedSuggestionFromPageActions(null)).toBe(true);
+  });
+
+  it("clears a remembered selection when the reused editor changes documents", async () => {
+    let controller: VisualEditorSelectionController | null = null;
+    const onSelectionControllerChange = (
+      next: VisualEditorSelectionController | null,
+    ) => {
+      controller = next;
+    };
+    await render("canonical", onSelectionControllerChange);
+    const editor = captured.editor!;
+    act(() => {
+      editor.commands.setTextSelection({ from: 7, to: 11 });
+      editor.view.focus();
+    });
+
+    const toolbar = document.createElement("div");
+    toolbar.setAttribute("data-editor-selection-continuation", "");
+    const toolbarButton = document.createElement("button");
+    toolbar.append(toolbarButton);
+    document.body.append(toolbar);
+    toolbarButton.focus();
+    expect(
+      controller!.captureSelection({ includeRemembered: true }),
+    ).not.toBeNull();
+
+    await render("canonical", onSelectionControllerChange, null, "document-b");
+
+    expect(
+      controller!.captureSelection({ includeRemembered: true }),
+    ).toBeNull();
+    toolbar.remove();
+  });
+
+  it("releases preservation and restores the captured range after startup fails", () => {
+    const snapshot: VisualEditorSelectionSnapshot = {
+      anchor: 11,
+      head: 7,
+      docJson: '{"type":"doc"}',
+    };
+    const releaseSelectionPreservation = vi.fn();
+    const restoreSelection = vi.fn(() => true);
+    const controller: VisualEditorSelectionController = {
+      captureSelection: vi.fn(),
+      preserveSelection: vi.fn(),
+      releaseSelectionPreservation,
+      restoreSelection,
+    };
+
+    expect(restoreCapturedEditorSelection(controller, snapshot)).toBe(true);
+    expect(releaseSelectionPreservation).toHaveBeenCalledTimes(1);
+    expect(restoreSelection).toHaveBeenCalledWith(snapshot);
   });
 });

@@ -227,6 +227,15 @@ export function shouldResumeSelectedSuggestionFromPageActions(
   return capturedSelection == null;
 }
 
+export function restoreCapturedEditorSelection(
+  controller: VisualEditorSelectionController | null,
+  snapshot: VisualEditorSelectionSnapshot | null,
+) {
+  controller?.releaseSelectionPreservation();
+  if (!controller || !snapshot) return false;
+  return controller.restoreSelection(snapshot);
+}
+
 export function documentEditorCommentThreads(
   threads: CommentThread[] | null | undefined,
 ) {
@@ -3694,9 +3703,17 @@ function PageEditorSessionBody({
         // suggestion draft can have a different document and is edited through
         // its own activation path.
         if (!shouldResumeSelectedSuggestionFromPageActions(initialSelection)) {
-          startSuggestionDraft(undefined, initialSelection);
+          const started = startSuggestionDraft(undefined, initialSelection);
+          pageActionsSelectionRef.current = null;
+          if (!started && initialSelection) {
+            restoreCapturedEditorSelection(
+              editorSelectionControllerRef.current,
+              initialSelection,
+            );
+          }
           return;
         }
+        pageActionsSelectionRef.current = null;
         const selected = savedSuggestions.find(
           (suggestion) => suggestion.id === selectedSuggestionId,
         );
@@ -3741,10 +3758,10 @@ function PageEditorSessionBody({
 
   const restorePageActionsSelection = useCallback(() => {
     const snapshot = pageActionsSelectionRef.current;
-    editorSelectionControllerRef.current?.releaseSelectionPreservation();
-    if (snapshot) {
-      editorSelectionControllerRef.current?.restoreSelection(snapshot);
-    }
+    restoreCapturedEditorSelection(
+      editorSelectionControllerRef.current,
+      snapshot,
+    );
   }, []);
 
   const handleSuggestionReplacementIntent = useCallback(
