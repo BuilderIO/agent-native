@@ -18653,7 +18653,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function startMove(
     e,
     gestureElParam?: Element,
-    pointerStartParam?: { clientX: number; clientY: number },
+    pointerStartParam?: {
+      clientX: number;
+      clientY: number;
+      ignoreAutoLayout?: boolean;
+    },
   ) {
     if (readOnly) return;
     var gestureEl = gestureElParam || selectedEl;
@@ -20220,7 +20224,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } | null = null;
     // Preserve the modifier captured at pointerdown. Playwright and real
     // browsers can deliver the first move/up without the held key flags.
-    var dragIgnoreAutoLayout = isIgnoreAutoLayoutChord(e);
+    var dragIgnoreAutoLayout =
+      pointerStartParam?.ignoreAutoLayout === true ||
+      isIgnoreAutoLayoutChord(e);
     function ignoreAutoLayoutHeld(ev): boolean {
       return dragIgnoreAutoLayout || isIgnoreAutoLayoutChord(ev);
     }
@@ -22553,12 +22559,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         startMove(ev, groupGestureMember, {
           clientX: startX,
           clientY: startY,
+          ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
         });
         return;
       }
       selectTarget(dragTarget, ev);
       suppressNextShieldClickBriefly();
-      startMove(ev, undefined, { clientX: startX, clientY: startY });
+      startMove(ev, undefined, {
+        clientX: startX,
+        clientY: startY,
+        ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+      });
     }
     function onUp(ev) {
       clearPendingShieldDrag();

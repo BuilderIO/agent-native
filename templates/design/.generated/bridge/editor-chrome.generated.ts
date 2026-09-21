@@ -14222,7 +14222,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var moved = false;
       dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
       var currentAutoLayoutTarget = null;
-      var dragIgnoreAutoLayout = isIgnoreAutoLayoutChord(e);
+      var dragIgnoreAutoLayout = pointerStartParam?.ignoreAutoLayout === true || isIgnoreAutoLayoutChord(e);
       function ignoreAutoLayoutHeld(ev) {
         return dragIgnoreAutoLayout || isIgnoreAutoLayoutChord(ev);
       }
@@ -15978,13 +15978,18 @@ export const editorChromeBridgeScript: string = `"use strict";
           suppressNextShieldClickBriefly();
           startMove(ev, groupGestureMember, {
             clientX: startX,
-            clientY: startY
+            clientY: startY,
+            ignoreAutoLayout: isIgnoreAutoLayoutChord(ev)
           });
           return;
         }
         selectTarget(dragTarget, ev);
         suppressNextShieldClickBriefly();
-        startMove(ev, void 0, { clientX: startX, clientY: startY });
+        startMove(ev, void 0, {
+          clientX: startX,
+          clientY: startY,
+          ignoreAutoLayout: isIgnoreAutoLayoutChord(ev)
+        });
       }
       function onUp(ev) {
         clearPendingShieldDrag();
