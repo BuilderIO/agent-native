@@ -8236,7 +8236,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         iframe.contentWindow?.postMessage(
           {
             type: "agent-native:drag-modifiers",
-            ignoreAutoLayout: crossScreenIgnoreAutoLayoutRef.current,
+            ignoreAutoLayout:
+              crossScreenIgnoreAutoLayoutRef.current ||
+              (isApplePlatform() &&
+                pressModifiers.ctrlKey &&
+                !pressModifiers.metaKey),
           },
           "*",
         );
