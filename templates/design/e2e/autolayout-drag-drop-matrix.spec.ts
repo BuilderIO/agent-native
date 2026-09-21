@@ -869,6 +869,91 @@ async function assertReloadedOrder(
 test.use({ viewport: { width: 1600, height: 1100 } });
 
 test.describe("physical Figma auto-layout drag/drop matrix", () => {
+  test("held drag previews multiple targets without committing until mouseup", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request);
+    try {
+      await gotoEditor(page, design.id);
+      await selectLayer(
+        page,
+        await layerNameForNode(page, design.primaryId, "h-last"),
+      );
+
+      const source = await boxFor(page, design.primaryId, "h-last");
+      const firstTarget = await boxFor(page, design.primaryId, "h-first");
+      const secondTarget = await boxFor(page, design.primaryId, "h-middle");
+      const initialChildren = await directChildren(
+        page,
+        design.primaryId,
+        "hrow",
+      );
+      const initialHtml = await fileHtml(request, design.id, design.primaryId);
+      const center = (box: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }) => ({
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2,
+      });
+      const start = center(source);
+      const first = center(firstTarget);
+      const second = center(secondTarget);
+
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      try {
+        await page.mouse.move(first.x, first.y, { steps: 12 });
+        const firstGuide = await heldSnapshot(
+          page,
+          design.primaryId,
+          "h-last",
+          "h-first",
+          "first-target",
+        );
+        await page.mouse.move(second.x, second.y, { steps: 12 });
+        const secondGuide = await heldSnapshot(
+          page,
+          design.primaryId,
+          "h-last",
+          "h-middle",
+          "second-target",
+        );
+
+        expect(firstGuide.guide?.display).toBe("block");
+        expect(secondGuide.guide?.display).toBe("block");
+        expect(firstGuide.guide?.left).not.toBe(secondGuide.guide?.left);
+        expect(firstGuide.children.map((child) => child.id)).toEqual(
+          initialChildren,
+        );
+        expect(secondGuide.children.map((child) => child.id)).toEqual(
+          initialChildren,
+        );
+        expect(await directChildren(page, design.primaryId, "hrow")).toEqual(
+          initialChildren,
+        );
+        expect(await fileHtml(request, design.id, design.primaryId)).toBe(
+          initialHtml,
+        );
+        await page.mouse.move(first.x, first.y, { steps: 12 });
+      } finally {
+        await page.mouse.up();
+      }
+
+      await expect
+        .poll(() => directChildren(page, design.primaryId, "hrow"))
+        .toEqual(["h-last", "h-first", "h-middle"]);
+      await expect
+        .poll(() => fileHtml(request, design.id, design.primaryId))
+        .not.toBe(initialHtml);
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
   test("horizontal nowrap first, middle, and end slots expose a held marker and persist", async ({
     page,
     request,
