@@ -21,6 +21,7 @@ const outsider = `setup-outsider-${runId}@example.com`;
 let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let create: typeof import("./create-content-database.js").default;
+let createDocument: typeof import("./create-document.js").default;
 let read: typeof import("./get-content-database.js").default;
 let describeDatabase: typeof import("./describe-content-database.js").default;
 let trash: typeof import("./delete-content-database.js").default;
@@ -46,6 +47,7 @@ beforeAll(async () => {
     await runFrameworkReleaseMigrations(undefined);
   await (await import("../server/plugins/db.js")).default(undefined as never);
   create = (await import("./create-content-database.js")).default;
+  createDocument = (await import("./create-document.js")).default;
   read = (await import("./get-content-database.js")).default;
   describeDatabase = (await import("./describe-content-database.js")).default;
   trash = (await import("./delete-content-database.js")).default;
@@ -83,6 +85,35 @@ describe("ordinary database setup", () => {
     expect(create.tool.parameters?.properties).not.toHaveProperty(
       "newDocumentId",
     );
+  });
+
+  it("advertises documentId so the agent can convert an existing Page instead of leaving it out", () => {
+    expect(create.tool.parameters?.properties).toHaveProperty("documentId");
+  });
+
+  it("converts an existing Page into the new collection's page through the reliable create path", async () => {
+    const page = await as(owner, () =>
+      createDocument.run({ title: "Existing page" }),
+    );
+    const converted = await as(owner, () =>
+      create.run({
+        spaceId,
+        documentId: page.id,
+        title: "Wrapped in a database",
+        idempotencyKey: `convert-${page.id}`,
+      }),
+    );
+    expect(converted.database.documentId).toBe(page.id);
+    expect(converted.database.title).toBe("Wrapped in a database");
+    const replayed = await as(owner, () =>
+      create.run({
+        spaceId,
+        documentId: page.id,
+        title: "Wrapped in a database",
+        idempotencyKey: `convert-${page.id}`,
+      }),
+    );
+    expect(replayed.database.id).toBe(converted.database.id);
   });
   it("DB01–DB02 creates once across concurrent retries with exact scope and discoverable default view", async () => {
     const args = {

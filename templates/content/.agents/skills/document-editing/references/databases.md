@@ -88,6 +88,14 @@ authoring. Source status is readable, but this surface does not define joins,
 row unions, source bindings, or write-mode changes. Discovery of a source-backed
 row never establishes permission to write its fields.
 
+To make an existing Page part of a new collection (rather than creating an
+unrelated empty collection), pass that Page's `documentId` to
+`create-content-database` alongside its own `spaceId` — the existing page
+becomes the collection's own page instead of being left out. Do not follow a
+plain `create-content-database` call with a separate step to "add" that same
+existing page; `add-database-item` only creates a brand-new row/page, it
+cannot attach an already-existing document as a row.
+
 Read back each changed object separately, then use its Open in Content link.
 Rows retain both membership and Page identity in their links. Trash remains
 recoverable; never substitute permanent deletion for ordinary cleanup.

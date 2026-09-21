@@ -97,6 +97,13 @@ const createDatabaseAgentSchema = z
       .max(10000)
       .optional()
       .describe("Guidance describing what belongs in this collection"),
+    documentId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Existing editable Page in the same exact space to convert into this collection's page, so the existing page becomes part of the new database instead of being left out. Omit parentId when this is set; it is ignored otherwise.",
+      ),
     parentId: z
       .string()
       .min(1)
@@ -119,7 +126,7 @@ const createDatabaseReliableSchema = createDatabaseAgentSchema.extend({
 
 export default defineAction({
   description:
-    "Create one ordinary Content collection in an exact authorized space with a default table and verified receipt. Retry a lost response with the same payload and idempotency key.",
+    "Create one ordinary Content collection in an exact authorized space with a default table and verified receipt, optionally converting an existing editable Page (documentId) into the collection's page so that page becomes part of the new database. Retry a lost response with the same payload and idempotency key.",
   mcpTool: true,
   agentInputSchema: createDatabaseAgentSchema,
   audit: {
