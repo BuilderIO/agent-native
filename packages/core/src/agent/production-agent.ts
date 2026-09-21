@@ -80,7 +80,6 @@ import {
   resolveBuilderGatewayAuth,
   type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
-import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
@@ -718,9 +717,6 @@ async function getJevContextCredentials(
   builderAuth: BuilderGatewayAuth | null;
 }> {
   const apiKey = await getOwnerJevApiKey(ownerEmail);
-  if (resolveDeployEnvironment() === "production") {
-    return { apiKey, builderAuth: null };
-  }
   try {
     return { apiKey, builderAuth: await resolveBuilderGatewayAuth() };
   } catch {
