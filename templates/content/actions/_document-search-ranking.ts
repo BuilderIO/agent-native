@@ -72,6 +72,10 @@ export interface DocumentSearchRankingColumns {
   content: SQLWrapper;
 }
 
+export interface DocumentSearchRankingOptions {
+  includeNonTitleFields?: boolean;
+}
+
 function bodyProximityScore(
   parsed: ParsedSearchQuery,
   content: SQLWrapper,
@@ -97,16 +101,20 @@ function bodyProximityScore(
 export function documentSearchRanking(
   parsed: ParsedSearchQuery,
   columns: DocumentSearchRankingColumns,
+  options: DocumentSearchRankingOptions = {},
 ) {
   const groups = parsed.groups;
+  const includeNonTitleFields = options.includeNonTitleFields ?? true;
   const normalizedTitle = sql<string>`regexp_replace(lower(trim(coalesce(${columns.title}, ''))), '\\s+', ' ', 'g')`;
-  const simpleQuery =
+  const simpleQueries =
     groups.length > 0 && groups.every((group) => group.terms.length === 1)
-      ? groups.map((group) => group.terms[0]!.text.trim()).join(" ")
-      : null;
-  const normalizedSimpleQuery = simpleQuery
-    ?.toLocaleLowerCase()
-    .replace(/\s+/g, " ");
+      ? [groups.map((group) => group.terms[0]!.text.trim()).join(" ")]
+      : groups.length === 1
+        ? groups[0]!.terms.map((term) => term.text.trim())
+        : [];
+  const normalizedSimpleQueries = simpleQueries.map((query) =>
+    query.toLocaleLowerCase().replace(/\s+/g, " "),
+  );
   const allTitleWordPrefixes = groups.length
     ? and(...groups.map((group) => groupWordPrefixMatch(columns.title, group)))!
     : sql`false`;
@@ -116,22 +124,33 @@ export function documentSearchRanking(
   const allTitleOrDescription = groups.length
     ? and(
         ...groups.map((group) =>
-          or(
-            groupSubstringMatch(columns.title, group),
-            groupSubstringMatch(columns.description, group),
-          ),
+          includeNonTitleFields
+            ? or(
+                groupSubstringMatch(columns.title, group),
+                groupSubstringMatch(columns.description, group),
+              )!
+            : groupSubstringMatch(columns.title, group),
         ),
       )!
     : sql`false`;
   const matchTier = sql<number>`case
     when ${
-      normalizedSimpleQuery
-        ? sql`${normalizedTitle} = ${normalizedSimpleQuery}`
+      normalizedSimpleQueries.length
+        ? or(
+            ...normalizedSimpleQueries.map(
+              (query) => sql`${normalizedTitle} = ${query}`,
+            ),
+          )!
         : sql`false`
     } then 5
     when ${
-      normalizedSimpleQuery
-        ? sql`${normalizedTitle} like ${`${escapeLike(normalizedSimpleQuery)}%`} escape '\\'`
+      normalizedSimpleQueries.length
+        ? or(
+            ...normalizedSimpleQueries.map(
+              (query) =>
+                sql`${normalizedTitle} like ${`${escapeLike(query)}%`} escape '\\'`,
+            ),
+          )!
         : sql`false`
     } then 4
     when ${allTitleWordPrefixes} then 3
@@ -142,7 +161,11 @@ export function documentSearchRanking(
   return {
     matchTier,
     titleCoverage: countMatchingGroups(columns.title, groups),
-    descriptionCoverage: countMatchingGroups(columns.description, groups),
-    bodyProximity: bodyProximityScore(parsed, columns.content),
+    descriptionCoverage: includeNonTitleFields
+      ? countMatchingGroups(columns.description, groups)
+      : sql<number>`0::integer`,
+    bodyProximity: includeNonTitleFields
+      ? bodyProximityScore(parsed, columns.content)
+      : sql<number>`0::integer`,
   };
 }

@@ -49,20 +49,21 @@ function escapeLike(s: string): string {
 // no-match case. The row is still returned either way.
 function makeSnippet(content: string, query: string, radius = 120) {
   const compact = content.replace(/\s+/g, " ").trim();
+  const compactQuery = query.replace(/\s+/g, " ").trim();
   if (!compact) return "";
-  if (!query) {
+  if (!compactQuery) {
     return compact.length <= radius * 2
       ? compact
       : `${compact.slice(0, radius * 2).trimEnd()}...`;
   }
-  const index = compact.toLowerCase().indexOf(query.toLowerCase());
+  const index = compact.toLowerCase().indexOf(compactQuery.toLowerCase());
   if (index < 0) {
     return compact.length <= radius * 2
       ? compact
       : `${compact.slice(0, radius * 2).trimEnd()}...`;
   }
   const start = Math.max(0, index - radius);
-  const end = Math.min(compact.length, index + query.length + radius);
+  const end = Math.min(compact.length, index + compactQuery.length + radius);
   return `${start > 0 ? "..." : ""}${compact.slice(start, end).trim()}${
     end < compact.length ? "..." : ""
   }`;
@@ -180,7 +181,7 @@ export default defineAction({
                 .map((term) => term.text),
             ),
           ),
-        ];
+        ].slice(0, 256);
       }
     }
     const where = documentDiscoveryWhere({
@@ -234,6 +235,10 @@ export default defineAction({
           sql`, `,
         )}]::text[]`
       : undefined;
+    const maxOccurrencesPerNeedle = Math.max(
+      1,
+      Math.floor(256 / Math.max(1, bodyNeedles.length)),
+    );
     const proximityPattern =
       bodyNeedleArray && parsedQuery
         ? searchQueryProximityPattern(parsedQuery)
@@ -261,7 +266,7 @@ export default defineAction({
                 in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
               ), occurrence.occurrence_number + 1
             from body_occurrence as occurrence
-            where occurrence.occurrence_number < 256 and position(
+            where occurrence.occurrence_number < ${maxOccurrencesPerNeedle} and position(
               lower(occurrence.needle)
               in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
             ) > 0
@@ -303,11 +308,17 @@ export default defineAction({
       ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - 120), least(5000, 240 + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
       : sql<string>`substr(${normalizedContent}, 1, 5000)`;
     const ranking = parsedQuery?.groups.length
-      ? documentSearchRanking(parsedQuery, {
-          title: schema.documents.title,
-          description: schema.documents.description,
-          content: normalizedContent,
-        })
+      ? documentSearchRanking(
+          parsedQuery,
+          {
+            title: schema.documents.title,
+            description: schema.documents.description,
+            content: normalizedContent,
+          },
+          {
+            includeNonTitleFields: args.searchFields !== "title",
+          },
+        )
       : null;
     const docs = await db
       .select({
@@ -341,7 +352,12 @@ export default defineAction({
               desc(ranking.matchTier),
               desc(ranking.titleCoverage),
               desc(ranking.descriptionCoverage),
-              desc(ranking.bodyProximity),
+              // Phrase coherence is a minor body-only tie-breaker. Bound its
+              // full-body scan so broad searches keep predictable latency;
+              // protected field tiers still rank the complete result set.
+              desc(
+                sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
+              ),
             ]
           : []),
         desc(schema.documents.updatedAt),

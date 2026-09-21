@@ -94,6 +94,14 @@ beforeAll(async () => {
       visibility: "private",
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
+    {
+      id: "search-whitespace-phrase",
+      ownerEmail: OWNER,
+      title: "Whitespace phrase",
+      content: `${"leading context ".repeat(30)}white   space marker`,
+      visibility: "private",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
   ]);
 
   const sizes = [400, 4_000, 40_000];
@@ -162,6 +170,15 @@ describe("adversarial document search", () => {
     expect(reversed.documents[0]?.snippet).toContain("reverse-beta");
     expect(reversed.documents[0]?.snippet).toContain("reverse-alpha");
     expect(distant.documents[0]?.snippet).toContain("distant-alpha");
+  });
+
+  it("normalizes quoted-query whitespace when anchoring snippets", async () => {
+    const result = await asOwner(() =>
+      searchDocuments.run({ query: '"white   space"', limit: 10, offset: 0 }),
+    );
+
+    expect(result.documents[0]?.id).toBe("search-whitespace-phrase");
+    expect(result.documents[0]?.snippet).toContain("white space marker");
   });
 
   it("QA-05 keeps a large repetitive-body snippet and payload bounded", async () => {

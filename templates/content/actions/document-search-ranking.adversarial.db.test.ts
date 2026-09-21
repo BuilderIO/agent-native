@@ -104,6 +104,22 @@ beforeAll(async () => {
         visibility: "private",
         updatedAt: "2026-01-05T00:00:00.000Z",
       },
+      {
+        id: "qa-title-only-older-description",
+        ownerEmail: OWNER,
+        title: "Amber violet notes",
+        description: "amber violet",
+        visibility: "private",
+        updatedAt: "2000-01-06T00:00:00.000Z",
+      },
+      {
+        id: "qa-title-only-newer",
+        ownerEmail: OWNER,
+        title: "Amber violet archive",
+        content: "amber violet",
+        visibility: "private",
+        updatedAt: "2026-01-06T00:00:00.000Z",
+      },
     ]);
 }, 60_000);
 
@@ -135,13 +151,22 @@ describe("adversarial document search ranking", () => {
   });
 
   it("gives OR alternatives symmetric title tiers", async () => {
-    expect(await searchIds("amber OR violet")).toEqual([
-      "qa-or-newer-violet",
-      "qa-or-older-amber",
-    ]);
-    expect(await searchIds("violet OR amber")).toEqual([
-      "qa-or-newer-violet",
-      "qa-or-older-amber",
+    expect(
+      (await searchIds("amber OR violet")).filter((id) =>
+        id.startsWith("qa-or-"),
+      ),
+    ).toEqual(["qa-or-newer-violet", "qa-or-older-amber"]);
+    expect(
+      (await searchIds("violet OR amber")).filter((id) =>
+        id.startsWith("qa-or-"),
+      ),
+    ).toEqual(["qa-or-newer-violet", "qa-or-older-amber"]);
+  });
+
+  it("keeps excluded fields neutral in title-only search", async () => {
+    expect(await searchIds("amber violet")).toEqual([
+      "qa-title-only-newer",
+      "qa-title-only-older-description",
     ]);
   });
 });
