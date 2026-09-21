@@ -4923,6 +4923,8 @@ export function DesignCanvas({
   // Latest replayIframeEditorState, synced during render (below) so the message
   // handler can force a corrective resync without a stale closure.
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
+  const interactModeRef = useRef(interactMode);
+  interactModeRef.current = interactMode;
   // Render-synced committed selection so the message handler reads current
   // values without re-binding the window listener on every selection.
   const selectedSelectorRef = useRef(selectedSelector);
@@ -4935,6 +4937,10 @@ export function DesignCanvas({
     if (!iframe) return;
     iframe.contentWindow?.postMessage(
       { type: "agent-native:editor-chrome-ready-probe" },
+      "*",
+    );
+    iframe.contentWindow?.postMessage(
+      { type: "set-interaction-mode", interact: interactModeRef.current },
       "*",
     );
     iframe.contentWindow?.postMessage(
@@ -5433,8 +5439,6 @@ export function DesignCanvas({
   // Interact is a runtime ownership change, not a new live document. Keep the
   // localhost iframe and bridge registration stable, then hand pointer input
   // to the app (or back to the editor shield) in place.
-  const interactModeRef = useRef(interactMode);
-  interactModeRef.current = interactMode;
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
