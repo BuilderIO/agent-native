@@ -59,7 +59,10 @@ export default defineAction({
       Date.parse(plan.expiresAt) <= Date.now() ||
       items.length === 0 ||
       items.some(
-        (item) => item.rootDocumentId !== id || item.eligibility !== "eligible",
+        (item) =>
+          item.rootDocumentId !== id ||
+          item.eligibility !== "eligible" ||
+          item.expectedScopeFingerprint !== items[0]!.expectedScopeFingerprint,
       )
     )
       fail(
@@ -79,6 +82,7 @@ export default defineAction({
             expectedTrashedAt: item.expectedTrashedAt,
             expectedParentId: item.expectedParentId,
           })),
+          items[0]!.expectedScopeFingerprint,
         );
         const [receipt] = await transactionDb
           .update(schema.contentTrashPurgePlans)

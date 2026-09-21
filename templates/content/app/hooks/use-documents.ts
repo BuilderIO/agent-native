@@ -19,10 +19,11 @@ import type {
   DocumentTreeNode,
 } from "@shared/api";
 import type { QueryClient } from "@tanstack/react-query";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
+import type { ContentTrashPurgePlanResponse } from "../../shared/content-trash";
 import {
   documentQueryFilter,
   type DocumentQueryContext,
@@ -889,23 +890,23 @@ export function useRestoreDocument() {
 
 export function usePermanentlyDeleteDocument() {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useMutation<
     { success: boolean; deleted: number },
+    Error,
     { id: string }
-  >("permanently-delete-document", {
+  >({
+    mutationFn: async ({ id }) => {
+      const plan = await callAction<ContentTrashPurgePlanResponse>(
+        "plan-content-trash-purge",
+        { mode: "selection", documentIds: [id] },
+      );
+      return callAction<{ success: boolean; deleted: number }>(
+        "permanently-delete-document",
+        { id, planId: plan.planId, scopeToken: plan.scopeToken },
+      );
+    },
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
+      void queryClient.invalidateQueries({ queryKey: ["action"] });
     },
   });
 }

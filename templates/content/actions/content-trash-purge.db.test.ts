@@ -23,6 +23,7 @@ let processPurge: typeof import("../server/lib/content-trash-purge.js").processC
 let getPlan: typeof import("./get-content-trash-purge-plan.js").default;
 let getOperation: typeof import("./get-content-trash-operation.js").default;
 let executePurge: typeof import("./execute-content-trash-purge.js").default;
+let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -40,6 +41,8 @@ beforeAll(async () => {
   getPlan = (await import("./get-content-trash-purge-plan.js")).default;
   getOperation = (await import("./get-content-trash-operation.js")).default;
   executePurge = (await import("./execute-content-trash-purge.js")).default;
+  permanentlyDeleteDocument = (await import("./permanently-delete-document.js"))
+    .default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
   const now = new Date().toISOString();
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
@@ -641,6 +644,48 @@ describe("Content Trash purge", () => {
       .from(schema.contentTrashPurgeOperations)
       .where(eq(schema.contentTrashPurgeOperations.id, operationId));
     expect(operation?.status).toBe("conflicted");
+  });
+
+  it("rejects direct deletion when a disclosed survivor relationship changes", async () => {
+    await insertTrashed("direct-changed-effect-root");
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: "direct-changed-effect-survivor",
+      spaceId: SPACE_ID,
+      ownerEmail: OWNER,
+      title: "Original direct survivor title",
+      content: "",
+      visibility: "private",
+      parentId: "direct-changed-effect-root",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const plan = await asOwner(() =>
+      planPurge.run({
+        mode: "selection",
+        documentIds: ["direct-changed-effect-root"],
+      }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Changed direct survivor title" })
+      .where(eq(schema.documents.id, "direct-changed-effect-survivor"));
+
+    await expect(
+      asOwner(() =>
+        permanentlyDeleteDocument.run({
+          id: "direct-changed-effect-root",
+          planId: plan.planId,
+          scopeToken: plan.scopeToken,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "scope_changed", statusCode: 409 });
+
+    const [root] = await getDb()
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, "direct-changed-effect-root"));
+    expect(root?.id).toBe("direct-changed-effect-root");
   });
 
   it("persists the plan organization when the active organization differs or is absent", async () => {
