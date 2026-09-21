@@ -1814,6 +1814,50 @@ function DesignEditor() {
     },
     [],
   );
+  const replayPendingVisualStyleRuntime = useCallback(
+    (edits: readonly PendingVisualStyleEdit[]) => {
+      const patches = edits
+        .map((edit) => ({
+          screenId: edit.screenId,
+          selector: edit.selector,
+          sourceId: edit.sourceId,
+          ...(edit.runtimeSelector
+            ? { runtimeSelector: edit.runtimeSelector }
+            : {}),
+          ...(edit.runtimeSourceId
+            ? { runtimeSourceId: edit.runtimeSourceId }
+            : {}),
+          routePath: edit.routePath,
+          styles: edit.styles,
+          ...(edit.interactionState
+            ? { interactionState: edit.interactionState }
+            : {}),
+        }))
+        .filter((patch) => Object.keys(patch.styles).length > 0);
+      if (patches.length === 0) return;
+      const requestId = Date.now() + Math.random();
+      const sendStyleForScreen = (window as any)
+        .__designCanvasSendStyleForScreen;
+      const fallbackPatches =
+        typeof sendStyleForScreen === "function"
+          ? patches.filter(
+              (patch) =>
+                !replayPendingVisualStyleRuntimePatch(
+                  patch,
+                  sendStyleForScreen,
+                ),
+            )
+          : patches;
+      if (fallbackPatches.length > 0) {
+        setPendingVisualStyleRevertRequest({
+          requestId,
+          patches: fallbackPatches,
+        });
+      }
+      setPendingVisualStyleBaselineResetRequest(requestId);
+    },
+    [],
+  );
   const requestPendingLiveNonStyleRevert = useCallback(
     (edits: readonly PendingLiveNonStyleEdit[]) => {
       const requestId = Date.now() + Math.random();
@@ -17271,6 +17315,7 @@ function DesignEditor() {
         pendingVisualStyleEditsRef,
         pendingVisualStyleRedoStackRef,
         pendingVisualStyleUndoStackRef,
+        replayPendingVisualStyleRuntime,
         performDeleteFiles,
         publishAuthoritativeClipboardMutation,
         queryClient,
@@ -17337,6 +17382,7 @@ function DesignEditor() {
       recordLocalContentHistoryChangeFallback,
       replacePreviewContent,
       resetGeometryCommitCoalescing,
+      replayPendingVisualStyleRuntime,
       restoreSelectionSnapshot,
       syncLiveScreenSnapshotPreview,
       syncUndoRedoState,

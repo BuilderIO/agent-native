@@ -173,34 +173,23 @@ describe("pending live history order", () => {
       ...undoArgs,
       setPendingTextRevertRequest: vi.fn(),
       setPendingVisualStyleRevertRequest: vi.fn(),
+      replayPendingVisualStyleRuntime: vi.fn(),
     } as any;
     runRedo(redoArgs);
-    expect(redoArgs.setPendingVisualStyleRevertRequest).toHaveBeenNthCalledWith(
+    expect(redoArgs.replayPendingVisualStyleRuntime).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({
-        patches: [
-          expect.objectContaining({ styles: { borderRadius: "24px" } }),
-        ],
-      }),
+      [expect.objectContaining({ styles: { borderRadius: "24px" } })],
     );
 
     runRedo(redoArgs);
-    expect(redoArgs.setPendingVisualStyleRevertRequest).toHaveBeenNthCalledWith(
+    expect(redoArgs.replayPendingVisualStyleRuntime).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({
-        patches: [
-          expect.objectContaining({ styles: { borderRadius: "48px" } }),
-        ],
-      }),
+      [expect.objectContaining({ styles: { borderRadius: "48px" } })],
     );
     runRedo(redoArgs);
-    expect(redoArgs.setPendingVisualStyleRevertRequest).toHaveBeenNthCalledWith(
+    expect(redoArgs.replayPendingVisualStyleRuntime).toHaveBeenNthCalledWith(
       3,
-      expect.objectContaining({
-        patches: [
-          expect.objectContaining({ styles: { backgroundColor: "blue" } }),
-        ],
-      }),
+      [expect.objectContaining({ styles: { backgroundColor: "blue" } })],
     );
     runRedo(redoArgs);
     expect(redoArgs.setPendingTextRevertRequest).toHaveBeenCalledTimes(1);

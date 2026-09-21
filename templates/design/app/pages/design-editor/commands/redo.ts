@@ -222,6 +222,9 @@ export interface RedoArgs {
   pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  replayPendingVisualStyleRuntime?: (
+    edits: readonly PendingVisualStyleEdit[],
+  ) => void;
   performDeleteFiles: (
     filesToDelete: DesignFile[],
     options?: {
@@ -411,6 +414,7 @@ export function runRedo({
   pendingVisualStyleEditsRef,
   pendingVisualStyleRedoStackRef,
   pendingVisualStyleUndoStackRef,
+  replayPendingVisualStyleRuntime,
   performDeleteFiles,
   publishAuthoritativeClipboardMutation,
   queryClient,
@@ -768,30 +772,29 @@ export function runRedo({
       ),
     );
     pendingVisualStyleEditsRef.current = nextPending;
-    setPendingVisualStyleRevertRequest({
-      requestId: Date.now() + Math.random(),
-      patches: pendingVisualStyleUndoTargets(pendingLiveRedo).map(
-        ({ edit }) => ({
+    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    if (replayPendingVisualStyleRuntime) {
+      replayPendingVisualStyleRuntime(redoneTargets.map(({ edit }) => edit));
+    } else {
+      setPendingVisualStyleRevertRequest({
+        requestId: Date.now() + Math.random(),
+        patches: redoneTargets.map(({ edit }) => ({
           screenId: edit.screenId,
           selector: edit.selector,
           sourceId: edit.sourceId,
-          // Redo builds its patch inline rather than through
-          // buildPendingVisualStyleRevertPatches, so it needs the runtime
-          // pair explicitly or it re-applies into the wrong namespace.
           runtimeSelector: edit.runtimeSelector,
           runtimeSourceId: edit.runtimeSourceId,
           routePath: edit.routePath,
           styles: edit.styles,
           interactionState: edit.interactionState,
-        }),
-      ),
-    });
+        })),
+      });
+    }
     setPendingVisualStyleEdits(nextPending);
     // Bug fix — same stale-inspector-panel issue as handleUndo's style
     // branch. Merge the redo's own style values (already applied to the
     // DOM via setPendingVisualStyleRevertRequest above) into
     // selectedElement.computedStyles.
-    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
     setSelectedElement((prev) => {
       if (!prev) return prev;
       const redoneTarget = redoneTargets.find(
