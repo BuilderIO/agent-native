@@ -35,9 +35,7 @@ function tableCell(value: unknown): string {
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value).slice(0, MAX_STRING_LENGTH);
   }
-  if (value && typeof value === "object") {
-    return (JSON.stringify(value) ?? "").slice(0, MAX_STRING_LENGTH);
-  }
+  if (value && typeof value === "object") return "[…]";
   return "";
 }
 
@@ -47,12 +45,6 @@ function safeImageUrl(value: unknown): string | undefined {
   try {
     const url = new URL(candidate);
     if (url.protocol === "https:") return url.toString();
-    if (
-      url.protocol === "http:" &&
-      (url.hostname === "localhost" || url.hostname === "127.0.0.1")
-    ) {
-      return url.toString();
-    }
     // coercion-ok: invalid image URLs are an explicit typed absence.
   } catch {
     return undefined;
@@ -142,16 +134,18 @@ function parseStructuredPreview(
     const sourceRows = Array.isArray(value.rows) ? value.rows : [];
     const objectRows = sourceRows.filter(isRecord);
     const headers = Array.isArray(value.headers)
-      ? value.headers.flatMap((header) => {
-          const text = boundedString(header);
-          return text ? [text] : [];
-        })
+      ? value.headers
+          .flatMap((header) => {
+            const text = boundedString(header);
+            return text ? [text] : [];
+          })
+          .slice(0, MAX_COLUMNS)
       : objectRows[0]
         ? Object.keys(objectRows[0]).slice(0, MAX_COLUMNS)
         : [];
     const rows = sourceRows.slice(0, MAX_ROWS).flatMap((row) => {
       if (Array.isArray(row)) {
-        return [row.slice(0, MAX_COLUMNS).map(tableCell)];
+        return [row.slice(0, headers.length).map(tableCell)];
       }
       if (isRecord(row) && headers.length > 0) {
         return [headers.map((header) => tableCell(row[header]))];
