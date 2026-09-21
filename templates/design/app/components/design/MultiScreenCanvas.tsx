@@ -410,6 +410,7 @@ import {
   isCrossScreenDropPlacement,
   isCrossScreenHitTestAnchorRect,
   isFinitePoint,
+  isPointerInsideSourceIframe,
   isPortableStyleSnapshot,
 } from "./multi-screen/cross-screen-drop";
 import {
@@ -3759,9 +3760,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           viewportW,
           viewportH,
         );
+        const localPointerInside = isPointerInsideSourceIframe({
+          iframeX,
+          iframeY,
+          viewportW,
+          viewportH,
+        });
         if (
           sourceScreenId !== boardFileId &&
-          !isBoardPointInsideSourceFrame(parentPoint)
+          (!localPointerInside || !isBoardPointInsideSourceFrame(parentPoint))
         ) {
           const previewPoint =
             parentPoint ?? crossScreenLastBoardPointRef.current;
@@ -3823,7 +3830,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
         const pointerInsideSourceIframe =
           sourceScreenId === boardFileId ||
-          isBoardPointInsideSourceFrame(parentPoint);
+          (localPointerInside && isBoardPointInsideSourceFrame(parentPoint));
         const sourceIsBoard = sourceScreenId === boardFileId;
         // Regular screen iframes are finite artboards, so an in-bounds pointer
         // means the source bridge should keep handling the drag. The board
@@ -3911,14 +3918,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           Number.isFinite(msg.iframeY) &&
           Number.isFinite(msg.viewportW) &&
           Number.isFinite(msg.viewportH) &&
-          !isBoardPointInsideSourceFrame(
-            boardPointFromParentPointer(
-              msg.iframeX!,
-              msg.iframeY!,
-              msg.viewportW!,
-              msg.viewportH!,
-            ),
-          );
+          (!isPointerInsideSourceIframe({
+            iframeX: msg.iframeX!,
+            iframeY: msg.iframeY!,
+            viewportW: msg.viewportW!,
+            viewportH: msg.viewportH!,
+          }) ||
+            !isBoardPointInsideSourceFrame(
+              boardPointFromParentPointer(
+                msg.iframeX!,
+                msg.iframeY!,
+                msg.viewportW!,
+                msg.viewportH!,
+              ),
+            ));
         const lastBoardPoint =
           (endPointOutsideSource
             ? boardPointFromParentPointer(
