@@ -16,7 +16,6 @@ import {
   AvatarImage,
 } from "@agent-native/toolkit/ui/avatar";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
-import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import {
   Command,
@@ -64,13 +63,7 @@ import {
   IconExternalLink,
   IconSearch,
 } from "@tabler/icons-react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
@@ -105,6 +98,7 @@ import {
   DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
   useShareOrgMemberSearch,
 } from "../sharing/share-controller-helpers.js";
+import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
 import {

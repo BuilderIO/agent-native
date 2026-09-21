@@ -40,18 +40,30 @@ describe("PrimitiveButton", () => {
     });
 
     it("derives emphasis from variant when emphasis is undefined", () => {
-      expect(resolvePrimitiveButtonEmphasis(undefined, "default")).toBe("solid");
-      expect(resolvePrimitiveButtonEmphasis(undefined, "destructive")).toBe("solid");
-      expect(resolvePrimitiveButtonEmphasis(undefined, "secondary")).toBe("solid");
-      expect(resolvePrimitiveButtonEmphasis(undefined, "outline")).toBe("outline");
+      expect(resolvePrimitiveButtonEmphasis(undefined, "default")).toBe(
+        "solid",
+      );
+      expect(resolvePrimitiveButtonEmphasis(undefined, "destructive")).toBe(
+        "solid",
+      );
+      expect(resolvePrimitiveButtonEmphasis(undefined, "secondary")).toBe(
+        "solid",
+      );
+      expect(resolvePrimitiveButtonEmphasis(undefined, "outline")).toBe(
+        "outline",
+      );
       expect(resolvePrimitiveButtonEmphasis(undefined, "ghost")).toBe("ghost");
-      expect(resolvePrimitiveButtonEmphasis(undefined, "ghost-inset")).toBe("ghost");
+      expect(resolvePrimitiveButtonEmphasis(undefined, "ghost-inset")).toBe(
+        "ghost",
+      );
       expect(resolvePrimitiveButtonEmphasis(undefined, "link")).toBe("ghost");
     });
 
     it("defaults to ghost when neither is specified", () => {
       expect(resolvePrimitiveButtonEmphasis()).toBe("ghost");
-      expect(resolvePrimitiveButtonEmphasis(undefined, undefined)).toBe("ghost");
+      expect(resolvePrimitiveButtonEmphasis(undefined, undefined)).toBe(
+        "ghost",
+      );
     });
   });
 

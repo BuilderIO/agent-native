@@ -5,7 +5,6 @@ import {
   TextField,
 } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
-import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import {
   Command,
   CommandEmpty,
@@ -102,6 +101,7 @@ import { TeamPage } from "../org/TeamPage.js";
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import { McpAccessSettings } from "../resources/McpAccessSettings.js";
 import { BuilderConnectionMenu } from "../setup-connections/BuilderConnectCard.js";
+import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { cn } from "../utils.js";
