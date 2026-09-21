@@ -8100,10 +8100,10 @@ function applyUnwrap(
   const wrapperLeft = parsePixelLength(wrapperStyle.left);
   const wrapperTop = parsePixelLength(wrapperStyle.top);
   const measuredGroupLeft = parsePixelLength(
-    attributeValue(element, "data-agent-native-group-origin-left"),
+    attributeValue(element, "data-agent-native-group-origin-left") ?? undefined,
   );
   const measuredGroupTop = parsePixelLength(
-    attributeValue(element, "data-agent-native-group-origin-top"),
+    attributeValue(element, "data-agent-native-group-origin-top") ?? undefined,
   );
   const shouldRebase =
     wrapperStyle.position === "absolute" &&
