@@ -3516,10 +3516,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           frameGeometryRef.current[sourceScreenId];
         return Boolean(
           frame &&
-            point.x >= frame.x &&
-            point.y >= frame.y &&
-            point.x <= frame.x + frame.width &&
-            point.y <= frame.y + frame.height,
+          point.x >= frame.x &&
+          point.y >= frame.y &&
+          point.x <= frame.x + frame.width &&
+          point.y <= frame.y + frame.height,
         );
       };
 
@@ -3763,7 +3763,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceScreenId !== boardFileId &&
           !isBoardPointInsideSourceFrame(parentPoint)
         ) {
-          const previewPoint = parentPoint ?? crossScreenLastBoardPointRef.current;
+          const previewPoint =
+            parentPoint ?? crossScreenLastBoardPointRef.current;
           if (previewPoint) {
             updateCrossScreenTargetFromBoardPoint(previewPoint, sourceScreenId);
           }
