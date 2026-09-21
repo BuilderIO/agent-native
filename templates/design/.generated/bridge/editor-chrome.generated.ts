@@ -10944,7 +10944,10 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             guideMode: displaced ? "grid-line" : "grid-cell",
             guidePlacement: pointer <= midpoint ? "before" : "after",
-            gridCell: { column, row },
+            // Column auto-flow derives placement from source order. Persisting
+            // measured coordinates here would freeze responsive auto-flow into
+            // explicit gridColumn/gridRow styles.
+            ...autoFlow[0] === "column" ? {} : { gridCell: { column, row } },
             gridDisplacement: displaced
           };
         }
