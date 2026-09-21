@@ -758,13 +758,23 @@ function ReviewTab({ days }: { days: number }) {
 
   const saveInstruction = () => {
     if (!selected || !instruction.trim()) return;
-    instructionMutation.mutate({
-      runId: selected.runId,
-      threadId: selected.threadId,
-      target,
-      instruction: instruction.trim(),
-      feedback: feedbackNote.trim() || undefined,
-    });
+    instructionMutation.mutate(
+      {
+        runId: selected.runId,
+        threadId: selected.threadId,
+        target,
+        instruction: instruction.trim(),
+        feedback: feedbackNote.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          setInstruction("");
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-observability-reviews"],
+          });
+        },
+      },
+    );
   };
 
   return (

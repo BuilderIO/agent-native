@@ -133,7 +133,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           instruction TEXT NOT NULL,
           feedback TEXT NOT NULL DEFAULT '',
           status TEXT NOT NULL DEFAULT 'draft',
-          user_id TEXT,
+          user_id TEXT NOT NULL,
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL
         )
