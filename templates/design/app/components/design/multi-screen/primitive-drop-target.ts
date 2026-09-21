@@ -347,7 +347,15 @@ export function isPrimitiveContainer(args: {
   display: string;
   borderRadius: string;
 }): boolean {
-  const isDiv = args.tagName.toLowerCase() === "div";
+  const isDiv = [
+    "div",
+    "section",
+    "main",
+    "header",
+    "footer",
+    "article",
+    "nav",
+  ].includes(args.tagName.toLowerCase());
   const primitiveKind = args.primitiveKind.toLowerCase();
   const isEllipse =
     args.borderRadius === "50%" || args.borderRadius === "50% 50% 50% 50%";
