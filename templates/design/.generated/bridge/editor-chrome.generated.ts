@@ -16280,6 +16280,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         true
       );
     } catch (_err) {
+      void _err;
     }
     document.addEventListener(
       "keyup",
