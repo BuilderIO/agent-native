@@ -200,11 +200,13 @@ function findLiveIdentityMatches(
   );
   let current: Node | null = walker.currentNode;
   while (current) {
-    if (
-      current.nodeType === 1 &&
-      (current as Element).getAttribute(attribute) === value
-    ) {
-      matches.push(current);
+    if (current.nodeType === 1) {
+      const candidate = current as Element;
+      if (candidate.getAttribute(attribute) !== value) {
+        current = walker.nextNode();
+        continue;
+      }
+      matches.push(candidate);
       if (matches.length === 2) break;
     }
     current = walker.nextNode();
