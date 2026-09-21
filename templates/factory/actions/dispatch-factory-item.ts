@@ -42,7 +42,6 @@ import {
   parseTriageMetadata,
   serializeTriageMetadata,
 } from "../server/triage/metadata.js";
-import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
 import {
   createSlackReader,
   isAgentNativeSlackUserName,
@@ -172,19 +171,43 @@ export function relatedDispatchConflictReason(
   return null;
 }
 
-export function ownerOwnedAreaValuesForItem(
-  item: Pick<RelatedFeedbackItem, "title"> & {
-    summary: string | null;
-    repository: string | null;
-  },
-  metadata: Record<string, unknown>,
-): Array<string | undefined> {
+export function computeDispatchGuardResults(input: {
+  clearBug: boolean;
+  productUxImplications: boolean;
+  risk: string;
+  confidence: string;
+}): Array<{ code: string; passed: boolean; reason: string }> {
   return [
-    item.title,
-    item.summary ?? undefined,
-    item.repository ?? undefined,
-    typeof metadata.productArea === "string" ? metadata.productArea : undefined,
-    typeof metadata.path === "string" ? metadata.path : undefined,
+    {
+      code: "unknown_change",
+      passed: input.clearBug,
+      reason: input.clearBug
+        ? "The automation classified a concrete, reproducible bug or error report."
+        : "The report is not a clear bug, so no external work was started.",
+    },
+    {
+      code: "unknown_change",
+      passed: !input.productUxImplications,
+      reason: input.productUxImplications
+        ? "Product or UX implications require manual ownership."
+        : "No product or UX decision was detected.",
+    },
+    {
+      code: "risk_gate",
+      passed: input.risk === "low",
+      reason:
+        input.risk === "low"
+          ? "Risk is low."
+          : `Risk ${input.risk} is above the auto-dispatch bar and requires manual review.`,
+    },
+    {
+      code: "confidence_gate",
+      passed: input.confidence === "high",
+      reason:
+        input.confidence === "high"
+          ? "Confidence is high."
+          : `Confidence ${input.confidence} is below the auto-dispatch bar and requires manual review.`,
+    },
   ];
 }
 
@@ -337,7 +360,7 @@ export async function recordAutomaticBuilderDecision(input: {
 
 export default defineAction({
   description:
-    "Tag Builder for a Factory item, or record a skip when clearBug is false or alreadyClaimed is true. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Slack clear bugs require reaction eyes; skips omit reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository. Owner-managed Clips, Design, and Content items are always left for their owner.",
+    "Tag Builder for a Factory item, or record a skip when clearBug is false, risk is not low, confidence is not high, or alreadyClaimed is true. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Slack clear bugs require reaction eyes; skips omit reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository.",
   schema: z.object({
     itemId: z.string().min(1),
     alreadyClaimed: z
@@ -351,6 +374,16 @@ export default defineAction({
       .default(false)
       .describe(
         "True when the item is a concrete, reproducible defect with enough evidence to investigate (including visual/UI defects such as a duplicate control, broken layout, or incorrect state). False for feature requests, vague questions, incomplete threads, and claimed Slack parents. May be omitted when alreadyClaimed is true.",
+      ),
+    risk: z
+      .enum(["negligible", "low", "medium", "high", "critical"])
+      .describe(
+        "How bad it is if this item is mishandled, not how likely it is to be real. negligible: cosmetic noise, barely a bug. low: a clear, narrowly scoped defect safe to fix with no further review — the only tier this action will ever dispatch. medium: ambiguous scope, or touches shared or critical code. high: serious functional or data breakage. critical: security, auth, tenant isolation, payments, or data loss — always human-owned. Required on every call, including alreadyClaimed skips.",
+      ),
+    confidence: z
+      .enum(["low", "medium", "high"])
+      .describe(
+        "How sure you are this can be correctly diagnosed and fixed as a code or test change using only the evidence already gathered, without reproducing it in a browser. high: a specific failing path is pinned down by an error, stack trace, log line, or reproducible input/output, and verifying correctness does not require rendering or manually interacting with the UI — the only tier this action will ever dispatch. medium: a plausible cause but real uncertainty (a thin report, no stack trace, or more than one reasonable fix). low: needs visual or browser reproduction to confirm, or the root cause is genuinely unclear. Required on every call, including alreadyClaimed skips.",
       ),
     reason: z.string().trim().min(1).max(4_000),
     productUxImplications: z
@@ -366,7 +399,7 @@ export default defineAction({
       .max(50)
       .optional()
       .describe(
-        "Emoji name to add on the item source when that provider can. Slack clear bugs require eyes; omit on skips.",
+        "Emoji name to add on the item source when that provider can. Slack items that clear the dispatch bar (clearBug true, risk low, confidence high) require eyes; omit on skips.",
       ),
     relatedItemIds: z
       .array(z.string().trim().min(1))
@@ -382,6 +415,8 @@ export default defineAction({
       itemId,
       alreadyClaimed,
       clearBug,
+      risk,
+      confidence,
       reason,
       productUxImplications,
       clearErrorReport,
@@ -470,54 +505,29 @@ export default defineAction({
       );
       if (conflictReason) throw new Error(conflictReason);
     }
-    const ownerOwnedArea = detectOwnerOwnedArea([
-      item.title,
-      item.summary,
-      item.repository,
-      typeof metadata.productArea === "string"
-        ? metadata.productArea
-        : undefined,
-      typeof metadata.path === "string" ? metadata.path : undefined,
-    ]);
-    const relatedOwnerOwnedArea =
-      relatedItems
-        .map((related) =>
-          detectOwnerOwnedArea(
-            ownerOwnedAreaValuesForItem(
-              related,
-              relatedMetadata.get(related.id) ?? {},
-            ),
-          ),
-        )
-        .find(Boolean) ?? null;
-    const ownerManagedArea = ownerOwnedArea ?? relatedOwnerOwnedArea ?? null;
-    const guardResults = [
-      {
-        code: "unknown_change",
-        passed: clearBug,
-        reason: clearBug
-          ? "The automation classified a concrete, reproducible bug or error report."
-          : "The report is not a clear bug, so no external work was started.",
-      },
-      {
-        code: "unknown_change",
-        passed: !productUxImplications,
-        reason: productUxImplications
-          ? "Product or UX implications require manual ownership."
-          : "No product or UX decision was detected.",
-      },
-      ...(ownerManagedArea
-        ? [
-            {
-              code: "owner_owned",
-              passed: false,
-              reason: `${ownerManagedArea} is fully owned by its product owner and is excluded from autonomous Builder work.`,
-            },
-          ]
-        : []),
-    ];
+    const guardResults = computeDispatchGuardResults({
+      clearBug,
+      productUxImplications,
+      risk,
+      confidence,
+    });
     const blocked =
       alreadyClaimed || guardResults.some((guard) => !guard.passed);
+    // Persist the classification immediately, ahead of any Slack/GitHub I/O
+    // below, for this item and every related item in the same cluster. A
+    // provider failure after this point must not leave an item's
+    // risk/confidence at their prior (usually "unknown") values when the
+    // model already classified it and, on the dispatch path, external side
+    // effects may already be underway.
+    await db
+      .update(triageItems)
+      .set({ risk, confidence, updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          inArray(triageItems.id, [itemId, ...relatedIds]),
+          eq(triageItems.orgId, orgId),
+        ),
+      );
     const reactionRequirement = slackClearBugReactionRequirement({
       source: item.source,
       clearBug,
@@ -558,8 +568,9 @@ export default defineAction({
           decisionId,
           alreadyClaimed,
           clearBug,
+          risk,
+          confidence,
           productUxImplications,
-          ownerOwnedArea: ownerManagedArea,
           statusPreserved: blocked ? skipStatus.statusPreserved : false,
           guardResults,
         },
@@ -567,32 +578,26 @@ export default defineAction({
     );
     if (blocked) {
       const nextStatus = skipStatus.nextStatus;
-      if (nextStatus) {
-        await db.transaction(async (tx) => {
-          await tx
-            .update(triageItems)
-            .set({
-              status: nextStatus,
-              updatedAt: new Date().toISOString(),
-            })
-            .where(
-              and(
-                eq(triageItems.id, itemId),
-                eq(triageItems.orgId, orgId),
-                factoryStillPresent(
-                  tx as unknown as typeof db,
-                  orgId,
-                  factoryId,
-                ),
-              ),
-            );
-          await requireExistingFactory(
-            tx as unknown as typeof db,
-            orgId,
-            factoryId,
+      await db.transaction(async (tx) => {
+        await tx
+          .update(triageItems)
+          .set({
+            ...(nextStatus ? { status: nextStatus } : {}),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(triageItems.id, itemId),
+              eq(triageItems.orgId, orgId),
+              factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+            ),
           );
-        });
-      }
+        await requireExistingFactory(
+          tx as unknown as typeof db,
+          orgId,
+          factoryId,
+        );
+      });
       return {
         ok: true,
         started: false,

@@ -319,6 +319,20 @@ describe("slide rich text normalization", () => {
     expect(getComputedStyle(inner).margin).toBe("0px");
   });
 
+  it("keeps the body-mounted editor host as a layout box", () => {
+    document.body.innerHTML = `
+      <div class="slide-content slide-rich-editor-context">
+        <div class="fmd-slide">
+          <div class="slide-rich-editor-host"></div>
+        </div>
+      </div>
+    `;
+
+    expect(
+      getComputedStyle(document.querySelector(".slide-rich-editor-host")!),
+    ).toMatchObject({ display: "block" });
+  });
+
   it("renders an empty slide paragraph as a visible line break", () => {
     document.body.innerHTML = `
       <div class="slide-content">

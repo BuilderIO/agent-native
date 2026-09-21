@@ -92,6 +92,7 @@ type ShareButtonProps = {
   resourceType?: string;
   resourceId?: string;
   resourceTitle?: string;
+  panelTitle?: string;
   shareUrl?: string;
   secondaryShareUrl?: string;
   shareUrlLabel?: string;
@@ -369,22 +370,15 @@ describe("<EditorToolbar>", () => {
       expect(shareButtonProps?.resourceType).toBe("deck");
       expect(shareButtonProps?.resourceId).toBe("deck-1");
       expect(shareButtonProps?.resourceTitle).toBe("Test deck");
+      expect(shareButtonProps?.panelTitle).toBe("share.title");
       expect(shareButtonProps?.shareUrl).toEqual(
         expect.stringContaining("/deck/deck-1"),
-      );
-      expect(shareButtonProps?.secondaryShareUrl).toEqual(
-        expect.stringContaining("/p/deck-1"),
       );
       expect(shareButtonProps?.shareUrlLabel).toBe("editorToolbar.editorLink");
       expect(shareButtonProps?.shareUrlDescription).toBe(
         "editorToolbar.editorLinkDescription",
       );
-      expect(shareButtonProps?.secondaryShareUrlLabel).toBe(
-        "editorToolbar.presentationLink",
-      );
-      expect(shareButtonProps?.secondaryShareUrlDescription).toBe(
-        "editorToolbar.presentationLinkDescription",
-      );
+      expect(shareButtonProps?.secondaryShareUrl).toBeUndefined();
       expect(shareButtonProps?.roleCopy?.commenter).toEqual({
         label: "editorToolbar.commenterRoleLabel",
         description: "editorToolbar.commenterRoleDescription",

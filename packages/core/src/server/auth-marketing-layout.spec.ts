@@ -74,6 +74,31 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-home \.form-panel\s*{[^}]*flex:\s*1 1 50%;[^}]*max-width:\s*none;/,
     );
+    const mobileStart = html.lastIndexOf("@media (max-width: 900px) {");
+    const mobileEnd = html.indexOf("\n  }\n</style>", mobileStart);
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    expect(mobileEnd).toBeGreaterThan(mobileStart);
+    const mobileCss = html.slice(mobileStart, mobileEnd);
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.auth-marketing-top-right\s*{[^}]*position:\s*sticky;[^}]*margin-block:/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*flex-direction:\s*column;/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*-1;/,
+    );
+    expect(html).toContain("overflow-x: clip;");
+    expect(html).toContain("overflow: clip;");
+    expect(html).toContain(
+      "inset-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));",
+    );
+    expect(mobileCss).toContain(
+      ':root[dir="rtl"] .auth-marketing-home .auth-marketing-top-right',
+    );
+    expect(mobileCss).toContain(
+      "inset-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));",
+    );
     expect(html).toContain("--b-hero-ocean-opacity: 0.32;");
     expect(html).toContain("--b-hero-shader-opacity: 0.15;");
     expect(html).toContain("--b-hero-ocean-opacity: 0.3;");

@@ -96,7 +96,7 @@ export async function readResource(
 ): Promise<string | null> {
   const scope = resolveScope(options);
   const owner = getOwnerForScope(scope);
-  const orgId = scope === "shared" ? getRequestOrgId() : undefined;
+  const orgId = scope === "personal" ? undefined : getRequestOrgId();
   const resourceOptions = orgId ? { orgId } : undefined;
   const resource = resourceOptions
     ? await resourceGetByPath(owner, path, resourceOptions)
@@ -172,9 +172,9 @@ export async function listResources(
 ): Promise<ResourceMeta[]> {
   const scope = resolveScope(options);
   const owner = getOwnerForScope(scope);
-  const orgId = scope === "shared" ? getRequestOrgId() : undefined;
+  const orgId = scope === "personal" ? undefined : getRequestOrgId();
   const resourceOptions =
-    scope === "shared"
+    scope !== "personal"
       ? orgId
         ? {
             ...(options?.includeAgentScratch

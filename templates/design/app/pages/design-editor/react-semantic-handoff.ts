@@ -102,6 +102,7 @@ export type ReactSemanticOperation =
   | "remove"
   | "auto-layout"
   | "set-layer-state"
+  | "metadata"
   | "component-change";
 
 export type ReactRuntimeRelationshipKind =

@@ -41,6 +41,18 @@ const SECOND_SCREEN_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
+const CANVAS_FLOW_DRAG_FIXTURE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Canvas flow drag</title></head>
+<body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a;color:#f8fafc;font-family:system-ui,sans-serif">
+  <section data-agent-native-node-id="flow-origin" data-agent-native-layer-name="Flow origin" style="position:absolute;left:60px;top:70px;width:320px;height:100px;box-sizing:border-box;display:flex;flex-direction:row;gap:12px;padding:12px;background:#1e293b">
+    <div data-agent-native-node-id="flow-child" data-agent-native-layer-name="Flow child" style="flex:0 0 120px;width:120px;height:56px;background:#38bdf8">Child</div>
+    <div data-agent-native-node-id="flow-peer" data-agent-native-layer-name="Flow peer" style="flex:0 0 100px;width:100px;height:56px;background:#a78bfa">Peer</div>
+  </section>
+  <section data-agent-native-node-id="flow-target" data-agent-native-layer-name="Flow target" style="position:absolute;left:500px;top:70px;width:300px;height:150px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:12px;background:#334155">
+    <div data-agent-native-node-id="target-existing" data-agent-native-layer-name="Target existing" style="flex:0 0 52px;height:52px;background:#fbbf24;color:#0f172a">Existing</div>
+  </section>
+</body></html>`;
+
 type FileRecord = { id: string; filename: string; content: string };
 type DesignRecord = { files?: FileRecord[] };
 
@@ -76,6 +88,7 @@ async function readDesign(
 async function createDesign(
   request: APIRequestContext,
   withSecondScreen = false,
+  primaryHtml = HORIZONTAL_FIXTURE,
 ): Promise<{ id: string; primaryId: string; secondId?: string }> {
   const created = await action(request, "create-design", {
     title: `Layers panel auto layout ${Date.now()}`,
@@ -87,7 +100,7 @@ async function createDesign(
     await action(request, "create-file", {
       designId: id,
       filename: "index.html",
-      content: HORIZONTAL_FIXTURE,
+      content: primaryHtml,
       fileType: "html",
     });
     if (withSecondScreen) {
@@ -211,7 +224,9 @@ function nodeParent(
 }
 
 function nodeParentId(html: string, nodeId: string): string | null | undefined {
-  return nodeParent(html, nodeId)?.id;
+  const parent = nodeParent(html, nodeId);
+  if (parent === undefined) return undefined;
+  return parent?.id?.startsWith("an-") ? null : (parent?.id ?? null);
 }
 
 function semanticNodeHtml(html: string, nodeId: string): string | undefined {
@@ -386,6 +401,56 @@ async function parentId(page: Page, nodeId: string, screenId?: string) {
     );
 }
 
+async function panelParentName(
+  page: Page,
+  layerName: string,
+): Promise<string | null> {
+  return layerRow(page, layerName).evaluate((row) => {
+    const item = row.closest<HTMLElement>('[role="treeitem"]');
+    const tree = item?.closest<HTMLElement>('[role="tree"]');
+    if (!item || !tree) return null;
+    const level = Number(item.getAttribute("aria-level"));
+    const items = Array.from(
+      tree.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+    );
+    const index = items.indexOf(item);
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (Number(items[i]?.getAttribute("aria-level")) < level) {
+        return (
+          items[i]?.querySelector<HTMLElement>("span[title]")?.title ?? null
+        );
+      }
+    }
+    return null;
+  });
+}
+
+async function heldCanvasDrag(
+  page: Page,
+  sourceId: string,
+  destination: { x: number; y: number },
+  onHeld: () => Promise<void>,
+): Promise<void> {
+  const sourceBox = await nodeBox(page, sourceId);
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2,
+  );
+  await page.mouse.down();
+  try {
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2 + 14,
+      sourceBox.y + sourceBox.height / 2 + 6,
+      { steps: 8 },
+    );
+    await page.mouse.move(destination.x, destination.y, { steps: 24 });
+    await page.waitForTimeout(350);
+    await onHeld();
+  } finally {
+    await page.mouse.up();
+  }
+}
+
 async function parentTag(page: Page, nodeId: string, screenId?: string) {
   return frame(page, screenId)
     .locator(`[data-agent-native-node-id="${nodeId}"]`)
@@ -453,6 +518,187 @@ async function heldPanelDrag(
 test.use({ viewport: { width: 1600, height: 1100 } });
 
 test.describe("Layers-panel auto-layout parity", () => {
+  test("canvas flow drag previews root and frame tree placement before release", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, false, CANVAS_FLOW_DRAG_FIXTURE);
+    try {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await gotoEditor(page, design.id);
+      await expandAllLayers(page);
+      await expect(layerButton(page, "Flow child")).toBeVisible();
+      expect(await panelParentName(page, "Flow child")).toBe("Flow origin");
+      await layerButton(page, "Flow child").click();
+      const original = await fileHtml(request, design.id, design.primaryId);
+      expect(
+        original.match(/data-agent-native-node-id="flow-child"/g),
+      ).toHaveLength(1);
+      const bodyBox = await frame(page).locator("body").boundingBox();
+      if (!bodyBox) throw new Error("design body has no box");
+
+      await heldCanvasDrag(
+        page,
+        "flow-child",
+        {
+          x: bodyBox.x + 420,
+          y: bodyBox.y + 300,
+        },
+        async () => {
+          expect(await panelParentName(page, "Flow child")).toBe("Home");
+          expect(
+            await frame(page)
+              .locator("[data-agent-native-insertion-guide]")
+              .evaluate((node) => getComputedStyle(node).display),
+          ).toBe("block");
+          expect(await fileHtml(request, design.id, design.primaryId)).toBe(
+            original,
+          );
+          expect(await parentId(page, "flow-child")).toBe("flow-origin");
+          await page.mouse.move(bodyBox.x - 80, bodyBox.y + 80, { steps: 4 });
+          await page.waitForTimeout(80);
+          await page.mouse.move(bodyBox.x + 420, bodyBox.y + 300, {
+            steps: 4,
+          });
+          await page.waitForTimeout(120);
+          expect(pageErrors).toEqual([]);
+        },
+      );
+      await expect.poll(() => panelParentName(page, "Flow child")).toBe("Home");
+      await expect.poll(() => parentTag(page, "flow-child")).toBe("BODY");
+      const moved = await waitForPersistedHtml(
+        request,
+        design.id,
+        design.primaryId,
+        (html) =>
+          (html.match(/data-agent-native-node-id="flow-child"/g) ?? [])
+            .length === 1 &&
+          !nodeIsInsideSection(html, "flow-origin", "flow-child"),
+      );
+      expect(
+        moved.match(/data-agent-native-node-id="flow-child"/g),
+      ).toHaveLength(1);
+      expect(nodeParentId(moved, "flow-child")).toBeNull();
+      expect(nodeIsInsideSection(moved, "flow-origin", "flow-child")).toBe(
+        false,
+      );
+
+      const undoMod = process.platform === "darwin" ? "Meta" : "Control";
+      await page.keyboard.down(undoMod);
+      await page.keyboard.press("z");
+      await page.keyboard.up(undoMod);
+      await expect
+        .poll(() => panelParentName(page, "Flow child"))
+        .toBe("Flow origin");
+      await expect.poll(() => parentId(page, "flow-child")).toBe("flow-origin");
+      await expect
+        .poll(() => fileHtml(request, design.id, design.primaryId))
+        .toBe(original);
+
+      await heldCanvasDrag(
+        page,
+        "flow-child",
+        {
+          x: bodyBox.x + 420,
+          y: bodyBox.y + 300,
+        },
+        async () => {
+          expect(await panelParentName(page, "Flow child")).toBe("Home");
+          await page.keyboard.press("Escape");
+          await expect
+            .poll(() => panelParentName(page, "Flow child"))
+            .toBe("Flow origin");
+          await expect
+            .poll(() => parentId(page, "flow-child"))
+            .toBe("flow-origin");
+          expect(await fileHtml(request, design.id, design.primaryId)).toBe(
+            original,
+          );
+        },
+      );
+
+      await page.reload();
+      await expandAllLayers(page);
+      await expect
+        .poll(() => panelParentName(page, "Flow child"))
+        .toBe("Flow origin");
+
+      const targetBox = await nodeBox(page, "flow-target");
+      await heldCanvasDrag(
+        page,
+        "flow-child",
+        {
+          x: targetBox.x + targetBox.width / 2,
+          y: targetBox.y + targetBox.height / 2,
+        },
+        async () => {
+          await expect(layerButton(page, "Flow child")).toHaveCount(1);
+          await expect
+            .poll(() => panelParentName(page, "Flow child"))
+            .toBe("Flow target");
+          expect(await parentId(page, "flow-child")).toBe("flow-origin");
+          expect(await fileHtml(request, design.id, design.primaryId)).toBe(
+            original,
+          );
+        },
+      );
+      await expect
+        .poll(() => panelParentName(page, "Flow child"))
+        .toBe("Flow target");
+      await expect.poll(() => parentId(page, "flow-child")).toBe("flow-target");
+      const nestedPersisted = await waitForPersistedHtml(
+        request,
+        design.id,
+        design.primaryId,
+        (html) =>
+          (html.match(/data-agent-native-node-id="flow-child"/g) ?? [])
+            .length === 1 &&
+          nodeIsInsideSection(html, "flow-target", "flow-child"),
+      );
+      expect(
+        nodeIsInsideSection(nestedPersisted, "flow-origin", "flow-child"),
+      ).toBe(false);
+      const crossUndoMod = process.platform === "darwin" ? "Meta" : "Control";
+      await page.keyboard.down(crossUndoMod);
+      await page.keyboard.press("z");
+      await page.keyboard.up(crossUndoMod);
+      await expect
+        .poll(() => panelParentName(page, "Flow child"))
+        .toBe("Flow origin");
+      await expect.poll(() => parentId(page, "flow-child")).toBe("flow-origin");
+      await expect
+        .poll(() =>
+          fileHtml(request, design.id, design.primaryId).then((html) =>
+            nodeIsInsideSection(html, "flow-origin", "flow-child"),
+          ),
+        )
+        .toBe(true);
+      await page.keyboard.down(crossUndoMod);
+      await page.keyboard.down("Shift");
+      await page.keyboard.press("z");
+      await page.keyboard.up("Shift");
+      await page.keyboard.up(crossUndoMod);
+      await expect
+        .poll(() => panelParentName(page, "Flow child"))
+        .toBe("Flow target");
+      await expect
+        .poll(() =>
+          fileHtml(request, design.id, design.primaryId).then((html) =>
+            nodeIsInsideSection(html, "flow-target", "flow-child"),
+          ),
+        )
+        .toBe(true);
+      await page.reload();
+      await expandAllLayers(page);
+      await expect
+        .poll(() => panelParentName(page, "Flow child"))
+        .toBe("Flow target");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
   test("row drag exposes a held insertion line and reorders the horizontal flow child", async ({
     page,
     request,

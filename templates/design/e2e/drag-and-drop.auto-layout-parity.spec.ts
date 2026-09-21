@@ -70,13 +70,10 @@ const META_FIXTURE = `<!doctype html>
 
 const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
-  <section data-agent-native-node-id="source-row" data-agent-native-layer-name="Source Row"
-    style="position:absolute;left:60px;top:80px;width:620px;height:150px;padding:16px;display:flex;gap:12px;background:#1f2937">
-    <div data-agent-native-node-id="oversized-source" data-agent-native-layer-name="Oversized Source"
-      style="width:500px;height:110px;flex:0 0 500px;background:#ea580c">Source</div>
-  </section>
-  <section data-agent-native-node-id="plain-target" data-agent-native-layer-name="Plain Target"
-    style="position:absolute;left:760px;top:80px;width:360px;height:180px;background:#374151"></section>
+  <div data-agent-native-node-id="oversized-source" data-agent-native-layer-name="Oversized Source"
+    style="position:absolute;left:500px;top:300px;width:500px;height:110px;background:#ea580c">Source</div>
+  <section data-agent-native-node-id="plain-target" data-agent-native-layer-name="Empty Flow"
+    style="position:absolute;left:80px;top:70px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
 </body></html>`;
 
 function preview(page: Page): Locator {
@@ -430,7 +427,7 @@ test("physical drop into a nested frame in a regular flex row still nests", asyn
   }
 });
 
-test("physical oversized flow child stays beside a smaller plain target", async ({
+test("physical oversized free layer stays beside an empty auto-layout target", async ({
   page,
 }) => {
   const designId = await newDesign(page, OVERSIZED_PLAIN_DROP_FIXTURE);
@@ -449,7 +446,7 @@ test("physical oversized flow child stays beside a smaller plain target", async 
       steps: 5,
     });
     await page.mouse.move(
-      target.x + target.width / 2,
+      target.x + target.width * 0.75,
       target.y + target.height / 2,
       { steps: 24 },
     );
@@ -488,6 +485,7 @@ test("physical oversized flow child stays beside a smaller plain target", async 
       targetContains: false,
       position: "static",
     });
+    expect(state.sourceParent).not.toBe("flow");
   } finally {
     await deleteDesign(page, designId);
   }

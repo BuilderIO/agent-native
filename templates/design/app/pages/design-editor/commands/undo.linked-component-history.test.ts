@@ -70,6 +70,7 @@ function liveStyleTargets(source: string): SelectedLayerTarget[] {
         ...baseInfo,
         runtimeSelector: `#${runtimeId}`,
         runtimeSourceId: runtimeId,
+        boundingRect: { x: 0, y: 0, width: 120, height: 40 },
         inlineStyles: { ...baseInfo.inlineStyles, color: initialColor },
         computedStyles: { ...baseInfo.computedStyles, color: initialColor },
         provenance: {
@@ -939,6 +940,44 @@ it.each(["rejected", "no-op", "committed", "intervening edit"])(
 );
 
 describe("pending live multi-target style gestures", () => {
+  it("does not queue a style edit for a boxless layer", () => {
+    const setPatchProof = vi.fn();
+    const setPendingVisualStyleEdits = vi.fn();
+    const onNoRenderedBox = vi.fn();
+
+    runRecordPendingVisualStyleEdit(
+      {
+        activeBreakpointUpperBoundPx: null,
+        activeBreakpointWidthState: undefined,
+        activeFile: { id: "file-a" } as any,
+        canEditDesign: true,
+        files: [{ id: "file-a", filename: "index.html" }] as any,
+        overviewScreens: [],
+        pendingVisualStyleEditsRef: { current: [] },
+        pendingVisualStyleRedoStackRef: { current: [] },
+        pendingVisualStyleUndoStackRef: { current: [] },
+        runtimeLayerSnapshotsById: {},
+        selectedElement: null,
+        onNoRenderedBox,
+        setPatchProof,
+        setPendingVisualStyleEdits,
+      } as any,
+      "file-a",
+      "#provider",
+      { borderRadius: "12px" },
+      { boundingRect: { width: 0, height: 0 } } as any,
+    );
+
+    expect(onNoRenderedBox).toHaveBeenCalledOnce();
+    expect(setPatchProof).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        error: "designEditor.patchProof.noRenderedBox",
+      }),
+    );
+    expect(setPendingVisualStyleEdits).not.toHaveBeenCalled();
+  });
+
   it("records scrub ticks as one target group and replays the group through Undo and Redo", () => {
     const state = commandArgs();
     const source = `<main><section data-agent-native-node-id="main-root" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="card"><div data-agent-native-node-id="main-child" style="color: red">Main</div></section><section data-agent-native-node-id="copy-root" ${COMPONENT_REF_ATTR}="card"><div data-agent-native-node-id="copy-child" ${COMPONENT_SOURCE_NODE_ID_ATTR}="main-child" style="color: orange">Copy</div></section></main>`;
@@ -979,6 +1018,8 @@ describe("pending live multi-target style gestures", () => {
       pendingVisualStyleEditsRef: state.args.pendingVisualStyleEditsRef,
       pendingVisualStyleRedoStackRef: state.args.pendingVisualStyleRedoStackRef,
       pendingVisualStyleUndoStackRef: state.args.pendingVisualStyleUndoStackRef,
+      recordPendingHistoryEntry: (kind: string) =>
+        state.args.historyOrderRef.current.push(kind),
       responsiveEditScopeRef: { current: "cascade-smaller" as const },
       runtimeLayerSnapshotsById: {},
       selectedElement,

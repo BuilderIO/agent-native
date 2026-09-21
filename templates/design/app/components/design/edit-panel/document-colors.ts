@@ -496,6 +496,7 @@ function colorTokenSpansInCss(
 function colorTokenSpansInHtml(
   content: string,
   properties?: ReadonlySet<string>,
+  options: { includeStyleBlocks?: boolean } = {},
 ): ColorTokenSpan[] {
   const maskedContent = maskNonRenderedHtml(content);
   const styleBlocks = styleBlockSpans(maskedContent);
@@ -511,8 +512,12 @@ function colorTokenSpansInHtml(
     }
   }
 
-  for (const block of styleBlocks) {
-    tokens.push(...colorTokenSpansInCss(block.value, block.start, properties));
+  if (options.includeStyleBlocks !== false) {
+    for (const block of styleBlocks) {
+      tokens.push(
+        ...colorTokenSpansInCss(block.value, block.start, properties),
+      );
+    }
   }
 
   return tokens.sort((left, right) => left.start - right.start);
@@ -885,9 +890,9 @@ export function selectionColorValues(
     for (const group of groups) {
       for (const range of mergeSelectionColorRanges(group.ranges)) {
         const content = group.content.slice(range.start, range.end);
-        colorTokenSpansInHtml(content).forEach(({ value: token }) =>
-          addColorValue(values, "color", token),
-        );
+        colorTokenSpansInHtml(content, undefined, {
+          includeStyleBlocks: false,
+        }).forEach(({ value: token }) => addColorValue(values, "color", token));
       }
     }
   }

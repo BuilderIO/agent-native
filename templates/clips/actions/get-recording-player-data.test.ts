@@ -20,6 +20,22 @@ const mockShareQuery = vi.hoisted(() => {
   query.where.mockReturnValue(query);
   return query;
 });
+// The player payload's tag read is a *projected* select, so it needs its own
+// builder: the share builder below resolves through `limit`, not `orderBy`.
+const mockTagRows = vi.hoisted(() =>
+  vi.fn(async () => [] as { tag: string }[]),
+);
+const mockTagsQuery = vi.hoisted(() => {
+  const query = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+  };
+  query.from.mockReturnValue(query);
+  query.where.mockReturnValue(query);
+  query.orderBy.mockImplementation(() => mockTagRows());
+  return query;
+});
 // Unselected `db.select()` means the run reached the player payload queries.
 // It throws unless a test opts in by installing a builder, which keeps the
 // access-gate tests honest about never getting that far.
@@ -34,8 +50,18 @@ const mockDb = vi.hoisted(() => ({
       }
       return mockPlayerQuery.build();
     }
+    if (
+      typeof selection === "object" &&
+      selection !== null &&
+      "tag" in selection
+    ) {
+      return mockTagsQuery;
+    }
     return mockShareQuery;
   }),
+  // The player's tag read is DISTINCT — `recording_tags` carries no unique
+  // (recording_id, tag) constraint, so duplicate rows are possible.
+  selectDistinct: vi.fn(() => mockTagsQuery),
 }));
 const mockCountRecordingViews = vi.hoisted(() =>
   vi.fn(async (_recordingId: string) => 0),
@@ -121,6 +147,10 @@ vi.mock("../server/db/index.js", () => ({
     recordingCtas: {
       recordingId: "recordingCtas.recordingId",
       createdAt: "recordingCtas.createdAt",
+    },
+    recordingTags: {
+      recordingId: "recordingTags.recordingId",
+      tag: "recordingTags.tag",
     },
     recordingBrowserDiagnostics: {
       recordingId: "recordingBrowserDiagnostics.recordingId",

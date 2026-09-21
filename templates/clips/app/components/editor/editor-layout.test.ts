@@ -40,4 +40,18 @@ describe("EditorLayout media loading", () => {
       source.indexOf("<Tabs\n"),
     );
   });
+
+  it("resets a completed toolbar cut to the playhead-following selection", () => {
+    const source = readSource();
+    const toolbar = readFileSync(
+      new URL("./editor-toolbar.tsx", import.meta.url),
+      "utf8",
+    );
+    const cut = toolbar
+      .split("const handleTrimSelection = async () => {")[1]
+      ?.split("const handleTrimStart")[0];
+
+    expect(source).toContain("onSelectionCut={() => setSelectionRange(null)}");
+    expect(cut).toMatch(/await trim\.mutateAsync\([\s\S]*?onSelectionCut\(\)/);
+  });
 });

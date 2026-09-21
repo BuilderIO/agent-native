@@ -308,6 +308,35 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.status).toBe(302);
   });
 
+  it("lets signed-in collaborators redeem resource-scoped visual-edit tickets", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "owner@example.com",
+      orgId: "owner-org",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+      expiresAt: Date.now() + 60_000,
+    });
+    const handler = createEmbedStartRouteHandler({
+      getExistingSession: async () => ({
+        email: "collaborator@example.com",
+        orgId: "collaborator-org",
+      }),
+    });
+
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "collaborator-ticket" }),
+    );
+
+    expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
+      "collaborator-ticket",
+      expect.objectContaining({
+        expectedOwnerEmail: "collaborator@example.com",
+        allowCapabilityIdentityMismatch: true,
+      }),
+    );
+    expect(res.status).toBe(302);
+  });
+
   it("keeps a different existing identity from adopting the ticket", async () => {
     consumeEmbedSessionTicket.mockImplementationOnce(
       (_ticket: string, options: any) => {

@@ -38,6 +38,7 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
+import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppHomePath,
@@ -69,6 +70,25 @@ import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
 } from "./immutable-assets.js";
+
+/**
+ * The public framework route prefix the workspace gateway routes on. A
+ * workspace deploy has no single `agent-native.config.ts`, so the value comes
+ * from the deployment alias every app build in this process also reads; the
+ * gateway and each app therefore agree by construction.
+ */
+function workspaceFrameworkRoutePrefixEnv(): string {
+  return (
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || ""
+  );
+}
+
+function workspaceFrameworkRoutePrefix(): string {
+  return normalizeFrameworkRoutePrefix(
+    workspaceFrameworkRoutePrefixEnv() || undefined,
+    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+  );
+}
 
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 
@@ -316,6 +336,8 @@ function buildOneApp(
       : {}),
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
+    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX:
+      workspaceFrameworkRoutePrefixEnv(),
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
       workspaceAppRouteAccess.publicPaths,
@@ -500,7 +522,7 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     "/",
   ];
   if (apps.includes("dispatch")) {
-    include.push("/_agent-native/*");
+    include.push(`${workspaceFrameworkRoutePrefix()}/*`);
     include.push("/.well-known/*");
     include.push(
       ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => `/${from}`),
@@ -540,7 +562,7 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     )
     .join("\n");
   const dispatchRootFrameworkRoutes = apps.includes("dispatch")
-    ? `    if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/") || pathname === "/.well-known" || pathname.startsWith("/.well-known/")) return ${moduleIdent("dispatch")}.fetch(request, env, ctx);
+    ? `    if (pathname === ${JSON.stringify(workspaceFrameworkRoutePrefix())} || pathname.startsWith(${JSON.stringify(`${workspaceFrameworkRoutePrefix()}/`)}) || pathname === "/.well-known" || pathname.startsWith("/.well-known/")) return ${moduleIdent("dispatch")}.fetch(request, env, ctx);
 `
     : "";
   const dispatchRootFaviconRoute = dispatchFaviconAsset
@@ -626,7 +648,9 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
   }
 
   if (apps.includes("dispatch")) {
-    lines.push("/_agent-native/* /.netlify/functions/dispatch-server 200");
+    lines.push(
+      `${workspaceFrameworkRoutePrefix()}/* /.netlify/functions/dispatch-server 200`,
+    );
     lines.push("/.well-known/* /.netlify/functions/dispatch-server 200");
     const faviconAsset = dispatchRootFaviconAsset(distDir);
     if (faviconAsset) {
@@ -694,8 +718,11 @@ function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
 
   if (apps.includes("dispatch")) {
     routes.push(
-      { src: "/_agent-native", dest: "/dispatch-server" },
-      { src: "/_agent-native/(.*)", dest: "/dispatch-server" },
+      { src: workspaceFrameworkRoutePrefix(), dest: "/dispatch-server" },
+      {
+        src: `${workspaceFrameworkRoutePrefix()}/(.*)`,
+        dest: "/dispatch-server",
+      },
       { src: "/\\.well-known", dest: "/dispatch-server" },
       { src: "/\\.well-known/(.*)", dest: "/dispatch-server" },
     );
@@ -1093,6 +1120,7 @@ ${WORKSPACE_DIRECTORY_ENV_SNIPPET}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
+    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
@@ -1205,6 +1233,7 @@ ${WORKSPACE_DIRECTORY_ENV_SNIPPET}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
+    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
@@ -1293,7 +1322,11 @@ function patchNetlifyFunctionEntry(
   );
   const pathConfig =
     app === "dispatch"
-      ? ["/_agent-native/*", "/.well-known/*", `${basePath}/*`]
+      ? [
+          `${workspaceFrameworkRoutePrefix()}/*`,
+          "/.well-known/*",
+          `${basePath}/*`,
+        ]
       : [
           basePath,
           `${basePath}.data`,
@@ -1342,6 +1375,7 @@ ${WORKSPACE_DIRECTORY_ENV_SNIPPET}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
+    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
@@ -1418,6 +1452,7 @@ ${WORKSPACE_DIRECTORY_ENV_SNIPPET}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
+    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},

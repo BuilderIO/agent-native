@@ -784,6 +784,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             timelineActive={editingSurface === "timeline"}
             edits={edits}
             selectionRange={selectionRange}
+            onSelectionCut={() => setSelectionRange(null)}
             video={{ videoUrl, videoFormat, title: recording.title }}
             onOpenThumbnailPicker={() => setThumbOpen(true)}
             onOpenChapters={() => setChaptersOpen((v) => !v)}

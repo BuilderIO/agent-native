@@ -25,7 +25,7 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-const FIXTURE = `<!doctype html><html><body style="margin:0">
+const FIXTURE = `<!doctype html><html><body style="margin:0;position:relative;z-index:2147483647;width:100vw;height:100vh">
   <div data-agent-native-node-id="card" data-agent-native-layer-name="Card"
        style="position:absolute;left:40px;top:40px;width:280px;height:200px;background:#111827">
     <div data-agent-native-node-id="kid-a" data-agent-native-layer-name="Kid A"

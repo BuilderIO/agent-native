@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => ({
   })),
   recordAudit: vi.fn(async () => undefined),
   resourcePut: vi.fn(async () => undefined),
+  resourcePutIfSnapshot: vi.fn(async () => undefined),
+  resourceRestoreSnapshotIfCurrent: vi.fn(async () => true),
   resourceGetByPath: vi.fn(async () => null),
+  resourceDeleteIfCurrent: vi.fn(async () => true),
   resourceListAllOwners: vi.fn(async () => []),
   resourceEffectiveContext: vi.fn(async (_userEmail: string, path: string) => ({
     path,
@@ -83,7 +86,6 @@ const mocks = vi.hoisted(() => ({
       },
     ],
   })),
-  resourceDeleteByPath: vi.fn(async () => undefined),
   getOrgSetting: vi.fn(async () => null),
   getUserSetting: vi.fn(async () => null),
   putOrgSetting: vi.fn(async () => undefined),
@@ -113,15 +115,29 @@ vi.mock("./dispatch-store.js", () => ({
 }));
 
 vi.mock("@agent-native/core/resources/store", () => ({
+  isLocalWorkspaceResourceId: (id: string) =>
+    id.startsWith("local-workspace-resource:"),
+  LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE: "local-workspace-resource",
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
+  workspaceResourceOwner: (orgId?: string | null) =>
+    orgId
+      ? `__workspace__:__organization__:${encodeURIComponent(orgId)}`
+      : "__workspace__",
+  isWorkspaceResourceOwner: (owner: string) =>
+    owner === "__workspace__" || owner.startsWith("__workspace__:"),
   resourcePut: (...args: any[]) => mocks.resourcePut(...args),
+  resourcePutIfSnapshot: (...args: any[]) =>
+    mocks.resourcePutIfSnapshot(...args),
+  resourceRestoreSnapshotIfCurrent: (...args: any[]) =>
+    mocks.resourceRestoreSnapshotIfCurrent(...args),
   resourceGetByPath: (...args: any[]) => mocks.resourceGetByPath(...args),
+  resourceDeleteIfCurrent: (...args: any[]) =>
+    mocks.resourceDeleteIfCurrent(...args),
   resourceListAllOwners: (...args: any[]) =>
     mocks.resourceListAllOwners(...args),
   resourceEffectiveContext: (...args: any[]) =>
     mocks.resourceEffectiveContext(...args),
-  resourceDeleteByPath: (...args: any[]) => mocks.resourceDeleteByPath(...args),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -174,11 +190,20 @@ interface GrantRow {
   updatedAt: number;
 }
 
-function createFakeDb(state: {
-  resources: ResourceRow[];
-  grants?: GrantRow[];
-}) {
+function createFakeDb(
+  state: {
+    resources: ResourceRow[];
+    grants?: GrantRow[];
+  },
+  options?: {
+    beforeUpdate?: (
+      call: number,
+      updates: Partial<ResourceRow | GrantRow>,
+    ) => boolean;
+  },
+) {
   const latestResource = () => state.resources.at(-1);
+  let updateCall = 0;
 
   return {
     insert: vi.fn(() => ({
@@ -206,12 +231,32 @@ function createFakeDb(state: {
       }),
     })),
     update: vi.fn(() => ({
-      set: vi.fn((updates: Partial<ResourceRow | GrantRow>) => ({
-        where: vi.fn(async () => {
-          const resource = latestResource();
-          if (resource) Object.assign(resource, updates);
-        }),
-      })),
+      set: vi.fn((updates: Partial<ResourceRow | GrantRow>) => {
+        let updated = false;
+        let result: ResourceRow | undefined;
+        const apply = () => {
+          if (!updated) {
+            updated = true;
+            updateCall += 1;
+            if (options?.beforeUpdate?.(updateCall, updates)) return;
+            const resource = latestResource();
+            if (resource) {
+              Object.assign(resource, updates);
+              result = { ...resource };
+            }
+          }
+        };
+        return {
+          where: vi.fn(() => {
+            apply();
+            return {
+              returning: vi.fn(async () => {
+                return result ? [result] : [];
+              }),
+            };
+          }),
+        };
+      }),
     })),
     delete: vi.fn(() => ({
       where: vi.fn(async () => {
@@ -269,7 +314,42 @@ function dispatchMetadata(resource: Pick<ResourceRow, "id">) {
   });
 }
 
+const ORG_WORKSPACE_OWNER = "__workspace__:__organization__:org_123";
+
 beforeEach(() => {
+  mocks.currentOrgId.mockReturnValue("org_123");
+  mocks.resourcePut.mockResolvedValue(undefined);
+  mocks.resourcePutIfSnapshot.mockImplementation(async (input: any) => {
+    await mocks.resourcePut(
+      input.owner,
+      input.path,
+      input.content,
+      input.mimeType,
+      input.options,
+    );
+    return {
+      before: input.previous,
+      resource: {
+        id: `${input.owner}_${input.path}`,
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+        mimeType: input.mimeType ?? "text/markdown",
+        size: input.content.length,
+        createdAt: 1,
+        updatedAt: 2,
+        createdBy: "system",
+        visibility: "workspace",
+        threadId: null,
+        runId: null,
+        expiresAt: null,
+        metadata: JSON.stringify(input.options?.metadata ?? null),
+      },
+    };
+  });
+  mocks.resourceRestoreSnapshotIfCurrent.mockResolvedValue(true);
+  mocks.resourceGetByPath.mockResolvedValue(null);
+  mocks.resourceDeleteIfCurrent.mockResolvedValue(true);
   mocks.getDb.mockReturnValue(createFakeDb({ resources: [] }));
   mocks.getDbExec.mockReturnValue({ execute: vi.fn() });
   mocks.getApprovalPolicy.mockResolvedValue({
@@ -313,7 +393,7 @@ describe("workspace resource materialization", () => {
       STARTER_GLOBAL_WORKSPACE_RESOURCES.length,
     );
     expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "__workspace__",
+      ORG_WORKSPACE_OWNER,
       "context/company.md",
       expect.stringContaining("# Company Profile"),
       "text/markdown",
@@ -368,7 +448,7 @@ describe("workspace resource materialization", () => {
     );
     expect(mocks.putOrgSetting).not.toHaveBeenCalled();
     expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "__workspace__",
+      ORG_WORKSPACE_OWNER,
       "context/brand.md",
       expect.stringContaining("# Brand Guidelines"),
       "text/markdown",
@@ -398,7 +478,7 @@ describe("workspace resource materialization", () => {
 
     expect(created?.scope).toBe("all");
     expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "__workspace__",
+      ORG_WORKSPACE_OWNER,
       "instructions/starter.md",
       "# Starter\nUse the shared workspace context.",
       "text/markdown",
@@ -426,12 +506,202 @@ describe("workspace resource materialization", () => {
     });
 
     expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "__workspace__",
+      ORG_WORKSPACE_OWNER,
       "remote-agents/research.json",
       '{"name":"Research"}',
       "application/json",
       expect.any(Object),
     );
+  });
+
+  it("materializes personal-scope resources under the bare workspace owner", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+
+    await createWorkspaceResource({
+      kind: "instruction",
+      name: "Solo guardrails",
+      path: "instructions/solo.md",
+      content: "# Solo",
+      scope: "all",
+    });
+
+    expect(mocks.resourcePut).toHaveBeenCalledWith(
+      "__workspace__",
+      "instructions/solo.md",
+      "# Solo",
+      "text/markdown",
+      expect.any(Object),
+    );
+  });
+
+  it("removes a matching no-org Local File Mode materialization on revocation", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: null,
+          kind: "instruction",
+          name: "Solo guardrails",
+          description: null,
+          path: "AGENTS.md",
+          content: "# Materialized",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    const local = {
+      id: "local-workspace-resource:agents",
+      owner: "__workspace__",
+      path: "AGENTS.md",
+      content: "# Materialized",
+      metadata: JSON.stringify({
+        source: "local-workspace-resource",
+        absolutePath: "/workspace/AGENTS.md",
+        hash: "materialized-hash",
+      }),
+    };
+    mocks.resourceListAllOwners.mockResolvedValue([local]);
+
+    await updateWorkspaceResource("resource_1", { scope: "selected" });
+
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(local);
+  });
+
+  it("uses the pre-update content when revoking a Local File Mode materialization", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: null,
+          kind: "instruction",
+          name: "Solo guardrails",
+          description: null,
+          path: "AGENTS.md",
+          content: "# Materialized",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    const local = {
+      id: "local-workspace-resource:agents",
+      owner: "__workspace__",
+      path: "AGENTS.md",
+      content: "# Materialized",
+      metadata: JSON.stringify({
+        source: "local-workspace-resource",
+        absolutePath: "/workspace/AGENTS.md",
+        hash: "materialized-hash",
+      }),
+    };
+    mocks.resourceListAllOwners.mockResolvedValue([local]);
+
+    await updateWorkspaceResource("resource_1", {
+      content: "# Selected replacement",
+      scope: "selected",
+    });
+
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(local);
+  });
+
+  it("preserves changed and organization-local artifacts while cleaning a shadowed SQL copy", async () => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Org guardrails",
+          description: null,
+          path: "AGENTS.md",
+          content: "# Materialized",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    const local = {
+      id: "local-workspace-resource:agents",
+      owner: "__workspace__",
+      path: "AGENTS.md",
+      content: "# Materialized",
+      metadata: JSON.stringify({
+        source: "local-workspace-resource",
+        absolutePath: "/workspace/AGENTS.md",
+        hash: "local-hash",
+      }),
+    };
+    const shadowedSql = {
+      id: "legacy_sql_1",
+      owner: "__workspace__",
+      path: "AGENTS.md",
+      content: "# Materialized",
+      metadata: dispatchMetadata(state.resources[0]),
+    };
+    mocks.resourceListAllOwners.mockResolvedValue([local, shadowedSql]);
+
+    await updateWorkspaceResource("resource_1", { scope: "selected" });
+
+    expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("AGENTS.md", {
+      includeShadowedWorkspaceRows: true,
+    });
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(shadowedSql);
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalledWith(local);
+  });
+
+  it("preserves a changed no-org Local File Mode artifact", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: null,
+          kind: "instruction",
+          name: "Solo guardrails",
+          description: null,
+          path: "AGENTS.md",
+          content: "# Materialized",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    mocks.resourceListAllOwners.mockResolvedValue([
+      {
+        id: "local-workspace-resource:agents",
+        owner: "__workspace__",
+        path: "AGENTS.md",
+        content: "# User replacement",
+        metadata: JSON.stringify({
+          source: "local-workspace-resource",
+          absolutePath: "/workspace/AGENTS.md",
+          hash: "replacement-hash",
+        }),
+      },
+    ]);
+
+    await updateWorkspaceResource("resource_1", { scope: "selected" });
+
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalled();
   });
 
   it("does not materialize selected-only resources", async () => {
@@ -444,7 +714,7 @@ describe("workspace resource materialization", () => {
     });
 
     expect(mocks.resourcePut).not.toHaveBeenCalled();
-    expect(mocks.resourceDeleteByPath).not.toHaveBeenCalled();
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalled();
   });
 
   it("removes a previously materialized global resource when it becomes selected-only", async () => {
@@ -467,20 +737,162 @@ describe("workspace resource materialization", () => {
       ],
     };
     mocks.getDb.mockReturnValue(createFakeDb(state));
-    mocks.resourceGetByPath.mockResolvedValueOnce({
-      id: "shared_1",
+    mocks.resourceGetByPath.mockImplementation(async (owner: string) =>
+      owner === ORG_WORKSPACE_OWNER || owner === "__workspace__"
+        ? {
+            id: `${owner}_1`,
+            owner,
+            path: "instructions/starter.md",
+            metadata: dispatchMetadata(state.resources[0]),
+          }
+        : null,
+    );
+    mocks.resourceListAllOwners.mockResolvedValue([
+      {
+        id: "__workspace___1",
+        owner: "__workspace__",
+        path: "instructions/starter.md",
+        metadata: dispatchMetadata(state.resources[0]),
+      },
+    ]);
+
+    await updateWorkspaceResource("resource_1", { scope: "selected" });
+
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: ORG_WORKSPACE_OWNER,
+        path: "instructions/starter.md",
+      }),
+    );
+    // A copy written before workspace defaults were organization-scoped is
+    // cleaned up alongside the organization-owned row.
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "__workspace__",
+        path: "instructions/starter.md",
+      }),
+    );
+    expect(mocks.resourcePut).not.toHaveBeenCalled();
+  });
+
+  it("removes a pre-upgrade bare-owner copy when materializing under the organization owner", async () => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "knowledge",
+          name: "Company",
+          description: null,
+          path: "context/company.md",
+          content: "# Company",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    const materialized = new Map<string, { owner: string; metadata: string }>([
+      [
+        "__workspace__\0context/company.md",
+        {
+          owner: "__workspace__",
+          metadata: dispatchMetadata(state.resources[0]),
+        },
+      ],
+    ]);
+    mocks.resourcePut.mockImplementation(
+      async (owner: string, path: string, _content: string, _mime, options) => {
+        materialized.set(`${owner}\0${path}`, {
+          owner,
+          metadata: JSON.stringify(options.metadata),
+        });
+      },
+    );
+    // Mirror the store: a bare-owner read with an organization in scope
+    // resolves to the organization owner first and falls through to the
+    // bare row; an organization-owner read falls through the same way.
+    mocks.resourceGetByPath.mockImplementation(
+      async (
+        owner: string,
+        path: string,
+        options?: { orgId?: string | null },
+      ) => {
+        const candidates =
+          owner === "__workspace__" && !options?.orgId
+            ? ["__workspace__"]
+            : [ORG_WORKSPACE_OWNER, "__workspace__"];
+        for (const candidate of candidates) {
+          const row = materialized.get(`${candidate}\0${path}`);
+          if (row) return { id: `${candidate}_${path}`, path, ...row };
+        }
+        return null;
+      },
+    );
+    mocks.resourceListAllOwners.mockImplementation(async (path: string) => {
+      const row = materialized.get(`__workspace__\0${path}`);
+      return row ? [{ id: `__workspace___${path}`, path, ...row }] : [];
+    });
+
+    await getWorkspaceResourceEffectiveContext({ resourceId: "resource_1" });
+
+    expect(mocks.resourcePut).toHaveBeenCalledWith(
+      ORG_WORKSPACE_OWNER,
+      "context/company.md",
+      "# Company",
+      "text/markdown",
+      expect.any(Object),
+    );
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "__workspace__",
+        path: "context/company.md",
+      }),
+    );
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ owner: ORG_WORKSPACE_OWNER }),
+    );
+  });
+
+  it("does not delete a legacy row a workspace read fell through to", async () => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Starter guardrails",
+          description: null,
+          path: "instructions/starter.md",
+          content: "# Starter",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    // The store answers an organization-owner read with the bare-owner row
+    // when no organization row exists; that row belongs to another Dispatch
+    // resource id, so nothing here may remove it.
+    mocks.resourceGetByPath.mockResolvedValue({
+      id: "legacy_1",
       owner: "__workspace__",
       path: "instructions/starter.md",
-      metadata: dispatchMetadata(state.resources[0]),
+      metadata: JSON.stringify({
+        source: "dispatch-workspace-resource",
+        resourceId: "resource_from_other_org",
+      }),
     });
 
     await updateWorkspaceResource("resource_1", { scope: "selected" });
 
-    expect(mocks.resourceDeleteByPath).toHaveBeenCalledWith(
-      "__workspace__",
-      "instructions/starter.md",
-    );
-    expect(mocks.resourcePut).not.toHaveBeenCalled();
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalled();
   });
 
   it("leaves shared resources alone when metadata does not match Dispatch ownership", async () => {
@@ -515,7 +927,7 @@ describe("workspace resource materialization", () => {
 
     await updateWorkspaceResource("resource_1", { scope: "selected" });
 
-    expect(mocks.resourceDeleteByPath).not.toHaveBeenCalled();
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalled();
   });
 
   it("removes a materialized global resource before deleting the workspace resource", async () => {
@@ -539,19 +951,217 @@ describe("workspace resource materialization", () => {
       grants: [],
     };
     mocks.getDb.mockReturnValue(createFakeDb(state));
-    mocks.resourceGetByPath.mockResolvedValueOnce({
-      id: "shared_1",
-      owner: "__workspace__",
-      path: "context/positioning.md",
-      metadata: dispatchMetadata(state.resources[0]),
-    });
+    mocks.resourceGetByPath.mockImplementation(async (owner: string) =>
+      owner === ORG_WORKSPACE_OWNER
+        ? {
+            id: "shared_1",
+            owner,
+            path: "context/positioning.md",
+            metadata: dispatchMetadata(state.resources[0]),
+          }
+        : null,
+    );
 
     await deleteWorkspaceResource("resource_1");
 
-    expect(mocks.resourceDeleteByPath).toHaveBeenCalledWith(
-      "__workspace__",
-      "context/positioning.md",
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: ORG_WORKSPACE_OWNER,
+        path: "context/positioning.md",
+      }),
     );
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails when a matching materialization changes during conditional deletion", async () => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Starter guardrails",
+          description: null,
+          path: "instructions/starter.md",
+          content: "# Starter",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    const existing = {
+      id: "materialized_1",
+      owner: ORG_WORKSPACE_OWNER,
+      path: "instructions/starter.md",
+      metadata: dispatchMetadata(state.resources[0]),
+    };
+    mocks.resourceGetByPath.mockResolvedValue(existing);
+    mocks.resourceDeleteIfCurrent.mockResolvedValue(false);
+
+    await expect(
+      updateWorkspaceResource("resource_1", { scope: "selected" }),
+    ).rejects.toThrow(
+      "Workspace resource materialization changed concurrently: instructions/starter.md",
+    );
+
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(existing);
+    expect(mocks.resourceGetByPath).toHaveBeenCalledTimes(2);
+    expect(state.resources[0]).toMatchObject({
+      scope: "all",
+      content: "# Starter",
+      name: "Starter guardrails",
+    });
+    expect(mocks.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a newer update when materialization rollback conflicts", async () => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Starter guardrails",
+          description: null,
+          path: "instructions/starter.md",
+          content: "# Starter",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(
+      createFakeDb(state, {
+        beforeUpdate(call) {
+          if (call !== 2) return false;
+          Object.assign(state.resources[0]!, {
+            name: "Concurrent guardrails",
+            content: "# Concurrent",
+            scope: "all",
+            updatedAt: 99,
+          });
+          return true;
+        },
+      }),
+    );
+    const existing = {
+      id: "materialized_1",
+      owner: ORG_WORKSPACE_OWNER,
+      path: "instructions/starter.md",
+      metadata: dispatchMetadata(state.resources[0]),
+    };
+    mocks.resourceGetByPath.mockResolvedValue(existing);
+    mocks.resourceDeleteIfCurrent.mockResolvedValue(false);
+
+    await expect(
+      updateWorkspaceResource("resource_1", { scope: "selected" }),
+    ).rejects.toThrow(
+      "Workspace resource materialization failed and could not be rolled back",
+    );
+
+    expect(state.resources[0]).toMatchObject({
+      name: "Concurrent guardrails",
+      content: "# Concurrent",
+      scope: "all",
+      updatedAt: 99,
+    });
+    expect(mocks.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["All-app overwrite", { name: "Updated guardrails" }],
+    ["All-to-Selected cleanup", { scope: "selected" }],
+  ])("rejects a newer materialization before %s", async (_label, input) => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Starter guardrails",
+          description: null,
+          path: "instructions/starter.md",
+          content: "# Starter",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    mocks.resourceGetByPath.mockResolvedValue({
+      id: "materialized_1",
+      owner: ORG_WORKSPACE_OWNER,
+      path: "instructions/starter.md",
+      metadata: JSON.stringify({
+        source: "dispatch-workspace-resource",
+        resourceId: "resource_1",
+        updatedAt: Number.MAX_SAFE_INTEGER,
+      }),
+    });
+
+    await expect(updateWorkspaceResource("resource_1", input)).rejects.toThrow(
+      "Workspace resource materialization changed concurrently: instructions/starter.md",
+    );
+
+    expect(mocks.resourcePutIfSnapshot).not.toHaveBeenCalled();
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalled();
+    expect(mocks.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("accepts a concurrent replacement by a different Dispatch resource", async () => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Starter guardrails",
+          description: null,
+          path: "instructions/starter.md",
+          content: "# Starter",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    const existing = {
+      id: "materialized_1",
+      owner: ORG_WORKSPACE_OWNER,
+      path: "instructions/starter.md",
+      metadata: dispatchMetadata(state.resources[0]),
+    };
+    mocks.resourceGetByPath
+      .mockResolvedValueOnce(existing)
+      .mockResolvedValueOnce({
+        ...existing,
+        metadata: JSON.stringify({
+          source: "dispatch-workspace-resource",
+          resourceId: "replacement_resource",
+        }),
+      });
+    mocks.resourceDeleteIfCurrent.mockResolvedValue(false);
+
+    await expect(
+      updateWorkspaceResource("resource_1", { scope: "selected" }),
+    ).resolves.toEqual(
+      expect.objectContaining({ id: "resource_1", scope: "selected" }),
+    );
+
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(existing);
   });
 
   it("lists the inherited and granted workspace resources an app receives", async () => {
@@ -703,12 +1313,72 @@ describe("workspace resource materialization", () => {
       { workspaceAppId: "analytics", orgId: "org_123" },
     );
     expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "__workspace__",
+      ORG_WORKSPACE_OWNER,
       "context/brand.md",
       "# Brand",
       "text/markdown",
       expect.objectContaining({ createdBy: "system" }),
     );
+  });
+
+  it("keeps each organization's All-apps copy of the same path separate", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ version: 2 });
+    const materialized = new Map<string, { owner: string; content: string }>();
+    mocks.resourcePut.mockImplementation(
+      async (owner: string, path: string, content: string) => {
+        materialized.set(`${owner}\0${path}`, { owner, content });
+      },
+    );
+    mocks.resourceGetByPath.mockImplementation(
+      async (owner: string, path: string) => {
+        const row = materialized.get(`${owner}\0${path}`);
+        return row ? { id: `${owner}_${path}`, path, ...row } : null;
+      },
+    );
+    const rowFor = (id: string, orgId: string, content: string) => ({
+      id,
+      ownerEmail: `owner@${orgId}.test`,
+      orgId,
+      kind: "knowledge",
+      name: "Company",
+      description: null,
+      path: "context/company.md",
+      content,
+      scope: "all",
+      createdBy: `owner@${orgId}.test`,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    const orgA = { resources: [rowFor("company_a", "org_a", "Acme")] };
+    const orgB = { resources: [rowFor("company_b", "org_b", "Globex")] };
+    const ownerA = "__workspace__:__organization__:org_a";
+    const ownerB = "__workspace__:__organization__:org_b";
+
+    mocks.currentOrgId.mockReturnValue("org_a");
+    mocks.getDb.mockReturnValue(createFakeDb(orgA));
+    await getWorkspaceResourceEffectiveContext({ resourceId: "company_a" });
+
+    mocks.currentOrgId.mockReturnValue("org_b");
+    mocks.getDb.mockReturnValue(createFakeDb(orgB));
+    await getWorkspaceResourceEffectiveContext({ resourceId: "company_b" });
+
+    expect(materialized.get(`${ownerA}\0context/company.md`)?.content).toBe(
+      "Acme",
+    );
+    expect(materialized.get(`${ownerB}\0context/company.md`)?.content).toBe(
+      "Globex",
+    );
+    expect(materialized.has("__workspace__\0context/company.md")).toBe(false);
+
+    // Re-opening the preview in one organization leaves the other untouched.
+    mocks.currentOrgId.mockReturnValue("org_a");
+    mocks.getDb.mockReturnValue(createFakeDb(orgA));
+    await getWorkspaceResourceEffectiveContext({ resourceId: "company_a" });
+
+    expect(materialized.get(`${ownerB}\0context/company.md`)?.content).toBe(
+      "Globex",
+    );
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalled();
   });
 
   it("returns the winning layer from the runtime effective context stack", async () => {

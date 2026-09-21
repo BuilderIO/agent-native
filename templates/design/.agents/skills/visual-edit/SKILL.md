@@ -29,6 +29,10 @@ Design; only the target app and bridge run locally.
 - If an agent-owned local server redirects a requested screen to `/sign-in`,
   restart that server with `AUTH_DISABLED=1` and probe the route again before
   opening Design. Never present a sign-in page as the requested screen.
+- Before calling `open-visual-edit`, verify the target URL responds. Start an
+  agent-owned dev server with its normal command when it is down, and wait for
+  the requested routes to respond before opening Design. Never leave a dead
+  localhost URL in the canvas.
 - Preserve a server you did not start; use its existing authenticated browser
   session or explain that the target app, rather than Design, requires login.
 - When the user gives explicit paths, skip route inventory and place those
@@ -154,9 +158,11 @@ approve it and never bypass that consent.
   `open-visual-edit` mints a five-minute, single-use capability for the exact
   `/visual-edit/:designId` local-editor route. The MCP host redeems it outside
   model-visible text, then opens the existing editor with localhost edit access.
+  A public `/visual-edit/:designId` route enables browser-only DOM editing of
+  localhost screens; pending changes stay in the browser until applied.
   This capability is not an account session: `/_agent-native/session` remains
   signed out, and account-backed save/share/generate actions remain denied.
-- The editor page registers a stable page-local WebMCP tool named
+- The editor page registers a page-local WebMCP tool named
   `get-visual-edit-prompt`. Call it after canvas edits to retrieve the latest
   bounded source instructions instead of copying stale chat text. It returns
   `status: "empty"` when there is nothing to apply. If a previous editor
@@ -168,11 +174,12 @@ approve it and never bypass that consent.
   WebMCP helper, not `pnpm action` in the target app. The page path works
   signed out only for loopback apps in public mode, using a short-lived
   capability-scoped principal; hosted MCP uses its normal OAuth identity.
-- Public links are always read-only, including on loopback. Loopback peer
-  identity is not an authentication boundary because a tunnel or reverse proxy
-  can make a remote request appear local. A bare `/visual-edit/:designId` or
-  `/design/:designId` URL carries no capability and must never release the
-  connection's `previewToken`.
+- Ordinary public links stay read-only, including on loopback. Public
+  `/visual-edit/:designId` is the browser-only DOM editing surface for public
+  localhost designs; it never upgrades `/design/*` links or grants server
+  writes. Loopback identity is not an authentication boundary because a tunnel
+  or proxy can make a remote request appear local. Persisted writes remain
+  role-gated.
 - The live editor is same-origin through the local bridge proxy. This boots
   CSR apps and root-relative assets, but it is still a localhost editing proxy:
   app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a
@@ -258,6 +265,8 @@ in Design (which the browser reads to authorize `/live-edit-bridge`,
 bridge with it. This is the only ordering that works for the remote-MCP flow -
 the bridge cannot push its own token to the server without a CLI auth token, so
 the server mints instead and the bridge adopts.
+The `connectionId` (usually `localhost_...`) only identifies the row; never
+pass it as `bridgeToken`.
 
 For a fresh signed-out browser flow, generate the token locally, keep it in the
 host process, and pass it once as the page tool's optional `bridgeToken`; the
@@ -478,18 +487,23 @@ bridge URLs are localhost. Never run `pnpm action` from `templates/design`.
 
 ## Applying Visual Edits Back To Source
 
+With the Design tab closed, recover the bridge handoff with:
+
+```bash
+npx @agent-native/core@latest design pending --root .
+```
+
+It prints the source prompt; empty JSON means this bridge has no pending edits.
+
 Canvas edits on a localhost screen do not write source as you make them. They
 accumulate as pending edits and the editor shows an **Apply design updates**
-button on the canvas. In an MCP App, clicking it hands the bounded structured
-prompt to the current host coding conversation. In an ordinary browser or
-standalone Design page, it falls back to the local Design agent. The dropdown's
-**Copy prompt to your agent** action is the universal manual fallback.
+button on the canvas. An MCP App sends the bounded prompt to the host;
+otherwise it uses the local Design agent. The dropdown's **Copy prompt to your
+agent** action is the manual fallback.
 
-When the page detects ChatGPT, Claude, or a WebMCP host, that copy action uses
-the short instruction **Call the get-visual-edit-prompt WebMCP tool and apply
-the returned instructions.** The primary Apply button sends the same pending
-batch to the host turn when the host bridge is available. In a normal browser,
-the copied text remains the detailed source handoff.
+ChatGPT, Claude, and WebMCP hosts receive a short instruction to call
+`get-visual-edit-prompt`; Apply sends the same batch when the host bridge is
+available, while ordinary browsers copy the detailed handoff.
 
 - Style, text, and drag/drop structure edits all collect into the same pending
   batch, so the user can make several changes and apply once.

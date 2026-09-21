@@ -132,6 +132,33 @@ describe("QuestionFlow option ordering", () => {
   });
 });
 
+describe("QuestionFlow option layout", () => {
+  it("lets built-in choice labels wrap in a narrow panel", async () => {
+    const { findButton, cleanup } = await renderQuestionFlow({
+      onSubmit: vi.fn(),
+      onSkip: vi.fn(),
+      questions: [
+        {
+          id: "direction",
+          type: "text-options",
+          question: "Which direction?",
+          options: [{ label: "Editorial", value: "editorial" }],
+          includeExplore: false,
+        },
+      ],
+    });
+
+    for (const label of ["Other", "Decide for me"]) {
+      const button = findButton(label);
+      expect(button).toBeTruthy();
+      expect(button?.querySelector(".truncate")).toBeNull();
+      expect(button?.querySelector(".whitespace-normal")).not.toBeNull();
+    }
+
+    await cleanup();
+  });
+});
+
 describe("QuestionFlow Other answers", () => {
   it("offers a write-in answer by default for text options", async () => {
     const onSubmit = vi.fn();
