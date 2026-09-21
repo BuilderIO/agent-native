@@ -16241,8 +16241,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     try {
       var parentDocument = window.parent.document;
-      if (!parentDocument.__agentNativeDesignModifierListeners) {
-        parentDocument.__agentNativeDesignModifierListeners = true;
+      var modifierListenerWindows = parentDocument.__agentNativeDesignModifierListeners || /* @__PURE__ */ new WeakSet();
+      if (!modifierListenerWindows.has(window)) {
+        modifierListenerWindows.add(window);
+        parentDocument.__agentNativeDesignModifierListeners = modifierListenerWindows;
         parentDocument.addEventListener(
           "keydown",
           function(e) {

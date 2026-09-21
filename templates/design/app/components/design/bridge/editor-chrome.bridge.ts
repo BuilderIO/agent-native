@@ -22945,10 +22945,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // same drag state as an iframe-focused keydown.
   try {
     var parentDocument = window.parent.document as Document & {
-      __agentNativeDesignModifierListeners?: boolean;
+      __agentNativeDesignModifierListeners?: WeakSet<Window>;
     };
-    if (!parentDocument.__agentNativeDesignModifierListeners) {
-      parentDocument.__agentNativeDesignModifierListeners = true;
+    var modifierListenerWindows =
+      parentDocument.__agentNativeDesignModifierListeners ||
+      new WeakSet<Window>();
+    if (!modifierListenerWindows.has(window)) {
+      modifierListenerWindows.add(window);
+      parentDocument.__agentNativeDesignModifierListeners =
+        modifierListenerWindows;
       parentDocument.addEventListener(
         "keydown",
         function (e) {
