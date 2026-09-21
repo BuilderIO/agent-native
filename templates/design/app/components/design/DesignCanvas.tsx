@@ -7017,7 +7017,7 @@ export function DesignCanvas({
           below. Only mounts while a creation tool is active so it never
           changes existing behavior otherwise (T14: single-screen mode
           previously had no creation capability at all). */}
-      {activeCreationTool ? (
+      {activeCreationTool && !interactMode ? (
         <SingleScreenCreationOverlay
           tool={activeCreationTool}
           iframeRef={iframeRef}
@@ -7973,7 +7973,7 @@ function SingleScreenCreationOverlay({
   );
 
   useEffect(() => {
-    if (interactMode || tool !== "pen") return;
+    if (tool !== "pen") return;
     const handleKeyDown = (event: KeyboardEvent) => {
       const path = penPathRef.current;
       if (!path) return;
@@ -8020,7 +8020,7 @@ function SingleScreenCreationOverlay({
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [clearPenPath, finishPenPath, interactMode, tool, updatePenPath]);
+  }, [clearPenPath, finishPenPath, tool, updatePenPath]);
 
   const cursorClass = tool === "text" ? "cursor-text" : "cursor-crosshair";
   const isLineTool = tool === "line" || tool === "arrow";
