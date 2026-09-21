@@ -10337,6 +10337,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function stopNativeInteraction(e: Event): void {
+    if (interactionMode) return;
     // A fling's wheel events are not cancelable; cancelling one logs a browser
     // Intervention per event and scrolls anyway.
     if (e.cancelable) e.preventDefault();

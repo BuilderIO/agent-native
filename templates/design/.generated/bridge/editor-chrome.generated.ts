@@ -7708,6 +7708,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return null;
     }
     function stopNativeInteraction(e) {
+      if (interactionMode) return;
       if (e.cancelable) e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
