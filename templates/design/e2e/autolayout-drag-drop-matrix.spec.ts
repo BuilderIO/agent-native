@@ -1951,6 +1951,16 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => rootChildIds(page, design.primaryId))
         .toEqual(["root-c", "root-a", "root-b"]);
+      const html = await fileHtml(request, design.id, design.primaryId);
+      for (const nodeId of ["root-c", "root-a"]) {
+        const style = html.match(
+          new RegExp(
+            `data-agent-native-node-id="${nodeId}"[^>]*\\sstyle="([^"]*)"`,
+          ),
+        )?.[1];
+        expect(style).toBeDefined();
+        expect(style).not.toMatch(/(?:^|;)grid-(?:column|row)\s*:/);
+      }
     } finally {
       await deleteDesign(request, design.id);
     }
