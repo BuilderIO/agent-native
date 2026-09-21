@@ -66,6 +66,31 @@ export async function resolveLocalhostConnectionScope(options?: {
     }
   }
 
+  const capability = getRequestAuthCapability();
+  if (
+    designId &&
+    capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) &&
+    decodeCapabilityDesignId(capability) === designId
+  ) {
+    const access = await resolveAccess("design", designId);
+    const resource = access?.resource as
+      | { ownerEmail?: unknown; orgId?: unknown }
+      | undefined;
+    if (
+      !access ||
+      access.role !== "editor" ||
+      typeof resource?.ownerEmail !== "string" ||
+      !resource.ownerEmail
+    ) {
+      throw new Error("visual-edit capability is not valid for this design");
+    }
+
+    return {
+      ownerEmail: resource.ownerEmail,
+      orgId: typeof resource.orgId === "string" ? resource.orgId : null,
+    };
+  }
+
   const ownerEmail = getRequestUserEmail();
   if (ownerEmail) {
     const requestOrgId = getRequestOrgId();
@@ -77,32 +102,7 @@ export async function resolveLocalhostConnectionScope(options?: {
     };
   }
 
-  const capability = getRequestAuthCapability();
-  if (
-    !designId ||
-    !capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) ||
-    decodeCapabilityDesignId(capability) !== designId
-  ) {
-    throw new Error("no authenticated user");
-  }
-
-  const access = await resolveAccess("design", designId);
-  const resource = access?.resource as
-    | { ownerEmail?: unknown; orgId?: unknown }
-    | undefined;
-  if (
-    !access ||
-    access.role !== "editor" ||
-    typeof resource?.ownerEmail !== "string" ||
-    !resource.ownerEmail
-  ) {
-    throw new Error("visual-edit capability is not valid for this design");
-  }
-
-  return {
-    ownerEmail: resource.ownerEmail,
-    orgId: typeof resource.orgId === "string" ? resource.orgId : null,
-  };
+  throw new Error("no authenticated user");
 }
 
 function decodeCapabilityDesignId(capability: string): string | null {

@@ -128,6 +128,25 @@ describe("resolveLocalhostConnectionScope", () => {
     });
     expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
   });
+
+  it("uses a visual-edit capability before ambient signed-in account scope", async () => {
+    mockUserEmail.mockReturnValue("ambient@example.com");
+    mockRequestAuthCapability.mockReturnValue(
+      "capability:visual-edit:design:design_1",
+    );
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
+  });
 });
 
 describe("resolveLocalhostBridgeConnection", () => {
