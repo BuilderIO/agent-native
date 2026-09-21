@@ -108,6 +108,7 @@ export default function HomeRoute() {
   const [searchParams] = useSearchParams();
   const spaceId = searchParams.get("spaceId");
   const startedFor = useRef<string | null>(null);
+  const landingRequestIdRef = useRef(0);
   const lastLocationHint = useLastLocationTitleHint();
   const lastLocationHintRef = useRef(lastLocationHint);
   lastLocationHintRef.current = lastLocationHint;
@@ -122,10 +123,12 @@ export default function HomeRoute() {
     const requestKey = spaceId ?? "personal";
     if (startedFor.current === requestKey) return;
     startedFor.current = requestKey;
+    const requestId = ++landingRequestIdRef.current;
     try {
       const result = await resolveLanding.mutateAsync(
         spaceId ? { spaceId } : {},
       );
+      if (requestId !== landingRequestIdRef.current) return;
       if ("target" in result) {
         if (!result.target) return;
         if (result.fallbackReason === "saved-document-unavailable") {

@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { mutateUserSetting } from "@agent-native/core/settings";
+import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import {
   CONTENT_SIDEBAR_STATE_SETTING_KEY,
+  contentSidebarStateSettingKey,
   contentSidebarStateSchema,
   normalizeContentSidebarState,
 } from "./_content-sidebar-state.js";
@@ -17,12 +18,20 @@ export default defineAction({
   agentTool: false,
   run: async ({ spaceId, ...state }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    const scopedKey = contentSidebarStateSettingKey(spaceId);
+    const legacy =
+      scopedKey === CONTENT_SIDEBAR_STATE_SETTING_KEY
+        ? null
+        : await getUserSetting(
+            ctx.userEmail,
+            CONTENT_SIDEBAR_STATE_SETTING_KEY,
+          );
     const saved = await mutateUserSetting(
       ctx.userEmail,
-      CONTENT_SIDEBAR_STATE_SETTING_KEY,
+      scopedKey,
       (current) =>
         normalizeContentSidebarState({
-          ...normalizeContentSidebarState(current, spaceId),
+          ...normalizeContentSidebarState(current ?? legacy, spaceId),
           ...state,
         })!,
     );

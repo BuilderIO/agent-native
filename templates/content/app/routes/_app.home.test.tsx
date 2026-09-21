@@ -166,4 +166,54 @@ describe("home landing route optimistic title", () => {
       { replace: true },
     );
   });
+
+  it("ignores a stale landing resolution after switching workspaces", async () => {
+    const pending = new Map<
+      string,
+      (value: {
+        target: { documentId: string; databaseId: string; viewId: string };
+        resolution: "restored";
+      }) => void
+    >();
+    resolveLanding.mutateAsync.mockImplementation(
+      ({ spaceId }: { spaceId: string }) =>
+        new Promise((resolve) => pending.set(spaceId, resolve)),
+    );
+
+    searchParams.set("spaceId", "space-a");
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    searchParams.set("spaceId", "space-b");
+    renderHome(root);
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      pending.get("space-b")?.({
+        target: {
+          documentId: "doc-b",
+          databaseId: "database-b",
+          viewId: "board",
+        },
+        resolution: "restored",
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      pending.get("space-a")?.({
+        target: {
+          documentId: "doc-a",
+          databaseId: "database-a",
+          viewId: "table",
+        },
+        resolution: "restored",
+      });
+      await Promise.resolve();
+    });
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith(
+      "/page/doc-b?databaseId=database-b&viewId=board",
+      { replace: true },
+    );
+  });
 });

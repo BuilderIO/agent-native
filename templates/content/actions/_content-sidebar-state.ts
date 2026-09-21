@@ -5,6 +5,12 @@ import { contentSidebarSectionsSchema } from "../shared/content-personal-navigat
 export const CONTENT_SIDEBAR_STATE_VERSION = 2;
 export const CONTENT_SIDEBAR_STATE_SETTING_KEY = "content-sidebar-state";
 
+export function contentSidebarStateSettingKey(spaceId?: string) {
+  return spaceId
+    ? `${CONTENT_SIDEBAR_STATE_SETTING_KEY}:${spaceId}`
+    : CONTENT_SIDEBAR_STATE_SETTING_KEY;
+}
+
 const expandedIdSchema = z.string().min(1).max(256);
 
 const contentSidebarStateV1Schema = z.object({

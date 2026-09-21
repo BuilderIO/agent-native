@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const settings = vi.hoisted(() => ({ value: null as unknown }));
+const settings = vi.hoisted(() => ({ values: new Map<string, unknown>() }));
 vi.mock("@agent-native/core/settings", () => ({
-  getUserSetting: async () => settings.value,
+  getUserSetting: async (_email: string, key: string) =>
+    settings.values.get(key) ?? null,
   mutateUserSetting: async (
     _email: string,
-    _key: string,
+    key: string,
     update: (value: unknown) => unknown,
   ) => {
-    settings.value = update(settings.value);
-    return settings.value;
+    const value = update(settings.values.get(key) ?? null);
+    settings.values.set(key, value);
+    return value;
   },
 }));
 import { defaultContentSidebarSections } from "../shared/content-personal-navigation";
@@ -17,7 +19,7 @@ import getSidebar from "./get-content-sidebar-state";
 import updateSidebar from "./update-content-sidebar-state";
 
 beforeEach(() => {
-  settings.value = null;
+  settings.values.clear();
 });
 
 import {
@@ -33,8 +35,9 @@ describe("normalizeContentSidebarState", () => {
     const ctx = { userEmail: "sidebar@example.test" };
     expect(await updateSidebar.run(state, ctx)).toEqual({ state });
     expect(await getSidebar.run({}, ctx)).toEqual({ state });
-    expect(settings.value).not.toHaveProperty("expandedWorkspaceIds");
-    expect(settings.value).not.toHaveProperty("expandedDocumentIds");
+    const saved = settings.values.get("content-sidebar-state");
+    expect(saved).not.toHaveProperty("expandedWorkspaceIds");
+    expect(saved).not.toHaveProperty("expandedDocumentIds");
   });
 
   it("preserves explicit empty expansion preferences when sections change", async () => {
@@ -118,7 +121,7 @@ describe("normalizeContentSidebarState", () => {
   });
 
   it("uses the selected space when the first v2 partial write migrates v1", async () => {
-    settings.value = {
+    settings.values.set("content-sidebar-state", {
       version: 1,
       expandedWorkspaceIds: ["space-a"],
       sections: {
@@ -126,7 +129,7 @@ describe("normalizeContentSidebarState", () => {
         pinned: { visible: true, expanded: true, limit: 25 },
         recent: { visible: true, expanded: true, limit: 15 },
       },
-    };
+    });
     await updateSidebar.run(
       {
         version: 2,
@@ -135,13 +138,38 @@ describe("normalizeContentSidebarState", () => {
       },
       { userEmail: "sidebar@example.test" },
     );
-    expect(settings.value).toMatchObject({
+    const saved = settings.values.get("content-sidebar-state:space-b");
+    expect(saved).toMatchObject({
       version: 2,
       expandedWorkspaceIds: ["space-a"],
       expandedDocumentIds: ["child"],
       sections: { files: { visible: true, expanded: false } },
     });
-    expect(settings.value).not.toHaveProperty("spaceId");
-    expect(settings.value.sections.pinned).not.toHaveProperty("limit");
+    expect(saved).not.toHaveProperty("spaceId");
+    expect(saved).toMatchObject({ sections: { pinned: { visible: true } } });
+  });
+
+  it("keeps section preferences isolated between Content spaces", async () => {
+    const ctx = { userEmail: "sidebar@example.test" };
+    const first = defaultContentSidebarSections();
+    first.pinned.visible = false;
+    const second = defaultContentSidebarSections();
+    second.recent.visible = false;
+
+    await updateSidebar.run(
+      { version: 2, spaceId: "space-a", sections: first },
+      ctx,
+    );
+    await updateSidebar.run(
+      { version: 2, spaceId: "space-b", sections: second },
+      ctx,
+    );
+
+    expect(await getSidebar.run({ spaceId: "space-a" }, ctx)).toEqual({
+      state: { version: 2, sections: first },
+    });
+    expect(await getSidebar.run({ spaceId: "space-b" }, ctx)).toEqual({
+      state: { version: 2, sections: second },
+    });
   });
 });

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import {
   CONTENT_SIDEBAR_STATE_SETTING_KEY,
+  contentSidebarStateSettingKey,
   normalizeContentSidebarState,
 } from "./_content-sidebar-state.js";
 
@@ -14,10 +15,14 @@ export default defineAction({
   agentTool: false,
   run: async (args, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
-    const stored = await getUserSetting(
-      ctx.userEmail,
-      CONTENT_SIDEBAR_STATE_SETTING_KEY,
-    );
-    return { state: normalizeContentSidebarState(stored, args.spaceId) };
+    const scopedKey = contentSidebarStateSettingKey(args.spaceId);
+    const stored = await getUserSetting(ctx.userEmail, scopedKey);
+    const legacy =
+      stored === null && scopedKey !== CONTENT_SIDEBAR_STATE_SETTING_KEY
+        ? await getUserSetting(ctx.userEmail, CONTENT_SIDEBAR_STATE_SETTING_KEY)
+        : null;
+    return {
+      state: normalizeContentSidebarState(stored ?? legacy, args.spaceId),
+    };
   },
 });
