@@ -33,6 +33,7 @@ import {
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
   runtimeLayerStateHandoffMode,
+  previewCodeLayerTreeMove,
 } from "./code-layer-state";
 
 describe("codeLayerPatchMessage", () => {
@@ -58,6 +59,26 @@ describe("codeLayerPatchMessage", () => {
         "Could not move that layer",
       ),
     ).toBe("This screen is backed by a live route URL.");
+  });
+});
+
+describe("previewCodeLayerTreeMove", () => {
+  it("rejects a stale anchor instead of hiding the source", () => {
+    const tree = previewCodeLayerTreeMove(
+      buildCodeLayerTree(
+        buildCodeLayerProjection(
+          '<div data-agent-native-node-id="source">Source</div>',
+        ),
+      ),
+      {
+        sourceId: "source",
+        anchorId: "stale-anchor",
+        placement: "after",
+        insert: false,
+      },
+    );
+
+    expect(tree).toBeNull();
   });
 });
 
@@ -1247,6 +1268,15 @@ describe("canonicalElementInfoForCodeLayerNode runtime identity", () => {
     );
 
     expect(canonical.isGroup).toBe(false);
+  });
+
+  it("refreshes a missing primitive kind from the source projection", () => {
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      makeElementInfo({ tagName: "svg" }),
+      makeNode({ tag: "svg", dataAttributes: { "data-an-primitive": "line" } }),
+    );
+
+    expect(canonical.primitiveKind).toBe("line");
   });
 });
 

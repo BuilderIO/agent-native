@@ -26,6 +26,7 @@ import type { DesignFile } from "@/pages/design-editor/types";
 export interface RecordPendingLiveTextEditArgs {
   activeFile: DesignFile;
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   cancelPendingStructureVerification: (
     nextStatus?: PendingStructureVerificationStatus,
   ) => void;
@@ -51,6 +52,7 @@ export function runRecordPendingLiveTextEdit(
   {
     activeFile,
     canEditDesign,
+    canEditLiveScreens,
     cancelPendingStructureVerification,
     files,
     localhostConnectionRootPathByIdRef,
@@ -73,9 +75,10 @@ export function runRecordPendingLiveTextEdit(
     html?: string;
     originalValue?: string;
     originalHtml?: string;
+    routePath?: string;
   },
 ) {
-  if (!canEditDesign) return;
+  if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
   const screen = files.find((file) => file.id === screenId);
   const fallbackName = screen?.filename ?? screenId;
   const sourceId =
@@ -104,6 +107,7 @@ export function runRecordPendingLiveTextEdit(
     filename: fallbackName,
     screenName: prettyScreenName(fallbackName),
     selector,
+    ...(details?.routePath ? { routePath: details.routePath } : {}),
     sourceId,
     sourceAnchor: reactSourceAnchorForPendingEdit({
       info: elementInfo,

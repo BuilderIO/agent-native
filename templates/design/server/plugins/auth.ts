@@ -38,6 +38,7 @@ export default createAuthPlugin({
     DESIGN_AGENT_CONTEXT_ENDPOINT,
     "/__manifest",
     "/_agent-native/actions/get-design",
+    "/_agent-native/actions/get-design-access-status",
     "/_agent-native/actions/list-design-native-assets",
     "/_agent-native/actions/list-review-comments",
   ],

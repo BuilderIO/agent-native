@@ -29,7 +29,7 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
 2. **Permission.** Call `navigator.mediaDevices.getDisplayMedia({ video, audio })` for screen, `getUserMedia({ video, audio })` for camera. Do **not** prompt without a user gesture. The agent path relies on the UI's button — we never bypass the browser's permission model.
 3. **Create row.** As soon as the stream is granted, call `create-recording` to insert the row with `status: "uploading"` and a pre-generated id. That id is used for every subsequent chunk upload.
 4. **Record.** Start a `MediaRecorder` with `mimeType: "video/webm;codecs=vp9,opus"` (fallback to vp8, then browser default). Use `timeslice: 2000` so chunks arrive every 2s.
-5. **Upload each chunk.** `ondataavailable` POSTs the chunk bytes to `/api/uploads/chunk` with headers `X-Recording-Id` and `X-Chunk-Index`. Don't retry inline — buffer failed chunks in `IndexedDB` and let a background worker re-send.
+5. **Upload each chunk.** `ondataavailable` streams bytes to `/api/uploads/chunk` with headers `X-Recording-Id` and `X-Chunk-Index`, while independently mirroring raw chunks to `IndexedDB` as a best-effort backup. A transient delivery failure pauses upload and resumes the in-memory source only while the current browser tab remains open; there is no background resend worker or closed-tab recovery promise. An `IndexedDB` write failure does not block capture or upload.
 6. **Live transcription.** Alongside the MediaRecorder, `useLiveTranscription` runs the Web Speech API to accumulate transcript text in real time. On stop, the client calls `save-browser-transcript` to persist the result immediately — no API key needed. Desktop recordings use local Whisper/macOS speech first when available, and fall back to Web Speech in the webview on non-mac before relying on upload transcription.
 7. **Finalize.** On stop, send the final chunk to `/api/uploads/:id/chunk?isFinal=1`. The route calls `finalize-recording`, which stitches chunks, makes the media seekable (see below), uploads the finished media when storage is configured, transitions `status` to `ready`, then kicks off `request-transcript` for higher-quality output (see `ai-video-tools`).
 8. **Navigate immediately.** Desktop recorders open `/r/:id` as soon as Stop
@@ -209,8 +209,8 @@ new session never comes up.
 
 `cancel()` and `discardForRestart()` share one `discardTake(forRestart)` per
 backend, and the difference is which teardown they run. Cancel ends the
-*session*: `hide_overlays` (which destroys the camera bubble window too) and
-`clearRecordingState()`. A restart ends only the *take*, so it uses
+_session_: `hide_overlays` (which destroys the camera bubble window too) and
+`clearRecordingState()`. A restart ends only the _take_, so it uses
 `hide_recording_chrome`, which spares the bubble, and leaves the recording state
 active.
 
@@ -245,12 +245,13 @@ the recorder recreates it on every start.
 
 ## Error recovery
 
-| Failure                       | Handling                                                                  |
-| ----------------------------- | ------------------------------------------------------------------------- |
-| Permission denied             | Mark the recording row `status: "failed"`, `failureReason: "permission"`. |
-| Chunk upload fails (5xx)      | Retry 3× with backoff; if still failing, park the chunk in IndexedDB.     |
-| `MediaRecorder` error event   | Stop, finalize what we have, set `failureReason`; let the user retry.     |
-| User closes tab mid-recording | On reload, check for unflushed chunks in IndexedDB and resume upload.     |
+| Failure                        | Handling                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| Permission denied              | Mark the recording row `status: "failed"`, `failureReason: "permission"`.             |
+| Transient chunk upload failure | Pause delivery; replay the in-memory source only while the current tab remains open.  |
+| `IndexedDB` write failure      | Continue capture and upload; the local backup is unavailable for that specific chunk. |
+| `MediaRecorder` error event    | Stop, finalize what we have, set `failureReason`; let the user retry.                 |
+| User closes tab mid-recording  | No background resend or closed-tab recovery is promised.                              |
 
 ## Code sketch
 

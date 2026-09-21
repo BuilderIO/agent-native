@@ -37,6 +37,7 @@ export interface RecordPendingVisualStyleEditArgs {
   activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile;
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   cancelPendingStructureVerification: (
     nextStatus?: PendingStructureVerificationStatus,
   ) => void;
@@ -70,6 +71,7 @@ export function runRecordPendingVisualStyleEdit(
     activeBreakpointWidthState,
     activeFile,
     canEditDesign,
+    canEditLiveScreens,
     cancelPendingStructureVerification,
     clipboardPasteRedoStackRef,
     files,
@@ -99,9 +101,10 @@ export function runRecordPendingVisualStyleEdit(
     interactionState?: InteractionState;
     pendingUndoGestureId?: string;
     preserveSelection?: boolean;
+    routePath?: string;
   },
 ) {
-  if (!canEditDesign) return;
+  if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
   const entries = Object.entries(styles).filter(
     ([, value]) => value !== undefined,
   );
@@ -175,6 +178,7 @@ export function runRecordPendingVisualStyleEdit(
     classes: elementInfo?.classes ?? [],
     styles: stylePatch,
     originalStyles,
+    ...(metadata?.routePath ? { routePath: metadata.routePath } : {}),
     ...(metadata?.interactionState
       ? { interactionState: metadata.interactionState, baseStyles }
       : {}),

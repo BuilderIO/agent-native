@@ -109,6 +109,8 @@ export interface EmbedSessionTicketConsumeDiagnostic {
 export interface ConsumeEmbedSessionTicketOptions {
   expectedOwnerEmail?: string | null;
   expectedOrgId?: string | null;
+  /** Capability tickets are resource-scoped, not bound to the browser's account. */
+  allowCapabilityIdentityMismatch?: boolean;
   onResult?: (result: EmbedSessionTicketConsumeDiagnostic) => void;
 }
 
@@ -675,6 +677,9 @@ export async function consumeEmbedSessionTicket(
   const ticketOwnerKey = redactedIdentifier(normalizedEmail(ownerEmail));
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   const ticketOrgKey = redactedIdentifier(orgId);
+  const capabilityScope = isEmbedCapabilityScope(stringOrUndefined(row.scope));
+  const identityMismatchAllowed =
+    options.allowCapabilityIdentityMismatch && capabilityScope;
   if (consumedAt != null) {
     options.onResult?.({
       outcome: "already-consumed",
@@ -704,6 +709,7 @@ export async function consumeEmbedSessionTicket(
     return null;
   }
   if (
+    !identityMismatchAllowed &&
     expectedOwnerEmail &&
     ownerEmail &&
     normalizedEmail(ownerEmail) !== expectedOwnerEmail
@@ -721,7 +727,12 @@ export async function consumeEmbedSessionTicket(
     });
     return null;
   }
-  if (options.expectedOrgId && orgId && orgId !== options.expectedOrgId) {
+  if (
+    !identityMismatchAllowed &&
+    options.expectedOrgId &&
+    orgId &&
+    orgId !== options.expectedOrgId
+  ) {
     options.onResult?.({
       outcome: "org-mismatch",
       ticketKey,

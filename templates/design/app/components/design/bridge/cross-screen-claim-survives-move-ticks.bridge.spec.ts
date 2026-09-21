@@ -40,6 +40,18 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
        style="position:absolute;left:30px;top:280px;width:120px;height:80px;background:#3b82f6"></div>
 </body></html>`;
 
+const FLOW_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <main style="display:flex;flex-direction:column;gap:16px;padding:24px">
+    <div data-agent-native-node-id="row" style="display:flex;gap:8px">
+      <div data-agent-native-node-id="alpha" style="width:100px;height:60px;background:#3b82f6"></div>
+      <div data-agent-native-node-id="beta" style="width:100px;height:60px;background:#22c55e"></div>
+    </div>
+    <section data-agent-native-node-id="section" style="width:300px;height:200px;padding:16px;background:#1a1d24">
+      <h2 style="margin:0">Section</h2>
+    </section>
+  </main>
+</body></html>`;
+
 describe("crossScreenClaimedByHost survives the move ticks between claim and release", () => {
   it("does not commit the drag locally once the host has claimed it, even though isOutsideIframeViewport never fires", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -126,6 +138,206 @@ describe("crossScreenClaimedByHost survives the move ticks between claim and rel
         cededToHost,
         "the source must post a cross-screen-drag end for the host to finalize",
       ).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("clears a source S modifier when cross-screen end owns the keyup", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(FIXTURE);
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "Win32",
+        });
+      });
+      const starts: Array<{ ignoreAutoLayout?: boolean }> = [];
+      await page.exposeFunction(
+        "__pushCrossScreenStart",
+        (data: { modifiers?: { ignoreAutoLayout?: boolean } }) =>
+          starts.push(data.modifiers ?? {}),
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (event: MessageEvent) => {
+          const data = event.data as {
+            type?: string;
+            phase?: string;
+            modifiers?: { ignoreAutoLayout?: boolean };
+          };
+          if (
+            data.type === "agent-native:cross-screen-drag" &&
+            data.phase === "start"
+          ) {
+            void (window as any).__pushCrossScreenStart(data);
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="widget"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(30);
+
+      await page.keyboard.down("s");
+      await page.mouse.move(90, 320);
+      await page.mouse.down();
+      await page.mouse.move(900, 400, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      await page.mouse.move(90, 320);
+      await page.mouse.down();
+      await page.mouse.move(150, 360, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      expect(
+        starts
+          .filter((start) => "ignoreAutoLayout" in start)
+          .map((start) => start.ignoreAutoLayout),
+      ).toEqual([true, false]);
+      await page.close();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("carries the platform-primary modifier through flow reorder messages", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(FLOW_FIXTURE);
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "MacIntel",
+        });
+      });
+      const messages: Array<Record<string, any>> = [];
+      await page.exposeFunction(
+        "__pushCrossScreenMessage",
+        (data: Record<string, any>) => messages.push(data),
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (event: MessageEvent) => {
+          const data = event.data as Record<string, any>;
+          if (data.type === "agent-native:cross-screen-drag") {
+            void (window as any).__pushCrossScreenMessage(data);
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="alpha"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(30);
+
+      await page.keyboard.down("Meta");
+      await page.mouse.move(74, 54);
+      await page.mouse.down();
+      await page.mouse.move(174, 150, { steps: 6 });
+      await page.mouse.move(900, 400, { steps: 8 });
+      await page.mouse.up();
+      await page.keyboard.up("Meta");
+      await page.waitForTimeout(30);
+
+      const activeMessages = messages.filter(
+        (message) =>
+          (message.phase === "start" ||
+            message.phase === "move" ||
+            message.phase === "end") &&
+          message.modifiers,
+      );
+      expect(activeMessages.length).toBeGreaterThan(0);
+      expect(
+        activeMessages.every(
+          (message) =>
+            message.modifiers?.metaKey === true &&
+            message.modifiers?.forceNestedAutoLayout === true,
+        ),
+        JSON.stringify(activeMessages),
+      ).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("normalizes an epoch-form release timestamp before crossing contexts", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(FIXTURE);
+      await page.evaluate(() => {
+        Object.defineProperty(Event.prototype, "timeStamp", {
+          configurable: true,
+          get: () => Date.now(),
+        });
+      });
+      let releasedAt: number | undefined;
+      await page.exposeFunction(
+        "__captureCrossScreenEnd",
+        (data: { releasedAt?: number }) => {
+          releasedAt = data.releasedAt;
+        },
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (event: MessageEvent) => {
+          const data = event.data as {
+            type?: string;
+            phase?: string;
+            releasedAt?: number;
+          };
+          if (
+            data.type === "agent-native:cross-screen-drag" &&
+            data.phase === "end"
+          ) {
+            void (window as any).__captureCrossScreenEnd(data);
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="widget"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(30);
+
+      const before = Date.now();
+      await page.mouse.move(90, 320);
+      await page.mouse.down();
+      await page.mouse.move(900, 400, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+      const after = Date.now();
+
+      expect(releasedAt).toBeGreaterThanOrEqual(before);
+      expect(releasedAt).toBeLessThanOrEqual(after);
     } finally {
       await browser.close();
     }

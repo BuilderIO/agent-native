@@ -14,7 +14,13 @@ const mocks = vi.hoisted(() => ({
       updatedAt: "connections.updatedAt",
     },
     designs: { id: "designs.id", data: "designs.data" },
-    designFiles: { id: "files.id", designId: "files.designId" },
+    designFiles: {
+      id: "files.id",
+      designId: "files.designId",
+      filename: "files.filename",
+      fileType: "files.fileType",
+      content: "files.content",
+    },
   },
   state: {
     connection: {} as Record<string, unknown>,
@@ -61,6 +67,7 @@ vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: ({ to }: { to: string }) => to,
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => "org_1",
 }));
@@ -78,9 +85,8 @@ vi.mock("drizzle-orm", () => ({
   sql: (...values: unknown[]) => values,
 }));
 
-vi.mock("../server/db/index.js", () => ({
-  schema: mocks.schema,
-  getDb: () => ({
+vi.mock("../server/db/index.js", () => {
+  const db = {
     select: () => {
       mocks.state.selectCount += 1;
       return {
@@ -104,13 +110,29 @@ vi.mock("../server/db/index.js", () => ({
               }),
             };
           }
-          const rows = Object.assign(Promise.resolve(mocks.state.files), {
-            limit: () =>
-              Promise.resolve(
-                mocks.state.winnerFile ? [mocks.state.winnerFile] : [],
-              ),
-          });
-          return { where: () => rows };
+          return {
+            where: (condition: unknown) => {
+              const conditions = Array.isArray(condition)
+                ? condition
+                : [condition];
+              const matches = (file: Record<string, unknown>) =>
+                conditions.every((entry) => {
+                  const comparison = entry as {
+                    left?: unknown;
+                    right?: unknown;
+                  };
+                  const column = String(comparison.left).split(".").pop();
+                  return column ? file[column] === comparison.right : true;
+                });
+              const matchedFiles = mocks.state.files.filter(matches);
+              const candidates = mocks.state.winnerFile
+                ? [mocks.state.winnerFile].filter(matches)
+                : matchedFiles;
+              return Object.assign(Promise.resolve(matchedFiles), {
+                limit: () => Promise.resolve(candidates.slice(0, 1)),
+              });
+            },
+          };
         },
       };
     },
@@ -147,8 +169,19 @@ vi.mock("../server/db/index.js", () => ({
         },
       }),
     }),
-  }),
-}));
+  };
+  return {
+    schema: mocks.schema,
+    getDb: () => ({
+      ...db,
+      transaction: async (
+        callback: (
+          tx: typeof db & { execute: () => Promise<unknown> },
+        ) => Promise<unknown>,
+      ) => callback({ ...db, execute: async () => ({ rows: [] }) }),
+    }),
+  };
+});
 
 import { makeLocalhostRouteId } from "../shared/source-mode.js";
 import action from "./add-localhost-screens.js";

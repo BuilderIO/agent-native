@@ -35,7 +35,7 @@ vi.mock("nanoid", () => ({
 
 vi.mock("../server/db/index.js", () => {
   const schema = {
-    designs: { table: "designs" },
+    designs: { table: "designs", data: "designs.data" },
     designFiles: { table: "designFiles" },
     designTemplateFiles: {
       table: "designTemplateFiles",
@@ -56,30 +56,30 @@ vi.mock("../server/db/index.js", () => {
         '<main style="width:1080px;height:1080px;font-family:Sora,sans-serif"><div data-agent-native-locked="true">Brand</div><p>Editable</p></main>',
     },
   ];
+  const select = () => ({
+    from: (table: { table: string }) => ({
+      where: () => {
+        const rows =
+          table.table === "designFiles"
+            ? testState.targetDesignFiles
+            : table.table === "designs"
+              ? testState.targetDesignRows
+              : templateFiles;
+        const result = Promise.resolve(rows) as Promise<unknown[]> & {
+          limit: (n: number) => Promise<unknown[]>;
+        };
+        result.limit = async () => rows;
+        return result;
+      },
+    }),
+  });
   return {
     schema,
     getDb: () => ({
-      select: () => ({
-        from: (table: { table: string }) => ({
-          where: () => {
-            const rows =
-              table.table === "designFiles"
-                ? testState.targetDesignFiles
-                : table.table === "designs"
-                  ? testState.targetDesignRows
-                  : templateFiles;
-            // Awaited directly for the template read, `.limit()`-chained for
-            // the target-is-empty check.
-            const result = Promise.resolve(rows) as Promise<unknown[]> & {
-              limit: (n: number) => Promise<unknown[]>;
-            };
-            result.limit = async () => rows;
-            return result;
-          },
-        }),
-      }),
+      select,
       transaction: async (
         run: (tx: {
+          select: typeof select;
           insert: (table: { table: string }) => {
             values: (values: unknown) => Promise<void>;
           };
@@ -88,10 +88,12 @@ vi.mock("../server/db/index.js", () => {
               where: (condition: unknown) => Promise<void>;
             };
           };
+          execute: (query: unknown) => Promise<{ rows: unknown[] }>;
         }) => Promise<void>,
       ) => {
         testState.transactionCount += 1;
         await run({
+          select,
           insert: (table) => ({
             values: async (values) => {
               if (table.table === "designs") {
@@ -110,6 +112,7 @@ vi.mock("../server/db/index.js", () => {
               },
             }),
           }),
+          execute: async () => ({ rows: [] }),
         });
       },
     }),
@@ -295,7 +298,7 @@ describe("create-design-from-template", () => {
       } as never),
     ).rejects.toThrow(/only fill an empty design/i);
 
-    expect(testState.transactionCount).toBe(0);
+    expect(testState.transactionCount).toBe(1);
     expect(testState.updatedDesign).toBeNull();
   });
 

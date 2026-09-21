@@ -80,6 +80,7 @@ const messages = {
     createFolderError: "만들기 실패",
     folderCreated: "폴더가 생성됨",
     folderNamePlaceholder: "폴더 이름",
+    breadcrumbBack: "{{label}}(으)로 돌아가기",
   },
   empty: {
     library: {
@@ -160,6 +161,10 @@ const messages = {
     aiRequestFailed: "AI 요청 실패",
     titleUpdated: "제목이 업데이트되었습니다.",
     descriptionUpdated: "설명이 업데이트되었습니다.",
+    tags: "태그",
+    addTag: "태그 추가…",
+    tagsUpdateFailed: "태그를 업데이트하지 못했습니다",
+    tagTooLong: "태그는 최대 {{max}}자까지 입력할 수 있습니다",
     chaptersGenerated: "챕터가 생성되었습니다.",
     fillerCompleted: "필러 단어 제거가 완료되었습니다.",
     workflowReady: "워크플로가 준비되었습니다.",
@@ -1228,7 +1233,7 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "새 공간",
-    description: "현재 조직에 공간을 만듭니다.",
+    description: "스페이스는 조직의 녹화를 정리하는 공유 공간입니다.",
     name: "이름",
     color: "색상",
     useColor: "{{color}} 색상 사용",
@@ -1432,7 +1437,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app (현지화됨)",
     surfaceBrowser: "Browser tab (현지화됨)",
     surfaceBrowserDescription: "Choose an open tab (현지화됨)",
-    surfaceScreen: "Screen (현지화됨)",
+    surfaceScreen: "전체 화면",
     surfaceScreenDescription: "Capture everything (현지화됨)",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection. (현지화됨)",
@@ -1552,7 +1557,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app (현지화됨)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (현지화됨)",
+    recordOnDesktop: "데스크톱에서 녹화",
     downloadDesktopApp: "Download desktop app (현지화됨)",
+    getChromeExtension: "Chrome 확장 프로그램 받기",
     technicalDetails: "Technical details (현지화됨)",
     whatToCheck: "What to check (현지화됨)",
     downloadRecording: "Download (현지화됨)",

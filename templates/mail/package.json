@@ -19,9 +19,11 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@ai-sdk/openai": "4.0.70",
     "@fontsource-variable/inter": "^5.2.8",
     "@tabler/icons-react": "catalog:",
     "@tanstack/react-virtual": "^3.14.5",
+    "ai": "7.0.106",
     "chrono-node": "^2.7.6",
     "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",

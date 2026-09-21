@@ -42,6 +42,31 @@ describe("resolveFrameGeometrySync", () => {
     expect(result.next["new-duplicate"]).toBeDefined();
   });
 
+  it("keeps an optimistic duplicate geometry ahead of the fallback", () => {
+    const duplicateGeometry = {
+      x: 900,
+      y: 300,
+      width: 878,
+      height: 640,
+    };
+    const result = resolveFrameGeometrySync({
+      screens: [{ id: "source" }, { id: "duplicate" }],
+      currentGeometryById: {
+        source: { x: 0, y: 0, width: 878, height: 640 },
+        // This is the fallback that can be captured if the new screen renders
+        // before DesignEditor's optimistic geometry prop reaches this effect.
+        duplicate: { x: 0, y: 0, width: 320, height: 640 },
+      },
+      persistedGeometryById: {
+        source: { x: 0, y: 0, width: 878, height: 640 },
+      },
+      geometryOverridesById: { duplicate: duplicateGeometry },
+    });
+
+    expect(result.next.duplicate).toEqual(duplicateGeometry);
+    expect(result.shouldNotifyParent).toBe(false);
+  });
+
   it("adopts persisted geometry locally without echoing it back to the parent", () => {
     const currentGeometryById: Record<string, FrameGeometry> = {
       home: { x: 0, y: 0, width: 878, height: 640 },

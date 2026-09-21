@@ -207,6 +207,20 @@ pub async fn read_focused_field_text() -> Result<String, String> {
     }
 }
 
+/// Return whether macOS currently exposes a focused text-capable element.
+/// This is intentionally a role check rather than a value check: an empty
+/// text field is still a valid dictation target.
+pub fn focused_text_field_available() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos::focused_text_field_available_impl()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 #[tauri::command]
 pub async fn accessibility_check_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
@@ -353,6 +367,7 @@ pub(crate) mod macos {
         fn CFRelease(cf: CFTypeRef);
         fn CFGetTypeID(cf: CFTypeRef) -> CFTypeID;
         fn CFStringGetTypeID() -> CFTypeID;
+        fn CFBooleanGetTypeID() -> CFTypeID;
         fn CFURLGetTypeID() -> CFTypeID;
         fn CFArrayGetCount(array: CFArrayRef) -> CFIndex;
         fn CFArrayGetValueAtIndex(array: CFArrayRef, index: CFIndex) -> *const c_void;
@@ -504,6 +519,45 @@ pub(crate) mod macos {
         }
     }
 
+    pub fn focused_text_field_available_impl() -> bool {
+        unsafe {
+            if !is_trusted(false) {
+                return false;
+            }
+
+            let system = AXUIElementCreateSystemWide();
+            if system.is_null() {
+                return false;
+            }
+            let focused = copy_ax_element_attribute(system, "AXFocusedUIElement");
+            CFRelease(system as CFTypeRef);
+            let Some(focused) = focused else {
+                return false;
+            };
+
+            let role = ax_string_attribute(focused, "AXRole");
+            let has_text_role = matches!(
+                role.as_deref(),
+                Some("AXTextField")
+                    | Some("AXTextArea")
+                    | Some("AXSearchField")
+                    | Some("AXComboBox")
+            );
+            let is_web_area = role.as_deref() == Some("AXWebArea");
+            let is_editable = ax_bool_attribute(focused, "AXEditable").unwrap_or(false);
+            let has_selected_range = copy_ax_element_attribute(focused, "AXSelectedTextRange")
+                .map(|value| {
+                    CFRelease(value as CFTypeRef);
+                    true
+                })
+                .unwrap_or(false);
+            let has_value = ax_string_attribute(focused, "AXValue").is_some();
+            CFRelease(focused as CFTypeRef);
+
+            has_text_role || (is_web_area && is_editable && (has_selected_range || has_value))
+        }
+    }
+
     /// Collect the semantic surface from the same application selected by the
     /// Core Graphics foreground-window sample. This avoids combining an
     /// ignored Clips utility window's AX tree with the underlying work app.
@@ -577,6 +631,23 @@ pub(crate) mod macos {
         } else {
             None
         };
+        CFRelease(raw_value);
+        value
+    }
+
+    unsafe fn ax_bool_attribute(element: AXUIElementRef, attribute: &str) -> Option<bool> {
+        let attribute = cfstr(attribute);
+        if attribute.is_null() {
+            return None;
+        }
+        let mut raw_value = ptr::null();
+        let error = AXUIElementCopyAttributeValue(element, attribute, &mut raw_value);
+        CFRelease(attribute as CFTypeRef);
+        if error != AX_ERROR_SUCCESS || raw_value.is_null() {
+            return None;
+        }
+        let value = (CFGetTypeID(raw_value) == CFBooleanGetTypeID())
+            .then_some(raw_value == kCFBooleanTrue);
         CFRelease(raw_value);
         value
     }

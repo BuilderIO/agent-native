@@ -1,6 +1,7 @@
 import englishMessages from "./core-messages/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
 import { mcpSettingsMessagesForLocale } from "./mcp-settings-messages.js";
+import { privacySettingsMessagesForLocale } from "./privacy-settings-messages.js";
 import {
   DEFAULT_LOCALE,
   isLocaleCode,
@@ -21,6 +22,13 @@ type RequiredAgentChatKey = Exclude<
 export type AgentChatTranslation = Record<string, string> & {
   [K in RequiredAgentChatKey]: string;
 };
+
+function settingsMessagesForLocale(locale: LocaleCode) {
+  return {
+    ...mcpSettingsMessagesForLocale(locale),
+    ...privacySettingsMessagesForLocale(locale),
+  };
+}
 
 const legacyAgentChatAliases = [
   ["agentPanel.addOwnKeys", "composer.addOwnKeys"],
@@ -179,7 +187,7 @@ export async function loadCoreMessagesForLocale(
   return {
     ...nestAgentChatMessages(await loadAgentChatMessagesForLocale(locale)),
     environmentBadge: environmentBadgeMessagesForLocale(locale),
-    settings: mcpSettingsMessagesForLocale(locale),
+    settings: settingsMessagesForLocale(locale),
   };
 }
 
@@ -192,6 +200,6 @@ export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
       ? englishCoreMessages
       : {}),
     environmentBadge: environmentBadgeMessagesForLocale(locale),
-    settings: mcpSettingsMessagesForLocale(locale),
+    settings: settingsMessagesForLocale(locale),
   };
 }

@@ -398,7 +398,7 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
     expect(fragment).toContain("marker-end");
   });
 
-  it("defaults an arrow's stroke and arrowhead marker fill to solid black at 1px", () => {
+  it("defaults an arrow's stroke to solid black at 1px and inherits it in the marker", () => {
     const entry: BoardObjectEntry = {
       id: "arrow-default",
       kind: "arrow",
@@ -406,11 +406,13 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
       createdAt: "2024-01-01T00:00:00.000Z",
     };
     const fragment = boardObjectEntryToHtmlFragment(entry);
-    // The path stroke and the marker's arrowhead fill must both use the same
-    // default color so the arrowhead never visually mismatches the shaft.
+    // The path and marker use the same context stroke so changing the shaft
+    // color or weight cannot leave the arrowhead stale.
     expect(fragment).toContain('stroke="#000000"');
     expect(fragment).toContain('stroke-width="1"');
-    expect(fragment).toMatch(/<path d="M 0 0 L 10 5 L 0 10 z" fill="#000000"/);
+    expect(fragment).toMatch(
+      /<path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/,
+    );
   });
 
   it("uses provided pathData when given", () => {

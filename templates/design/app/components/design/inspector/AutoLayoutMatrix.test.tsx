@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AutoLayoutMatrix,
+  mirrorPaddingChange,
   type AutoLayoutMatrixValue,
 } from "./AutoLayoutMatrix";
 
@@ -22,6 +23,50 @@ const value: AutoLayoutMatrixValue = {
 const noop = () => {};
 
 describe("AutoLayoutMatrix", () => {
+  it("mirrors the opposite padding side only for an Alt scrub", () => {
+    const padding = { top: 4, right: 8, bottom: 12, left: 16 };
+
+    expect(
+      mirrorPaddingChange({ ...padding, top: 24 }, "top", {
+        source: "scrub",
+        phase: "preview",
+        altKey: true,
+      }),
+    ).toEqual({
+      top: 24,
+      right: 8,
+      bottom: 24,
+      left: 16,
+    });
+    expect(mirrorPaddingChange({ ...padding, top: 24 }, "top")).toEqual({
+      top: 24,
+      right: 8,
+      bottom: 12,
+      left: 16,
+    });
+  });
+
+  it("renders fractional resolved sizes without rounding them away", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value: {
+          ...value,
+          resolvedSize: { horizontal: 123.4, vertical: 45.6 },
+        },
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).toContain("W 123.4 Fixed");
+    expect(markup).toContain("H 45.6 Fixed");
+  });
+
   it("keeps gap and unlinked padding on fixed inspector grid geometry", () => {
     const markup = renderToStaticMarkup(
       createElement(AutoLayoutMatrix, {

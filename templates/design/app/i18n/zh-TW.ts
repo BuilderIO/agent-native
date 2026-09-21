@@ -504,9 +504,40 @@ const messages = {
     },
   },
   designEditor: {
+    vectorEndpoints: {
+      startPoint: "起點",
+      endPoint: "終點",
+      swap: "交換起點與終點",
+      options: {
+        none: "無",
+        round: "圓頭",
+        square: "方形",
+        line: "線箭頭",
+        triangle: "三角箭頭",
+        reversedTriangle: "反向三角形",
+        circle: "圓形箭頭",
+        diamond: "菱形箭頭",
+      },
+    },
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
     ...responsiveInteractOverrides["zh-TW"].designEditor,
+    deepSelectGuidance: {
+      message: "按住 {{modifier}} 並點擊以選取內部圖層。",
+      dismiss: "關閉圖層選取提示",
+    },
     askAgent: "詢問代理",
+    designNotFoundDescription: "此設計不存在，或已被刪除。",
+    requestAccessTitle: "請求存取此設計",
+    requestAccessDescription: "此設計是私人的。向擁有者請求存取權限。",
+    requestAccess: "請求存取權限",
+    accessRequested: "已請求存取權限",
+    accessRequestSentDescription:
+      "已記錄你的請求。存取權限核准後即可開啟此設計。",
+    signInToRequestAccessTitle: "登入以請求存取權限",
+    signInToRequestAccessDescription: "登入或建立帳戶，向擁有者請求存取權限。",
+    signInOrSignUp: "登入或註冊",
+    accessCheckFailed: "無法檢查此設計的存取權限。",
+    retryAccessCheck: "重試",
     commenterRoleLabel: "評論者",
     commenterRoleDescription: "可以檢視並新增審閱評論",
     nodeRewrite: {
@@ -621,16 +652,6 @@ const messages = {
         firstEditGuidance:
           "響應式編輯預設會影響此中斷點及更小尺寸。可在中斷點控制旁變更範圍。",
       },
-    },
-    screenDeletion: {
-      titleOne: "刪除此畫面？",
-      titleMany: "刪除 {{count}} 個畫面？",
-      descriptionOne:
-        "將刪除「{{filename}}」及其所有響應式變體。編輯器保持開啟時可以復原。",
-      descriptionMany:
-        "將刪除這些畫面及其所有響應式變體。編輯器保持開啟時可以復原。",
-      cancel: "取消",
-      confirm: "刪除",
     },
     motion: {
       dockLabel: "動態面板",
@@ -778,7 +799,9 @@ const messages = {
       figUploadDescription:
         "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 {{max}} MB。",
       figUploadDescriptionShort:
-        "本機匯入 — 不使用 Figma API 配額。包含內嵌圖片。",
+        "本機匯入 — 不使用 Figma API 配額。支援的內嵌圖片會一併匯入。",
+      figUploadImagesSkippedWarning:
+        "為符合瀏覽器上傳限制，已略過 {{count}} 張內嵌圖片。",
       chooseFigFile: "選擇 .fig 檔案",
       figUploadUploading: "上傳中 {{progress}}%",
       figUploadProcessing: "轉換中…",
@@ -849,7 +872,7 @@ const messages = {
     clickToRename: "點選重新命名",
     collaborators: "協作者",
     share: "分享",
-    signUpToSave: "註冊以儲存",
+    signUpToSave: "註冊",
     signUpToSaveDescription: "登入即可儲存這個設計的可編輯副本。",
     signUpToShare: "註冊以分享",
     shareEditorLink: "編輯器連結",
@@ -1301,9 +1324,9 @@ const messages = {
   },
   visualEdit: {
     eyebrow: "視覺編輯",
-    title: "登入前先檢查本機應用畫面",
+    title: "從 /visual-edit 開始",
     description:
-      "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
+      "在你的 coding agent 中安裝此 skill，然後使用 /visual-edit 檢視並編輯正在執行的本機應用程式。",
     saveCta: "儲存",
     openDesign: "開啟 Design",
     templatesCta: "瀏覽範本",

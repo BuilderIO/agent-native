@@ -1,0 +1,96 @@
+---
+title: "Design: Conversar com o Agent"
+description: "O que o agente vê quando você está no Design, e prompts organizados por tarefa, da geração de um primeiro rascunho até a exportação do resultado."
+---
+
+# Conversar com o Agent
+
+Tudo no Design está disponível para o agente através das mesmas actions que a interface usa, então qualquer coisa que você pode clicar, você também pode pedir em linguagem natural. Esta página cobre como o agente vê sua tela, e depois prompts úteis por tarefa. Veja [Design](/docs/template-design) para a visão geral.
+
+## Como o agente vê sua tela
+
+Antes de fazer qualquer coisa, o agente verifica o que você está vendo: qual design ou template está aberto, em qual visualização você está (a lista de designs, Templates, o editor, Sistemas de Design ou uma visualização pública de apresentação), qual tela e elemento você tem selecionado, qual aba do inspetor está ativa (Design, Comentários ou Código e Medidas), e qual painel da barra lateral esquerda está aberto (Arquivo, Agente, Assets, Importar, Ferramentas ou Tokens). É por isso que "torne isso mais denso" ou "corrija o contraste deste botão" é resolvido corretamente sem que você precise nomear a tela ou o elemento. O agente já sabe a que "isso" se refere.
+
+Algumas situações mudam o que o agente faz em seguida:
+
+- **Um prompt vago.** Se sua solicitação não dá ao agente informação suficiente para seguir, ele mostra uma sobreposição de tela cheia com perguntas de esclarecimento em vez de adivinhar, e espera sua resposta no chat antes de gerar qualquer coisa.
+- **Um design feito a partir de um template.** O agente já conhece as dimensões e fontes travadas do template, e refina as telas existentes no próprio lugar em vez de regenerá-las ou redimensioná-las.
+- **Uma variante em meio a uma comparação.** Se você está escolhendo entre alguns ajustes propostos, o agente sabe quais ainda estão pendentes e quais você já escolheu, então "use a segunda" é resolvido corretamente.
+- **Comentários de revisão em aberto.** O agente sabe quantos comentários em aberto existem na tela atual e quais já estão na fila dele para agir, então ele não perde o controle do feedback que você deixou.
+
+## Prompts úteis por tarefa
+
+Cada prompt abaixo se torna uma action real sobre o seu design real, o mesmo que a interface lê e escreve. Aqui está um exemplo prático:
+
+<Comparison>
+
+### :blue: Você pergunta
+
+"Existem comentários em aberto nesta tela?"
+
+### :green: O que acontece
+
+Esta é uma pergunta somente leitura. O agente verifica a contagem real de
+threads de comentários para a tela em que você está e responde diretamente
+no chat, por exemplo "2 comentários em aberto, 1 já na minha fila." Nada
+muda na sua tela, já que nada foi criado ou editado.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Gerar e refinar
+
+- **"Crie três direções de landing page para um produto de análise técnica."** Algumas variantes genuinamente diferentes aparecem para comparar e escolher.
+- **"Torne este dashboard mais denso e mais fácil de escanear para uma equipe de operações."** A tela escolhida se atualiza ao vivo.
+- **"Transforme este card repetido em um componente reutilizável."** Futuras edições em uma instância permanecem separadas das outras, a menos que você peça para atualizar todas.
+- **"Adicione uma animação de hover a este botão."** Uma trilha de movimento é criada sem que você precise abrir o dock de Motion.
+- **"Adicione um shader de onda ao fundo do hero."** Aplica o efeito diretamente, sem passar pelo seletor do menu Efeitos.
+
+### Verificar qualidade
+
+- **"Execute uma auditoria de acessibilidade nesta tela."** O agente verifica e relata o que encontrou.
+- **"Corrija o problema de contraste que você acabou de encontrar."** A correção se aplica diretamente ao design.
+
+### Trazer conteúdo externo
+
+- **"Importe este frame do Figma: [link]."** O frame aparece como uma nova tela editável.
+- **"Cole este HTML como uma nova tela."** Adiciona sem que você precise abrir o painel Importar.
+- **"Traga nossa página de preços do Figma e reproduza exatamente."** Importação com precisão de pixel, com um relatório de fidelidade sobre qualquer coisa que não pôde ser reproduzida estruturalmente.
+
+### Marca e sistemas de design
+
+- **"Aplique nosso sistema de design salvo e simplifique o layout mobile."** Toda geração depois disso permanece alinhada à marca.
+- **"Comece um sistema de design a partir do nosso repositório do GitHub."** Indexa seus tokens reais e implantados em vez de adivinhar.
+- **"Crie um sistema de design baseado no Material 3."** Começa a partir de um sistema público real e mantido, em vez de uma imitação.
+
+### Templates
+
+- **"Comece um novo design a partir do template de landing page."** Copia seus arquivos, dimensões e camadas travadas para um novo design.
+- **"Salve isso como um template chamado 'Lançamento de produto.'"** Disponível em Templates da próxima vez, para você ou qualquer pessoa com quem você o compartilhar.
+
+### Navegar e organizar
+
+- **"Mude para a tela de visão geral."** Sai da visualização de tela única.
+- **"Abra a aba de comentários."** Foca essa aba no inspetor.
+- **"Renomeie este design para 'Página de lançamento do Q3.'"** Atualiza imediatamente, onde quer que o design esteja listado.
+
+### Exportação e histórico
+
+- **"Exporte isso como um ZIP."** Baixa sem que você precise abrir o menu do projeto.
+- **"Copie um prompt de handoff de código para esta tela."** Pronto para colar em um agente de código externo.
+- **"Restaure a versão de uma hora atrás."** Traz o design de volta a esse estado salvo exato.
+
+</Cards>
+
+## Extensões
+
+O Design oferece suporte a Extensões: pequenos widgets isolados que você ou o agente podem construir e inserir no editor. A barra lateral esquerda do inspetor expõe um slot onde uma extensão pode ser renderizada, com o id e o título do design aberto, o nome de arquivo e o conteúdo da tela ativa, o modo de visualização e o zoom atuais, a tela e o elemento selecionados, e a ferramenta ativa já disponíveis para ela. A biblioteca de assets, o seletor de preenchimento de shader, o auditor de tokens de marca e os presets de movimento que você vê hoje no editor são todos construídos sobre esse mesmo slot. Veja [Extensões](/docs/extensions) para saber como construir uma.
+
+## Próximos passos
+
+- [**Design**](/docs/template-design) — a visão geral e os passos iniciais
+- [**Funcionalidades**](/docs/template-design-features) — Designs, Editar um Design, Templates e Sistemas de Design, com passos de configuração para cada uma
+- [**Uso entre apps**](/docs/template-design-integrations) — conectando ao Dispatch e chamando o Design via MCP
+- [**Guia do desenvolvedor**](/docs/template-design-developers) — todas as actions, o modelo de dados e como estender o aplicativo
+- [**Extensões**](/docs/extensions) — construindo um widget para o slot do inspetor do editor

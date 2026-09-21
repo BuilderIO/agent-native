@@ -18,12 +18,10 @@ import { expandAllLayers, gotoEditor } from "./helpers";
  * Fill-container sizing, and finally re-sync a drifted instance from its main
  * component.
  *
- * Design has neither a Section primitive, a page/canvas system, nor a
- * shared main-component (see components.spec.ts: "same-named instances are
- * independent copies") — so several steps have no direct equivalent and are
- * recorded as findings via a no-op probe (established precedent in
- * parity-tutorial-2.spec.ts's Cmd+Opt+K test). The closest available
- * primitives are exercised instead: a board-level Frame ("Wrap in section"),
+ * Design has no Section primitive or page/canvas system. Native components
+ * and linked instances do exist, but Section and page moves remain explicit
+ * findings. The closest available primitives are exercised instead: a
+ * board-level Frame ("Wrap in section"),
  * cross-screen element copy (dragging an "instance" onto a page), Shift+A
  * auto layout, screen duplication (screens are top-level frames per the
  * 2026-09-12 note), and layers-panel reorder.
@@ -131,6 +129,48 @@ async function selectLayerByName(
     force: true,
     modifiers: opts?.shift ? ["Shift"] : undefined,
   });
+  await page.waitForTimeout(500);
+}
+
+async function selectLayerInScreen(
+  page: Page,
+  screenId: string,
+  layerName: string,
+): Promise<void> {
+  const rows = layersTree(page).locator('[role="treeitem"]');
+  const rowIndex = await rows.evaluateAll(
+    (elements, { screenId: wantedScreenId, layerName: wantedLayerName }) => {
+      let inScreen = false;
+      for (let index = 0; index < elements.length; index += 1) {
+        const row = elements[index]!;
+        if (row.getAttribute("aria-level") === "1") {
+          inScreen =
+            row.querySelector(
+              `[data-layer-row-button][data-layer-node-id="${wantedScreenId}"]`,
+            ) !== null;
+        }
+        if (
+          inScreen &&
+          Array.from(row.querySelectorAll("span[title]"))
+            .map((span) => span.getAttribute("title"))
+            .includes(wantedLayerName)
+        ) {
+          return index;
+        }
+      }
+      return -1;
+    },
+    { screenId, layerName },
+  );
+  if (rowIndex < 0) {
+    throw new Error(
+      `no layer ${layerName} found under screen ${screenId} in the Layers tree`,
+    );
+  }
+  await rows
+    .nth(rowIndex)
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .click({ force: true });
   await page.waitForTimeout(500);
 }
 
@@ -436,7 +476,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         {
           op: "set",
           path: ["canvasFrames", navFileId],
-          value: { x: 1800, y: 0, width: 1440, height: 400, z: 1 },
+          value: { x: -1600, y: 0, width: 1440, height: 400, z: 1 },
         },
         {
           op: "set",
@@ -467,7 +507,11 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const sourceEl = sourceFrame
       .contentFrame()
       .locator('[data-agent-native-node-id="nav-root"]');
+    const sourceDragEl = sourceFrame
+      .contentFrame()
+      .locator('[data-agent-native-node-id="nav-word"]');
     await expect(sourceEl).toBeVisible();
+    await expect(sourceDragEl).toBeVisible();
     // Overview layout settles asynchronously with no discrete event — poll
     // the source box until two consecutive reads agree.
     let lastSourceBox: { x: number; y: number } | null = null;
@@ -486,33 +530,21 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
-    const sourceBox = (await sourceEl.boundingBox())!;
+    const sourceDragBox = (await sourceDragEl.boundingBox())!;
     const targetBox = (await targetFrame.boundingBox())!;
 
-    // Drill in (Figma-style: first click selects the screen root, so we
-    // double-click to reach the nested nav element), then Alt-drag a copy
-    // of the "Navigation instance" onto the Home page.
-    await page.mouse.dblclick(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
-    );
+    // Select the nested node from Layers before the drag. At 25% zoom the
+    // 80px navigation bar is only 20 CSS pixels tall, so a center double-click
+    // can land on the screen shell rather than the node's selection overlay.
+    await expandAllLayers(page);
+    await selectLayerByName(page, "Navigation");
     await page.waitForTimeout(500);
-    await page.mouse.click(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
-    );
-    await page.waitForTimeout(800);
     await page.mouse.move(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
+      sourceDragBox.x + sourceDragBox.width / 2,
+      sourceDragBox.y + sourceDragBox.height / 2,
     );
     await page.keyboard.down("Alt");
     await page.mouse.down();
-    await page.mouse.move(
-      sourceBox.x + sourceBox.width / 2 + 20,
-      sourceBox.y + sourceBox.height / 2 + 20,
-      { steps: 6 },
-    );
     await page.mouse.move(
       targetBox.x + targetBox.width * 0.5,
       targetBox.y + targetBox.height * 0.2,
@@ -559,7 +591,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     // parity-tutorial-7.spec.ts.
     await gotoEditor(page, designId);
     await expandAllLayers(page);
-    await selectLayerByName(page, "Navigation");
+    await selectLayerInScreen(page, homeFileId, "Navigation");
     await focusCanvas(page);
     await page.evaluate(() => (window as any).__designTrace?.clear?.());
     await page.keyboard.press("Shift+A");

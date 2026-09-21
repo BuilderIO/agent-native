@@ -10,6 +10,7 @@ import {
   isSlideTextEditingTarget,
   isTextLeaf,
   resolveRichTextEditingBlock,
+  resolveSlideTextSelectionTarget,
   shouldStampBuilderId,
   shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
@@ -132,6 +133,24 @@ describe("slide text targets", () => {
     expect(shouldStampBuilderId(layer)).toBe(true);
     expect(shouldStampBuilderId(paragraph)).toBe(false);
     expect(findSmartBlock(paragraph, root)).toBe(layer);
+  });
+
+  it("restores the canvas identity for nested rich-text blocks", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div data-builder-id="text" data-slide-object-id="text-id">
+          <p>First paragraph</p>
+          <p>Second paragraph</p>
+        </div>
+      </div>
+    `;
+
+    const text = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const paragraph = text.querySelector("p:last-of-type") as HTMLElement;
+
+    expect(resolveSlideTextSelectionTarget(paragraph, root)).toBe(text);
+    expect(resolveSlideTextSelectionTarget(text, root)).toBe(text);
   });
 
   it("edits text leaves inside imported smart groups without replacing their layout", () => {
@@ -277,6 +296,18 @@ describe("slide text targets", () => {
     expect(isRichTextBlock(block)).toBe(true);
     expect(resolveRichTextEditingBlock(list)).toBe(block);
     expect(findSmartBlock(item, root)).toBe(block);
+  });
+
+  it("keeps styled semantic bullet wrappers as one canvas block", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><div data-fmd-autofit-content><div data-builder-id="text" style="display:flex;align-items:baseline;gap:20px"><ul style="--slide-legacy-list:1;list-style:none;padding-left:0"><li style="display:flex;align-items:baseline;gap:20px;--slide-legacy-marker-content:\"●\""><p>First</p></li></ul></div></div></div>';
+
+    const block = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const paragraph = block.querySelector("p") as HTMLElement;
+
+    expect(isRichTextBlock(block)).toBe(true);
+    expect(findSmartBlock(paragraph, root)).toBe(block);
   });
 
   it("keeps dividers inside one canvas text block", () => {

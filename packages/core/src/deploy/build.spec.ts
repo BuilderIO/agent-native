@@ -1010,6 +1010,113 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
     );
   });
 
+  it("guards UI-only actions in generated workers", () => {
+    const source = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [
+        {
+          name: "delete-data",
+          absPath: "/tmp/delete-data.ts",
+          method: "post",
+          uiOnly: true,
+        },
+      ],
+    );
+
+    expect(source).toContain(
+      "hasUiActionCapability as hasGeneratedUiActionCapability",
+    );
+    expect(source).toContain(
+      "isSameOriginRequest as isGeneratedSameOriginRequest",
+    );
+    expect(source).toContain(
+      "mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute",
+    );
+    expect(source).toContain("!isGeneratedSameOriginRequest(event)");
+    expect(source).toContain(
+      'setResponseHeader(event, "Cache-Control", "no-" + "store");',
+    );
+    expect(source).toContain(
+      "resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId",
+    );
+    expect(source).toContain(
+      "runWithRequestContext as runWithGeneratedRequestContext",
+    );
+    expect(source).toContain('errorCode: "ui_capability_required"');
+
+    const dynamicSource = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [
+        {
+          name: "dynamic-delete-data",
+          absPath: "/tmp/dynamic-delete-data.ts",
+          method: "post",
+        },
+      ],
+    );
+    expect(dynamicSource).toContain(
+      "const actionIsUiOnly = action_0.uiOnly === true;",
+    );
+    expect(dynamicSource).toContain(
+      'mountGeneratedUiActionCapabilityRoute(nitroApp, "/_agent-native", "");',
+    );
+
+    const mountedSource = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [
+        {
+          name: "mounted-delete-data",
+          absPath: "/tmp/mounted-delete-data.ts",
+          method: "post",
+          uiOnly: true,
+        },
+      ],
+      null,
+      [],
+      "/docs",
+    );
+    expect(mountedSource).toContain(
+      'mountGeneratedUiActionCapabilityRoute(nitroApp, "/_agent-native", "/docs");',
+    );
+  });
+
+  it("mounts the generated UI capability route when actions are discovered", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "delete-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `
+export default {
+  uiOnly: true,
+  run: async () => ({ ok: true }),
+};
+`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "delete-data", absPath: actionPath, method: "post" }],
+      ),
+    );
+
+    const capability = await worker.fetch(
+      new Request("https://app.test/_agent-native/ui-capability", {
+        method: "GET",
+      }),
+      {},
+      {},
+    );
+    expect(capability.status).toBe(401);
+  });
+
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
     const agentChatPlugin = path.join(
@@ -2109,6 +2216,9 @@ describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
     expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.module).toContain(
       "createRequire",
     );
+    expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.sqlite).toContain(
+      "DatabaseSync",
+    );
   });
 });
 
@@ -2751,6 +2861,10 @@ describe("runNitroBuildPipeline", () => {
       path.join(clientDir, "assets", "entry.client-aB12_cdE.js"),
       "console.log('hashed-client')",
     );
+    fs.writeFileSync(
+      path.join(clientDir, "assets", "global-aaaa1111.css"),
+      "base-css",
+    );
     fs.writeFileSync(path.join(clientDir, "assets", "logo.png"), "png");
 
     // Simulate the cleared publicDir Nitro would set up in `prepare`.
@@ -2820,6 +2934,10 @@ describe("runNitroBuildPipeline", () => {
       "paired-root",
     );
     fs.writeFileSync(
+      path.join(pairedClientDir, "assets", "global-bbbb2222.css"),
+      "paired-css",
+    );
+    fs.writeFileSync(
       path.join(pairedClientDir, "assets", "manifest-paired.js"),
       `window.__reactRouterManifest=${JSON.stringify({
         entry: {
@@ -2874,7 +2992,7 @@ describe("runNitroBuildPipeline", () => {
             fs.mkdirSync(serverDir, { recursive: true });
             fs.writeFileSync(
               path.join(serverDir, "main.mjs"),
-              `const $9 = ${JSON.stringify(serverManifest)};`,
+              `const stylesheet = "/assets/global-aaaa1111.css";\nconst $9 = ${JSON.stringify(serverManifest)};`,
             );
           },
         },
@@ -2900,7 +3018,9 @@ describe("runNitroBuildPipeline", () => {
       expect(patchedServerBuild).toContain("/assets/entry.client-paired.js");
       expect(patchedServerBuild).toContain("/assets/root-paired.js");
       expect(patchedServerBuild).toContain("/assets/manifest-paired.js");
+      expect(patchedServerBuild).toContain("/assets/global-bbbb2222.css");
       expect(patchedServerBuild).not.toContain("/assets/entry.client-base.js");
+      expect(patchedServerBuild).not.toContain("/assets/global-aaaa1111.css");
     } finally {
       if (previous === undefined)
         delete process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;

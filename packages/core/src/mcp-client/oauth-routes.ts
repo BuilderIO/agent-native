@@ -12,14 +12,13 @@ import {
   type H3Event,
 } from "h3";
 
-import { getOrgContext } from "../org/context.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
-import { getSession, safeReturnPath } from "../server/auth.js";
 import {
   CredentialStoreUnavailableError,
   resolveSecretPairs,
 } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
+import { canonicalFrameworkPathname } from "../server/framework-route-prefix.js";
 import {
   getAppBasePath,
   getAppUrl,
@@ -30,11 +29,14 @@ import {
 import { runWithRequestContext } from "../server/request-context.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
 import { MCP_OAUTH_FLOW_TTL_SECONDS } from "../shared/mcp-oauth-flow-ttl.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   finishMcpOAuthAuthorization,
   isGoogleWorkspaceMcpServer,
   McpOAuthRegistrationUnsupportedError,
+  readMcpOAuthCredentials,
+  resolveMcpOAuthAuthorizationServerDiscovery,
   startMcpOAuthAuthorization,
   type McpOAuthCredentialBundle,
   type McpOAuthDiscoveryState,
@@ -56,7 +58,23 @@ import {
   type RemoteMcpScope,
 } from "./remote-store.js";
 
+const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
+  ...args
+) =>
+  import("../org/context.js").then(({ getOrgContext }) =>
+    getOrgContext(...args),
+  );
+
 const MCP_TRACKING_INTEGRATION_ID_PATTERN = /^[a-z0-9-]{1,64}$/u;
+
+function safeReturnPath(raw: string | null | undefined): string {
+  return normalizeAppPath(raw) ?? "/";
+}
+
+async function getSessionForEvent(event: H3Event) {
+  const { getSession } = await import("../server/auth.js");
+  return getSession(event);
+}
 
 export function resolveTrustedMcpOAuthAuthorizationScope(
   serverUrl: URL,
@@ -243,7 +261,8 @@ export function mountMcpOAuthRoutes(
 async function handleMcpOAuthStart(
   event: H3Event,
 ): Promise<Response | Record<string, unknown>> {
-  const session = await getSession(event).catch(() => null);
+  // coercion-ok: OAuth requests fail closed when session resolution is unavailable.
+  const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
 
   const query = getQuery(event);
@@ -428,6 +447,22 @@ async function handleMcpOAuthStart(
       if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
         return null;
       }
+      const storedCredentials =
+        reconnectServer?.oauthSecretKey && reconnectScopeId
+          ? await readMcpOAuthCredentials({
+              key: reconnectServer.oauthSecretKey,
+              scope,
+              scopeId,
+              serverUrl: urlCheck.url!.toString(),
+            })
+          : null;
+      const oauthMetadataUrl = text(query.oauthMetadataUrl);
+      const authorizationServerDiscovery = oauthMetadataUrl
+        ? await resolveMcpOAuthAuthorizationServerDiscovery(oauthMetadataUrl)
+        : undefined;
+      const authorizationServerUrl =
+        authorizationServerDiscovery?.authorizationServerUrl ??
+        storedCredentials?.discoveryState?.authorizationServerUrl;
       const authorizationScope = resolveTrustedMcpOAuthAuthorizationScope(
         urlCheck.url!,
       );
@@ -437,6 +472,13 @@ async function handleMcpOAuthStart(
         state,
         ...(authorizationScope ? { scope: authorizationScope } : {}),
         ...(clientInformation ? { clientInformation } : {}),
+        ...(authorizationServerUrl
+          ? {
+              discoveryState: authorizationServerDiscovery ?? {
+                authorizationServerUrl,
+              },
+            }
+          : {}),
       });
     });
     if (!started) {
@@ -667,7 +709,8 @@ async function handleMcpOAuthCallback(
   event: H3Event,
   options: McpOAuthRoutesOptions,
 ): Promise<Response | Record<string, unknown>> {
-  const session = await getSession(event).catch(() => null);
+  // coercion-ok: OAuth callbacks fail closed when session resolution is unavailable.
+  const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
 
   const query = getQuery(event);
@@ -888,7 +931,8 @@ function isRootGoogleCallback(value: string): boolean {
   try {
     const url = new URL(value);
     return (
-      url.pathname === "/_agent-native/google/callback" &&
+      canonicalFrameworkPathname(url.pathname) ===
+        "/_agent-native/google/callback" &&
       !url.search &&
       !url.hash
     );
@@ -900,7 +944,7 @@ function isRootGoogleCallback(value: string): boolean {
 
 function isMcpOAuthRedirectUri(value: string): boolean {
   try {
-    const pathname = new URL(value).pathname;
+    const pathname = canonicalFrameworkPathname(new URL(value).pathname);
     return (
       pathname.endsWith("/_agent-native/mcp/servers/oauth/callback") ||
       pathname.endsWith("/_agent-native/google/callback")

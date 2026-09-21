@@ -16,6 +16,8 @@ import {
   selectByText,
 } from "./helpers";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
 /**
  * Parity spec for Figma Learn Tutorial 1: "Create a simple button component".
  * https://help.figma.com/hc/en-us/articles/14078912322199
@@ -290,6 +292,24 @@ function hasNode(html: string, nodeId: string): boolean {
   return html.includes(`data-agent-native-node-id="${nodeId}"`);
 }
 
+async function nodePlacement(page: Page, html: string, nodeId: string) {
+  return page.evaluate(
+    ({ html, nodeId }) => {
+      const node = new DOMParser()
+        .parseFromString(html, "text/html")
+        .querySelector(`[data-agent-native-node-id="${nodeId}"]`);
+      if (!node?.parentElement) return null;
+      return {
+        parent: node.parentElement.getAttribute("data-agent-native-node-id"),
+        siblingIndex: Array.from(node.parentElement.children).indexOf(node),
+        left: (node as HTMLElement).style.left,
+        top: (node as HTMLElement).style.top,
+      };
+    },
+    { html, nodeId },
+  );
+}
+
 async function textPrimitiveNodeIds(
   page: Page,
   filename: string,
@@ -436,7 +456,6 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
       1,
     );
     const textId = textIds[0]!;
-
     // --- Step 4: Select the text, press Shift+A (auto layout wraps it) ---
     // The layers panel's `data-layer-node-id` is CodeLayerNode.id — an
     // internal hashStable(...) value (see nodeIdFor in shared/code-layer.ts),
@@ -888,13 +907,29 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     if (!card) throw new Error("no screen card box");
     await placeText(page, card, "Cross Boundary");
 
+    await expect
+      .poll(
+        async () =>
+          (await textPrimitiveNodeIds(page, "index.html", "Cross Boundary"))
+            .length,
+        {
+          timeout: 10_000,
+          message: "typed Cross Boundary text did not persist as one node",
+        },
+      )
+      .toBe(1);
     const textIds = await textPrimitiveNodeIds(
       page,
       "index.html",
       "Cross Boundary",
     );
-    expect(textIds.length).toBe(1);
     const textId = textIds[0]!;
+    const original = await nodePlacement(
+      page,
+      await fileContent(page, "index.html"),
+      textId,
+    );
+    if (!original) throw new Error("original node missing");
 
     // Drag the element out of the screen bounds onto the open board canvas.
     const target = designFrame(page).getByText("Cross Boundary").first();
@@ -968,6 +1003,32 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
       "dragging out onto open canvas should reparent it into the board",
     ).toBe(true);
 
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(async () => fileContent(page, "index.html"))
+      .toContain(`data-agent-native-node-id="${textId}"`);
+    const afterUndoOut = await nodePlacement(
+      page,
+      await fileContent(page, "index.html"),
+      textId,
+    );
+    expect(afterUndoOut?.parent).toBe(original.parent);
+    expect(afterUndoOut?.siblingIndex).toBe(original.siblingIndex);
+    expect({
+      left: afterUndoOut?.left,
+      top: afterUndoOut?.top,
+    }).toEqual({ left: original.left, top: original.top });
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect.poll(async () => (await readBoth()).board).toContain(textId);
+    const boardBeforeBack = await nodePlacement(
+      page,
+      await fileContent(page, "__board__.html"),
+      textId,
+    );
+    if (!boardBeforeBack)
+      throw new Error("board node missing before return drag");
+
     // Now drag it back into the screen. The board node lives inside the
     // board's own same-origin iframe, which a bare page.locator cannot pierce
     // (see boardObjectBoundingBox's doc comment) — it would otherwise hang
@@ -1020,6 +1081,20 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
         },
       )
       .toBe(true);
+
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(async () => {
+        const result = await readBoth();
+        return !hasNode(result.index, textId) && result.board.includes(textId);
+      })
+      .toBe(true);
+    const afterUndoBack = await nodePlacement(
+      page,
+      await fileContent(page, "__board__.html"),
+      textId,
+    );
+    expect(afterUndoBack).toEqual(boardBeforeBack);
   });
 
   test.afterEach(async ({ request }) => {

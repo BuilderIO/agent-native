@@ -20,6 +20,7 @@ import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.j
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
+  getPendingTurn,
   getActiveRun,
   setActiveRun,
   updateActiveRunSeq,
@@ -30,7 +31,11 @@ import {
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
-import { agentChatStreamingUrl, agentNativePath } from "./api-path.js";
+import {
+  agentChatStreamingUrl,
+  agentNativePath,
+  frameworkRoutePrefix,
+} from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
@@ -2036,7 +2041,7 @@ function runtimeDebugUrlForApiUrl(apiUrl: string): string | null {
   if (typeof window === "undefined") return null;
   try {
     const url = new URL(apiUrl, window.location.href);
-    const marker = "/_agent-native/";
+    const marker = `${frameworkRoutePrefix()}/`;
     const markerIndex = url.pathname.indexOf(marker);
     if (markerIndex < 0) return null;
     url.pathname = `${url.pathname.slice(0, markerIndex)}${marker}debug/runtime`;
@@ -2171,6 +2176,7 @@ export function createAgentChatAdapter(
   };
   const tabId = options?.tabId;
   const threadId = options?.threadId;
+  const activeRunTabId = tabId ?? threadId;
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
   const effortRef = options?.effortRef;
@@ -2395,17 +2401,42 @@ export function createAgentChatAdapter(
 
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
-      if (threadId) setPendingTurn({ threadId, turnId });
+      if (threadId) {
+        setPendingTurn({
+          threadId,
+          turnId,
+          ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
+        });
+      }
       let runId: string | null = null;
       let lastSeq = -1;
+      const hasPendingSuccessorRequest = () => {
+        const pendingTurn = getPendingTurn();
+        const pendingTurnBelongsToSurface = pendingTurn?.tabId
+          ? pendingTurn.tabId === activeRunTabId
+          : pendingTurn?.threadId === threadId;
+        return Boolean(
+          pendingTurn &&
+          pendingTurnBelongsToSurface &&
+          (pendingTurn.threadId !== threadId || pendingTurn.turnId !== turnId),
+        );
+      };
+      const activeRunMatchesTab = (
+        activeRun: ReturnType<typeof getActiveRun>,
+      ) =>
+        !activeRun?.tabId ||
+        !activeRunTabId ||
+        activeRun.tabId === activeRunTabId;
       const ownsActiveRunState = () => {
+        if (hasPendingSuccessorRequest()) return false;
         const activeRun = getActiveRun();
         return (
           !activeRun ||
           (!!threadId &&
             !!runId &&
             activeRun.threadId === threadId &&
-            activeRun.runId === runId)
+            activeRun.runId === runId &&
+            activeRunMatchesTab(activeRun))
         );
       };
       const clearOwnedActiveRun = () => {
@@ -2441,7 +2472,37 @@ export function createAgentChatAdapter(
         if (threadId && runId) {
           releaseRunStream(threadId, runId, streamOwnershipToken, turnId);
         }
-        if (!ownsActiveRunState()) return;
+        // A successor claims the surface before its response can publish an
+        // active run. Keep the old stream from clearing that successor's UI
+        // after releasing its completed stream ownership claim.
+        if (hasPendingSuccessorRequest()) return;
+        const activeRun = getActiveRun();
+        const ownsActiveRun =
+          !activeRun ||
+          (!!threadId &&
+            !!runId &&
+            activeRun.threadId === threadId &&
+            activeRun.runId === runId &&
+            activeRunMatchesTab(activeRun));
+        if (!ownsActiveRun) {
+          // A newer run in this tab must keep its running state intact. A
+          // different run on another surface must not leave this surface
+          // marked running after its own stream finishes. The same run on
+          // another surface still owns the shared stream and is left alone.
+          if (!activeRun || activeRunMatchesTab(activeRun)) {
+            return;
+          }
+          if (
+            threadId &&
+            runId &&
+            activeRun.threadId === threadId &&
+            activeRun.runId === runId
+          ) {
+            return;
+          }
+          publishTerminalChatUiStopped();
+          return;
+        }
         if (threadId && runId) {
           clearActiveRunIfMatches(threadId, runId);
         } else {
@@ -2969,6 +3030,7 @@ export function createAgentChatAdapter(
                   runId: activeRunId,
                   turnId,
                   lastSeq,
+                  ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
                 });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
@@ -3054,6 +3116,7 @@ export function createAgentChatAdapter(
                   runId: activeRunId,
                   turnId,
                   lastSeq,
+                  ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
                 });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
@@ -3746,6 +3809,7 @@ export function createAgentChatAdapter(
                   runId: activeRunId,
                   turnId,
                   lastSeq,
+                  ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
                 });
               }
               const seqBeforeAttach = lastSeq;
@@ -4565,7 +4629,13 @@ export function createAgentChatAdapter(
             }
             if (runId && threadId) {
               clearPendingTurnIfMatches(threadId, turnId);
-              setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
+              setActiveRun({
+                threadId,
+                runId,
+                turnId,
+                lastSeq: -1,
+                ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
+              });
             }
 
             takeRunStreamOwnership();
@@ -5132,9 +5202,11 @@ export function createAgentChatAdapter(
           }
         }
       } finally {
-        if (ownsActiveRunState()) {
-          publishTerminalChatUiStopped();
-        }
+        if (threadId) clearPendingTurnIfMatches(threadId, turnId);
+        // Abort and retry-delay exits do not necessarily reach a terminal
+        // result. Apply the same surface-only cleanup without clearing a
+        // newer run owned by this or another surface.
+        settleTerminalChatRun();
       }
     },
   };

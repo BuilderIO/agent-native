@@ -152,9 +152,11 @@ describe("responsive Interact wiring", () => {
     const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 400);
     expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
     expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
-    // Height/edge-matched to the bar's own row (h-12, pr-3) so it reads as
-    // one row, not a second floating control competing with the first.
-    expect(pinnedExit).toContain("flex h-12 items-center pr-3");
+    // Height/edge-matched to the bar's own row, with an opaque panel
+    // background so scrollable dimensions cannot render through the exit.
+    expect(pinnedExit).toContain(
+      "flex h-12 items-center bg-[var(--design-editor-panel-bg)] pl-1 pr-3",
+    );
   });
 
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
@@ -201,6 +203,23 @@ describe("responsive Interact wiring", () => {
       '.replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true")',
     );
     expect(canvas).toContain("editingSafetyEnabled: !interactMode");
+  });
+
+  it("reports live router paths while Interact omits editor chrome", () => {
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain("data-agent-native-live-route-bridge");
+    expect(canvas).toContain('type: "agent-native:live-route-path"');
+    expect(canvas).toContain("window.history.pushState = function ()");
+    expect(canvas).toContain("window.history.replaceState = function ()");
+    expect(canvas).toContain(
+      'if (e.data.type === "agent-native:live-route-path") {',
+    );
+    expect(canvas).toContain(
+      '(includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +',
+    );
   });
 
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
@@ -279,7 +298,8 @@ describe("responsive Interact wiring", () => {
       source.indexOf("<ResponsiveInteractBar"),
       source.indexOf("onClose={handleExitResponsiveInteract}"),
     );
-    expect(barMount).toContain("onModeChange={handleModeChange}");
+    expect(barMount).toContain("onModeChange={(next) => {");
+    expect(barMount).toContain("setRuntimeLayerSnapshotRequest(");
     expect(barMount).toContain("canAnnotate={canEditDesign}");
     const bar = readFileSync(
       "app/components/design/ResponsiveInteractBar.tsx",
@@ -290,14 +310,28 @@ describe("responsive Interact wiring", () => {
     expect(bar).not.toContain('"interact"');
   });
 
+  it("refreshes live Layers when Interact returns to Edit", () => {
+    const exitHandler = source.slice(
+      source.indexOf("const handleExitResponsiveInteract ="),
+      source.indexOf("// Escape is the standard"),
+    );
+    expect(exitHandler).toContain("setRuntimeLayerSnapshotRequest(");
+    expect(source).toContain(
+      "runtimeLayerSnapshotRequest={runtimeLayerSnapshotRequest}",
+    );
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain('type: "request-runtime-layer-snapshot"');
+  });
+
   it("uses the selected screen size and the real canvas bounds", () => {
     expect(editorSurface).toContain("resolveInteractDeviceForScreen(");
     expect(source).toContain("container.clientWidth - 48");
     expect(source).toContain("new ResizeObserver(updateZoomToFit)");
     expect(source).toContain("responsiveInteractActive ? interactZoom : zoom");
-    expect(source).toContain(
-      "responsiveInteractActive ? setInteractZoom : setZoom",
-    );
+    expect(source).toContain("responsiveInteractActive ? undefined : setZoom");
     expect(source).toContain("? interactDeviceSize.width");
     expect(source).toContain("? interactDeviceSize.height");
     const canvas = readFileSync(
@@ -306,6 +340,9 @@ describe("responsive Interact wiring", () => {
     );
     expect(canvas).toContain("previewHeightPx?: number");
     expect(canvas).toContain("const resolvedHeight =");
+    expect(canvas).toContain("enabled: Boolean(onZoomChange) && !interactMode");
+    expect(canvas).toContain('if (e.data.type === "pinch-zoom-wheel") {');
+    expect(canvas).toContain("if (interactMode) return;");
   });
 
   it("keeps the canvas-shell Escape handling inert, but exits Interact on Escape", () => {
@@ -318,7 +355,7 @@ describe("responsive Interact wiring", () => {
     // Close button. A dedicated window listener (not useDesignHotkeys, which
     // stays disabled above) now exits Interact on Escape whenever the event
     // reaches the parent window un-intercepted — i.e. never while a Radix
-    // layer (the device Select, zoom Popover) or the iframe itself has
+    // layer (the device Select) or the iframe itself has
     // already handled it, matching DesignColorPicker.escape.test.tsx's
     // documented ordering.
     const escapeExitEffect = source.slice(
@@ -342,8 +379,9 @@ describe("responsive Interact wiring", () => {
       "app/components/design/ResponsiveInteractBar.tsx",
       "utf8",
     );
-    expect(bar).toContain("formatInteractZoom(zoom)");
     expect(bar).toContain("w-[88px]");
     expect(bar).toContain("appearance:textfield");
+    expect(bar).not.toContain("zoomIn");
+    expect(bar).not.toContain("zoomOut");
   });
 });

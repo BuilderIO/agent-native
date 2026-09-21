@@ -235,6 +235,19 @@
     return "y";
   }
 
+  function wrappedFlexMainAxis(parent: Element): string | null {
+    var cs = window.getComputedStyle(parent);
+    if (cs.display !== "flex" && cs.display !== "inline-flex") {
+      return null;
+    }
+    if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+      return null;
+    }
+    return cs.flexDirection && cs.flexDirection.indexOf("row") === 0
+      ? "x"
+      : "y";
+  }
+
   function isAutoLayoutElement(el: Element | null): boolean {
     if (!el) return false;
     var cs = window.getComputedStyle(el);
@@ -535,6 +548,10 @@
   // getNodeId itself (a pending id is not a stable id until persisted).
   function getOrMintPendingNodeId(el: Element | null): string {
     if (!el || !el.getAttribute || !el.setAttribute) return "";
+    // The document body is the root fallback for an empty-screen drop, not a
+    // durable layer anchor. Minting a pending id here makes the host treat the
+    // root as an unresolved authored node and refuse the otherwise valid drop.
+    if (el === document.body || el === document.documentElement) return "";
     // Defensive guard: resolveHitTarget's anchor-candidate gates (see
     // isTemplateCloneElement call sites there) already keep template clones
     // out of `result.anchor`, so this should never fire in practice — but a
@@ -660,7 +677,8 @@
   }
 
   // Resolves a between-children insertion inside `container` from the
-  // pointer position: the nearest visible child (by flow-axis center)
+  // pointer position: the nearest visible child (by flow-axis center, or
+  // two-dimensional visual distance for wrapped flex)
   // becomes the anchor with before/after placement, which renders as the
   // Figma-style insertion LINE between children. Returns null when the
   // container has no eligible children (caller falls back to "inside").
@@ -683,7 +701,14 @@
   ) {
     var children = draggableElementChildren(container);
     if (!children.length) return null;
-    var axis = parentFlowAxis(container);
+    var wrappedFlexAxis = wrappedFlexMainAxis(container);
+    var axis = wrappedFlexAxis || parentFlowAxis(container);
+    var containerStyles = window.getComputedStyle(container);
+    var multiTrackGrid =
+      (containerStyles.display === "grid" ||
+        containerStyles.display === "inline-grid") &&
+      (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
+        .length > 1;
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
@@ -695,11 +720,25 @@
       var center =
         axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
       var pointer = axis === "x" ? clientX : clientY;
-      var distance = Math.abs(pointer - center);
+      var distance =
+        multiTrackGrid || wrappedFlexAxis
+          ? Math.hypot(
+              clientX - (rect.left + rect.width / 2),
+              clientY - (rect.top + rect.height / 2),
+            )
+          : Math.abs(pointer - center);
       if (distance < bestDistance) {
         bestDistance = distance;
         best = children[j];
-        placement = pointer < center ? "before" : "after";
+        var placementPointer = axis === "x" ? clientX : clientY;
+        placement =
+          multiTrackGrid || wrappedFlexAxis
+            ? placementPointer < center
+              ? "before"
+              : "after"
+            : pointer < center
+              ? "before"
+              : "after";
       }
     }
     if (!best) return null;
@@ -709,6 +748,27 @@
       axis: axis,
       dropMode: "flow-insert",
     };
+  }
+
+  function screenRootFlowInsertionTargetForPoint(
+    clientX: number,
+    clientY: number,
+  ) {
+    // Body is the authored Screen root. It has no durable node id, so anchor
+    // cross-screen flow drops to a real root child instead of absolute mode.
+    if (!isAutoLayoutElement(document.body)) return null;
+    var bodyRect = document.body.getBoundingClientRect();
+    if (
+      bodyRect.width <= 0 ||
+      bodyRect.height <= 0 ||
+      clientX < bodyRect.left ||
+      clientX > bodyRect.right || // i18n-ignore non-user-facing pointer geometry condition
+      clientY < bodyRect.top ||
+      clientY > bodyRect.bottom
+    ) {
+      return null;
+    }
+    return nearestChildInsertionTarget(document.body, clientX, clientY);
   }
 
   /**
@@ -721,6 +781,7 @@
   function resolveHitTarget(
     clientX: number,
     clientY: number,
+    forceNestedAutoLayout = false,
   ): {
     anchor: Element;
     placement: string;
@@ -731,6 +792,25 @@
     if (!hit || hit === document.documentElement) return null;
 
     var cursor: Element | null = hit;
+    if (forceNestedAutoLayout) {
+      while (cursor && cursor !== document.body) {
+        if (isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
+          return null;
+        }
+        if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+          return (
+            nearestChildInsertionTarget(cursor, clientX, clientY) || {
+              anchor: cursor,
+              placement: "inside",
+              axis: parentFlowAxis(cursor),
+              dropMode: "flow-insert",
+            }
+          );
+        }
+        cursor = cursor.parentElement;
+      }
+      cursor = hit;
+    }
     while (cursor && cursor !== document.body) {
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
@@ -757,6 +837,15 @@
             axis: parentFlowAxis(parent),
             dropMode: "flow-insert",
           };
+        }
+        var wrappedParentAxis = wrappedFlexMainAxis(parent);
+        if (wrappedParentAxis) {
+          var wrappedParentSlot = nearestChildInsertionTarget(
+            parent,
+            clientX,
+            clientY,
+          );
+          if (wrappedParentSlot) return wrappedParentSlot;
         }
         var parentAxis = parentFlowAxis(parent);
         var childRect = cursor.getBoundingClientRect();
@@ -821,6 +910,12 @@
       cursor = parent;
     }
 
+    var screenRootTarget = screenRootFlowInsertionTargetForPoint(
+      clientX,
+      clientY,
+    );
+    if (screenRootTarget) return screenRootTarget;
+
     var absoluteTarget = absolutePrimitiveContainerTargetForPoint(
       clientX,
       clientY,
@@ -845,6 +940,90 @@
       blockCursor = blockCursor.parentElement;
     }
     return null;
+  }
+
+  function ignoreAutoLayoutHitTarget(
+    target: {
+      anchor: Element;
+      placement: string;
+      axis: string;
+      dropMode: string;
+    } | null,
+    ignoreAutoLayout = false,
+  ) {
+    if (!ignoreAutoLayout || !target || target.dropMode !== "flow-insert") {
+      return target;
+    }
+    var container =
+      target.placement === "inside"
+        ? target.anchor
+        : target.anchor.parentElement;
+    if (!container || !isAutoLayoutElement(container)) return target;
+    return {
+      anchor: container,
+      placement: "inside",
+      axis: parentFlowAxis(container),
+      dropMode: "absolute-container",
+    };
+  }
+
+  function applyHitTestSizeGuard(
+    target: {
+      anchor: Element;
+      placement: string;
+      axis: string;
+      dropMode: string;
+    } | null,
+    clientX: number,
+    clientY: number,
+    sourceElementSize?: { width: number; height: number },
+    modifiers?: {
+      metaKey?: boolean;
+      ctrlKey?: boolean;
+      ignoreAutoLayout?: boolean;
+      forceNestedAutoLayout?: boolean;
+    },
+  ) {
+    if (
+      !target ||
+      target.placement !== "inside" ||
+      target.dropMode !== "flow-insert" ||
+      !sourceElementSize ||
+      modifiers?.metaKey ||
+      modifiers?.ctrlKey ||
+      modifiers?.ignoreAutoLayout
+    ) {
+      return target;
+    }
+    var container = target.anchor;
+    if (
+      container === document.body ||
+      container === document.documentElement ||
+      !isAutoLayoutElement(container)
+    ) {
+      return target;
+    }
+    var crect = container.getBoundingClientRect();
+    if (
+      crect.width >= sourceElementSize.width &&
+      crect.height >= sourceElementSize.height
+    ) {
+      return target;
+    }
+    var parent = container.parentElement;
+    if (!parent) return null;
+    var pAxis = parentFlowAxis(parent);
+    var center =
+      pAxis === "x"
+        ? crect.left + crect.width / 2
+        : crect.top + crect.height / 2;
+    var pointer = pAxis === "x" ? clientX : clientY;
+    return {
+      anchor: container,
+      placement: pointer < center ? "before" : "after",
+      axis: pAxis,
+      dropMode: "flow-insert",
+    };
   }
 
   function showInsertionGuideFor(
@@ -1189,7 +1368,32 @@
     var x: number = Number(e.data.x);
     var y: number = Number(e.data.y);
     if (!correlationId) return;
-    var result = resolveHitTarget(x, y);
+    var sourceElementSize = e.data.sourceElementSize;
+    var validSourceElementSize =
+      sourceElementSize &&
+      Number.isFinite(sourceElementSize.width) &&
+      Number.isFinite(sourceElementSize.height) &&
+      sourceElementSize.width > 0 &&
+      sourceElementSize.height > 0
+        ? {
+            width: sourceElementSize.width,
+            height: sourceElementSize.height,
+          }
+        : undefined;
+    var result = ignoreAutoLayoutHitTarget(
+      applyHitTestSizeGuard(
+        resolveHitTarget(
+          x,
+          y,
+          e.data.modifiers?.forceNestedAutoLayout === true,
+        ),
+        x,
+        y,
+        validSourceElementSize,
+        e.data.modifiers,
+      ),
+      e.data.modifiers?.ignoreAutoLayout === true,
+    );
     if (e.data.preview) showInsertionGuideFor(result);
     var anchorNodeId: string = result ? getNodeId(result.anchor) : "";
     // Id-on-demand fallback (see file header): only mint when there is a

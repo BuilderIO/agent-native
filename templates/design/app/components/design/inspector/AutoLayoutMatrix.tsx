@@ -13,7 +13,11 @@ import {
   IconLayoutDistributeHorizontal,
   IconLayoutDistributeVertical,
 } from "@tabler/icons-react";
-import { type ReactNode, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -126,6 +130,35 @@ export interface AutoLayoutPadding {
   right: number;
   bottom: number;
   left: number;
+}
+
+const OPPOSITE_PADDING_SIDE: Record<
+  keyof AutoLayoutPadding,
+  keyof AutoLayoutPadding
+> = {
+  top: "bottom",
+  right: "left",
+  bottom: "top",
+  left: "right",
+};
+
+type PaddingChangeMeta = {
+  source: ScrubInputChangeMeta["source"];
+  phase: ScrubInputChangeMeta["phase"];
+  altKey?: boolean;
+};
+
+/** Apply Figma's Alt/Option mirror to one unlinked padding side. */
+export function mirrorPaddingChange(
+  padding: AutoLayoutPadding,
+  side: keyof AutoLayoutPadding,
+  meta?: PaddingChangeMeta,
+): AutoLayoutPadding {
+  if (!meta?.altKey) return padding;
+  return {
+    ...padding,
+    [OPPOSITE_PADDING_SIDE[side]]: padding[side],
+  };
 }
 
 export interface AutoLayoutMatrixValue {
@@ -424,6 +457,14 @@ export function AutoLayoutMatrix({
     value.paddingMixed?.top || value.paddingMixed?.bottom,
   );
 
+  const updatePadding = (
+    side: keyof AutoLayoutPadding,
+    padding: AutoLayoutPadding,
+    meta?: PaddingChangeMeta,
+  ) => {
+    onPaddingChange(mirrorPaddingChange(padding, side, meta), meta);
+  };
+
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
   const canResizeToFit =
@@ -559,9 +600,22 @@ export function AutoLayoutMatrix({
             layout="label-action-pair"
           >
             <InspectorGridCell span={28}>
-              <ControlLabel>
-                {"Resizing" /* i18n-ignore design inspector label */}
-              </ControlLabel>
+              <div className="flex items-center justify-between gap-2">
+                <ControlLabel>
+                  {"Resizing" /* i18n-ignore design inspector label */}
+                </ControlLabel>
+                <span
+                  aria-hidden="true"
+                  className="flex items-center gap-0.5 text-[9px] text-muted-foreground/70"
+                >
+                  <kbd className="rounded border border-border/60 px-1 font-mono">
+                    F
+                  </kbd>
+                  <kbd className="rounded border border-border/60 px-1 font-mono">
+                    H
+                  </kbd>
+                </span>
+              </div>
             </InspectorGridCell>
             <InspectorGridCell span={11}>
               <SizingField
@@ -686,7 +740,15 @@ export function AutoLayoutMatrix({
 
             <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
-                <ControlLabel>{copy.gap}</ControlLabel>
+                <div className="flex items-center justify-between gap-2">
+                  <ControlLabel>{copy.gap}</ControlLabel>
+                  <kbd
+                    aria-hidden="true"
+                    className="rounded border border-border/60 px-1 font-mono text-[9px] text-muted-foreground/70"
+                  >
+                    A
+                  </kbd>
+                </div>
                 <GapField
                   value={value.gap}
                   mixed={value.gapMixed}
@@ -731,7 +793,8 @@ export function AutoLayoutMatrix({
                     value={horizontalPaddingValue}
                     mixed={horizontalPaddingMixed}
                     onChange={(next, meta) =>
-                      onPaddingChange(
+                      updatePadding(
+                        "left",
                         {
                           top: value.padding.top,
                           bottom: value.padding.bottom,
@@ -752,7 +815,8 @@ export function AutoLayoutMatrix({
                     value={verticalPaddingValue}
                     mixed={verticalPaddingMixed}
                     onChange={(next, meta) =>
-                      onPaddingChange(
+                      updatePadding(
+                        "top",
                         {
                           top: next,
                           bottom: next,
@@ -788,7 +852,11 @@ export function AutoLayoutMatrix({
                         value={value.padding.top}
                         mixed={value.paddingMixed?.top}
                         onChange={(next, meta) =>
-                          onPaddingChange({ ...value.padding, top: next }, meta)
+                          updatePadding(
+                            "top",
+                            { ...value.padding, top: next },
+                            meta,
+                          )
                         }
                         disabled={disabled}
                       />
@@ -804,7 +872,8 @@ export function AutoLayoutMatrix({
                         value={value.padding.right}
                         mixed={value.paddingMixed?.right}
                         onChange={(next, meta) =>
-                          onPaddingChange(
+                          updatePadding(
+                            "right",
                             { ...value.padding, right: next },
                             meta,
                           )
@@ -819,7 +888,8 @@ export function AutoLayoutMatrix({
                         value={value.padding.bottom}
                         mixed={value.paddingMixed?.bottom}
                         onChange={(next, meta) =>
-                          onPaddingChange(
+                          updatePadding(
+                            "bottom",
                             { ...value.padding, bottom: next },
                             meta,
                           )
@@ -838,7 +908,8 @@ export function AutoLayoutMatrix({
                         value={value.padding.left}
                         mixed={value.paddingMixed?.left}
                         onChange={(next, meta) =>
-                          onPaddingChange(
+                          updatePadding(
+                            "left",
                             { ...value.padding, left: next },
                             meta,
                           )
@@ -1646,8 +1717,32 @@ function GapField({
   gapMode?: "fixed" | "auto";
   gapModeMixed?: boolean;
 }) {
+  const handleShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      disabled ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey ||
+      event.key.toLowerCase() !== "a"
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (onGapModeChange) {
+      onGapModeChange("auto", direction);
+    } else {
+      onDistribute?.(direction);
+    }
+  };
+
   return (
-    <InspectorGrid className="items-center" layout="field-action">
+    <InspectorGrid
+      className="items-center"
+      layout="field-action"
+      onKeyDown={handleShortcut}
+    >
       <InspectorGridCell span={24}>
         {/* [gap-icon] value [▾] in one control surface */}
         <div
@@ -1945,7 +2040,7 @@ export function SizingField({
     ? "Mixed"
     : resolvedSize == null
       ? ""
-      : String(Math.round(resolvedSize));
+      : String(roundToOneDecimal(resolvedSize));
 
   const addMinLabel = isWidth ? labels.addMinWidth : labels.addMinHeight;
   const addMaxLabel = isWidth ? labels.addMaxWidth : labels.addMaxHeight;
@@ -1955,10 +2050,29 @@ export function SizingField({
   // Whether we're in editable fixed mode (ScrubInput shown for size).
   const isEditableFixed = value === "fixed" && onSizeChange != null;
 
+  const handleShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      disabled ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+    const key = event.key.toLowerCase();
+    const next =
+      key === "f" && canFill ? "fill" : key === "h" && canHug ? "hug" : null;
+    if (!next) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onChange(next);
+  };
+
   const openEditor = (kind: "min" | "max") => {
     // Commit immediately so the shown row always reflects real state and
     // persists across selection changes, remounts, and parent re-renders.
-    const seed = Math.max(0, Math.round(resolvedSize ?? 0));
+    const seed = Math.max(0, roundToOneDecimal(resolvedSize ?? 0));
     const seedValue = kind === "min" ? seed : seed || 1;
     onMinMaxChange?.(sizingAxis, kind, seedValue);
   };
@@ -2039,7 +2153,7 @@ export function SizingField({
   );
 
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1" onKeyDown={handleShortcut}>
       {isEditableFixed ? (
         /*
          * Editable fixed mode: split the trigger into two zones —
@@ -2250,7 +2364,9 @@ function ConstraintSubRow({
         icon={icon}
         prefix="icon"
         value={value}
-        onChange={(next, meta) => onChange(Math.max(0, Math.round(next)), meta)}
+        onChange={(next, meta) =>
+          onChange(Math.max(0, roundToOneDecimal(next)), meta)
+        }
         unit="px"
         min={0}
         step={1}

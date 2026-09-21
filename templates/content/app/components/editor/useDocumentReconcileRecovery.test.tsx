@@ -39,6 +39,7 @@ function mount(
   ) => Promise<boolean>,
   getSaveIdentity?: () => string,
   retain?: (draft: { localDraft: string; localTitle: string }) => Promise<void>,
+  report = true,
 ) {
   function Harness() {
     recovery = useDocumentReconcileRecovery({
@@ -50,7 +51,7 @@ function mount(
     return null;
   }
   act(() => root.render(<Harness />));
-  act(() => recovery.report("conflict", draft));
+  if (report) act(() => recovery.report("conflict", draft));
 }
 
 function deferred() {
@@ -62,6 +63,141 @@ function deferred() {
 }
 
 describe("document reconcile recovery", () => {
+  it("persists an automatic merge without publishing recovery UI", async () => {
+    const savePending = deferred();
+    const save = vi.fn(() => savePending.promise);
+    draft = "peer and local edits merged";
+    mount(save, undefined, undefined, false);
+
+    let result!: Promise<boolean>;
+    act(() => {
+      result = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Merged title" },
+        base,
+      );
+    });
+    expect(recovery.state).toBeNull();
+    expect(save).toHaveBeenCalledWith(
+      { localDraft: draft, localTitle: "Merged title" },
+      base,
+    );
+
+    await act(async () => savePending.resolve(true));
+    expect(await result).toBe(true);
+    expect(recovery.state).toBeNull();
+  });
+
+  it("publishes recovery only after an automatic merge cannot be saved", async () => {
+    draft = "latest merged draft";
+    mount(async () => false, undefined, undefined, false);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Merged title" },
+        base,
+      );
+    });
+    expect(await result).toBe(false);
+    expect(recovery.state).toEqual({
+      reason: "conflict",
+      localDraft: draft,
+      localTitle: "",
+      saving: false,
+    });
+  });
+
+  it("updates visible recovery when another automatic merge arrives", async () => {
+    const retain = vi.fn(async () => undefined);
+    const save = vi.fn(async () => true);
+    mount(save, undefined, retain);
+    draft = "peer and local edits merged after recovery opened";
+
+    let result!: boolean;
+    await act(async () => {
+      result = await recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Merged title" },
+        base,
+      );
+    });
+
+    expect(result).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    expect(retain).toHaveBeenCalledWith({
+      localDraft: draft,
+      localTitle: "Merged title",
+    });
+    expect(recovery.state).toEqual({
+      reason: "conflict",
+      localDraft: draft,
+      localTitle: "Merged title",
+      saving: false,
+    });
+  });
+
+  it("does not replace newer typing while retaining a blocked automatic merge", async () => {
+    const retention = deferred();
+    const retain = vi.fn(() => retention.promise.then(() => undefined));
+    mount(async () => true, undefined, retain);
+    draft = "automatic merge";
+
+    let result!: Promise<boolean>;
+    act(() => {
+      result = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Merged title" },
+        base,
+      );
+    });
+    expect(recovery.state?.localDraft).toBe("automatic merge");
+
+    act(() => {
+      draft = "automatic merge plus newer typing";
+      recovery.updateDraft(draft, "Newer title");
+    });
+    await act(async () => retention.resolve(true));
+
+    expect(await result).toBe(false);
+    expect(recovery.state).toEqual({
+      reason: "conflict",
+      localDraft: draft,
+      localTitle: "Newer title",
+      saving: false,
+    });
+  });
+
+  it("falls back to recovery after three automatic saves race with typing", async () => {
+    const save = vi.fn(async () => true);
+    const retain = vi.fn(async () => undefined);
+    let identity = 0;
+    mount(save, () => String(identity), retain, false);
+    save.mockImplementation(async () => {
+      identity += 1;
+      draft = `typing generation ${identity}`;
+      return true;
+    });
+
+    let result!: boolean;
+    await act(async () => {
+      result = await recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Merged title" },
+        base,
+      );
+    });
+
+    expect(result).toBe(false);
+    expect(save).toHaveBeenCalledTimes(3);
+    expect(retain).toHaveBeenCalledWith({
+      localDraft: "typing generation 3",
+      localTitle: "",
+    });
+    expect(recovery.state).toEqual({
+      reason: "conflict",
+      localDraft: "typing generation 3",
+      localTitle: "",
+      saving: false,
+    });
+  });
+
   it("saves text typed during recovery before clearing the banner", async () => {
     const first = deferred();
     const second = deferred();

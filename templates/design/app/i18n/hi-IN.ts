@@ -4,6 +4,24 @@ const messages = {
   ...messagesByLocale["hi-IN"],
   designEditor: {
     ...messagesByLocale["hi-IN"].designEditor,
+    designNotFoundDescription: "यह डिज़ाइन मौजूद नहीं है या हटा दिया गया है।",
+    requestAccessTitle: "इस डिज़ाइन का ऐक्सेस माँगें",
+    requestAccessDescription: "यह डिज़ाइन निजी है। मालिक से ऐक्सेस का अनुरोध करें।",
+    requestAccess: "ऐक्सेस का अनुरोध करें",
+    accessRequested: "ऐक्सेस का अनुरोध किया गया",
+    accessRequestSentDescription:
+      "आपका अनुरोध दर्ज कर लिया गया है। ऐक्सेस स्वीकृत होने पर आप यह डिज़ाइन खोल सकेंगे।",
+    signInToRequestAccessTitle: "ऐक्सेस माँगने के लिए साइन इन करें",
+    signInToRequestAccessDescription:
+      "मालिक से ऐक्सेस माँगने के लिए साइन इन करें या खाता बनाएँ।",
+    signInOrSignUp: "साइन इन या साइन अप करें",
+    accessCheckFailed: "इस डिज़ाइन का ऐक्सेस जाँचा नहीं जा सका।",
+    retryAccessCheck: "फिर कोशिश करें",
+    import: {
+      ...messagesByLocale["hi-IN"].designEditor.import,
+      figUploadDescriptionShort:
+        "स्थानीय आयात — Figma API कोटा नहीं। समर्थित एम्बेडेड छवियाँ शामिल की जाती हैं।",
+    },
     componentInstances: {
       ...messagesByLocale["hi-IN"].designEditor.componentInstances,
       restore: "कॉम्पोनेंट पुनर्स्थापित करें",

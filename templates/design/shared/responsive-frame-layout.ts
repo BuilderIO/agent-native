@@ -12,14 +12,6 @@ export const BREAKPOINT_FRAME_GAP = 24;
 
 export const MAX_SANE_FRAME_DIMENSION_PX = 100_000;
 
-/**
- * Extra screen-constant gap between the last breakpoint card (or primary) and
- * the circular "+" add-breakpoint affordance. Multiplied by `chromeScale` so it
- * stays readable at every zoom; without this the chrome-scaled button can sit
- * flush against the frame edge.
- */
-export const BREAKPOINT_ADD_BUTTON_GAP_PX = 16;
-
 /** Drops any breakpoint whose width equals the primary frame's own width — a
  * redundant duplicate of the base — also cleaning up designs authored before
  * the default set excluded the primary width. */

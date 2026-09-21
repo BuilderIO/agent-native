@@ -263,6 +263,63 @@ export function resolvedLayerName(node: CodeLayerTreeNode): string {
   return node.name;
 }
 
+export function previewCodeLayerTreeMove(
+  nodes: CodeLayerTreeNode[],
+  args: {
+    sourceId: string;
+    anchorId: string;
+    placement: "before" | "after" | "inside";
+    insert?: boolean;
+  },
+): CodeLayerTreeNode[] | null {
+  let moved: CodeLayerTreeNode | null = null;
+  let anchorFound = false;
+  const remove = (siblings: CodeLayerTreeNode[]): CodeLayerTreeNode[] =>
+    siblings.flatMap((node) => {
+      if (node.id === args.anchorId) anchorFound = true;
+      if (node.id === args.sourceId) {
+        moved = node;
+        return [];
+      }
+      return [{ ...node, children: remove(node.children) }];
+    });
+  const withoutSource = remove(nodes);
+  const movedNode = moved as CodeLayerTreeNode | null;
+  if (movedNode === null || movedNode.id === args.anchorId || !anchorFound) {
+    return null;
+  }
+  if (args.insert === false) return withoutSource;
+
+  const insert = (siblings: CodeLayerTreeNode[]): CodeLayerTreeNode[] => {
+    const next: CodeLayerTreeNode[] = [];
+    for (const node of siblings) {
+      if (args.placement === "before" && node.id === args.anchorId) {
+        next.push(movedNode, node);
+      } else if (args.placement === "after" && node.id === args.anchorId) {
+        next.push(node, movedNode);
+      } else {
+        next.push({ ...node, children: insert(node.children) });
+      }
+    }
+    if (args.placement === "inside") {
+      return next.map((node) =>
+        node.id === args.anchorId
+          ? { ...node, children: [...node.children, movedNode] }
+          : node,
+      );
+    }
+    return next;
+  };
+  const result = insert(withoutSource);
+  let sourceInserted = false;
+  const visit = (node: CodeLayerTreeNode) => {
+    if (node.id === args.sourceId) sourceInserted = true;
+    node.children.forEach(visit);
+  };
+  result.forEach(visit);
+  return sourceInserted ? result : null;
+}
+
 export function codeLayerTreeToPanelNodes(
   nodes: CodeLayerTreeNode[],
   lockedIds: Set<string>,
@@ -499,6 +556,8 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
   return {
     tagName: node.tag,
     id: typeof node.attributes.id === "string" ? node.attributes.id : undefined,
+    componentAnnotation:
+      node.dataAttributes["data-agent-native-component"]?.trim() || undefined,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     provenance: provenanceForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
@@ -1051,6 +1110,11 @@ export function canonicalElementInfoForCodeLayerNode(
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
+    // Source projections are the authority for layer-panel selections. Keep
+    // their primitive marker when canonicalizing a live bridge payload so a
+    // drawn SVG stays on the vector inspector path even when the bridge
+    // payload omitted its optional primitiveKind field.
+    primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
     isGroup: node.dataAttributes["data-agent-native-group"] === "true",
     confidence: node.confidence,
     childElementCount: node.children.length,
@@ -1096,6 +1160,7 @@ export function canonicalizeElementInfoFromProjection(
   },
   info: ElementInfo,
   ownerScreenId?: string,
+  resolvedNode?: CodeLayerNode | null,
 ): ElementInfo {
   if (
     info.sourceLayerIdentity?.screenId &&
@@ -1104,7 +1169,10 @@ export function canonicalizeElementInfoFromProjection(
   ) {
     return info;
   }
-  const node = resolveCodeLayerNodeFromElementInfo(projection, info);
+  const node =
+    resolvedNode === undefined
+      ? resolveCodeLayerNodeFromElementInfo(projection, info)
+      : resolvedNode;
   if (node)
     return canonicalElementInfoForCodeLayerNode(info, node, ownerScreenId);
   return ownerScreenId && info.sourceLayerIdentity

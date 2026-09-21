@@ -1,4 +1,5 @@
 import { findEnclosingList } from "./bullet-editing";
+import { detectSlideListKind } from "./list-editing";
 
 type EditingTarget = EventTarget | Element | null;
 
@@ -170,6 +171,24 @@ export function isSlideCanvasShell(element: HTMLElement): boolean {
   );
 }
 
+/** Rich-text editing may use a nested block that has no canvas identity. */
+export function resolveSlideTextSelectionTarget(
+  element: HTMLElement,
+  root: HTMLElement,
+): HTMLElement {
+  let current: HTMLElement | null = element;
+  while (current && current !== root && root.contains(current)) {
+    if (
+      current.hasAttribute("data-builder-id") &&
+      !isSlideCanvasShell(current)
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return element;
+}
+
 /**
  * A text leaf is a block-level element whose children are text nodes or inline
  * elements. Inline style runs are deliberately not text leaves themselves.
@@ -287,7 +306,7 @@ function hasUnsafeRichTextDescendant(element: HTMLElement): boolean {
 function canEnterRichTextEdit(element: HTMLElement): boolean {
   if (!isRichTextBlock(element)) return false;
   // A single text layer keeps its outer style while its contents are edited.
-  if (isTextLeaf(element)) return true;
+  if (isTextLeaf(element) || detectSlideListKind(element)) return true;
   return !hasUnsafeRichTextDescendant(element);
 }
 

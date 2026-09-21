@@ -19,6 +19,8 @@ it("uses the projected source and refuses a style commit while source actions ar
   const runtimeSnapshot =
     '<html><head><style>h1 { color: rgb(0, 0, 255); }</style></head><body><div id="root"><main data-pending="true"><h1 id="target" style="color: rgb(0, 0, 255);">Pending</h1></main></div></body></html>';
   const queueFileContentSave = vi.fn();
+  const updateLiveScreenSnapshotContent = vi.fn(() => true);
+  const recordLocalContentHistoryEntry = vi.fn();
   const latestActiveContentRef = ref<string | null>(pendingContent);
   const canApplyContentEdit = vi.fn(() => true);
 
@@ -52,7 +54,7 @@ it("uses the projected source and refuses a style commit while source actions ar
     queueFileContentSave,
     recordContentHistoryEntry: vi.fn(),
     recordLocalContentHistoryChangeFallback: vi.fn(),
-    recordLocalContentHistoryEntry: vi.fn(),
+    recordLocalContentHistoryEntry,
     recordPendingVisualStyleEdit: vi.fn(),
     replacePreviewContent: vi.fn(() => "applied" as const),
     responsiveEditScopeRef: ref("cascade-smaller"),
@@ -66,7 +68,7 @@ it("uses the projected source and refuses a style commit while source actions ar
     suppressContentHistoryRef: ref(false),
     t: (key: string) => key,
     undoManagerRef: ref(null),
-    updateLiveScreenSnapshotContent: vi.fn(() => false),
+    updateLiveScreenSnapshotContent,
     upsertMotionKeyframesFromStyles: vi.fn(),
     viewModeRef: ref("single"),
     ydoc: null,
@@ -88,6 +90,8 @@ it("uses the projected source and refuses a style commit while source actions ar
     sourceContentHash(runtimeSnapshot),
   );
   expect(latestActiveContentRef.current).toBe(savedContent);
+  expect(updateLiveScreenSnapshotContent).not.toHaveBeenCalled();
+  expect(recordLocalContentHistoryEntry).toHaveBeenCalledOnce();
 
   queueFileContentSave.mockClear();
   canApplyContentEdit.mockReturnValue(false);

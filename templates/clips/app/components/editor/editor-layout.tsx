@@ -784,6 +784,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             timelineActive={editingSurface === "timeline"}
             edits={edits}
             selectionRange={selectionRange}
+            onSelectionCut={() => setSelectionRange(null)}
             video={{ videoUrl, videoFormat, title: recording.title }}
             onOpenThumbnailPicker={() => setThumbOpen(true)}
             onOpenChapters={() => setChaptersOpen((v) => !v)}
@@ -935,6 +936,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           onOpenChange={setRewindOpen}
           recordingId={recordingId}
           durationMs={durationMs}
+          width={recording.width}
+          height={recording.height}
           videoFormat={videoFormat}
           hasAudio={Boolean(recording.hasAudio)}
           visibility={recording.visibility}

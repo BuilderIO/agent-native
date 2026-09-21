@@ -245,6 +245,11 @@ import {
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
+import {
+  humanizeToolName,
+  runningToolLabel,
+  toolLabel,
+} from "./tool-display.js";
 import { callAction, useActionMutation, useActionQuery } from "./use-action.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import {
@@ -764,9 +769,13 @@ export async function waitForThreadRunToClear(
     const stored = getActiveRun();
     const sameStoredRun =
       stored?.threadId === threadId && stored.runId === info.runId;
+    const storedOwnerTabId = sameStoredRun ? stored?.tabId : undefined;
     setActiveRun({
       threadId,
       runId: info.runId,
+      // Waiting to reconnect does not transfer stream ownership. Preserve
+      // the current owner's surface until that surface actually claims it.
+      ...(storedOwnerTabId ? { tabId: storedOwnerTabId } : {}),
       ...(info.turnId ? { turnId: info.turnId } : {}),
       lastSeq: sameStoredRun ? stored.lastSeq : -1,
       ...(sameStoredRun && stored.activityTool
@@ -1792,6 +1801,7 @@ export function resolveAssistantChatRunningState({
 
 export function resolveAssistantChatRunningStatusLabel({
   runningActivityLabel,
+  runningActivityTool,
   isAutoResuming,
   isReconnecting,
   hasReconnectContent,
@@ -1802,6 +1812,7 @@ export function resolveAssistantChatRunningStatusLabel({
   },
 }: {
   runningActivityLabel: string | null | undefined;
+  runningActivityTool?: string | null;
   isAutoResuming: boolean;
   isReconnecting: boolean;
   hasReconnectContent: boolean;
@@ -1815,6 +1826,8 @@ export function resolveAssistantChatRunningStatusLabel({
     preparing?: (activity: string) => string;
     writing?: (activity: string) => string;
     stillGenerating?: (activity: string) => string;
+    runningTool?: (toolName: string) => string;
+    toolDisplayName?: (toolName: string) => string;
   };
 }): string {
   if (runningActivityLabel) {
@@ -1824,6 +1837,17 @@ export function resolveAssistantChatRunningStatusLabel({
     }
     if (runningActivityLabel === "Contacting model") {
       return labels.contactingModel ?? "Contacting model";
+    }
+    // `tool_start` stores the English `runningToolLabel(tool)`. The tool name
+    // rides along in state, so re-derive the label here instead of shipping the
+    // stored English through to the status line.
+    const activityTool = runningActivityTool?.trim();
+    if (
+      activityTool &&
+      labels.runningTool &&
+      runningActivityLabel === runningToolLabel(activityTool)
+    ) {
+      return labels.runningTool(activityTool);
     }
     const localizedActivityPatterns: Array<
       [RegExp, ((activity: string) => string) | undefined]
@@ -1835,7 +1859,17 @@ export function resolveAssistantChatRunningStatusLabel({
     ];
     for (const [pattern, translateActivity] of localizedActivityPatterns) {
       const match = runningActivityLabel.match(pattern);
-      if (match?.[1] && translateActivity) return translateActivity(match[1]);
+      if (match?.[1] && translateActivity) {
+        // The captured activity is the derived action name. When it matches the
+        // tool this run is on, prefer the app's catalog label for it.
+        const activity =
+          activityTool &&
+          labels.toolDisplayName &&
+          match[1] === humanizeToolName(activityTool)
+            ? labels.toolDisplayName(activityTool)
+            : match[1];
+        return translateActivity(activity);
+      }
     }
     return runningActivityLabel;
   }
@@ -3480,6 +3514,7 @@ const AssistantChatInner = forwardRef<
   // ongoing work instead of exposing "Reconnecting" mid-chat.
   const runningStatusLabel = resolveAssistantChatRunningStatusLabel({
     runningActivityLabel,
+    runningActivityTool,
     isAutoResuming,
     isReconnecting,
     hasReconnectContent: reconnectContent.length > 0,
@@ -3494,6 +3529,11 @@ const AssistantChatInner = forwardRef<
       writing: (activity) => t("agentChat.status.writing", { activity }),
       stillGenerating: (activity) =>
         t("agentChat.status.stillGenerating", { activity }),
+      runningTool: (toolName) =>
+        t("agentChat.status.runningTool", {
+          activity: toolLabel(t, toolName),
+        }),
+      toolDisplayName: (toolName) => toolLabel(t, toolName),
     },
   });
   const reconnectActivityContent = useMemo(
@@ -4002,6 +4042,7 @@ const AssistantChatInner = forwardRef<
       setActiveRun({
         threadId,
         runId,
+        ...(tabId ? { tabId } : {}),
         ...(reconnectTurnIdRef.current
           ? { turnId: reconnectTurnIdRef.current }
           : {}),

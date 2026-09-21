@@ -6,10 +6,7 @@ import { toast } from "sonner";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentLineage } from "@/lib/clipboard-content-lineage";
-import {
-  cloneCanvasFrameGeometry,
-  getDesignDataRecord,
-} from "@/pages/design-editor/design-data-geometry-utils";
+import { cloneCanvasFrameGeometry } from "@/pages/design-editor/design-data-geometry-utils";
 import type { UndoRedoOrderKind } from "@/pages/design-editor/editor-state";
 import type {
   ContentHistoryChange,
@@ -17,7 +14,6 @@ import type {
   FileCreationHistoryEntry,
   FileDeletionHistoryEntry,
   FileDeletionHistorySnapshot,
-  FileDeletionVariantMembershipSnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
 } from "@/pages/design-editor/history";
@@ -30,62 +26,6 @@ import {
   removeRecentUndoRedoOrderKinds,
 } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function variantScreenId(screen: unknown): string | null {
-  if (typeof screen === "string") return screen;
-  if (isRecord(screen) && typeof screen.id === "string") return screen.id;
-  return null;
-}
-
-function fileDeletionMetadataSnapshot(
-  designData: Record<string, unknown>,
-  fileId: string,
-): Pick<
-  FileDeletionHistorySnapshot,
-  "screenMetadata" | "localhostScreen" | "variantMemberships"
-> {
-  const metadata = getDesignDataRecord(designData, "screenMetadata")[fileId];
-  const localhostScreen = getDesignDataRecord(designData, "localhostScreens")[
-    fileId
-  ];
-  const variantMemberships: FileDeletionVariantMembershipSnapshot[] = [];
-
-  for (const [setId, value] of Object.entries(
-    getDesignDataRecord(designData, "designVariantSets"),
-  )) {
-    if (!isRecord(value) || !Array.isArray(value.screens)) continue;
-    const screens: unknown[] = value.screens;
-    const screenIds = screens.map(variantScreenId);
-    if (screenIds.some((id) => id === null)) continue;
-    screens.forEach((screen, index) => {
-      if (screenIds[index] !== fileId) return;
-      variantMemberships.push({
-        setId,
-        set: {
-          ...value,
-          screens: screens.map((member) =>
-            isRecord(member) ? { ...member } : member,
-          ),
-        },
-        screen,
-        index,
-        originalScreenIds: screenIds as string[],
-      });
-    });
-  }
-
-  return {
-    ...(isRecord(metadata) ? { screenMetadata: { ...metadata } } : {}),
-    ...(isRecord(localhostScreen)
-      ? { localhostScreen: { ...localhostScreen } }
-      : {}),
-    ...(variantMemberships.length > 0 ? { variantMemberships } : {}),
-  };
-}
 
 export interface DeleteFilesArgs {
   activeFile: DesignFile;
@@ -109,6 +49,7 @@ export interface DeleteFilesArgs {
   fileCreationUndoStackRef: RefObject<FileCreationHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  clearPendingHistory?: () => void;
   files: DesignFile[];
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
@@ -121,7 +62,11 @@ export interface DeleteFilesArgs {
   localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
   queryClient: QueryClient;
   redoOrderRef: RefObject<UndoRedoOrderKind[]>;
+  overviewSelectedScreenIds?: string[];
+  selectedElement?: ElementInfo | null;
+  selectedLayerIdsState?: string[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
+  setOverviewSelectedScreenIds?: Dispatch<SetStateAction<string[]>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   syncUndoRedoState: () => void;
@@ -132,7 +77,7 @@ export interface DeleteFilesArgs {
   ) => void;
 }
 
-export function runDeleteFiles(
+export async function runDeleteFiles(
   {
     activeFile,
     canvasFrameGeometryById,
@@ -149,6 +94,7 @@ export function runDeleteFiles(
     fileCreationUndoStackRef,
     fileDeletionUndoStackRef,
     fileHistoryMutationPendingRef,
+    clearPendingHistory,
     files,
     geometryRedoStackRef,
     geometryUndoStackRef,
@@ -159,7 +105,11 @@ export function runDeleteFiles(
     localContentUndoStackRef,
     queryClient,
     redoOrderRef,
+    overviewSelectedScreenIds,
+    selectedElement,
+    selectedLayerIdsState,
     setActiveFileId,
+    setOverviewSelectedScreenIds,
     setSelectedElement,
     setSelectedLayerIdsState,
     syncUndoRedoState,
@@ -176,7 +126,7 @@ export function runDeleteFiles(
     // the entry undoFileCreation just pushed, leaving redo permanently
     // empty after every screen-create/duplicate undo.
     skipFileCreationRedoPrune?: boolean;
-    // A user-confirmed screen deletion is a normal editor operation, not
+    // A screen deletion is a normal editor operation, not
     // an irreversible special case. Capture the complete rows + frame
     // geometry and add one grouped undo entry after every delete succeeds.
     recordDeletionHistory?: boolean;
@@ -184,25 +134,27 @@ export function runDeleteFiles(
     onMutationSettled?: (
       deletedFiles: DesignFile[],
       failedFiles: DesignFile[],
+      deletedFileSnapshots: FileDeletionHistorySnapshot[],
     ) => void;
   },
-) {
+): Promise<void> {
   if (!filesToDelete.length) return;
+  if (options?.recordDeletionHistory && fileHistoryMutationPendingRef.current) {
+    throw new Error(t("common.genericError"));
+  }
   const deleteIds = new Set(filesToDelete.map((file) => file.id));
   const nextActiveFile = files.find((file) => !deleteIds.has(file.id));
+  const previousGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
+  const previousSelection = {
+    overviewSelectedScreenIds: [...(overviewSelectedScreenIds ?? [])],
+    selectedElement: selectedElement ?? null,
+    selectedLayerIds: [...(selectedLayerIdsState ?? [])],
+  };
   const nextGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
-  const deletionHistoryEntry: FileDeletionHistoryEntry | null =
-    options?.recordDeletionHistory
-      ? {
-          files: filesToDelete.map((file) => ({
-            ...file,
-            geometry: canvasFrameGeometryById[file.id],
-            ...fileDeletionMetadataSnapshot(designDataJsonRef.current, file.id),
-          })),
-        }
-      : null;
-  if (deletionHistoryEntry) {
-    clearRedoStacks();
+  const designQueryKey = ["action", "get-design", { id }] as const;
+  const previousDesignQuery = queryClient.getQueryData?.(designQueryKey);
+  const recordDeletionHistory = options?.recordDeletionHistory === true;
+  if (recordDeletionHistory) {
     fileHistoryMutationPendingRef.current = true;
     syncUndoRedoState();
   }
@@ -210,11 +162,15 @@ export function runDeleteFiles(
     delete nextGeometry[file.id];
   });
 
-  if (!options?.recordDeletionHistory && !options?.preserveHistory) {
+  const pruneHistoryForDeletedFiles = (filesToPrune: DesignFile[]) => {
+    const deletedFileIds = new Set(filesToPrune.map((file) => file.id));
     const nextGeometryUndoStack: GeometryHistoryEntry[] = [];
     let removedGeometryUndoEntries = 0;
     geometryUndoStackRef.current.forEach((entry) => {
-      const pruned = pruneGeometryHistoryEntryForDeletedFiles(entry, deleteIds);
+      const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+        entry,
+        deletedFileIds,
+      );
       if (!pruned) {
         removedGeometryUndoEntries += 1;
         return;
@@ -231,7 +187,10 @@ export function runDeleteFiles(
     const nextGeometryRedoStack: GeometryHistoryEntry[] = [];
     let removedGeometryRedoEntries = 0;
     geometryRedoStackRef.current.forEach((entry) => {
-      const pruned = pruneGeometryHistoryEntryForDeletedFiles(entry, deleteIds);
+      const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+        entry,
+        deletedFileIds,
+      );
       if (!pruned) {
         removedGeometryRedoEntries += 1;
         return;
@@ -257,7 +216,7 @@ export function runDeleteFiles(
     let removedContentUndoEntries = 0;
     contentUndoStackRef.current.forEach((entry, index) => {
       const remainingChanges = getContentHistoryChanges(entry).filter(
-        (change) => !deleteIds.has(change.fileId),
+        (change) => !deletedFileIds.has(change.fileId),
       );
       if (remainingChanges.length === 0) {
         removedContentUndoEntries += 1;
@@ -287,7 +246,7 @@ export function runDeleteFiles(
     let removedContentRedoEntries = 0;
     contentRedoStackRef.current.forEach((entry, index) => {
       const remainingChanges = getContentHistoryChanges(entry).filter(
-        (change) => !deleteIds.has(change.fileId),
+        (change) => !deletedFileIds.has(change.fileId),
       );
       if (remainingChanges.length === 0) {
         removedContentRedoEntries += 1;
@@ -310,19 +269,17 @@ export function runDeleteFiles(
       removedContentRedoEntries,
     );
     localContentUndoStackRef.current = localContentUndoStackRef.current.filter(
-      (change) => !deleteIds.has(change.fileId),
+      (change) => !deletedFileIds.has(change.fileId),
     );
     localContentRedoStackRef.current = localContentRedoStackRef.current.filter(
-      (change) => !deleteIds.has(change.fileId),
+      (change) => !deletedFileIds.has(change.fileId),
     );
 
     // U12: a file-created entry is resolved by filename at undo/redo time
     // (it doesn't carry an id, since the id isn't known until the create
     // mutation resolves), so prune it here by filename when the file it
     // refers to is being hard-deleted directly.
-    const deletedFilenames = new Set(
-      filesToDelete.map((file) => file.filename),
-    );
+    const deletedFilenames = new Set(filesToPrune.map((file) => file.filename));
     const prunedFileCreationUndo = pruneFileCreationHistoryStack(
       fileCreationUndoStackRef.current,
       deletedFilenames,
@@ -352,10 +309,10 @@ export function runDeleteFiles(
       "file-created",
       prunedFileCreationRedo.removed,
     );
-  }
+  };
 
   writeFrameGeometrySnapshot(nextGeometry);
-  queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+  queryClient.setQueryData(designQueryKey, (old: any) => {
     if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
       return old;
     }
@@ -368,30 +325,72 @@ export function runDeleteFiles(
   if (activeFile && deleteIds.has(activeFile.id) && nextActiveFile) {
     setActiveFileId(nextActiveFile.id);
   }
+  setOverviewSelectedScreenIds?.([]);
   setSelectedElement(null);
   setSelectedLayerIdsState([]);
 
-  void Promise.allSettled(
-    filesToDelete.map((file) =>
-      deleteFileMutation.mutateAsync({
-        id: file.id,
-        allowLockedLayers: true,
-      } as any),
-    ),
-  ).then((results) => {
-    const deletedFiles = filesToDelete.filter((_, index) => {
-      const result = results[index];
-      return (
-        result?.status === "fulfilled" &&
-        (result.value as { deleted?: boolean } | undefined)?.deleted !== false
-      );
-    });
-    const deletedIds = new Set(deletedFiles.map((file) => file.id));
-    const failedFiles = filesToDelete.filter(
-      (file) => !deletedIds.has(file.id),
+  const results = await Promise.allSettled([
+    deleteFileMutation.mutateAsync({
+      id: filesToDelete[0]!.id,
+      ...(filesToDelete.length > 1
+        ? { fileIds: filesToDelete.map((file) => file.id) }
+        : {}),
+      allowLockedLayers: true,
+    } as any),
+  ]);
+  const mutationResult = results[0];
+  const mutationValue =
+    mutationResult?.status === "fulfilled"
+      ? (mutationResult.value as
+          | {
+              deleted?: boolean;
+              deletedIds?: string[];
+              id?: string;
+              deletedFiles?: FileDeletionHistorySnapshot[];
+            }
+          | undefined)
+      : undefined;
+  const deletedIdsFromServer = new Set(
+    Array.isArray(mutationValue?.deletedIds)
+      ? mutationValue.deletedIds
+      : mutationValue?.deleted && mutationValue.id
+        ? [mutationValue.id]
+        : mutationValue?.deleted && filesToDelete.length === 1
+          ? [filesToDelete[0]!.id]
+          : [],
+  );
+  const deletedFiles = filesToDelete.filter((file) =>
+    deletedIdsFromServer.has(file.id),
+  );
+  const deletedIds = new Set(deletedFiles.map((file) => file.id));
+  const failedFiles = filesToDelete.filter((file) => !deletedIds.has(file.id));
+  if (
+    !recordDeletionHistory &&
+    !options?.preserveHistory &&
+    deletedFiles.length
+  ) {
+    pruneHistoryForDeletedFiles(deletedFiles);
+  }
+  const serverDeletedFileSnapshots = Array.isArray(mutationValue?.deletedFiles)
+    ? mutationValue.deletedFiles
+    : [];
+  const hasCompleteHistorySnapshot =
+    serverDeletedFileSnapshots.length === deletedFiles.length &&
+    new Set(serverDeletedFileSnapshots.map((file) => file.id)).size ===
+      deletedFiles.length &&
+    deletedFiles.every((file) =>
+      serverDeletedFileSnapshots.some((snapshot) => snapshot.id === file.id),
     );
+  const deletionHistoryEntry: FileDeletionHistoryEntry | null =
+    recordDeletionHistory &&
+    deletedFiles.length > 0 &&
+    hasCompleteHistorySnapshot
+      ? { files: serverDeletedFileSnapshots }
+      : null;
 
-    if (deletionHistoryEntry && deletedFiles.length > 0) {
+  if (recordDeletionHistory && deletedFiles.length > 0) {
+    clearRedoStacks();
+    if (deletionHistoryEntry) {
       fileDeletionUndoStackRef.current = [
         ...fileDeletionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         filterFileDeletionHistoryEntry(deletionHistoryEntry, deletedIds),
@@ -400,32 +399,52 @@ export function runDeleteFiles(
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "file-deleted",
       ];
+    } else {
+      clearPendingHistory?.();
+      toast.error(t("common.genericError"));
     }
+  }
 
-    const rejected = results.find(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    if (failedFiles.length > 0) {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-design"],
-      });
-      if (rejected) {
-        toast.error(
-          rejected.reason instanceof Error
-            ? rejected.reason.message
-            : t("common.genericError"),
-        );
-      }
+  const rejected = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failedFiles.length > 0) {
+    writeFrameGeometrySnapshot(previousGeometry);
+    if (previousDesignQuery !== undefined) {
+      queryClient.setQueryData(designQueryKey, previousDesignQuery);
     }
+    if (activeFile && deleteIds.has(activeFile.id)) {
+      setActiveFileId(activeFile.id);
+    }
+    setOverviewSelectedScreenIds?.(previousSelection.overviewSelectedScreenIds);
+    setSelectedElement(previousSelection.selectedElement);
+    setSelectedLayerIdsState(previousSelection.selectedLayerIds);
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "get-design"],
+    });
+    if (rejected) {
+      toast.error(
+        rejected.reason instanceof Error
+          ? rejected.reason.message
+          : t("common.genericError"),
+      );
+    }
+    // A partial/failed batch is not a safe boundary for a queued undo/redo.
+    // The surviving user intent must be reissued explicitly after refresh.
+    if (recordDeletionHistory) clearPendingHistory?.();
+  }
 
-    if (deletionHistoryEntry) {
-      fileHistoryMutationPendingRef.current = false;
-      for (const fileId of deletedIds)
-        latestClipboardMutationContentRef.current.delete(fileId);
-    }
-    options?.onMutationSettled?.(deletedFiles, failedFiles);
-    syncUndoRedoState();
-  });
+  if (recordDeletionHistory) {
+    fileHistoryMutationPendingRef.current = false;
+    for (const fileId of deletedIds)
+      latestClipboardMutationContentRef.current.delete(fileId);
+  }
+  options?.onMutationSettled?.(
+    deletedFiles,
+    failedFiles,
+    serverDeletedFileSnapshots,
+  );
+  syncUndoRedoState();
 
   // File-backed screen deletion is not a geometry-only edit. The screen rows
   // are hard-deleted, so suppress MultiScreenCanvas' local frame-history

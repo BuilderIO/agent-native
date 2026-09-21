@@ -82,6 +82,7 @@ const messages = {
     createFolderError: "Falha ao criar",
     folderCreated: "Pasta criada",
     folderNamePlaceholder: "Nome da pasta",
+    breadcrumbBack: "Voltar para {{label}}",
   },
   empty: {
     library: {
@@ -162,6 +163,10 @@ const messages = {
     aiRequestFailed: "Falha na solicitação de IA",
     titleUpdated: "Título atualizado",
     descriptionUpdated: "Descrição atualizada",
+    tags: "Etiquetas",
+    addTag: "Adicionar etiqueta…",
+    tagsUpdateFailed: "Não foi possível atualizar as etiquetas",
+    tagTooLong: "As etiquetas podem ter no máximo {{max}} caracteres",
     chaptersGenerated: "Capítulos gerados",
     fillerCompleted: "Remoção de palavras de preenchimento concluída",
     workflowReady: "Fluxo de trabalho pronto",
@@ -1256,7 +1261,8 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "Novo espaço",
-    description: "Crie um espaço na organização atual.",
+    description:
+      "Os espaços são locais compartilhados para sua organização organizar gravações.",
     name: "Nome",
     color: "Cor",
     useColor: "Usar cor {{color}}",
@@ -1458,7 +1464,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app",
     surfaceBrowser: "Browser tab",
     surfaceBrowserDescription: "Choose an open tab",
-    surfaceScreen: "Screen",
+    surfaceScreen: "Tela cheia",
     surfaceScreenDescription: "Capture everything",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection.",
@@ -1574,7 +1580,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.",
+    recordOnDesktop: "Gravar no desktop",
     downloadDesktopApp: "Download desktop app",
+    getChromeExtension: "Obter a extensão do Chrome",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
     downloadRecording: "Download",

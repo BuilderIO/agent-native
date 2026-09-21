@@ -536,6 +536,53 @@ describe("shareable resource access helpers", () => {
     });
   });
 
+  it("keeps direct user shares working in a transaction without org_members", async () => {
+    await insertDoc({
+      id: "doc-org-direct-share-without-members",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+    await db.insert(docShares).values({
+      id: "share-direct-without-members",
+      resourceId: "doc-org-direct-share-without-members",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: "2026-04-30T00:00:00.000Z",
+    });
+    await pglite.exec("DROP TABLE org_members");
+    const transaction = {
+      execute: async (
+        statement: string | { sql: string; args?: unknown[] },
+      ) => {
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        const args =
+          typeof statement === "string" ? [] : (statement.args ?? []);
+        const result = await pglite.query(sql, args);
+        return {
+          rows: Array.from(result.rows ?? []),
+          rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+        };
+      },
+    };
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, () =>
+      assertAccess(
+        resourceType,
+        "doc-org-direct-share-without-members",
+        "editor",
+        {
+          userEmail: viewerEmail,
+          orgId,
+          transaction: transaction as any,
+        },
+      ),
+    ).then((access) => {
+      expect(access.role).toBe("editor");
+    });
+  });
+
   it("allows a resource registration to explicitly upgrade public-by-link access", async () => {
     const publicEditType = "qa-doc-public-editor";
     registerShareableResource({

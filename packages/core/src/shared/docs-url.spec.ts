@@ -24,11 +24,11 @@ describe("docsUrl", () => {
       `${AGENT_NATIVE_DOCS_ORIGIN}/docs/deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings`,
     );
     expect(
-      docsUrl("template-clips-capture-everywhere", {
-        hash: "browser-logs-with-the-chrome-extension",
+      docsUrl("template-clips-features", {
+        hash: "chrome-extension-browser-logs",
       }),
     ).toBe(
-      `${AGENT_NATIVE_DOCS_ORIGIN}/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension`,
+      `${AGENT_NATIVE_DOCS_ORIGIN}/docs/template-clips-features#chrome-extension-browser-logs`,
     );
   });
 });

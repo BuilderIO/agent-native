@@ -13,6 +13,7 @@ import {
 import {
   dedupeStringIds,
   isScreenRootElementInfo,
+  resolveMarqueeAdditive,
   shouldClearBridgeSelectionOnEmptyMarquee,
 } from "@/pages/design-editor/selection-state";
 import { resolveToolAfterSelection } from "@/pages/design-editor/tool-state";
@@ -42,6 +43,34 @@ export interface LayerMarqueeSelectionChangeArgs {
   viewModeRef: RefObject<"single" | "overview">;
 }
 
+export function runMarqueeSelectionCancellation<T>({
+  before,
+  flushSync,
+  restoreHostSelection,
+  restoreSelectionSnapshot,
+  run,
+  selectedElementBefore,
+  setSelectedElement,
+}: {
+  before: T | null;
+  flushSync: (callback: () => void) => void;
+  restoreHostSelection: boolean;
+  restoreSelectionSnapshot: (selection: T) => void;
+  run: () => void;
+  selectedElementBefore: ElementInfo | null;
+  setSelectedElement: (element: ElementInfo | null) => void;
+}) {
+  if (before && restoreHostSelection) {
+    flushSync(() => {
+      restoreSelectionSnapshot(before);
+      setSelectedElement(selectedElementBefore);
+      run();
+    });
+    return;
+  }
+  run();
+}
+
 export function runLayerMarqueeSelectionChange(
   {
     clearPendingOverviewLayerSelectionTimer,
@@ -64,13 +93,22 @@ export function runLayerMarqueeSelectionChange(
   }: LayerMarqueeSelectionChangeArgs,
   selection: CanvasLayerMarqueeSelection[],
   intent: ElementSelectionIntent,
-) {
+): { screenId: string; info: ElementInfo } | null {
+  if (intent.cancelled) {
+    pendingOverviewScreenSelectionRef.current = null;
+    pendingOverviewLayerSelectionRef.current = null;
+    lastMarqueeSelectionSignatureRef.current = null;
+    clearPendingOverviewLayerSelectionTimer();
+    return null;
+  }
+  const additive = resolveMarqueeAdditive(intent);
   // PF10: MultiScreenCanvas reports the marquee hit-set on every
   // mousemove tick during a drag, not just on settle (see
   // reportLayerSelection in MultiScreenCanvas.tsx). Bail before any
-  // projection/canonicalization work when the reported set is identical
-  // to the last tick's — the common case while the marquee rect isn't
-  // currently crossing an element boundary.
+  // projection/canonicalization work when an interim reported set is
+  // identical to the last tick's — the common case while the marquee rect
+  // isn't currently crossing an element boundary. The final tick still runs
+  // so its canonical payload is never dropped.
   //
   // The dedup is ONLY applied to non-empty hit-sets. An empty hit-set (a
   // plain empty-space click, or dragging over blank canvas) is cheap to
@@ -84,9 +122,9 @@ export function runLayerMarqueeSelectionChange(
         (item) =>
           `${item.screenId}:${item.info.sourceId ?? item.info.selector ?? ""}`,
       )
-      .join("|") + `#${intent.additive ? "1" : "0"}`;
-  if (selection.length > 0) {
-    if (lastMarqueeSelectionSignatureRef.current === signature) return;
+      .join("|") + `#${additive ? "1" : "0"}`;
+  if (selection.length > 0 && intent.final !== true) {
+    if (lastMarqueeSelectionSignatureRef.current === signature) return null;
   }
   lastMarqueeSelectionSignatureRef.current = signature;
 
@@ -99,12 +137,13 @@ export function runLayerMarqueeSelectionChange(
     .map((item) => {
       const projection = getCodeLayerProjectionForScreen(item.screenId);
       if (!projection) return null;
+      const node = resolveCodeLayerNodeFromElementInfo(projection, item.info);
       const canonical = canonicalizeElementInfoFromProjection(
         projection,
         item.info,
         item.screenId,
+        node,
       );
-      const node = resolveCodeLayerNodeFromElementInfo(projection, canonical);
       if (!node || isScreenRootElementInfo(canonical)) return null;
       return {
         screenId: item.screenId,
@@ -137,7 +176,7 @@ export function runLayerMarqueeSelectionChange(
     }
   });
   setSelectedLayerIdsState((current) =>
-    intent.additive
+    additive
       ? dedupeStringIds([
           ...current.filter((layerId) => !layerId.startsWith("__")),
           ...hitLayerIds,
@@ -165,7 +204,7 @@ export function runLayerMarqueeSelectionChange(
     hasActiveSelectionRef.current &&
     shouldClearBridgeSelectionOnEmptyMarquee({
       resolvedCount: resolved.length,
-      additive: intent.additive,
+      additive,
     })
   ) {
     // B5-1: an empty-space click (zero-hit marquee) must deselect an
@@ -185,6 +224,9 @@ export function runLayerMarqueeSelectionChange(
 
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
+  return primary
+    ? { screenId: primary.screenId, info: primary.elementInfo }
+    : null;
 }
 
 /**

@@ -93,6 +93,7 @@ describe("public document route", () => {
         document: { id: "doc-1", title: "Launch notes" },
         basePath: "/content",
         origin: "https://content.example.test",
+        accessState: "authentication-required",
       }),
     );
 
@@ -100,10 +101,15 @@ describe("public document route", () => {
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain("https://content.example.test/content/mcp/connect");
     expect(html).toContain("get-document");
-    expect(html).toContain("tell-user-to-connect");
-    expect(html).toContain("Do not ask the user to paste");
-    expect(html).toContain("make it public");
-    expect(html).toContain("change sharing permissions");
+    expect(html).toContain("Content access information:");
+    expect(html).toContain(
+      "https://www.agent-native.com/docs/external-agents/#private-content-links",
+    );
+    expect(html).toContain(
+      "Document access through MCP uses the connected account&#x27;s existing permissions",
+    );
+    expect(html).not.toContain("tell the user");
+    expect(html).not.toContain("Do not ask");
     expect(html).not.toContain("button");
   });
 

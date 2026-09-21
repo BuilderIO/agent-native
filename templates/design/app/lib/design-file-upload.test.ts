@@ -145,6 +145,12 @@ describe("uploadDesignFile", () => {
         size: MAX_FIG_UPLOAD_BYTES + 1,
       }),
     ).toBe("too-large");
+    expect(
+      validateFigUploadFile(
+        { name: "sample.fig", size: MAX_FIG_UPLOAD_BYTES + 1 },
+        { maxBytes: null },
+      ),
+    ).toBeNull();
   });
 });
 

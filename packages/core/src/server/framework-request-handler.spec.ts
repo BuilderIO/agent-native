@@ -5,6 +5,7 @@ import {
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
+import { createTrackingEventScope } from "../observability/tracing.js";
 import {
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
@@ -12,6 +13,7 @@ import {
   trackPluginInit,
 } from "./framework-request-handler.js";
 import {
+  getRequestContext,
   getRequestUserEmail,
   hasRequestContext,
   runWithRequestContext,
@@ -85,6 +87,7 @@ describe("framework request handler", () => {
   afterEach(() => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
     delete process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS;
     delete process.env.AGENT_NATIVE_DISABLED_PLUGINS;
     resetAppConfigForTests();
@@ -128,6 +131,25 @@ describe("framework request handler", () => {
 
     await dispatch(nitroApp, "/api/coach/users");
     expect(sawEmail).toBe("alice@example.com");
+  });
+
+  it("installs a fresh tracking scope for nested requests", async () => {
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp);
+
+    let nestedScope: unknown;
+    nitroApp.h3["~middleware"].push((_event: any, next: () => unknown) => {
+      nestedScope = getRequestContext()?.trackingScope;
+      return next();
+    });
+
+    const parentScope = createTrackingEventScope();
+    await runWithRequestContext({ trackingScope: parentScope }, () =>
+      dispatch(nitroApp, "/api/nested"),
+    );
+
+    expect(nestedScope).toBeDefined();
+    expect(nestedScope).not.toBe(parentScope);
   });
 
   it("dispatches bare framework routes with a mount-relative pathname", async () => {
@@ -233,6 +255,97 @@ describe("framework request handler", () => {
       pathname: "/_agent-native/resources/doc-1",
       path: "/_agent-native/resources/doc-1?raw=1",
     });
+  });
+
+  it("dispatches a public framework prefix onto the internal mount", async () => {
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      "/_platform";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/_agent-native/resources", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      mountedPathname: event.context._mountedPathname,
+      publicPathname: event.context._frameworkPublicPathname,
+      pathname: event.url.pathname,
+      path: event.path,
+      search: event.url.search,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_platform/resources/tree?scope=org"),
+    ).resolves.toEqual({
+      mountPrefix: "/_agent-native/resources",
+      mountedPathname: "/_agent-native/resources/tree",
+      publicPathname: "/_platform/resources/tree",
+      pathname: "/tree",
+      path: "/tree?scope=org",
+      search: "?scope=org",
+    });
+  });
+
+  it("composes the public prefix with APP_BASE_PATH", async () => {
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      "/_platform";
+    process.env.APP_BASE_PATH = "/docs";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/_agent-native/resources", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      pathname: event.url.pathname,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/docs/_platform/resources/tree"),
+    ).resolves.toEqual({
+      mountPrefix: "/docs/_agent-native/resources",
+      pathname: "/tree",
+    });
+  });
+
+  it("retires the internal prefix once a public one is configured", async () => {
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      "/_platform";
+    const nitroApp = createNitroApp();
+    const handler = vi.fn(() => ({ served: true }));
+    getH3App(nitroApp).use("/_agent-native/resources", handler);
+
+    let status: number | undefined;
+    const body = await dispatch(
+      nitroApp,
+      "/_agent-native/resources/tree",
+      (event) => {
+        Object.defineProperty(event.res, "status", {
+          set(value: number) {
+            status = value;
+          },
+          get() {
+            return status ?? 200;
+          },
+        });
+      },
+    );
+    expect(body).toEqual({ error: "Not found" });
+    expect(status).toBe(404);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("leaves a similar public prefix and app routes alone", async () => {
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      "/_platform";
+    const nitroApp = createNitroApp();
+    const handler = vi.fn(() => ({ served: true }));
+    getH3App(nitroApp).use("/_agent-native/resources", handler);
+
+    await expect(
+      dispatch(nitroApp, "/_platform-extra/resources/tree"),
+    ).resolves.toEqual({ fellThrough: true });
+    await expect(dispatch(nitroApp, "/api/resources")).resolves.toEqual({
+      fellThrough: true,
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("refuses a malformed deployment prefix at boot", () => {
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "/api";
+    expect(() => getH3App(createNitroApp())).toThrow(/reserved namespace/);
   });
 
   it("dispatches framework routes under APP_BASE_PATH", async () => {

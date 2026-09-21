@@ -1,4 +1,10 @@
-import { docToNfm, nfmToDoc } from "./nfm";
+import DiffMatchPatch, {
+  DIFF_DELETE,
+  DIFF_EQUAL,
+  DIFF_INSERT,
+} from "diff-match-patch";
+
+import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 
 type ContextualMarkdownOperation = {
   before?: unknown;
@@ -101,6 +107,104 @@ function resolveParagraphRange(
   return { from: range.from + range.offset, to: range.to + range.offset };
 }
 
+function resolveCanonicalizedRange(
+  before: string,
+  current: string,
+  anchor: MarkdownAnchor,
+) {
+  if (canonicalizeNfm(before) !== current) return null;
+  const target = before.slice(anchor.from, anchor.to);
+  if (!target)
+    return resolveCanonicalizedInsertion(before, current, anchor.from);
+  if (!target.trim()) return null;
+  const range = resolveUnchangedCanonicalRange(
+    before,
+    current,
+    anchor.from,
+    anchor.to,
+  );
+  if (
+    !range ||
+    current.indexOf(target) !== range.from ||
+    current.indexOf(target, range.from + 1) >= 0
+  )
+    return null;
+  return range;
+}
+
+function resolveUnchangedCanonicalRange(
+  before: string,
+  current: string,
+  from: number,
+  to: number,
+) {
+  const differ = new DiffMatchPatch();
+  const diffs = differ.diff_main(before, current, true);
+  let beforeOffset = 0;
+  let currentOffset = 0;
+  for (const [operation, text] of diffs) {
+    if (operation === DIFF_EQUAL) {
+      const end = beforeOffset + text.length;
+      if (from >= beforeOffset && to <= end) {
+        const mappedFrom = currentOffset + from - beforeOffset;
+        return { from: mappedFrom, to: mappedFrom + to - from };
+      }
+      beforeOffset = end;
+      currentOffset += text.length;
+    } else if (operation === DIFF_DELETE) {
+      beforeOffset += text.length;
+    } else if (operation === DIFF_INSERT) {
+      currentOffset += text.length;
+    }
+  }
+  return null;
+}
+
+function resolveCanonicalizedInsertion(
+  before: string,
+  current: string,
+  offset: number,
+) {
+  if (offset === 0) {
+    return current.length > 0 && before.startsWith(current[0])
+      ? { from: 0, to: 0 }
+      : null;
+  }
+  if (offset === before.length) {
+    return current.length > 0 && before.endsWith(current[current.length - 1])
+      ? { from: current.length, to: current.length }
+      : null;
+  }
+
+  const left = before.slice(0, offset).trimEnd();
+  const right = before.slice(offset).trimStart();
+  const leftToken = left.slice(-64);
+  const rightToken = right.slice(0, 64);
+  const leftFrom = current.indexOf(leftToken);
+  const rightFrom = current.indexOf(rightToken);
+  if (
+    !leftToken ||
+    !rightToken ||
+    leftFrom < 0 ||
+    rightFrom < 0 ||
+    current.indexOf(leftToken, leftFrom + 1) >= 0 ||
+    current.indexOf(rightToken, rightFrom + 1) >= 0
+  ) {
+    return null;
+  }
+
+  const leftBoundary = leftFrom + leftToken.length;
+  const rightBoundary = rightFrom;
+  const afterLeftText = before.slice(left.length, offset);
+  const beforeRightText = before.slice(offset, before.length - right.length);
+  if (!afterLeftText && !beforeRightText && leftBoundary !== rightBoundary) {
+    return null;
+  }
+  if (!afterLeftText) return { from: leftBoundary, to: leftBoundary };
+  if (!beforeRightText) return { from: rightBoundary, to: rightBoundary };
+  return null;
+}
+
 export function resolveMarkdownSuggestionRange(
   currentMarkdown: string,
   operation: ContextualMarkdownOperation,
@@ -133,6 +237,13 @@ export function resolveMarkdownSuggestionRange(
     const from = index + anchor.prefix.length;
     return { from, to: from + before.changedText.length };
   }
+
+  const canonicalRange = resolveCanonicalizedRange(
+    before.markdown,
+    currentMarkdown,
+    anchor,
+  );
+  if (canonicalRange) return canonicalRange;
 
   return (
     resolveOutsideChange(before.markdown, currentMarkdown, anchor) ??

@@ -127,16 +127,18 @@ export function workspacePackages(
   // as "no site depends on this change" instead of "the checkout can't tell".
   if (
     !existsSync(path.join(repoRoot, "packages")) &&
-    !existsSync(path.join(repoRoot, "templates"))
+    !existsSync(path.join(repoRoot, "templates")) &&
+    !existsSync(path.join(repoRoot, "community-templates"))
   ) {
     throw new Error(
-      `workspacePackages: neither packages/ nor templates/ exists under ${repoRoot}; the checkout is missing the manifests needed to compute the preview fan-out.`,
+      `workspacePackages: neither packages/, templates/, nor community-templates/ exists under ${repoRoot}; the checkout is missing the manifests needed to compute the preview fan-out.`,
     );
   }
   const packages = new Map<string, WorkspacePackage>();
   for (const dir of [
     ...packageDirsUnder("packages", repoRoot),
     ...packageDirsUnder("templates", repoRoot),
+    ...packageDirsUnder("community-templates", repoRoot),
   ]) {
     const pkg = JSON.parse(
       readFileSync(path.join(repoRoot, dir, "package.json"), "utf8"),
@@ -263,6 +265,9 @@ export function previewSitesForChangedPaths(
       // sharedScriptFiles above) — previews don't run e2e at all.
       continue;
     }
+    // These are normal workspace packages for local cloning/customization,
+    // not public sites with beta/production inventory entries.
+    if (file.startsWith("community-templates/")) continue;
     const sharedPackageDir = sharedPackageDirs.find((prefix) =>
       file.startsWith(prefix),
     );

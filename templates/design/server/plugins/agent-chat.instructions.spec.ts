@@ -36,6 +36,13 @@ describe("design review agent instructions", () => {
 describe("external design authoring catalog", () => {
   it("keeps context reads and writes on the compact connector surface", () => {
     for (const name of [
+      "open-visual-edit",
+      "connect-localhost",
+      "add-localhost-screens",
+      "list-localhost-connections",
+      "update-screen-source",
+      "add-breakpoint",
+      "remove-breakpoint",
       "list-designs",
       "list-design-systems",
       "get-design-snapshot",

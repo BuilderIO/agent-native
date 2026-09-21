@@ -9,6 +9,7 @@ import type { CodeLayerProjection, CodeLayerSource } from "@shared/code-layer";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
+import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode } from "react";
 
 import type {
@@ -110,6 +111,8 @@ export interface CanvasToolProps {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   text?: string;
 }
 
@@ -123,6 +126,8 @@ export interface CanvasPrimitiveInsert {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
@@ -157,6 +162,9 @@ export interface DuplicateRequest {
   canvasPosition: { x: number; y: number };
   canvasOffset?: { x: number; y: number };
   dropCanvasPosition?: { x: number; y: number };
+  preserveCamera?: boolean;
+  historyBatchId?: string;
+  duplicateStackIndex?: number;
 }
 
 export interface ScreenContentRenderOptions {
@@ -195,6 +203,8 @@ export interface MultiScreenCanvasProps {
   interactMode?: boolean;
   /** Viewer mode keeps selection/inspection available without edit chrome. */
   readOnly?: boolean;
+  /** Live localhost screens whose DOM editor may receive pointer input. */
+  editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;
@@ -231,8 +241,12 @@ export interface MultiScreenCanvasProps {
    *  chrome transparent and clip root corner radii to the rendered surface. */
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
   getScreenMetadata?: (screen: ScreenFile) => ScreenMetadata | undefined;
-  onDuplicate?: (id: string, request: DuplicateRequest) => void;
+  onDuplicate?: (
+    id: string,
+    request: DuplicateRequest,
+  ) => void | Promise<string | undefined>;
   geometryById?: Record<string, Partial<FrameGeometry> | undefined>;
+  geometryOverridesById?: Record<string, FrameGeometry | undefined>;
   onGeometryChange?: (geometryById: FrameGeometryById) => void;
   onGeometryCommit?: (
     before: FrameGeometryById,
@@ -592,9 +606,15 @@ export interface MultiScreenCanvasProps {
       sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
       anchorSelector?: string;
       anchorSourceId?: string;
+      anchorElementInfo?: ElementInfo;
+      requestId?: string;
+      dropMode?: "flow-insert" | "absolute-container";
+      forceFlowPositionOverride?: boolean;
+      sourceRect?: { x: number; y: number; width: number; height: number };
+      anchorRect?: { x: number; y: number; width: number; height: number };
       placement?: "before" | "after" | "inside";
     },
-  ) => boolean | void;
+  ) => boolean | "pending" | void;
   /**
    * Called when inline text is edited on a board element.
    * Target file is boardFileId.
@@ -670,6 +690,18 @@ export interface MultiScreenCanvasProps {
     paddingScreenPx?: number;
     nonce: number;
   } | null;
+  /** Suppresses the automatic lineup fit for a history replay that restores a
+   * deliberately placed screen while keeping the current camera. */
+  suppressLineupRecenter?: {
+    fromCount: number;
+    addedCount: number;
+    nonce: number;
+  } | null;
+  /** Keeps an explicitly chosen overview zoom from triggering an automatic
+   * lineup fit when screen data arrives after a direct URL navigation. */
+  preserveCameraOnScreenCountChange?: boolean;
+  /** Lets the initial URL zoom apply after the first lineup centers the canvas. */
+  deferLineupZoomChange?: boolean;
   /**
    * Screen-px width of fixed chrome the caller renders OVER this canvas's
    * left/right edges (e.g. the left workspace rail+panel shell, the right
@@ -823,6 +855,8 @@ export interface DraftPrimitive {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
@@ -857,6 +891,7 @@ export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 export interface KScaleStyleChange {
   selector: string;
   sourceId?: string;
+  elementInfo?: ElementInfo;
   styles: Record<string, string>;
   originalStyles?: Record<string, string>;
   preserveSelection?: boolean;

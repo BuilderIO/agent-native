@@ -4,12 +4,23 @@
 declare global {
   interface Window {
     __DESIGN_TRACE?: boolean;
+    __designPerformanceProbe?: Record<string, number>;
     __designTrace?: {
       dump: () => string;
       clear: () => void;
       only: (area?: string) => void;
       entries: () => TraceEntry[];
     };
+  }
+}
+
+export function recordDesignPerformance(name: string, amount = 1): void {
+  if (typeof window === "undefined") return;
+  const probe = window.__designPerformanceProbe;
+  if (!probe) return;
+  probe[name] = (probe[name] ?? 0) + amount;
+  if (name === "marqueeFinalSelectionChange") {
+    probe.marqueeFinalSelectionAt = window.performance.now();
   }
 }
 
