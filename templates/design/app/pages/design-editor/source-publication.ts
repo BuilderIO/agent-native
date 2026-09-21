@@ -22,6 +22,7 @@ export interface CanonicalSourceContentResult {
 const CANONICAL_SOURCE_CACHE_MAX_BYTES = 16 * 1024 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES = 256 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_NODES = 32_768;
+const canonicalSourceTextEncoder = new TextEncoder();
 const canonicalSourceCache = new Map<
   string,
   {
@@ -120,7 +121,12 @@ export function prepareCanonicalSourceContent(
       ? mapSourceNodeIds(before.nodes, after.nodes, edits)
       : new Map(before.nodes.map((node) => [node.id, node.id])),
   };
-  const retainedBytes = content.length + result.content.length;
+  const contentBytes = canonicalSourceTextEncoder.encode(content).byteLength;
+  const retainedBytes =
+    contentBytes +
+    (result.content === content
+      ? contentBytes
+      : canonicalSourceTextEncoder.encode(result.content).byteLength);
   const retainedNodes = result.nodeIdMap.size;
   if (
     retainedBytes <= CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
