@@ -211,5 +211,15 @@ describe("pending live history order", () => {
     redoArgs.redoOrderRef.current = ["pending-style"];
     runRedo(redoArgs);
     expect(fallbackBaselineReset).toHaveBeenCalledWith(expect.any(Number));
+
+    const emptyFallbackRevert = vi.fn();
+    redoArgs.setPendingVisualStyleRevertRequest = emptyFallbackRevert;
+    redoArgs.pendingVisualStyleRedoStackRef.current = [
+      { edit: { ...radius24Edit, styles: {} }, revertStyles: {} },
+    ];
+    redoArgs.redoOrderRef.current = ["pending-style"];
+    runRedo(redoArgs);
+    expect(emptyFallbackRevert).not.toHaveBeenCalled();
+    expect(fallbackBaselineReset).toHaveBeenCalledTimes(1);
   });
 });

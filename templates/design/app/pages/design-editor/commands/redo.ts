@@ -777,13 +777,18 @@ export function runRedo({
     );
     pendingVisualStyleEditsRef.current = nextPending;
     const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    const redoneStyleTargets = redoneTargets.filter(
+      ({ edit }) => Object.keys(edit.styles).length > 0,
+    );
     if (replayPendingVisualStyleRuntime) {
-      replayPendingVisualStyleRuntime(redoneTargets.map(({ edit }) => edit));
-    } else {
+      replayPendingVisualStyleRuntime(
+        redoneStyleTargets.map(({ edit }) => edit),
+      );
+    } else if (redoneStyleTargets.length > 0) {
       const requestId = Date.now() + Math.random();
       setPendingVisualStyleRevertRequest({
         requestId,
-        patches: redoneTargets.map(({ edit }) => ({
+        patches: redoneStyleTargets.map(({ edit }) => ({
           screenId: edit.screenId,
           selector: edit.selector,
           sourceId: edit.sourceId,
