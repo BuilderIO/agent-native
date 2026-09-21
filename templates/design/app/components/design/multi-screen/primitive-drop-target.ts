@@ -164,8 +164,14 @@ function gridTrackPixels(
   const fixed = tracks.map((track) => {
     const px = cssPixelNumber(track);
     if (px) return { size: px, fr: 0 };
-    const fr = track.match(/(?:^|,)\s*(\d+(?:\.\d+)?)fr/);
-    return { size: 0, fr: fr ? Number(fr[1]) : 0 };
+    const minmax = track.match(
+      /^minmax\(\s*(\d+(?:\.\d+)?)px\s*,\s*([^,]+)\)$/i,
+    );
+    const fr = (minmax?.[2] ?? track).match(/(?:^|,)\s*(\d+(?:\.\d+)?)fr/);
+    return {
+      size: minmax ? Number(minmax[1]) : 0,
+      fr: fr ? Number(fr[1]) : 0,
+    };
   });
   const remaining = Math.max(
     0,
@@ -914,12 +920,12 @@ export function authoredElementPosition(
         const gapY = cssPixelNumber(parentStyle.rowGap || parentStyle.gap);
         const columnSizes = gridTrackPixels(
           columns,
-          authoredElementSize(parent, "x", cache, visiting),
+          parentContentSize(parent, "x", cache, visiting),
           gapX,
         );
         const rowSizes = gridTrackPixels(
           rows,
-          authoredElementSize(parent, "y", cache, visiting),
+          parentContentSize(parent, "y", cache, visiting),
           gapY,
         );
         if (column > 1) {
