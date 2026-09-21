@@ -41,6 +41,7 @@ export interface ScreenVisualStructureChangeArgs {
       anchorElementInfo?: ElementInfo;
       requestId?: string;
       transactionId?: string;
+      routePath?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -82,6 +83,7 @@ export interface ScreenVisualStructureChangeArgs {
       anchorElementInfo?: ElementInfo;
       requestId?: string;
       transactionId?: string;
+      routePath?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -129,6 +131,7 @@ export function runScreenVisualStructureChange(
     anchorElementInfo?: ElementInfo;
     requestId?: string;
     transactionId?: string;
+    routePath?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };

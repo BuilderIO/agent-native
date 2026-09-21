@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type {
   PendingLiveLayerNameEdit,
+  PendingLiveStructureEdit,
   PendingLiveTextEdit,
   PendingVisualStyleEdit,
 } from "./pending-edits";
@@ -66,6 +67,23 @@ function layerNameEdit(name: string): PendingLiveLayerNameEdit {
     name,
     originalName: "Hero",
     updatedAt: 1,
+  };
+}
+
+function structureEdit(
+  overrides: Partial<PendingLiveStructureEdit> = {},
+): PendingLiveStructureEdit {
+  return {
+    kind: "structure",
+    screenId: "home",
+    filename: "index.html",
+    screenName: "Home",
+    selector: "[data-agent-native-node-id=hero]",
+    sourceId: "hero",
+    anchorSelector: "body",
+    placement: "inside",
+    updatedAt: 1,
+    ...overrides,
   };
 }
 
@@ -210,6 +228,42 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
         updatedAt: 3,
       }),
     ).toEqual([]);
+  });
+
+  it("keeps identical live selectors separate after route navigation", () => {
+    const library = structureEdit({ routePath: "/library" });
+    const settings = structureEdit({ routePath: "/settings", updatedAt: 2 });
+
+    expect(mergePendingLiveNonStyleEdit([library], settings)).toHaveLength(2);
+  });
+
+  it("groups the two sides of a live move into one transaction", () => {
+    const inserted = structureEdit({
+      screenId: "settings",
+      routePath: "/settings",
+      sourceId: "copy",
+      insertedHtml: '<div data-agent-native-node-id="copy"></div>',
+      transactionId: "move-1",
+    });
+    const removed = structureEdit({
+      screenId: "library",
+      routePath: "/library",
+      sourceId: "hero",
+      removed: true,
+      transactionId: "move-1",
+      updatedAt: 2,
+    });
+
+    const merged = mergePendingLiveNonStyleEdit([inserted], removed);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      kind: "structure",
+      transactionId: "move-1",
+      groupedEdits: expect.arrayContaining([
+        expect.objectContaining({ insertedHtml: expect.any(String) }),
+        expect.objectContaining({ removed: true }),
+      ]),
+    });
   });
 });
 

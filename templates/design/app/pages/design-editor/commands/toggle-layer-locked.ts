@@ -1,5 +1,6 @@
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { isRunningAppSourceType } from "@shared/source-mode";
 
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
@@ -7,7 +8,6 @@ import type { OverviewScreen } from "@/pages/design-editor/derive/overview-scree
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { hasScopedLayerState } from "@/pages/design-editor/layer-state-scope";
 import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
-import { isRunningAppSourceType } from "@shared/source-mode";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface ToggleLayerLockedArgs {
@@ -103,7 +103,9 @@ export function runToggleLayerLocked(
     : undefined;
   if (
     owner &&
-    isRunningAppSourceType(resolveOverviewScreenSourceType(ownerScreen, designSourceType)) &&
+    isRunningAppSourceType(
+      resolveOverviewScreenSourceType(ownerScreen, designSourceType),
+    ) &&
     recordPendingLiveLayerStateEdit(layerId, "locked", locked, !locked)
   ) {
     applyLayerStatePreview(layerScreenId, layerId, "locked", locked);

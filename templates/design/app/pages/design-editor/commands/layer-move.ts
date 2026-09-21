@@ -582,6 +582,8 @@ export function runLayerMove(
       transactionId,
       screenId: runtimeDraggedOwner.fileId,
       selector: runtimeDraggedOwner.node.selector,
+      waitForInsertTransaction: true,
+      rollbackScreenId: targetOwner.fileId,
       selectorCandidates: Array.from(
         new Set([
           runtimeDraggedOwner.node.selector,

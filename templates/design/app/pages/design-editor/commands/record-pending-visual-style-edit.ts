@@ -101,6 +101,7 @@ export function runRecordPendingVisualStyleEdit(
     interactionState?: InteractionState;
     pendingUndoGestureId?: string;
     preserveSelection?: boolean;
+    routePath?: string;
   },
 ) {
   if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
@@ -177,6 +178,7 @@ export function runRecordPendingVisualStyleEdit(
     classes: elementInfo?.classes ?? [],
     styles: stylePatch,
     originalStyles,
+    ...(metadata?.routePath ? { routePath: metadata.routePath } : {}),
     ...(metadata?.interactionState
       ? { interactionState: metadata.interactionState, baseStyles }
       : {}),

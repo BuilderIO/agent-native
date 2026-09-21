@@ -90,6 +90,7 @@ export interface CommitVisualStylesArgs {
       originalStyles?: Record<string, string>;
       pendingUndoGestureId?: string;
       preserveSelection?: boolean;
+      routePath?: string;
     },
   ) => void;
   isSynced: boolean;
@@ -126,6 +127,7 @@ export interface CommitVisualStylesArgs {
       interactionState?: InteractionState;
       pendingUndoGestureId?: string;
       preserveSelection?: boolean;
+      routePath?: string;
     },
   ) => void;
   replacePreviewContent: (
@@ -229,6 +231,7 @@ export function runCommitVisualStyles(
     /** The write is a side effect of a gesture on another element, so it must
      *  not move the selection onto the element it touched. */
     preserveSelection?: boolean;
+    routePath?: string;
   } = {},
 ) {
   trace("persist", "commit-styles", {
@@ -285,6 +288,7 @@ export function runCommitVisualStyles(
           screenId: activeFile.id,
           selector,
           sourceId: targetInfo?.runtimeSourceId ?? targetInfo?.sourceId ?? null,
+          routePath: options.routePath,
           styles: Object.fromEntries(entries),
         },
         (window as any).__designCanvasSendStyleForScreen,
@@ -294,6 +298,7 @@ export function runCommitVisualStyles(
       originalStyles: options.originalStyles,
       pendingUndoGestureId: options.pendingUndoGestureId,
       preserveSelection: options.preserveSelection,
+      routePath: options.routePath,
     });
     return;
   }

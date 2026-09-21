@@ -76,7 +76,12 @@ export interface ScreenTextContentChangeArgs {
     selector: string,
     value: string,
     elementInfo?: ElementInfo,
-    details?: { html?: string; originalValue?: string; originalHtml?: string },
+    details?: {
+      html?: string;
+      originalValue?: string;
+      originalHtml?: string;
+      routePath?: string;
+    },
   ) => TextCommitStatus;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   overviewScreens: OverviewScreen[];
@@ -85,7 +90,12 @@ export interface ScreenTextContentChangeArgs {
     selector: string,
     value: string,
     elementInfo?: ElementInfo,
-    details?: { html?: string; originalValue?: string; originalHtml?: string },
+    details?: {
+      html?: string;
+      originalValue?: string;
+      originalHtml?: string;
+      routePath?: string;
+    },
   ) => void;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;

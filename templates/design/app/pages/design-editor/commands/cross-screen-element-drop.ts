@@ -483,6 +483,8 @@ export function runCrossScreenElementDrop(
       transactionId,
       screenId: sourceScreenId,
       selector: sourceSelector,
+      waitForInsertTransaction: true,
+      rollbackScreenId: targetScreenId,
       selectorCandidates: Array.from(
         new Set([
           sourceSelector,

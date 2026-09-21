@@ -387,6 +387,7 @@ import type {
   PortableStyleSnapshot,
   RuntimeStructureDeleteRequest,
   RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
   RuntimeLayerRenameRequest,
   RuntimeStructureMoveRequest,
   TextEditingState,
@@ -963,6 +964,7 @@ import {
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
   pendingLiveStructureEditsFromEdit,
+  pendingLiveStructureEditsFromUndoEntry,
   pendingLiveLayerNameUndoRevertValue,
   pendingVisualStyleGestureIdForPhase,
   projectRelativeSourcePath,
@@ -1543,6 +1545,10 @@ function DesignEditor() {
   const [pendingLiveNonStyleEdits, setPendingLiveNonStyleEdits] = useState<
     PendingLiveNonStyleEdit[]
   >([]);
+  const [
+    effectivePreviewTokensByScreenId,
+    setEffectivePreviewTokensByScreenId,
+  ] = useState<Record<string, string>>({});
   const [pendingEditSessionMarker, setPendingEditSessionMarker] =
     useState<PendingEditSessionMarkerResult>({ status: "absent" });
   const [
@@ -1587,6 +1593,7 @@ function DesignEditor() {
       sourceId?: string | null;
       value: string;
       html?: string;
+      routePath?: string;
     }>;
   } | null>(null);
   const [pendingLayerStateReplayRequest, setPendingLayerStateReplayRequest] =
@@ -1597,6 +1604,7 @@ function DesignEditor() {
         layerId: string;
         state: "hidden" | "locked";
         enabled: boolean;
+        routePath?: string;
       }>;
     } | null>(null);
   const [pendingLayerNameReplayRequest, setPendingLayerNameReplayRequest] =
@@ -1607,11 +1615,17 @@ function DesignEditor() {
         selector: string;
         sourceId?: string | null;
         name: string;
+        routePath?: string;
       }>;
     } | null>(null);
   const [pendingStructureAckRequest, setPendingStructureAckRequest] = useState<{
     requestId: number;
-    acks: Array<{ screenId: string; requestId: string; applied: boolean }>;
+    acks: Array<{
+      screenId: string;
+      requestId: string;
+      applied: boolean;
+      routePath?: string;
+    }>;
   } | null>(null);
   const [runtimeStructureMoveRequest, setRuntimeStructureMoveRequest] =
     useState<(RuntimeStructureMoveRequest & { screenId: string }) | null>(null);
@@ -1624,6 +1638,27 @@ function DesignEditor() {
     useState<(RuntimeStructureDeleteRequest & { screenId: string }) | null>(
       null,
     );
+  const [runtimeStructureRollbackRequest, setRuntimeStructureRollbackRequest] =
+    useState<(RuntimeStructureRollbackRequest & { screenId: string }) | null>(
+      null,
+    );
+  const runtimeStructureRollbackRevisionRef = useRef(0);
+  const [liveRoutePathsByScreenId, setLiveRoutePathsByScreenId] = useState<
+    Record<string, string>
+  >({});
+  const liveRoutePathsByScreenIdRef = useRef<Record<string, string>>({});
+  const handleLiveRoutePathChange = useCallback(
+    (screenId: string | undefined, routePath: string) => {
+      if (!screenId || !routePath) return;
+      liveRoutePathsByScreenIdRef.current[screenId] = routePath;
+      setLiveRoutePathsByScreenId((current) =>
+        current[screenId] === routePath
+          ? current
+          : { ...current, [screenId]: routePath },
+      );
+    },
+    [],
+  );
   const [runtimeLayerRenameRequest, setRuntimeLayerRenameRequest] = useState<
     (RuntimeLayerRenameRequest & { screenId: string; layerId: string }) | null
   >(null);
@@ -1763,6 +1798,7 @@ function DesignEditor() {
           sourceId: edit.sourceId,
           value: edit.originalValue,
           html: edit.originalHtml,
+          routePath: edit.routePath,
         }));
       const structureAcks = edits
         .filter(
@@ -1775,6 +1811,7 @@ function DesignEditor() {
               screenId: member.screenId,
               requestId: member.requestId!,
               applied: false,
+              routePath: member.routePath,
             })),
         );
       const layerStatePatches = edits
@@ -1787,6 +1824,7 @@ function DesignEditor() {
           layerId: edit.layerId,
           state: edit.state,
           enabled: edit.originalEnabled,
+          routePath: edit.routePath,
         }));
       const layerNamePatches = edits
         .filter(
@@ -1798,6 +1836,7 @@ function DesignEditor() {
           selector: edit.selector,
           sourceId: edit.sourceId,
           name: edit.originalName,
+          routePath: edit.routePath,
         }));
       if (textPatches.length > 0) {
         setPendingTextRevertRequest({ requestId, patches: textPatches });
@@ -2195,6 +2234,12 @@ function DesignEditor() {
   useEffect(() => {
     if (!pendingLayerStateReplayRequest) return;
     pendingLayerStateReplayRequest.patches.forEach((patch) => {
+      if (
+        patch.routePath &&
+        patch.routePath !== liveRoutePathsByScreenIdRef.current[patch.screenId]
+      ) {
+        return;
+      }
       applyLayerStatePreview(
         patch.screenId,
         patch.layerId,
@@ -6440,12 +6485,26 @@ function DesignEditor() {
         : undefined,
     [activeOverviewScreenId, overviewScreens],
   );
+  const handleEffectivePreviewTokenChange = useCallback(
+    (screenId: string | undefined, previewToken: string) => {
+      if (!screenId || !previewToken) return;
+      setEffectivePreviewTokensByScreenId((current) =>
+        current[screenId] === previewToken
+          ? current
+          : { ...current, [screenId]: previewToken },
+      );
+    },
+    [],
+  );
   const activeScreenBridgeUrl = activeOverviewScreen?.bridgeUrl;
   const activeScreenPreviewToken =
-    "previewToken" in (activeOverviewScreen ?? {}) &&
+    (activeOverviewScreen?.id
+      ? effectivePreviewTokensByScreenId[activeOverviewScreen.id]
+      : undefined) ??
+    ("previewToken" in (activeOverviewScreen ?? {}) &&
     typeof activeOverviewScreen?.previewToken === "string"
       ? activeOverviewScreen.previewToken
-      : undefined;
+      : undefined);
   const activeScreenExternalSnapshotHtml = activeFile?.id
     ? liveScreenSnapshotsById[activeFile.id]?.html
     : undefined;
@@ -8341,6 +8400,7 @@ function DesignEditor() {
         interactionState?: InteractionState;
         pendingUndoGestureId?: string;
         preserveSelection?: boolean;
+        routePath?: string;
       },
     ) =>
       runRecordPendingVisualStyleEdit(
@@ -8402,6 +8462,7 @@ function DesignEditor() {
         html?: string;
         originalValue?: string;
         originalHtml?: string;
+        routePath?: string;
       },
     ) =>
       runRecordPendingLiveTextEdit(
@@ -8470,6 +8531,9 @@ function DesignEditor() {
         state,
         enabled,
         originalEnabled,
+        liveRoutePathsByScreenIdRef.current[
+          codeLayerOwnerByNodeIdRef.current.get(layerId)?.fileId ?? ""
+        ],
       ),
     [
       canEditDesign,
@@ -8493,6 +8557,7 @@ function DesignEditor() {
         anchorElementInfo?: ElementInfo;
         requestId?: string;
         transactionId?: string;
+        routePath?: string;
         dropMode?: "flow-insert" | "absolute-container";
         forceFlowPositionOverride?: boolean;
         sourceRect?: { x: number; y: number; width: number; height: number };
@@ -8561,7 +8626,12 @@ function DesignEditor() {
     ],
   );
   const recordPendingLiveLayerNameEdit = useCallback(
-    (layerId: string, name: string, originalName?: string) => {
+    (
+      layerId: string,
+      name: string,
+      originalName?: string,
+      routePath?: string,
+    ) => {
       const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
       if (!owner || !canEditLiveScreenIdsRef.current.has(owner.fileId)) {
         return false;
@@ -8586,6 +8656,12 @@ function DesignEditor() {
         layerId,
         selector,
         sourceId,
+        ...(routePath || liveRoutePathsByScreenIdRef.current[owner.fileId]
+          ? {
+              routePath:
+                routePath ?? liveRoutePathsByScreenIdRef.current[owner.fileId],
+            }
+          : {}),
         sourceAnchor: reactSourceAnchorForPendingEdit({
           info,
           id: sourceId,
@@ -12334,6 +12410,7 @@ function DesignEditor() {
         /** Pre-gesture values, for the pending-edit revert stack. */
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
+        routePath?: string;
         pendingUndoGestureId?: string;
       } = {},
     ) => {
@@ -12982,6 +13059,7 @@ function DesignEditor() {
         phase?: "preview" | "commit";
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
+        routePath?: string;
       },
     ) => {
       if (!activeFile?.id) return;
@@ -13024,6 +13102,7 @@ function DesignEditor() {
         elementInfo,
         originalStyles: metadata?.originalStyles,
         preserveSelection: metadata?.preserveSelection,
+        routePath: metadata?.routePath,
       });
     },
     [activeFile?.id, commitVisualStyles],
@@ -13345,6 +13424,7 @@ function DesignEditor() {
         html?: string;
         originalValue?: string;
         originalHtml?: string;
+        routePath?: string;
       },
     ) =>
       runTextContentChange(
@@ -13448,6 +13528,7 @@ function DesignEditor() {
         anchorElementInfo?: ElementInfo;
         requestId?: string;
         transactionId?: string;
+        routePath?: string;
         dropMode?: "flow-insert" | "absolute-container";
         forceFlowPositionOverride?: boolean;
         sourceRect?: { x: number; y: number; width: number; height: number };
@@ -13689,6 +13770,7 @@ function DesignEditor() {
         html?: string;
         originalValue?: string;
         originalHtml?: string;
+        routePath?: string;
       },
     ) =>
       runScreenTextContentChange(
@@ -15844,7 +15926,7 @@ function DesignEditor() {
   );
 
   const handleRuntimeStructureInsertRejected = useCallback(
-    (reason: string) => {
+    (reason: string, transactionId?: string) => {
       if (reason.startsWith("verification-")) {
         cancelPendingStructureVerification("conflict");
         toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
@@ -15856,9 +15938,69 @@ function DesignEditor() {
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
+      if (transactionId) {
+        setRuntimeStructureInsertRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+      }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
     [cancelPendingStructureVerification, t],
+  );
+
+  const handleRuntimeStructureInsertApplied = useCallback(
+    (details: {
+      requestId: string;
+      transactionId?: string;
+      routePath?: string;
+      selector: string;
+      sourceId?: string;
+    }) => {
+      const request = runtimeStructureInsertRequest;
+      if (!request || !details.selector) return;
+      const requestMatches = request.transactionId
+        ? request.transactionId === details.transactionId
+        : Number.isFinite(Number(details.requestId)) &&
+          Math.floor(Number(details.requestId)) === request.requestId;
+      if (!requestMatches) return;
+      recordPendingLiveStructureEdit(
+        request.screenId,
+        details.selector,
+        request.anchor.selector,
+        request.placement,
+        undefined,
+        {
+          sourceId: details.sourceId,
+          anchorSourceId: request.anchor.sourceId ?? undefined,
+          routePath: details.routePath,
+          insertedHtml: request.html,
+          requestId: details.requestId,
+          transactionId: request.transactionId,
+        },
+      );
+      if (request.transactionId) {
+        setRuntimeStructureDeleteRequest((current) =>
+          current && current.transactionId === request.transactionId
+            ? {
+                ...current,
+                waitForInsertTransaction: false,
+                rollbackSelector: details.selector,
+                rollbackSourceId: details.sourceId,
+              }
+            : current,
+        );
+      }
+      setRuntimeStructureInsertRequest((current) =>
+        current?.transactionId === request.transactionId &&
+        current?.requestId === request.requestId
+          ? null
+          : current,
+      );
+    },
+    [recordPendingLiveStructureEdit, runtimeStructureInsertRequest],
   );
 
   const handleRuntimeStructureDeleteApplied = useCallback(
@@ -15867,6 +16009,7 @@ function DesignEditor() {
       requestId: string;
       selector: string;
       sourceId?: string;
+      routePath?: string;
       info?: ElementInfo;
     }) => {
       const screenId = details.screenId;
@@ -15889,12 +16032,110 @@ function DesignEditor() {
           sourceId: details.sourceId,
           requestId: details.requestId,
           transactionId: request.transactionId,
+          routePath: details.routePath,
           removed: true,
         },
       );
       setRuntimeStructureDeleteRequest(null);
     },
     [recordPendingLiveStructureEdit, runtimeStructureDeleteRequest],
+  );
+  const handleRuntimeStructureDeleteRejected = useCallback(
+    (details: {
+      screenId?: string;
+      requestId: string;
+      transactionId?: string;
+      reason: string;
+    }) => {
+      const request = runtimeStructureDeleteRequest;
+      if (
+        !request ||
+        !details.screenId ||
+        request.screenId !== details.screenId ||
+        request.requestId !== details.requestId
+      ) {
+        return;
+      }
+      if (
+        request.transactionId &&
+        request.rollbackScreenId &&
+        request.rollbackSelector
+      ) {
+        runtimeStructureRollbackRevisionRef.current += 1;
+        setRuntimeStructureRollbackRequest({
+          screenId: request.rollbackScreenId,
+          requestId: `${request.transactionId}:rollback:${runtimeStructureRollbackRevisionRef.current}`,
+          transactionId: request.transactionId,
+          selector: request.rollbackSelector,
+          sourceId: request.rollbackSourceId,
+        });
+      }
+      setRuntimeStructureDeleteRequest(null);
+      if (DESIGN_EDITOR_DEBUG_LOGS) {
+        console.warn("[design] runtime structure delete rejected", details);
+      }
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    },
+    [runtimeStructureDeleteRequest, t],
+  );
+  const discardPendingLiveStructureTransaction = useCallback(
+    (transactionId: string) => {
+      const matchesTransaction = (edit: PendingLiveStructureEdit) =>
+        pendingLiveStructureEditsFromEdit(edit).some(
+          (member) => member.transactionId === transactionId,
+        );
+      const nextPending = pendingLiveNonStyleEditsRef.current.filter(
+        (edit) => edit.kind !== "structure" || !matchesTransaction(edit),
+      );
+      const nextUndo = pendingLiveNonStyleUndoStackRef.current.filter(
+        (entry) =>
+          entry.kind !== "structure" ||
+          !pendingLiveStructureEditsFromUndoEntry(entry).some(
+            (edit) => edit.transactionId === transactionId,
+          ),
+      );
+      const nextRedo = pendingLiveNonStyleRedoStackRef.current.filter(
+        (entry) =>
+          entry.kind !== "structure" ||
+          !pendingLiveStructureEditsFromUndoEntry(entry).some(
+            (edit) => edit.transactionId === transactionId,
+          ),
+      );
+      pendingLiveNonStyleEditsRef.current = nextPending;
+      pendingLiveNonStyleUndoStackRef.current = nextUndo;
+      pendingLiveNonStyleRedoStackRef.current = nextRedo;
+      setPendingLiveNonStyleEdits(nextPending);
+      syncUndoRedoState();
+    },
+    [syncUndoRedoState],
+  );
+  const handleRuntimeStructureRollbackResult = useCallback(
+    (details: {
+      requestId: string;
+      transactionId?: string;
+      applied: boolean;
+      reason?: string;
+    }) => {
+      if (runtimeStructureRollbackRequest?.requestId !== details.requestId) {
+        return;
+      }
+      if (details.applied && runtimeStructureRollbackRequest?.transactionId) {
+        discardPendingLiveStructureTransaction(
+          runtimeStructureRollbackRequest.transactionId,
+        );
+      }
+      setRuntimeStructureRollbackRequest(null);
+      if (!details.applied) {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+      }
+    },
+    [
+      discardPendingLiveStructureTransaction,
+      runtimeStructureRollbackRequest,
+      t,
+    ],
   );
   const handleRuntimeLayerRenameApplied = useCallback(
     (
@@ -15905,6 +16146,7 @@ function DesignEditor() {
         sourceId?: string;
         name: string;
         previousName?: string;
+        routePath?: string;
       },
     ) => {
       const request = runtimeLayerRenameRequest;
@@ -15919,6 +16161,7 @@ function DesignEditor() {
         request.layerId,
         details.name,
         details.previousName,
+        details.routePath,
       );
       setRuntimeLayerRenameRequest(null);
     },
@@ -15930,13 +16173,17 @@ function DesignEditor() {
         return runtimeLayerRenameRequest;
       }
       const replay = pendingLayerNameReplayRequest?.patches.find(
-        (patch) => patch.screenId === screenId,
+        (patch) =>
+          patch.screenId === screenId &&
+          (!patch.routePath ||
+            patch.routePath === liveRoutePathsByScreenIdRef.current[screenId]),
       );
       return replay
         ? {
             requestId: pendingLayerNameReplayRequest!.requestId,
             selector: replay.selector,
             sourceId: replay.sourceId,
+            routePath: replay.routePath,
             name: replay.name,
           }
         : null;
@@ -18531,6 +18778,7 @@ function DesignEditor() {
     const body =
       pendingVisualEditCount > 0
         ? {
+            designId: id,
             pending: {
               designId: id,
               pendingEditCount: pendingVisualEditCount,
@@ -18538,7 +18786,10 @@ function DesignEditor() {
               prompt: pendingVisualStylePrompt,
             },
           }
-        : { pending: null };
+        : {
+            designId: id,
+            pending: null,
+          };
     void fetch(
       `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
       {
@@ -23184,6 +23435,7 @@ function DesignEditor() {
           layerId,
           selector: preferredCodeLayerSelector(owner.node),
           sourceId: bridgeSourceIdForCodeLayerNode(owner.node),
+          routePath: liveRoutePathsByScreenIdRef.current[owner.fileId],
           name,
         });
         return;
@@ -23542,14 +23794,15 @@ function DesignEditor() {
       );
       const screenBridgeUrl = screen.bridgeUrl;
       const screenPreviewToken =
-        "previewToken" in screen && typeof screen.previewToken === "string"
+        effectivePreviewTokensByScreenId[screen.id] ??
+        ("previewToken" in screen && typeof screen.previewToken === "string"
           ? screen.previewToken
           : (publicVisualEditPreviewTokenQuery.data?.connections?.[
               screen.connectionId ?? ""
             ]?.previewToken ??
             (screen.connectionId === publicVisualEditConnectionId
               ? publicVisualEditPreviewTokenQuery.data?.previewToken
-              : undefined));
+              : undefined)));
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -23635,12 +23888,24 @@ function DesignEditor() {
               ? runtimeStructureDeleteRequest
               : null
           }
+          runtimeStructureRollbackRequest={
+            runtimeStructureRollbackRequest?.screenId === screen.id
+              ? runtimeStructureRollbackRequest
+              : null
+          }
           runtimeLayerRenameRequest={runtimeLayerRenameForScreen(screen.id)}
           runtimeLayerSnapshotRequest={runtimeLayerSnapshotRequest}
           onRuntimeStructureInsertRejected={
             handleRuntimeStructureInsertRejected
           }
+          onRuntimeStructureInsertApplied={handleRuntimeStructureInsertApplied}
           onRuntimeStructureDeleteApplied={handleRuntimeStructureDeleteApplied}
+          onRuntimeStructureDeleteRejected={
+            handleRuntimeStructureDeleteRejected
+          }
+          onRuntimeStructureRollbackResult={
+            handleRuntimeStructureRollbackResult
+          }
           onRuntimeLayerRenameApplied={(details) =>
             handleRuntimeLayerRenameApplied(screen.id, details)
           }
@@ -23669,6 +23934,8 @@ function DesignEditor() {
           connectionId={screen.connectionId}
           nativePreviewActive={screenIsActive}
           previewToken={screenPreviewToken}
+          onPreviewTokenChange={handleEffectivePreviewTokenChange}
+          onRoutePathChange={handleLiveRoutePathChange}
           publicVisualEdit={publicVisualEdit}
           externalSnapshotHtml={screenSnapshot}
           onBootStart={renderOptions?.onBootStart}
@@ -23881,7 +24148,14 @@ function DesignEditor() {
       runtimeStructureMoveRequest,
       runtimeStructureInsertRequest,
       runtimeStructureDeleteRequest,
+      runtimeStructureRollbackRequest,
       handleRuntimeStructureInsertRejected,
+      handleRuntimeStructureDeleteApplied,
+      handleRuntimeStructureInsertApplied,
+      handleRuntimeStructureDeleteRejected,
+      handleRuntimeStructureRollbackResult,
+      handleLiveRoutePathChange,
+      liveRoutePathsByScreenId,
       handleRuntimeStructureDeleteApplied,
       runtimeStructureVerificationRequest,
       contentRenderRevision,
@@ -23905,6 +24179,8 @@ function DesignEditor() {
       publicVisualEditConnectionId,
       publicVisualEditPreviewTokenQuery.data?.previewToken,
       publicVisualEditPreviewTokenQuery.data?.connections,
+      effectivePreviewTokensByScreenId,
+      handleEffectivePreviewTokenChange,
       canCommentDesign,
       activeTool,
       pinMode,
@@ -26868,6 +27144,12 @@ function DesignEditor() {
                             ? runtimeStructureDeleteRequest
                             : null
                         }
+                        runtimeStructureRollbackRequest={
+                          runtimeStructureRollbackRequest?.screenId ===
+                          activeFile.id
+                            ? runtimeStructureRollbackRequest
+                            : null
+                        }
                         runtimeLayerRenameRequest={runtimeLayerRenameForScreen(
                           activeFile.id,
                         )}
@@ -26877,8 +27159,17 @@ function DesignEditor() {
                         onRuntimeStructureInsertRejected={
                           handleRuntimeStructureInsertRejected
                         }
+                        onRuntimeStructureInsertApplied={
+                          handleRuntimeStructureInsertApplied
+                        }
                         onRuntimeStructureDeleteApplied={
                           handleRuntimeStructureDeleteApplied
+                        }
+                        onRuntimeStructureDeleteRejected={
+                          handleRuntimeStructureDeleteRejected
+                        }
+                        onRuntimeStructureRollbackResult={
+                          handleRuntimeStructureRollbackResult
                         }
                         onRuntimeLayerRenameApplied={(details) =>
                           handleRuntimeLayerRenameApplied(
@@ -26905,6 +27196,8 @@ function DesignEditor() {
                         bridgeUrl={activeScreenBridgeUrl}
                         connectionId={activeOverviewScreen?.connectionId}
                         previewToken={activeScreenPreviewToken}
+                        onPreviewTokenChange={handleEffectivePreviewTokenChange}
+                        onRoutePathChange={handleLiveRoutePathChange}
                         publicVisualEdit={publicVisualEdit}
                         externalSnapshotHtml={activeScreenExternalSnapshotHtml}
                         onExternalContentSnapshot={(snapshot) => {

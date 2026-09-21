@@ -81,6 +81,7 @@ export function runRecordPendingLiveLayerStateEdit(
   state: "hidden" | "locked",
   enabled: boolean,
   originalEnabled: boolean,
+  routePath?: string,
 ) {
   const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
   if (!owner) return false;
@@ -107,6 +108,7 @@ export function runRecordPendingLiveLayerStateEdit(
     layerId,
     selector,
     sourceId,
+    ...(routePath ? { routePath } : {}),
     sourceAnchor: reactSourceAnchorForPendingEdit({
       info,
       id: sourceId,

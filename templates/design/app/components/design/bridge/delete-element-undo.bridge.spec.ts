@@ -198,4 +198,62 @@ describe("delete-element / visual-structure-ack undo", () => {
       }
     },
   );
+
+  it(
+    "reports an unresolved requested delete so a cross-screen move can roll back",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(FIXTURE);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.evaluate(() => {
+          const messages: Record<string, unknown>[] = [];
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "runtime-element-delete-rejected") {
+              messages.push(event.data);
+            }
+          });
+          (
+            window as Window & {
+              __deleteRejections?: Record<string, unknown>[];
+            }
+          ).__deleteRejections = messages;
+          window.postMessage(
+            {
+              type: "delete-element",
+              selector: '[data-agent-native-node-id="missing"]',
+              selectorCandidates: ['[data-agent-native-node-id="missing"]'],
+              requestId: "delete-missing",
+              transactionId: "move-1",
+            },
+            "*",
+          );
+        });
+        await page.waitForTimeout(100);
+        expect(
+          await page.evaluate(
+            () =>
+              (
+                window as Window & {
+                  __deleteRejections?: Record<string, unknown>[];
+                }
+              ).__deleteRejections,
+          ),
+        ).toEqual([
+          expect.objectContaining({
+            type: "runtime-element-delete-rejected",
+            requestId: "delete-missing",
+            transactionId: "move-1",
+            reason: "target-unresolved",
+          }),
+        ]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 });

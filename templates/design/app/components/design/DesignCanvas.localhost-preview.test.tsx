@@ -333,6 +333,67 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     ).toBe("fresh-preview-token");
   });
 
+  it("re-registers when refresh returns the same deterministic preview token", async () => {
+    let registrationCount = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = requestInfoUrl(input);
+      if (!url.endsWith("/live-edit-bridge")) {
+        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+      }
+      registrationCount += 1;
+      return Promise.resolve(
+        registrationCount === 1
+          ? new Response("Unauthorized", { status: 401 })
+          : new Response(
+              JSON.stringify({ ok: true, bridgeInstanceId: "restarted" }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    callActionMock.mockResolvedValue({ previewToken: "same-preview-token" });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <DesignCanvas
+            content="http://localhost:5173/library"
+            contentKey="screen-library"
+            screenId="screen-library"
+            sourceType="localhost"
+            bridgeUrl="http://127.0.0.1:7331"
+            connectionId="localhost_connection"
+            designId="design_public"
+            publicVisualEdit
+            previewToken="same-preview-token"
+            zoom={100}
+            deviceFrame="none"
+            editMode
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(registrationCount).toBe(2);
+    });
+    const registrationCalls = fetchMock.mock.calls.filter(([input]) =>
+      requestInfoUrl(input).endsWith("/live-edit-bridge"),
+    );
+    expect(
+      (registrationCalls[1]?.[1]?.headers as Record<string, string>)[
+        "x-design-preview-token"
+      ],
+    ).toBe("same-preview-token");
+  });
+
   it("keeps a failed-bridge Interact preview interactive", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = requestInfoUrl(input);

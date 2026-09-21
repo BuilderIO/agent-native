@@ -75,6 +75,7 @@ export function runRecordPendingLiveTextEdit(
     html?: string;
     originalValue?: string;
     originalHtml?: string;
+    routePath?: string;
   },
 ) {
   if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
@@ -106,6 +107,7 @@ export function runRecordPendingLiveTextEdit(
     filename: fallbackName,
     screenName: prettyScreenName(fallbackName),
     selector,
+    ...(details?.routePath ? { routePath: details.routePath } : {}),
     sourceId,
     sourceAnchor: reactSourceAnchorForPendingEdit({
       info: elementInfo,

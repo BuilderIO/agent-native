@@ -95,6 +95,7 @@ export function preparePendingLiveStructureEdit(
     anchorElementInfo?: ElementInfo;
     requestId?: string;
     transactionId?: string;
+    routePath?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
@@ -149,6 +150,7 @@ export function preparePendingLiveStructureEdit(
     filename: fallbackName,
     screenName: prettyScreenName(fallbackName),
     selector,
+    ...(details?.routePath ? { routePath: details.routePath } : {}),
     sourceId: subjectSourceId ?? null,
     sourceAnchor: reactSourceAnchorForPendingEdit({
       info: subjectInfo,

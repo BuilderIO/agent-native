@@ -99,12 +99,25 @@ export interface RuntimeStructureDeleteRequest {
   transactionId?: string;
   selector: string;
   selectorCandidates?: string[];
+  /** Cross-screen moves delete the source only after the destination insert ack. */
+  waitForInsertTransaction?: boolean;
+  rollbackScreenId?: string;
+  rollbackSelector?: string;
+  rollbackSourceId?: string;
+}
+
+export interface RuntimeStructureRollbackRequest {
+  requestId: string;
+  transactionId?: string;
+  selector: string;
+  sourceId?: string;
 }
 
 export interface RuntimeLayerRenameRequest {
   requestId: number;
   selector: string;
   sourceId?: string | null;
+  routePath?: string;
   name: string;
 }
 

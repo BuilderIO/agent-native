@@ -79,6 +79,7 @@ export function runtimeStructureNodeSignature(args: {
 
 export interface PendingVisualStyleEdit {
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -134,7 +135,7 @@ export interface PendingVisualStyleEdit {
 }
 
 function pendingLiveEditSubjectKey(edit: PendingLiveNonStyleEdit): string {
-  return `${edit.screenId}:${edit.sourceId?.trim() || edit.selector.trim()}`;
+  return `${edit.screenId}:${edit.routePath ?? ""}:${edit.sourceId?.trim() || edit.selector.trim()}`;
 }
 
 export function mergePendingLiveNonStyleEdits(
@@ -274,6 +275,7 @@ export function pendingLiveTextUndoRevertValue(
 export interface PendingLiveTextEdit {
   kind: "text";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -291,6 +293,7 @@ export interface PendingLiveTextEdit {
 export interface PendingLiveLayerStateEdit {
   kind: "layer-state";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   layerId: string;
@@ -308,6 +311,7 @@ export interface PendingLiveLayerStateEdit {
 export interface PendingLiveLayerNameEdit {
   kind: "layer-name";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   layerId: string;
@@ -359,6 +363,7 @@ export function shouldRedoPendingLiveNonStyleBeforeStyle(
 export interface PendingLiveStructureEdit {
   kind: "structure";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -917,6 +922,7 @@ export function pendingLiveStructureEditsMatch(
 function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
   return [
     edit.screenId,
+    edit.routePath ?? "",
     edit.sourceId?.trim() || edit.selector.trim() || "unknown",
     edit.interactionState ?? "default",
   ].join("::");
@@ -1014,6 +1020,7 @@ export function buildPendingVisualStyleRevertPatches(
   return edits
     .map((edit) => ({
       screenId: edit.screenId,
+      routePath: edit.routePath,
       selector: edit.selector,
       sourceId: edit.sourceId,
       // Carried, not resolved: consumers replay into the live frame (prefer the
@@ -1035,6 +1042,7 @@ export function buildPendingVisualStyleRevertPatches(
 
 export type PendingVisualStyleRuntimePatch = {
   screenId: string;
+  routePath?: string;
   selector: string;
   sourceId?: string | null;
   runtimeSelector?: string | null;
@@ -1184,6 +1192,7 @@ export function formatPendingVisualStylePrompt(args: {
   const editPayload = args.edits.map((edit) => ({
     operation: "update-style" as const,
     screenId: edit.screenId,
+    ...(edit.routePath ? { routePath: edit.routePath } : {}),
     screen: nameScreen(edit.screenId, edit.filename),
     screenName: edit.screenName,
     selector: edit.selector,
@@ -1231,6 +1240,7 @@ export function formatPendingVisualStylePrompt(args: {
         operation: "update-text" as const,
         kind: edit.kind,
         screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
         screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
@@ -1258,6 +1268,7 @@ export function formatPendingVisualStylePrompt(args: {
         operation: "update-layer-state" as const,
         kind: edit.kind,
         screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
         screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
@@ -1281,6 +1292,7 @@ export function formatPendingVisualStylePrompt(args: {
         operation: "metadata" as const,
         kind: edit.kind,
         screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
         screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
@@ -1439,6 +1451,7 @@ export function formatPendingVisualStylePrompt(args: {
               : "move",
       kind: edit.kind,
       screenId: edit.screenId,
+      ...(edit.routePath ? { routePath: edit.routePath } : {}),
       screen: nameScreen(edit.screenId, edit.filename),
       screenName: edit.screenName,
       ...(edit.transactionId ? { transactionId: edit.transactionId } : {}),
@@ -1446,6 +1459,7 @@ export function formatPendingVisualStylePrompt(args: {
         ? {
             groupedEdits: edit.groupedEdits.map((member) => ({
               selector: member.selector,
+              ...(member.routePath ? { routePath: member.routePath } : {}),
               sourceId: member.sourceId ?? null,
               sourceAnchor: redactReactSourceAnchor(member.sourceAnchor),
               anchorSelector: member.anchorSelector,
