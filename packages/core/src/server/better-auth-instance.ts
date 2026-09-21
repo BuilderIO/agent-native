@@ -124,6 +124,10 @@ import {
   type EmailReadiness,
 } from "./email.js";
 import {
+  canonicalFrameworkPathname,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
+import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
@@ -1389,19 +1393,29 @@ export function desktopMagicLinkLandingUrl(value: string): string | undefined {
     if (!callbackValue) return undefined;
     const callbackUrl = new URL(callbackValue, verificationUrl.origin);
     if (callbackUrl.origin !== verificationUrl.origin) return undefined;
-    if (!callbackUrl.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_MARKER)) {
+    // Better Auth issued these URLs in the public namespace; compare them in
+    // the internal form the markers are written in.
+    if (
+      !canonicalFrameworkPathname(callbackUrl.pathname).endsWith(
+        DESKTOP_MAGIC_LINK_CALLBACK_MARKER,
+      )
+    ) {
       return undefined;
     }
 
-    const verifyMarkerIndex = verificationUrl.pathname.lastIndexOf(
+    const verificationPathname = canonicalFrameworkPathname(
+      verificationUrl.pathname,
+    );
+    const verifyMarkerIndex = verificationPathname.lastIndexOf(
       BETTER_AUTH_MAGIC_LINK_VERIFY_MARKER,
     );
     if (verifyMarkerIndex < 0) return undefined;
 
     const landingUrl = new URL(verificationUrl.origin);
-    landingUrl.pathname =
-      verificationUrl.pathname.slice(0, verifyMarkerIndex) +
-      DESKTOP_MAGIC_LINK_LANDING_MARKER;
+    landingUrl.pathname = publicFrameworkPath(
+      verificationPathname.slice(0, verifyMarkerIndex) +
+        DESKTOP_MAGIC_LINK_LANDING_MARKER,
+    );
     for (const key of [
       "token",
       "callbackURL",
@@ -2130,7 +2144,13 @@ function resetAuthOnPoolClose(driver?: string, url?: string): void {
 async function createBetterAuthInstance(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInstance> {
-  const basePath = config?.basePath ?? "/_agent-native/auth/ba";
+  // Better Auth derives every URL it hands out — social-provider callbacks,
+  // magic-link verification, password reset — from this base path, so it
+  // must be the PUBLIC one. The framework still mounts the handler on the
+  // internal path and passes Better Auth a request in public form.
+  const basePath = publicFrameworkPath(
+    `${getConfiguredAppBasePath()}${config?.basePath ?? "/_agent-native/auth/ba"}`,
+  );
   const access = getAppConfig().access;
 
   // Build social providers from env vars
@@ -2314,12 +2334,7 @@ async function createBetterAuthInstance(
           urlQueryKeys,
         });
       }
-      const appBasePath = getConfiguredAppBasePath();
-      const magicLinkUrl = appBasePath
-        ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
-        : url;
-      const deliveredMagicLinkUrl =
-        desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
+      const deliveredMagicLinkUrl = desktopMagicLinkLandingUrl(url) ?? url;
       const { subject, html, text, appSender } = renderMagicLinkEmail({
         email,
         magicLinkUrl: deliveredMagicLinkUrl,
@@ -2358,7 +2373,7 @@ async function createBetterAuthInstance(
           process.env.APP_BASE_PATH ||
           ""
         ).replace(/\/$/, "");
-        const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
+        const resetUrl = `${appUrl}${appBasePath}${publicFrameworkPath("/_agent-native/auth/reset")}?token=${encodeURIComponent(token)}`;
         const { subject, html, text, appSender } = renderResetPasswordEmail({
           email: user.email,
           resetUrl,

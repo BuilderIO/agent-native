@@ -205,6 +205,23 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain("editingSafetyEnabled: !interactMode");
   });
 
+  it("reports live router paths while Interact omits editor chrome", () => {
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain("data-agent-native-live-route-bridge");
+    expect(canvas).toContain('type: "agent-native:live-route-path"');
+    expect(canvas).toContain("window.history.pushState = function ()");
+    expect(canvas).toContain("window.history.replaceState = function ()");
+    expect(canvas).toContain(
+      'if (e.data.type === "agent-native:live-route-path") {',
+    );
+    expect(canvas).toContain(
+      '(includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +',
+    );
+  });
+
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
     // /visual-edit works without a login for a loopback caller, so anything on
     // that path keyed to `isSignedIn` fails for exactly the user it serves:
@@ -281,7 +298,8 @@ describe("responsive Interact wiring", () => {
       source.indexOf("<ResponsiveInteractBar"),
       source.indexOf("onClose={handleExitResponsiveInteract}"),
     );
-    expect(barMount).toContain("onModeChange={handleModeChange}");
+    expect(barMount).toContain("onModeChange={(next) => {");
+    expect(barMount).toContain("setRuntimeLayerSnapshotRequest(");
     expect(barMount).toContain("canAnnotate={canEditDesign}");
     const bar = readFileSync(
       "app/components/design/ResponsiveInteractBar.tsx",
@@ -290,6 +308,22 @@ describe("responsive Interact wiring", () => {
     expect(bar).toContain("onModeChange(exit.mode)");
     expect(bar).not.toContain("setMode(");
     expect(bar).not.toContain('"interact"');
+  });
+
+  it("refreshes live Layers when Interact returns to Edit", () => {
+    const exitHandler = source.slice(
+      source.indexOf("const handleExitResponsiveInteract ="),
+      source.indexOf("// Escape is the standard"),
+    );
+    expect(exitHandler).toContain("setRuntimeLayerSnapshotRequest(");
+    expect(source).toContain(
+      "runtimeLayerSnapshotRequest={runtimeLayerSnapshotRequest}",
+    );
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain('type: "request-runtime-layer-snapshot"');
   });
 
   it("uses the selected screen size and the real canvas bounds", () => {

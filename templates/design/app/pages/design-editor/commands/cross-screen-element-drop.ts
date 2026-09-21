@@ -18,6 +18,7 @@ import { getPrimaryIframeId } from "@/components/design/multi-screen/iframe-targ
 import type {
   ElementInfo,
   PortableStyleSnapshot,
+  RuntimeStructureDeleteRequest,
   RuntimeStructureInsertRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
@@ -120,6 +121,7 @@ export interface CrossScreenElementDropArgs {
   ) => ApplyFileContentUpdateResult;
   boardFileId: string | undefined;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
   clearPendingOverviewLayerSelectionTimer: () => void;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
@@ -162,6 +164,11 @@ export interface CrossScreenElementDropArgs {
       (RuntimeStructureInsertRequest & { screenId: string }) | null
     >
   >;
+  setRuntimeStructureDeleteRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureDeleteRequest & { screenId: string }) | null
+    >
+  >;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -173,6 +180,7 @@ export function runCrossScreenElementDrop(
     applyFileContentUpdate,
     boardFileId,
     canEditDesign,
+    canEditLiveScreen,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
@@ -196,6 +204,7 @@ export function runCrossScreenElementDrop(
     setCreatedOverviewLayerSelection,
     setOverviewSelectedScreenIds,
     setRuntimeStructureInsertRequest,
+    setRuntimeStructureDeleteRequest,
     setSelectedElement,
     setSelectedLayerIdsState,
     t,
@@ -291,7 +300,6 @@ export function runCrossScreenElementDrop(
         ? "same screen — nothing to move"
         : null,
   });
-  if (!canEditDesign) return;
   if (sourceScreenId === targetScreenId) return;
 
   const findLayerOwner = (
@@ -338,6 +346,9 @@ export function runCrossScreenElementDrop(
   const targetScreen = overviewScreens.find(
     (screen) => screen.id === targetScreenId,
   );
+  const sourceScreen = overviewScreens.find(
+    (screen) => screen.id === sourceScreenId,
+  );
   const componentLinks =
     id && targetScreen
       ? {
@@ -373,10 +384,117 @@ export function runCrossScreenElementDrop(
     isRunningAppSourceType(
       resolveOverviewScreenSourceType(targetScreen, designSourceType),
     );
+  const sourceScreenIsLive =
+    Boolean(sourceScreen) &&
+    isRunningAppSourceType(
+      resolveOverviewScreenSourceType(sourceScreen, designSourceType),
+    );
+  const canEditLiveCrossScreen =
+    sourceScreenIsLive &&
+    targetScreenIsLive &&
+    Boolean(canEditLiveScreen?.(sourceScreenId)) &&
+    Boolean(canEditLiveScreen?.(targetScreenId));
+  if (!canEditDesign && !canEditLiveCrossScreen) return;
 
   // Duplicate intent must be resolved before live/semantic move routing. A
   // fresh clone cannot resolve to a source owner, so those paths would reject
   // the copy or treat it as a move without consuming sourceCloneHtml.
+  if (canEditLiveCrossScreen && !duplicate) {
+    const subjectNodeId =
+      sourceNodeId ??
+      (sourceProvenance as { uniqueNodeId?: string } | undefined)?.uniqueNodeId;
+    const sourceOwner = sourceOwnerEntry?.[1];
+    const validatedSourceHtmlSnapshot =
+      subjectNodeId && sourceHtmlSnapshot
+        ? validateCrossScreenSourceHtmlSnapshot(
+            sourceHtmlSnapshot,
+            subjectNodeId,
+          )
+        : undefined;
+    if (!sourceOwner || !subjectNodeId || !validatedSourceHtmlSnapshot) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    const hasAnchor = Boolean(
+      targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
+    );
+    const placeAbsolute =
+      Boolean(targetLocalPoint) &&
+      (!hasAnchor || targetDropMode === "absolute-container");
+    const absolutePosition =
+      placeAbsolute && targetLocalPoint
+        ? absolutePlacePointForDrop({
+            placeAbsoluteOnEmptyScreen: false,
+            targetAnchorRect,
+            targetLocalPoint,
+          })
+        : undefined;
+    const prepared = prepareClonedHtmlLayersForLiveInsert(
+      getScreenContent(targetScreenId),
+      [validatedSourceHtmlSnapshot],
+      {
+        positions: absolutePosition
+          ? [
+              {
+                x: absolutePosition.x - (sourcePointerOffset?.x ?? 0),
+                y: absolutePosition.y - (sourcePointerOffset?.y ?? 0),
+                space: "visual",
+              },
+            ]
+          : undefined,
+        stripRootPosition:
+          hasAnchor &&
+          !placeAbsolute &&
+          targetDropMode !== "absolute-container",
+        styleSnapshots: [styleSnapshot],
+      },
+    );
+    const insertedHtml = prepared?.htmlFragments[0];
+    if (!insertedHtml) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    if (!setRuntimeStructureDeleteRequest) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    runtimeStructureInsertRevisionRef.current += 1;
+    setRuntimeStructureInsertRequest({
+      requestId: runtimeStructureInsertRevisionRef.current,
+      transactionId,
+      screenId: targetScreenId,
+      html: insertedHtml,
+      anchor: {
+        selector: targetAnchorSelector ?? "",
+        sourceId: targetAnchorNodeId,
+        pendingNodeId: targetAnchorPendingNodeId,
+      },
+      placement: targetAnchorPlacement ?? "inside",
+    });
+    setRuntimeStructureDeleteRequest({
+      requestId: `${transactionId}:source`,
+      transactionId,
+      screenId: sourceScreenId,
+      selector: sourceSelector,
+      waitForInsertTransaction: true,
+      rollbackScreenId: targetScreenId,
+      selectorCandidates: Array.from(
+        new Set([
+          sourceSelector,
+          ...codeLayerSelectorAliases(sourceOwner.node),
+        ]),
+      ).filter(Boolean),
+    });
+    return;
+  }
+
   if (duplicate) {
     if (!sourceCloneHtml) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });

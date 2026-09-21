@@ -78,7 +78,12 @@ export interface TextContentChangeArgs {
     selector: string,
     value: string,
     elementInfo?: ElementInfo,
-    details?: { html?: string; originalValue?: string; originalHtml?: string },
+    details?: {
+      html?: string;
+      originalValue?: string;
+      originalHtml?: string;
+      routePath?: string;
+    },
   ) => void;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
   setMode: Dispatch<SetStateAction<EditorMode>>;
@@ -118,6 +123,7 @@ export function runTextContentChange(
     html?: string;
     originalValue?: string;
     originalHtml?: string;
+    routePath?: string;
   },
 ): TextCommitStatus {
   if (!canEditDesign && !canEditLiveScreen) return "refused";

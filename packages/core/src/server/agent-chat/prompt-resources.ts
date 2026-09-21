@@ -13,6 +13,7 @@ import {
 } from "../../resources/metadata.js";
 import {
   ensurePersonalDefaults,
+  isWorkspaceResourceOwner,
   organizationIdFromResourceOwner,
   resourceGet,
   resourceGetByPath,
@@ -23,6 +24,7 @@ import {
   type Resource,
   type ResourceMeta,
   WORKSPACE_OWNER,
+  workspaceResourceOwner,
 } from "../../resources/store.js";
 import type {
   ContextGovernanceTier,
@@ -632,7 +634,7 @@ export function resourceScopeForOwner(
   owner: string,
   currentOwner?: string,
 ): string {
-  if (owner === WORKSPACE_OWNER) return "workspace";
+  if (isWorkspaceResourceOwner(owner)) return "workspace";
   if (owner === SHARED_OWNER || organizationIdFromResourceOwner(owner)) {
     return "shared";
   }
@@ -644,10 +646,11 @@ async function loadAgentsResourceForPrompt(
   owner: string,
   scope: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
+  orgId?: string | null,
 ): Promise<string | null> {
   let agents: Awaited<ReturnType<typeof resourceGetByPath>>;
   try {
-    agents = await resourceGetByPath(owner, "AGENTS.md");
+    agents = await resourceGetByPath(owner, "AGENTS.md", { orgId });
   } catch (error) {
     throw new Error(
       `Unable to read durable AGENTS.md instructions for ${scope} (${owner}). The run cannot safely continue without them.`,
@@ -669,56 +672,53 @@ async function loadInstructionResourcesForPrompt(
   scope: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
   summaryOnly = false,
+  orgId?: string | null,
 ): Promise<string[]> {
-  try {
-    const resources = await resourceList(owner, "instructions/");
-    const sorted = resources
-      .filter((resource) => isAutoLoadedInstructionPath(resource.path))
-      .sort((a, b) => a.path.localeCompare(b.path));
+  const resources = await resourceList(owner, "instructions/", { orgId });
+  const sorted = resources
+    .filter((resource) => isAutoLoadedInstructionPath(resource.path))
+    .sort((a, b) => a.path.localeCompare(b.path));
 
-    if (summaryOnly) {
-      if (sorted.length === 0) return [];
-      const resourceScope = scope.startsWith("workspace")
-        ? "workspace"
-        : scope.startsWith("personal")
-          ? "personal"
-          : "shared";
-      const listed = sorted.slice(0, PROMPT_INSTRUCTION_SUMMARY_LIMIT);
-      const lines = listed.map(
-        (resource) =>
-          `- \`${resource.path}\` - ${resourceToolHint("read", `\`path: "${resource.path}"\` and \`scope: "${resourceScope}"\` when it applies`)}`,
-      );
-      if (sorted.length > listed.length) {
-        lines.push(
-          `- ...${sorted.length - listed.length} more instruction files. ${resourceToolHint("list", `\`scope: "${resourceScope}"\` and \`prefix: "instructions/"\``)}`,
-        );
-      }
-      return [
-        `<instruction-resources scope="${escapeXmlAttribute(scope)}">\nDetailed instruction files are loaded on demand so the first model request stays compact. Read a relevant file before following its workflow.\n\n${lines.join("\n")}\n</instruction-resources>`,
-      ];
-    }
-
-    const fullResources = await Promise.all(
-      sorted.map((resource) => resourceGet(resource.id).catch(() => null)),
+  if (summaryOnly) {
+    if (sorted.length === 0) return [];
+    const resourceScope = scope.startsWith("workspace")
+      ? "workspace"
+      : scope.startsWith("personal")
+        ? "personal"
+        : "shared";
+    const listed = sorted.slice(0, PROMPT_INSTRUCTION_SUMMARY_LIMIT);
+    const lines = listed.map(
+      (resource) =>
+        `- \`${resource.path}\` - ${resourceToolHint("read", `\`path: "${resource.path}"\` and \`scope: "${resourceScope}"\` when it applies`)}`,
     );
-    const blocks: string[] = [];
-    for (let index = 0; index < sorted.length; index++) {
-      const resource = sorted[index]!;
-      const full = fullResources[index];
-      if (!full?.content?.trim()) continue;
-      const block = promptResourceBlock({
-        name: resource.path,
-        scope,
-        path: resource.path,
-        content: full.content,
-        maxChars,
-      });
-      if (block) blocks.push(block);
+    if (sorted.length > listed.length) {
+      lines.push(
+        `- ...${sorted.length - listed.length} more instruction files. ${resourceToolHint("list", `\`scope: "${resourceScope}"\` and \`prefix: "instructions/"\``)}`,
+      );
     }
-    return blocks;
-  } catch {
-    return [];
+    return [
+      `<instruction-resources scope="${escapeXmlAttribute(scope)}">\nDetailed instruction files are loaded on demand so the first model request stays compact. Read a relevant file before following its workflow.\n\n${lines.join("\n")}\n</instruction-resources>`,
+    ];
   }
+
+  const fullResources = await Promise.all(
+    sorted.map((resource) => resourceGet(resource.id, { orgId })),
+  );
+  const blocks: string[] = [];
+  for (let index = 0; index < sorted.length; index++) {
+    const resource = sorted[index]!;
+    const full = fullResources[index];
+    if (!full?.content?.trim()) continue;
+    const block = promptResourceBlock({
+      name: resource.path,
+      scope,
+      path: resource.path,
+      content: full.content,
+      maxChars,
+    });
+    if (block) blocks.push(block);
+  }
+  return blocks;
 }
 
 interface ResourceSkillPromptEntry {
@@ -743,7 +743,7 @@ async function loadResourceSkillPromptEntries(
       owner === SHARED_OWNER
         ? [
             ...(await resourceList(SHARED_OWNER, "skills/")),
-            ...(await resourceList(WORKSPACE_OWNER, "skills/")),
+            ...(await resourceList(WORKSPACE_OWNER, "skills/", { orgId })),
           ]
         : await resourceListAccessible(owner, "skills/", { orgId });
     const sorted = resources.sort((a, b) => {
@@ -754,7 +754,7 @@ async function loadResourceSkillPromptEntries(
             ? 1
             : a.owner === SHARED_OWNER
               ? 2
-              : a.owner === WORKSPACE_OWNER
+              : isWorkspaceResourceOwner(a.owner)
                 ? 3
                 : 4) -
         (b.owner === owner
@@ -763,7 +763,7 @@ async function loadResourceSkillPromptEntries(
             ? 1
             : b.owner === SHARED_OWNER
               ? 2
-              : b.owner === WORKSPACE_OWNER
+              : isWorkspaceResourceOwner(b.owner)
                 ? 3
                 : 4);
       if (ownerOrder !== 0) return ownerOrder;
@@ -829,50 +829,47 @@ async function loadResourceSkillsPromptBlock(
 async function loadResourceIndexForPrompt(
   owner: string,
   scope: "workspace" | "shared",
+  orgId?: string | null,
 ): Promise<string | null> {
-  try {
-    const resources = (await resourceList(owner))
-      .filter(
-        (resource) =>
-          !isSpecialPromptResourcePath(resource.path) &&
-          isTextLikeResource(resource.mimeType),
-      )
-      .sort((a, b) => a.path.localeCompare(b.path));
-    if (resources.length === 0) return null;
+  const resources = (await resourceList(owner, undefined, { orgId }))
+    .filter(
+      (resource) =>
+        !isSpecialPromptResourcePath(resource.path) &&
+        isTextLikeResource(resource.mimeType),
+    )
+    .sort((a, b) => a.path.localeCompare(b.path));
+  if (resources.length === 0) return null;
 
-    const listed = resources.slice(0, SHARED_RESOURCE_INDEX_LIMIT);
-    const lines: string[] = [];
-    const fullResources = await Promise.all(
-      listed.map((resource) => resourceGet(resource.id).catch(() => null)),
-    );
-    for (let index = 0; index < listed.length; index++) {
-      const resource = listed[index]!;
-      const full = fullResources[index];
-      const summary = full?.content
-        ? getResourceSummaryFromContent(full.content)
-        : null;
-      lines.push(`- \`${resource.path}\`${summary ? ` - ${summary}` : ""}`);
-    }
-    if (resources.length > listed.length) {
-      lines.push(
-        `- ...${resources.length - listed.length} more ${scope} resources. ${resourceToolHint(
-          "list",
-          `\`scope: "${scope}"\` to inspect them`,
-        )}`,
-      );
-    }
-
-    const label =
-      scope === "workspace"
-        ? "Workspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context."
-        : "Shared app/organization reference resources are available for app-specific or team context.";
-    return `<workspace-resources scope="${scope}">\n${label} ${resourceToolHint(
-      "read",
-      `\`path: <path>\` and \`scope: "${scope}"\` when a task may depend on them`,
-    )} Do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
-  } catch {
-    return null;
+  const listed = resources.slice(0, SHARED_RESOURCE_INDEX_LIMIT);
+  const lines: string[] = [];
+  const fullResources = await Promise.all(
+    listed.map((resource) => resourceGet(resource.id, { orgId })),
+  );
+  for (let index = 0; index < listed.length; index++) {
+    const resource = listed[index]!;
+    const full = fullResources[index];
+    const summary = full?.content
+      ? getResourceSummaryFromContent(full.content)
+      : null;
+    lines.push(`- \`${resource.path}\`${summary ? ` - ${summary}` : ""}`);
   }
+  if (resources.length > listed.length) {
+    lines.push(
+      `- ...${resources.length - listed.length} more ${scope} resources. ${resourceToolHint(
+        "list",
+        `\`scope: "${scope}"\` to inspect them`,
+      )}`,
+    );
+  }
+
+  const label =
+    scope === "workspace"
+      ? "Workspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context."
+      : "Shared app/organization reference resources are available for app-specific or team context.";
+  return `<workspace-resources scope="${scope}">\n${label} ${resourceToolHint(
+    "read",
+    `\`path: <path>\` and \`scope: "${scope}"\` when a task may depend on them`,
+  )} Do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
 }
 
 async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
@@ -1110,19 +1107,23 @@ export async function loadResourcesForPrompt(
 
   // 3. Runtime workspace resources. These are global defaults inherited by
   // every app in the workspace, not copied into app scopes. They may come from
-  // SQL, Dispatch, or local file mode.
+  // SQL, Dispatch, or local file mode, and Dispatch keeps one copy per
+  // organization.
+  const workspaceOwner = workspaceResourceOwner(orgId);
   const workspaceAgents = await loadAgentsResourceForPrompt(
-    WORKSPACE_OWNER,
+    workspaceOwner,
     "workspace",
     promptResourceMaxChars,
+    orgId,
   );
   addSection(workspaceAgents, "required");
   addSections(
     await loadInstructionResourcesForPrompt(
-      WORKSPACE_OWNER,
+      workspaceOwner,
       "workspace-instruction",
       promptResourceMaxChars,
       compact,
+      orgId,
     ),
   );
 
@@ -1135,6 +1136,7 @@ export async function loadResourcesForPrompt(
     SHARED_OWNER,
     organizationOwner === SHARED_OWNER ? "shared" : "app-default",
     promptResourceMaxChars,
+    orgId,
   );
   addSection(appDefaultAgents, "required");
   addSections(
@@ -1145,6 +1147,7 @@ export async function loadResourcesForPrompt(
         : "app-default-instruction",
       promptResourceMaxChars,
       compact,
+      orgId,
     ),
   );
 
@@ -1155,6 +1158,7 @@ export async function loadResourcesForPrompt(
       organizationOwner,
       "organization",
       promptResourceMaxChars,
+      orgId,
     );
     addSection(organizationAgents, "required");
     addSections(
@@ -1163,17 +1167,19 @@ export async function loadResourcesForPrompt(
         "organization-instruction",
         promptResourceMaxChars,
         compact,
+        orgId,
       ),
     );
   }
 
   // 6. Personal SQL resources. These come last in the instruction stack so a
   // user can narrow or override organization/app and workspace defaults.
-  if (owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER) {
+  if (owner !== SHARED_OWNER && !isWorkspaceResourceOwner(owner)) {
     const personalAgents = await loadAgentsResourceForPrompt(
       owner,
       "personal",
       promptResourceMaxChars,
+      orgId,
     );
     addSection(personalAgents, "required");
     addSections(
@@ -1182,6 +1188,7 @@ export async function loadResourcesForPrompt(
         "personal-instruction",
         promptResourceMaxChars,
         compact,
+        orgId,
       ),
       "user",
     );
@@ -1194,8 +1201,11 @@ export async function loadResourcesForPrompt(
   try {
     sharedLearnings =
       (organizationOwner !== SHARED_OWNER
-        ? await resourceGetByPath(organizationOwner, "LEARNINGS.md")
-        : null) ?? (await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md"));
+        ? await resourceGetByPath(organizationOwner, "LEARNINGS.md", {
+            orgId,
+          })
+        : null) ??
+      (await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md", { orgId }));
   } catch {}
 
   if (compact) {
@@ -1241,7 +1251,9 @@ export async function loadResourcesForPrompt(
     // context.
     if (owner !== SHARED_OWNER) {
       try {
-        const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
+        const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md", {
+          orgId,
+        });
         if (memoryIndex?.content?.trim()) {
           const block = promptResourceBlock({
             name: "memory/MEMORY.md",
@@ -1257,20 +1269,23 @@ export async function loadResourcesForPrompt(
   }
 
   const workspaceResourceIndex = await loadResourceIndexForPrompt(
-    WORKSPACE_OWNER,
+    workspaceOwner,
     "workspace",
+    orgId,
   );
   addSection(workspaceResourceIndex);
 
   const appDefaultResourceIndex = await loadResourceIndexForPrompt(
     SHARED_OWNER,
     "shared",
+    orgId,
   );
   addSection(appDefaultResourceIndex);
   if (organizationOwner !== SHARED_OWNER) {
     const organizationResourceIndex = await loadResourceIndexForPrompt(
       organizationOwner,
       "shared",
+      orgId,
     );
     addSection(organizationResourceIndex);
   }

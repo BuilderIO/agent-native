@@ -16,18 +16,26 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import type { LayersPanelMoveIntent } from "@/components/design/LayersPanel";
+import {
+  captureCrossScreenSourceHtmlSnapshot,
+  validateCrossScreenSourceHtmlSnapshot,
+} from "@/components/design/multi-screen/cross-screen-drop";
 import type {
   ElementInfo,
+  RuntimeStructureDeleteRequest,
   RuntimeStructureMoveRequest,
+  RuntimeStructureInsertRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   prepareClonedHtmlLayer,
+  prepareClonedHtmlLayersForLiveInsert,
   type ComponentCloneBatchContext,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import type { EffectiveCodeLayerState } from "@/pages/design-editor/code-layer-state";
 import {
   bridgeSourceIdForCodeLayerNode,
+  codeLayerSelectorAliases,
   codeLayerPatchMessage,
   collectCodeLayerAncestors,
   elementInfoFromCodeLayerNode,
@@ -126,6 +134,8 @@ export interface LayerMoveArgs {
     targetFileId: string,
   ) => void;
   runtimeStructureMoveRevisionRef: RefObject<number>;
+  runtimeStructureInsertRevisionRef?: RefObject<number>;
+  runtimeLayerSnapshotsById?: Record<string, { html: string }>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
     targetLayerId: string,
@@ -134,6 +144,16 @@ export interface LayerMoveArgs {
   setExpandedLayerIds: Dispatch<SetStateAction<string[]>>;
   setRuntimeStructureMoveRequest: Dispatch<
     SetStateAction<(RuntimeStructureMoveRequest & { screenId: string }) | null>
+  >;
+  setRuntimeStructureInsertRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureInsertRequest & { screenId: string }) | null
+    >
+  >;
+  setRuntimeStructureDeleteRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureDeleteRequest & { screenId: string }) | null
+    >
   >;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
@@ -415,9 +435,13 @@ export function runLayerMove(
     recordContentHistoryEntry,
     recordLocalContentHistoryEntry,
     remapMotionTracksForClone,
+    runtimeLayerSnapshotsById,
     runtimeStructureMoveRevisionRef,
+    runtimeStructureInsertRevisionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setExpandedLayerIds,
+    setRuntimeStructureDeleteRequest,
+    setRuntimeStructureInsertRequest,
     setRuntimeStructureMoveRequest,
     setSelectedElement,
     setSelectedLayerIdsState,
@@ -498,6 +522,77 @@ export function runLayerMove(
     runtimeDraggedOwner &&
     (liveScreenIds?.has(runtimeDraggedOwner.fileId) ?? false),
   );
+  if (
+    runtimeDraggedOwner?.runtimeOnly &&
+    targetOwner.runtimeOnly &&
+    sourceScreenIsLive &&
+    targetScreenIsLive &&
+    runtimeDraggedOwner.fileId !== targetOwner.fileId
+  ) {
+    if (
+      !setRuntimeStructureInsertRequest ||
+      !setRuntimeStructureDeleteRequest
+    ) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return;
+    }
+    const sourceSnapshot =
+      runtimeLayerSnapshotsById?.[runtimeDraggedOwner.fileId];
+    const sourceId = bridgeSourceIdForCodeLayerNode(runtimeDraggedOwner.node);
+    const sourceHtml =
+      sourceSnapshot && typeof DOMParser !== "undefined"
+        ? captureCrossScreenSourceHtmlSnapshot(
+            new DOMParser().parseFromString(sourceSnapshot.html, "text/html"),
+            sourceId,
+          )
+        : undefined;
+    const validatedSourceHtml = sourceHtml
+      ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, sourceId)
+      : undefined;
+    if (!validatedSourceHtml) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return;
+    }
+    const prepared = prepareClonedHtmlLayersForLiveInsert(
+      getScreenContent(targetOwner.fileId),
+      [validatedSourceHtml],
+    );
+    const insertedHtml = prepared?.htmlFragments[0];
+    if (!insertedHtml) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return;
+    }
+    const transactionId = `layer-panel-cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const insertRevisionRef =
+      runtimeStructureInsertRevisionRef ?? runtimeStructureMoveRevisionRef;
+    insertRevisionRef.current += 1;
+    setRuntimeStructureInsertRequest({
+      requestId: insertRevisionRef.current,
+      transactionId,
+      screenId: targetOwner.fileId,
+      html: insertedHtml,
+      anchor: {
+        selector: targetOwner.node.selector,
+        sourceId: bridgeSourceIdForCodeLayerNode(targetOwner.node),
+      },
+      placement: intent.placement,
+    });
+    setRuntimeStructureDeleteRequest({
+      requestId: `${transactionId}:source`,
+      transactionId,
+      screenId: runtimeDraggedOwner.fileId,
+      selector: runtimeDraggedOwner.node.selector,
+      waitForInsertTransaction: true,
+      rollbackScreenId: targetOwner.fileId,
+      selectorCandidates: Array.from(
+        new Set([
+          runtimeDraggedOwner.node.selector,
+          ...codeLayerSelectorAliases(runtimeDraggedOwner.node),
+        ]),
+      ).filter(Boolean),
+    });
+    return;
+  }
   if (
     targetOwner.runtimeOnly ||
     runtimeDraggedOwner?.runtimeOnly ||

@@ -34,6 +34,7 @@ import {
   normalizeAppPath,
   SIGN_IN_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   addSignupAttributionHeader,
   signupAttributionContextFromCookieHeader,
@@ -44,6 +45,7 @@ import {
 } from "./better-auth-instance.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { createOAuthSession, getAppUrl, getOrigin } from "./google-oauth.js";
 import { hasIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
@@ -204,6 +206,10 @@ function createPkceChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
+function publicIdentitySsoPath(path: string): string {
+  return publicFrameworkPath(`${getConfiguredAppBasePath()}${path}`);
+}
+
 function requestUrl(event: H3Event): string {
   return (event as any).node?.req?.url ?? event.path ?? "/";
 }
@@ -217,7 +223,7 @@ function setPkceVerifierCookie(
   setCookie(event, verifierCookieName(state), verifier, {
     httpOnly: true,
     maxAge: Math.floor(SSO_STATE_TTL_MS / 1_000),
-    path: IDENTITY_SSO_CALLBACK_PATH,
+    path: publicIdentitySsoPath(IDENTITY_SSO_CALLBACK_PATH),
     sameSite: "lax",
     secure,
   });
@@ -364,7 +370,7 @@ function addBridgeParams(url: string, sourceOrigin: string): string {
 
 function clearPkceVerifierCookie(event: H3Event, state: string): void {
   deleteCookie(event, verifierCookieName(state), {
-    path: IDENTITY_SSO_CALLBACK_PATH,
+    path: publicIdentitySsoPath(IDENTITY_SSO_CALLBACK_PATH),
   });
 }
 
@@ -395,7 +401,7 @@ function resolveClientBinding(
 ): SsoClientBinding | null {
   const appId = resolveIdentitySsoAppId(event);
   const clientId = resolveClientId(appId);
-  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
+  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${publicIdentitySsoPath(IDENTITY_SSO_CALLBACK_PATH)}`;
   const authority = normalizeAuthority(hub);
   if (!authority || !appId || !clientId || !redirectUri) return null;
   return { appId, clientId, redirectUri, authority };

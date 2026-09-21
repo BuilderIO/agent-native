@@ -55,6 +55,7 @@ import type {
   ContentHistorySelectionAfterMap,
   FileCreationHistoryEntry,
   FileDeletionHistoryEntry,
+  FileDeletionHistorySnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
   SelectionHistoryEntry,
@@ -221,6 +222,12 @@ export interface RedoArgs {
   pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  replayPendingVisualStyleRuntime?: (
+    edits: readonly PendingVisualStyleEdit[],
+  ) => void;
+  setPendingVisualStyleBaselineResetRequest?: Dispatch<
+    SetStateAction<number | null>
+  >;
   performDeleteFiles: (
     filesToDelete: DesignFile[],
     options?: {
@@ -230,6 +237,7 @@ export interface RedoArgs {
       onMutationSettled?: (
         deletedFiles: DesignFile[],
         failedFiles: DesignFile[],
+        deletedFileSnapshots: FileDeletionHistorySnapshot[],
       ) => void;
     },
   ) => void;
@@ -268,6 +276,18 @@ export interface RedoArgs {
   selectionUndoStackRef: RefObject<SelectionHistoryEntry[]>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  setPendingLayerNameReplayRequest: Dispatch<
+    SetStateAction<{
+      requestId: number;
+      patches: Array<{
+        screenId: string;
+        selector: string;
+        sourceId?: string | null;
+        name: string;
+        routePath?: string;
+      }>;
+    } | null>
+  >;
   setPendingLayerStateReplayRequest: Dispatch<
     SetStateAction<{
       requestId: number;
@@ -276,6 +296,7 @@ export interface RedoArgs {
         layerId: string;
         state: "hidden" | "locked";
         enabled: boolean;
+        routePath?: string;
       }>;
     } | null>
   >;
@@ -291,6 +312,7 @@ export interface RedoArgs {
         sourceId?: string | null;
         value: string;
         html?: string;
+        routePath?: string;
       }>;
     } | null>
   >;
@@ -395,6 +417,7 @@ export function runRedo({
   pendingVisualStyleEditsRef,
   pendingVisualStyleRedoStackRef,
   pendingVisualStyleUndoStackRef,
+  replayPendingVisualStyleRuntime,
   performDeleteFiles,
   publishAuthoritativeClipboardMutation,
   queryClient,
@@ -409,9 +432,11 @@ export function runRedo({
   selectionUndoStackRef,
   setContentRenderRevision,
   setHoveredElement,
+  setPendingLayerNameReplayRequest,
   setPendingLayerStateReplayRequest,
   setPendingLiveNonStyleEdits,
   setPendingTextRevertRequest,
+  setPendingVisualStyleBaselineResetRequest,
   setPendingVisualStyleEdits,
   setPendingVisualStyleRevertRequest,
   setOverviewSelectedScreenIds,
@@ -461,10 +486,35 @@ export function runRedo({
     pendingNonStyleRedoStack[pendingNonStyleRedoStack.length - 1];
   const pendingLiveRedoStack = pendingVisualStyleRedoStackRef.current;
   const pendingLiveRedo = pendingLiveRedoStack[pendingLiveRedoStack.length - 1];
+  const redoHistoryKind = redoOrderRef.current[redoOrderRef.current.length - 1];
+  const pendingRedoKind =
+    redoHistoryKind === "pending-style" || redoHistoryKind === "pending-live"
+      ? redoHistoryKind
+      : undefined;
   if (!canEditDesign && !pendingLiveRedo && !pendingNonStyleRedo) return;
+  if (
+    (pendingRedoKind === "pending-style" && !pendingLiveRedo) ||
+    (pendingRedoKind === "pending-live" && !pendingNonStyleRedo)
+  ) {
+    return;
+  }
+  const consumePendingRedoOrder = (kind: "pending-style" | "pending-live") => {
+    if (redoOrderRef.current[redoOrderRef.current.length - 1] !== kind) {
+      return;
+    }
+    redoOrderRef.current = redoOrderRef.current.slice(0, -1);
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      kind,
+    ];
+  };
   const redoPendingNonStyleFirst = shouldRedoPendingLiveNonStyleBeforeStyle(
-    pendingLiveRedo,
-    pendingNonStyleRedo,
+    pendingRedoKind === "pending-style" || redoHistoryKind === undefined
+      ? pendingLiveRedo
+      : undefined,
+    pendingRedoKind === "pending-live" || redoHistoryKind === undefined
+      ? pendingNonStyleRedo
+      : undefined,
   );
   if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "structure") {
     const redoCommand = pendingStructureRedoCommand(pendingNonStyleRedo.edit);
@@ -491,6 +541,7 @@ export function runRedo({
         ...pendingLiveNonStyleUndoStackRef.current,
         pendingNonStyleRedo,
       ];
+      consumePendingRedoOrder("pending-live");
       const nextPending = mergePendingLiveNonStyleEdits(
         pendingLiveNonStyleEditsFromUndoStack(
           pendingLiveNonStyleUndoStackRef.current,
@@ -595,6 +646,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingLayerStateReplayRequest({
       requestId: Date.now() + Math.random(),
@@ -604,6 +656,39 @@ export function runRedo({
           layerId: pendingNonStyleRedo.edit.layerId,
           state: pendingNonStyleRedo.edit.state,
           enabled: pendingNonStyleRedo.edit.enabled,
+          routePath: pendingNonStyleRedo.edit.routePath,
+        },
+      ],
+    });
+    setPendingLiveNonStyleEdits(nextPending);
+    syncUndoRedoState();
+    return;
+  }
+  if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "layer-name") {
+    pendingLiveNonStyleRedoStackRef.current = pendingNonStyleRedoStack.slice(
+      0,
+      -1,
+    );
+    pendingLiveNonStyleUndoStackRef.current = [
+      ...pendingLiveNonStyleUndoStackRef.current,
+      pendingNonStyleRedo,
+    ];
+    const nextPending = mergePendingLiveNonStyleEdits(
+      pendingLiveNonStyleEditsFromUndoStack(
+        pendingLiveNonStyleUndoStackRef.current,
+      ),
+    );
+    consumePendingRedoOrder("pending-live");
+    pendingLiveNonStyleEditsRef.current = nextPending;
+    setPendingLayerNameReplayRequest({
+      requestId: Date.now() + Math.random(),
+      patches: [
+        {
+          screenId: pendingNonStyleRedo.edit.screenId,
+          selector: pendingNonStyleRedo.edit.selector,
+          sourceId: pendingNonStyleRedo.edit.sourceId,
+          name: pendingNonStyleRedo.edit.name,
+          routePath: pendingNonStyleRedo.edit.routePath,
         },
       ],
     });
@@ -626,6 +711,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingTextRevertRequest({
       requestId: Date.now() + Math.random(),
@@ -636,6 +722,7 @@ export function runRedo({
           sourceId: pendingTextRedo.edit.sourceId,
           value: pendingTextRedo.edit.value,
           html: pendingTextRedo.edit.html,
+          routePath: pendingTextRedo.edit.routePath,
         },
       ],
     });
@@ -673,7 +760,10 @@ export function runRedo({
     syncUndoRedoState();
     return;
   }
-  if (pendingLiveRedo) {
+  if (
+    pendingLiveRedo &&
+    (pendingRedoKind === "pending-style" || redoHistoryKind === undefined)
+  ) {
     const nextRedoStack = pendingLiveRedoStack.slice(0, -1);
     pendingVisualStyleRedoStackRef.current = nextRedoStack;
     pendingVisualStyleUndoStackRef.current = [
@@ -686,29 +776,35 @@ export function runRedo({
       ),
     );
     pendingVisualStyleEditsRef.current = nextPending;
-    setPendingVisualStyleRevertRequest({
-      requestId: Date.now() + Math.random(),
-      patches: pendingVisualStyleUndoTargets(pendingLiveRedo).map(
-        ({ edit }) => ({
+    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    const redoneStyleTargets = redoneTargets.filter(
+      ({ edit }) => Object.keys(edit.styles).length > 0,
+    );
+    if (replayPendingVisualStyleRuntime) {
+      replayPendingVisualStyleRuntime(
+        redoneStyleTargets.map(({ edit }) => edit),
+      );
+    } else if (redoneStyleTargets.length > 0) {
+      const requestId = Date.now() + Math.random();
+      setPendingVisualStyleRevertRequest({
+        requestId,
+        patches: redoneStyleTargets.map(({ edit }) => ({
           screenId: edit.screenId,
           selector: edit.selector,
           sourceId: edit.sourceId,
-          // Redo builds its patch inline rather than through
-          // buildPendingVisualStyleRevertPatches, so it needs the runtime
-          // pair explicitly or it re-applies into the wrong namespace.
           runtimeSelector: edit.runtimeSelector,
           runtimeSourceId: edit.runtimeSourceId,
+          routePath: edit.routePath,
           styles: edit.styles,
           interactionState: edit.interactionState,
-        }),
-      ),
-    });
+        })),
+      });
+      setPendingVisualStyleBaselineResetRequest?.(requestId);
+    }
     setPendingVisualStyleEdits(nextPending);
-    // Bug fix — same stale-inspector-panel issue as handleUndo's style
-    // branch. Merge the redo's own style values (already applied to the
-    // DOM via setPendingVisualStyleRevertRequest above) into
-    // selectedElement.computedStyles.
-    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    // Keep the inspector cache in sync with the replay request. Runtime
+    // messages are asynchronous, so this is intentionally optimistic just
+    // like the forward live-style path.
     setSelectedElement((prev) => {
       if (!prev) return prev;
       const redoneTarget = redoneTargets.find(
@@ -730,6 +826,7 @@ export function runRedo({
         },
       };
     });
+    consumePendingRedoOrder("pending-style");
     syncUndoRedoState();
     return;
   }
@@ -1529,19 +1626,29 @@ export function runRedo({
     };
     performDeleteFiles(currentEntry.files, {
       preserveHistory: true,
-      onMutationSettled: (deletedFiles, failedFiles) => {
+      onMutationSettled: (deletedFiles, failedFiles, deletedFileSnapshots) => {
         if (deletedFiles.length > 0) {
           const deletedIds = new Set(deletedFiles.map((file) => file.id));
-          fileDeletionUndoStackRef.current = [
-            ...fileDeletionUndoStackRef.current.slice(
-              -(MAX_DESIGN_UNDO_STACK - 1),
-            ),
-            filterFileDeletionHistoryEntry(currentEntry, deletedIds),
-          ];
-          historyOrderRef.current = [
-            ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-            "file-deleted",
-          ];
+          const authoritativeSnapshots = (deletedFileSnapshots ?? []).filter(
+            (file) => deletedIds.has(file.id),
+          );
+          if (authoritativeSnapshots.length === deletedFiles.length) {
+            fileDeletionUndoStackRef.current = [
+              ...fileDeletionUndoStackRef.current.slice(
+                -(MAX_DESIGN_UNDO_STACK - 1),
+              ),
+              filterFileDeletionHistoryEntry(
+                { files: authoritativeSnapshots },
+                deletedIds,
+              ),
+            ];
+            historyOrderRef.current = [
+              ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+              "file-deleted",
+            ];
+          } else {
+            toast.error(t("common.genericError"));
+          }
           clearPendingHistory?.();
         }
         if (failedFiles.length > 0) {

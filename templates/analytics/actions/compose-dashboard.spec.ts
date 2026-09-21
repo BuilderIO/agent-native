@@ -391,12 +391,15 @@ describe("compose-dashboard", () => {
   it("counts retention and active-user panels from signed-in session activity", () => {
     for (const metric of SIGNED_IN_ACTIVITY_METRICS) {
       const panel = buildPanel(metric)!;
-      expect(panel.sql).toContain("event_name = 'session status'");
+      expect(panel.sql).toContain(
+        "event_name IN ('session status', 'session_status')",
+      );
+      expect(panel.sql).toContain("event_name = 'app_entered'");
       expect(panel.sql).toContain("signed_in = 'true'");
       expect(panel.sql).not.toContain(
         "COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))",
       );
-      expect(panel.sql).not.toContain("NULLIF(user_id, '') IS NOT NULL");
+      expect(panel.sql).toContain("NULLIF(user_id, '') IS NOT NULL");
       expect(panel.sql).toContain("NULLIF(user_key");
       expect(panel.sql).toContain("lower(COALESCE");
       expect(panel.sql).toContain("<> 'docs'");

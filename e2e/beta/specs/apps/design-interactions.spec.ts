@@ -92,10 +92,38 @@ const NESTED_DROP_BOARD_FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
+const CROSS_SCREEN_OPTION_SOURCE_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Beta cross-screen source</title></head>
+  <body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
+    <div data-agent-native-node-id="cross-source" data-agent-native-layer-name="Cross-screen source"
+      style="position:absolute;left:100px;top:180px;width:140px;height:60px;box-sizing:border-box;background:#38bdf8;color:#082f49">Source</div>
+  </body>
+</html>`;
+
+const CROSS_SCREEN_OPTION_DESTINATION_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Beta cross-screen destination</title></head>
+  <body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
+    <section data-agent-native-node-id="destination-shell" data-agent-native-layer-name="Destination shell"
+      style="position:absolute;left:80px;top:120px;width:420px;padding:20px;box-sizing:border-box;background:#334155">
+      <section data-agent-native-node-id="nested-auto" data-agent-native-layer-name="Nested auto"
+        style="display:flex;flex-direction:column;gap:12px;padding:16px;background:#475569">
+        <div data-agent-native-node-id="destination-first" data-agent-native-layer-name="Destination first"
+          style="width:180px;height:40px;background:#94a3b8;color:#0f172a">First</div>
+        <div data-agent-native-node-id="destination-last" data-agent-native-layer-name="Destination last"
+          style="width:180px;height:40px;background:#64748b;color:#f8fafc">Last</div>
+      </section>
+    </section>
+  </body>
+</html>`;
+
 const ROOT_FRAME_ID = "root-frame";
 const ROOT_FRAME_NAME = "Root frame";
 const NESTED_FRAME_ID = "nested-frame";
 const BOARD_SOURCE_ID = "board-source";
+const CROSS_SCREEN_SOURCE_ID = "cross-source";
+const CROSS_SCREEN_DESTINATION_ID = "nested-auto";
 const URL_BACKED_TARGET_URL = "https://example.com/beta-design-target";
 
 interface StyleSnapshot {
@@ -289,6 +317,16 @@ async function topLevelNodeIds(page: Page, source: string): Promise<string[]> {
       .map((child) => child.getAttribute("data-agent-native-node-id"))
       .filter((nodeId): nodeId is string => Boolean(nodeId));
   }, source);
+}
+
+function layerIds(source: string, layerName: string): string[] {
+  const ids: string[] = [];
+  const pattern = new RegExp(
+    `data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-layer-name="${layerName}"`,
+    "g",
+  );
+  for (const match of source.matchAll(pattern)) ids.push(match[1]!);
+  return ids;
 }
 
 async function parseSource(
@@ -503,6 +541,82 @@ async function createNestedDropFixture(
   }
 
   return designId;
+}
+
+async function createCrossScreenOptionDragFixture(
+  page: Page,
+  onCreated: (designId: string) => void,
+): Promise<{ designId: string; sourceId: string; destinationId: string }> {
+  const created = await postAction(page, "create-design", {
+    title: runMarker(`Design cross-screen Option drag ${Date.now()}`),
+    projectType: "prototype",
+  });
+  const designId = String(
+    created?.id ?? created?.data?.id ?? created?.design?.id ?? "",
+  );
+  if (!designId) throw new Error("create-design returned no id");
+  onCreated(designId);
+
+  try {
+    const source = await postAction(page, "create-file", {
+      designId,
+      filename: "index.html",
+      content: CROSS_SCREEN_OPTION_SOURCE_FIXTURE,
+      fileType: "html",
+    });
+    const sourceId = String(source?.id ?? source?.data?.id ?? "");
+    if (!sourceId) throw new Error("create-file returned no source screen id");
+
+    const destination = await postAction(page, "create-file", {
+      designId,
+      filename: "destination.html",
+      content: CROSS_SCREEN_OPTION_DESTINATION_FIXTURE,
+      fileType: "html",
+    });
+    const destinationId = String(
+      destination?.id ?? destination?.data?.id ?? "",
+    );
+    if (!destinationId)
+      throw new Error("create-file returned no destination screen id");
+
+    await postAction(page, "update-design", {
+      id: designId,
+      dataOperations: [
+        {
+          op: "set",
+          path: ["screenMetadata", sourceId],
+          value: { sourceType: "inline", width: 1000, height: 780 },
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", sourceId],
+          value: { x: 0, y: 0, width: 1000, height: 780, z: 0 },
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", destinationId],
+          value: { sourceType: "inline", width: 1000, height: 780 },
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", destinationId],
+          value: { x: 1120, y: 0, width: 1000, height: 780, z: 1 },
+        },
+      ],
+    });
+    return { designId, sourceId, destinationId };
+  } catch (error) {
+    try {
+      await postAction(page, "delete-design", { id: designId });
+      onCreated("");
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `cross-screen fixture creation failed for ${designId}; cleanup also failed`,
+      );
+    }
+    throw error;
+  }
 }
 
 async function addUrlBackedDropTarget(
@@ -1256,6 +1370,307 @@ test.describe("authenticated beta Design interactions", () => {
           .locator('[role="treeitem"][aria-selected="true"]')
           .filter({ hasText: ROOT_FRAME_NAME }),
       ).toHaveCount(1);
+    } catch (error) {
+      primaryFailure = true;
+      throw error;
+    } finally {
+      await cleanupTest({
+        context,
+        page,
+        designId,
+        appErrors,
+        primaryFailure,
+      });
+    }
+  });
+
+  test("Option-dragging across Screens duplicates into nested auto layout", async ({
+    browser,
+  }) => {
+    const { context, page, appErrors } = await openAuthedPage(browser);
+    let designId = "";
+    let primaryFailure = false;
+    try {
+      const design = await createCrossScreenOptionDragFixture(page, (id) => {
+        designId = id;
+      });
+      await openEditor(page, design.designId, CROSS_SCREEN_SOURCE_ID);
+      await page.keyboard.press("Shift+1");
+
+      let previousScreenPositions = "";
+      await expect
+        .poll(async () => {
+          const source = frameById(page, design.sourceId)
+            .locator(`[data-agent-native-node-id="${CROSS_SCREEN_SOURCE_ID}"]`)
+            .first();
+          const target = frameById(page, design.destinationId)
+            .locator(
+              `[data-agent-native-node-id="${CROSS_SCREEN_DESTINATION_ID}"]`,
+            )
+            .first();
+          const [sourceBox, targetBox] = await Promise.all([
+            source.boundingBox(),
+            target.boundingBox(),
+          ]);
+          const current = JSON.stringify({ sourceBox, targetBox });
+          const settled = current === previousScreenPositions;
+          previousScreenPositions = current;
+          return settled;
+        })
+        .toBe(true);
+
+      const source = await frameById(page, design.sourceId)
+        .locator(`[data-agent-native-node-id="${CROSS_SCREEN_SOURCE_ID}"]`)
+        .boundingBox();
+      const target = await frameById(page, design.destinationId)
+        .locator(`[data-agent-native-node-id="${CROSS_SCREEN_DESTINATION_ID}"]`)
+        .boundingBox();
+      expect(source).not.toBeNull();
+      expect(target).not.toBeNull();
+      const sourceBefore = await readSource(
+        page,
+        design.designId,
+        "index.html",
+      );
+      const destinationBefore = await readSource(
+        page,
+        design.designId,
+        "destination.html",
+      );
+      const sourceNode = frameById(page, design.sourceId).locator(
+        `[data-agent-native-node-id="${CROSS_SCREEN_SOURCE_ID}"]`,
+      );
+      const sourceBeforeGeometry = await sourceNode.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+          parentNodeId: node.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          background: style.backgroundColor,
+          cssWidth: style.width,
+          cssHeight: style.height,
+        };
+      });
+
+      await page.keyboard.down(PRIMARY_MODIFIER);
+      await page.mouse.click(
+        source!.x + source!.width / 2,
+        source!.y + source!.height / 2,
+      );
+      await page.keyboard.up(PRIMARY_MODIFIER);
+      await page.keyboard.down("Alt");
+      await page.mouse.move(
+        source!.x + source!.width / 2,
+        source!.y + source!.height / 2,
+      );
+      await page.mouse.down();
+      try {
+        await page.mouse.move(
+          source!.x + source!.width / 2 + 12,
+          source!.y + 8,
+          { steps: 4 },
+        );
+        await page.mouse.move(
+          target!.x + target!.width / 2,
+          target!.y + target!.height / 2,
+          { steps: 30 },
+        );
+        await expect(
+          page.locator("[data-cross-screen-drag-ghost]"),
+        ).toBeVisible();
+        await expect(
+          page.locator("[data-cross-screen-drop-guide]"),
+        ).toBeVisible();
+
+        const sourceHeldGeometry = await sourceNode.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return {
+            parentNodeId: node.parentElement?.getAttribute(
+              "data-agent-native-node-id",
+            ),
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          };
+        });
+        expect(sourceHeldGeometry.parentNodeId).toBe(
+          sourceBeforeGeometry.parentNodeId,
+        );
+        expect(sourceHeldGeometry.x).toBeCloseTo(sourceBeforeGeometry.x, 1);
+        expect(sourceHeldGeometry.y).toBeCloseTo(sourceBeforeGeometry.y, 1);
+        expect(sourceHeldGeometry.width).toBeCloseTo(
+          sourceBeforeGeometry.width,
+          1,
+        );
+        expect(sourceHeldGeometry.height).toBeCloseTo(
+          sourceBeforeGeometry.height,
+          1,
+        );
+        await expect(sourceNode).toHaveCount(1);
+        expect(await readSource(page, design.designId, "index.html")).toBe(
+          sourceBefore,
+        );
+        expect(
+          await readSource(page, design.designId, "destination.html"),
+        ).toBe(destinationBefore);
+      } finally {
+        await page.mouse.up();
+        await page.keyboard.up("Alt");
+      }
+
+      let destinationAfter = "";
+      await expect
+        .poll(async () => {
+          destinationAfter = await readSource(
+            page,
+            design.designId,
+            "destination.html",
+          );
+          return layerIds(destinationAfter, "Cross-screen source").length;
+        })
+        .toBe(1);
+      const copyId = layerIds(destinationAfter, "Cross-screen source")[0]!;
+      expect(copyId).not.toBe(CROSS_SCREEN_SOURCE_ID);
+      expect(await readSource(page, design.designId, "index.html")).toContain(
+        `data-agent-native-node-id="${CROSS_SCREEN_SOURCE_ID}"`,
+      );
+
+      const copy = frameById(page, design.destinationId).locator(
+        `[data-agent-native-node-id="${copyId}"]`,
+      );
+      await expect(copy).toHaveCount(1);
+      expect(
+        await copy.evaluate((node) =>
+          node.parentElement?.getAttribute("data-agent-native-node-id"),
+        ),
+      ).toBe(CROSS_SCREEN_DESTINATION_ID);
+      await expect(
+        frameById(page, design.destinationId).locator(
+          `[data-agent-native-node-id="${CROSS_SCREEN_DESTINATION_ID}"] > [data-agent-native-node-id]`,
+        ),
+      ).toHaveCount(3);
+      const destinationOrder = await frameById(page, design.destinationId)
+        .locator(
+          `[data-agent-native-node-id="${CROSS_SCREEN_DESTINATION_ID}"] > [data-agent-native-node-id]`,
+        )
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+        );
+      expect(destinationOrder).toEqual([
+        "destination-first",
+        copyId,
+        "destination-last",
+      ]);
+
+      const copyGeometry = await copy.evaluate((node) => {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          background: style.backgroundColor,
+          cssWidth: style.width,
+          cssHeight: style.height,
+        };
+      });
+      expect(copyGeometry).toMatchObject({
+        background: sourceBeforeGeometry.background,
+        cssWidth: sourceBeforeGeometry.cssWidth,
+        cssHeight: sourceBeforeGeometry.cssHeight,
+      });
+
+      await page.keyboard.press(`${PRIMARY_MODIFIER}+z`);
+      await expect
+        .poll(() => readSource(page, design.designId, "destination.html"))
+        .toBe(destinationBefore);
+      await expect
+        .poll(() => readSource(page, design.designId, "index.html"))
+        .toBe(sourceBefore);
+
+      await page.keyboard.press(`${PRIMARY_MODIFIER}+Shift+z`);
+      await expect
+        .poll(() => readSource(page, design.designId, "destination.html"))
+        .toContain(`data-agent-native-node-id="${copyId}"`);
+      const redoCopy = frameById(page, design.destinationId).locator(
+        `[data-agent-native-node-id="${copyId}"]`,
+      );
+      await expect(redoCopy).toHaveCount(1);
+      expect(
+        await redoCopy.evaluate((node) =>
+          node.parentElement?.getAttribute("data-agent-native-node-id"),
+        ),
+      ).toBe(CROSS_SCREEN_DESTINATION_ID);
+      const redoDestinationOrder = await frameById(page, design.destinationId)
+        .locator(
+          `[data-agent-native-node-id="${CROSS_SCREEN_DESTINATION_ID}"] > [data-agent-native-node-id]`,
+        )
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+        );
+      expect(redoDestinationOrder).toEqual([
+        "destination-first",
+        copyId,
+        "destination-last",
+      ]);
+      await expect
+        .poll(() => readSource(page, design.designId, "index.html"))
+        .toContain(`data-agent-native-node-id="${CROSS_SCREEN_SOURCE_ID}"`);
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(
+        page.getByRole("button", { name: "Move", exact: true }),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(copy).toHaveCount(1);
+      const reloadedGeometry = await copy.evaluate((node) => {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          background: style.backgroundColor,
+          cssWidth: style.width,
+          cssHeight: style.height,
+          parent: node.parentElement?.getAttribute("data-agent-native-node-id"),
+        };
+      });
+      expect(reloadedGeometry).toMatchObject({
+        x: copyGeometry.x,
+        y: copyGeometry.y,
+        width: copyGeometry.width,
+        height: copyGeometry.height,
+        background: copyGeometry.background,
+        cssWidth: copyGeometry.cssWidth,
+        cssHeight: copyGeometry.cssHeight,
+        parent: CROSS_SCREEN_DESTINATION_ID,
+      });
+      expect(await readSource(page, design.designId, "index.html")).toBe(
+        sourceBefore,
+      );
+      const reloadedDestinationOrder = await frameById(
+        page,
+        design.destinationId,
+      )
+        .locator(
+          `[data-agent-native-node-id="${CROSS_SCREEN_DESTINATION_ID}"] > [data-agent-native-node-id]`,
+        )
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+        );
+      expect(reloadedDestinationOrder).toEqual([
+        "destination-first",
+        copyId,
+        "destination-last",
+      ]);
     } catch (error) {
       primaryFailure = true;
       throw error;

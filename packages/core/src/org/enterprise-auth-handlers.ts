@@ -11,6 +11,7 @@ import { getDbExec } from "../db/client.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getBetterAuth } from "../server/better-auth-instance.js";
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getOrgContext } from "./context.js";
 
@@ -218,7 +219,9 @@ async function verifyDomainForFrameworkProvider(
 function authRoot(event: H3Event): string {
   const origin = getAppProductionUrl(event).replace(/\/$/, "");
   const basePath = getConfiguredAppBasePath();
-  return `${origin}${basePath}/_agent-native/auth/ba`;
+  // The SSO provider is handed this root and calls back on it, so it must
+  // carry the deployment's public framework prefix.
+  return publicFrameworkPath(`${origin}${basePath}/_agent-native/auth/ba`);
 }
 
 function providerIdFromEvent(event: H3Event): string {

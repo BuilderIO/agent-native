@@ -45,6 +45,7 @@ export interface ScreenVisualStyleChangeArgs {
     metadata?: {
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
+      routePath?: string;
     },
   ) => void;
   overviewScreens: OverviewScreen[];
@@ -57,6 +58,7 @@ export interface ScreenVisualStyleChangeArgs {
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
       interactionState?: InteractionState;
+      routePath?: string;
     },
   ) => void;
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
@@ -87,6 +89,7 @@ export function runScreenVisualStyleChange(
     phase?: "preview" | "commit";
     originalStyles?: Record<string, string>;
     preserveSelection?: boolean;
+    routePath?: string;
   },
 ) {
   const overviewScreen = overviewScreens.find(

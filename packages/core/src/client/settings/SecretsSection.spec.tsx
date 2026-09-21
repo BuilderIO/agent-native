@@ -38,7 +38,7 @@ const registeredSecrets = [
   },
   {
     key: "JEV_API_KEY",
-    label: "System one model (Jev)",
+    label: "Decision model (Jev)",
     description: "Semantic tool and skill selection",
     scope: "user",
     kind: "api-key",
@@ -167,7 +167,7 @@ describe("SecretsSection", () => {
 
     await openNewMenu();
 
-    expect(document.body.textContent).toContain("System one model (Jev)");
+    expect(document.body.textContent).toContain("Decision model (Jev)");
     expect(document.body.textContent).toContain("Brave Search API Key");
     expect(document.body.textContent).toContain("Tavily API Key");
     expect(document.body.textContent).toContain("Custom key");

@@ -886,12 +886,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
       </div>
 
       {isInlinePresentation && enableComments ? (
-        <div className="relative z-10 -mt-16 shrink-0 bg-transparent pt-16">
+        <div className="pointer-events-none relative z-10 -mt-16 shrink-0 bg-transparent pt-16">
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 top-0 z-0 h-16 bg-gradient-to-b from-background/0 to-background lg:from-background/0 lg:to-background"
+            className="absolute inset-x-0 top-0 z-0 h-16 bg-gradient-to-b from-background/0 to-background lg:from-background/0 lg:to-background"
           />
-          <div className="relative z-10 bg-background">{composer}</div>
+          <div className="pointer-events-auto relative z-10 bg-background">
+            {composer}
+          </div>
         </div>
       ) : isSharePresentation && enableComments ? (
         <div className="px-4 py-4">{composer}</div>

@@ -65,6 +65,7 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import { LOADING_LABELS } from "../shared/loading-labels.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
@@ -1090,6 +1091,44 @@ interface ReactRouterAssetManifestRoute {
   hydrateFallbackModule?: string;
 }
 
+/**
+ * Resolve `runtime.frameworkRoutePrefix` from the app config once, before any
+ * bundle is written, and publish it to this process's env. Every later reader
+ * in the build — the Vite define, the Nitro replacement map, the generated
+ * worker, the Netlify headers — reads that one env key, so the browser bundle,
+ * the server bundle and the platform routing cannot disagree.
+ */
+async function resolveDeployFrameworkRoutePrefix(): Promise<void> {
+  const mode =
+    process.env.NODE_ENV === "development" ? "development" : "production";
+  const workspaceRoot = findAgentNativeWorkspaceRoot(cwd);
+  const environment = {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
+  const config = await loadResolvedAgentNativeConfig(
+    cwd,
+    createAgentNativeConfigContext("build", mode),
+    { environment },
+  );
+  // guard:allow-env-mutation — build-time process, set once before any bundle is written; no request ever runs here
+  process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+    config.runtime?.frameworkRoutePrefix ?? "";
+}
+
+/** The public prefix baked into generated worker sources. */
+function resolveBuildFrameworkRoutePrefix(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return normalizeFrameworkRoutePrefix(
+    env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || undefined,
+    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+  );
+}
+
 function normalizeConfiguredAppBasePath(): string {
   return normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
@@ -1191,6 +1230,7 @@ export function generateWorkerEntry(
   immutableAssetPaths: string[] = [],
   builtAppBasePath = normalizeConfiguredAppBasePath(),
   options: GenerateWorkerEntryOptions = {},
+  builtFrameworkRoutePrefix = resolveBuildFrameworkRoutePrefix(),
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
   // The worker ships as a static bundle with no access to runtime env, so the
@@ -1319,6 +1359,7 @@ ${["post", "put", "delete"]
   pluginImports.push(
     `import {
   getAppConfig as getAgentNativeAppConfig,
+  getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
 ${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  isSameOriginRequest as isGeneratedSameOriginRequest,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
@@ -1423,6 +1464,11 @@ function normalizeAppBasePath(value) {
   return "/" + trimmed.replace(/^\\/+/, "").replace(/\\/+$/, "");
 }
 
+// The public framework route prefix this bundle was built for. Only path
+// CLASSIFICATION happens here; the h3 boundary inside the handler is what
+// translates the public prefix to the internal one, exactly once.
+const builtFrameworkRoutePrefix = ${JSON.stringify(builtFrameworkRoutePrefix)};
+
 function getAppBasePath() {
   const builtAppBasePath = ${JSON.stringify(builtAppBasePath)};
   return normalizeAppBasePath(
@@ -1467,8 +1513,8 @@ function isApiPath(pathname) {
 }
 
 function isFrameworkPath(pathname) {
-  return (
-    pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")
+  return ["/_agent-native", builtFrameworkRoutePrefix].some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + "/"),
   );
 }
 
@@ -1854,6 +1900,7 @@ function getAgentNativeAuthRedirectScript() {
   return getAgentNativeSsrAuthRedirectScript(
     SSR_AUTH_REDIRECT_COOKIE_NAME,
     resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app),
+    getAgentNativeFrameworkRoutePrefix(),
   );
 }
 
@@ -2049,7 +2096,7 @@ function isStaticAppShellRequest(request) {
   const p = stripAppBasePath(new URL(request.url).pathname);
   if (
     p.startsWith("/.well-known/") ||
-    p.startsWith("/_agent-native/") ||
+    isFrameworkPath(p) ||
     isApiPath(p) ||
     p === "/favicon.ico" ||
     p === "/favicon.png" ||
@@ -2175,7 +2222,7 @@ ${
     const p = stripAppBasePath(new URL(event.req.url).pathname);
     if (
       p.startsWith("/.well-known/") ||
-      p.startsWith("/_agent-native/") ||
+      isFrameworkPath(p) ||
       isApiPath(p) ||
       p === "/favicon.ico" ||
       p === "/favicon.png" ||
@@ -5807,6 +5854,13 @@ export function resolveNitroBuildReplacements(
           ),
         }
       : {}),
+    // The public framework route prefix was resolved from the app config at
+    // the start of this deploy build and written to the env; the deployed
+    // function's single reader is this literal key.
+    "process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX":
+      JSON.stringify(
+        env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || "",
+      ),
   };
 }
 
@@ -6520,6 +6574,7 @@ export default bundle;
 
 async function main() {
   console.log(`[deploy] Building for ${preset}...`);
+  await resolveDeployFrameworkRoutePrefix();
 
   switch (preset) {
     case "cloudflare_pages":

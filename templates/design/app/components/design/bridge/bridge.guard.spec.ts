@@ -4976,6 +4976,35 @@ describe("editor chrome bridge — text editing session", () => {
   );
 
   it(
+    "blurs an active text edit when bridge reconfiguration disables text editing",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const bridge = (window as any).__anEditorChromeBridgeInstance;
+          if (!bridge || typeof bridge.updateConfig !== "function") {
+            throw new Error("missing editor chrome config updater");
+          }
+          bridge.updateConfig({
+            readOnly: false,
+            textEditingEnabled: false,
+          });
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]", {
+          state: "detached",
+        });
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "clears the native selection when the host deselects the text element",
     { timeout: 30_000 },
     async () => {
@@ -11150,6 +11179,76 @@ it(
       expect(structureMessages[structureMessages.length - 1]?.dropMode).toBe(
         "flow-insert",
       );
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge shows an insertion line over an occupied explicit grid cell",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><body>
+        <div id="source" data-agent-native-node-id="source"
+          style="position:absolute;left:40px;top:400px;width:80px;height:44px;background:#6366f1">Source</div>
+        <div id="grid" data-agent-native-node-id="grid"
+          style="position:absolute;left:300px;top:80px;width:320px;height:220px;padding:12px;display:grid;grid-template-columns:repeat(3,80px);grid-auto-rows:56px;gap:16px;box-sizing:border-box">
+          <div id="span" data-agent-native-node-id="span" style="grid-column:1 / span 2;background:#a855f7">Span</div>
+          <div id="target" data-agent-native-node-id="target" style="grid-column:3;background:#ec4899">Target</div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#source");
+
+      const source = await page.locator("#source").boundingBox();
+      const target = await page.locator("#target").boundingBox();
+      expect(source).toBeTruthy();
+      expect(target).toBeTruthy();
+      await page.mouse.move(
+        source!.x + source!.width / 2,
+        source!.y + source!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        source!.x + source!.width / 2 + 10,
+        source!.y + source!.height / 2 + 6,
+        { steps: 4 },
+      );
+      await page.mouse.move(target!.x + 4, target!.y + target!.height / 2, {
+        steps: 12,
+      });
+      await page.mouse.move(target!.x + 10, target!.y + target!.height / 2, {
+        steps: 4,
+      });
+      await page.waitForFunction(() => {
+        const guide = document.querySelector<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        );
+        return guide && getComputedStyle(guide).display === "block";
+      });
+
+      const guide = await page.evaluate(() => {
+        const element = document.querySelector<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        );
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+      await page.mouse.up();
+      expect(guide).toBeTruthy();
+      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

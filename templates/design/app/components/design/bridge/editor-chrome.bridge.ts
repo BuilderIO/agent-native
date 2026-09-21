@@ -48,17 +48,167 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 declare var __INITIAL_SOURCE_HEAD__: string;
 
 (function () {
+  var readOnly = __READ_ONLY__;
+  var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
+  var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
+  var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
+  var designCanvasContentOffsetX =
+    Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
+  var designCanvasContentOffsetY =
+    Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
   // re-injecting this script into a document where a previous instance's
   // listeners, overlays, and observers are still alive (e.g. a head-only
   // content swap in replaceRuntimeDocument that preserves persistent overlay
   // nodes but re-runs inline <script> tags). Without this, a second instance
   // would double-post every message and double-attach every document-level
-  // listener. Bail out entirely if an instance is already installed.
-  if ((window as any).__anEditorChromeBridge) return;
-  (window as any).__anEditorChromeBridge = true;
+  // listener. The legacy boolean marker remains for compatibility; the
+  // separate host reference is the liveness check because document hydration
+  // can remove the editor host while leaving the marker behind.
+  var previousEditorChromeBridge = (window as any).__anEditorChromeBridge;
+  var previousEditorChromeHost =
+    (window as any).__anEditorChromeBridgeHost ||
+    (previousEditorChromeBridge &&
+    typeof previousEditorChromeBridge === "object"
+      ? previousEditorChromeBridge.host
+      : null);
+  var previousEditorChromeBridgeInstance = (window as any)
+    .__anEditorChromeBridgeInstance;
+  if (
+    previousEditorChromeBridgeInstance &&
+    typeof previousEditorChromeBridgeInstance.repair === "function"
+  ) {
+    if (typeof previousEditorChromeBridgeInstance.updateConfig === "function") {
+      previousEditorChromeBridgeInstance.updateConfig({
+        readOnly: readOnly,
+        textEditingEnabled: textEditingEnabledFlag,
+        screenId: designCanvasScreenId,
+        boardSurface: designCanvasBoardSurface,
+        contentOffsetX: designCanvasContentOffsetX,
+        contentOffsetY: designCanvasContentOffsetY,
+      });
+    }
+    previousEditorChromeBridgeInstance.repair();
+    return;
+  }
+  if (
+    previousEditorChromeHost instanceof HTMLElement &&
+    previousEditorChromeHost.isConnected
+  ) {
+    (window as any).__anEditorChromeBridge = true;
+    (window as any).__anEditorChromeBridgeHost = previousEditorChromeHost;
+    return;
+  }
 
-  var readOnly = __READ_ONLY__;
+  var editorChromeNodes: HTMLElement[] = [];
+  var editorChromeHost: HTMLElement | null = null;
+  var editorChromeHostObserver: MutationObserver | null = null;
+  var editorChromeDocumentObserver: MutationObserver | null = null;
+  var editorChromeRootObserver: MutationObserver | null = null;
+  var repairingEditorChromeHost = false;
+
+  function sendEditorChromeReady(): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:editor-chrome-ready",
+        routePath: window.location.pathname + window.location.search,
+      },
+      "*",
+    );
+  }
+
+  function ensureEditorChromeHost(): HTMLElement {
+    if (
+      editorChromeHost &&
+      editorChromeHost.isConnected &&
+      editorChromeHost.parentNode === document.documentElement
+    ) {
+      syncEditorChromeHostStyle(editorChromeHost);
+      (window as any).__anEditorChromeBridgeHost = editorChromeHost;
+      return editorChromeHost;
+    }
+    editorChromeHost = document.createElement("div");
+    editorChromeHost.setAttribute(
+      "data-agent-native-editor-chrome-host",
+      "true",
+    );
+    editorChromeHost.setAttribute("aria-hidden", "true");
+    syncEditorChromeHostStyle(editorChromeHost);
+    (document.documentElement || document.body).appendChild(editorChromeHost);
+    (window as any).__anEditorChromeBridgeHost = editorChromeHost;
+    return editorChromeHost;
+  }
+
+  function syncEditorChromeHostStyle(host: HTMLElement): void {
+    host.style.position = "fixed";
+    host.style.inset = "0px";
+    host.style.zIndex = readOnly ? "2147483000" : "2147483647";
+    host.style.pointerEvents = "none";
+    host.style.overflow = "visible";
+  }
+
+  function appendEditorChromeNode(node: HTMLElement): void {
+    if (editorChromeNodes.indexOf(node) === -1) {
+      editorChromeNodes.push(node);
+    }
+    var host = ensureEditorChromeHost();
+    if (node.parentNode !== host) host.appendChild(node);
+  }
+
+  function removeEditorChromeNode(node: HTMLElement): void {
+    var index = editorChromeNodes.indexOf(node);
+    if (index !== -1) editorChromeNodes.splice(index, 1);
+    if (node.parentNode) node.parentNode.removeChild(node);
+  }
+
+  function repairEditorChromeHost(): void {
+    if (repairingEditorChromeHost) return;
+    repairingEditorChromeHost = true;
+    try {
+      var host = ensureEditorChromeHost();
+      editorChromeNodes.forEach(function (node) {
+        if (node.parentNode !== host) host.appendChild(node);
+      });
+      sendEditorChromeReady();
+    } finally {
+      repairingEditorChromeHost = false;
+    }
+  }
+
+  function observeEditorChromeHost(): void {
+    if (typeof MutationObserver === "undefined") return;
+    var host = ensureEditorChromeHost();
+    editorChromeHostObserver?.disconnect();
+    editorChromeDocumentObserver?.disconnect();
+    editorChromeHostObserver = new MutationObserver(repairEditorChromeHost);
+    editorChromeHostObserver.observe(host, { childList: true });
+    editorChromeDocumentObserver = new MutationObserver(function () {
+      if (
+        !editorChromeHost ||
+        !editorChromeHost.isConnected ||
+        editorChromeHost.parentNode !== document.documentElement
+      ) {
+        observeEditorChromeHost();
+        repairEditorChromeHost();
+      }
+    });
+    editorChromeDocumentObserver.observe(document.documentElement, {
+      childList: true,
+    });
+    if (!editorChromeRootObserver) {
+      editorChromeRootObserver = new MutationObserver(function () {
+        observeEditorChromeHost();
+        repairEditorChromeHost();
+      });
+      editorChromeRootObserver.observe(document, { childList: true });
+    }
+  }
+
+  ensureEditorChromeHost();
+  (window as any).__anEditorChromeBridge = true;
+  (window as any).__anEditorChromeBridgeHost = editorChromeHost;
+
   var gridGroupBatchingEnabled = false;
   // Raw host-controlled flag, kept separate from the derived
   // `textEditingEnabled` below. The host (DesignCanvas.tsx) live-updates this
@@ -66,14 +216,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // srcdoc, exactly like `set-read-only`. See that handler for why: baking
   // edit/preview-mode toggles into srcdoc would reload every screen iframe on
   // every mode switch (white flash + lost in-iframe/Alpine state).
-  var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
   var textEditingEnabled = !readOnly && textEditingEnabledFlag;
-  var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
-  var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
-  var designCanvasContentOffsetX =
-    Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
-  var designCanvasContentOffsetY =
-    Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
   var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
   // Figma-parity live-reflow drag (Phase 0 + 1: hysteresis-stabilized target
   // resolution, size guard, transform lift/follow, live sibling reflow,
@@ -4944,13 +5087,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   shieldOverlay.setAttribute("data-agent-native-edit-overlay", "shield");
   shieldOverlay.style.cssText =
     "position:fixed;inset:0;z-index:99990;background:transparent;pointer-events:auto;touch-action:none;cursor:default;";
-  document.body.appendChild(shieldOverlay);
+  appendEditorChromeNode(shieldOverlay);
 
   var highlightOverlay = document.createElement("div");
   highlightOverlay.setAttribute("data-agent-native-edit-overlay", "highlight");
   highlightOverlay.style.cssText =
     "position:fixed;pointer-events:none;z-index:99997;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
-  document.body.appendChild(highlightOverlay);
+  appendEditorChromeNode(highlightOverlay);
 
   var marqueeSelectionOverlay = document.createElement("div");
   marqueeSelectionOverlay.setAttribute(
@@ -4959,7 +5102,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   marqueeSelectionOverlay.style.cssText =
     "position:fixed;pointer-events:none;z-index:99995;border:1px solid var(--design-editor-accent-color);background:color-mix(in srgb,var(--design-editor-accent-color) 14%,transparent);display:none;box-sizing:border-box;";
-  document.body.appendChild(marqueeSelectionOverlay);
+  appendEditorChromeNode(marqueeSelectionOverlay);
 
   var parentAutoLayoutOverlay = document.createElement("div");
   parentAutoLayoutOverlay.setAttribute(
@@ -4968,7 +5111,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   parentAutoLayoutOverlay.style.cssText =
     "position:fixed;pointer-events:none;z-index:99996;border:1px dashed var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;border-radius:2px;opacity:0.68;";
-  document.body.appendChild(parentAutoLayoutOverlay);
+  appendEditorChromeNode(parentAutoLayoutOverlay);
 
   var selectionOverlay = document.createElement("div");
   selectionOverlay.setAttribute("data-agent-native-edit-overlay", "selection");
@@ -5083,7 +5226,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   spacingOverlay.style.cssText =
     "position:absolute;inset:0;display:none;pointer-events:none;";
   selectionOverlay.appendChild(spacingOverlay);
-  document.body.appendChild(selectionOverlay);
+  appendEditorChromeNode(selectionOverlay);
   if (readOnly) setSelectionOverlayResizeChromeVisible(false);
 
   // ── Gradient edit overlay (in-iframe parity for MultiScreenCanvas's
@@ -5150,7 +5293,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     gradientOverlayStartHandle.style.cssText;
   gradientOverlay.appendChild(gradientOverlayStartHandle);
   gradientOverlay.appendChild(gradientOverlayEndHandle);
-  document.body.appendChild(gradientOverlay);
+  appendEditorChromeNode(gradientOverlay);
 
   var transformBadge = document.createElement("div");
   transformBadge.setAttribute("data-agent-native-transform-badge", "");
@@ -5163,14 +5306,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   transformBadge.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid rgba(255,255,255,0.16);border-radius:4px;background:rgba(24,24,27,0.96);color:rgba(255,255,255,0.96);font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px rgba(0,0,0,0.28);";
-  document.body.appendChild(transformBadge);
+  appendEditorChromeNode(transformBadge);
 
   var spacingBadge = document.createElement("div");
   spacingBadge.setAttribute("data-agent-native-spacing-badge", "");
   spacingBadge.setAttribute("data-agent-native-edit-overlay", "spacing-badge");
   spacingBadge.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
-  document.body.appendChild(spacingBadge);
+  appendEditorChromeNode(spacingBadge);
 
   // Figma's constraint indicator: dashed lines running from the dragged
   // element to the frame edges it is pinned to. Distinct from the snap
@@ -5183,13 +5326,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   constraintGuideLayer.style.cssText =
     "position:fixed;inset:0;z-index:99999;display:none;pointer-events:none;";
-  document.body.appendChild(constraintGuideLayer);
+  appendEditorChromeNode(constraintGuideLayer);
 
   var sizeBadge = document.createElement("div");
   sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
   sizeBadge.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 15%,transparent);";
-  document.body.appendChild(sizeBadge);
+  appendEditorChromeNode(sizeBadge);
 
   var insertionGuide = document.createElement("div");
   insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
@@ -5199,7 +5342,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   insertionGuide.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
-  document.body.appendChild(insertionGuide);
+  appendEditorChromeNode(insertionGuide);
 
   // Alignment and spacing guides shown while dragging (and resizing) an
   // element inside the iframe — Figma-style snap-to-sibling guides. One
@@ -5212,7 +5355,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   snapGuideLayer.setAttribute("data-agent-native-edit-overlay", "snap-guide");
   snapGuideLayer.style.cssText =
     "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
-  document.body.appendChild(snapGuideLayer);
+  appendEditorChromeNode(snapGuideLayer);
 
   // Cell boundaries of a selected grid container, empty cells included: the
   // gap handles alone leave a two-child grid looking like a flex row.
@@ -5220,7 +5363,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   gridCellOverlay.setAttribute("data-agent-native-edit-overlay", "grid-cells");
   gridCellOverlay.style.cssText =
     "position:fixed;inset:0;z-index:99993;display:none;pointer-events:none;";
-  document.body.appendChild(gridCellOverlay);
+  appendEditorChromeNode(gridCellOverlay);
 
   // Grid-track controls sit just outside the selected grid. They are a
   // separate surface from cell insertion: a track drag moves the row/column
@@ -5232,7 +5375,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   gridTrackOverlay.style.cssText =
     "position:fixed;inset:0;z-index:99994;display:none;pointer-events:none;";
-  document.body.appendChild(gridTrackOverlay);
+  appendEditorChromeNode(gridTrackOverlay);
 
   // Name labels above the outermost frames, the in-screen twin of the overview
   // canvas's screen labels. Above the shield's z-index so a label click can
@@ -5241,7 +5384,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   frameLabelLayer.setAttribute("data-agent-native-edit-overlay", "frame-label");
   frameLabelLayer.style.cssText =
     "position:fixed;inset:0;z-index:99992;display:block;pointer-events:none;";
-  document.body.appendChild(frameLabelLayer);
+  appendEditorChromeNode(frameLabelLayer);
 
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
@@ -5253,7 +5396,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   measurementOverlay.style.cssText =
     "position:fixed;inset:0;z-index:100001;display:none;pointer-events:none;color:var(--design-editor-measure-color);font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;";
-  document.body.appendChild(measurementOverlay);
+  appendEditorChromeNode(measurementOverlay);
 
   // Component-instance tag: a small pill that floats above the selection
   // outline whenever the selected element carries a data-agent-native-component
@@ -5284,7 +5427,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "outline:2px solid transparent",
       "transition:opacity 0.1s",
     ].join(";") + ";";
-  document.body.appendChild(componentTagOverlay);
+  appendEditorChromeNode(componentTagOverlay);
 
   componentTagOverlay.addEventListener("click", function (e) {
     e.stopPropagation();
@@ -5791,6 +5934,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // so a delayed cancel meant for an earlier gesture can be told apart from
   // one meant for whatever is active now — see cancelActiveBridgeDragOrPendingCommit.
   var activeDragStartedAt: number | null = null;
+  var editorDragIdCounter = 0;
+  var activeEditorDragId = "";
   var bridgeSpaceKeyPressed = false;
   var bridgeIgnoreAutoLayoutKeyPressed = false;
   var bridgeSpaceKeyConsumedByDrag = false;
@@ -5835,11 +5980,60 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hideMeasurements();
   }
 
-  function postEditorDragState(active: boolean): void {
+  function postEditorDragState(
+    active: boolean,
+    preview?: {
+      phase: "preview" | "clear";
+      sourceId?: string;
+      anchorId?: string;
+      placement?: "before" | "after" | "inside";
+      insert?: boolean;
+    },
+  ): void {
     (window.parent as Window).postMessage(
-      { type: "agent-native:editor-drag-state", active },
+      {
+        type: "agent-native:editor-drag-state",
+        active,
+        screenId: designCanvasScreenId,
+        dragId: activeEditorDragId || undefined,
+        eventAt:
+          typeof performance !== "undefined" &&
+          typeof performance.timeOrigin === "number" &&
+          typeof performance.now === "function"
+            ? performance.timeOrigin + performance.now()
+            : Date.now(),
+        preview,
+      },
       "*",
     );
+  }
+
+  function postLayerStructurePreview(el, target): void {
+    if (!target) {
+      postEditorDragState(true, { phase: "clear" });
+      return;
+    }
+    var anchor = target && (target.persistenceAnchor || target.anchor);
+    var placement = target && (target.persistencePlacement || target.placement);
+    var sourceId = getSourceId(el);
+    var anchorId = getSourceId(anchor);
+    if (
+      !sourceId ||
+      !anchorId ||
+      (placement !== "before" &&
+        placement !== "after" &&
+        placement !== "inside")
+    ) {
+      postEditorDragState(true, { phase: "clear" });
+      return;
+    }
+    postEditorDragState(true, {
+      phase: "preview",
+      sourceId,
+      anchorId,
+      placement,
+      insert: true,
+    });
   }
 
   // `startedAt` should be performance.timeOrigin + <the originating pointer
@@ -5852,6 +6046,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     cancel: () => boolean,
     startedAt?: number,
   ): void {
+    editorDragIdCounter += 1;
+    activeEditorDragId =
+      Date.now().toString(36) +
+      "-" +
+      editorDragIdCounter +
+      "-" +
+      Math.random().toString(36).slice(2);
     activeDragCancel = cancel;
     activeDragStartedAt =
       typeof startedAt === "number" ? startedAt : Date.now();
@@ -5864,6 +6065,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     activeDragCancel = null;
     activeDragStartedAt = null;
     postEditorDragState(false);
+    activeEditorDragId = "";
   }
 
   function cancelActiveBridgeDrag(): boolean {
@@ -5871,6 +6073,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!cancel) return false;
     activeDragCancel = null;
     postEditorDragState(false);
+    activeEditorDragId = "";
     return cancel();
   }
 
@@ -5972,7 +6175,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function removePassiveSelectionOverlays(): void {
     passiveSelectionOverlays.forEach(function (overlay) {
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      removeEditorChromeNode(overlay);
     });
     passiveSelectionOverlays = [];
   }
@@ -6003,13 +6206,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     overlay.setAttribute("data-agent-native-edit-overlay", "repeat-instance");
     overlay.style.cssText =
       "position:fixed;pointer-events:none;z-index:99995;border:1px dashed color-mix(in srgb,var(--design-editor-accent-color) 70%,transparent);background:transparent;display:none;box-sizing:border-box;";
-    document.body.appendChild(overlay);
+    appendEditorChromeNode(overlay);
     return overlay;
   }
 
   function removeRepeatInstanceOverlays(): void {
     repeatInstanceOverlays.forEach(function (overlay) {
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      removeEditorChromeNode(overlay);
     });
     repeatInstanceOverlays = [];
     repeatInstanceAnchor = null;
@@ -6059,7 +6262,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       style === "soft"
         ? "position:fixed;pointer-events:none;z-index:99996;border:1px solid color-mix(in srgb,var(--design-editor-accent-color) 64%,transparent);background:color-mix(in srgb,var(--design-editor-accent-color) 5%,transparent);display:none;box-sizing:border-box;"
         : "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
-    document.body.appendChild(overlay);
+    appendEditorChromeNode(overlay);
     return overlay;
   }
 
@@ -6101,7 +6304,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     while (passiveSelectionOverlays.length > count) {
       var extra = passiveSelectionOverlays.pop();
-      if (extra && extra.parentNode) extra.parentNode.removeChild(extra);
+      if (extra) removeEditorChromeNode(extra);
     }
     while (passiveSelectionOverlays.length < count) {
       passiveSelectionOverlays.push(makePassiveSelectionOverlay(style));
@@ -7380,7 +7583,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     persistentNodes.forEach(function (node) {
-      document.body.appendChild(node);
+      appendEditorChromeNode(node);
     });
     hydrateVectorEndpointMarkers();
     applyLayerStateSelectors();
@@ -8687,7 +8890,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       },
       true,
     );
-    document.body.appendChild(overlay);
+    appendEditorChromeNode(overlay);
     multiSelectionBoundsOverlay = overlay;
     return overlay;
   }
@@ -9986,7 +10189,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // A content re-render can rebuild document.body and drop this overlay;
     // re-attach it before drawing so the lines always render.
     if (!measurementOverlay.isConnected) {
-      document.body.appendChild(measurementOverlay);
+      appendEditorChromeNode(measurementOverlay);
     }
     measurementOverlay.innerHTML = "";
     measurementOverlay.style.display = "block";
@@ -11589,14 +11792,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  function removeRuntimeTarget(selector, selectorCandidates, requestId?) {
+  function removeRuntimeTarget(
+    selector,
+    selectorCandidates,
+    requestId?,
+    transactionId?,
+  ) {
     var target = findRuntimeTarget(selector, selectorCandidates);
     if (
       !target ||
       target === document.body ||
       target === document.documentElement
-    )
+    ) {
+      if (typeof requestId === "string" && requestId) {
+        (window.parent as Window).postMessage(
+          {
+            type: "runtime-element-delete-rejected",
+            requestId: requestId,
+            transactionId: transactionId,
+            routePath: window.location.pathname + window.location.search,
+            reason: "target-unresolved",
+          },
+          "*",
+        );
+      }
       return false;
+    }
     // A requestId means the host queued this deletion as a pending live edit
     // and may undo it. Register it in the same pending-move table the drag
     // path uses so the existing visual-structure-ack channel can put the node
@@ -11616,6 +11837,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (target.parentElement) target.parentElement.removeChild(target);
     publishSourceDocumentProvenance(undefined, true);
+    if (typeof requestId === "string" && requestId) {
+      (window.parent as Window).postMessage(
+        {
+          type: "runtime-element-deleted",
+          requestId: requestId,
+          transactionId: transactionId,
+          routePath: window.location.pathname + window.location.search,
+          selector: getSelector(target),
+          sourceId: getSourceId(target),
+          payload: getElementInfo(target),
+        },
+        "*",
+      );
+    }
     // T23: the removed subtree may contain the active text-edit element —
     // its blur/keydown listeners are gone with it, so exit the session
     // through the canonical cleanup instead of leaking it.
@@ -14739,6 +14974,33 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         childStyles.order !== "0"
       );
     });
+    // Preserve a single-cell authored slot only for a single source already
+    // owned by this grid. Cross-grid and grouped drops must resolve the
+    // destination cell normally.
+    var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
+    var singleSourceStyles = singleSource
+      ? window.getComputedStyle(singleSource)
+      : null;
+    var singleSourceColumn =
+      singleSource && trackLayout
+        ? gridItemAxisPlacement(singleSource, trackLayout, "column")
+        : null;
+    var singleSourceRow =
+      singleSource && trackLayout
+        ? gridItemAxisPlacement(singleSource, trackLayout, "row")
+        : null;
+    var hasAuthoredSingleCellSourcePlacement = Boolean(
+      singleSource &&
+      singleSource.parentElement === container &&
+      singleSourceStyles &&
+      singleSourceStyles.gridColumnStart !== "auto" &&
+      singleSourceStyles.gridColumnStart.indexOf("span") !== 0 &&
+      singleSourceStyles.gridRowStart !== "auto" &&
+      singleSourceStyles.gridRowStart.indexOf("span") !== 0 &&
+      (singleSourceStyles.gridColumnEnd === "auto" ||
+        singleSourceColumn?.span === 1) &&
+      (singleSourceStyles.gridRowEnd === "auto" || singleSourceRow?.span === 1),
+    );
     var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
     while (hit && hit.parentElement && hit.parentElement !== container) {
       hit = hit.parentElement;
@@ -14746,7 +15008,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Resolve the pointer against rendered tracks and carry the cell through
     // the drop so the source and its persisted markup move together. The
     // occupied cell is also retained as the source-order insertion anchor.
-    if (trackLayout && hasExplicitPlacement) {
+    if (
+      trackLayout &&
+      hasExplicitPlacement &&
+      !hasAuthoredSingleCellSourcePlacement
+    ) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
       });
@@ -14789,15 +15055,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             rect.bottom > cellTop
           );
         });
+        var autoFlow = (styles.gridAutoFlow || "row").split(/\s+/);
+        var gridAxis = autoFlow[0] === "column" ? "y" : "x";
+        var pointer = gridAxis === "x" ? clientX : clientY;
+        var midpoint =
+          gridAxis === "x"
+            ? (cellLeft + cellRight) / 2
+            : (cellTop + cellBottom) / 2;
         return {
           anchor: container,
+          // Grid placement is calculated against the container, while the
+          // insertion line communicates the layer-order position within the
+          // occupied cell. Keep the structural target as "inside" so the
+          // grid placement path still owns persistence and displacement.
           placement: "inside",
           // Grid placement is calculated against the container, but source
           // order must follow the occupied cell so persistence matches the
           // held preview and Figma's layer order.
           persistenceAnchor: displaced || container,
-          persistencePlacement: displaced ? "before" : "inside",
-          axis: "x",
+          persistencePlacement: displaced
+            ? pointer <= midpoint + 0.5
+              ? "before"
+              : "after"
+            : "inside",
+          axis: gridAxis,
           dropMode: "flow-insert",
           guideRect: {
             left: cellLeft,
@@ -14805,7 +15086,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             width: cellRight - cellLeft,
             height: cellBottom - cellTop,
           },
-          guideMode: "grid-cell",
+          guideMode: displaced ? "grid-line" : "grid-cell",
+          guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
           gridCell: { column, row },
           gridDisplacement: displaced,
         };
@@ -15786,6 +16068,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             dropMode: "flow-insert",
             guideRect: betweenContainerChildren.guideRect,
             guideMode: betweenContainerChildren.guideMode,
+            guidePlacement: betweenContainerChildren.guidePlacement,
           };
         }
         return {
@@ -15844,6 +16127,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               dropMode: "flow-insert",
               guideRect: cloneFallback.guideRect,
               guideMode: cloneFallback.guideMode,
+              guidePlacement: cloneFallback.guidePlacement,
             };
           }
           return {
@@ -16003,6 +16287,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     insertionGuide.style.borderRadius = "999px";
     insertionGuide.style.boxShadow =
       "0 0 0 1px var(--design-editor-accent-color)";
+    if (target.guideMode === "grid-line") {
+      if (target.axis === "x") {
+        var x = target.guidePlacement === "before" ? rect.left : rect.right;
+        insertionGuide.style.left = x - line / 2 + "px";
+        insertionGuide.style.top = rect.top + "px";
+        insertionGuide.style.width = line + "px";
+        insertionGuide.style.height = rect.height + "px";
+      } else {
+        var y = target.guidePlacement === "before" ? rect.top : rect.bottom;
+        insertionGuide.style.left = rect.left + "px";
+        insertionGuide.style.top = y - line / 2 + "px";
+        insertionGuide.style.width = rect.width + "px";
+        insertionGuide.style.height = line + "px";
+      }
+      return;
+    }
     if (target.placement === "inside") {
       insertionGuide.style.left = rect.left + "px";
       insertionGuide.style.top = rect.top + "px";
@@ -17050,6 +17350,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       type: "visual-structure-change",
       requestId: requestId,
       transactionId: transactionId,
+      routePath: window.location.pathname + window.location.search,
       selector: getSelector(el),
       sourceId: getSourceId(el),
       anchorSelector: getSelector(messageAnchor),
@@ -18212,7 +18513,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var frame = parent.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return hideConstraintGuides();
     if (!constraintGuideLayer.isConnected) {
-      document.body.appendChild(constraintGuideLayer);
+      appendEditorChromeNode(constraintGuideLayer);
     }
     constraintNodeCount = 0;
     if (constraintGuideLayer.style.display !== "block") {
@@ -18319,7 +18620,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       scale;
     if (key === sizeBadgeKey && sizeBadge.style.display === "block") return;
     sizeBadgeKey = key;
-    if (!sizeBadge.isConnected) document.body.appendChild(sizeBadge);
+    if (!sizeBadge.isConnected) appendEditorChromeNode(sizeBadge);
     sizeBadge.textContent =
       Math.round(rect.width) + " × " + Math.round(rect.height);
     sizeBadge.style.display = "block";
@@ -18562,6 +18863,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         reorderIgnoresAutoLayout,
         isPlatformPrimaryChord(e),
       );
+      postLayerStructurePreview(reorderEl, currentTarget);
       showInsertionGuideFor(currentTarget);
       dndLog("start:reorder", {
         el: getSelector(reorderEl),
@@ -18702,6 +19004,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: number;
       } | null = null;
       var reflowGuideMode: string | null = null;
+      var reflowDomOrigin: {
+        parent: Element;
+        nextSibling: ChildNode | null;
+      } | null = null;
       function reorderMainAxis(target): "x" | "y" {
         return target && target.axis === "y" ? "y" : "x";
       }
@@ -18725,6 +19031,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           s.el.style.transform = s.prevTransform;
           s.el.style.transition = s.prevTransition;
         });
+        if (reflowDomOrigin) {
+          if (reorderEl.parentNode === reflowDomOrigin.parent) {
+            if (
+              reflowDomOrigin.nextSibling &&
+              reflowDomOrigin.nextSibling.parentNode === reflowDomOrigin.parent
+            ) {
+              reflowDomOrigin.parent.insertBefore(
+                reorderEl,
+                reflowDomOrigin.nextSibling,
+              );
+            } else {
+              reflowDomOrigin.parent.appendChild(reorderEl);
+            }
+          }
+          reflowDomOrigin = null;
+        }
         reflowSiblings = [];
         reflowKey = null;
         reflowGuideRect = null;
@@ -18735,6 +19057,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           s.el.style.transform = s.prevTransform;
           s.el.style.transition = s.prevTransition;
         });
+        if (reflowDomOrigin) {
+          if (reorderEl.parentNode === reflowDomOrigin.parent) {
+            if (
+              reflowDomOrigin.nextSibling &&
+              reflowDomOrigin.nextSibling.parentNode === reflowDomOrigin.parent
+            ) {
+              reflowDomOrigin.parent.insertBefore(
+                reorderEl,
+                reflowDomOrigin.nextSibling,
+              );
+            } else {
+              reflowDomOrigin.parent.appendChild(reorderEl);
+            }
+          }
+          reflowDomOrigin = null;
+          reflowKey = null;
+          reflowGuideRect = null;
+          reflowGuideMode = null;
+        }
       }
       var restoreGroupGridPreview: (() => void) | null = null;
       function clearGroupGridPreview(): void {
@@ -19107,6 +19448,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }),
           [reorderEl],
         );
+        var isWrappedFlex =
+          containerStyles.flexWrap === "wrap" ||
+          containerStyles.flexWrap === "wrap-reverse";
         var axis = reorderMainAxis(target);
         var key = axis + ":" + slotInfo.slot;
         if (key === reflowKey) {
@@ -19155,10 +19499,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               top: projected.top,
             });
           });
-          if (
-            containerStyles.flexWrap === "wrap" ||
-            containerStyles.flexWrap === "wrap-reverse"
-          ) {
+          if (isWrappedFlex) {
             var projectedGuide = placeholder.getBoundingClientRect();
             reflowGuideRect = {
               left: projectedGuide.left,
@@ -19179,36 +19520,77 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           } else {
             container.appendChild(reorderEl);
           }
-          projectedRects.forEach(function (projected) {
-            var el = projected.el as HTMLElement;
-            var current = el.getBoundingClientRect();
-            var dx = projected.left - current.left;
-            var dy = projected.top - current.top;
-            if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-            var prevTransform = el.style.transform;
-            var authoredTransform = authoredTransformOf(el);
-            var previewTransition =
-              "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
-            var previewTransform =
-              "translate(" +
-              dx +
-              "px, " +
-              dy +
-              "px)" +
-              (authoredTransform ? " " + authoredTransform : "");
-            reflowSiblings.push({
-              el: el,
-              prevTransform: prevTransform,
-              authoredTransform: authoredTransform,
-              prevTransition: el.style.transition,
-              previewTransform: previewTransform,
-              previewTransition: previewTransition,
+          // A physical wrapped reorder already makes the browser lay out each
+          // sibling at its projected slot; translating them too would double
+          // the displacement.
+          if (!isWrappedFlex)
+            projectedRects.forEach(function (projected) {
+              var el = projected.el as HTMLElement;
+              var current = el.getBoundingClientRect();
+              var dx = projected.left - current.left;
+              var dy = projected.top - current.top;
+              if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+              var prevTransform = el.style.transform;
+              var authoredTransform = authoredTransformOf(el);
+              var previewTransition =
+                "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+              var previewTransform =
+                "translate(" +
+                dx +
+                "px, " +
+                dy +
+                "px)" +
+                (authoredTransform ? " " + authoredTransform : "");
+              reflowSiblings.push({
+                el: el,
+                prevTransform: prevTransform,
+                authoredTransform: authoredTransform,
+                prevTransition: el.style.transition,
+                previewTransform: previewTransform,
+                previewTransition: previewTransition,
+              });
+              el.style.transition = previewTransition;
+              // Translate FIRST (screen space) composed with the sibling's own
+              // transform so an authored rotate/scale survives the reflow shift.
+              el.style.transform = previewTransform;
             });
-            el.style.transition = previewTransition;
-            // Translate FIRST (screen space) composed with the sibling's own
-            // transform so an authored rotate/scale survives the reflow shift.
-            el.style.transform = previewTransform;
-          });
+          if (isWrappedFlex) {
+            var heldRectBefore = reorderEl.getBoundingClientRect();
+            reflowDomOrigin = {
+              parent: container,
+              nextSibling: originalNextSibling,
+            };
+            if (target.placement === "inside") {
+              container.appendChild(reorderEl);
+            } else if (target.placement === "before") {
+              container.insertBefore(reorderEl, target.anchor);
+            } else {
+              container.insertBefore(reorderEl, target.anchor.nextSibling);
+            }
+            var heldRectAfter = reorderEl.getBoundingClientRect();
+            var sourceLift = reorderLiftedMembers.filter(function (snap) {
+              return snap.el === reorderEl;
+            })[0];
+            if (sourceLift) {
+              var heldLiftDx =
+                cx -
+                reorderPointerStart.clientX +
+                (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+              var heldLiftDy =
+                cy -
+                reorderPointerStart.clientY +
+                (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
+              reorderEl.style.transform =
+                "translate(" +
+                (heldLiftDx + heldRectBefore.left - heldRectAfter.left) +
+                "px, " +
+                (heldLiftDy + heldRectBefore.top - heldRectAfter.top) +
+                "px)" +
+                (sourceLift.authoredTransform
+                  ? " " + sourceLift.authoredTransform
+                  : "");
+            }
+          }
         } catch (error) {
           // A layout read or DOM insertion can fail if the editor is tearing
           // down the frame during a cancel. Restore all preview transforms
@@ -19339,6 +19721,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           hideInsertionGuide();
           clearReorderLift();
           clearReorderReflow();
+          postEditorDragState(true, { phase: "clear" });
           showTransformBadge(
             duplicatedForDrag ? "Duplicate layer" : "Move layer",
             cx,
@@ -19385,6 +19768,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           if (_dndKey !== reorderLastTargetKey) {
             reorderLastTargetKey = _dndKey;
             dndLog("target", dndTarget(currentTarget));
+            postLayerStructurePreview(reorderEl, currentTarget);
           }
           applyReorderLift(dx, dy);
           applyReorderReflow(currentTarget, cx, cy);
@@ -22010,8 +22394,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // "the release was inside my viewport" cannot decide who owns the drop. The
   // host claims the gesture whenever the pointer is over a screen frame.
   var crossScreenClaimedByHost = false;
+  var lastPointerDownTimestamp = 0;
 
   function beginPotentialShieldDrag(e) {
+    // A read-only bridge may still expose passive inspection chrome, but it
+    // must never become a document-level interaction blocker. In particular,
+    // the host is intentionally below high-z app portals in this mode, so
+    // this fallback sees the app's real target and must leave it untouched.
+    if (readOnly) return;
+    if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
+      return;
+    }
+    if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
     stopNativeInteraction(e);
     clearGridProjectionCaches();
     // A new interaction starting is unambiguous proof the previous gesture is
@@ -22255,6 +22649,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
 
   shieldOverlay.addEventListener("pointerdown", beginPotentialShieldDrag, true);
+  shieldOverlay.addEventListener("mousedown", beginPotentialShieldDrag, true);
+  document.addEventListener(
+    "pointerdown",
+    function (e) {
+      if (isOverlayElement(e.target)) return;
+      if (e.button === 0) beginPotentialShieldDrag(e);
+    },
+    true,
+  );
+  document.addEventListener(
+    "mousedown",
+    function (e) {
+      if (isOverlayElement(e.target)) return;
+      if (e.button === 0) beginPotentialShieldDrag(e);
+    },
+    true,
+  );
   shieldOverlay.addEventListener("wheel", scrollUnderlyingElementAtWheel, {
     passive: false,
     capture: true,
@@ -23548,82 +23959,116 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
     true,
   );
-  shieldOverlay.addEventListener(
+  function handleShieldPointerMove(e) {
+    if (readOnly) return;
+    stopNativeInteraction(e);
+    lastHoverClientPoint = { x: e.clientX, y: e.clientY };
+    hoveredEl = resolveHoverTarget(
+      e.clientX,
+      e.clientY,
+      e.metaKey || e.ctrlKey,
+    );
+    if (!hoveredEl) {
+      highlightOverlay.style.display = "none";
+      if (!spacingDrag) {
+        scheduleSpacingHoverClear(e);
+      }
+      hideMeasurements();
+      // Re-arm the hover-info post gate below: leaving all content (e.g.
+      // pointer over empty canvas or off the iframe entirely) means the
+      // NEXT element this pointer lands on — even if it's the same one
+      // hovered before — is a genuinely new hover the host hasn't heard
+      // about since.
+      lastHoverInfoPostedEl = null;
+      return;
+    }
+    if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      return;
+    if (!spacingDrag) {
+      var hoveringSelectedSpacingSurface = Boolean(
+        selectedEl &&
+        hoveredEl &&
+        (hoveredEl === selectedEl ||
+          (selectedEl.contains && selectedEl.contains(hoveredEl))),
+      );
+      if (hoveringSelectedSpacingSurface) {
+        clearSpacingHoverTimer();
+        lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
+        updateSpacingOverlay(selectedEl);
+        // Reliable padding/gap hover: hit-test the handle geometry
+        // directly from the pointer position instead of depending on the
+        // pointermove's event target being the region node (see
+        // spacingHandleKeyAtPoint). Shows/updates the "Npx" value box
+        // while hovering the handle line; clears it when the pointer
+        // leaves the tolerance zone.
+        var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
+        if (pointSpacingKey) {
+          activateSpacingHandle(pointSpacingKey);
+        } else if (hoveredSpacingHandleKey) {
+          hoveredSpacingHandleKey = "";
+          updateSpacingOverlay(selectedEl);
+        }
+      } else {
+        scheduleSpacingHoverClear(e);
+      }
+    }
+    if (hoveredEl === selectedEl) {
+      highlightOverlay.style.display = "none";
+    } else {
+      positionOverlay(highlightOverlay, hoveredEl);
+    }
+    if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
+      showMeasurements(selectedEl, hoveredEl);
+    } else {
+      hideMeasurements();
+    }
+    // While Alt is held (measurement mode) keep hover local: posting it would
+    // update the host's hoveredSelector, re-run replayIframeEditorState, and
+    // echo selection/hover back every move — a loop that jitters selection
+    // and flickers the measurement lines.
+    if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
+      lastHoverInfoPostedEl = hoveredEl;
+      var info = getLightElementInfo(hoveredEl);
+      (window.parent as Window).postMessage(
+        { type: "element-hover", payload: info },
+        "*",
+      );
+    }
+  }
+
+  shieldOverlay.addEventListener("pointermove", handleShieldPointerMove, true);
+  // Chromium's embedded-frame path can expose the legacy mouse stream even
+  // when the pointer stream stops at the iframe boundary. Keep hover on both
+  // streams; the same-element gate makes duplicate delivery harmless.
+  shieldOverlay.addEventListener("mousemove", handleShieldPointerMove, true);
+
+  // Some Chromium embedding paths deliver the live iframe's pointer stream to
+  // the document under the fixed editor host even though the shield owns the
+  // click. Capture those events at document level so hover uses the same
+  // hit-test path as shield-delivered clicks instead of reaching the app.
+  document.addEventListener(
     "pointermove",
     function (e) {
-      stopNativeInteraction(e);
-      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
-      hoveredEl = resolveHoverTarget(
-        e.clientX,
-        e.clientY,
-        e.metaKey || e.ctrlKey,
-      );
-      if (!hoveredEl) {
-        highlightOverlay.style.display = "none";
-        if (!spacingDrag) {
-          scheduleSpacingHoverClear(e);
-        }
-        hideMeasurements();
-        // Re-arm the hover-info post gate below: leaving all content (e.g.
-        // pointer over empty canvas or off the iframe entirely) means the
-        // NEXT element this pointer lands on — even if it's the same one
-        // hovered before — is a genuinely new hover the host hasn't heard
-        // about since.
-        lastHoverInfoPostedEl = null;
+      if (isOverlayElement(e.target)) return;
+      if (pendingShieldDrag || activeDragCancel) {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
         return;
       }
-      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      handleShieldPointerMove(e);
+    },
+    true,
+  );
+  document.addEventListener(
+    "mousemove",
+    function (e) {
+      if (isOverlayElement(e.target)) return;
+      if (pendingShieldDrag || activeDragCancel) {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
         return;
-      if (!spacingDrag) {
-        var hoveringSelectedSpacingSurface = Boolean(
-          selectedEl &&
-          hoveredEl &&
-          (hoveredEl === selectedEl ||
-            (selectedEl.contains && selectedEl.contains(hoveredEl))),
-        );
-        if (hoveringSelectedSpacingSurface) {
-          clearSpacingHoverTimer();
-          lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
-          updateSpacingOverlay(selectedEl);
-          // Reliable padding/gap hover: hit-test the handle geometry
-          // directly from the pointer position instead of depending on the
-          // pointermove's event target being the region node (see
-          // spacingHandleKeyAtPoint). Shows/updates the "Npx" value box
-          // while hovering the handle line; clears it when the pointer
-          // leaves the tolerance zone.
-          var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
-          if (pointSpacingKey) {
-            activateSpacingHandle(pointSpacingKey);
-          } else if (hoveredSpacingHandleKey) {
-            hoveredSpacingHandleKey = "";
-            updateSpacingOverlay(selectedEl);
-          }
-        } else {
-          scheduleSpacingHoverClear(e);
-        }
       }
-      if (hoveredEl === selectedEl) {
-        highlightOverlay.style.display = "none";
-      } else {
-        positionOverlay(highlightOverlay, hoveredEl);
-      }
-      if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
-        showMeasurements(selectedEl, hoveredEl);
-      } else {
-        hideMeasurements();
-      }
-      // While Alt is held (measurement mode) keep hover local: posting it would
-      // update the host's hoveredSelector, re-run replayIframeEditorState, and
-      // echo selection/hover back every move — a loop that jitters selection
-      // and flickers the measurement lines.
-      if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
-        lastHoverInfoPostedEl = hoveredEl;
-        var info = getLightElementInfo(hoveredEl);
-        (window.parent as Window).postMessage(
-          { type: "element-hover", payload: info },
-          "*",
-        );
-      }
+      handleShieldPointerMove(e);
     },
     true,
   );
@@ -24652,7 +25097,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             type: "runtime-structure-insert-rejected",
             screenId: designCanvasScreenId,
             requestId: insertRequestId,
+            transactionId:
+              typeof e.data.transactionId === "string"
+                ? e.data.transactionId
+                : undefined,
+            routePath: window.location.pathname + window.location.search,
             reason: reason,
+          },
+          "*",
+        );
+      };
+      var acknowledgeInsert = function (element: Element): void {
+        (window.parent as Window).postMessage(
+          {
+            type: "runtime-structure-insert-applied",
+            screenId: designCanvasScreenId,
+            requestId: String(insertRequestId),
+            transactionId:
+              typeof e.data.transactionId === "string"
+                ? e.data.transactionId
+                : undefined,
+            routePath: window.location.pathname + window.location.search,
+            selector: getSelector(element),
+            sourceId: getSourceId(element),
           },
           "*",
         );
@@ -24761,6 +25228,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             insertTarget,
             reinsertOrigin,
           );
+          acknowledgeInsert(existingInsertEl);
         }
         return;
       }
@@ -24798,6 +25266,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         replaceParent.removeChild(insertAnchor);
         refreshOverlays();
+        acknowledgeInsert(parsedInsertEl);
         return;
       }
       // The host bakes flow/absolute positioning into the markup before it
@@ -24821,7 +25290,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         insertTarget,
         { inserted: true },
         parsedInsertEl.outerHTML,
+        undefined,
+        undefined,
+        undefined,
+        typeof e.data.transactionId === "string"
+          ? e.data.transactionId
+          : undefined,
       );
+      acknowledgeInsert(parsedInsertEl);
       return;
     }
     if (e.data.type === "visual-structure-ack") {
@@ -24989,6 +25465,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         e.data.selector,
         e.data.selectorCandidates,
         e.data.requestId,
+        e.data.transactionId,
+      );
+      return;
+    }
+    if (e.data.type === "runtime-structure-rollback-insert") {
+      var rollbackRequestId = String(e.data.requestId || "");
+      var rollbackTarget = findUniqueRuntimeStructureTarget(
+        String(e.data.selector || ""),
+        typeof e.data.sourceId === "string" ? e.data.sourceId : "",
+      );
+      if (
+        !rollbackRequestId ||
+        !rollbackTarget ||
+        !rollbackTarget.parentElement
+      ) {
+        (window.parent as Window).postMessage(
+          {
+            type: "runtime-structure-rollback-result",
+            requestId: rollbackRequestId,
+            transactionId: e.data.transactionId,
+            applied: false,
+            reason: "target-unresolved",
+          },
+          "*",
+        );
+        return;
+      }
+      rollbackTarget.parentElement.removeChild(rollbackTarget);
+      publishSourceDocumentProvenance(undefined, true);
+      refreshOverlays();
+      (window.parent as Window).postMessage(
+        {
+          type: "runtime-structure-rollback-result",
+          requestId: rollbackRequestId,
+          transactionId: e.data.transactionId,
+          applied: true,
+        },
+        "*",
       );
       return;
     }
@@ -25009,6 +25523,58 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       claimContentAsSource(textTarget);
       publishSourceDocumentProvenance(undefined, true);
       refreshOverlays();
+      return;
+    }
+    if (e.data.type === "request-runtime-layer-snapshot") {
+      postRuntimeLayerSnapshot();
+      return;
+    }
+    if (e.data.type === "runtime-layer-rename") {
+      if (readOnly) return;
+      var renameName =
+        typeof e.data.name === "string" ? e.data.name.trim().slice(0, 200) : "";
+      if (!renameName) return;
+      var renameCandidates = Array.isArray(e.data.selectorCandidates)
+        ? e.data.selectorCandidates
+        : [];
+      if (
+        e.data.selector &&
+        renameCandidates.indexOf(String(e.data.selector)) === -1
+      ) {
+        renameCandidates.push(String(e.data.selector));
+      }
+      if (typeof e.data.sourceId === "string" && e.data.sourceId) {
+        renameCandidates.push(
+          '[data-agent-native-node-id="' +
+            String(e.data.sourceId).replace(/"/g, '\\"') +
+            '"]',
+        );
+      }
+      var renameTarget = findRuntimeTarget(
+        String(e.data.selector || ""),
+        renameCandidates,
+      );
+      if (!renameTarget) return;
+      var previousLayerName =
+        renameTarget.getAttribute("data-agent-native-layer-name") || "";
+      renameTarget.setAttribute("data-agent-native-layer-name", renameName);
+      claimContentAsSource(renameTarget);
+      publishSourceDocumentProvenance(undefined, true);
+      postRuntimeLayerSnapshot();
+      refreshOverlays();
+      (window.parent as Window).postMessage(
+        {
+          type: "runtime-layer-name-applied",
+          requestId: Number(e.data.requestId),
+          routePath: window.location.pathname + window.location.search,
+          selector: getSelector(renameTarget),
+          sourceId:
+            typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+          name: renameName,
+          previousName: previousLayerName,
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type !== "style-change") return;
@@ -25379,15 +25945,66 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // One-time ready signal: tells the host that every message listener above is
-  // now attached, so one-shot commands (begin-text-edit, set-editor-chrome-scale,
-  // style-change, delete-element, replace-document-content) sent immediately
-  // after (re)creating this iframe are safe to deliver. Without this, a command
-  // posted before the bridge script has executed — or while the iframe is
-  // reloading — is simply lost; replayIframeEditorState only replays
-  // steady-state selection/hover/tweak/motion state, not one-shot commands.
-  (window.parent as Window).postMessage(
-    { type: "agent-native:editor-chrome-ready" },
-    "*",
-  );
+  (window as any).__anEditorChromeBridgeInstance = {
+    repair: function () {
+      observeEditorChromeHost();
+      repairEditorChromeHost();
+    },
+    updateConfig: function (next) {
+      if (!next || typeof next !== "object") return;
+      var nextReadOnly =
+        typeof next.readOnly === "boolean" ? next.readOnly : readOnly;
+      var nextTextEditingEnabledFlag =
+        typeof next.textEditingEnabled === "boolean"
+          ? next.textEditingEnabled
+          : textEditingEnabledFlag;
+      var wasTextEditingEnabled = textEditingEnabled;
+      if (readOnly !== nextReadOnly) {
+        readOnly = nextReadOnly;
+        textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
+        if (readOnly) {
+          if (activeTextEditEl) activeTextEditEl.blur();
+          clearPendingShieldDrag();
+          cancelActiveBridgeDrag();
+          setSelectionOverlayResizeChromeVisible(false);
+          shieldOverlay.style.pointerEvents = "auto";
+        } else {
+          setSelectionOverlayResizeChromeVisible(true);
+          shieldOverlay.style.pointerEvents = "auto";
+        }
+      } else {
+        textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
+      }
+      textEditingEnabledFlag = nextTextEditingEnabledFlag;
+      if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
+        activeTextEditEl.blur();
+      }
+      if (typeof next.screenId === "string") {
+        designCanvasScreenId = next.screenId;
+      }
+      if (typeof next.boardSurface === "boolean") {
+        designCanvasBoardSurface = next.boardSurface;
+      }
+      if (Number.isFinite(next.contentOffsetX)) {
+        designCanvasContentOffsetX = next.contentOffsetX;
+      }
+      if (Number.isFinite(next.contentOffsetY)) {
+        designCanvasContentOffsetY = next.contentOffsetY;
+      }
+      if (editorChromeHost) syncEditorChromeHostStyle(editorChromeHost);
+    },
+  };
+
+  // Tell the host that every message listener above is attached, then keep the
+  // chrome host alive across document hydration. A React Router hydration
+  // recovery can remove foreign body children after this script runs; the
+  // repair observer restores the shield/overlays and repeats this handshake so
+  // the host's Edit-mode gate cannot silently reopen native app input.
+  observeEditorChromeHost();
+  sendEditorChromeReady();
+  if (document.readyState === "complete") {
+    sendEditorChromeReady();
+  } else {
+    window.addEventListener("load", sendEditorChromeReady, { once: true });
+  }
 })();

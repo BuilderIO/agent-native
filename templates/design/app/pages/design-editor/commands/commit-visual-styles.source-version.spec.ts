@@ -98,4 +98,52 @@ it("uses the projected source and refuses a style commit while source actions ar
   runCommitVisualStyles(args, "#target", { color: "green" });
   expect(queueFileContentSave).not.toHaveBeenCalled();
   expect(latestActiveContentRef.current).toBe(savedContent);
+
+  const recordPendingVisualStyleEdit = vi.mocked(
+    args.recordPendingVisualStyleEdit,
+  );
+  const upsertMotionKeyframesFromStyles = vi.mocked(
+    args.upsertMotionKeyframesFromStyles,
+  );
+  canApplyContentEdit.mockReturnValue(true);
+  recordPendingVisualStyleEdit.mockClear();
+  upsertMotionKeyframesFromStyles.mockClear();
+  const sendStyleChangeForScreen = vi.fn(() => true);
+  vi.stubGlobal("window", {
+    __designCanvasSendStyleForScreen: sendStyleChangeForScreen,
+  });
+  runCommitVisualStyles(
+    {
+      ...args,
+      activeCanvasSourceType: "localhost",
+      selectedElement: null,
+    },
+    "#provider",
+    { borderRadius: "12px" },
+    {
+      runtimeApplied: true,
+      originalStyles: { borderRadius: "0px", backgroundColor: "white" },
+      elementInfo: {
+        boundingRect: { width: 0, height: 0 },
+        runtimeSelector: "#runtime-provider",
+        runtimeSourceId: "runtime-provider",
+        sourceId: "source-provider",
+      } as any,
+      routePath: "/library",
+    },
+  );
+  expect(recordPendingVisualStyleEdit).toHaveBeenCalledOnce();
+  expect(upsertMotionKeyframesFromStyles).not.toHaveBeenCalled();
+  expect(sendStyleChangeForScreen).toHaveBeenCalledTimes(2);
+  expect(sendStyleChangeForScreen).toHaveBeenNthCalledWith(
+    1,
+    fileId,
+    "#runtime-provider",
+    "borderRadius",
+    "0px",
+    expect.objectContaining({
+      nodeId: "runtime-provider",
+      routePath: "/library",
+    }),
+  );
 });

@@ -32,6 +32,12 @@ import {
 } from "./better-auth-instance.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
+import { getPublicFrameworkPathname } from "./framework-request-handler.js";
+import {
+  canonicalFrameworkPathname,
+  isRetiredInternalFrameworkPath,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
 import { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import {
   isNetlifyDeployPermalinkGoogleOAuthClientOrigin,
@@ -113,6 +119,14 @@ function escapeHtml(s: string): string {
  */
 export function isElectron(event: H3Event): boolean {
   return /AgentNativeDesktop/i.test(getHeader(event, "user-agent") || "");
+}
+
+function getDesktopOAuthProtocol(
+  event: H3Event,
+): "agentnative" | "agentnative-nightly" {
+  return /AgentNativeDesktopNightly/i.test(getHeader(event, "user-agent") || "")
+    ? "agentnative-nightly"
+    : "agentnative";
 }
 
 /** Detect requests from a mobile browser (iOS/Android). */
@@ -223,7 +237,7 @@ export function getAppBasePath(): string {
 /** Build an absolute same-origin URL that preserves APP_BASE_PATH. */
 export function getAppUrl(event: H3Event, path = "/"): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
+  return `${getOrigin(event)}${getAppBasePath()}${publicFrameworkPath(cleanPath)}`;
 }
 
 export const NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL =
@@ -417,6 +431,9 @@ function isFrameworkOAuthCallbackPath(pathname: string): boolean {
 }
 
 function getOriginalRequestPath(event: H3Event): string {
+  const publicPathname = getPublicFrameworkPathname(event);
+  if (publicPathname) return publicPathname;
+
   const mountedPathname = (event as any).context?._mountedPathname;
   if (typeof mountedPathname === "string" && mountedPathname) {
     return mountedPathname;
@@ -444,9 +461,12 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
   const basePath = getAppBasePath();
   if (!basePath) return false;
   const requestPath = getOriginalRequestPath(event);
-  return (
-    requestPath === `${basePath}/_agent-native` ||
-    requestPath.startsWith(`${basePath}/_agent-native/`)
+  const frameworkPrefixes = [
+    `${basePath}/_agent-native`,
+    `${basePath}${publicFrameworkPath("/_agent-native")}`,
+  ];
+  return frameworkPrefixes.some(
+    (prefix) => requestPath === prefix || requestPath.startsWith(`${prefix}/`),
   );
 }
 
@@ -467,10 +487,10 @@ function getDefaultOAuthRedirectUrl(
     (isWorkspaceOAuthCallbackRelayEnabled() || options.allowRootCallback) &&
     isFrameworkOAuthCallbackPath(cleanPath)
   ) {
-    return `${getOrigin(event)}${cleanPath}`;
+    return `${getOrigin(event)}${publicFrameworkPath(cleanPath)}`;
   }
   const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
-  return `${getOrigin(event)}${basePath}${cleanPath}`;
+  return `${getOrigin(event)}${basePath}${publicFrameworkPath(cleanPath)}`;
 }
 
 // ─── redirect_uri Allowlist ──────────────────────────────────────────────────
@@ -531,6 +551,10 @@ export function isAllowedOAuthRedirectUri(
   }
   if (url.protocol !== expectedUrl.protocol) return false;
   if (url.host !== expectedUrl.host) return false;
+  // The candidate arrives in the deployment's PUBLIC namespace; a custom
+  // prefix retires the internal name, so a redirect there is not ours.
+  if (isRetiredInternalFrameworkPath(url.pathname)) return false;
+  const pathname = canonicalFrameworkPathname(url.pathname);
   // Must live under the framework's namespace. Workspace deploys can route
   // root /_agent-native/* to Dispatch even when Dispatch itself is mounted at
   // /dispatch, but app-prefixed requests should not be able to swap their
@@ -542,12 +566,12 @@ export function isAllowedOAuthRedirectUri(
           `${basePath}/_agent-native/`,
           ...((isWorkspaceOAuthCallbackRelayEnabled() ||
             options.allowRootCallback) &&
-          isFrameworkOAuthCallbackPath(url.pathname)
+          isFrameworkOAuthCallbackPath(pathname)
             ? ["/_agent-native/"]
             : []),
         ]
       : ["/_agent-native/"];
-  if (!allowedPrefixes.some((prefix) => url.pathname.startsWith(prefix))) {
+  if (!allowedPrefixes.some((prefix) => pathname.startsWith(prefix))) {
     return false;
   }
   return true;
@@ -1099,6 +1123,7 @@ export function oauthCallbackResponse(
   // not the app root (else signed-out visitors land on the homepage).
   if (mobile) {
     const deepLink = buildOAuthCompleteDeepLink(
+      event,
       opts.sessionToken,
       callbackState,
     );
@@ -1265,20 +1290,22 @@ function resolveOAuthAppName(explicit?: string): string {
 }
 
 function buildOAuthCompleteDeepLink(
+  event: H3Event,
   sessionToken?: string,
   state?: string,
 ): string {
+  const protocol = getDesktopOAuthProtocol(event);
   const params = new URLSearchParams();
   if (sessionToken) params.set("token", sessionToken);
   if (state) params.set("state", state);
   const suffix = params.toString();
   return suffix
-    ? `agentnative://oauth-complete?${suffix}`
-    : "agentnative://oauth-complete";
+    ? `${protocol}://oauth-complete?${suffix}`
+    : `${protocol}://oauth-complete`;
 }
 
 function desktopSuccessPage(
-  _event: H3Event,
+  event: H3Event,
   email?: string,
   sessionToken?: string,
   state?: string,
@@ -1286,7 +1313,7 @@ function desktopSuccessPage(
   const safeEmail = email ? escapeHtml(email) : "";
   const msg = safeEmail ? `Connected ${safeEmail}!` : "Connected!";
   if (sessionToken) {
-    const deepLink = buildOAuthCompleteDeepLink(sessionToken, state);
+    const deepLink = buildOAuthCompleteDeepLink(event, sessionToken, state);
     const deepLinkJson = JSON.stringify(deepLink);
     // Defence in depth: if this page somehow gets served to a UA that isn't
     // the Agent-Native desktop app (server gate bypassed, stale link, etc.),
