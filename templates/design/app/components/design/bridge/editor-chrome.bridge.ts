@@ -20351,13 +20351,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
           if (currentAutoLayoutTarget.dropMode !== "absolute-container") {
-            dragChromeSuppressed = true;
             hideSnapGuides();
+            // hideSnapGuides clears the suppression flag as part of its normal
+            // cleanup. Set it after that call so the queued overlay refresh
+            // cannot restore free-placement chrome during a flow insert.
+            dragChromeSuppressed = true;
             hideSizeBadge();
             hideConstraintGuides();
+          } else {
+            // A deferred result may move from a flow target to a free-drop
+            // container. Restore the chrome state for that transition.
+            dragChromeSuppressed = false;
           }
         } else {
           hideInsertionGuide();
+          dragChromeSuppressed = false;
         }
       });
     }
