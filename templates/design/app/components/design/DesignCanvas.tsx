@@ -2480,21 +2480,9 @@ export function DesignCanvas({
   }, [externalPreviewUrl, usesLiveEditInjectedBridge]);
   const installedBridgeKeyRef = useRef<string | null>(null);
   const sendBridgeToContainer = useCallback(() => {
-    if (!containerPreview || !includeLiveEditEditorChrome) {
-      console.log("[design:bridge] install skipped", {
-        containerPreview,
-        includeLiveEditEditorChrome,
-      });
-      return;
-    }
+    if (!containerPreview || !includeLiveEditEditorChrome) return;
     const target = iframeRef.current?.contentWindow;
-    if (!target || !externalPreviewUrl) {
-      console.log("[design:bridge] install skipped", {
-        hasTarget: Boolean(target),
-        externalPreviewUrl,
-      });
-      return;
-    }
+    if (!target || !externalPreviewUrl) return;
     if (installedBridgeKeyRef.current === liveEditBridgeKey) return;
     let origin: string;
     try {

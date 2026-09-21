@@ -25,6 +25,7 @@ import type {
 import {
   appendPendingVisualStyleUndoEntry,
   mergePendingVisualStyleEdit,
+  nextPendingLiveEditTimestamp,
   originalStylesForPendingVisualEdit,
   pendingVisualStyleUndoRevertStyles,
   reactSourceAnchorForPendingEdit,
@@ -57,6 +58,7 @@ export interface RecordPendingVisualStyleEditArgs {
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   selectedElement: ElementInfo | null;
+  onNoRenderedBox?: () => void;
   setPatchProof: Dispatch<SetStateAction<PatchProofState | null>>;
   setPendingVisualStyleEdits: Dispatch<
     SetStateAction<PendingVisualStyleEdit[]>
@@ -87,6 +89,7 @@ export function runRecordPendingVisualStyleEdit(
     responsiveEditScopeRef,
     runtimeLayerSnapshotsById,
     selectedElement,
+    onNoRenderedBox,
     setPatchProof,
     setPendingVisualStyleEdits,
     setSelectedElement,
@@ -125,6 +128,32 @@ export function runRecordPendingVisualStyleEdit(
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const measuredTarget =
+    elementInfo ?? (screenId === activeFile?.id ? selectedElement : null);
+  if (
+    measuredTarget &&
+    (measuredTarget.boundingRect.width <= 0 ||
+      measuredTarget.boundingRect.height <= 0)
+  ) {
+    onNoRenderedBox?.();
+    setPatchProof({
+      id: proofId,
+      fileId: screenId,
+      filename: fallbackName,
+      selector,
+      sourceId: sourceId ?? undefined,
+      property: entries.map(([property]) => property).join(", "),
+      nextValue: entries
+        .map(([property, value]) => `${property}: ${value}`)
+        .join("; "),
+      capability: "deterministic-style-edit",
+      confidence: 0,
+      status: "failed",
+      error: "designEditor.patchProof.noRenderedBox",
+      createdAt: Date.now(),
+    });
+    return;
+  }
   const [firstProperty, firstValue] = entries[0];
   const baseStyles = metadata?.interactionState
     ? originalStylesForPendingVisualEdit(
@@ -182,7 +211,7 @@ export function runRecordPendingVisualStyleEdit(
     ...(metadata?.interactionState
       ? { interactionState: metadata.interactionState, baseStyles }
       : {}),
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
     // §6.4 — stamp the active breakpoint scope so the agent applies
     // these as width-scoped overrides, not base writes.
     ...(activeBreakpointWidthState != null

@@ -134,6 +134,17 @@ export interface PendingVisualStyleEdit {
   };
 }
 
+let lastPendingLiveEditTimestamp = 0;
+
+/** Keep mixed pending edits strictly ordered even when several land in one millisecond. */
+export function nextPendingLiveEditTimestamp(now = Date.now()): number {
+  lastPendingLiveEditTimestamp = Math.max(
+    lastPendingLiveEditTimestamp + 1,
+    now,
+  );
+  return lastPendingLiveEditTimestamp;
+}
+
 function pendingLiveEditSubjectKey(edit: PendingLiveNonStyleEdit): string {
   return `${edit.screenId}:${edit.routePath ?? ""}:${edit.sourceId?.trim() || edit.selector.trim()}`;
 }
@@ -710,7 +721,12 @@ export function appendPendingVisualStyleUndoEntry(
   entry: PendingVisualStyleUndoEntry,
 ): void {
   const last = stack[stack.length - 1];
-  if (entry.gestureId && last?.gestureId === entry.gestureId) {
+  if (
+    entry.gestureId &&
+    last?.gestureId === entry.gestureId &&
+    pendingVisualStylePropertyKey(last.edit) ===
+      pendingVisualStylePropertyKey(entry.edit)
+  ) {
     const targets = pendingVisualStyleUndoTargets(last);
     const index = targets.findIndex(
       (target) =>
@@ -752,7 +768,9 @@ export function appendPendingVisualStyleUndoEntry(
     !last?.gestureId &&
     last &&
     pendingVisualStyleEditKey(last.edit) ===
-      pendingVisualStyleEditKey(entry.edit)
+      pendingVisualStyleEditKey(entry.edit) &&
+    pendingVisualStylePropertyKey(last.edit) ===
+      pendingVisualStylePropertyKey(entry.edit)
   ) {
     last.edit = {
       ...entry.edit,
@@ -926,6 +944,10 @@ function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
     edit.sourceId?.trim() || edit.selector.trim() || "unknown",
     edit.interactionState ?? "default",
   ].join("::");
+}
+
+function pendingVisualStylePropertyKey(edit: PendingVisualStyleEdit): string {
+  return Object.keys(edit.styles).sort().join("::");
 }
 
 export function mergePendingVisualStyleEdit(

@@ -18,6 +18,7 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
+  nextPendingLiveEditTimestamp,
   pendingLiveTextUndoRevertValue,
   reactSourceAnchorForPendingEdit,
 } from "@/pages/design-editor/pending-edits";
@@ -131,7 +132,7 @@ export function runRecordPendingLiveTextEdit(
     html: details?.html,
     originalValue,
     originalHtml,
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
   };
   const revert = pendingLiveTextUndoRevertValue(
     pendingLiveNonStyleEditsRef.current,

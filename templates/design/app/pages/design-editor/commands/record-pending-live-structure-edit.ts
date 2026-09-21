@@ -18,6 +18,7 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdits,
+  nextPendingLiveEditTimestamp,
   pendingLiveStructureEditsFromUndoEntry,
   pendingLiveStructureEditsMatch,
   projectRelativeSourcePath,
@@ -194,7 +195,7 @@ export function preparePendingLiveStructureEdit(
     ...(details?.removed ? { removed: true as const } : {}),
     requestId: details?.requestId,
     transactionId: details?.transactionId,
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
   };
   nextEdit.subjectSignature = runtimeStructureNodeSignature({
     info: subjectInfo,

@@ -23,6 +23,7 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
+  nextPendingLiveEditTimestamp,
   pendingLiveLayerStateUndoRevertValue,
   reactSourceAnchorForPendingEdit,
   resolveOverviewScreenSourceType,
@@ -124,7 +125,7 @@ export function runRecordPendingLiveLayerStateEdit(
     state,
     enabled,
     originalEnabled,
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
   };
   const revertEnabled = pendingLiveLayerStateUndoRevertValue(
     pendingLiveNonStyleEditsRef.current,

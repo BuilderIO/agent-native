@@ -972,6 +972,7 @@ import {
   pendingLiveStructureEditsFromEdit,
   pendingLiveStructureEditsFromUndoEntry,
   pendingLiveLayerNameUndoRevertValue,
+  nextPendingLiveEditTimestamp,
   pendingVisualStyleGestureIdForPhase,
   projectRelativeSourcePath,
   reactSourceAnchorForPendingEdit,
@@ -1166,6 +1167,7 @@ function readRenderedLayerInfo(
         ? preview.getComputedStyle(parent)
         : undefined;
       const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
       return {
         ...base,
         sourceLayerIdentity: { screenId: owner.fileId, nodeId: owner.node.id },
@@ -8573,6 +8575,11 @@ function DesignEditor() {
           responsiveEditScopeRef,
           runtimeLayerSnapshotsById,
           selectedElement,
+          onNoRenderedBox: () =>
+            toast.error(t("designEditor.patchProof.noRenderedBox"), {
+              id: "design-no-rendered-box",
+              duration: 4000,
+            }),
           setPatchProof,
           setPendingVisualStyleEdits,
           setSelectedElement,
@@ -8831,7 +8838,7 @@ function DesignEditor() {
           originalName ??
           owner.node.dataAttributes["data-agent-native-layer-name"] ??
           "",
-        updatedAt: Date.now(),
+        updatedAt: nextPendingLiveEditTimestamp(),
       };
       const revertName = pendingLiveLayerNameUndoRevertValue(
         pendingLiveNonStyleEditsRef.current,
@@ -9050,11 +9057,26 @@ function DesignEditor() {
     return { hasTimeline: true, keyframedProperties };
   }, [motionTracks, selectedMotionTargetNodeId]);
   const selectedCanvasSelectorCandidates = useMemo(() => {
+    const runtimeSelector = selectedElement?.runtimeSelector?.trim();
+    const runtimeCandidates = runtimeSelector ? [runtimeSelector] : [];
     if (selectedCodeLayerNode) {
-      return codeLayerSelectorAliases(selectedCodeLayerNode);
+      return Array.from(
+        new Set([
+          ...runtimeCandidates,
+          ...codeLayerSelectorAliases(selectedCodeLayerNode),
+        ]),
+      );
     }
-    return selectedElement?.selector ? [selectedElement.selector] : [];
-  }, [selectedCodeLayerNode, selectedElement?.selector]);
+    return runtimeCandidates.concat(
+      selectedElement?.selector && selectedElement.selector !== runtimeSelector
+        ? [selectedElement.selector]
+        : [],
+    );
+  }, [
+    selectedCodeLayerNode,
+    selectedElement?.runtimeSelector,
+    selectedElement?.selector,
+  ]);
   const selectedCanvasSelector = selectedCanvasSelectorCandidates[0] ?? null;
 
   const handleDesignStateSelect = useCallback(
@@ -9838,11 +9860,22 @@ function DesignEditor() {
     );
   }, [activeCodeLayerProjection, hoveredElement]);
   const hoveredCanvasSelectorCandidates = useMemo(() => {
+    const runtimeSelector = hoveredElement?.runtimeSelector?.trim();
+    const runtimeCandidates = runtimeSelector ? [runtimeSelector] : [];
     if (isScreenRootElementInfo(hoveredElement)) return [];
     if (hoveredCodeLayerNode) {
-      return codeLayerSelectorAliases(hoveredCodeLayerNode);
+      return Array.from(
+        new Set([
+          ...runtimeCandidates,
+          ...codeLayerSelectorAliases(hoveredCodeLayerNode),
+        ]),
+      );
     }
-    return hoveredElement?.selector ? [hoveredElement.selector] : [];
+    return runtimeCandidates.concat(
+      hoveredElement?.selector && hoveredElement.selector !== runtimeSelector
+        ? [hoveredElement.selector]
+        : [],
+    );
   }, [hoveredCodeLayerNode, hoveredElement]);
   const hoveredCanvasSelector = hoveredCanvasSelectorCandidates[0] ?? null;
   const hoveredElementIsScreenRoot = isScreenRootElementInfo(hoveredElement);
@@ -23432,6 +23465,12 @@ function DesignEditor() {
       owner: RenderedLayerOwner,
       measured: ElementInfo,
     ) => {
+      if (
+        measured.boundingRect.width <= 0 ||
+        measured.boundingRect.height <= 0
+      ) {
+        return;
+      }
       const currentOwner = codeLayerOwnerByNodeIdRef.current.get(layerId);
       if (
         layerSelectionHydrationRevisionRef.current !== hydrationRevision ||
@@ -23452,6 +23491,16 @@ function DesignEditor() {
           `${owner.fileId}:${stableId}`,
           measured,
         );
+      }
+      if (selectedLayerIdsStateRef.current.includes(layerId)) {
+        setSelectedElement((current) => {
+          if (!current) return measured;
+          const currentId = current.sourceId ?? current.runtimeSourceId;
+          const ownerId =
+            owner.node.dataAttributes["data-agent-native-node-id"] ??
+            bridgeSourceIdForCodeLayerNode(owner.node);
+          return currentId === ownerId ? measured : current;
+        });
       }
     };
     for (const [layerId, owner] of ownersToMeasure) {
@@ -23999,9 +24048,7 @@ function DesignEditor() {
       const screenBridgeUrl = screen.bridgeUrl;
       const screenPreviewUrl = screen.url ?? screen.previewUrl;
       const currentLiveRoutePath =
-        mode === "interact"
-          ? undefined
-          : liveRoutePathsByScreenIdRef.current[screen.id];
+        liveRoutePathsByScreenIdRef.current[screen.id];
       const screenPreviewToken =
         effectivePreviewTokensByScreenId[screen.id] ??
         ("previewToken" in screen && typeof screen.previewToken === "string"
