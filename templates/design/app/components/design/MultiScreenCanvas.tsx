@@ -3746,6 +3746,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           iframeY,
           viewportW,
           viewportH,
+          frameWidth:
+            renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+            frameGeometryRef.current[sourceScreenId]?.width,
+          frameHeight:
+            renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+            frameGeometryRef.current[sourceScreenId]?.height,
         });
         if (sourceScreenId !== boardFileId && !localPointerInside) {
           const previewPoint =
@@ -3905,6 +3911,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             iframeY: msg.iframeY!,
             viewportW: msg.viewportW!,
             viewportH: msg.viewportH!,
+            frameWidth:
+              renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+              frameGeometryRef.current[sourceScreenId]?.width,
+            frameHeight:
+              renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+              frameGeometryRef.current[sourceScreenId]?.height,
           });
         const lastBoardPoint =
           (endPointOutsideSource

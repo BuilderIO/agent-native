@@ -355,6 +355,7 @@ export function isPrimitiveContainer(args: {
     "footer",
     "article",
     "nav",
+    "aside",
   ].includes(args.tagName.toLowerCase());
   const primitiveKind = args.primitiveKind.toLowerCase();
   const isEllipse =

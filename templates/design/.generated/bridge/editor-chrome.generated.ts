@@ -11459,7 +11459,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             dropMode: "absolute-container"
           };
         }
-        if (cursor !== document.body && isContainerDropTarget(cursor) && !(!forceNestedAutoLayout && parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && (!isContainerDropTarget(cursor) || cursor.tagName.toLowerCase() !== "section" || isTemplateCloneElement(cursor)))) {
+        if (cursor !== document.body && isContainerDropTarget(cursor) && !(!forceNestedAutoLayout && parent && parent !== document.body && isAutoLayoutElement(parent) && cursor.getAttribute("data-an-primitive") !== "frame" && (cursor.tagName.toLowerCase() !== "section" || isTemplateCloneElement(cursor)))) {
           if (!isAutoLayoutElement(cursor)) {
             if (cursor === el.parentElement) return null;
             return {

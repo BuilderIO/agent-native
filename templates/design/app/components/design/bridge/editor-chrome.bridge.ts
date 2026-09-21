@@ -16040,8 +16040,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           parent !== document.body &&
           isAutoLayoutElement(parent) &&
           cursor.getAttribute("data-an-primitive") !== "frame" &&
-          (!isContainerDropTarget(cursor) ||
-            cursor.tagName.toLowerCase() !== "section" ||
+          (cursor.tagName.toLowerCase() !== "section" ||
             isTemplateCloneElement(cursor))
         )
       ) {
