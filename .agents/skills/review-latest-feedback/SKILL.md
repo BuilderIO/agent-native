@@ -65,6 +65,11 @@ synonym in the recap or Slack reply:
 
 Once the verified source fix is merged into the shipping snapshot, **Fixed** is
 terminal. Publication, beta delivery, and live reruns are separate follow-ups.
+Before releasing the eye and closing the source issue, create or link a durable
+follow-up for any remaining publication, beta, or live work. Include the
+original issue, target package/release/runtime, owner, and verification command
+or URL in that follow-up and this recap. Never rely on an open-issues scan to
+rediscover a closed source issue, and never reopen it for release work.
 **Clustered** closes a duplicate row without erasing its row.
 
 Use `✅` only for **Fixed**, **Shipped**, or **Live verified**; use
