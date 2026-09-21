@@ -14672,9 +14672,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             finalAutoLayoutTarget,
             ev
           );
-          if (finalAutoLayoutTarget) {
-            currentAutoLayoutTarget = finalAutoLayoutTarget;
-          }
+          currentAutoLayoutTarget = finalAutoLayoutTarget;
         } else if (bridgeSpaceKeyPressed) {
           currentAutoLayoutTarget = null;
         }

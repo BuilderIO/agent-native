@@ -20330,8 +20330,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // after the host's keyboard state has changed, so reading only the
         // bridge globals there can resolve a different gesture than the one
         // that scheduled the move.
-        spaceKeyPressed:
-          Boolean(ev.spaceKeyPressed) || bridgeSpaceKeyPressed,
+        spaceKeyPressed: Boolean(ev.spaceKeyPressed) || bridgeSpaceKeyPressed,
         ignoreAutoLayoutKeyPressed:
           Boolean(ev.ignoreAutoLayoutKeyPressed) ||
           bridgeIgnoreAutoLayoutKeyPressed ||
@@ -20848,9 +20847,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           finalAutoLayoutTarget,
           ev,
         );
-        if (finalAutoLayoutTarget) {
-          currentAutoLayoutTarget = finalAutoLayoutTarget;
-        }
+        currentAutoLayoutTarget = finalAutoLayoutTarget;
       } else if (bridgeSpaceKeyPressed) {
         // Space is Figma's retain-parent modifier. Absolute/freeform drags
         // already move in their current containing-block coordinates, so

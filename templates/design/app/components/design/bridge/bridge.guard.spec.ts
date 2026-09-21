@@ -14178,7 +14178,9 @@ it("snapshots drag modifiers before queued target resolution", () => {
 
   // A queued frame must answer for the pointer sample that scheduled it. A
   // later Space/S key transition must not leak through a stale global read.
-  expect(dragScheduler).toMatch(/spaceKeyPressed:\s*[\s\S]*bridgeSpaceKeyPressed/);
+  expect(dragScheduler).toMatch(
+    /spaceKeyPressed:\s*[\s\S]*bridgeSpaceKeyPressed/,
+  );
   expect(dragScheduler).toMatch(
     /ignoreAutoLayoutKeyPressed:\s*[\s\S]*bridgeIgnoreAutoLayoutKeyPressed/,
   );
