@@ -11827,7 +11827,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var start = gridLinePosition(startValue, layout, axis);
       var end = gridLinePosition(endValue, layout, axis);
       var authoredSpan = endValue.trim().match(/^span\\s+(\\d+)$/) || startValue.trim().match(/^span\\s+(\\d+)$/);
-      var hasAuthoredPlacement = authoredSpan !== null || startValue.trim() !== "auto" && startValue.trim() !== "" || endValue.trim() !== "auto" && endValue.trim() !== "";
+      var hasAuthoredPlacement = authoredSpan !== null || startValue.trim() !== "auto" && startValue.trim() !== "" || endValue.trim() !== "auto" && endValue.trim() !== "" || styles.order !== "0";
       var geometricRange = layout ? gridTrackRangeForRect(
         el.getBoundingClientRect(),
         axis === "column" ? layout.columnBounds : layout.rowBounds,

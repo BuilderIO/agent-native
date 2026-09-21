@@ -16555,7 +16555,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var hasAuthoredPlacement =
       authoredSpan !== null ||
       (startValue.trim() !== "auto" && startValue.trim() !== "") ||
-      (endValue.trim() !== "auto" && endValue.trim() !== "");
+      (endValue.trim() !== "auto" && endValue.trim() !== "") ||
+      styles.order !== "0";
     var geometricRange = layout
       ? gridTrackRangeForRect(
           el.getBoundingClientRect(),
