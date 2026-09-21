@@ -54,16 +54,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // content swap in replaceRuntimeDocument that preserves persistent overlay
   // nodes but re-runs inline <script> tags). Without this, a second instance
   // would double-post every message and double-attach every document-level
-  // listener. A plain boolean is not enough: document hydration can remove
-  // the editor host while leaving the flag behind, so only a live host owns
-  // the installation.
+  // listener. The legacy boolean marker remains for compatibility; the
+  // separate host reference is the liveness check because document hydration
+  // can remove the editor host while leaving the marker behind.
   var previousEditorChromeBridge = (window as any).__anEditorChromeBridge;
+  var previousEditorChromeHost =
+    (window as any).__anEditorChromeBridgeHost ||
+    (previousEditorChromeBridge &&
+    typeof previousEditorChromeBridge === "object"
+      ? previousEditorChromeBridge.host
+      : null);
   if (
-    previousEditorChromeBridge &&
-    typeof previousEditorChromeBridge === "object" &&
-    previousEditorChromeBridge.host instanceof HTMLElement &&
-    previousEditorChromeBridge.host.isConnected
+    previousEditorChromeHost instanceof HTMLElement &&
+    previousEditorChromeHost.isConnected
   ) {
+    (window as any).__anEditorChromeBridge = true;
+    (window as any).__anEditorChromeBridgeHost = previousEditorChromeHost;
     return;
   }
 
@@ -89,10 +95,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       editorChromeHost.isConnected &&
       editorChromeHost.parentNode === document.documentElement
     ) {
-      var currentBridgeState = (window as any).__anEditorChromeBridge;
-      if (currentBridgeState && typeof currentBridgeState === "object") {
-        currentBridgeState.host = editorChromeHost;
-      }
+      (window as any).__anEditorChromeBridgeHost = editorChromeHost;
       return editorChromeHost;
     }
     editorChromeHost = document.createElement("div");
@@ -104,10 +107,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     editorChromeHost.style.cssText =
       "position:fixed;inset:0;z-index:2147483000;pointer-events:none;overflow:visible;";
     (document.documentElement || document.body).appendChild(editorChromeHost);
-    var currentBridgeState = (window as any).__anEditorChromeBridge;
-    if (currentBridgeState && typeof currentBridgeState === "object") {
-      currentBridgeState.host = editorChromeHost;
-    }
+    (window as any).__anEditorChromeBridgeHost = editorChromeHost;
     return editorChromeHost;
   }
 
@@ -162,9 +162,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   ensureEditorChromeHost();
-  (window as any).__anEditorChromeBridge = {
-    host: editorChromeHost,
-  };
+  (window as any).__anEditorChromeBridge = true;
+  (window as any).__anEditorChromeBridgeHost = editorChromeHost;
 
   var readOnly = __READ_ONLY__;
   var gridGroupBatchingEnabled = false;

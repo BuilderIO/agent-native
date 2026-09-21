@@ -906,7 +906,10 @@ export const editorChromeBridgeScript: string = `"use strict";
   // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     var previousEditorChromeBridge = window.__anEditorChromeBridge;
-    if (previousEditorChromeBridge && typeof previousEditorChromeBridge === "object" && previousEditorChromeBridge.host instanceof HTMLElement && previousEditorChromeBridge.host.isConnected) {
+    var previousEditorChromeHost = window.__anEditorChromeBridgeHost || (previousEditorChromeBridge && typeof previousEditorChromeBridge === "object" ? previousEditorChromeBridge.host : null);
+    if (previousEditorChromeHost instanceof HTMLElement && previousEditorChromeHost.isConnected) {
+      window.__anEditorChromeBridge = true;
+      window.__anEditorChromeBridgeHost = previousEditorChromeHost;
       return;
     }
     var editorChromeNodes = [];
@@ -925,10 +928,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function ensureEditorChromeHost() {
       if (editorChromeHost && editorChromeHost.isConnected && editorChromeHost.parentNode === document.documentElement) {
-        var currentBridgeState = window.__anEditorChromeBridge;
-        if (currentBridgeState && typeof currentBridgeState === "object") {
-          currentBridgeState.host = editorChromeHost;
-        }
+        window.__anEditorChromeBridgeHost = editorChromeHost;
         return editorChromeHost;
       }
       editorChromeHost = document.createElement("div");
@@ -939,10 +939,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       editorChromeHost.setAttribute("aria-hidden", "true");
       editorChromeHost.style.cssText = "position:fixed;inset:0;z-index:2147483000;pointer-events:none;overflow:visible;";
       (document.documentElement || document.body).appendChild(editorChromeHost);
-      var currentBridgeState = window.__anEditorChromeBridge;
-      if (currentBridgeState && typeof currentBridgeState === "object") {
-        currentBridgeState.host = editorChromeHost;
-      }
+      window.__anEditorChromeBridgeHost = editorChromeHost;
       return editorChromeHost;
     }
     function appendEditorChromeNode(node) {
@@ -988,9 +985,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
     }
     ensureEditorChromeHost();
-    window.__anEditorChromeBridge = {
-      host: editorChromeHost
-    };
+    window.__anEditorChromeBridge = true;
+    window.__anEditorChromeBridgeHost = editorChromeHost;
     var readOnly = __READ_ONLY__;
     var gridGroupBatchingEnabled = false;
     var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
