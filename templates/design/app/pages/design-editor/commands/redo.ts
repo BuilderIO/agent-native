@@ -225,6 +225,9 @@ export interface RedoArgs {
   replayPendingVisualStyleRuntime?: (
     edits: readonly PendingVisualStyleEdit[],
   ) => void;
+  setPendingVisualStyleBaselineResetRequest?: Dispatch<
+    SetStateAction<number | null>
+  >;
   performDeleteFiles: (
     filesToDelete: DesignFile[],
     options?: {
@@ -433,6 +436,7 @@ export function runRedo({
   setPendingLayerStateReplayRequest,
   setPendingLiveNonStyleEdits,
   setPendingTextRevertRequest,
+  setPendingVisualStyleBaselineResetRequest,
   setPendingVisualStyleEdits,
   setPendingVisualStyleRevertRequest,
   setOverviewSelectedScreenIds,
@@ -776,8 +780,9 @@ export function runRedo({
     if (replayPendingVisualStyleRuntime) {
       replayPendingVisualStyleRuntime(redoneTargets.map(({ edit }) => edit));
     } else {
+      const requestId = Date.now() + Math.random();
       setPendingVisualStyleRevertRequest({
-        requestId: Date.now() + Math.random(),
+        requestId,
         patches: redoneTargets.map(({ edit }) => ({
           screenId: edit.screenId,
           selector: edit.selector,
@@ -789,12 +794,12 @@ export function runRedo({
           interactionState: edit.interactionState,
         })),
       });
+      setPendingVisualStyleBaselineResetRequest?.(requestId);
     }
     setPendingVisualStyleEdits(nextPending);
-    // Bug fix — same stale-inspector-panel issue as handleUndo's style
-    // branch. Merge the redo's own style values (already applied to the
-    // DOM via setPendingVisualStyleRevertRequest above) into
-    // selectedElement.computedStyles.
+    // Keep the inspector cache in sync with the replay request. Runtime
+    // messages are asynchronous, so this is intentionally optimistic just
+    // like the forward live-style path.
     setSelectedElement((prev) => {
       if (!prev) return prev;
       const redoneTarget = redoneTargets.find(

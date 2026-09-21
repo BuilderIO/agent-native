@@ -6428,6 +6428,7 @@ export function DesignCanvas({
         selectorCandidates?: string[];
         nodeId?: string | null;
         routePath?: string;
+        interactionState?: string;
       },
     ) => {
       if (!screenId || targetScreenId !== screenId) return false;
@@ -6435,6 +6436,17 @@ export function DesignCanvas({
         !pendingVisualStyleRouteMatches(options ?? {}, liveRoutePathRef.current)
       ) {
         return false;
+      }
+      if (options?.interactionState) {
+        return sendInteractionStatePreviewStyle({
+          selector,
+          selectorCandidates: options.selectorCandidates,
+          nodeId: options.nodeId,
+          state: options.interactionState,
+          styles: { [property]: value },
+          routePath: options.routePath,
+          screenId,
+        });
       }
       return sendStyleChangeLinked(
         selector,

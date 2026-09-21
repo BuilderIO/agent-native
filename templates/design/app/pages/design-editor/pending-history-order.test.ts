@@ -172,6 +172,7 @@ describe("pending live history order", () => {
     const redoArgs = {
       ...undoArgs,
       setPendingTextRevertRequest: vi.fn(),
+      setPendingVisualStyleBaselineResetRequest: vi.fn(),
       setPendingVisualStyleRevertRequest: vi.fn(),
       replayPendingVisualStyleRuntime: vi.fn(),
     } as any;
@@ -200,5 +201,15 @@ describe("pending live history order", () => {
       "pending-live",
     ]);
     expect(redoOrderRef.current).toEqual([]);
+
+    const fallbackBaselineReset = vi.fn();
+    redoArgs.replayPendingVisualStyleRuntime = undefined;
+    redoArgs.setPendingVisualStyleBaselineResetRequest = fallbackBaselineReset;
+    redoArgs.pendingVisualStyleRedoStackRef.current = [
+      { edit: radius24Edit, revertStyles: { borderRadius: "0px" } },
+    ];
+    redoArgs.redoOrderRef.current = ["pending-style"];
+    runRedo(redoArgs);
+    expect(fallbackBaselineReset).toHaveBeenCalledWith(expect.any(Number));
   });
 });
