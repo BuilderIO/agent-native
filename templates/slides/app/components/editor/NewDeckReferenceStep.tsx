@@ -7,11 +7,10 @@ import {
   IconChevronDown,
   IconFileText,
   IconFileTypePdf,
-  IconLoader2,
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
@@ -39,13 +38,8 @@ import {
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
-import {
-  isDesignSystemSelectable,
-  resolveSelectableDesignSystemId,
-} from "@/lib/design-system-selection";
 import { cn } from "@/lib/utils";
 
-import type { DesignSystemIndexingStatus } from "../../../shared/design-system-validation";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
@@ -82,7 +76,6 @@ interface DesignSystemOption {
   id: string;
   title: string;
   isDefault?: boolean;
-  indexingStatus?: DesignSystemIndexingStatus;
 }
 
 interface NewDeckReferenceStepProps {
@@ -137,9 +130,7 @@ export function NewDeckReferenceStep({
   const t = useT();
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
-  >(() =>
-    resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
-  );
+  >(defaultDesignSystemId);
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
@@ -157,52 +148,21 @@ export function NewDeckReferenceStep({
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
-  const designSystemAutoRef = useRef(true);
-  const referenceDeckAutoRef = useRef(true);
-
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
   const sortedDecks = sortDecksByRecency(decks);
   const selectedReferenceDeck = selectedReferenceDeckId
     ? deckById.get(selectedReferenceDeckId)
     : undefined;
-  const selectedDesignSystem = selectedDesignSystemId
-    ? designSystems.find((ds) => ds.id === selectedDesignSystemId)
-    : undefined;
-  // Selecting one from the list below already disables non-ready rows; this
-  // also covers a system that starts re-indexing after it was selected.
-  const selectedDesignSystemUnavailable = Boolean(
-    selectedDesignSystem && !isDesignSystemSelectable(selectedDesignSystem),
-  );
-  const hasSelection = Boolean(
-    selectedDesignSystemId ||
-    selectedReferenceDeckId ||
-    selectedSource?.value.trim(),
-  );
 
   useEffect(() => {
     if (!open) return;
-    designSystemAutoRef.current = true;
-    referenceDeckAutoRef.current = true;
-    setSelectedDesignSystemId(null);
+    setSelectedDesignSystemId(defaultDesignSystemId);
     setSelectedReferenceDeckId(defaultReferenceDeckId);
     setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
   }, [open]);
-
-  useEffect(() => {
-    if (!open || !designSystemAutoRef.current) return;
-    setSelectedDesignSystemId(
-      resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
-    );
-  }, [open, designSystems, defaultDesignSystemId]);
-
-  useEffect(() => {
-    if (!open || !referenceDeckAutoRef.current) return;
-    setSelectedReferenceDeckId(defaultReferenceDeckId);
-    setReferenceDeckTouched(defaultReferenceDeckId !== null);
-  }, [open, decks, defaultReferenceDeckId]);
 
   useEffect(() => {
     if (open) setContinuing(false);
@@ -235,7 +195,7 @@ export function NewDeckReferenceStep({
   };
 
   const handleContinue = async () => {
-    if (busy || selectedDesignSystemUnavailable || !hasSelection) return;
+    if (busy) return;
     const trimmedSource =
       selectedSource && selectedSource.value.trim()
         ? { ...selectedSource, value: selectedSource.value.trim() }
@@ -376,38 +336,13 @@ export function NewDeckReferenceStep({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">{t("home.none")}</SelectItem>
-                  {designSystems.map((designSystem) => {
-                    const selectable = isDesignSystemSelectable(designSystem);
-                    return (
-                      <SelectItem
-                        key={designSystem.id}
-                        value={designSystem.id}
-                        disabled={!selectable}
-                      >
-                        <span className="flex items-center gap-1.5">
-                          {designSystem.title}
-                          {designSystem.indexingStatus === "indexing" && (
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                              <IconLoader2 className="size-3 animate-spin" />
-                              {t("home.designSystemIndexing")}
-                            </span>
-                          )}
-                          {designSystem.indexingStatus === "unavailable" && (
-                            <span className="text-xs text-muted-foreground">
-                              ({t("home.designSystemUnavailable")})
-                            </span>
-                          )}
-                        </span>
-                      </SelectItem>
-                    );
-                  })}
+                  {designSystems.map((designSystem) => (
+                    <SelectItem key={designSystem.id} value={designSystem.id}>
+                      {designSystem.title}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {selectedDesignSystemUnavailable && (
-                <p className="text-xs text-amber-500">
-                  {t("home.designSystemIndexingNotice")}
-                </p>
-              )}
             </div>
 
             <div className="grid gap-2">
@@ -642,12 +577,7 @@ export function NewDeckReferenceStep({
           type="button"
           onClick={() => void handleContinue()}
           aria-busy={busy}
-          disabled={
-            busy ||
-            selectedDesignSystemUnavailable ||
-            !hasSelection ||
-            Boolean(selectedSource && !selectedSource.value.trim())
-          }
+          disabled={busy || Boolean(selectedSource && !selectedSource.value.trim())}
         >
           {importing || continuing
             ? importingLabel

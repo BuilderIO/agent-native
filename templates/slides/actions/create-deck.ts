@@ -30,7 +30,6 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
-import { parseDesignSystemIndexingStatus } from "../shared/design-system-validation.js";
 import {
   ensureUniqueSlideIds,
   rebindCreativeContextSlideLabels,
@@ -115,25 +114,6 @@ function deckNavigationCommand(deckId: string): Record<string, string> {
     deckId,
     _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   };
-}
-
-/**
- * `list-design-systems` tells agents not to pass a non-'ready' id here, but an
- * agent can still race a status change or ignore that guidance — this is the
- * boundary that actually owns linking a design system, so it re-checks rather
- * than trusting the caller.
- */
-function assertDesignSystemReady(designSystemId: string, data: string): void {
-  const status = parseDesignSystemIndexingStatus(data);
-  if (status === "ready") return;
-  throw Object.assign(
-    new Error(
-      status === "indexing"
-        ? `Design system ${designSystemId} is still indexing and has no usable tokens/components yet. Wait for indexing to finish, or use a different design system.`
-        : `Design system ${designSystemId} is unavailable (indexing failed or its data could not be read). Choose a different design system.`,
-    ),
-    { statusCode: 409 },
-  );
 }
 
 export default defineAction({
@@ -310,15 +290,7 @@ export default defineAction({
 
     if (deckId) {
       if (designSystemId) {
-        const designSystemAccess = await assertAccess(
-          "design-system",
-          designSystemId,
-          "viewer",
-        );
-        assertDesignSystemReady(
-          designSystemId,
-          designSystemAccess.resource.data,
-        );
+        await assertAccess("design-system", designSystemId, "viewer");
       }
       // Update existing deck — requires editor access.
       await assertAccess("deck", deckId, "editor");
@@ -426,32 +398,10 @@ export default defineAction({
 
     let resolvedDesignSystemId = designSystemId;
     if (resolvedDesignSystemId) {
-      const designSystemAccess = await assertAccess(
-        "design-system",
-        resolvedDesignSystemId,
-        "viewer",
-      );
-      assertDesignSystemReady(
-        resolvedDesignSystemId,
-        designSystemAccess.resource.data,
-      );
+      await assertAccess("design-system", resolvedDesignSystemId, "viewer");
     } else {
-      const candidateDefaultId = await resolveDefaultDesignSystemId(ownerEmail);
-      if (candidateDefaultId) {
-        // An implicit default is a convenience, not an explicit request —
-        // fall back to no design system instead of failing deck creation
-        // outright when the caller's default happens to still be indexing.
-        const [defaultRow] = await db
-          .select({ data: schema.designSystems.data })
-          .from(schema.designSystems)
-          .where(eq(schema.designSystems.id, candidateDefaultId))
-          .limit(1);
-        resolvedDesignSystemId =
-          defaultRow &&
-          parseDesignSystemIndexingStatus(defaultRow.data) === "ready"
-            ? candidateDefaultId
-            : undefined;
-      }
+      resolvedDesignSystemId =
+        (await resolveDefaultDesignSystemId(ownerEmail)) ?? undefined;
     }
 
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
