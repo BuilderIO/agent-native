@@ -495,6 +495,7 @@ test.describe.serial("public visual edit", () => {
         await expect
           .poll(async () => (await heading.boundingBox())?.height ?? 0)
           .toBeGreaterThan((before?.height ?? 0) + 1);
+        expect(direct.mutationRequests).toEqual([]);
         await assertNoRuntimeErrors(direct);
       } finally {
         await direct.close();
