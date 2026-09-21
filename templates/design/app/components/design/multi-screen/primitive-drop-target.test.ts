@@ -477,6 +477,36 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     ).toMatchObject({ anchorNodeId: "first", placement: "after" });
   });
 
+  it("uses authored grid placement when resolving direct child anchors", () => {
+    const screen = {
+      ...flexScreen,
+      id: "grid-authored-position-screen",
+      content: flexScreen.content
+        .replace(
+          "display:flex;flex-direction:row",
+          "display:grid;grid-template-columns:[start] 100px [end] 200px;grid-template-rows:100px;gap:10px",
+        )
+        .replace(
+          'data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:50px;height:40px"',
+          'data-agent-native-node-id="first" data-an-primitive="rectangle" style="grid-column:2;grid-row:1;width:200px;height:100px"',
+        ),
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find((p) => p.nodeId === "parent")!;
+    expect(primitives.find((p) => p.nodeId === "first")).toMatchObject({
+      localLeft: 430,
+      localTop: 100,
+    });
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 425, y: 140 },
+        null,
+      ),
+    ).toMatchObject({ anchorNodeId: "first", placement: "before" });
+  });
+
   it("findAutoLayoutInsertionAnchor resolves 'before' the nearest child when the point sits in the leading padding", () => {
     const primitives = parsePrimitivesFromScreen(flexScreen);
     const parent = primitives.find((p) => p.nodeId === "parent")!;

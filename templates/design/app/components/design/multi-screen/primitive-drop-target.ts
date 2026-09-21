@@ -103,9 +103,6 @@ function computeAutoLayoutAxis(style: {
     return isRow ? "x" : "y";
   }
   if (style.display === "grid" || style.display === "inline-grid") {
-    if (style.gridAutoFlow.trim().split(/\s+/).includes("column")) {
-      return "y";
-    }
     const columns = gridTrackCount(style.gridTemplateColumns);
     return columns > 1 ? "x" : "y";
   }
@@ -132,6 +129,7 @@ function gridTrackCount(template: string): number {
   }
   flush();
   for (const track of tokens) {
+    if (/^\[[^\]]+\]$/.test(track)) continue;
     const repeatCount = track.match(/^repeat\(\s*(\d+)\s*,/i)?.[1];
     count += repeatCount ? Number(repeatCount) : 1;
   }
@@ -757,6 +755,7 @@ export function authoredElementPosition(
       const index = siblings.indexOf(cursor);
       const display = parentStyle.display;
       const isFlex = display === "flex" || display === "inline-flex";
+      const isGrid = display === "grid" || display === "inline-grid";
       const isRow =
         isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
       const gap = isFlex ? flexMainAxisGap(parent, isRow ? "x" : "y") : 0;
@@ -764,7 +763,37 @@ export function authoredElementPosition(
         if (isRow) x += inlineNumber(cursor, "marginLeft");
         else y += inlineNumber(cursor, "marginTop");
       }
-      if (index > 0) {
+      if (isGrid) {
+        const column = Number.parseInt(
+          (style.gridColumnStart || style.gridColumn || "").split("/")[0],
+          10,
+        );
+        const row = Number.parseInt(
+          (style.gridRowStart || style.gridRow || "").split("/")[0],
+          10,
+        );
+        const columns = parentStyle.gridTemplateColumns
+          .trim()
+          .split(/\s+/)
+          .filter((track) => !/^\[[^\]]+\]$/.test(track));
+        const rows = parentStyle.gridTemplateRows
+          .trim()
+          .split(/\s+/)
+          .filter((track) => !/^\[[^\]]+\]$/.test(track));
+        const gapX = cssPixelNumber(parentStyle.columnGap || parentStyle.gap);
+        const gapY = cssPixelNumber(parentStyle.rowGap || parentStyle.gap);
+        const trackSize = (track: string) => cssPixelNumber(track);
+        if (column > 1) {
+          x += columns
+            .slice(0, column - 1)
+            .reduce((sum, track) => sum + trackSize(track) + gapX, 0);
+        }
+        if (row > 1) {
+          y += rows
+            .slice(0, row - 1)
+            .reduce((sum, track) => sum + trackSize(track) + gapY, 0);
+        }
+      } else if (index > 0) {
         const previous = siblings.slice(0, index);
         for (const sibling of previous as Element[]) {
           if (isOutOfFlow(sibling)) continue;
