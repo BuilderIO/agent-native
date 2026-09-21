@@ -17027,6 +17027,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       var sourceColumn = gridItemAxisPlacement(el, sourceGridLayout, "column");
       var sourceRow = gridItemAxisPlacement(el, sourceGridLayout, "row");
+      var sourceHasAuthoredPlacement =
+        sourceColumn.authoredStart !== null || sourceRow.authoredStart !== null;
       var columnStart = sourceColumn.start ?? NaN;
       var columnSpan = sourceColumn.span;
       var columnEnd = columnStart + columnSpan;
@@ -17163,6 +17165,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           });
         };
         targetDisplacements.forEach(function (displaced) {
+          var displacedColumnPlacement = gridItemAxisPlacement(
+            displaced,
+            targetGridLayout,
+            "column",
+          );
+          var displacedRowPlacement = gridItemAxisPlacement(
+            displaced,
+            targetGridLayout,
+            "row",
+          );
+          var displacedHasAuthoredPlacement =
+            displacedColumnPlacement.authoredStart !== null ||
+            displacedRowPlacement.authoredStart !== null;
+          if (!displacedHasAuthoredPlacement) return;
           var displacedRange = gridTrackRangeForRect(
             displaced.getBoundingClientRect(),
             targetGridLayout!.columnBounds,
@@ -17255,14 +17271,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           displaced.style.gridRow = `${displacementPlacement.row} / ${displacementPlacement.rowEnd}`;
         });
       }
-      el.style.gridColumn = `${target.gridCell.column + 1} / ${target.gridCell.column + 1 + columnSpan}`;
-      el.style.gridRow = `${target.gridCell.row + 1} / ${target.gridCell.row + 1 + rowSpan}`;
-      target.gridPlacement = {
-        column: target.gridCell.column + 1,
-        columnEnd: target.gridCell.column + 1 + columnSpan,
-        row: target.gridCell.row + 1,
-        rowEnd: target.gridCell.row + 1 + rowSpan,
-      };
+      if (sourceHasAuthoredPlacement) {
+        el.style.gridColumn = `${target.gridCell.column + 1} / ${target.gridCell.column + 1 + columnSpan}`;
+        el.style.gridRow = `${target.gridCell.row + 1} / ${target.gridCell.row + 1 + rowSpan}`;
+        target.gridPlacement = {
+          column: target.gridCell.column + 1,
+          columnEnd: target.gridCell.column + 1 + columnSpan,
+          row: target.gridCell.row + 1,
+          rowEnd: target.gridCell.row + 1 + rowSpan,
+        };
+      }
     }
     // Must run BEFORE the DOM move below: the delta math reads the member's
     // CURRENT containing block via offsetParent. Called here (the single
