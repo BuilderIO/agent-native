@@ -9928,11 +9928,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // Alpine x-show toggling several siblings in one microtask). Collapse any
   // number of triggers within a frame into a single refreshOverlays() call.
   var refreshOverlaysScheduled = false;
+  var refreshOverlaysGeneration = 0;
   function scheduleRefreshOverlays(): void {
     if (refreshOverlaysScheduled) return;
     refreshOverlaysScheduled = true;
+    var generation = refreshOverlaysGeneration;
     window.requestAnimationFrame(function () {
       refreshOverlaysScheduled = false;
+      if (generation !== refreshOverlaysGeneration) return;
       refreshOverlays();
     });
   }
@@ -20716,6 +20719,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     function cleanupMoveDrag() {
       cancelAutoLayoutTargetResolution();
+      refreshOverlaysGeneration += 1;
+      refreshOverlaysScheduled = false;
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onMoveKeyDown, true);

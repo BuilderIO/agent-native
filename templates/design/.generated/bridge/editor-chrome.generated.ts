@@ -30,9 +30,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     mod
   ));
 
-  // ../../../../../Users/steve/Projects/builder/agent-native/framework/node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
+  // ../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
   var require_resolve_uri_umd = __commonJS({
-    "../../../../../Users/steve/Projects/builder/agent-native/framework/node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
+    "../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
       (function(global, factory) {
         typeof exports === "object" && typeof module !== "undefined" ? module.exports = factory() : typeof define === "function" && define.amd ? define(factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, global.resolveURI = factory());
       })(exports, (function() {
@@ -617,7 +617,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
   }
 
-  // ../../../../../Users/steve/Projects/builder/agent-native/framework/node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
+  // ../../node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
   var comma = ",".charCodeAt(0);
   var semicolon = ";".charCodeAt(0);
   var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -716,7 +716,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     return a[0] - b[0];
   }
 
-  // ../../../../../Users/steve/Projects/builder/agent-native/framework/node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
+  // ../../node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
   var import_resolve_uri = __toESM(require_resolve_uri_umd(), 1);
   function stripFilename(path) {
     if (!path) return "";
@@ -7432,11 +7432,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       syncOverlayObservers();
     }
     var refreshOverlaysScheduled = false;
+    var refreshOverlaysGeneration = 0;
     function scheduleRefreshOverlays() {
       if (refreshOverlaysScheduled) return;
       refreshOverlaysScheduled = true;
+      var generation = refreshOverlaysGeneration;
       window.requestAnimationFrame(function() {
         refreshOverlaysScheduled = false;
+        if (generation !== refreshOverlaysGeneration) return;
         refreshOverlays();
       });
     }
@@ -14564,6 +14567,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function cleanupMoveDrag() {
         cancelAutoLayoutTargetResolution();
+        refreshOverlaysGeneration += 1;
+        refreshOverlaysScheduled = false;
         document.removeEventListener(events.move, onMove, true);
         document.removeEventListener(events.up, onUp, true);
         document.removeEventListener("keydown", onMoveKeyDown, true);

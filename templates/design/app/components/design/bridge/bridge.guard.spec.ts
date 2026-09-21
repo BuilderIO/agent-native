@@ -14160,6 +14160,9 @@ it("coalesces free-drag target and overlay work", () => {
 
   const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
   expect(pointerUp).toContain("autoLayoutInsertionTargetForPoint(");
+  expect(pointerUp).toContain(
+    "currentAutoLayoutTarget = finalAutoLayoutTarget;",
+  );
 });
 
 it("snapshots drag modifiers before queued target resolution", () => {
