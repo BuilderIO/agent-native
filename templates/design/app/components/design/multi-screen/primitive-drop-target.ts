@@ -103,9 +103,6 @@ function computeAutoLayoutAxis(style: {
     return isRow ? "x" : "y";
   }
   if (style.display === "grid" || style.display === "inline-grid") {
-    if (style.gridAutoFlow.trim().split(/\s+/).includes("column")) {
-      return "y";
-    }
     const columns = gridTrackCount(style.gridTemplateColumns);
     return columns > 1 ? "x" : "y";
   }
@@ -159,9 +156,36 @@ function gridTracks(template: string): string[] {
   });
 }
 
+function gridTrackPixels(
+  tracks: string[],
+  available: number,
+  gap: number,
+): number[] {
+  const fixed = tracks.map((track) => {
+    const px = cssPixelNumber(track);
+    if (px) return { size: px, fr: 0 };
+    const fr = track.match(/(?:^|,)\s*(\d+(?:\.\d+)?)fr/);
+    return { size: 0, fr: fr ? Number(fr[1]) : 0 };
+  });
+  const remaining = Math.max(
+    0,
+    available -
+      gap * Math.max(0, tracks.length - 1) -
+      fixed.reduce((sum, item) => sum + item.size, 0),
+  );
+  const frTotal = fixed.reduce((sum, item) => sum + item.fr, 0);
+  return fixed.map(
+    (item) => item.size || (frTotal ? (remaining * item.fr) / frTotal : 0),
+  );
+}
+
 function gridLine(template: string, value: string, fallback: number): number {
   const numeric = Number.parseInt(value, 10);
-  if (Number.isFinite(numeric)) return numeric;
+  if (Number.isFinite(numeric)) {
+    return numeric < 0
+      ? Math.max(1, gridTrackCount(template) + numeric + 2)
+      : numeric;
+  }
   const match = value.match(/^(?:[\w-]+\s+)?([\w-]+)$/)?.[1];
   if (!match) return fallback;
   for (const group of template.matchAll(/\[([^\]]+)\]/g)) {
@@ -215,12 +239,20 @@ export function findAutoLayoutInsertionAnchor(
         ? sibling.localLeft + sibling.localWidth / 2
         : sibling.localTop + sibling.localHeight / 2;
     const pointer = axis === "x" ? localPoint.x : localPoint.y;
-    const distance = container.autoLayoutWrapped
-      ? Math.hypot(
-          localPoint.x - (sibling.localLeft + sibling.localWidth / 2),
-          localPoint.y - (sibling.localTop + sibling.localHeight / 2),
-        )
-      : Math.abs(pointer - center);
+    const gridHasRows =
+      axis === "x" &&
+      screenPrimitives.some(
+        (candidate) =>
+          candidate.parentNodeId === container.nodeId &&
+          candidate.localTop !== sibling.localTop,
+      );
+    const distance =
+      container.autoLayoutWrapped || gridHasRows
+        ? Math.hypot(
+            localPoint.x - (sibling.localLeft + sibling.localWidth / 2),
+            localPoint.y - (sibling.localTop + sibling.localHeight / 2),
+          )
+        : Math.abs(pointer - center);
     if (distance < bestDistance) {
       bestDistance = distance;
       best = sibling;
@@ -833,16 +865,25 @@ export function authoredElementPosition(
         );
         const gapX = cssPixelNumber(parentStyle.columnGap || parentStyle.gap);
         const gapY = cssPixelNumber(parentStyle.rowGap || parentStyle.gap);
-        const trackSize = (track: string) => cssPixelNumber(track);
+        const columnSizes = gridTrackPixels(
+          columns,
+          authoredElementSize(parent, "x", cache, visiting),
+          gapX,
+        );
+        const rowSizes = gridTrackPixels(
+          rows,
+          authoredElementSize(parent, "y", cache, visiting),
+          gapY,
+        );
         if (column > 1) {
           x += columns
             .slice(0, column - 1)
-            .reduce((sum, track) => sum + trackSize(track) + gapX, 0);
+            .reduce((sum, _track, index) => sum + columnSizes[index] + gapX, 0);
         }
         if (row > 1) {
           y += rows
             .slice(0, row - 1)
-            .reduce((sum, track) => sum + trackSize(track) + gapY, 0);
+            .reduce((sum, _track, index) => sum + rowSizes[index] + gapY, 0);
         }
       } else if (index > 0) {
         const previous = siblings.slice(0, index);
