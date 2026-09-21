@@ -114,24 +114,7 @@ function computeAutoLayoutAxis(style: {
 
 function gridTrackCount(template: string): number {
   let count = 0;
-  let token = "";
-  let depth = 0;
-  const tokens: string[] = [];
-  const flush = () => {
-    if (token) tokens.push(token);
-    token = "";
-  };
-  for (const character of template.trim()) {
-    if (/\s/.test(character) && depth === 0) {
-      flush();
-      continue;
-    }
-    token += character;
-    if (character === "(") depth += 1;
-    else if (character === ")") depth = Math.max(0, depth - 1);
-  }
-  flush();
-  for (const track of tokens) {
+  for (const track of gridTemplateTokens(template)) {
     if (/^\[[^\]]+\]$/.test(track)) continue;
     const repeat = track.match(/^repeat\(\s*(\d+)\s*,([\s\S]+)\)$/i);
     count += repeat ? Number(repeat[1]) * gridTrackCount(repeat[2]) : 1;
@@ -139,11 +122,34 @@ function gridTrackCount(template: string): number {
   return count;
 }
 
+function gridTemplateTokens(template: string): string[] {
+  const tokens: string[] = [];
+  let token = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  const flush = () => {
+    if (token) tokens.push(token);
+    token = "";
+  };
+  for (const character of template.trim()) {
+    if (/\s/.test(character) && parenDepth === 0 && bracketDepth === 0) {
+      flush();
+      continue;
+    }
+    token += character;
+    if (character === "(") parenDepth += 1;
+    else if (character === ")") parenDepth = Math.max(0, parenDepth - 1);
+    else if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+  }
+  flush();
+  return tokens;
+}
+
 function gridTracks(template: string): string[] {
-  const tokens = template
-    .trim()
-    .split(/\s+(?![^()]*\))/)
-    .filter((track) => track && !/^\[[^\]]+\]$/.test(track));
+  const tokens = gridTemplateTokens(template).filter(
+    (track) => track && !/^\[[^\]]+\]$/.test(track),
+  );
   return tokens.flatMap((track) => {
     const repeat = track.match(/^repeat\(\s*(\d+)\s*,([\s\S]+)\)$/i);
     if (!repeat) return [track];

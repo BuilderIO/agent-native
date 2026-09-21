@@ -444,6 +444,20 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     ).toBe("x");
   });
 
+  it("keeps multi-name bracket groups as one grid line", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:[content-start sidebar-start] 1fr 1fr [content-end]",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("x");
+  });
+
   it("keeps nested minmax functions inside a repeat track", () => {
     const screen = {
       ...flexScreen,
