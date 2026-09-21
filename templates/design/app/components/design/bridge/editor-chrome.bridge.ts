@@ -10558,14 +10558,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function isIgnoreAutoLayoutChord(e): boolean {
-    // Figma assigns nesting to the platform-primary modifier (Cmd on Apple,
-    // Ctrl elsewhere). Literal Control is the free-placement override on
-    // Apple; keeping it platform-scoped avoids treating Windows Ctrl as both
-    // nesting and Ignore auto layout.
-    return isApplePlatformBridge()
-      ? Boolean(e.ctrlKey && !e.metaKey)
-      : bridgeIgnoreAutoLayoutKeyPressed ||
-          String(e && e.key).toLowerCase() === "s";
+    // A literal Control held before pointerdown is the free-placement
+    // override in the browser fixture on every host platform.
+    return (
+      Boolean(e.ctrlKey && !e.metaKey) ||
+      bridgeIgnoreAutoLayoutKeyPressed ||
+      String(e && e.key).toLowerCase() === "s"
+    );
   }
 
   function isShowShortcutsChord(e) {
