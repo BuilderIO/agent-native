@@ -8106,7 +8106,8 @@ function applyUnwrap(
     attributeValue(element, "data-agent-native-group-origin-top") ?? undefined,
   );
   const shouldRebase =
-    wrapperStyle.position === "absolute" &&
+    (wrapperStyle.position === "absolute" ||
+      wrapperStyle.position === "relative") &&
     (wrapperLeft !== null || wrapperTop !== null);
   const shouldRebaseMeasuredFlowGroup =
     !shouldRebase && (measuredGroupLeft !== null || measuredGroupTop !== null);
