@@ -177,12 +177,12 @@ function gridTrackPixels(
     0,
     available -
       gap * Math.max(0, tracks.length - 1) -
-      fixed.reduce((sum, item) => sum + item.size, 0),
+      fixed.reduce((sum, item) => sum + (item.fr ? 0 : item.size), 0),
   );
   const frTotal = fixed.reduce((sum, item) => sum + item.fr, 0);
   return fixed.map((item) =>
     item.fr
-      ? item.size + (frTotal ? (remaining * item.fr) / frTotal : 0)
+      ? Math.max(item.size, frTotal ? (remaining * item.fr) / frTotal : 0)
       : item.size,
   );
 }
