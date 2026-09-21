@@ -7868,7 +7868,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return isApplePlatformBridge() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
     }
     function isIgnoreAutoLayoutChord(e) {
-      return Boolean(e.ctrlKey && !e.metaKey) || bridgeIgnoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
+      return isApplePlatformBridge() ? Boolean(e.ctrlKey && !e.metaKey) : bridgeIgnoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
     }
     function isShowShortcutsChord(e) {
       if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
