@@ -22422,6 +22422,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
     stopNativeInteraction(e);
     clearGridProjectionCaches();
+    // Consume any host handoff at pointerdown; the synthetic event carries
+    // the same value so async postMessage delivery cannot win the race.
+    hostIgnoreAutoLayoutAtPointerDown = false;
     // A new interaction starting is unambiguous proof the previous gesture is
     // over — a stale post-commit revert from it must never fire against
     // whatever this new one turns out to be.
@@ -22563,7 +22566,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           clientX: startX,
           clientY: startY,
           ignoreAutoLayout:
-            isIgnoreAutoLayoutChord(ev) || (!!ev.ctrlKey && !ev.metaKey),
+            Boolean(
+              (
+                e as MouseEvent & {
+                  __agentNativeIgnoreAutoLayout?: boolean;
+                }
+              ).__agentNativeIgnoreAutoLayout,
+            ) || isIgnoreAutoLayoutChord(ev),
         });
         return;
       }
@@ -22573,7 +22582,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         clientX: startX,
         clientY: startY,
         ignoreAutoLayout:
-          isIgnoreAutoLayoutChord(ev) || (!!ev.ctrlKey && !ev.metaKey),
+          Boolean(
+            (
+              e as MouseEvent & {
+                __agentNativeIgnoreAutoLayout?: boolean;
+              }
+            ).__agentNativeIgnoreAutoLayout,
+          ) || isIgnoreAutoLayoutChord(ev),
       });
     }
     function onUp(ev) {
@@ -22929,24 +22944,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // host document's S modifier so a pre-pointerdown shortcut reaches the
   // same drag state as an iframe-focused keydown.
   try {
-    window.parent.document.addEventListener(
-      "keydown",
-      function (e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
-          bridgeIgnoreAutoLayoutKeyPressed = true;
-        }
-      },
-      true,
-    );
-    window.parent.document.addEventListener(
-      "keyup",
-      function (e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
-          bridgeIgnoreAutoLayoutKeyPressed = false;
-        }
-      },
-      true,
-    );
+    var parentDocument = window.parent.document as Document & {
+      __agentNativeDesignModifierListeners?: boolean;
+    };
+    if (!parentDocument.__agentNativeDesignModifierListeners) {
+      parentDocument.__agentNativeDesignModifierListeners = true;
+      parentDocument.addEventListener(
+        "keydown",
+        function (e) {
+          if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+            bridgeIgnoreAutoLayoutKeyPressed = true;
+          }
+        },
+        true,
+      );
+      parentDocument.addEventListener(
+        "keyup",
+        function (e) {
+          if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+            bridgeIgnoreAutoLayoutKeyPressed = false;
+          }
+        },
+        true,
+      );
+    }
   } catch (_err) {
     // coercion-ok: cross-origin previews intentionally cannot inspect the host document.
     void _err;
@@ -22989,6 +23010,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     window.setTimeout(function () {
       if (!activeDragCancel) {
         bridgeIgnoreAutoLayoutKeyPressed = false;
+        hostIgnoreAutoLayoutAtPointerDown = false;
       }
     }, 0);
   });

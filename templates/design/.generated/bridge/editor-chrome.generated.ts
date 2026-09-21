@@ -15896,6 +15896,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
       stopNativeInteraction(e);
       clearGridProjectionCaches();
+      hostIgnoreAutoLayoutAtPointerDown = false;
       pendingMoveCommitRevert = null;
       if (e.button !== 0) return;
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
@@ -15977,7 +15978,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           startMove(ev, groupGestureMember, {
             clientX: startX,
             clientY: startY,
-            ignoreAutoLayout: isIgnoreAutoLayoutChord(ev) || !!ev.ctrlKey && !ev.metaKey
+            ignoreAutoLayout: Boolean(
+              e.__agentNativeIgnoreAutoLayout
+            ) || isIgnoreAutoLayoutChord(ev)
           });
           return;
         }
@@ -15986,7 +15989,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         startMove(ev, void 0, {
           clientX: startX,
           clientY: startY,
-          ignoreAutoLayout: isIgnoreAutoLayoutChord(ev) || !!ev.ctrlKey && !ev.metaKey
+          ignoreAutoLayout: Boolean(
+            e.__agentNativeIgnoreAutoLayout
+          ) || isIgnoreAutoLayoutChord(ev)
         });
       }
       function onUp(ev) {
@@ -16235,24 +16240,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       true
     );
     try {
-      window.parent.document.addEventListener(
-        "keydown",
-        function(e) {
-          if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
-            bridgeIgnoreAutoLayoutKeyPressed = true;
-          }
-        },
-        true
-      );
-      window.parent.document.addEventListener(
-        "keyup",
-        function(e) {
-          if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
-            bridgeIgnoreAutoLayoutKeyPressed = false;
-          }
-        },
-        true
-      );
+      var parentDocument = window.parent.document;
+      if (!parentDocument.__agentNativeDesignModifierListeners) {
+        parentDocument.__agentNativeDesignModifierListeners = true;
+        parentDocument.addEventListener(
+          "keydown",
+          function(e) {
+            if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+              bridgeIgnoreAutoLayoutKeyPressed = true;
+            }
+          },
+          true
+        );
+        parentDocument.addEventListener(
+          "keyup",
+          function(e) {
+            if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+              bridgeIgnoreAutoLayoutKeyPressed = false;
+            }
+          },
+          true
+        );
+      }
     } catch (_err) {
       void _err;
     }
@@ -16282,6 +16291,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.setTimeout(function() {
         if (!activeDragCancel) {
           bridgeIgnoreAutoLayoutKeyPressed = false;
+          hostIgnoreAutoLayoutAtPointerDown = false;
         }
       }, 0);
     });

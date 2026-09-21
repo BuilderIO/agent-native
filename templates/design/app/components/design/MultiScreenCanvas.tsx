@@ -8213,22 +8213,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           altKey: boolean;
           metaKey: boolean;
           ctrlKey: boolean;
+          ignoreAutoLayout?: boolean;
         },
         buttons: number,
       ) => {
-        target.dispatchEvent(
-          new MouseEvent(type, {
-            clientX: point.x,
-            clientY: point.y,
-            shiftKey: source.shiftKey,
-            altKey: source.altKey,
-            metaKey: source.metaKey,
-            ctrlKey: source.ctrlKey,
-            buttons,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
+        const event = new MouseEvent(type, {
+          clientX: point.x,
+          clientY: point.y,
+          shiftKey: source.shiftKey,
+          altKey: source.altKey,
+          metaKey: source.metaKey,
+          ctrlKey: source.ctrlKey,
+          buttons,
+          bubbles: true,
+          cancelable: true,
+        });
+        Object.defineProperty(event, "__agentNativeIgnoreAutoLayout", {
+          configurable: true,
+          value: source.ignoreAutoLayout === true,
+        });
+        target.dispatchEvent(event);
       };
 
       const pressModifiers = {
@@ -8241,15 +8245,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const startBridgeDrag = () => {
         if (bridgeDragStarted) return;
         bridgeDragStarted = true;
+        const ignoreAutoLayout =
+          crossScreenIgnoreAutoLayoutRef.current ||
+          crossScreenControlPressedRef.current ||
+          (isApplePlatform() &&
+            pressModifiers.ctrlKey &&
+            !pressModifiers.metaKey);
         iframe.contentWindow?.postMessage(
           {
             type: "agent-native:drag-modifiers",
-            ignoreAutoLayout:
-              crossScreenIgnoreAutoLayoutRef.current ||
-              crossScreenControlPressedRef.current ||
-              (isApplePlatform() &&
-                pressModifiers.ctrlKey &&
-                !pressModifiers.metaKey),
+            ignoreAutoLayout,
           },
           "*",
         );
@@ -8257,7 +8262,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           selectionOverlay,
           "mousedown",
           toIframePoint(e.clientX, e.clientY),
-          pressModifiers,
+          { ...pressModifiers, ignoreAutoLayout },
           1,
         );
       };
