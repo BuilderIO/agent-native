@@ -616,11 +616,16 @@ function authoredElementSize(
   return resolved;
 }
 
-function hasUnsupportedGridAncestor(element: Element) {
+function hasNestedGridAncestor(element: Element) {
   let ancestor = element.parentElement;
   while (ancestor) {
     const display = (ancestor as HTMLElement).style.display;
-    if (display === "grid" || display === "inline-grid") return true;
+    if (
+      (display === "grid" || display === "inline-grid") &&
+      ancestor !== element.parentElement
+    ) {
+      return true;
+    }
     ancestor = ancestor.parentElement;
   }
   return false;
@@ -855,10 +860,9 @@ export function parsePrimitivesFromScreen(
     nodes.forEach((element) => {
       const nodeId = element.getAttribute("data-agent-native-node-id");
       if (!nodeId) return;
-      // ponytail: grid placement stays in the live bridge; omit descendants
-      // here until authored track parsing exists instead of returning the
-      // entire grid bounds as a false hit target.
-      if (hasUnsupportedGridAncestor(element)) return;
+      // Keep direct grid children as insertion anchors, but leave deeper
+      // descendants to the live bridge until authored track parsing exists.
+      if (hasNestedGridAncestor(element)) return;
 
       const htmlElement = element as HTMLElement;
       const style = htmlElement.style;

@@ -444,6 +444,29 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     ).toBe("y");
   });
 
+  it("keeps direct grid children as before/after insertion anchors", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:repeat(2, minmax(0, 1fr))",
+      ),
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find((p) => p.nodeId === "parent")!;
+    expect(primitives.map((p) => p.nodeId)).toEqual([
+      "parent",
+      "first",
+      "second",
+    ]);
+    expect(
+      findAutoLayoutInsertionAnchor(parent, primitives, { x: 310, y: 135 }, null),
+    ).toMatchObject({ anchorNodeId: "first", placement: "before" });
+    expect(
+      findAutoLayoutInsertionAnchor(parent, primitives, { x: 375, y: 135 }, null),
+    ).toMatchObject({ anchorNodeId: "first", placement: "after" });
+  });
+
   it("findAutoLayoutInsertionAnchor resolves 'before' the nearest child when the point sits in the leading padding", () => {
     const primitives = parsePrimitivesFromScreen(flexScreen);
     const parent = primitives.find((p) => p.nodeId === "parent")!;
