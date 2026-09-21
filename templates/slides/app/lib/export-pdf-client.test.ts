@@ -287,11 +287,15 @@ describe("exportDeckAsPdf", () => {
       }
       return querySelectorAll(selector);
     });
+    let releaseFirstText!: (cssText: string) => void;
     const fetchMock = vi.fn((href: string) => {
       if (href.endsWith("Geist")) {
         return Promise.resolve({
           ok: true,
-          text: async () => fontCss,
+          text: () =>
+            new Promise<string>((resolve) => {
+              releaseFirstText = resolve;
+            }),
         });
       }
       controller.abort();
@@ -310,6 +314,9 @@ describe("exportDeckAsPdf", () => {
         { signal: controller.signal },
       ),
     ).rejects.toThrow();
+    releaseFirstText(fontCss);
+    await Promise.resolve();
+    await Promise.resolve();
     expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
   });
 

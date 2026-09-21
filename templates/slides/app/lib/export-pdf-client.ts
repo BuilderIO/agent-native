@@ -291,6 +291,7 @@ async function exposeGoogleFontStylesheetsForPdf(
           }
           const cssText = await response.text();
           if (!cssText.includes("@font-face")) return;
+          throwIfExportAborted(signal);
 
           const style = document.createElement("style");
           style.dataset.pdfExportFontFaces = "true";
