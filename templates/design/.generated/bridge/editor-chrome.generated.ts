@@ -907,6 +907,7 @@ export const editorChromeBridgeScript: string = `"use strict";
   (function() {
     var readOnly = __READ_ONLY__;
     var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
+    var interactionMode = false;
     var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
     var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
     var designCanvasContentOffsetX = Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
@@ -16118,6 +16119,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "keydown",
       function(e) {
+        if (interactionMode) return;
         if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
           bridgeIgnoreAutoLayoutKeyPressed = true;
         }
@@ -16913,7 +16915,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       true
     );
     function handleShieldPointerMove(e) {
-      if (readOnly) return;
+      if (readOnly || interactionMode) return;
       stopNativeInteraction(e);
       lastHoverClientPoint = { x: e.clientX, y: e.clientY };
       hoveredEl = resolveHoverTarget(
@@ -17117,6 +17119,25 @@ export const editorChromeBridgeScript: string = `"use strict";
         } else {
           setSelectionOverlayResizeChromeVisible(true);
           shieldOverlay.style.pointerEvents = "auto";
+        }
+        return;
+      }
+      if (e.data.type === "set-interaction-mode") {
+        var nextInteractionMode = e.data.interact === true;
+        if (interactionMode === nextInteractionMode) return;
+        interactionMode = nextInteractionMode;
+        if (interactionMode) {
+          clearPendingShieldDrag();
+          cancelActiveBridgeDrag();
+          if (activeTextEditEl) activeTextEditEl.blur();
+          setSelectionOverlayResizeChromeVisible(false);
+          highlightOverlay.style.display = "none";
+          marqueeSelectionOverlay.style.display = "none";
+          shieldOverlay.style.pointerEvents = "none";
+        } else {
+          setSelectionOverlayResizeChromeVisible(!readOnly);
+          shieldOverlay.style.pointerEvents = "auto";
+          scheduleRuntimeLayerSnapshot();
         }
         return;
       }

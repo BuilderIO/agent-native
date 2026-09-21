@@ -326,6 +326,26 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain('type: "request-runtime-layer-snapshot"');
   });
 
+  it("keeps localhost bridge identity stable across Interact mode changes", () => {
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain("const includeLiveEditEditorChrome = !readOnly;");
+    expect(canvas).toContain('type: "set-interaction-mode"');
+    expect(canvas).toContain("interact: interactModeRef.current");
+    expect(canvas).not.toContain(
+      "const includeLiveEditEditorChrome = !interactMode && !readOnly;",
+    );
+    const bridge = readFileSync(
+      "app/components/design/bridge/editor-chrome.bridge.ts",
+      "utf8",
+    );
+    expect(bridge).toContain('e.data.type === "set-interaction-mode"');
+    expect(bridge).toContain('shieldOverlay.style.pointerEvents = "none"');
+    expect(bridge).toContain("scheduleRuntimeLayerSnapshot()");
+  });
+
   it("keeps a focused localhost screen on its live route when returning to Edit", () => {
     const focusedCanvas = source.slice(
       source.lastIndexOf("<DesignCanvas"),

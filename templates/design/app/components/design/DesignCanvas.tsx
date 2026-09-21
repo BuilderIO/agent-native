@@ -2225,13 +2225,10 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [boardSurface, contentKey, runtimeLayerSnapshotEnabled, screenId],
   );
-  // Keep the installed gesture script identical between overview and focused
-  // mode. The live flags are posted below; baking `isEmbeddedFrame` into the
-  // script changed the bridge key during responsive Interact and defeated the
-  // registration handoff cache, forcing an avoidable iframe navigation.
-  // interactMode remains baked: un-baking its first-paint safety flag made the
-  // responsive iframe render blank in live verification. The live message
-  // below is additive; it does not replace the correct initial script.
+  // Keep the installed gesture script identical between Edit and Interact.
+  // Interaction ownership is switched in-place after the bridge handshake;
+  // baking the mode into this script changes the live bridge key and reloads
+  // the running app.
   const embeddedGestureBridgeForCurrentState = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
@@ -2239,8 +2236,8 @@ export function DesignCanvas({
         "false",
       )
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
-        .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
-    [interactMode],
+        .replace("__EDITING_SAFETY_ENABLED__", "true"),
+    [],
   );
   // srcdoc is rebuilt per document, so unlike the keyed live-edit bundle above
   // it can carry the real first-paint value: forwarding that arrives only by
@@ -2255,7 +2252,7 @@ export function DesignCanvas({
         .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
     [interactMode, isEmbeddedFrame],
   );
-  const includeLiveEditEditorChrome = !interactMode && !readOnly;
+  const includeLiveEditEditorChrome = !readOnly;
   const liveEditBridgeScript = useMemo(
     () =>
       (includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +
@@ -5432,6 +5429,27 @@ export function DesignCanvas({
     // Only re-run when editMode changes; iframe identity is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editMode]);
+
+  // Interact is a runtime ownership change, not a new live document. Keep the
+  // localhost iframe and bridge registration stable, then hand pointer input
+  // to the app (or back to the editor shield) in place.
+  const interactModeRef = useRef(interactMode);
+  interactModeRef.current = interactMode;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendInteractionMode() {
+      iframe!.contentWindow?.postMessage(
+        { type: "set-interaction-mode", interact: interactModeRef.current },
+        "*",
+      );
+    }
+    sendInteractionMode();
+    iframe.addEventListener("load", sendInteractionMode);
+    return () => iframe.removeEventListener("load", sendInteractionMode);
+    // Only re-run when interaction ownership changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interactMode]);
 
   /**
    * Trigger immediate text-editing mode for a specific node inside the iframe,
