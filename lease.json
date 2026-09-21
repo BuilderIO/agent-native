@@ -2,10 +2,10 @@
   "pr": 5572,
   "owner_thread": "01a0c5ff-7e3b-7190-bf4b-586230231a43",
   "owner_host": "local",
-  "version": 5,
+  "version": 6,
   "claimed_at": "2026-09-21T22:32:17Z",
-  "renewed_at": "2026-09-21T22:39:49Z",
-  "expires_at": "2026-09-21T22:54:49Z",
+  "renewed_at": "2026-09-21T22:41:48Z",
+  "expires_at": "2026-09-21T22:56:48Z",
   "released": false,
   "legacy_observed_version": "absent",
   "legacy_retired": true
