@@ -62,6 +62,21 @@ it("reuses canonical preparation for unchanged screen content", () => {
   expect(second).toBe(first);
 });
 
+it("does not retain an oversized screen in the canonical cache", () => {
+  const content = `<main data-agent-native-node-id="screen">${" ".repeat(256 * 1024)}<button data-agent-native-node-id="cta">Continue</button></main>`;
+
+  const first = prepareCanonicalSourceContent(content, {
+    fileId: "oversized-screen-cache",
+    fileType: "html",
+  });
+  const second = prepareCanonicalSourceContent(content, {
+    fileId: "oversized-screen-cache",
+    fileType: "html",
+  });
+
+  expect(second).not.toBe(first);
+});
+
 it("keeps an identity migration's raw bytes as the CAS base for a follow-up edit", () => {
   const raw = "<main><button>Listen now</button></main>";
   const canonical = prepareCanonicalSourceContent(raw, {

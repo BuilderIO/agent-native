@@ -19,11 +19,28 @@ export interface CanonicalSourceContentResult {
   nodeIdMap: ReadonlyMap<string, string>;
 }
 
-const CANONICAL_SOURCE_CACHE_MAX = 512;
+const CANONICAL_SOURCE_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+const CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES = 256 * 1024;
+const CANONICAL_SOURCE_CACHE_MAX_NODES = 32_768;
 const canonicalSourceCache = new Map<
   string,
-  { content: string; result: CanonicalSourceContentResult }
+  {
+    content: string;
+    result: CanonicalSourceContentResult;
+    retainedBytes: number;
+    retainedNodes: number;
+  }
 >();
+let canonicalSourceCacheBytes = 0;
+let canonicalSourceCacheNodes = 0;
+
+function removeCanonicalSourceCacheEntry(fileId: string): void {
+  const cached = canonicalSourceCache.get(fileId);
+  if (!cached) return;
+  canonicalSourceCache.delete(fileId);
+  canonicalSourceCacheBytes -= cached.retainedBytes;
+  canonicalSourceCacheNodes -= cached.retainedNodes;
+}
 
 /** Pair source nodes through exact edits; never fall back to tree position. */
 export function mapSourceNodeIds(
@@ -73,6 +90,7 @@ export function prepareCanonicalSourceContent(
     canonicalSourceCache.set(options.fileId, cached);
     return cached.result;
   }
+  if (cached) removeCanonicalSourceCacheEntry(options.fileId);
 
   const source = { kind: "design-file" as const, fileId: options.fileId };
   const before = buildCodeLayerProjection(content, { source });
@@ -102,10 +120,29 @@ export function prepareCanonicalSourceContent(
       ? mapSourceNodeIds(before.nodes, after.nodes, edits)
       : new Map(before.nodes.map((node) => [node.id, node.id])),
   };
-  canonicalSourceCache.set(options.fileId, { content, result });
-  if (canonicalSourceCache.size > CANONICAL_SOURCE_CACHE_MAX) {
+  const retainedBytes = content.length + result.content.length;
+  const retainedNodes = result.nodeIdMap.size;
+  if (
+    retainedBytes <= CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
+    retainedNodes <= CANONICAL_SOURCE_CACHE_MAX_NODES
+  ) {
+    removeCanonicalSourceCacheEntry(options.fileId);
+    canonicalSourceCache.set(options.fileId, {
+      content,
+      result,
+      retainedBytes,
+      retainedNodes,
+    });
+    canonicalSourceCacheBytes += retainedBytes;
+    canonicalSourceCacheNodes += retainedNodes;
+  }
+  while (
+    canonicalSourceCacheBytes > CANONICAL_SOURCE_CACHE_MAX_BYTES ||
+    canonicalSourceCacheNodes > CANONICAL_SOURCE_CACHE_MAX_NODES
+  ) {
     const oldest = canonicalSourceCache.keys().next();
-    if (!oldest.done) canonicalSourceCache.delete(oldest.value);
+    if (oldest.done) break;
+    removeCanonicalSourceCacheEntry(oldest.value);
   }
   return result;
 }
