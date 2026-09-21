@@ -72,6 +72,11 @@ lifecycle; it must not stop at a progress report while an actionable PR state
 is available. The original task that received the ship request owns this tail:
 once the gates hold, it runs `gh pr merge <number> --squash --admin` without
 waiting for the user or a separate watcher to perform the routine merge.
+Under `/ship`, `reviewDecision: REVIEW_REQUIRED` is not a user handoff: once
+required checks are green, the live PR is `MERGEABLE`, and every review item
+has a verified fix, reply, or terminal disposition, the owning task must
+perform the guarded admin merge after the unchanged soak. Never ask the user
+to click Merge for that routine authorized step.
 
 ## 1. Preflight
 
