@@ -921,6 +921,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var editorChromeHost = null;
     var editorChromeHostObserver = null;
     var editorChromeDocumentObserver = null;
+    var editorChromeRootObserver = null;
     var repairingEditorChromeHost = false;
     function sendEditorChromeReady() {
       window.parent.postMessage(
@@ -988,6 +989,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       editorChromeDocumentObserver.observe(document.documentElement, {
         childList: true
       });
+      if (!editorChromeRootObserver) {
+        editorChromeRootObserver = new MutationObserver(function() {
+          observeEditorChromeHost();
+          repairEditorChromeHost();
+        });
+        editorChromeRootObserver.observe(document, { childList: true });
+      }
     }
     ensureEditorChromeHost();
     window.__anEditorChromeBridge = true;

@@ -415,6 +415,45 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
           ).length,
       ),
     ).toBe(1);
+
+    // A framework hydration recovery can replace the documentElement itself,
+    // which disconnects observers attached only to the previous <html> node.
+    await reloaded.locator("body").evaluate(() => {
+      window.setTimeout(() => {
+        const currentDocumentElement = document.documentElement;
+        const replacement = currentDocumentElement.cloneNode(
+          true,
+        ) as HTMLElement;
+        replacement
+          .querySelector("[data-agent-native-editor-chrome-host]")
+          ?.remove();
+        currentDocumentElement.replaceWith(replacement);
+      }, 0);
+    });
+    await expect(
+      reloaded.locator("[data-agent-native-editor-chrome-host]"),
+    ).toHaveCount(1);
+    await expect(
+      reloaded.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached();
+    await page.evaluate(() => ((window as any).__bridge = []));
+    const rootReplacementTarget = reloaded.locator(
+      '[data-agent-native-node-id="v2"]',
+    );
+    const rootReplacementBox = await rootReplacementTarget.boundingBox();
+    if (!rootReplacementBox)
+      throw new Error("missing document-root replacement geometry");
+    await page.keyboard.down(healedModifier);
+    try {
+      await page.mouse.click(
+        rootReplacementBox.x + rootReplacementBox.width / 2,
+        rootReplacementBox.y + rootReplacementBox.height / 2,
+      );
+    } finally {
+      await page.keyboard.up(healedModifier);
+    }
+    const rootReplacementSelection = await waitForSelection("v2");
+    expect(rootReplacementSelection.payload.sourceId).toBe("v2");
     expect(componentDetailsRequests).toEqual([]);
   } finally {
     await bridge?.server.close();
