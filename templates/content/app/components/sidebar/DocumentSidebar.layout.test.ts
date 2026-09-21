@@ -371,6 +371,10 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("spaceId={selectedSpace.id}");
     expect(sidebar).toContain('t("sidebar.contentSpace")');
     expect(sections).toContain("contentSpaceActionArgs(spaceId)");
+    expect(sections).toContain("optimisticBySpace.get(spaceId)");
+    expect(sections).toContain("queueBySpace.current.get(targetSpaceId)");
+    expect(sections).toContain("pendingBySpace.current.get(targetSpaceId)");
+    expect(sidebar).not.toContain("ensureWorkspaceExpanded(current, space.id)");
   });
 
   it("uses the full row width until right-side actions are revealed", () => {

@@ -143,7 +143,6 @@ import {
   contentSpaceForStoredSelection,
   createContentSidebarStateWriteQueue,
   createContentSpaceSelectionQueue,
-  ensureWorkspaceExpanded,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
   toggleExpandedWorkspaceIds,
@@ -1229,9 +1228,6 @@ export function DocumentSidebar({
       if (targetDocumentId === undefined) {
         explicitSpaceSelectionRef.current = space.id;
       }
-      updateExpandedWorkspaceIds((current) =>
-        ensureWorkspaceExpanded(current, space.id),
-      );
       try {
         await workspaceSelectionQueueRef.current(() =>
           selectContentSpace({
@@ -1267,7 +1263,7 @@ export function DocumentSidebar({
         return false;
       }
     },
-    [navigate, setStoredSpaceId, updateExpandedWorkspaceIds],
+    [navigate, setStoredSpaceId],
   );
   const handleWorkspaceCreated = useCallback(
     (created: CreatedWorkspace) =>

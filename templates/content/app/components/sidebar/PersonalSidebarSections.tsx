@@ -72,46 +72,70 @@ export function PersonalSidebarSections({
   const t = useT();
   const queryClient = useQueryClient();
   const stateArgs = contentSpaceActionArgs(spaceId);
-  const stateKey = ["action", "get-content-sidebar-state", stateArgs];
   const state = useActionQuery("get-content-sidebar-state", stateArgs);
   const recent = useContentRecent(spaceId);
   const update = useActionMutation("update-content-sidebar-state", {
     skipActionQueryInvalidation: true,
   });
-  const [optimistic, setOptimistic] = useState<ContentSidebarSections | null>(
-    null,
+  const [optimisticBySpace, setOptimisticBySpace] = useState(
+    () => new Map<string, ContentSidebarSections>(),
   );
-  const pending = useRef(0);
-  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingBySpace = useRef(new Map<string, number>());
+  const queueBySpace = useRef(new Map<string, Promise<unknown>>());
   const [limits, setLimits] = useState({ pinned: 5, recent: 5 });
   useEffect(() => setLimits({ pinned: 5, recent: 5 }), [spaceId]);
   const sections =
-    optimistic ??
+    optimisticBySpace.get(spaceId) ??
     state.data?.state?.sections ??
     defaultContentSidebarSections();
   function save(next: ContentSidebarSections) {
-    setOptimistic(next);
-    pending.current++;
-    queue.current = queue.current
+    const targetSpaceId = spaceId;
+    const targetStateKey = [
+      "action",
+      "get-content-sidebar-state",
+      contentSpaceActionArgs(targetSpaceId),
+    ];
+    setOptimisticBySpace((current) => {
+      const updated = new Map(current);
+      updated.set(targetSpaceId, next);
+      return updated;
+    });
+    pendingBySpace.current.set(
+      targetSpaceId,
+      (pendingBySpace.current.get(targetSpaceId) ?? 0) + 1,
+    );
+    const queued = (
+      queueBySpace.current.get(targetSpaceId) ?? Promise.resolve()
+    )
       .catch(() => undefined)
       .then(async () => {
         try {
           const saved = await update.mutateAsync({
             version: 2,
-            spaceId,
+            spaceId: targetSpaceId,
             sections: next,
           });
-          queryClient.setQueryData(stateKey, saved);
+          queryClient.setQueryData(targetStateKey, saved);
         } catch (error) {
           toast.error(t("sidebar.failedSaveSidebarState"));
           throw error;
         } finally {
-          pending.current--;
-          if (pending.current === 0) setOptimistic(null);
+          const pending = (pendingBySpace.current.get(targetSpaceId) ?? 1) - 1;
+          if (pending > 0) {
+            pendingBySpace.current.set(targetSpaceId, pending);
+          } else {
+            pendingBySpace.current.delete(targetSpaceId);
+            setOptimisticBySpace((current) => {
+              const updated = new Map(current);
+              updated.delete(targetSpaceId);
+              return updated;
+            });
+          }
         }
       });
+    queueBySpace.current.set(targetSpaceId, queued);
     // The error is displayed above; keep the queue usable for a later explicit change.
-    void queue.current.catch(() => undefined);
+    void queued.catch(() => undefined);
   }
   function change(
     id: ContentSidebarSectionId,
