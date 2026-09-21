@@ -1,5 +1,6 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
+  isDesignSystemCodeIndexingAllowed,
   isDesignSystemTierAtMax,
   readDesignSystemTierLimitFailure,
   type DesignSystemTierLimit,
@@ -285,8 +286,7 @@ export function DesignSystemSetup({
     { enabled: open && !editingId },
   );
   const atMax = isDesignSystemTierAtMax(tierLimit);
-  const codeIndexingAllowed =
-    tierLimit?.status !== "ok" || tierLimit.codeIndexingAllowed;
+  const codeIndexingAllowed = isDesignSystemCodeIndexingAllowed(tierLimit);
   const [tierLimitUpgradeUrl, setTierLimitUpgradeUrl] = useState<string | null>(
     null,
   );

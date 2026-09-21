@@ -659,9 +659,12 @@ export async function fetchBuilderDesignSystemRecord(
  * server-side create enforcement queries. Used to gate the "new design
  * system" entry point and code-indexing options before the user attempts a
  * create, so the 402 from `indexBuilderDesignSystem` is a backstop rather
- * than the only signal. Fails open (`status: "unavailable"`, `atMax: false`,
- * `codeIndexingAllowed: true`) rather than blocking the UI when Builder isn't
- * reachable -- the create call still enforces the cap server-side.
+ * than the only signal. Fails open on the count cap (`atMax: false`) when
+ * Builder isn't reachable, since an unwarranted create attempt is still
+ * backstopped by that same 402. Fails closed on `codeIndexingAllowed`
+ * instead: unlike the count cap, nothing in `indexBuilderDesignSystem`
+ * re-checks the Enterprise-only code/GitHub entitlement, so an unknown
+ * entitlement must not read as "allowed".
  */
 export async function fetchBuilderDesignSystemTierLimit(): Promise<BuilderDesignSystemTierLimit> {
   try {
@@ -680,7 +683,7 @@ export async function fetchBuilderDesignSystemTierLimit(): Promise<BuilderDesign
         current: null,
         max: null,
         atMax: false,
-        codeIndexingAllowed: true,
+        codeIndexingAllowed: false,
         upgradeUrl: null,
       };
     }
@@ -698,7 +701,7 @@ export async function fetchBuilderDesignSystemTierLimit(): Promise<BuilderDesign
       current: null,
       max: null,
       atMax: false,
-      codeIndexingAllowed: true,
+      codeIndexingAllowed: false,
       upgradeUrl: null,
     };
   }

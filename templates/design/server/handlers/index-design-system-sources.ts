@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core";
 import {
   FeatureNotConfiguredError,
   getSession,
@@ -69,6 +70,18 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
         error: err.message,
         builderConnectUrl:
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
+      };
+    }
+    // `indexBuilderDesignSystem` raises tier-limit and other caller-facing
+    // refusals through `fail()`; forward its status/code/details instead of
+    // collapsing every failure to a generic 502 so the client can recover the
+    // upgrade link the same way the GitHub/design.md paths do.
+    if (isActionContractError(err)) {
+      setResponseStatus(event, err.statusCode);
+      return {
+        error: err.message,
+        errorCode: err.errorCode,
+        details: err.details,
       };
     }
     setResponseStatus(event, 502);

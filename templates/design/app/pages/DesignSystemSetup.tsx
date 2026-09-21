@@ -1,4 +1,5 @@
 import {
+  isDesignSystemCodeIndexingAllowed,
   isDesignSystemTierAtMax,
   readDesignSystemTierLimitFailure,
   type DesignSystemTierLimit,
@@ -165,8 +166,7 @@ export default function DesignSystemSetup() {
     "get-design-system-tier-limit",
   );
   const atMax = isDesignSystemTierAtMax(tierLimit);
-  const codeIndexingAllowed =
-    tierLimit?.status !== "ok" || tierLimit.codeIndexingAllowed;
+  const codeIndexingAllowed = isDesignSystemCodeIndexingAllowed(tierLimit);
 
   const docInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -269,6 +269,7 @@ export default function DesignSystemSetup() {
       setBuilderIndexError(null);
       setBuilderIndexResult(null);
       setBuilderIndexInputSource("figma");
+      setTierLimitUpgradeUrl(null);
       stopDecodePolling();
       setDecodeStatus(null);
       setBuilderIndexing(true);
@@ -289,11 +290,22 @@ export default function DesignSystemSetup() {
           setBuilderIndexing(false);
         }
       } catch (err) {
-        setBuilderIndexError(
-          err instanceof Error
-            ? err.message
-            : t("designSystemSetup.errors.parseFig"),
+        const failure = designSystemIndexFailureMessage(
+          err,
+          t("designSystemSetup.errors.parseFig"),
+          t("designSystemSetup.errors.nameConflict"),
         );
+        // If it's a tier-limit error, show it in the validationError box (where upgrade link is)
+        // Otherwise show it in the builder index error alert
+        if (failure.upgradeUrl) {
+          setValidationError(failure.message);
+          setTierLimitUpgradeUrl(failure.upgradeUrl);
+          setBuilderIndexError(null);
+        } else {
+          setBuilderIndexError(failure.message);
+          setValidationError(null);
+          setTierLimitUpgradeUrl(null);
+        }
         setBuilderIndexing(false);
       }
     },

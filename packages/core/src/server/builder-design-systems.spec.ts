@@ -1074,7 +1074,7 @@ describe("Builder design-system helpers", () => {
       expect(limit.codeIndexingAllowed).toBe(true);
     });
 
-    it("fails open when the tier-limit endpoint is unreachable", async () => {
+    it("fails open on the count cap but closed on code indexing when the tier-limit endpoint is unreachable", async () => {
       process.env.BUILDER_PRIVATE_KEY = "builder-private";
       process.env.BUILDER_PUBLIC_KEY = "builder-public";
       process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
@@ -1088,7 +1088,28 @@ describe("Builder design-system helpers", () => {
         current: null,
         max: null,
         atMax: false,
-        codeIndexingAllowed: true,
+        codeIndexingAllowed: false,
+        upgradeUrl: null,
+      });
+    });
+
+    it("fails open on the count cap but closed on code indexing when the tier-limit endpoint responds with an error status", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(new Response("Internal error", { status: 500 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(fetchBuilderDesignSystemTierLimit()).resolves.toEqual({
+        status: "unavailable",
+        plan: null,
+        current: null,
+        max: null,
+        atMax: false,
+        codeIndexingAllowed: false,
         upgradeUrl: null,
       });
     });

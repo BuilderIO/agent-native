@@ -70,3 +70,20 @@ export function isDesignSystemTierAtMax(
 ): boolean {
   return limit?.status === "ok" && limit.atMax === true;
 }
+
+/**
+ * True only once the plan is confirmed to allow code/GitHub indexing.
+ * Unlike {@link isDesignSystemTierAtMax}, an unresolved or `"unavailable"`
+ * lookup must read as `false`: nothing re-checks this Enterprise-only
+ * entitlement server-side at create time, so an unknown answer has to block
+ * the UI rather than let a non-Enterprise plan through while the tier-limit
+ * endpoint is loading or down.
+ */
+export function isDesignSystemCodeIndexingAllowed(
+  limit:
+    | Pick<DesignSystemTierLimit, "status" | "codeIndexingAllowed">
+    | null
+    | undefined,
+): boolean {
+  return limit?.status === "ok" && limit.codeIndexingAllowed === true;
+}

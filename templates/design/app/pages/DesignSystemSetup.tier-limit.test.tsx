@@ -9,6 +9,7 @@ import DesignSystemSetup from "./DesignSystemSetup";
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   tierLimit: null as Record<string, unknown> | null,
+  uploadAndIndexFigmaFiles: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -50,7 +51,7 @@ vi.mock("@/lib/agent-chat", () => ({
 }));
 
 vi.mock("@/lib/builder-design-system-upload", () => ({
-  uploadAndIndexFigmaFiles: vi.fn(),
+  uploadAndIndexFigmaFiles: mocks.uploadAndIndexFigmaFiles,
   pollDecodeJobStatus: vi.fn(),
 }));
 
@@ -81,6 +82,7 @@ beforeEach(() => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.tierLimit = null;
+  mocks.uploadAndIndexFigmaFiles.mockReset();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -166,5 +168,69 @@ describe("DesignSystemSetup tier-limit gating", () => {
     );
     expect(codeButton).toBeTruthy();
     expect(codeButton?.getAttribute("aria-disabled")).toBe("false");
+  });
+
+  it("surfaces the upgrade link on a 402 from the Figma upload/index path", async () => {
+    mocks.tierLimit = {
+      status: "ok",
+      plan: "free",
+      current: 0,
+      max: 1,
+      atMax: false,
+      codeIndexingAllowed: false,
+      upgradeUrl: "https://builder.io/account/subscription",
+    };
+    mocks.uploadAndIndexFigmaFiles.mockRejectedValue(
+      Object.assign(new Error("You have reached your design-system limit"), {
+        errorCode: "design_system_tier_limit_exceeded",
+        details: {
+          plan: "free",
+          current: 1,
+          max: 1,
+          upgradeUrl: "https://builder.io/account/subscription",
+        },
+      }),
+    );
+
+    await act(async () => {
+      root.render(<DesignSystemSetup />);
+    });
+
+    // Click Figma source button to show the upload input
+    const figmaButton = Array.from(container.querySelectorAll("button")).find(
+      (b) =>
+        b.textContent?.includes("designSystemSetup.sections.figma.title"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      figmaButton?.click();
+      await Promise.resolve();
+    });
+
+    const figInput = container.querySelector(
+      'input[type="file"][accept=".fig"]',
+    ) as HTMLInputElement;
+    expect(figInput).toBeTruthy();
+
+    const file = new File(["fake"], "brand.fig", {
+      type: "application/octet-stream",
+    });
+    Object.defineProperty(figInput, "files", { value: [file] });
+
+    await act(async () => {
+      figInput.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.textContent?.includes(
+        "You have reached your design-system limit",
+      ),
+    ).toBe(true);
+    expect(
+      container.querySelector(
+        'a[href="https://builder.io/account/subscription"]',
+      ),
+    ).toBeTruthy();
   });
 });
