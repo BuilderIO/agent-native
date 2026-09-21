@@ -4,7 +4,7 @@
 /** Compiled IIFE string for motion-preview.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const motionPreviewBridgeScript: string = `"use strict";
 (() => {
-  // app/components/design/bridge/motion-preview.bridge.ts
+  // templates/design/app/components/design/bridge/motion-preview.bridge.ts
   (function() {
     var loadedTracks = [];
     var loadedDefaultEase = "ease";

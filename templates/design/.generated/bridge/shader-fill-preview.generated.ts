@@ -4,7 +4,7 @@
 /** Compiled IIFE string for shader-fill-preview.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const shaderFillPreviewBridgeScript: string = `"use strict";
 (() => {
-  // app/components/design/bridge/shader-fill-preview.bridge.ts
+  // templates/design/app/components/design/bridge/shader-fill-preview.bridge.ts
   (function() {
     var patchedEl = null;
     var originalBackground = "";

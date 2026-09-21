@@ -4,7 +4,7 @@
 /** Compiled IIFE string for nav.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const navBridgeScript: string = `"use strict";
 (() => {
-  // app/components/design/bridge/nav.bridge.ts
+  // templates/design/app/components/design/bridge/nav.bridge.ts
   (function() {
     function classify(href) {
       var h = (href || "").trim();

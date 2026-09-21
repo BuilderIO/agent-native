@@ -4,7 +4,7 @@
 /** Compiled IIFE string for tweak.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const tweakBridgeScript: string = `"use strict";
 (() => {
-  // app/components/design/bridge/tweak.bridge.ts
+  // templates/design/app/components/design/bridge/tweak.bridge.ts
   (function() {
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;

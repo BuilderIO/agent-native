@@ -4,7 +4,7 @@
 /** Compiled IIFE string for shader-runtime.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const shaderRuntimeBridgeScript: string = `"use strict";
 (() => {
-  // app/components/design/bridge/shader-runtime.bridge.ts
+  // templates/design/app/components/design/bridge/shader-runtime.bridge.ts
   (function() {
     const W = window;
     if (W.__anShaders && W.__anShaders.version >= 1) {
