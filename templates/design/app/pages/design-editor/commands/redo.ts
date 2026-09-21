@@ -224,7 +224,7 @@ export interface RedoArgs {
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   replayPendingVisualStyleRuntime?: (
     edits: readonly PendingVisualStyleEdit[],
-  ) => void;
+  ) => number | undefined;
   setPendingVisualStyleBaselineResetRequest?: Dispatch<
     SetStateAction<number | null>
   >;
@@ -781,9 +781,12 @@ export function runRedo({
       ({ edit }) => Object.keys(edit.styles).length > 0,
     );
     if (replayPendingVisualStyleRuntime) {
-      replayPendingVisualStyleRuntime(
+      const requestId = replayPendingVisualStyleRuntime(
         redoneStyleTargets.map(({ edit }) => edit),
       );
+      if (requestId !== undefined) {
+        setPendingVisualStyleBaselineResetRequest?.(requestId);
+      }
     } else if (redoneStyleTargets.length > 0) {
       const requestId = Date.now() + Math.random();
       setPendingVisualStyleRevertRequest({
