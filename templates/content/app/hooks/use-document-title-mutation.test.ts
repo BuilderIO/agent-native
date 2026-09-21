@@ -20,7 +20,7 @@ vi.mock("@tanstack/react-query", async () => ({
   useQueryClient,
 }));
 
-import { useUpdateDocument } from "./use-documents";
+import { LIST_DOCUMENTS_QUERY_KEY, useUpdateDocument } from "./use-documents";
 
 describe("title changes and database query membership", () => {
   beforeEach(() => {
@@ -192,7 +192,16 @@ describe("title changes and database query membership", () => {
         ? { mutateAsync: saveSidebarState }
         : options,
     );
-    const sidebarKey = ["action", "get-content-sidebar-state", {}] as const;
+    const sidebarKey = [
+      "action",
+      "get-content-sidebar-state",
+      { spaceId: "space-a" },
+    ] as const;
+    const unrelatedSidebarKey = [
+      "action",
+      "get-content-sidebar-state",
+      { spaceId: "space-b" },
+    ] as const;
     const hiddenState = {
       state: {
         version: 2 as const,
@@ -204,6 +213,18 @@ describe("title changes and database query membership", () => {
       },
     };
     client.setQueryData(sidebarKey, hiddenState);
+    client.setQueryData(unrelatedSidebarKey, {
+      state: {
+        ...hiddenState.state,
+        sections: {
+          ...hiddenState.state.sections,
+          pinned: { visible: true, expanded: false, limit: 5 },
+        },
+      },
+    });
+    client.setQueryData(LIST_DOCUMENTS_QUERY_KEY, [
+      { id: "row-1", spaceId: "space-a" },
+    ]);
 
     useUpdateDocument();
     const mutation = useActionMutation.mock.calls.find(
@@ -238,6 +259,7 @@ describe("title changes and database query membership", () => {
     });
     expect(saveSidebarState).toHaveBeenCalledWith({
       version: 2,
+      spaceId: "space-a",
       sections: {
         ...newerState.state.sections,
         pinned: { visible: true, expanded: true, limit: 5 },
@@ -250,6 +272,9 @@ describe("title changes and database query membership", () => {
       );
     });
     expect(action.label).toBe("editor.properties.show");
+    expect(
+      client.getQueryData<any>(unrelatedSidebarKey).state.sections.pinned,
+    ).toEqual({ visible: true, expanded: false, limit: 5 });
     client.clear();
   });
 });

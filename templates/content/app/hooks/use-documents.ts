@@ -748,10 +748,11 @@ export function useUpdateDocument() {
         const personalViewFilter = {
           queryKey: ["action", "get-content-database-personal-view"],
         } as const;
-        const sidebarStateEntry = currentContentSidebarState(queryClient);
-        const sidebarStateKey =
-          sidebarStateEntry?.[0] ??
-          (["action", "get-content-sidebar-state", {}] as const);
+        const sidebarStateEntry = currentContentSidebarState(
+          queryClient,
+          currentDocumentSpaceId(queryClient, variables.id),
+        );
+        const sidebarStateKey = sidebarStateEntry?.[0];
         await Promise.all([
           queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
@@ -775,13 +776,18 @@ export function useUpdateDocument() {
           ),
           ...queryClient.getQueriesData(contentSpacesFilter),
           ...queryClient.getQueriesData(personalViewFilter),
-          [sidebarStateKey, queryClient.getQueryData(sidebarStateKey)],
+          ...(sidebarStateKey
+            ? [
+                [
+                  sidebarStateKey,
+                  queryClient.getQueryData(sidebarStateKey),
+                ] as [readonly unknown[], unknown],
+              ]
+            : []),
         ];
 
         const sidebarState = sidebarStateEntry?.[1];
-        const sidebarSpaceId = (
-          sidebarStateKey[2] as { spaceId?: unknown } | undefined
-        )?.spaceId;
+        const sidebarSpaceId = sidebarStateKey?.[2].spaceId;
         const nextSidebarState =
           variables.isFavorite === true &&
           sidebarState?.state?.sections.pinned.visible &&
@@ -800,7 +806,7 @@ export function useUpdateDocument() {
                 },
               }
             : undefined;
-        if (nextSidebarState)
+        if (nextSidebarState && sidebarStateKey)
           queryClient.setQueryData(sidebarStateKey, {
             state: nextSidebarState,
           });
@@ -885,7 +891,12 @@ export function useUpdateDocument() {
               )
             : false;
 
-        return { previous, renamedContentSpace, nextSidebarState };
+        return {
+          previous,
+          renamedContentSpace,
+          nextSidebarState,
+          sidebarStateKey,
+        };
       },
       onError: (_error, variables, context) => {
         const rollback = context as
@@ -907,6 +918,17 @@ export function useUpdateDocument() {
               }
             | undefined
         )?.nextSidebarState;
+        const sidebarStateKey = (
+          context as
+            | {
+                sidebarStateKey?: readonly [
+                  "action",
+                  "get-content-sidebar-state",
+                  { spaceId: string },
+                ];
+              }
+            | undefined
+        )?.sidebarStateKey;
         const previousSidebarState = (
           context as
             | { previous?: Array<[readonly unknown[], unknown]> }
@@ -1016,13 +1038,9 @@ export function useUpdateDocument() {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database-personal-view"],
           });
-          if (nextSidebarState)
+          if (nextSidebarState && sidebarStateKey)
             void updateSidebarState.mutateAsync(nextSidebarState).then(
-              (saved) =>
-                queryClient.setQueryData(
-                  ["action", "get-content-sidebar-state", {}],
-                  saved,
-                ),
+              (saved) => queryClient.setQueryData(sidebarStateKey, saved),
               () =>
                 queryClient.invalidateQueries({
                   queryKey: ["action", "get-content-sidebar-state"],
@@ -1036,12 +1054,16 @@ export function useUpdateDocument() {
               action: {
                 label: t("editor.properties.show"),
                 onClick: () => {
-                  const sidebarStateEntry =
-                    currentContentSidebarState(queryClient);
-                  const sidebarStateKey =
-                    sidebarStateEntry?.[0] ??
-                    (["action", "get-content-sidebar-state", {}] as const);
-                  const current = sidebarStateEntry?.[1];
+                  if (!sidebarStateKey) {
+                    toast.error(t("sidebar.failedSaveSidebarState"));
+                    return;
+                  }
+                  const current = queryClient.getQueryData<{
+                    state?: {
+                      version: 2;
+                      sections: ContentSidebarSections;
+                    };
+                  }>(sidebarStateKey);
                   if (!current?.state) {
                     toast.error(t("sidebar.failedSaveSidebarState"));
                     void queryClient.invalidateQueries({
@@ -1051,14 +1073,7 @@ export function useUpdateDocument() {
                   }
                   const next = {
                     version: 2 as const,
-                    ...(typeof (
-                      sidebarStateKey[2] as { spaceId?: unknown } | undefined
-                    )?.spaceId === "string"
-                      ? {
-                          spaceId: (sidebarStateKey[2] as { spaceId: string })
-                            .spaceId,
-                        }
-                      : {}),
+                    spaceId: sidebarStateKey[2].spaceId,
                     sections: {
                       ...current.state.sections,
                       pinned: {
@@ -1310,10 +1325,26 @@ export function filterDocumentTreeDocuments(
 
   return documents.filter((doc) => !isDatabaseContainedDocument(doc));
 }
-function currentContentSidebarState(queryClient: QueryClient) {
-  return queryClient
-    .getQueriesData<{
-      state?: { version: 2; sections: ContentSidebarSections };
-    }>({ queryKey: ["action", "get-content-sidebar-state"] })
-    .find(([, data]) => data?.state?.sections);
+function currentDocumentSpaceId(queryClient: QueryClient, documentId: string) {
+  const document = queryClient
+    .getQueriesData<Document>(documentQueryFilter(documentId))
+    .find(([, data]) => data?.id === documentId)?.[1];
+  if (document?.spaceId) return document.spaceId;
+  const list = queryClient.getQueryData<Document[] | DocumentListResponse>(
+    LIST_DOCUMENTS_QUERY_KEY,
+  );
+  const documents = Array.isArray(list) ? list : list?.documents;
+  return documents?.find((candidate) => candidate.id === documentId)?.spaceId;
+}
+
+function currentContentSidebarState(
+  queryClient: QueryClient,
+  spaceId: string | null | undefined,
+) {
+  if (!spaceId) return undefined;
+  const key = ["action", "get-content-sidebar-state", { spaceId }] as const;
+  const data = queryClient.getQueryData<{
+    state?: { version: 2; sections: ContentSidebarSections };
+  }>(key);
+  return data?.state?.sections ? ([key, data] as const) : undefined;
 }

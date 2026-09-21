@@ -1054,11 +1054,18 @@ export function DocumentSidebar({
     sidebarStateArgs,
     { enabled: Boolean(sidebarStateArgs) },
   );
-  const updateSidebarState = useActionMutation("update-content-sidebar-state", {
+  const updateSidebarState = useActionMutation<
+    unknown,
+    ContentSidebarStateSnapshot
+  >("update-content-sidebar-state", {
     skipActionQueryInvalidation: true,
-    onSuccess: (data) => {
+    onSuccess: (data, snapshot) => {
       queryClient.setQueryData(
-        ["action", "get-content-sidebar-state", sidebarStateArgs],
+        [
+          "action",
+          "get-content-sidebar-state",
+          contentSpaceActionArgs(snapshot.spaceId),
+        ],
         data,
       );
     },
