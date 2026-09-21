@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   rankJevCandidates: vi.fn(),
   loadAgentsBundle: vi.fn(),
   getRuntimeSkills: vi.fn(),
+  requestOrgId: vi.fn(() => null),
   resourceGet: vi.fn(),
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock("../agent-discovery.js", () => ({
   discoverAgents: vi.fn(async () => []),
 }));
 vi.mock("../request-context.js", () => ({
-  getRequestOrgId: () => null,
+  getRequestOrgId: () => mocks.requestOrgId(),
 }));
 
 import {
@@ -67,6 +68,7 @@ describe("preloadJevContextForPrompt", () => {
     mocks.resourceListAccessible.mockResolvedValue([]);
     mocks.resourceList.mockResolvedValue([]);
     mocks.resourceGetByPath.mockResolvedValue(null);
+    mocks.requestOrgId.mockReturnValue(null);
   });
 
   it("does nothing without a Jev key", async () => {
@@ -258,6 +260,149 @@ describe("preloadJevContextForPrompt", () => {
     expect(mocks.resourceGet).toHaveBeenCalledWith(targetIndex.id, {
       orgId: targetOrgId,
     });
+  });
+
+  it("uses the explicit organization instead of conflicting ambient scope for every prompt resource layer", async () => {
+    const targetOrgId = "org_prompt_target";
+    const ambientOrgId = "org_prompt_ambient";
+    const organizationOwner = `__organization__:${targetOrgId}`;
+    const owner = "user@example.test";
+    const activeOrgId = (options?: { orgId?: string | null }) =>
+      options?.orgId === undefined ? mocks.requestOrgId() : options.orgId;
+    const resource = (id: string, path: string, resourceOwner: string) => ({
+      id,
+      owner: resourceOwner,
+      path,
+      mimeType: "text/markdown",
+    });
+    mocks.requestOrgId.mockReturnValue(ambientOrgId);
+    mocks.resourceGetByPath.mockImplementation(
+      async (
+        resourceOwner: string,
+        path: string,
+        options?: { orgId?: string | null },
+      ) => {
+        const marker =
+          activeOrgId(options) === targetOrgId ? "Target" : "Ambient";
+        if (resourceOwner === "__shared__") {
+          if (path === "AGENTS.md") {
+            return { content: `# ${marker} shared AGENTS` };
+          }
+          if (path === "LEARNINGS.md") {
+            return { content: `# ${marker} shared LEARNINGS` };
+          }
+        }
+        if (resourceOwner === organizationOwner) {
+          if (path === "AGENTS.md") {
+            return { content: `# ${marker} organization AGENTS` };
+          }
+          if (path === "LEARNINGS.md") return null;
+        }
+        if (resourceOwner === owner && path === "memory/MEMORY.md") {
+          return { content: `# ${marker} personal memory` };
+        }
+        return null;
+      },
+    );
+    mocks.resourceList.mockImplementation(
+      async (
+        resourceOwner: string,
+        prefix: string | undefined,
+        options?: { orgId?: string | null },
+      ) => {
+        const marker =
+          activeOrgId(options) === targetOrgId ? "target" : "ambient";
+        if (resourceOwner === "__shared__") {
+          return prefix === "instructions/"
+            ? [
+                resource(
+                  `shared-instruction-${marker}`,
+                  `instructions/${marker}.md`,
+                  resourceOwner,
+                ),
+              ]
+            : [
+                resource(
+                  `shared-index-${marker}`,
+                  `context/${marker}.md`,
+                  resourceOwner,
+                ),
+              ];
+        }
+        if (resourceOwner === organizationOwner) {
+          return prefix === "instructions/"
+            ? [
+                resource(
+                  `organization-instruction-${marker}`,
+                  `instructions/org-${marker}.md`,
+                  resourceOwner,
+                ),
+              ]
+            : [
+                resource(
+                  `organization-index-${marker}`,
+                  `context/org-${marker}.md`,
+                  resourceOwner,
+                ),
+              ];
+        }
+        if (resourceOwner === owner) {
+          return prefix === "instructions/"
+            ? [
+                resource(
+                  `personal-instruction-${marker}`,
+                  `instructions/personal-${marker}.md`,
+                  resourceOwner,
+                ),
+              ]
+            : [];
+        }
+        return [];
+      },
+    );
+    mocks.resourceGet.mockImplementation(async (id: string) => {
+      const marker = id.includes("-target")
+        ? "Target"
+        : id.includes("-ambient")
+          ? "Ambient"
+          : null;
+      if (!marker) return null;
+      if (id.includes("shared-instruction")) {
+        return { content: `# ${marker} shared instruction` };
+      }
+      if (id.includes("shared-index")) {
+        return { content: `# ${marker} shared index` };
+      }
+      if (id.includes("organization-instruction")) {
+        return { content: `# ${marker} organization instruction` };
+      }
+      if (id.includes("organization-index")) {
+        return { content: `# ${marker} organization index` };
+      }
+      if (id.includes("personal-instruction")) {
+        return { content: `# ${marker} personal instruction` };
+      }
+      return null;
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      owner,
+      false,
+      undefined,
+      targetOrgId,
+    );
+
+    expect(prompt).toContain("# Target shared AGENTS");
+    expect(prompt).toContain("# Target shared instruction");
+    expect(prompt).toContain("# Target shared LEARNINGS");
+    expect(prompt).toContain("# Target organization AGENTS");
+    expect(prompt).toContain("# Target organization instruction");
+    expect(prompt).toContain("# Target personal instruction");
+    expect(prompt).toContain("# Target personal memory");
+    expect(prompt).toContain("context/target.md");
+    expect(prompt).toContain("context/org-target.md");
+    expect(prompt).not.toContain("Ambient");
+    expect(prompt).not.toContain("ambient.md");
   });
 
   it.each([

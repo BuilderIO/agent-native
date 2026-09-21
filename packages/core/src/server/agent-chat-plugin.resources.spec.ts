@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
+  resourceListAllOwners: vi.fn(async () => []),
   resourceListAccessible: vi.fn(),
   resourceGet: vi.fn(),
   resourcePut: vi.fn(async () => undefined),
@@ -48,6 +49,8 @@ vi.mock("../resources/store.js", () => ({
     mocks.ensurePersonalDefaults(...args),
   resourceGetByPath: (...args: any[]) => mocks.resourceGetByPath(...args),
   resourceList: (...args: any[]) => mocks.resourceList(...args),
+  resourceListAllOwners: (...args: any[]) =>
+    mocks.resourceListAllOwners(...args),
   resourceListAccessible: (...args: any[]) =>
     mocks.resourceListAccessible(...args),
   resourceGet: (...args: any[]) => mocks.resourceGet(...args),
@@ -325,6 +328,7 @@ async function fetchWithRequestContext(
 describe("agent chat resource route organization scopes", () => {
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
+    expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("jobs/");
     const resourceList = mocks.resourceList.getMockImplementation()!;
     const resourceListContexts: Array<{
       orgId: string | undefined;

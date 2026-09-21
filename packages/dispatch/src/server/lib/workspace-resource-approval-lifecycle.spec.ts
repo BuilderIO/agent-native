@@ -11,6 +11,8 @@ const orgId = "org_resource_lifecycle";
 const resourcePath = "context/lifecycle-smoke.md";
 
 const originalEnv = {
+  AGENT_NATIVE_MANIFEST: process.env.AGENT_NATIVE_MANIFEST,
+  AGENT_NATIVE_MANIFEST_PATH: process.env.AGENT_NATIVE_MANIFEST_PATH,
   APP_NAME: process.env.APP_NAME,
   DATABASE_URL: process.env.DATABASE_URL,
   DISPATCH_DATABASE_URL: process.env.DISPATCH_DATABASE_URL,
@@ -351,5 +353,101 @@ describe("workspace resource approval lifecycle", () => {
         effectiveScope: "shared",
       });
     });
+  }, 60_000);
+
+  it("removes a local-file materialization when applying an All-app resource update to selected apps", async () => {
+    const manifestPath = path.join(tempDir!, "agent-native.json");
+    const localPath = "AGENTS.md";
+    const previousContent = "# All-app local instructions";
+    const nextContent = "# Selected-app instructions";
+    const previousManifest = process.env.AGENT_NATIVE_MANIFEST;
+    const previousManifestPath = process.env.AGENT_NATIVE_MANIFEST_PATH;
+
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({ mode: "local-files" }),
+      "utf8",
+    );
+    process.env.AGENT_NATIVE_MANIFEST = manifestPath;
+    delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+
+    try {
+      const [
+        { getDbExec },
+        { runWithRequestContext },
+        { resourceGetByPath, WORKSPACE_OWNER },
+        { applyWorkspaceResourceUpdate, createWorkspaceResource },
+      ] = await Promise.all([
+        import("@agent-native/core/db"),
+        import("@agent-native/core/server"),
+        import("@agent-native/core/resources/store"),
+        import("./workspace-resources-store.js"),
+      ]);
+
+      await runWithRequestContext(
+        { userEmail: ownerEmail, orgId: null },
+        async () => {
+          const created = await createWorkspaceResource({
+            kind: "instruction",
+            name: "Local lifecycle instructions",
+            path: localPath,
+            content: previousContent,
+            scope: "all",
+          });
+          const resourceId = (created as { id: string }).id;
+
+          expect(fs.readFileSync(path.join(tempDir!, localPath), "utf8")).toBe(
+            previousContent,
+          );
+          await expect(
+            resourceGetByPath(WORKSPACE_OWNER, localPath, { orgId: null }),
+          ).resolves.toMatchObject({
+            owner: WORKSPACE_OWNER,
+            content: previousContent,
+          });
+
+          await expect(
+            applyWorkspaceResourceUpdate(resourceId, {
+              scope: "selected",
+              content: nextContent,
+            }),
+          ).resolves.toMatchObject({
+            id: resourceId,
+            scope: "selected",
+            content: nextContent,
+          });
+
+          expect(fs.existsSync(path.join(tempDir!, localPath))).toBe(false);
+          await expect(
+            resourceGetByPath(WORKSPACE_OWNER, localPath, { orgId: null }),
+          ).resolves.toBeNull();
+          await expect(
+            getDbExec().execute({
+              sql: "SELECT id, scope, content FROM workspace_resources WHERE id = ?",
+              args: [resourceId],
+            }),
+          ).resolves.toMatchObject({
+            rows: [
+              {
+                id: resourceId,
+                scope: "selected",
+                content: nextContent,
+              },
+            ],
+          });
+        },
+      );
+    } finally {
+      if (previousManifest === undefined) {
+        delete process.env.AGENT_NATIVE_MANIFEST;
+      } else {
+        process.env.AGENT_NATIVE_MANIFEST = previousManifest;
+      }
+      if (previousManifestPath === undefined) {
+        delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+      } else {
+        process.env.AGENT_NATIVE_MANIFEST_PATH = previousManifestPath;
+      }
+    }
   }, 60_000);
 });

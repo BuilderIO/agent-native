@@ -113,6 +113,7 @@ vi.mock("./dispatch-store.js", () => ({
 }));
 
 vi.mock("@agent-native/core/resources/store", () => ({
+  LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE: "local-workspace-resource",
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
   workspaceResourceOwner: (orgId?: string | null) =>
@@ -465,6 +466,176 @@ describe("workspace resource materialization", () => {
       "text/markdown",
       expect.any(Object),
     );
+  });
+
+  it("removes a matching no-org Local File Mode materialization on revocation", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: null,
+          kind: "instruction",
+          name: "Solo guardrails",
+          description: null,
+          path: "AGENTS.md",
+          content: "# Materialized",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    const local = {
+      id: "local-workspace-resource:agents",
+      owner: "__workspace__",
+      path: "AGENTS.md",
+      content: "# Materialized",
+      metadata: JSON.stringify({
+        source: "local-workspace-resource",
+        absolutePath: "/workspace/AGENTS.md",
+        hash: "materialized-hash",
+      }),
+    };
+    mocks.resourceListAllOwners.mockResolvedValue([local]);
+
+    await updateWorkspaceResource("resource_1", { scope: "selected" });
+
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(local);
+  });
+
+  it("uses the pre-update content when revoking a Local File Mode materialization", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: null,
+          kind: "instruction",
+          name: "Solo guardrails",
+          description: null,
+          path: "AGENTS.md",
+          content: "# Materialized",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    const local = {
+      id: "local-workspace-resource:agents",
+      owner: "__workspace__",
+      path: "AGENTS.md",
+      content: "# Materialized",
+      metadata: JSON.stringify({
+        source: "local-workspace-resource",
+        absolutePath: "/workspace/AGENTS.md",
+        hash: "materialized-hash",
+      }),
+    };
+    mocks.resourceListAllOwners.mockResolvedValue([local]);
+
+    await updateWorkspaceResource("resource_1", {
+      content: "# Selected replacement",
+      scope: "selected",
+    });
+
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(local);
+  });
+
+  it("preserves changed and organization-local artifacts while cleaning a shadowed SQL copy", async () => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Org guardrails",
+          description: null,
+          path: "AGENTS.md",
+          content: "# Materialized",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    const local = {
+      id: "local-workspace-resource:agents",
+      owner: "__workspace__",
+      path: "AGENTS.md",
+      content: "# Materialized",
+      metadata: JSON.stringify({
+        source: "local-workspace-resource",
+        absolutePath: "/workspace/AGENTS.md",
+        hash: "local-hash",
+      }),
+    };
+    const shadowedSql = {
+      id: "legacy_sql_1",
+      owner: "__workspace__",
+      path: "AGENTS.md",
+      content: "# Materialized",
+      metadata: dispatchMetadata(state.resources[0]),
+    };
+    mocks.resourceListAllOwners.mockResolvedValue([local, shadowedSql]);
+
+    await updateWorkspaceResource("resource_1", { scope: "selected" });
+
+    expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("AGENTS.md", {
+      includeShadowedWorkspaceRows: true,
+    });
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(shadowedSql);
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalledWith(local);
+  });
+
+  it("preserves a changed no-org Local File Mode artifact", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: null,
+          kind: "instruction",
+          name: "Solo guardrails",
+          description: null,
+          path: "AGENTS.md",
+          content: "# Materialized",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    mocks.resourceListAllOwners.mockResolvedValue([
+      {
+        id: "local-workspace-resource:agents",
+        owner: "__workspace__",
+        path: "AGENTS.md",
+        content: "# User replacement",
+        metadata: JSON.stringify({
+          source: "local-workspace-resource",
+          absolutePath: "/workspace/AGENTS.md",
+          hash: "replacement-hash",
+        }),
+      },
+    ]);
+
+    await updateWorkspaceResource("resource_1", { scope: "selected" });
+
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalled();
   });
 
   it("does not materialize selected-only resources", async () => {

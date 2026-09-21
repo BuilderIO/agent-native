@@ -902,6 +902,7 @@ describe("resourceEffectiveContext", () => {
     const {
       WORKSPACE_OWNER,
       resourceDeleteByPath,
+      resourceDeleteIfCurrent,
       resourceEffectiveContext,
       resourceGetByPath,
       resourceList,
@@ -1122,6 +1123,23 @@ describe("resourceEffectiveContext", () => {
         }),
       ]);
       await expect(
+        resourceListAllOwners(localPath, {
+          includeShadowedWorkspaceRows: true,
+        }),
+      ).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: bareSqlFallback.id,
+            owner: WORKSPACE_OWNER,
+            content: "# Bare SQL fallback",
+          }),
+          expect.objectContaining({
+            owner: WORKSPACE_OWNER,
+            metadata: expect.stringContaining("local-workspace-resource"),
+          }),
+        ]),
+      );
+      await expect(
         resourceGetByPath(orgBOwner, localPath, { orgId: "org-b" }),
       ).resolves.toMatchObject({ owner: orgBOwner, content: "# Org B" });
 
@@ -1136,6 +1154,20 @@ describe("resourceEffectiveContext", () => {
           "utf8",
         ),
       ).toContain("# Generated");
+
+      const conditionalLocal = await resourcePut(
+        WORKSPACE_OWNER,
+        "skills/conditional/SKILL.md",
+        "---\nname: conditional\n---\n# Materialized",
+      );
+      await expect(resourceDeleteIfCurrent(conditionalLocal)).resolves.toBe(
+        true,
+      );
+      expect(
+        fs.existsSync(
+          path.join(root, ".agents", "skills", "conditional", "SKILL.md"),
+        ),
+      ).toBe(false);
 
       await expect(
         resourcePut(WORKSPACE_OWNER, "context/brand.md", "# Brand"),

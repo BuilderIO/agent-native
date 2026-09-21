@@ -1136,6 +1136,7 @@ export async function loadResourcesForPrompt(
     SHARED_OWNER,
     organizationOwner === SHARED_OWNER ? "shared" : "app-default",
     promptResourceMaxChars,
+    orgId,
   );
   addSection(appDefaultAgents, "required");
   addSections(
@@ -1146,6 +1147,7 @@ export async function loadResourcesForPrompt(
         : "app-default-instruction",
       promptResourceMaxChars,
       compact,
+      orgId,
     ),
   );
 
@@ -1156,6 +1158,7 @@ export async function loadResourcesForPrompt(
       organizationOwner,
       "organization",
       promptResourceMaxChars,
+      orgId,
     );
     addSection(organizationAgents, "required");
     addSections(
@@ -1164,6 +1167,7 @@ export async function loadResourcesForPrompt(
         "organization-instruction",
         promptResourceMaxChars,
         compact,
+        orgId,
       ),
     );
   }
@@ -1175,6 +1179,7 @@ export async function loadResourcesForPrompt(
       owner,
       "personal",
       promptResourceMaxChars,
+      orgId,
     );
     addSection(personalAgents, "required");
     addSections(
@@ -1183,6 +1188,7 @@ export async function loadResourcesForPrompt(
         "personal-instruction",
         promptResourceMaxChars,
         compact,
+        orgId,
       ),
       "user",
     );
@@ -1195,8 +1201,11 @@ export async function loadResourcesForPrompt(
   try {
     sharedLearnings =
       (organizationOwner !== SHARED_OWNER
-        ? await resourceGetByPath(organizationOwner, "LEARNINGS.md")
-        : null) ?? (await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md"));
+        ? await resourceGetByPath(organizationOwner, "LEARNINGS.md", {
+            orgId,
+          })
+        : null) ??
+      (await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md", { orgId }));
   } catch {}
 
   if (compact) {
@@ -1242,7 +1251,9 @@ export async function loadResourcesForPrompt(
     // context.
     if (owner !== SHARED_OWNER) {
       try {
-        const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
+        const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md", {
+          orgId,
+        });
         if (memoryIndex?.content?.trim()) {
           const block = promptResourceBlock({
             name: "memory/MEMORY.md",
@@ -1267,12 +1278,14 @@ export async function loadResourcesForPrompt(
   const appDefaultResourceIndex = await loadResourceIndexForPrompt(
     SHARED_OWNER,
     "shared",
+    orgId,
   );
   addSection(appDefaultResourceIndex);
   if (organizationOwner !== SHARED_OWNER) {
     const organizationResourceIndex = await loadResourceIndexForPrompt(
       organizationOwner,
       "shared",
+      orgId,
     );
     addSection(organizationResourceIndex);
   }

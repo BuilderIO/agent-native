@@ -147,6 +147,12 @@ export interface WriteLocalWorkspaceResourceOptions extends LocalWorkspaceResour
   ifNotExists?: boolean;
 }
 
+export interface DeleteLocalWorkspaceResourceIfCurrentOptions extends LocalWorkspaceResourceOptions {
+  path: string;
+  expectedHash: string;
+  expectedAbsolutePath: string;
+}
+
 const MANIFEST_FILE = "agent-native.json";
 const ENV_MODE_NAMES = ["AGENT_NATIVE_MODE", "AGENT_NATIVE_DATA_MODE"];
 const ENV_MANIFEST_NAMES = [
@@ -1369,4 +1375,50 @@ export async function deleteLocalWorkspaceResource(
     }
   }
   return deleted;
+}
+
+/**
+ * Delete one captured local workspace artifact only if it still has the
+ * expected content. Unlike the path-based delete, this never expands skill
+ * aliases: callers may only remove the physical file they read.
+ */
+export async function deleteLocalWorkspaceResourceIfCurrent(
+  options: DeleteLocalWorkspaceResourceIfCurrentOptions,
+): Promise<boolean> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) {
+    throw new Error("Local file mode is not enabled");
+  }
+  const { resourcePath, absolutePath } = localWorkspaceResourceAbsolutePath(
+    workspaceRoot,
+    options.path,
+    { preferExisting: true },
+  );
+  if (
+    !isSupportedLocalWorkspaceTextFile(resourcePath) ||
+    absolutePath !== path.resolve(options.expectedAbsolutePath)
+  ) {
+    return false;
+  }
+  return withWriteLock(absolutePath, async () => {
+    const existing = await readLocalWorkspaceResource({
+      ...options,
+      path: resourcePath,
+    });
+    if (
+      !existing ||
+      existing.absolutePath !== absolutePath ||
+      existing.hash !== options.expectedHash
+    ) {
+      return false;
+    }
+    try {
+      assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+      await fs.unlink(absolutePath);
+      return true;
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return false;
+      throw error;
+    }
+  });
 }

@@ -10,6 +10,7 @@ import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   canUseLocalWorkspaceResourcePath,
   deleteLocalWorkspaceResource,
+  deleteLocalWorkspaceResourceIfCurrent,
   isLocalWorkspaceResourceId,
   isLocalWorkspaceResourcesEnabled,
   listLocalWorkspaceResources,
@@ -763,6 +764,28 @@ function localWorkspaceResourceMetadata(
     hash: resource.hash,
     mtimeMs: resource.mtimeMs,
   });
+}
+
+function localWorkspaceResourceMetadataFromResource(
+  resource: Pick<Resource, "metadata">,
+): { absolutePath: string; hash: string } | null {
+  if (!resource.metadata) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(resource.metadata);
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const candidate = parsed as Record<string, unknown>;
+  return candidate.source === LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE &&
+    typeof candidate.absolutePath === "string" &&
+    typeof candidate.hash === "string"
+    ? { absolutePath: candidate.absolutePath, hash: candidate.hash }
+    : null;
 }
 
 function localWorkspaceResourceToResource(
@@ -1830,7 +1853,20 @@ export async function resourceDeleteIfCurrent(
   resource: Resource,
 ): Promise<boolean> {
   await ensureTable();
-  if (isLocalWorkspaceResourceId(resource.id)) return false;
+  if (isLocalWorkspaceResourceId(resource.id)) {
+    const resourcePath = localWorkspaceResourcePathFromId(resource.id);
+    const metadata = localWorkspaceResourceMetadataFromResource(resource);
+    if (!resourcePath || !metadata) return false;
+    const deleted = await deleteLocalWorkspaceResourceIfCurrent({
+      path: resourcePath,
+      expectedHash: metadata.hash,
+      expectedAbsolutePath: metadata.absolutePath,
+    });
+    if (deleted) {
+      emitResourceDelete(resource.id, resource.path, resource.owner);
+    }
+    return deleted;
+  }
 
   const client = getDbExec();
   // `updated_at` is a wall-clock millisecond, not a logical version. Compare
@@ -2170,6 +2206,7 @@ export async function resourceEffectiveContext(
  */
 export async function resourceListAllOwners(
   pathPrefix: string,
+  options: { includeShadowedWorkspaceRows?: boolean } = {},
 ): Promise<Resource[]> {
   await ensureTable();
   const client = getDbExec();
@@ -2191,7 +2228,9 @@ export async function resourceListAllOwners(
       .map(rowToResource)
       .filter(
         (resource) =>
-          resource.owner !== WORKSPACE_OWNER || !localPaths.has(resource.path),
+          options.includeShadowedWorkspaceRows ||
+          resource.owner !== WORKSPACE_OWNER ||
+          !localPaths.has(resource.path),
       ),
   ];
 }
