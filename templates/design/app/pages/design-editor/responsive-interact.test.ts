@@ -340,6 +340,26 @@ describe("responsive Interact wiring", () => {
     expect(focusedCanvas).toContain("activeFile.id");
   });
 
+  it("enters Interact from All Screens without replacing the live canvas", () => {
+    expect(source).toContain(
+      'const overviewInteractActive =\n    mode === "interact" && viewMode === "overview"',
+    );
+    const frameAction = source.slice(
+      source.indexOf("const handleOverviewFrameAction ="),
+      source.indexOf(
+        "// Closing the responsive view",
+        source.indexOf("const handleOverviewFrameAction ="),
+      ),
+    );
+    expect(frameAction).toContain("setActiveFileId(screenId)");
+    expect(frameAction).toContain("setOverviewSelectedScreenIds([screenId])");
+    expect(frameAction).toContain('setMode("interact")');
+    expect(frameAction).not.toContain('handleModeChange("interact"');
+    expect(source).toContain(
+      'if (viewModeRef.current === "overview") {\n      setMode("edit");',
+    );
+  });
+
   it("uses the selected screen size and the real canvas bounds", () => {
     expect(editorSurface).toContain("resolveInteractDeviceForScreen(");
     expect(source).toContain("container.clientWidth - 48");
