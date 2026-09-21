@@ -4025,6 +4025,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (probeFailed) {
       dndLog("style:snapshot-skipped", { el: getSelector(root) });
+      var typedOmUnavailable =
+        typeof (root as Element & { computedStyleMap?: () => unknown })
+          .computedStyleMap !== "function";
+      if (!typedOmUnavailable) return null;
       var fallbackComputed = rootComputedStyle || window.getComputedStyle(root);
       var fallbackStyles: Record<string, string> = {};
       ["color", "backgroundColor", "width", "height", "borderRadius"].forEach(
@@ -4042,7 +4046,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           nodes: [
             {
               sourceId: getSourceId(root) || undefined,
-              path: "",
+              path: [],
               styles: fallbackStyles,
             },
           ],
