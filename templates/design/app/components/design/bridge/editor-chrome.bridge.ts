@@ -22686,6 +22686,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "pointerdown",
     function (e) {
+      if (interactionMode) return;
       if (isOverlayElement(e.target)) return;
       if (e.button === 0) beginPotentialShieldDrag(e);
     },
@@ -22694,6 +22695,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "mousedown",
     function (e) {
+      if (interactionMode) return;
       if (isOverlayElement(e.target)) return;
       if (e.button === 0) beginPotentialShieldDrag(e);
     },
@@ -22711,6 +22713,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
 
   function stopBlockedLayerInteraction(e) {
+    if (interactionMode) return;
     if (isOverlayElement(e.target)) return;
     var target = e.target && e.target.nodeType === 1 ? e.target : null;
     if (!target || !isLayerInteractionBlocked(target)) return;
@@ -22738,6 +22741,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "contextmenu",
     function (e) {
+      if (interactionMode) return;
       if (isOverlayElement(e.target)) return;
       openContextMenuAtEvent(e);
     },
