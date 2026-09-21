@@ -90,6 +90,20 @@ beforeAll(async () => {
         visibility: "private",
         updatedAt: "2026-01-04T00:00:00.000Z",
       },
+      {
+        id: "qa-or-older-amber",
+        ownerEmail: OWNER,
+        title: "Amber",
+        visibility: "private",
+        updatedAt: "2000-01-05T00:00:00.000Z",
+      },
+      {
+        id: "qa-or-newer-violet",
+        ownerEmail: OWNER,
+        title: "Violet",
+        visibility: "private",
+        updatedAt: "2026-01-05T00:00:00.000Z",
+      },
     ]);
 }, 60_000);
 
@@ -117,6 +131,17 @@ describe("adversarial document search ranking", () => {
     expect(await searchIds('"Café—Launch" OR "Café—Launch" plan')).toEqual([
       "qa-03-unicode-word-intent",
       "qa-03-unicode-embedded",
+    ]);
+  });
+
+  it("gives OR alternatives symmetric title tiers", async () => {
+    expect(await searchIds("amber OR violet")).toEqual([
+      "qa-or-newer-violet",
+      "qa-or-older-amber",
+    ]);
+    expect(await searchIds("violet OR amber")).toEqual([
+      "qa-or-newer-violet",
+      "qa-or-older-amber",
     ]);
   });
 });

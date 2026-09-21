@@ -300,7 +300,7 @@ export default defineAction({
           )`
         : undefined;
     const matchWindow = selectedBodyPosition
-      ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - 120), 240 + coalesce(length(${selectedBodyNeedle}), 0)) else substr(${normalizedContent}, 1, 5000) end`
+      ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - 120), least(5000, 240 + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
       : sql<string>`substr(${normalizedContent}, 1, 5000)`;
     const ranking = parsedQuery?.groups.length
       ? documentSearchRanking(parsedQuery, {
@@ -316,11 +316,6 @@ export default defineAction({
         title: schema.documents.title,
         description: schema.documents.description,
         icon: schema.documents.icon,
-        contentPreview: matchWindow,
-        snippetNeedle: selectedBodyNeedle
-          ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
-          : sql<string>`''`,
-        contentLength: sql<number>`length(${normalizedContent})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,
         sourceKind: schema.documents.sourceKind,
@@ -354,6 +349,30 @@ export default defineAction({
       )
       .limit(args.limit)
       .offset(args.offset);
+    const previews = docs.length
+      ? await db
+          .select({
+            id: schema.documents.id,
+            contentPreview: matchWindow,
+            snippetNeedle: selectedBodyNeedle
+              ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
+              : sql<string>`''`,
+            contentLength: sql<number>`length(${normalizedContent})`,
+          })
+          .from(schema.documents)
+          .where(
+            and(
+              where,
+              inArray(
+                schema.documents.id,
+                docs.map((doc) => doc.id),
+              ),
+            ),
+          )
+      : [];
+    const previewById = new Map(
+      previews.map((preview) => [preview.id, preview]),
+    );
     const totalItems = docs.length
       ? Number(docs[0]!.totalItems)
       : Number(
@@ -384,24 +403,30 @@ export default defineAction({
     const parentById = new Map(parents.map((parent) => [parent.id, parent]));
 
     return {
-      documents: docs.map((doc) => ({
-        id: doc.id,
-        parentId:
-          doc.parentId && parentById.has(doc.parentId) ? doc.parentId : null,
-        parentTitle: doc.parentId
-          ? (parentById.get(doc.parentId)?.title ?? null)
-          : null,
-        documentType: doc.documentType,
-        sourceKind: doc.sourceKind,
-        sourceUpdatedAt: doc.sourceUpdatedAt,
-        title: doc.title,
-        description: doc.description,
-        icon: doc.icon,
-        snippet: makeSnippet(doc.contentPreview, doc.snippetNeedle),
-        contentLength: Number(doc.contentLength) || 0,
-        hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-        updatedAt: doc.updatedAt,
-      })),
+      documents: docs.map((doc) => {
+        const preview = previewById.get(doc.id);
+        return {
+          id: doc.id,
+          parentId:
+            doc.parentId && parentById.has(doc.parentId) ? doc.parentId : null,
+          parentTitle: doc.parentId
+            ? (parentById.get(doc.parentId)?.title ?? null)
+            : null,
+          documentType: doc.documentType,
+          sourceKind: doc.sourceKind,
+          sourceUpdatedAt: doc.sourceUpdatedAt,
+          title: doc.title,
+          description: doc.description,
+          icon: doc.icon,
+          snippet: makeSnippet(
+            preview?.contentPreview ?? "",
+            preview?.snippetNeedle ?? "",
+          ),
+          contentLength: Number(preview?.contentLength) || 0,
+          hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+          updatedAt: doc.updatedAt,
+        };
+      }),
       pagination: documentDiscoveryPagination({
         offset: args.offset,
         limit: args.limit,

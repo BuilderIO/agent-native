@@ -187,6 +187,26 @@ describe("adversarial document search", () => {
     expect(elapsedMs).toBeLessThanOrEqual(1_500);
   });
 
+  it("caps snippets for quoted phrases larger than the preview budget", async () => {
+    const phrase = `oversized-start-${"quoted-phrase-".repeat(500)}oversized-end`;
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-oversized-quoted-phrase",
+        ownerEmail: OWNER,
+        title: "Oversized quoted phrase",
+        content: `${"leading context ".repeat(30)}${phrase}`,
+        visibility: "private",
+      });
+
+    const result = await asOwner(() =>
+      searchDocuments.run({ query: `"${phrase}"`, limit: 10, offset: 0 }),
+    );
+
+    expect(result.documents[0]?.id).toBe("search-oversized-quoted-phrase");
+    expect(result.documents[0]?.snippet.length).toBeLessThanOrEqual(243);
+  });
+
   it("QA-10 stays responsive for rare, common, and zero-result mixed-size searches", async () => {
     const cases = [
       { query: "rare-saffron-marker", expectedTotal: 3, budgetMs: 750 },
