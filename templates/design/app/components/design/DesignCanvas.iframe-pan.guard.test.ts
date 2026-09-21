@@ -57,9 +57,7 @@ describe("DesignCanvas iframe pan bridge wiring", () => {
     expect(canvasSource).toContain(
       "useEffect(() => {\n    if (interactMode) return;\n    const isInspectorTarget",
     );
-    expect(canvasSource).toContain(
-      "if (interactMode) return;",
-    );
+    expect(canvasSource).toContain("if (interactMode) return;");
     expect(canvasSource).toContain('if (tool !== "pen") return;');
   });
 
