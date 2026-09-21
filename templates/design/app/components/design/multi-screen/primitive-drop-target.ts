@@ -105,6 +105,11 @@ function computeAutoLayoutAxis(style: {
     return isRow ? "x" : "y";
   }
   if (style.display === "grid" || style.display === "inline-grid") {
+    if (
+      /repeat\(\s*(?:auto-fit|auto-fill)\s*,/i.test(style.gridTemplateColumns)
+    ) {
+      return undefined;
+    }
     const columns = gridTrackCount(style.gridTemplateColumns);
     return columns > 1 ? "x" : "y";
   }
@@ -156,6 +161,13 @@ function gridTracks(template: string): string[] {
       gridTracks(repeat[2]),
     ).flat();
   });
+}
+
+function extendGridTracks(tracks: string[], minimumCount: number): string[] {
+  const result = tracks.length ? [...tracks] : ["1fr"];
+  const fill = result[result.length - 1] ?? "1fr";
+  while (result.length < minimumCount) result.push(fill);
+  return result;
 }
 
 function gridTrackPixels(
@@ -875,15 +887,29 @@ export function authoredElementPosition(
         else y += inlineNumber(cursor, "marginTop");
       }
       if (isGrid) {
-        const columns = gridTracks(parentStyle.gridTemplateColumns);
-        const rows = gridTracks(parentStyle.gridTemplateRows);
         const columnValue = gridStartValue(style, "column");
         const rowValue = gridStartValue(style, "row");
         const autoChildren = siblings.filter(
           (sibling) => !isOutOfFlow(sibling),
         );
-        const columnCount = Math.max(1, columns.length);
-        const rowCount = Math.max(1, rows.length);
+        const columns = gridTracks(parentStyle.gridTemplateColumns);
+        const rows = gridTracks(parentStyle.gridTemplateRows);
+        const baseColumnCount = Math.max(1, columns.length);
+        const baseRowCount = Math.max(1, rows.length);
+        const columnTracks = extendGridTracks(
+          columns,
+          parentStyle.gridAutoFlow.includes("column")
+            ? Math.ceil(autoChildren.length / baseRowCount)
+            : baseColumnCount,
+        );
+        const rowTracks = extendGridTracks(
+          rows,
+          parentStyle.gridAutoFlow.includes("column")
+            ? baseRowCount
+            : Math.ceil(autoChildren.length / columnTracks.length),
+        );
+        const columnCount = columnTracks.length;
+        const rowCount = rowTracks.length;
         const occupied = new Set<string>();
         for (const sibling of autoChildren) {
           const siblingStyle = (sibling as HTMLElement).style;
@@ -898,17 +924,12 @@ export function authoredElementPosition(
             parentStyle.gridTemplateRows,
           );
           if (explicitColumn !== undefined || explicitRow !== undefined) {
-            for (
-              let row = explicitRow ?? 1;
-              row < (explicitRow ?? 1) + gridSpan(siblingStyle, "row");
-              row += 1
-            ) {
-              for (
-                let column = explicitColumn ?? 1;
-                column <
-                (explicitColumn ?? 1) + gridSpan(siblingStyle, "column");
-                column += 1
-              ) {
+            const rowStart = explicitRow ?? 1;
+            const rowEnd = rowStart + gridSpan(siblingStyle, "row");
+            const columnStart = explicitColumn ?? 1;
+            const columnEnd = columnStart + gridSpan(siblingStyle, "column");
+            for (let row = rowStart; row < rowEnd; row += 1) {
+              for (let column = columnStart; column < columnEnd; column += 1) {
                 occupied.add(`${row}:${column}`);
               }
             }
@@ -930,6 +951,7 @@ export function authoredElementPosition(
           const hasExplicit =
             explicitColumn !== undefined || explicitRow !== undefined;
           if (hasExplicit) continue;
+          if (parentStyle.gridAutoFlow.includes("dense")) autoSlot = 0;
           while (true) {
             const row = parentStyle.gridAutoFlow.includes("column")
               ? (autoSlot % rowCount) + 1
@@ -987,35 +1009,35 @@ export function authoredElementPosition(
           parentStyle.gridTemplateColumns,
           columnValue,
           parentStyle.gridAutoFlow.includes("column")
-            ? Math.floor(autoIndex / Math.max(1, rows.length)) + 1
+            ? Math.floor(autoIndex / rowCount) + 1
             : (autoIndex % columnCount) + 1,
         );
         const row = gridLine(
           parentStyle.gridTemplateRows,
           rowValue,
           parentStyle.gridAutoFlow.includes("column")
-            ? (autoIndex % Math.max(1, rows.length)) + 1
+            ? (autoIndex % rowCount) + 1
             : Math.floor(autoIndex / columnCount) + 1,
         );
         const gapX = cssPixelNumber(parentStyle.columnGap || parentStyle.gap);
         const gapY = cssPixelNumber(parentStyle.rowGap || parentStyle.gap);
         const columnSizes = gridTrackPixels(
-          columns,
+          columnTracks,
           parentContentSize(parent, "x", cache, visiting),
           gapX,
         );
         const rowSizes = gridTrackPixels(
-          rows,
+          rowTracks,
           parentContentSize(parent, "y", cache, visiting),
           gapY,
         );
         if (column > 1) {
-          x += columns
+          x += columnTracks
             .slice(0, column - 1)
             .reduce((sum, _track, index) => sum + columnSizes[index] + gapX, 0);
         }
         if (row > 1) {
-          y += rows
+          y += rowTracks
             .slice(0, row - 1)
             .reduce((sum, _track, index) => sum + rowSizes[index] + gapY, 0);
         }

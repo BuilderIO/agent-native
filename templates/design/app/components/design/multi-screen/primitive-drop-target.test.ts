@@ -538,6 +538,79 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     );
   });
 
+  it("does not reserve row one for a one-axis explicit grid placement", () => {
+    const screen = {
+      id: "grid-one-axis-screen",
+      filename: "grid-one-axis-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:grid;grid-template-columns:100px 100px">
+          <div data-agent-native-node-id="explicit" data-an-primitive="rectangle" style="grid-column:2;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    const auto = parsePrimitivesFromScreen(screen).find(
+      (primitive) => primitive.nodeId === "auto",
+    );
+    expect(auto).toMatchObject({ localLeft: 0, localTop: 0 });
+  });
+
+  it("places later auto children on modeled implicit rows", () => {
+    const screen = {
+      id: "grid-implicit-rows-screen",
+      filename: "grid-implicit-rows-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:150px;display:grid;grid-template-columns:100px 100px">
+          <div data-agent-native-node-id="explicit" data-an-primitive="rectangle" style="grid-column:2;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="first-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="second-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="third-auto" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    const third = parsePrimitivesFromScreen(screen).find(
+      (p) => p.nodeId === "third-auto",
+    );
+    expect(third?.localLeft).toBe(100);
+    expect(third?.localTop).toBeGreaterThan(0);
+  });
+
+  it("extends a one-row grid for later auto children", () => {
+    const screen = {
+      id: "grid-explicit-row-screen",
+      filename: "grid-explicit-row-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:100px;height:200px;display:grid;grid-template-columns:100px;grid-template-rows:50px">
+          <div data-agent-native-node-id="one" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="two" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="three" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+          <div data-agent-native-node-id="four" data-an-primitive="rectangle" style="width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    const four = parsePrimitivesFromScreen(screen).find(
+      (primitive) => primitive.nodeId === "four",
+    );
+    expect(four?.localTop).toBeGreaterThan(0);
+    expect(Number.isFinite(four?.localTop)).toBe(true);
+  });
+
+  it("does not advertise fallback anchors for opaque auto-fit and auto-fill repeats", () => {
+    for (const repeat of ["auto-fit", "auto-fill"]) {
+      const screen = {
+        ...flexScreen,
+        content: flexScreen.content.replace(
+          "display:flex;flex-direction:row",
+          `display:grid;grid-template-columns:repeat(${repeat}, minmax(120px, 1fr))`,
+        ),
+      };
+      expect(
+        parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+          ?.autoLayoutAxis,
+      ).toBeUndefined();
+    }
+  });
+
   it("keeps nested minmax functions inside a repeat track", () => {
     const screen = {
       ...flexScreen,
