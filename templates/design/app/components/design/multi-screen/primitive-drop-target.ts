@@ -95,6 +95,7 @@ function computeAutoLayoutAxis(style: {
   flexDirection: string;
   flexWrap: string;
   gridTemplateColumns: string;
+  gridAutoFlow: string;
 }): CrossScreenDropAxis | undefined {
   if (style.display === "flex" || style.display === "inline-flex") {
     const direction = style.flexDirection || "row";
@@ -102,12 +103,22 @@ function computeAutoLayoutAxis(style: {
     return isRow ? "x" : "y";
   }
   if (style.display === "grid" || style.display === "inline-grid") {
-    const columns = (style.gridTemplateColumns || "")
-      .split(" ")
-      .filter(Boolean).length;
+    if (style.gridAutoFlow.trim().split(/\s+/).includes("column")) {
+      return "y";
+    }
+    const columns = gridTrackCount(style.gridTemplateColumns);
     return columns > 1 ? "x" : "y";
   }
   return undefined;
+}
+
+function gridTrackCount(template: string): number {
+  let count = 0;
+  for (const token of template.trim().match(/repeat\([^)]*\)|[^\s]+/gi) ?? []) {
+    const repeatCount = token.match(/^repeat\(\s*(\d+)\s*,/i)?.[1];
+    count += repeatCount ? Number(repeatCount) : 1;
+  }
+  return count;
 }
 
 /**
@@ -854,6 +865,7 @@ export function parsePrimitivesFromScreen(
         flexDirection: style.flexDirection,
         flexWrap: style.flexWrap,
         gridTemplateColumns: style.gridTemplateColumns,
+        gridAutoFlow: style.gridAutoFlow,
       });
       const autoLayoutWrapped =
         (style.display === "flex" || style.display === "inline-flex") &&

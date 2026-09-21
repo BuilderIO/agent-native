@@ -404,6 +404,32 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     expect(first?.autoLayoutAxis).toBeUndefined();
   });
 
+  it("counts repeat grid columns and respects column auto-flow", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));grid-auto-flow:row dense",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("x");
+
+    const columnFlow = {
+      ...screen,
+      content: screen.content.replace(
+        "grid-auto-flow:row dense",
+        "grid-auto-flow:column dense",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(columnFlow).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("y");
+  });
+
   it("findAutoLayoutInsertionAnchor resolves 'before' the nearest child when the point sits in the leading padding", () => {
     const primitives = parsePrimitivesFromScreen(flexScreen);
     const parent = primitives.find((p) => p.nodeId === "parent")!;
