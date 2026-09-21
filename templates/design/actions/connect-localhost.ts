@@ -268,11 +268,14 @@ export default defineAction({
       explicitToken ||
       existing[0]?.bridgeToken ||
       crypto.randomBytes(32).toString("hex");
-    const explicitPreviewToken =
-      args.previewToken?.trim() ||
-      (explicitToken ? derivePreviewToken(nextBridgeToken) : undefined);
-    const nextPreviewToken =
-      explicitPreviewToken || derivePreviewToken(nextBridgeToken);
+    const derivedPreviewToken = derivePreviewToken(nextBridgeToken);
+    const explicitPreviewToken = args.previewToken?.trim();
+    if (explicitPreviewToken && explicitPreviewToken !== derivedPreviewToken) {
+      throw new Error(
+        "previewToken must match the deterministic token derived from bridgeToken",
+      );
+    }
+    const nextPreviewToken = derivedPreviewToken;
     const baseValues = {
       id,
       name: args.name ?? new URL(devServerUrl).host,
@@ -326,8 +329,7 @@ export default defineAction({
       .where(and(eq(schema.designLocalhostConnections.id, id), ownerOrgScope))
       .limit(1);
     const effectiveBridgeToken = stored?.bridgeToken ?? nextBridgeToken;
-    const effectivePreviewToken =
-      stored?.previewToken ?? derivePreviewToken(effectiveBridgeToken);
+    const effectivePreviewToken = derivePreviewToken(effectiveBridgeToken);
 
     return {
       id,

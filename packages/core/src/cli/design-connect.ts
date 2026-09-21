@@ -955,6 +955,13 @@ function readHeader(req: IncomingMessage, name: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function isJsonRequest(req: IncomingMessage): boolean {
+  return (
+    readHeader(req, "content-type").split(";", 1)[0]?.trim().toLowerCase() ===
+    "application/json"
+  );
+}
+
 function readRequestCookie(req: IncomingMessage, name: string): string {
   for (const rawPair of readHeader(req, "cookie").split(";")) {
     const pair = rawPair.trim();
@@ -2623,6 +2630,7 @@ export async function startDesignConnectBridge(
   // other and boot a frame with another frame's identity. Keep keyed scripts
   // for modern clients while retaining the unkeyed slot for older clients.
   const liveEditBridgeScripts = new Map<string, string>();
+  const liveEditBridgeDesignIds = new Map<string, string>();
   // Identifies THIS bridge process's in-memory registry, minted fresh every
   // time the bridge boots. `liveEditBridgeScripts` above only lives in
   // process memory, so a bridge restart (crash, machine sleep/wake, manual
@@ -2665,6 +2673,9 @@ export async function startDesignConnectBridge(
         configuredOrigins,
         explicitPreviewTokenValid && readHeader(req, "origin") === "null",
       );
+      const requestOrigin = readHeader(req, "origin");
+      const crossSiteRequest =
+        readHeader(req, "sec-fetch-site").trim().toLowerCase() === "cross-site";
       if (req.method === "OPTIONS") {
         sendJson(
           res,
@@ -2760,7 +2771,32 @@ export async function startDesignConnectBridge(
           sendJson(res, 405, { ok: false, error: "method not allowed" });
           return;
         }
-        if (rejectInvalidPreviewToken()) return;
+        if (!explicitPreviewTokenValid) {
+          sendJson(res, 401, {
+            ok: false,
+            error:
+              "live-edit bridge registration requires the preview token header",
+          });
+          return;
+        }
+        if (
+          requestOrigin === "null" ||
+          (!requestOrigin && crossSiteRequest) ||
+          (requestOrigin && !corsApproved)
+        ) {
+          sendJson(res, 403, {
+            ok: false,
+            error: "origin is not allowed by this bridge",
+          });
+          return;
+        }
+        if (!isJsonRequest(req)) {
+          sendJson(res, 415, {
+            ok: false,
+            error: "live-edit bridge registration requires application/json",
+          });
+          return;
+        }
         void (async () => {
           try {
             const raw = await readRequestBody(req);
@@ -2770,6 +2806,10 @@ export async function startDesignConnectBridge(
             const bridgeKey =
               typeof body["bridgeKey"] === "string"
                 ? body["bridgeKey"].trim()
+                : "";
+            const designId =
+              typeof body["designId"] === "string"
+                ? body["designId"].trim()
                 : "";
             const installsSupportedDesignBridge =
               script.includes("agent-native:editor-chrome-ready") ||
@@ -2796,18 +2836,25 @@ export async function startDesignConnectBridge(
             if (bridgeKey) {
               liveEditBridgeScripts.delete(bridgeKey);
               liveEditBridgeScripts.set(bridgeKey, script);
+              if (designId) {
+                liveEditBridgeDesignIds.set(bridgeKey, designId);
+              } else {
+                liveEditBridgeDesignIds.delete(bridgeKey);
+              }
               // Bound the in-memory cache. Normal editor usage has one key per
               // visible screen; 128 also leaves ample room for mode changes.
               while (liveEditBridgeScripts.size > 128) {
                 const oldest = liveEditBridgeScripts.keys().next().value;
                 if (typeof oldest !== "string") break;
                 liveEditBridgeScripts.delete(oldest);
+                liveEditBridgeDesignIds.delete(oldest);
               }
             }
             sendJson(res, 200, {
               ok: true,
               bridgeInstanceId,
               ...(bridgeKey ? { bridgeKey } : {}),
+              ...(designId ? { designId } : {}),
             });
           } catch (err: unknown) {
             sendJson(res, 400, {
@@ -2819,8 +2866,8 @@ export async function startDesignConnectBridge(
         return;
       }
       if (pathname === "/live-edit-pending") {
-        if (rejectInvalidPreviewToken()) return;
         if (req.method === "GET") {
+          if (rejectInvalidPreviewToken()) return;
           sendJson(res, 200, { ok: true, pending: pendingVisualEditPayload });
           return;
         }
@@ -2828,11 +2875,56 @@ export async function startDesignConnectBridge(
           sendJson(res, 405, { ok: false, error: "method not allowed" });
           return;
         }
+        // Publishing is a browser state mutation. The read-only preview
+        // credential must come from the custom header, not a query string or
+        // cookie, and the JSON content type forces a browser preflight before
+        // a cross-site page can reach this endpoint.
+        if (!explicitPreviewTokenValid) {
+          sendJson(res, 401, {
+            ok: false,
+            error: "pending publication requires the preview token header",
+          });
+          return;
+        }
+        if (
+          requestOrigin === "null" ||
+          (!requestOrigin && crossSiteRequest) ||
+          (requestOrigin && !corsApproved)
+        ) {
+          sendJson(res, 403, {
+            ok: false,
+            error: "origin is not allowed by this bridge",
+          });
+          return;
+        }
+        if (!isJsonRequest(req)) {
+          sendJson(res, 415, {
+            ok: false,
+            error: "pending publication requires application/json",
+          });
+          return;
+        }
         void (async () => {
           try {
             const raw = await readLiveEditPendingBody(req);
             const body = JSON.parse(raw) as Record<string, unknown>;
             const pending = body.pending;
+            const pendingDesignId =
+              pending && typeof pending === "object"
+                ? (pending as Record<string, unknown>).designId
+                : body.designId;
+            if (
+              typeof pendingDesignId !== "string" ||
+              !Array.from(liveEditBridgeDesignIds.values()).includes(
+                pendingDesignId,
+              )
+            ) {
+              sendJson(res, 403, {
+                ok: false,
+                error: "pending publication is not authorized for this design",
+              });
+              return;
+            }
             if (pending === null) {
               pendingVisualEditPayload = null;
               sendJson(res, 200, { ok: true, pending: null });

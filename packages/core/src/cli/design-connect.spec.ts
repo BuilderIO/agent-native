@@ -598,6 +598,16 @@ describe("design connect bridge endpoints", () => {
     const auth = { "x-design-preview-token": bridge.previewToken };
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
+      const registered = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "screen-a",
+          designId: "design-1",
+        },
+        auth,
+      );
+      expect(registered.status).toBe(200);
       expect((await getJson(`${base}/live-edit-pending`)).status).toBe(401);
       expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
         ok: true,
@@ -619,6 +629,75 @@ describe("design connect bridge endpoints", () => {
           )
         ).status,
       ).toBe(401);
+
+      const queryTokenWrite = await postJson(
+        `${base}/live-edit-pending?previewToken=${encodeURIComponent(bridge.previewToken)}`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged query-token write",
+          },
+        },
+      );
+      expect(queryTokenWrite.status).toBe(401);
+
+      const disallowedOriginWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged cross-origin write",
+          },
+        },
+        { ...auth, origin: "https://evil.example" },
+      );
+      expect(disallowedOriginWrite.status).toBe(403);
+
+      const opaqueOriginWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged opaque-origin write",
+          },
+        },
+        { ...auth, origin: "null" },
+      );
+      expect(opaqueOriginWrite.status).toBe(403);
+
+      const crossSiteNoOriginWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged no-origin write",
+          },
+        },
+        { ...auth, "sec-fetch-site": "cross-site" },
+      );
+      expect(crossSiteNoOriginWrite.status).toBe(403);
+
+      const textPlainWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged simple-request write",
+          },
+        },
+        { ...auth, "content-type": "text/plain" },
+      );
+      expect(textPlainWrite.status).toBe(415);
 
       const published = await postJson(
         `${base}/live-edit-pending`,
@@ -676,7 +755,7 @@ describe("design connect bridge endpoints", () => {
 
       const cleared = await postJson(
         `${base}/live-edit-pending`,
-        { pending: null },
+        { designId: "design-1", pending: null },
         auth,
       );
       expect(cleared.status).toBe(200);
