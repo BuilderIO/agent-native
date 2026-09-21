@@ -15956,7 +15956,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         parent !== document.body &&
         isAutoLayoutElement(parent) &&
         cursor.getAttribute("data-an-primitive") !== "frame" &&
-        !isContainerDropTarget(cursor) &&
         !isTextBearingLeaf(parent) &&
         !forceNestedAutoLayout &&
         !isTemplateCloneElement(cursor)
@@ -16037,8 +16036,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           parent &&
           parent !== document.body &&
           isAutoLayoutElement(parent) &&
-          cursor.getAttribute("data-an-primitive") !== "frame" &&
-          !isContainerDropTarget(cursor)
+          cursor.getAttribute("data-an-primitive") !== "frame"
         )
       ) {
         // Free (absolute) element into a non-auto-layout container stays free:
