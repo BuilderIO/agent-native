@@ -130,6 +130,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "공유 키를 사용 중입니다.",
   "agentPanel.useOrganizationKey": "조직 키 사용",
   "agentPanel.keyStatusUnavailable": "키 상태를 확인할 수 없습니다.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "이 사이트의 팝업을 허용한 후 다시 시도하세요.",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT 구독",
+  "agentPanel.chatgptSubscriptionDescription":
+    "ChatGPT 구독을 통한 실험적 Codex 액세스입니다.",
+  "agentPanel.chatgptSubscriptionInUse": "사용 중",
+  "agentPanel.chatgptSubscriptionConnected": "연결됨",
+  "agentPanel.chatgptSubscriptionConnecting": "연결 중…",
+  "agentPanel.chatgptSubscriptionReconnect": "다시 연결",
+  "agentPanel.chatgptSubscriptionConnect": "ChatGPT 연결",
+  "agentPanel.chatgptSubscriptionUse": "채팅에서 사용",
+  "agentPanel.chatgptSubscriptionDisconnect": "연결 해제",
   "agentHostNudge.sidebarTitle": "{{agent}} 채팅 사용",
   "agentHostNudge.sidebarDescription":
     "이미 {{agent}}와 대화 중입니다. 이 앱에서 직접 작업하도록 요청하세요.",

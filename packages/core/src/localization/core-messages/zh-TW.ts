@@ -125,6 +125,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "目前使用的是共用金鑰。",
   "agentPanel.useOrganizationKey": "改用組織金鑰",
   "agentPanel.keyStatusUnavailable": "無法取得金鑰狀態。",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "允許此網站的彈出視窗，然後再試一次。",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT 訂閱",
+  "agentPanel.chatgptSubscriptionDescription":
+    "透過你的 ChatGPT 訂閱使用實驗性 Codex。",
+  "agentPanel.chatgptSubscriptionInUse": "使用中",
+  "agentPanel.chatgptSubscriptionConnected": "已連線",
+  "agentPanel.chatgptSubscriptionConnecting": "正在連線…",
+  "agentPanel.chatgptSubscriptionReconnect": "重新連線",
+  "agentPanel.chatgptSubscriptionConnect": "連線 ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "在聊天中使用",
+  "agentPanel.chatgptSubscriptionDisconnect": "中斷連線",
   "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
   "agentHostNudge.sidebarDescription":
     "你已經在與 {{agent}} 聊天。可以直接請它操作此應用程式。",

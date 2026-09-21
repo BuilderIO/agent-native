@@ -124,6 +124,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "当前使用的是共享密钥。",
   "agentPanel.useOrganizationKey": "改用组织密钥",
   "agentPanel.keyStatusUnavailable": "无法获取密钥状态。",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "允许此网站弹出窗口，然后重试。",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT 订阅",
+  "agentPanel.chatgptSubscriptionDescription":
+    "通过你的 ChatGPT 订阅使用实验性 Codex。",
+  "agentPanel.chatgptSubscriptionInUse": "使用中",
+  "agentPanel.chatgptSubscriptionConnected": "已连接",
+  "agentPanel.chatgptSubscriptionConnecting": "正在连接…",
+  "agentPanel.chatgptSubscriptionReconnect": "重新连接",
+  "agentPanel.chatgptSubscriptionConnect": "连接 ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "在聊天中使用",
+  "agentPanel.chatgptSubscriptionDisconnect": "断开连接",
   "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
   "agentHostNudge.sidebarDescription":
     "你已经在与 {{agent}} 聊天。可以直接让它操作此应用。",

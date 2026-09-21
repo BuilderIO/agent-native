@@ -142,6 +142,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.useOrganizationKey": "Usar clave de la organización",
   "agentPanel.keyStatusUnavailable":
     "No se pudo consultar el estado de la clave.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Permite las ventanas emergentes de este sitio y vuelve a intentarlo.",
+  "agentPanel.chatgptSubscriptionTitle": "Suscripción de ChatGPT",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Acceso experimental a Codex mediante tu suscripción de ChatGPT.",
+  "agentPanel.chatgptSubscriptionInUse": "En uso",
+  "agentPanel.chatgptSubscriptionConnected": "Conectado",
+  "agentPanel.chatgptSubscriptionConnecting": "Conectando…",
+  "agentPanel.chatgptSubscriptionReconnect": "Volver a conectar",
+  "agentPanel.chatgptSubscriptionConnect": "Conectar ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "Usar en el chat",
+  "agentPanel.chatgptSubscriptionDisconnect": "Desconectar",
   "agentHostNudge.sidebarTitle": "Usa el chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Ya estás chateando con {{agent}}. Pídele que trabaje directamente con esta app.",
