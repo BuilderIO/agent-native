@@ -9,6 +9,9 @@ const runStore = vi.hoisted(() => ({
   getRunById: vi.fn(),
   getRunEventsSince: vi.fn(),
 }));
+const threads = vi.hoisted(() => ({
+  getThread: vi.fn(async () => null as { threadData?: string } | null),
+}));
 
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => ({ execute: vi.fn() }),
@@ -21,6 +24,9 @@ vi.mock("../store.js", () => ({
 vi.mock("../../agent/run-store.js", () => ({
   getRunById: (...a: unknown[]) => runStore.getRunById(...a),
   getRunEventsSince: (...a: unknown[]) => runStore.getRunEventsSince(...a),
+}));
+vi.mock("../../chat-threads/store.js", () => ({
+  getThread: (...a: unknown[]) => threads.getThread(...a),
 }));
 
 const promoteTraceEval = (await import("./promote-trace-eval.js")).default;
@@ -60,6 +66,7 @@ function summary(userId = "alice@example.com") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  threads.getThread.mockResolvedValue(null);
   store.insertEvalDataset.mockResolvedValue(undefined);
   store.getTraceSpansForRun.mockResolvedValue([
     {
@@ -122,6 +129,47 @@ describe("promote-trace-eval", () => {
       { type: "usesTool", toolName: "search-docs" },
     ]);
     expect(result.sourceRunId).toBe("run-1");
+  });
+
+  it("promotes the durable thread prompt when events have no user-message", async () => {
+    store.getTraceSummary.mockResolvedValue(summary());
+    runStore.getRunById.mockResolvedValue(completedRun());
+    runStore.getRunEventsSince.mockResolvedValue([
+      {
+        seq: 1,
+        eventData: JSON.stringify({
+          type: "tool_done",
+          tool: "search-docs",
+          result: "ok",
+        }),
+      },
+      { seq: 2, eventData: JSON.stringify({ type: "text", text: "Done." }) },
+      { seq: 3, eventData: JSON.stringify({ type: "done" }) },
+    ]);
+    threads.getThread.mockResolvedValue({
+      threadData: JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "server-user-run-1",
+              role: "user",
+              content: [{ type: "text", text: "Search the docs" }],
+              metadata: { custom: { submittedRunId: "run-1" } },
+            },
+            parentId: null,
+          },
+        ],
+      }),
+    });
+
+    const result = await promoteTraceEval.run(
+      { runId: "run-1" },
+      { userEmail: "alice@example.com" },
+    );
+
+    expect(threads.getThread).toHaveBeenCalledWith("thread-1");
+    expect(result.eval.input.prompt).toBe("Search the docs");
+    expect(store.insertEvalDataset).toHaveBeenCalledTimes(1);
   });
 
   it("returns not_found for another user's runId", async () => {

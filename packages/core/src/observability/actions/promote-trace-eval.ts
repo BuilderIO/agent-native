@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
 import { getRunById, getRunEventsSince } from "../../agent/run-store.js";
+import { getThread } from "../../chat-threads/store.js";
 import {
   promoteTraceToEval,
   type PromoteTraceError,
@@ -25,7 +26,8 @@ const PROMOTE_ERROR_MESSAGE: Record<PromoteTraceError, string> = {
   not_found: "Trace not found",
   run_not_completed:
     "Run is not completed; truncated or aborted traces cannot become CI evals",
-  no_user_prompt: "Run has no user-message event to use as the eval prompt",
+  no_user_prompt:
+    "Run has no user prompt in its thread or events to use as the eval prompt",
   no_signal:
     "Run has no successful tools and no mustContain needle, so promotion would emit an empty eval",
 };
@@ -75,12 +77,14 @@ export async function promoteTraceEvalFromStore(
       ...(opts.userId ? { userId: opts.userId } : {}),
     }),
   ]);
+  const thread = run?.threadId ? await getThread(run.threadId) : null;
 
   const result = promoteTraceToEval({
     runId,
     run,
     events,
     spans,
+    threadInput: thread?.threadData,
     options: {
       mustContain: args.mustContain,
       datasetName: args.datasetName,

@@ -11,6 +11,7 @@ interface ExecCall {
 }
 
 const execCalls: ExecCall[] = [];
+const ensuredColumns = vi.hoisted(() => [] as string[]);
 
 function createCapturingDb() {
   return {
@@ -33,7 +34,11 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
-  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureColumnExists: vi.fn(
+    async (table: string, column: string, sql: string) => {
+      ensuredColumns.push(`${table}.${column}:${sql}`);
+    },
+  ),
   ensureIndexExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
@@ -304,6 +309,21 @@ describe("observability store: per-user isolation", () => {
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
       expect(call!.args).toContain("alice");
+    });
+
+    it("adds user_id to an existing agent_eval_datasets table before insert", async () => {
+      await insertEvalDataset({
+        id: "ds-migrate",
+        name: "from-trace:run-migrate",
+        description: "",
+        entries: [],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.user_id:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS user_id TEXT",
+      );
     });
 
     it("insertFeedback persists user_id and dedupes idempotency keys", async () => {

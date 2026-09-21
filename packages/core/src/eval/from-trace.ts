@@ -1,11 +1,13 @@
 /**
  * Map a completed production run into a `defineEval` case.
  *
- * This module has no database imports — callers load the run, events, and
- * spans, then persist the returned dataset. Hosted actions must not write
- * `*.eval.ts`; only the eval CLI `--write` path emits a fixture file.
+ * This module has no database imports — callers load the run, events, spans,
+ * and durable thread input, then persist the returned dataset. Hosted actions
+ * must not write `*.eval.ts`; only the eval CLI `--write` path emits a fixture
+ * file.
  */
 
+import { isToolDoneFailure } from "../agent/tool-done-error.js";
 import type { EvalDataset } from "../observability/types.js";
 import { defineEval } from "./define-eval.js";
 import { contains, usesTool } from "./scorer.js";
@@ -73,6 +75,12 @@ export interface PromoteTraceInput {
   events: readonly PromoteTraceEvent[];
   spans?: readonly PromoteTraceSpan[];
   options?: PromoteTraceOptions;
+  /**
+   * Durable chat thread repository (`chat_threads.thread_data`), as an object
+   * or the raw JSON string. User prompts are persisted on the thread, not as
+   * run events.
+   */
+  threadInput?: unknown;
 }
 
 interface ConversationTurn {
@@ -120,7 +128,139 @@ function toolNameFromEvent(event: Record<string, unknown>): string | null {
 }
 
 function isToolError(event: Record<string, unknown>): boolean {
-  return event.isError === true || event.status === "error";
+  return event.status === "error" || isToolDoneFailure(event);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function parseThreadRepository(
+  threadInput: unknown,
+): Record<string, unknown> | null {
+  if (typeof threadInput === "string") {
+    const trimmed = threadInput.trim();
+    if (!trimmed) return null;
+    try {
+      return asRecord(JSON.parse(trimmed) as unknown);
+    } catch {
+      return null;
+    }
+  }
+  return asRecord(threadInput);
+}
+
+/** Wrapped `{ message, parentId }` rows and flat `{ role, content }` rows. */
+function threadMessages(threadInput: unknown): Record<string, unknown>[] {
+  const repo = parseThreadRepository(threadInput);
+  const raw = Array.isArray(repo?.messages)
+    ? repo.messages
+    : Array.isArray(threadInput)
+      ? threadInput
+      : null;
+  if (!raw) return [];
+  const messages: Record<string, unknown>[] = [];
+  for (const entry of raw) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const message = asRecord(record.message) ?? record;
+    if (typeof message.role !== "string") continue;
+    messages.push(message);
+  }
+  return messages;
+}
+
+function customMeta(message: Record<string, unknown>): Record<string, unknown> {
+  return asRecord(asRecord(message.metadata)?.custom) ?? {};
+}
+
+function storedMessageText(message: Record<string, unknown>): string {
+  const content = message.content;
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      const record = asRecord(part);
+      if (
+        !record ||
+        record.type !== "text" ||
+        typeof record.text !== "string"
+      ) {
+        return "";
+      }
+      return record.text;
+    })
+    .join("")
+    .trim();
+}
+
+function submittedRunId(message: Record<string, unknown>): string | null {
+  const id = customMeta(message).submittedRunId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+function messageRunIds(message: Record<string, unknown>): string[] {
+  const metadata = asRecord(message.metadata);
+  const folded = customMeta(message).foldedRunIds;
+  const ids = [
+    metadata?.runId,
+    customMeta(message).runId,
+    ...(Array.isArray(folded) ? folded : []),
+  ];
+  return ids.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+/**
+ * Index of the user message that started this run. `submittedRunId` is stamped
+ * on the foreground chunk; a later completed continuation only appears on the
+ * assistant message (`runId` / `foldedRunIds`), so walk back to the user turn
+ * that message belongs to.
+ */
+function promptIndexForRun(
+  messages: readonly Record<string, unknown>[],
+  runId: string,
+): number {
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]!;
+    if (message.role === "user" && submittedRunId(message) === runId) return i;
+  }
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]!;
+    if (message.role === "user" || !messageRunIds(message).includes(runId)) {
+      continue;
+    }
+    for (let j = i; j >= 0; j--) {
+      const earlier = messages[j]!;
+      if (earlier.role === "user" && storedMessageText(earlier).length > 0) {
+        return j;
+      }
+    }
+  }
+  return -1;
+}
+
+function evalInputFromThread(
+  threadInput: unknown,
+  runId: string,
+): EvalInput | null {
+  const messages = threadMessages(threadInput);
+  const promptIndex = promptIndexForRun(messages, runId);
+  if (promptIndex < 0) return null;
+  const prompt = storedMessageText(messages[promptIndex]!);
+  if (!prompt) return null;
+  const history: Array<{ role: "user" | "assistant"; text: string }> = [];
+  for (const message of messages.slice(0, promptIndex)) {
+    const role = message.role;
+    if (role !== "user" && role !== "assistant") continue;
+    const text = storedMessageText(message);
+    if (!text) continue;
+    history.push({ role, text });
+  }
+  return history.length > 0 ? { prompt, history } : { prompt };
 }
 
 /**
@@ -176,18 +316,24 @@ function successfulToolNames(
 ): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
+  // Names whose spans are only failures. A later success span clears this.
+  const failedOnly = new Set<string>();
 
   const add = (name: string | null | undefined) => {
     if (!name || seen.has(name) || names.length >= MAX_TOOLS) return;
     seen.add(name);
+    failedOnly.delete(name);
     names.push(name);
   };
 
+  // A span already classified by trace instrumentation wins over the event
+  // fallback. An error span must not be re-added because `tool_done` omitted
+  // `isError`.
   if (spans) {
     for (const span of spans) {
-      if (span.spanType === "tool_call" && span.status === "success") {
-        add(span.name);
-      }
+      if (span.spanType !== "tool_call" || !span.name) continue;
+      if (span.status === "success") add(span.name);
+      else if (!seen.has(span.name)) failedOnly.add(span.name);
     }
   }
 
@@ -196,7 +342,9 @@ function successfulToolNames(
     const event = parseEvent(eventData);
     if (!event || event.type !== "tool_done") continue;
     if (isToolError(event)) continue;
-    add(toolNameFromEvent(event));
+    const name = toolNameFromEvent(event);
+    if (name && failedOnly.has(name)) continue;
+    add(name);
   }
 
   return names;
@@ -287,8 +435,9 @@ export function promoteTraceToEval(
     return { ok: false, error: "run_not_completed" };
   }
 
-  const turns = conversationTurnsFromEvents(input.events);
-  const evalInput = evalInputFromTurns(turns);
+  const evalInput =
+    evalInputFromThread(input.threadInput, runId) ??
+    evalInputFromTurns(conversationTurnsFromEvents(input.events));
   if (!evalInput) {
     return { ok: false, error: "no_user_prompt" };
   }

@@ -176,6 +176,189 @@ describe("promoteTraceToEval", () => {
     });
   });
 
+  it("reads the prompt from a persisted thread when the run events have no user-message", () => {
+    // Shape produced by persistSubmittedUserMessage → buildUserMessage and
+    // onRunComplete → buildAssistantMessage / foldAssistantTurn. Run events
+    // are the AgentChatEvent variants the loop actually persists.
+    const runId = "run-abcdef123456";
+    const result = promoteTraceToEval({
+      runId,
+      run: { status: "completed" },
+      threadInput: {
+        headId: `server-${runId}`,
+        messages: [
+          {
+            message: {
+              id: "server-user-run-prev",
+              role: "user",
+              content: [{ type: "text", text: "What can you do?" }],
+              metadata: { custom: { submittedRunId: "run-prev" } },
+            },
+            parentId: null,
+          },
+          {
+            message: {
+              id: "server-run-prev",
+              role: "assistant",
+              content: [{ type: "text", text: "I can file expenses." }],
+              status: { type: "complete", reason: "stop" },
+              metadata: {
+                runId: "run-prev",
+                custom: { foldedRunIds: ["run-prev"], turnId: "turn-prev" },
+              },
+            },
+            parentId: "server-user-run-prev",
+          },
+          {
+            message: {
+              id: `server-user-${runId}`,
+              role: "user",
+              content: [{ type: "text", text: "File an expense for lunch" }],
+              metadata: { custom: { submittedRunId: runId } },
+            },
+            parentId: "server-run-prev",
+          },
+          {
+            message: {
+              id: `server-${runId}`,
+              role: "assistant",
+              content: [{ type: "text", text: "Filed it." }],
+              status: { type: "complete", reason: "stop" },
+              metadata: {
+                runId,
+                custom: { foldedRunIds: [runId], turnId: "turn-1" },
+              },
+            },
+            parentId: `server-user-${runId}`,
+          },
+        ],
+      },
+      events: events(
+        {
+          type: "tool_start",
+          tool: "search-docs",
+          id: "call-1",
+          input: { query: "lunch" },
+        },
+        {
+          type: "tool_done",
+          tool: "search-docs",
+          id: "call-1",
+          result: "ok",
+        },
+        { type: "text", text: "Filed it." },
+        { type: "done" },
+      ),
+      spans: [
+        { spanType: "tool_call", name: "search-docs", status: "success" },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.eval.input).toEqual({
+      prompt: "File an expense for lunch",
+      history: [
+        { role: "user", text: "What can you do?" },
+        { role: "assistant", text: "I can file expenses." },
+      ],
+    });
+    expect(result.value.spec.scorers).toEqual([
+      { type: "usesTool", toolName: "search-docs" },
+    ]);
+  });
+
+  it("uses the preceding user turn when this run is only a folded continuation", () => {
+    const result = promoteTraceToEval({
+      runId: "run-chunk-2",
+      run: { status: "completed" },
+      threadInput: JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "server-user-run-chunk-1",
+              role: "user",
+              content: [{ type: "text", text: "Finish the report" }],
+              metadata: { custom: { submittedRunId: "run-chunk-1" } },
+            },
+            parentId: null,
+          },
+          {
+            message: {
+              id: "server-run-chunk-1",
+              role: "assistant",
+              content: [{ type: "text", text: "Done." }],
+              metadata: {
+                runId: "run-chunk-2",
+                custom: {
+                  turnId: "turn-9",
+                  foldedRunIds: ["run-chunk-1", "run-chunk-2"],
+                },
+              },
+            },
+            parentId: "server-user-run-chunk-1",
+          },
+        ],
+      }),
+      events: events({ type: "text", text: "Done." }, { type: "done" }),
+      spans: [],
+      options: { mustContain: "Done" },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.eval.input).toEqual({ prompt: "Finish the report" });
+  });
+
+  it("does not score a legacy tool_done whose result starts with Error", () => {
+    const result = promoteTraceToEval({
+      runId: "run-legacy-err",
+      run: { status: "completed" },
+      events: events(
+        { type: "user-message", text: "read the file" },
+        {
+          type: "tool_done",
+          tool: "legacy-read",
+          result: "Error: disk full",
+        },
+        {
+          type: "tool_done",
+          tool: "legacy-exec",
+          result: "Error running legacy-exec: timeout",
+        },
+        { type: "tool_done", tool: "search-docs", result: "ok" },
+      ),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.spec.scorers).toEqual([
+      { type: "usesTool", toolName: "search-docs" },
+    ]);
+  });
+
+  it("does not score a tool whose span already records failure", () => {
+    const result = promoteTraceToEval({
+      runId: "run-span-err",
+      run: { status: "completed" },
+      events: events(
+        { type: "user-message", text: "read the file" },
+        { type: "tool_done", tool: "legacy-read", result: "ok-looking" },
+        { type: "tool_done", tool: "search-docs", result: "ok" },
+      ),
+      spans: [
+        { spanType: "tool_call", name: "legacy-read", status: "error" },
+        { spanType: "tool_call", name: "search-docs", status: "success" },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.spec.scorers).toEqual([
+      { type: "usesTool", toolName: "search-docs" },
+    ]);
+  });
+
   it("emits a loadable defineEval module", () => {
     const result = promoteTraceToEval({
       runId: "run-write",
