@@ -2704,7 +2704,9 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       );
       expect(held?.source?.parentId).toBe("flow-origin");
       expect(held?.source?.lifted).toBe(true);
-      expect(held?.guide?.display).toBe("block");
+      // Free canvas is an absolute-placement target, so it must not advertise
+      // a flow insertion marker while the dragged child is still lifted.
+      expect(held?.guide?.display ?? "none").not.toBe("block");
       expect(held?.children.map((child) => child.id)).toEqual([
         "flow-child",
         "flow-peer",
