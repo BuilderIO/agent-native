@@ -205,6 +205,23 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain("editingSafetyEnabled: !interactMode");
   });
 
+  it("reports live router paths while Interact omits editor chrome", () => {
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain("data-agent-native-live-route-bridge");
+    expect(canvas).toContain('type: "agent-native:live-route-path"');
+    expect(canvas).toContain("window.history.pushState = function ()");
+    expect(canvas).toContain("window.history.replaceState = function ()");
+    expect(canvas).toContain(
+      'if (e.data.type === "agent-native:live-route-path") {',
+    );
+    expect(canvas).toContain(
+      '(includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +',
+    );
+  });
+
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
     // /visual-edit works without a login for a loopback caller, so anything on
     // that path keyed to `isSignedIn` fails for exactly the user it serves:

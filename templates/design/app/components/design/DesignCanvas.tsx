@@ -437,6 +437,40 @@ ${navBridgeScript}
 </script>
 `;
 
+// URL-backed frames keep running their app in Interact mode, so the editor
+// chrome is intentionally absent there. Report client-side router changes
+// through the same trusted frame channel so returning to Edit reopens the
+// route the user was actually viewing instead of the screen's seed URL.
+const LIVE_ROUTE_BRIDGE_SCRIPT = `
+<script data-agent-native-live-route-bridge>
+(function () {
+  function report() {
+    try {
+      window.parent.postMessage({
+        type: "agent-native:live-route-path",
+        routePath: window.location.pathname + window.location.search + window.location.hash
+      }, "*");
+    } catch (_) {}
+  }
+  var pushState = window.history.pushState;
+  var replaceState = window.history.replaceState;
+  window.history.pushState = function () {
+    var result = pushState.apply(this, arguments);
+    report();
+    return result;
+  };
+  window.history.replaceState = function () {
+    var result = replaceState.apply(this, arguments);
+    report();
+    return result;
+  };
+  window.addEventListener("popstate", report);
+  window.addEventListener("hashchange", report);
+  report();
+})();
+</script>
+`;
+
 const EDITOR_BRIDGE_VAR_NAMES = [
   "--design-editor-accent-color",
   "--design-editor-accent-hover-color",
@@ -2217,7 +2251,8 @@ export function DesignCanvas({
   const includeLiveEditEditorChrome = !interactMode && !readOnly;
   const liveEditBridgeScript = useMemo(
     () =>
-      includeLiveEditEditorChrome
+      (includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +
+      (includeLiveEditEditorChrome
         ? MOTION_PREVIEW_BRIDGE_SCRIPT +
           SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
           TWEAK_BRIDGE_SCRIPT +
@@ -2225,7 +2260,7 @@ export function DesignCanvas({
           LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
           embeddedGestureBridgeForCurrentState +
           editorChromeBridgeForCurrentState
-        : embeddedGestureBridgeForCurrentState,
+        : embeddedGestureBridgeForCurrentState),
     [
       editorChromeBridgeForCurrentState,
       embeddedGestureBridgeForCurrentState,
@@ -3729,6 +3764,13 @@ export function DesignCanvas({
         return;
       }
       if (!e.data || !e.data.type) return;
+      if (e.data.type === "agent-native:live-route-path") {
+        if (typeof e.data.routePath === "string" && e.data.routePath) {
+          liveRoutePathRef.current = e.data.routePath;
+          onRoutePathChange?.(screenId, e.data.routePath);
+        }
+        return;
+      }
       if (e.data.type === "agent-native:screen-root-computed-styles") {
         const rawStyles = e.data.computedStyles;
         if (!isComputedStyleMap(rawStyles)) return;
