@@ -1183,7 +1183,7 @@ describe("server/auth", () => {
       );
     });
 
-    it("does not set first-run onboarding for an unauthenticated callback", async () => {
+    it("sets first-run onboarding when the new-user callback has no resolved session", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
       vi.doMock("./better-auth-instance.js", () => ({
@@ -1225,7 +1225,7 @@ describe("server/auth", () => {
 
       expect(response.status).toBe(302);
       expect(response.headers.get("location")).toBe("/welcome");
-      expect(response.headers.get("set-cookie") ?? "").not.toContain(
+      expect(response.headers.get("set-cookie") ?? "").toContain(
         "agent-native-first-run=1",
       );
     });

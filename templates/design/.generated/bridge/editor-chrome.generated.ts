@@ -15881,7 +15881,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       return Boolean(child);
     }
     var crossScreenClaimedByHost = false;
+    var lastPointerDownTimestamp = 0;
     function beginPotentialShieldDrag(e) {
+      if (readOnly) return;
+      if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
+        return;
+      }
+      if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
       stopNativeInteraction(e);
       clearGridProjectionCaches();
       pendingMoveCommitRevert = null;
@@ -16031,6 +16037,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       true
     );
     shieldOverlay.addEventListener("pointerdown", beginPotentialShieldDrag, true);
+    shieldOverlay.addEventListener("mousedown", beginPotentialShieldDrag, true);
+    document.addEventListener(
+      "pointerdown",
+      function(e) {
+        if (isOverlayElement(e.target)) return;
+        if (e.button === 0) beginPotentialShieldDrag(e);
+      },
+      true
+    );
+    document.addEventListener(
+      "mousedown",
+      function(e) {
+        if (isOverlayElement(e.target)) return;
+        if (e.button === 0) beginPotentialShieldDrag(e);
+      },
+      true
+    );
     shieldOverlay.addEventListener("wheel", scrollUnderlyingElementAtWheel, {
       passive: false,
       capture: true
@@ -16889,64 +16912,89 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
-    shieldOverlay.addEventListener(
+    function handleShieldPointerMove(e) {
+      if (readOnly) return;
+      stopNativeInteraction(e);
+      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
+      hoveredEl = resolveHoverTarget(
+        e.clientX,
+        e.clientY,
+        e.metaKey || e.ctrlKey
+      );
+      if (!hoveredEl) {
+        highlightOverlay.style.display = "none";
+        if (!spacingDrag) {
+          scheduleSpacingHoverClear(e);
+        }
+        hideMeasurements();
+        lastHoverInfoPostedEl = null;
+        return;
+      }
+      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+        return;
+      if (!spacingDrag) {
+        var hoveringSelectedSpacingSurface = Boolean(
+          selectedEl && hoveredEl && (hoveredEl === selectedEl || selectedEl.contains && selectedEl.contains(hoveredEl))
+        );
+        if (hoveringSelectedSpacingSurface) {
+          clearSpacingHoverTimer();
+          lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
+          updateSpacingOverlay(selectedEl);
+          var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
+          if (pointSpacingKey) {
+            activateSpacingHandle(pointSpacingKey);
+          } else if (hoveredSpacingHandleKey) {
+            hoveredSpacingHandleKey = "";
+            updateSpacingOverlay(selectedEl);
+          }
+        } else {
+          scheduleSpacingHoverClear(e);
+        }
+      }
+      if (hoveredEl === selectedEl) {
+        highlightOverlay.style.display = "none";
+      } else {
+        positionOverlay(highlightOverlay, hoveredEl);
+      }
+      if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
+        showMeasurements(selectedEl, hoveredEl);
+      } else {
+        hideMeasurements();
+      }
+      if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
+        lastHoverInfoPostedEl = hoveredEl;
+        var info = getLightElementInfo(hoveredEl);
+        window.parent.postMessage(
+          { type: "element-hover", payload: info },
+          "*"
+        );
+      }
+    }
+    shieldOverlay.addEventListener("pointermove", handleShieldPointerMove, true);
+    shieldOverlay.addEventListener("mousemove", handleShieldPointerMove, true);
+    document.addEventListener(
       "pointermove",
       function(e) {
-        stopNativeInteraction(e);
-        lastHoverClientPoint = { x: e.clientX, y: e.clientY };
-        hoveredEl = resolveHoverTarget(
-          e.clientX,
-          e.clientY,
-          e.metaKey || e.ctrlKey
-        );
-        if (!hoveredEl) {
-          highlightOverlay.style.display = "none";
-          if (!spacingDrag) {
-            scheduleSpacingHoverClear(e);
-          }
-          hideMeasurements();
-          lastHoverInfoPostedEl = null;
+        if (isOverlayElement(e.target)) return;
+        if (pendingShieldDrag || activeDragCancel) {
+          if (e.cancelable) e.preventDefault();
+          e.stopPropagation();
           return;
         }
-        if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+        handleShieldPointerMove(e);
+      },
+      true
+    );
+    document.addEventListener(
+      "mousemove",
+      function(e) {
+        if (isOverlayElement(e.target)) return;
+        if (pendingShieldDrag || activeDragCancel) {
+          if (e.cancelable) e.preventDefault();
+          e.stopPropagation();
           return;
-        if (!spacingDrag) {
-          var hoveringSelectedSpacingSurface = Boolean(
-            selectedEl && hoveredEl && (hoveredEl === selectedEl || selectedEl.contains && selectedEl.contains(hoveredEl))
-          );
-          if (hoveringSelectedSpacingSurface) {
-            clearSpacingHoverTimer();
-            lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
-            updateSpacingOverlay(selectedEl);
-            var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
-            if (pointSpacingKey) {
-              activateSpacingHandle(pointSpacingKey);
-            } else if (hoveredSpacingHandleKey) {
-              hoveredSpacingHandleKey = "";
-              updateSpacingOverlay(selectedEl);
-            }
-          } else {
-            scheduleSpacingHoverClear(e);
-          }
         }
-        if (hoveredEl === selectedEl) {
-          highlightOverlay.style.display = "none";
-        } else {
-          positionOverlay(highlightOverlay, hoveredEl);
-        }
-        if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
-          showMeasurements(selectedEl, hoveredEl);
-        } else {
-          hideMeasurements();
-        }
-        if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
-          lastHoverInfoPostedEl = hoveredEl;
-          var info = getLightElementInfo(hoveredEl);
-          window.parent.postMessage(
-            { type: "element-hover", payload: info },
-            "*"
-          );
-        }
+        handleShieldPointerMove(e);
       },
       true
     );

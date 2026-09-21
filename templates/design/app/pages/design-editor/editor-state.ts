@@ -469,7 +469,9 @@ export type UndoRedoOrderKind =
   | "geometry"
   | "clipboard-paste"
   | "file-created"
-  | "file-deleted";
+  | "file-deleted"
+  | "pending-style"
+  | "pending-live";
 
 export function getUndoRedoPriorityOrder(
   preferred: UndoRedoOrderKind | undefined,
