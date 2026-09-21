@@ -1,8 +1,9 @@
 pr=5558
 ownership_thread=01a0c5b1-465d-79f0-9e09-4c66adf95707
 ownership_host=local
-version=1
-expires_at=1790026246
+version=2
+expires_at=1790025383
 legacy_heartbeat_version=absent
 legacy_retired=true
-status=active
+status=released
+released=true
