@@ -68,6 +68,8 @@ const META_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
+const IGNORE_AUTO_LAYOUT = process.platform === "darwin" ? "Control" : "S";
+
 const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
   <div data-agent-native-node-id="oversized-source" data-agent-native-layer-name="Oversized Source"
@@ -87,20 +89,19 @@ function preview(page: Page): Locator {
 async function insertionGuideKind(
   page: Page,
 ): Promise<"inside" | "line" | null> {
-  return preview(page)
-    .locator("[data-agent-native-insertion-guide]")
-    .evaluateAll((elements) => {
-      const guide = elements.find((element) => {
-        const style = getComputedStyle(element);
-        return style.display !== "none";
-      }) as HTMLElement | undefined;
-      if (!guide) return null;
-      const rect = guide.getBoundingClientRect();
-      if (!rect.width || !rect.height) return null;
-      return parseFloat(getComputedStyle(guide).borderTopWidth) > 0
-        ? "inside"
-        : "line";
-    });
+  return preview(page).evaluate(() => {
+    // Editor chrome is mounted under the iframe's <html> element so it can
+    // sit above the preview content; scoping the locator to <body> misses it.
+    const guide = document.documentElement.querySelector<HTMLElement>(
+      "[data-agent-native-insertion-guide]",
+    );
+    if (!guide || getComputedStyle(guide).display === "none") return null;
+    const rect = guide.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return parseFloat(getComputedStyle(guide).borderTopWidth) > 0
+      ? "inside"
+      : "line";
+  });
 }
 
 async function selectCanvasNode(page: Page, rawNodeId: string): Promise<void> {
@@ -491,7 +492,7 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
   }
 });
 
-test("physical Meta-drag overrides auto-layout resistance", async ({
+test("physical command-drag overrides auto-layout resistance", async ({
   page,
 }) => {
   const designId = await newDesign(page, META_FIXTURE);
@@ -503,24 +504,27 @@ test("physical Meta-drag overrides auto-layout resistance", async ({
       x: source.x + source.width / 2,
       y: source.y + source.height / 2,
     };
-    await page.keyboard.down("Meta");
+    await page.keyboard.down(IGNORE_AUTO_LAYOUT);
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
     await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
     await page.mouse.move(start.x + 460, start.y + 220, { steps: 20 });
     await expect
       .poll(() =>
-        preview(page)
-          .locator("[data-agent-native-transform-badge]")
-          .evaluate(
-            (element) =>
-              getComputedStyle(element).display !== "none" &&
-              element.textContent === "Move layer",
-          ),
+        preview(page).evaluate(() => {
+          const element = document.documentElement.querySelector<HTMLElement>(
+            "[data-agent-native-transform-badge]",
+          );
+          return Boolean(
+            element &&
+            getComputedStyle(element).display !== "none" &&
+            element.textContent === "Move layer",
+          );
+        }),
       )
       .toBe(true);
     await page.mouse.up();
-    await page.keyboard.up("Meta");
+    await page.keyboard.up(IGNORE_AUTO_LAYOUT);
     await expect
       .poll(
         () =>
