@@ -3741,15 +3741,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // become negative or otherwise out of range. The parent window drag
         // listener has the real board point then; stale iframe coordinates
         // must not clear a valid board target.
-        if (
-          sourceScreenId !== boardFileId &&
-          !isPointerInsideSourceIframe({
-            iframeX,
-            iframeY,
-            viewportW,
-            viewportH,
-          })
-        ) {
+        const localPointerInside = isPointerInsideSourceIframe({
+          iframeX,
+          iframeY,
+          viewportW,
+          viewportH,
+          frameWidth:
+            renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+            frameGeometryRef.current[sourceScreenId]?.width,
+          frameHeight:
+            renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+            frameGeometryRef.current[sourceScreenId]?.height,
+        });
+        if (sourceScreenId !== boardFileId && !localPointerInside) {
           const previewPoint =
             boardPointFromParentPointer(
               iframeX,
@@ -3813,12 +3817,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             crossScreenDragMsgRef.current?.styleSnapshotCaptureFailed === true,
         };
 
-        const pointerInsideSourceIframe = isPointerInsideSourceIframe({
-          iframeX,
-          iframeY,
-          viewportW,
-          viewportH,
-        });
+        const pointerInsideSourceIframe =
+          sourceScreenId === boardFileId || localPointerInside;
         const sourceIsBoard = sourceScreenId === boardFileId;
         // Regular screen iframes are finite artboards, so an in-bounds pointer
         // means the source bridge should keep handling the drag. The board
@@ -3911,6 +3911,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             iframeY: msg.iframeY!,
             viewportW: msg.viewportW!,
             viewportH: msg.viewportH!,
+            frameWidth:
+              renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+              frameGeometryRef.current[sourceScreenId]?.width,
+            frameHeight:
+              renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+              frameGeometryRef.current[sourceScreenId]?.height,
           });
         const lastBoardPoint =
           (endPointOutsideSource
@@ -11245,6 +11251,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           // identical Figma-style indicator between siblings.
           <span
             data-primitive-drop-target
+            data-agent-native-insertion-guide
             data-primitive-drop-placement={primitiveDropTarget.placement}
             className="pointer-events-none absolute z-40 rounded-sm"
             style={getCrossScreenDropGuideStyle({

@@ -5343,7 +5343,7 @@ function PageEditorSessionBody({
                     readOnly={!editorCanEdit || isSuggesting}
                     style={{ fieldSizing: "content" } as any}
                     className={cn(
-                      "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
+                      "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-normal text-foreground outline-none placeholder:text-muted-foreground/40",
                       host === "preview" || isDatabasePage
                         ? "text-3xl"
                         : "text-3xl md:text-4xl",

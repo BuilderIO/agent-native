@@ -147,6 +147,23 @@ export interface WriteLocalWorkspaceResourceOptions extends LocalWorkspaceResour
   ifNotExists?: boolean;
 }
 
+export interface DeleteLocalWorkspaceResourceIfCurrentOptions extends LocalWorkspaceResourceOptions {
+  path: string;
+  expectedHash: string;
+  expectedAbsolutePath: string;
+}
+
+export interface WriteLocalWorkspaceResourceIfCurrentOptions extends WriteLocalWorkspaceResourceOptions {
+  expectedHash: string;
+  expectedAbsolutePath: string;
+}
+
+export interface WriteLocalWorkspaceResourceIfAbsentAtPathOptions extends LocalWorkspaceResourceOptions {
+  path: string;
+  content: string;
+  expectedAbsolutePath: string;
+}
+
 const MANIFEST_FILE = "agent-native.json";
 const ENV_MODE_NAMES = ["AGENT_NATIVE_MODE", "AGENT_NATIVE_DATA_MODE"];
 const ENV_MANIFEST_NAMES = [
@@ -1369,4 +1386,141 @@ export async function deleteLocalWorkspaceResource(
     }
   }
   return deleted;
+}
+
+/**
+ * Delete one captured local workspace artifact only if it still has the
+ * expected content. Unlike the path-based delete, this never expands skill
+ * aliases: callers may only remove the physical file they read.
+ */
+export async function deleteLocalWorkspaceResourceIfCurrent(
+  options: DeleteLocalWorkspaceResourceIfCurrentOptions,
+): Promise<boolean> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) {
+    throw new Error("Local file mode is not enabled");
+  }
+  const { resourcePath, absolutePath } = localWorkspaceResourceAbsolutePath(
+    workspaceRoot,
+    options.path,
+    { preferExisting: true },
+  );
+  if (
+    !isSupportedLocalWorkspaceTextFile(resourcePath) ||
+    absolutePath !== path.resolve(options.expectedAbsolutePath)
+  ) {
+    return false;
+  }
+  return withWriteLock(absolutePath, async () => {
+    const existing = await readLocalWorkspaceResource({
+      ...options,
+      path: resourcePath,
+    });
+    if (
+      !existing ||
+      existing.absolutePath !== absolutePath ||
+      existing.hash !== options.expectedHash
+    ) {
+      return false;
+    }
+    try {
+      assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+      await fs.unlink(absolutePath);
+      return true;
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return false;
+      throw error;
+    }
+  });
+}
+
+export async function writeLocalWorkspaceResourceIfCurrent(
+  options: WriteLocalWorkspaceResourceIfCurrentOptions,
+): Promise<LocalWorkspaceResourceMeta | null> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) {
+    throw new Error("Local file mode is not enabled");
+  }
+  const { resourcePath, absolutePath } = localWorkspaceResourceAbsolutePath(
+    workspaceRoot,
+    options.path,
+    { preferExisting: true },
+  );
+  if (
+    !isSupportedLocalWorkspaceTextFile(resourcePath) ||
+    absolutePath !== path.resolve(options.expectedAbsolutePath)
+  ) {
+    return null;
+  }
+  return withWriteLock(absolutePath, async () => {
+    const existing = await readLocalWorkspaceResource({
+      ...options,
+      path: resourcePath,
+    });
+    if (
+      !existing ||
+      existing.absolutePath !== absolutePath ||
+      existing.hash !== options.expectedHash
+    ) {
+      return null;
+    }
+    assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
+      allowMissingLeaf: true,
+    });
+    const tempPath = path.join(
+      path.dirname(absolutePath),
+      `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+    );
+    await fs.writeFile(tempPath, options.content, "utf8");
+    await fs.rename(tempPath, absolutePath);
+    const stat = await fs.stat(absolutePath);
+    return localWorkspaceResourceMeta(
+      resourcePath,
+      absolutePath,
+      options.content,
+      stat,
+    );
+  });
+}
+
+export async function writeLocalWorkspaceResourceIfAbsentAtPath(
+  options: WriteLocalWorkspaceResourceIfAbsentAtPathOptions,
+): Promise<LocalWorkspaceResourceMeta | null> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) {
+    throw new Error("Local file mode is not enabled");
+  }
+  const resourcePath = normalizeLocalWorkspaceResourcePath(options.path);
+  if (!isSupportedLocalWorkspaceTextFile(resourcePath)) return null;
+  const absolutePath = path.resolve(options.expectedAbsolutePath);
+  const candidates = localWorkspaceResourceDeletePaths(
+    workspaceRoot,
+    resourcePath,
+  );
+  if (
+    !candidates.includes(absolutePath) ||
+    candidates.some(fsSync.existsSync)
+  ) {
+    return null;
+  }
+  return withWriteLock(absolutePath, async () => {
+    if (candidates.some(fsSync.existsSync)) return null;
+    assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
+      allowMissingLeaf: true,
+    });
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    const tempPath = path.join(
+      path.dirname(absolutePath),
+      `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+    );
+    await fs.writeFile(tempPath, options.content, "utf8");
+    await fs.rename(tempPath, absolutePath);
+    const stat = await fs.stat(absolutePath);
+    return localWorkspaceResourceMeta(
+      resourcePath,
+      absolutePath,
+      options.content,
+      stat,
+    );
+  });
 }

@@ -998,6 +998,7 @@ const messages = {
       rollback: "回復",
       keep: "保留",
       selectorMissing: "選取的元素已不在此畫面中。",
+      noRenderedBox: "選取的圖層沒有可見框，因此未套用樣式變更。",
       clientRenderedShell:
         "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
       snapshotNotLoaded:

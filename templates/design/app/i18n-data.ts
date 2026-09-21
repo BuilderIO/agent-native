@@ -1054,6 +1054,8 @@ const enUS = {
       keep: "Keep",
       selectorMissing:
         "The selected element has no editable match in this screen's source. If a component renders it, apply the change through the agent.",
+      noRenderedBox:
+        "The selected layer has no rendered box, so the style change was not applied.",
       clientRenderedShell:
         "This screen is client-rendered, so the HTML it serves contains no app markup to patch. Ask the agent to apply this change to the component source.",
       snapshotNotLoaded:
@@ -8662,6 +8664,7 @@ const designModeFeatureOverrides = {
         rollback: "回復",
         keep: "保留",
         selectorMissing: "選取的元素已不在此畫面中。",
+        noRenderedBox: "選取的圖層沒有可見框，因此未套用樣式變更。",
         clientRenderedShell:
           "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
         snapshotNotLoaded:
@@ -8836,6 +8839,7 @@ const designModeFeatureOverrides = {
         rollback: "回滚",
         keep: "保留",
         selectorMissing: "选中的元素已不在此屏幕中。",
+        noRenderedBox: "选中的图层没有可渲染的框，因此未应用样式更改。",
         clientRenderedShell:
           "此屏幕由客户端渲染，因此其提供的 HTML 不包含可修补的应用标记。请让代理将此更改应用到组件源码。",
         snapshotNotLoaded:
@@ -9010,6 +9014,8 @@ const designModeFeatureOverrides = {
         keep: "Conservar",
         selectorMissing:
           "El elemento seleccionado ya no existe en esta pantalla.",
+        noRenderedBox:
+          "La capa seleccionada no tiene un cuadro renderizado, por lo que no se aplicó el cambio de estilo.",
         clientRenderedShell:
           "Esta pantalla se renderiza en el cliente, por lo que el HTML que entrega no contiene marcado de la aplicación que se pueda modificar. Pide al agente que aplique este cambio al código fuente del componente.",
         snapshotNotLoaded:
@@ -9206,6 +9212,8 @@ const designModeFeatureOverrides = {
         rollback: "Revenir",
         keep: "Garder",
         selectorMissing: "L’élément sélectionné n’existe plus dans cet écran.",
+        noRenderedBox:
+          "Le calque sélectionné n’a aucune boîte rendue ; la modification de style n’a pas été appliquée.",
         clientRenderedShell:
           "Cet écran est rendu côté client ; le HTML qu’il fournit ne contient donc aucun balisage d’application à modifier. Demandez à l’agent d’appliquer cette modification au code source du composant.",
         snapshotNotLoaded:
@@ -9399,6 +9407,8 @@ const designModeFeatureOverrides = {
         keep: "Behalten",
         selectorMissing:
           "Das ausgewählte Element existiert in diesem Screen nicht mehr.",
+        noRenderedBox:
+          "Die ausgewählte Ebene hat keine gerenderte Box, daher wurde die Stiländerung nicht angewendet.",
         clientRenderedShell:
           "Dieser Screen wird clientseitig gerendert. Daher enthält das bereitgestellte HTML kein App-Markup, das gepatcht werden kann. Bitte den Agenten, diese Änderung am Komponentenquellcode vorzunehmen.",
         snapshotNotLoaded:
@@ -9597,6 +9607,8 @@ const designModeFeatureOverrides = {
         rollback: "戻す",
         keep: "保持",
         selectorMissing: "選択した要素はこの画面に存在しません。",
+        noRenderedBox:
+          "選択したレイヤーには描画されたボックスがないため、スタイル変更は適用されませんでした。",
         clientRenderedShell:
           "この画面はクライアント側でレンダリングされるため、配信される HTML にはパッチ可能なアプリのマークアップが含まれていません。エージェントに、この変更をコンポーネントのソースへ適用するよう依頼してください。",
         snapshotNotLoaded:
@@ -9790,6 +9802,8 @@ const designModeFeatureOverrides = {
         rollback: "롤백",
         keep: "유지",
         selectorMissing: "선택한 요소가 이 화면에 더 이상 없습니다.",
+        noRenderedBox:
+          "선택한 레이어에는 렌더링된 상자가 없어 스타일 변경이 적용되지 않았습니다.",
         clientRenderedShell:
           "이 화면은 클라이언트에서 렌더링되므로 제공되는 HTML에 패치할 앱 마크업이 없습니다. 에이전트에게 이 변경 사항을 컴포넌트 소스에 적용하도록 요청하세요.",
         snapshotNotLoaded:
@@ -9980,6 +9994,8 @@ const designModeFeatureOverrides = {
         rollback: "Reverter",
         keep: "Manter",
         selectorMissing: "O elemento selecionado não existe mais nesta tela.",
+        noRenderedBox:
+          "A camada selecionada não tem uma caixa renderizada, então a alteração de estilo não foi aplicada.",
         clientRenderedShell:
           "Esta tela é renderizada no cliente, então o HTML fornecido não contém marcação do app que possa ser modificada. Peça ao agente para aplicar esta alteração ao código-fonte do componente.",
         snapshotNotLoaded:
@@ -10170,6 +10186,8 @@ const designModeFeatureOverrides = {
         rollback: "वापस लें",
         keep: "रखें",
         selectorMissing: "चुना गया तत्व अब इस स्क्रीन में नहीं है।",
+        noRenderedBox:
+          "चयनित लेयर में रेंडर किया गया बॉक्स नहीं है, इसलिए शैली परिवर्तन लागू नहीं किया गया।",
         clientRenderedShell:
           "यह स्क्रीन क्लाइंट पर रेंडर होती है, इसलिए इसके HTML में पैच करने योग्य ऐप मार्कअप नहीं है। एजेंट से इस बदलाव को कंपोनेंट सोर्स में लागू करने के लिए कहें।",
         snapshotNotLoaded:
@@ -10360,6 +10378,8 @@ const designModeFeatureOverrides = {
         rollback: "تراجع",
         keep: "احتفاظ",
         selectorMissing: "العنصر المحدد لم يعد موجوداً في هذه الشاشة.",
+        noRenderedBox:
+          "لا تحتوي الطبقة المحددة على مربع مُرندر، لذلك لم يتم تطبيق تغيير النمط.",
         clientRenderedShell:
           "يتم عرض هذه الشاشة من جهة العميل، لذلك لا يحتوي HTML الذي تقدمه على ترميز للتطبيق يمكن تعديله. اطلب من الوكيل تطبيق هذا التغيير على مصدر المكوّن.",
         snapshotNotLoaded:

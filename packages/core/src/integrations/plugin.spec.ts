@@ -201,6 +201,10 @@ vi.mock("../resources/store.js", () => ({
   organizationIdFromResourceOwner: () => null,
   sharedResourceOwner: (orgId?: string | null) =>
     orgId ? `organization:${orgId}` : "shared",
+  workspaceResourceOwner: (orgId?: string | null) =>
+    orgId ? `workspace:organization:${orgId}` : "workspace",
+  isWorkspaceResourceOwner: (owner: string) =>
+    owner === "workspace" || owner.startsWith("workspace:"),
   ensurePersonalDefaults: vi.fn(async () => {}),
   resourceGet: resourceGetMock,
   resourceGetByPath: resourceGetByPathMock,
