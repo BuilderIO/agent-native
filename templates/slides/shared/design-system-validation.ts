@@ -81,10 +81,8 @@ export function getDesignSystemIndexingStatus(
     data && typeof data === "object" ? (data as Record<string, unknown>) : null;
   if (!record || record.source !== "builder") return "ready";
 
-  // Proof of work: if colors or typography exist, indexing completed
-  const hasColors = record.colors && typeof record.colors === "object";
-  const hasTypography = record.typography && typeof record.typography === "object";
-  if (hasColors || hasTypography) return "ready";
+  // Proof of work: if any indexed content exists, indexing is done
+  if (record.colors || record.typography) return "ready";
 
   // Check for explicit warning (error message)
   if (record.warning) return "unavailable";
