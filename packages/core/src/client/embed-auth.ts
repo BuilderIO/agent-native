@@ -573,10 +573,11 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   if (installed) return;
   if (typeof win.fetch !== "function") return;
-  installed = true;
-
   const originalFetch = win.fetch.bind(win);
-  win.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const patchedFetch = (async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
     const request = requestUrlAndKey(input, init, win);
     const embedMode = isEmbedAuthActive();
     if (request?.shouldGuard) {
@@ -599,4 +600,18 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     }
     return response;
   }) as typeof fetch;
+  try {
+    win.fetch = patchedFetch;
+  } catch {
+    try {
+      Object.defineProperty(win, "fetch", {
+        configurable: true,
+        value: patchedFetch,
+        writable: true,
+      });
+    } catch {
+      return;
+    }
+  }
+  installed = true;
 }

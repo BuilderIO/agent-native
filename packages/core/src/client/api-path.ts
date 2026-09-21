@@ -107,7 +107,12 @@ function isFrameworkSegment(segment: string): boolean {
 }
 
 function pathDerivedBasePath(): string {
-  if (typeof window === "undefined") return "";
+  if (
+    typeof window === "undefined" ||
+    typeof window.location?.pathname !== "string"
+  ) {
+    return "";
+  }
   const pathname = window.location.pathname;
   const markerIndex = frameworkMarkerIndex(pathname);
   if (markerIndex <= 0) return "";
@@ -137,7 +142,9 @@ function isWorkspaceRuntime(): boolean {
 
 function workspacePathBasePath(): string {
   if (typeof window === "undefined" || !isWorkspaceRuntime()) return "";
-  const segment = window.location.pathname.split("/").find(Boolean);
+  const pathname = window.location?.pathname;
+  if (typeof pathname !== "string") return "";
+  const segment = pathname.split("/").find(Boolean);
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
   const basePath = normalizeBasePath(segment);
   // Guard against treating an app-local route (e.g. a client-rendered
