@@ -15898,6 +15898,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         unnestAbsoluteToScreenRoot(el, clientX, clientY)
       );
     }
+    var deepestContainer = null;
+    var deepestDepth = -1;
+    document.querySelectorAll("[data-an-primitive]").forEach(function (node) {
+      if (!isContainerDropTarget(node) || isDraggedOrInsideDragged(node))
+        return;
+      var rect = node.getBoundingClientRect();
+      if (
+        clientX < rect.left ||
+        clientY < rect.top ||
+        clientX > rect.right ||
+        clientY > rect.bottom
+      )
+        return;
+      var depth = 0;
+      var parent = node.parentElement;
+      while (parent) {
+        depth += 1;
+        parent = parent.parentElement;
+      }
+      if (depth > deepestDepth) {
+        deepestContainer = node;
+        deepestDepth = depth;
+      }
+    });
+    if (deepestContainer) hit = deepestContainer;
     var explicitFrame = hit.closest('[data-an-primitive="frame"]');
     if (
       explicitFrame &&
