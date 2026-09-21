@@ -46,6 +46,22 @@ it.each([
   },
 );
 
+it("reuses canonical preparation for unchanged screen content", () => {
+  const content =
+    '<main data-agent-native-node-id="screen"><button data-agent-native-node-id="cta">Continue</button></main>';
+
+  const first = prepareCanonicalSourceContent(content, {
+    fileId: "unchanged-screen-cache",
+    fileType: "html",
+  });
+  const second = prepareCanonicalSourceContent(content, {
+    fileId: "unchanged-screen-cache",
+    fileType: "html",
+  });
+
+  expect(second).toBe(first);
+});
+
 it("keeps an identity migration's raw bytes as the CAS base for a follow-up edit", () => {
   const raw = "<main><button>Listen now</button></main>";
   const canonical = prepareCanonicalSourceContent(raw, {

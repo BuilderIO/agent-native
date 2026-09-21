@@ -19,6 +19,12 @@ export interface CanonicalSourceContentResult {
   nodeIdMap: ReadonlyMap<string, string>;
 }
 
+const CANONICAL_SOURCE_CACHE_MAX = 512;
+const canonicalSourceCache = new Map<
+  string,
+  { content: string; result: CanonicalSourceContentResult }
+>();
+
 /** Pair source nodes through exact edits; never fall back to tree position. */
 export function mapSourceNodeIds(
   before: readonly CodeLayerNode[],
@@ -61,6 +67,13 @@ export function prepareCanonicalSourceContent(
     return { content, changed: false, nodeIdMap: new Map() };
   }
 
+  const cached = canonicalSourceCache.get(options.fileId);
+  if (cached?.content === content) {
+    canonicalSourceCache.delete(options.fileId);
+    canonicalSourceCache.set(options.fileId, cached);
+    return cached.result;
+  }
+
   const source = { kind: "design-file" as const, fileId: options.fileId };
   const before = buildCodeLayerProjection(content, { source });
   const edits: CodeLayerSourceEdit[] = [];
@@ -82,13 +95,19 @@ export function prepareCanonicalSourceContent(
     throw new Error("Unable to publish stable code-layer node identities.");
   }
 
-  return {
+  const result = {
     content: prepared.content,
     changed: prepared.changed,
     nodeIdMap: prepared.changed
       ? mapSourceNodeIds(before.nodes, after.nodes, edits)
       : new Map(before.nodes.map((node) => [node.id, node.id])),
   };
+  canonicalSourceCache.set(options.fileId, { content, result });
+  if (canonicalSourceCache.size > CANONICAL_SOURCE_CACHE_MAX) {
+    const oldest = canonicalSourceCache.keys().next();
+    if (!oldest.done) canonicalSourceCache.delete(oldest.value);
+  }
+  return result;
 }
 
 export function resolveSourceBaseForPublication(args: {
