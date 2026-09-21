@@ -2,17 +2,17 @@ import { describe, it, expect } from "vitest";
 
 /**
  * This test file documents the expected behavior of the BuilderSourceStatus
- * component's state determination logic (lines 1438-1456 in DesignSystemSetup.tsx).
+ * component's state determination logic (lines 1435-1450 in DesignSystemSetup.tsx).
  *
- * The state machine is:
- * 1. If actively indexing (status in [in-progress, pending, processing]) AND no indexed results yet: "indexing"
+ * The state machine prioritizes document count (proof of completion) over status:
+ * 1. If docCount > 0: "indexed" (proof of work, status-independent)
  * 2. Else if builder.warning OR status is terminal failure (error/failed/cancelled): "unavailable"
- * 3. Else if we have indexed results or a ready status: "indexed"
+ * 3. Else if actively indexing (status in [in-progress, pending, processing]): "indexing"
  * 4. Else: "indexing" (fallback for uninitialized or unrecognized status)
  *
  * Regression test for: https://github.com/BuilderIO/agent-native/issues/ENG-13035
- * Bug: Previously, the final else fallback treated ANY non-success status as "indexing" forever,
- * so error/failed/cancelled statuses would display as "Indexing..." instead of "Unavailable".
+ * Bug: Previously, status checks alone allowed error/failed statuses to display as "Indexing..." forever.
+ * Fix: Use docCount > 0 as primary proof of completion, independent of status field stability.
  */
 
 describe("BuilderSourceStatus state logic", () => {
@@ -27,32 +27,81 @@ describe("BuilderSourceStatus state logic", () => {
     const docs = builder.docCount ?? builder.docs?.length ?? 0;
     const tokens = Object.keys(builder.tokenValues ?? {}).length;
     const normalizedStatus = builder.builderStatus?.toLowerCase();
+
+    // Primary indicator: if docCount > 0, indexing is complete regardless of status.
+    // This is more robust than status alone, which can get stuck.
     const hasIndexedResults = docs > 0 || tokens > 0;
-    const isIndexed =
-      hasIndexedResults ||
-      normalizedStatus === "ready" ||
-      normalizedStatus === "complete" ||
-      normalizedStatus === "completed";
+    const isTerminalFailure = ["error", "failed", "cancelled", "canceled"].includes(
+      normalizedStatus ?? "",
+    );
     const isIndexing = ["in-progress", "pending", "processing"].includes(
       normalizedStatus ?? "",
     );
-    const isTerminalFailure = [
-      "error",
-      "failed",
-      "cancelled",
-      "canceled",
-    ].includes(normalizedStatus ?? "");
 
-    return isIndexing && !isIndexed
-      ? "indexing"
+    return hasIndexedResults
+      ? "indexed"
       : builder.warning || isTerminalFailure
         ? "unavailable"
-        : isIndexed
-          ? "indexed"
-          : "indexing";
+        : isIndexing
+          ? "indexing"
+          : "indexing"; // Fallback for uninitialized/unknown status
   }
 
-  describe("active indexing", () => {
+  describe("doc count (primary indicator)", () => {
+    it("shows 'indexed' when docCount > 0 regardless of status", () => {
+      expect(
+        computeState({
+          builderStatus: "in-progress",
+          docCount: 5,
+          tokenValues: { color: "#fff" },
+        }),
+      ).toBe("indexed");
+    });
+
+    it("shows 'indexed' when docCount > 0 even with 'pending' status", () => {
+      expect(
+        computeState({
+          builderStatus: "pending",
+          docCount: 3,
+          tokenValues: {},
+        }),
+      ).toBe("indexed");
+    });
+
+    it("shows 'indexed' when docCount > 0 even with error status (stuck job)", () => {
+      // Regression: if a system has docs but status stuck at error, show indexed
+      expect(
+        computeState({
+          builderStatus: "error",
+          docCount: 2,
+          tokenValues: { color: "#000" },
+        }),
+      ).toBe("indexed");
+    });
+
+    it("shows 'indexed' when tokenValues present (docs implicitly > 0)", () => {
+      expect(
+        computeState({
+          builderStatus: "in-progress",
+          docCount: 0,
+          tokenValues: { primary: "#fff", secondary: "#000" },
+        }),
+      ).toBe("indexed");
+    });
+
+    it("shows 'indexed' when docs array present (fallback for docCount)", () => {
+      expect(
+        computeState({
+          builderStatus: "in-progress",
+          docCount: undefined,
+          docs: [{ name: "Button.tsx" }, { name: "Card.tsx" }],
+          tokenValues: {},
+        }),
+      ).toBe("indexed");
+    });
+  });
+
+  describe("active indexing (when docCount = 0)", () => {
     it("shows 'indexing' when status is in-progress with no results yet", () => {
       expect(
         computeState({
@@ -81,16 +130,6 @@ describe("BuilderSourceStatus state logic", () => {
           tokenValues: {},
         }),
       ).toBe("indexing");
-    });
-
-    it("shows 'indexed' when in-progress status but docs were already found", () => {
-      expect(
-        computeState({
-          builderStatus: "in-progress",
-          docCount: 5,
-          tokenValues: { color: "#fff" },
-        }),
-      ).toBe("indexed");
     });
   });
 
@@ -135,19 +174,23 @@ describe("BuilderSourceStatus state logic", () => {
       ).toBe("unavailable");
     });
 
-    it("shows 'unavailable' even if there are partial results from a failed job", () => {
+    it("shows 'indexed' even if status is failed but docCount > 0 (doc count takes priority)", () => {
+      // New logic: docCount > 0 is proof of work, so show indexed regardless of failure status
+      // This handles the stuck-status case: if a system has docs, it's done indexing
       expect(
         computeState({
           builderStatus: "failed",
           docCount: 2,
           tokenValues: {},
         }),
-      ).toBe("unavailable");
+      ).toBe("indexed");
     });
   });
 
   describe("builder warning", () => {
-    it("shows 'unavailable' when builder.warning is set regardless of status", () => {
+    it("shows 'indexed' when builder.warning is set but docCount > 0 (docCount takes priority)", () => {
+      // New logic: if docCount > 0, show indexed (proof of work complete)
+      // Warning is only checked when docCount = 0
       expect(
         computeState({
           builderStatus: "ready",
@@ -155,44 +198,67 @@ describe("BuilderSourceStatus state logic", () => {
           docCount: 5,
           tokenValues: { color: "#fff" },
         }),
+      ).toBe("indexed");
+    });
+
+    it("shows 'unavailable' when builder.warning is set and docCount = 0", () => {
+      expect(
+        computeState({
+          builderStatus: "ready",
+          warning: "Some warning message",
+          docCount: 0,
+          tokenValues: {},
+        }),
       ).toBe("unavailable");
     });
   });
 
-  describe("ready statuses", () => {
-    it("shows 'indexed' when status is 'ready'", () => {
+  describe("ready statuses (only matter when docCount > 0)", () => {
+    it("shows 'indexed' when docCount > 0 and status is 'ready'", () => {
+      expect(
+        computeState({
+          builderStatus: "ready",
+          docCount: 3,
+          tokenValues: {},
+        }),
+      ).toBe("indexed");
+    });
+
+    it("shows 'indexed' when docCount > 0 and status is 'complete'", () => {
+      expect(
+        computeState({
+          builderStatus: "complete",
+          docCount: 5,
+          tokenValues: {},
+        }),
+      ).toBe("indexed");
+    });
+
+    it("shows 'indexed' when docCount > 0 and status is 'completed'", () => {
+      expect(
+        computeState({
+          builderStatus: "completed",
+          docCount: 2,
+          tokenValues: {},
+        }),
+      ).toBe("indexed");
+    });
+
+    it("shows 'indexing' (fallback) when docCount = 0 and status is 'ready' (no results to prove completion)", () => {
+      // New logic: status doesn't determine state when docCount = 0
+      // Without documents, we can't prove indexing completed
       expect(
         computeState({
           builderStatus: "ready",
           docCount: 0,
           tokenValues: {},
         }),
-      ).toBe("indexed");
-    });
-
-    it("shows 'indexed' when status is 'complete'", () => {
-      expect(
-        computeState({
-          builderStatus: "complete",
-          docCount: 0,
-          tokenValues: {},
-        }),
-      ).toBe("indexed");
-    });
-
-    it("shows 'indexed' when status is 'completed'", () => {
-      expect(
-        computeState({
-          builderStatus: "completed",
-          docCount: 0,
-          tokenValues: {},
-        }),
-      ).toBe("indexed");
+      ).toBe("indexing");
     });
   });
 
   describe("case insensitivity", () => {
-    it("treats status comparison as case-insensitive", () => {
+    it("treats status comparison as case-insensitive for isIndexing", () => {
       expect(
         computeState({
           builderStatus: "IN-PROGRESS",
@@ -200,15 +266,9 @@ describe("BuilderSourceStatus state logic", () => {
           tokenValues: {},
         }),
       ).toBe("indexing");
+    });
 
-      expect(
-        computeState({
-          builderStatus: "READY",
-          docCount: 0,
-          tokenValues: {},
-        }),
-      ).toBe("indexed");
-
+    it("treats status comparison as case-insensitive for isTerminalFailure", () => {
       expect(
         computeState({
           builderStatus: "ERROR",
@@ -216,6 +276,24 @@ describe("BuilderSourceStatus state logic", () => {
           tokenValues: {},
         }),
       ).toBe("unavailable");
+
+      expect(
+        computeState({
+          builderStatus: "FAILED",
+          docCount: 0,
+          tokenValues: {},
+        }),
+      ).toBe("unavailable");
+    });
+
+    it("docCount > 0 takes priority regardless of case", () => {
+      expect(
+        computeState({
+          builderStatus: "IN-PROGRESS",
+          docCount: 5,
+          tokenValues: {},
+        }),
+      ).toBe("indexed");
     });
   });
 

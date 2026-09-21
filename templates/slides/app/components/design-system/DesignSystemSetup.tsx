@@ -1436,26 +1436,23 @@ function BuilderSourceStatus({
   const docs = builder.docCount ?? builder.docs?.length ?? 0;
   const tokens = Object.keys(builder.tokenValues ?? {}).length;
   const normalizedStatus = builder.builderStatus?.toLowerCase();
+
+  // Primary indicator: if docCount > 0, indexing is complete regardless of status.
+  // This is more robust than status alone, which can get stuck.
   const hasIndexedResults = docs > 0 || tokens > 0;
-  const isIndexed =
-    hasIndexedResults ||
-    normalizedStatus === "ready" ||
-    normalizedStatus === "complete" ||
-    normalizedStatus === "completed";
-  const isIndexing = ["in-progress", "pending", "processing"].includes(
-    normalizedStatus ?? "",
-  );
   const isTerminalFailure = ["error", "failed", "cancelled", "canceled"].includes(
     normalizedStatus ?? "",
   );
-  const state =
-    isIndexing && !isIndexed
-      ? "indexing"
-      : builder.warning || isTerminalFailure
-        ? "unavailable"
-        : isIndexed
-          ? "indexed"
-          : "indexing";
+  const isIndexing = ["in-progress", "pending", "processing"].includes(
+    normalizedStatus ?? "",
+  );
+  const state = hasIndexedResults
+    ? "indexed"
+    : builder.warning || isTerminalFailure
+      ? "unavailable"
+      : isIndexing
+        ? "indexing"
+        : "indexing"; // Fallback for uninitialized/unknown status
   const sourceKind = builder.sourceKind;
   const SourceIcon =
     sourceKind === "figma"
