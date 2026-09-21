@@ -478,10 +478,35 @@ export function runRedo({
     pendingNonStyleRedoStack[pendingNonStyleRedoStack.length - 1];
   const pendingLiveRedoStack = pendingVisualStyleRedoStackRef.current;
   const pendingLiveRedo = pendingLiveRedoStack[pendingLiveRedoStack.length - 1];
+  const redoHistoryKind = redoOrderRef.current[redoOrderRef.current.length - 1];
+  const pendingRedoKind =
+    redoHistoryKind === "pending-style" || redoHistoryKind === "pending-live"
+      ? redoHistoryKind
+      : undefined;
   if (!canEditDesign && !pendingLiveRedo && !pendingNonStyleRedo) return;
+  if (
+    (pendingRedoKind === "pending-style" && !pendingLiveRedo) ||
+    (pendingRedoKind === "pending-live" && !pendingNonStyleRedo)
+  ) {
+    return;
+  }
+  const consumePendingRedoOrder = (kind: "pending-style" | "pending-live") => {
+    if (redoOrderRef.current[redoOrderRef.current.length - 1] !== kind) {
+      return;
+    }
+    redoOrderRef.current = redoOrderRef.current.slice(0, -1);
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      kind,
+    ];
+  };
   const redoPendingNonStyleFirst = shouldRedoPendingLiveNonStyleBeforeStyle(
-    pendingLiveRedo,
-    pendingNonStyleRedo,
+    pendingRedoKind === "pending-style" || redoHistoryKind === undefined
+      ? pendingLiveRedo
+      : undefined,
+    pendingRedoKind === "pending-live" || redoHistoryKind === undefined
+      ? pendingNonStyleRedo
+      : undefined,
   );
   if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "structure") {
     const redoCommand = pendingStructureRedoCommand(pendingNonStyleRedo.edit);
@@ -508,6 +533,7 @@ export function runRedo({
         ...pendingLiveNonStyleUndoStackRef.current,
         pendingNonStyleRedo,
       ];
+      consumePendingRedoOrder("pending-live");
       const nextPending = mergePendingLiveNonStyleEdits(
         pendingLiveNonStyleEditsFromUndoStack(
           pendingLiveNonStyleUndoStackRef.current,
@@ -612,6 +638,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingLayerStateReplayRequest({
       requestId: Date.now() + Math.random(),
@@ -643,6 +670,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingLayerNameReplayRequest({
       requestId: Date.now() + Math.random(),
@@ -675,6 +703,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingTextRevertRequest({
       requestId: Date.now() + Math.random(),
@@ -723,7 +752,10 @@ export function runRedo({
     syncUndoRedoState();
     return;
   }
-  if (pendingLiveRedo) {
+  if (
+    pendingLiveRedo &&
+    (pendingRedoKind === "pending-style" || redoHistoryKind === undefined)
+  ) {
     const nextRedoStack = pendingLiveRedoStack.slice(0, -1);
     pendingVisualStyleRedoStackRef.current = nextRedoStack;
     pendingVisualStyleUndoStackRef.current = [
@@ -781,6 +813,7 @@ export function runRedo({
         },
       };
     });
+    consumePendingRedoOrder("pending-style");
     syncUndoRedoState();
     return;
   }

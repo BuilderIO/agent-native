@@ -72,7 +72,10 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
-import { runtimeStyleTarget } from "@/pages/design-editor/pending-edits";
+import {
+  pendingVisualStyleRouteMatches,
+  runtimeStyleTarget,
+} from "@/pages/design-editor/pending-edits";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
@@ -2480,21 +2483,9 @@ export function DesignCanvas({
   }, [externalPreviewUrl, usesLiveEditInjectedBridge]);
   const installedBridgeKeyRef = useRef<string | null>(null);
   const sendBridgeToContainer = useCallback(() => {
-    if (!containerPreview || !includeLiveEditEditorChrome) {
-      console.log("[design:bridge] install skipped", {
-        containerPreview,
-        includeLiveEditEditorChrome,
-      });
-      return;
-    }
+    if (!containerPreview || !includeLiveEditEditorChrome) return;
     const target = iframeRef.current?.contentWindow;
-    if (!target || !externalPreviewUrl) {
-      console.log("[design:bridge] install skipped", {
-        hasTarget: Boolean(target),
-        externalPreviewUrl,
-      });
-      return;
-    }
+    if (!target || !externalPreviewUrl) return;
     if (installedBridgeKeyRef.current === liveEditBridgeKey) return;
     let origin: string;
     try {
@@ -5744,7 +5735,13 @@ export function DesignCanvas({
       nodeId?: string | null;
       state: string;
       styles: Record<string, string>;
+      routePath?: string;
+      screenId?: string;
     }) => {
+      if (!screenId || args.screenId !== screenId) return false;
+      if (!pendingVisualStyleRouteMatches(args, liveRoutePathRef.current)) {
+        return false;
+      }
       postOneShotBridgeMessage({
         type: "interaction-state-style-preview",
         selector: args.selector,
@@ -5753,17 +5750,17 @@ export function DesignCanvas({
         state: args.state,
         styles: args.styles,
       });
+      return true;
     },
-    [postOneShotBridgeMessage],
+    [postOneShotBridgeMessage, screenId],
   );
 
   const lastStyleRevertRequestIdRef = useRef<number | null>(null);
   const replayStylePatches = useCallback(
     (patches: Array<StyleReplayPatch>) => {
       for (const patch of patches) {
-        if (patch.routePath && patch.routePath !== liveRoutePathRef.current) {
+        if (!pendingVisualStyleRouteMatches(patch, liveRoutePathRef.current))
           continue;
-        }
         const target = runtimeStyleTarget(patch);
         if (target.selectorCandidates.length === 0) continue;
         if (patch.interactionState) {
@@ -5805,7 +5802,7 @@ export function DesignCanvas({
       (pendingStylePreviewPatches ?? []).filter(
         (patch) =>
           patch.screenId === screenId &&
-          (!patch.routePath || patch.routePath === liveRoutePathRef.current),
+          pendingVisualStyleRouteMatches(patch, liveRoutePathRef.current),
       ),
     );
   }, [
@@ -6386,10 +6383,12 @@ export function DesignCanvas({
     return registerLinkedScreenPreviewHandlers(frameId, {
       replaceContent: replacePreviewContentFromHost,
       sendStyleChange,
+      sendInteractionStatePreviewStyle,
     });
   }, [
     previewFrameId,
     replacePreviewContentFromHost,
+    sendInteractionStatePreviewStyle,
     screenId,
     sendStyleChange,
   ]);
@@ -6425,10 +6424,29 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        routePath?: string;
+      },
     ) => {
       if (!screenId || targetScreenId !== screenId) return false;
-      return sendStyleChangeLinked(selector, property, value, options);
+      if (
+        !pendingVisualStyleRouteMatches(options ?? {}, liveRoutePathRef.current)
+      ) {
+        return false;
+      }
+      return sendStyleChangeLinked(
+        selector,
+        property,
+        value,
+        options
+          ? {
+              selectorCandidates: options.selectorCandidates,
+              nodeId: options.nodeId,
+            }
+          : undefined,
+      );
     };
     const replacePreviewContentLinked = (
       nextContent: string,

@@ -1436,7 +1436,6 @@ function BuilderSourceStatus({
   const docs = builder.docCount ?? builder.docs?.length ?? 0;
   const tokens = Object.keys(builder.tokenValues ?? {}).length;
 
-  // docCount > 0 is proof indexing completed, independent of status stability (ENG-13035)
   const hasIndexedResults = docs > 0 || tokens > 0;
   const state = hasIndexedResults
     ? "indexed"

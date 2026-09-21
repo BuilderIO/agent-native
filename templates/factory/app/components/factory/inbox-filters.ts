@@ -15,11 +15,14 @@ export const INBOX_STATUSES = [
 
 export const INBOX_RISKS = [
   "unknown",
+  "negligible",
   "low",
   "medium",
   "high",
   "critical",
 ] as const;
+
+export const INBOX_CONFIDENCE = ["unknown", "low", "medium", "high"] as const;
 
 export const INBOX_SOURCES = [
   "slack",
@@ -32,6 +35,7 @@ export const INBOX_RANGES = ["today", "7d"] as const;
 
 export type InboxStatus = (typeof INBOX_STATUSES)[number];
 export type InboxRisk = (typeof INBOX_RISKS)[number];
+export type InboxConfidence = (typeof INBOX_CONFIDENCE)[number];
 export type InboxSource = (typeof INBOX_SOURCES)[number];
 export type InboxRange = (typeof INBOX_RANGES)[number];
 
@@ -43,6 +47,14 @@ export function parseInboxStatus(value: string | null): InboxStatus | "" {
 
 export function parseInboxRisk(value: string | null): InboxRisk | "" {
   return INBOX_RISKS.includes(value as InboxRisk) ? (value as InboxRisk) : "";
+}
+
+export function parseInboxConfidence(
+  value: string | null,
+): InboxConfidence | "" {
+  return INBOX_CONFIDENCE.includes(value as InboxConfidence)
+    ? (value as InboxConfidence)
+    : "";
 }
 
 export function parseInboxSource(value: string | null): InboxSource | "" {
@@ -74,7 +86,7 @@ export function updatedAfterForRange(
 
 export function writeInboxFilterParam(
   params: URLSearchParams,
-  key: "status" | "risk" | "range" | "source",
+  key: "status" | "risk" | "confidence" | "range" | "source",
   value: string,
 ): URLSearchParams {
   const next = new URLSearchParams(params);

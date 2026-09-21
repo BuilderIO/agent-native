@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   deleteLocalArtifactFile,
   deleteLocalWorkspaceResource,
+  deleteLocalWorkspaceResourceIfCurrent,
   findAgentNativeManifest,
   getLocalArtifactApp,
   listConfiguredLocalArtifactFiles,
@@ -18,6 +19,8 @@ import {
   readLocalWorkspaceResource,
   resolveAgentNativeDataMode,
   writeLocalArtifactFile,
+  writeLocalWorkspaceResourceIfAbsentAtPath,
+  writeLocalWorkspaceResourceIfCurrent,
   writeLocalWorkspaceResource,
 } from "./index.js";
 
@@ -599,6 +602,159 @@ describe("local artifact helpers", () => {
 
     expect(fs.existsSync(currentSkillPath)).toBe(false);
     expect(fs.existsSync(legacySkillPath)).toBe(false);
+  });
+
+  it("conditionally deletes only the captured local workspace file", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, { mode: "local-files" });
+    const original = await writeLocalWorkspaceResource({
+      manifestPath,
+      path: "AGENTS.md",
+      content: "# Materialized",
+    });
+
+    await writeLocalWorkspaceResource({
+      manifestPath,
+      path: "AGENTS.md",
+      content: "# User replacement",
+    });
+    await expect(
+      deleteLocalWorkspaceResourceIfCurrent({
+        manifestPath,
+        path: "AGENTS.md",
+        expectedHash: original.hash,
+        expectedAbsolutePath: original.absolutePath,
+      }),
+    ).resolves.toBe(false);
+    expect(fs.readFileSync(original.absolutePath, "utf8")).toBe(
+      "# User replacement",
+    );
+
+    const replacement = await readLocalWorkspaceResource({
+      manifestPath,
+      path: "AGENTS.md",
+    });
+    await expect(
+      deleteLocalWorkspaceResourceIfCurrent({
+        manifestPath,
+        path: "AGENTS.md",
+        expectedHash: replacement!.hash,
+        expectedAbsolutePath: replacement!.absolutePath,
+      }),
+    ).resolves.toBe(true);
+    expect(fs.existsSync(original.absolutePath)).toBe(false);
+  });
+
+  it("does not switch skill aliases after a conditional snapshot", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, { mode: "local-files" });
+    const legacyPath = path.join(
+      root,
+      ".agent",
+      "skills",
+      "review",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    fs.writeFileSync(legacyPath, "# Legacy", "utf8");
+    const legacy = await readLocalWorkspaceResource({
+      manifestPath,
+      path: "skills/review/SKILL.md",
+    });
+    const currentPath = path.join(
+      root,
+      ".agents",
+      "skills",
+      "review",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(currentPath), { recursive: true });
+    fs.writeFileSync(currentPath, "# Current", "utf8");
+
+    await expect(
+      deleteLocalWorkspaceResourceIfCurrent({
+        manifestPath,
+        path: "skills/review/SKILL.md",
+        expectedHash: legacy!.hash,
+        expectedAbsolutePath: legacy!.absolutePath,
+      }),
+    ).resolves.toBe(false);
+    expect(fs.readFileSync(legacyPath, "utf8")).toBe("# Legacy");
+    expect(fs.readFileSync(currentPath, "utf8")).toBe("# Current");
+  });
+
+  it("guards local snapshot writes and restores against replacements and aliases", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, { mode: "local-files" });
+    const before = await writeLocalWorkspaceResource({
+      manifestPath,
+      path: "AGENTS.md",
+      content: "# Before",
+    });
+    const written = await writeLocalWorkspaceResourceIfCurrent({
+      manifestPath,
+      path: "AGENTS.md",
+      content: "# Written",
+      expectedHash: before.hash,
+      expectedAbsolutePath: before.absolutePath,
+    });
+    expect(written).not.toBeNull();
+    expect(written?.hash).not.toBe(before.hash);
+    expect(fs.readFileSync(before.absolutePath, "utf8")).toBe("# Written");
+    await expect(
+      writeLocalWorkspaceResourceIfCurrent({
+        manifestPath,
+        path: "AGENTS.md",
+        content: "# Stale",
+        expectedHash: before.hash,
+        expectedAbsolutePath: before.absolutePath,
+      }),
+    ).resolves.toBeNull();
+
+    const legacyPath = path.join(
+      root,
+      ".agent",
+      "skills",
+      "restore",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    fs.writeFileSync(legacyPath, "# Legacy", "utf8");
+    const legacy = await readLocalWorkspaceResource({
+      manifestPath,
+      path: "skills/restore/SKILL.md",
+    });
+    fs.unlinkSync(legacyPath);
+    const restored = await writeLocalWorkspaceResourceIfAbsentAtPath({
+      manifestPath,
+      path: "skills/restore/SKILL.md",
+      content: "# Legacy",
+      expectedAbsolutePath: legacy!.absolutePath,
+    });
+    expect(restored?.absolutePath).toBe(legacyPath);
+    expect(fs.readFileSync(legacyPath, "utf8")).toBe("# Legacy");
+    fs.unlinkSync(legacyPath);
+    const currentPath = path.join(
+      root,
+      ".agents",
+      "skills",
+      "restore",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(currentPath), { recursive: true });
+    fs.writeFileSync(currentPath, "# Replacement", "utf8");
+    await expect(
+      writeLocalWorkspaceResourceIfAbsentAtPath({
+        manifestPath,
+        path: "skills/restore/SKILL.md",
+        content: "# Legacy",
+        expectedAbsolutePath: legacy!.absolutePath,
+      }),
+    ).resolves.toBeNull();
+    expect(fs.readFileSync(currentPath, "utf8")).toBe("# Replacement");
   });
 
   it("does not expose local workspace resources outside local file mode", async () => {
