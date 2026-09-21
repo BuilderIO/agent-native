@@ -10896,7 +10896,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       while (hit && hit.parentElement && hit.parentElement !== container) {
         hit = hit.parentElement;
       }
-      if (trackLayout && hasExplicitPlacement && !hasAuthoredSingleCellSourcePlacement) {
+      if (trackLayout && !hasAuthoredSingleCellSourcePlacement) {
         var column = trackLayout.columnBounds.findIndex(function(bound) {
           return clientX >= bound.start && clientX <= bound.end;
         });

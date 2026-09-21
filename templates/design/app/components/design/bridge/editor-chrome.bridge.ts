@@ -15008,11 +15008,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Resolve the pointer against rendered tracks and carry the cell through
     // the drop so the source and its persisted markup move together. The
     // occupied cell is also retained as the source-order insertion anchor.
-    if (
-      trackLayout &&
-      hasExplicitPlacement &&
-      !hasAuthoredSingleCellSourcePlacement
-    ) {
+    if (trackLayout && !hasAuthoredSingleCellSourcePlacement) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
       });
