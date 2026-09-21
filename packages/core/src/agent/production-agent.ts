@@ -174,7 +174,10 @@ import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
 } from "./harness/hosted.js";
-import { preloadJevTools } from "./jev-tool-prefetch.js";
+import {
+  BUILDER_JEV_PROXY_ENABLED,
+  preloadJevTools,
+} from "./jev-tool-prefetch.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -717,6 +720,7 @@ async function getJevContextCredentials(
   builderAuth: BuilderGatewayAuth | null;
 }> {
   const apiKey = await getOwnerJevApiKey(ownerEmail);
+  if (!BUILDER_JEV_PROXY_ENABLED) return { apiKey, builderAuth: null };
   try {
     return { apiKey, builderAuth: await resolveBuilderGatewayAuth() };
   } catch {

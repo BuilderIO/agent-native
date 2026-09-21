@@ -10,6 +10,8 @@ const MAX_PREFETCH_LIMIT = 5;
 const JEV_TIMEOUT_MS = 750;
 const JEV_MODEL = "jev-latest";
 
+export const BUILDER_JEV_PROXY_ENABLED = true;
+
 type JevChoiceAnswer = {
   choice?: unknown;
   probabilities?: unknown;
@@ -47,9 +49,10 @@ export async function rankJevCandidates(
 ): Promise<string[]> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
+  const builderAuth = BUILDER_JEV_PROXY_ENABLED ? options.builderAuth : null;
   if (
     !request ||
-    (!apiKey && !options.builderAuth) ||
+    (!apiKey && !builderAuth) ||
     options.candidates.length === 0
   ) {
     return [];
@@ -91,7 +94,7 @@ export async function rankJevCandidates(
 
     const response = await requestJev({
       apiKey,
-      builderAuth: options.builderAuth,
+      builderAuth,
       request: jevRequest,
     });
 
@@ -187,7 +190,8 @@ export async function preloadJevTools(
 ): Promise<EngineTool[]> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
-  if (!request || (!apiKey && !options.builderAuth)) {
+  const builderAuth = BUILDER_JEV_PROXY_ENABLED ? options.builderAuth : null;
+  if (!request || (!apiKey && !builderAuth)) {
     return options.initialTools;
   }
 
@@ -239,7 +243,7 @@ export async function preloadJevTools(
     })),
     candidateStateKey: "candidate_tools",
     answerKey: "best_tool",
-    builderAuth: options.builderAuth,
+    builderAuth,
     question:
       "Which tools should be loaded into the agent context first for this task? Pick the most useful tool; probabilities may be used to keep a small ranked shortlist.",
     limit: prefetchLimit,
@@ -267,7 +271,7 @@ async function requestJev(options: {
   builderAuth?: BuilderGatewayAuth | null;
   request: JevRequest;
 }): Promise<JevResponse> {
-  if (options.builderAuth) {
+  if (BUILDER_JEV_PROXY_ENABLED && options.builderAuth) {
     try {
       return await requestJevThroughBuilder(
         options.builderAuth,
