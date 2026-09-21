@@ -847,8 +847,46 @@ export function authoredElementPosition(
         const autoChildren = siblings.filter(
           (sibling) => !isOutOfFlow(sibling),
         );
-        const autoIndex = autoChildren.indexOf(cursor);
         const columnCount = Math.max(1, columns.length);
+        const rowCount = Math.max(1, rows.length);
+        const occupied = new Set<string>();
+        for (const sibling of autoChildren) {
+          const explicitColumn = Number.parseInt(
+            (sibling as HTMLElement).style.gridColumnStart,
+            10,
+          );
+          const explicitRow = Number.parseInt(
+            (sibling as HTMLElement).style.gridRowStart,
+            10,
+          );
+          if (Number.isFinite(explicitColumn) && Number.isFinite(explicitRow)) {
+            occupied.add(`${explicitRow}:${explicitColumn}`);
+          }
+        }
+        let autoSlot = 0;
+        for (const sibling of autoChildren) {
+          const hasExplicit = Number.isFinite(
+            Number.parseInt((sibling as HTMLElement).style.gridColumnStart, 10),
+          );
+          if (hasExplicit) continue;
+          while (
+            occupied.has(
+              parentStyle.gridAutoFlow.includes("column")
+                ? `${(autoSlot % rowCount) + 1}:${Math.floor(autoSlot / rowCount) + 1}`
+                : `${Math.floor(autoSlot / columnCount) + 1}:${(autoSlot % columnCount) + 1}`,
+            )
+          ) {
+            autoSlot += 1;
+          }
+          if (sibling === cursor) break;
+          occupied.add(
+            parentStyle.gridAutoFlow.includes("column")
+              ? `${(autoSlot % rowCount) + 1}:${Math.floor(autoSlot / rowCount) + 1}`
+              : `${Math.floor(autoSlot / columnCount) + 1}:${(autoSlot % columnCount) + 1}`,
+          );
+          autoSlot += 1;
+        }
+        const autoIndex = autoSlot;
         const column = gridLine(
           parentStyle.gridTemplateColumns,
           columnValue,
