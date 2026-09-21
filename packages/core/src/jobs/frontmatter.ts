@@ -43,11 +43,7 @@ export interface JobFrontmatter {
   model?: string;
   /**
    * Per-run reasoning effort override; omitted uses the model's default (see
-   * `normalizeReasoningEffortForRequest`). Applies immediately for models the
-   * configured engine already forwards effort for; see
-   * `packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md` for
-   * the one lane (GPT + tools on the Builder gateway) where it does not yet
-   * take effect.
+   * `normalizeReasoningEffortForRequest`).
    */
   reasoningEffort?: ReasoningEffort;
   /** Per-run guard for background automations; omitted uses the app setting. */

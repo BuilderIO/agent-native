@@ -112,9 +112,7 @@ Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitutio
 `model`, `reasoning_effort`, and `mcpTools` on define/update. An MCP allowlist
 is enforced, not advisory: every named tool must resolve in the creator's
 request context or the run fails clearly, and the runner never widens access
-beyond the configured names. `reasoning_effort` on a GPT reasoning model does
-not yet take effect while it also has tools attached on the Builder gateway —
-see `packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md`.
+beyond the configured names.
 
 ## Organization Event Automations
 

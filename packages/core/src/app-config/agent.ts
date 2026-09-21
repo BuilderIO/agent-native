@@ -162,15 +162,4 @@ export const agentConfig = z.object({
       env: ["AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS"],
       doc: "Hard abort for one in-process background automation run, in milliseconds. This is the host's real function budget for scheduled work.",
     }),
-  // Deployment-wide infra capability, not a per-user/org rollout: the Builder
-  // gateway this deployment points at either proxies GPT + tools requests to
-  // the OpenAI Responses API or it does not. See
-  // packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md.
-  builderGatewayGptResponsesLane: z
-    .boolean()
-    .default(false)
-    .meta({
-      env: ["AGENT_BUILDER_GATEWAY_GPT_RESPONSES_LANE"],
-      doc: "Whether the configured Builder gateway proxies GPT reasoning-model requests with tools to the OpenAI Responses API. Until true, builder-engine forces reasoning_effort to none for those requests to avoid a Chat Completions 400.",
-    }),
 });

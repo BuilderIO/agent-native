@@ -1,91 +1,88 @@
-# Design Note: GPT Reasoning Effort Requires a Responses Lane on the Builder Gateway
+# Design Note: GPT Reasoning Effort on the Builder Gateway
 
-Status: Proposed (blocked on Builder gateway team)
+Status: Resolved — guard removed
 
-Date: 2026-09-18
+Date: 2026-09-21 (originally written 2026-09-18)
 
-## Context
+## Original problem
 
-Hosted Builder chat and automations send every LLM request through the
-Builder gateway's `/messages` endpoint, using an Anthropic-shaped request body
-(see [`builder-engine.ts`](../../src/agent/engine/builder-engine.ts)). The
-gateway currently proxies GPT models (`gpt-5.6-luna`, the framework default,
-and siblings) to OpenAI's Chat Completions API.
-
-OpenAI's Chat Completions API rejects `reasoning_effort` together with
-function tools for these models:
+[`builder-engine.ts`](../../src/agent/engine/builder-engine.ts) forced
+`reasoning_effort: "none"` for GPT reasoning models (`gpt-5.6-luna`, the
+framework default, and siblings `gpt-5.6-terra` / `gpt-5.6-sol`) whenever
+tools were attached — which is nearly every real chat turn or automation run.
+The guard's introducing commit (`eecd3adaf5`, 2026-07-31) quoted a literal
+OpenAI rejection:
 
 > Function tools with reasoning_effort are not supported for `<model>` in
 > `/v1/chat/completions`. To use function tools, use `/v1/responses` or set
 > `reasoning_effort` to `'none'`.
 
-Because nearly every real agent turn includes tools, `builder-engine.ts` has
-always sent `reasoning_effort: "none"` whenever a GPT reasoning model has
-tools attached, regardless of what effort the caller (chat UI or an
-automation) actually asked for. This is not an oversight — removing it 400s
-every GPT + tools request against the gateway as it exists today — but it
-means Luna effectively never reasons on hosted Builder, since chat and
-automations almost always run with tools available.
+and stated that "the gateway routes GPT models there [Chat Completions]." The
+initial version of this doc proposed gating the fix behind a deployment-level
+app-config flag (`agent.builderGatewayGptResponsesLane`), on the assumption
+that the gateway needed a separate migration to the Responses API before the
+guard could be safely removed.
+
+## What the investigation found
+
+Two things surfaced that changed the diagnosis:
+
+1. **The team owning the Builder gateway backend (ai-services) reported that
+   Luna, Terra, and Sol have used OpenAI's Responses API since they were
+   introduced** (2026-07-09, `sdk: "openai"` → `completionOpenAI` →
+   `responses.create`), with no Chat Completions path ever existing in that
+   gateway's handler. All three models share the identical code path.
+
+2. **The specific Chat Completions rejection quoted in the 2026-07-31 commit
+   was traced to a different, unrelated incident**: a Sentry event from
+   2026-07-26, on the `ai-sdk:openai` engine (not `builder-engine`), hitting a
+   custom OpenAI-compatible proxy (`assets.agent-native.com/.netlify/ai/chat/completions`),
+   for `gpt-5.6-sol`. That engine has its own, narrower, already-existing
+   guard for exactly this case
+   (`forcedChatCompletionsWithTools` in
+   [`ai-sdk-engine.ts`](../../src/agent/engine/ai-sdk-engine.ts), scoped to
+   `isCustomOpenAiBaseUrl(this.baseUrl)`), added the same day as that
+   incident (2026-07-26, `52cce19f63`) — 5 days *before* the `builder-engine`
+   guard.
+
+   The `builder-engine` guard's own comment said "Same guard as the ai-sdk
+   engine's forced-Chat-Completions path," which is consistent with an
+   engineer generalizing a real, just-fixed incident on one engine onto a
+   different engine (a different HTTP client, hitting a different upstream —
+   `api.builder.io/agent-native/gateway/v1` vs. the Netlify proxy) without
+   independently confirming the Builder gateway had the same constraint.
+
+3. **A live request settled it.** Sent directly through
+   `https://api.builder.io/agent-native/gateway/v1/messages` with
+   `model: "gpt-5.6-luna"`, 39 tools attached, and `reasoning_effort: "high"`
+   (later `"xhigh"`) — the gateway returned `200 OK`. A deterministic
+   rejection, had one existed, would have fired on every attempt; it did not.
 
 ## Decision
 
-Route GPT + tools requests through OpenAI's Responses API instead, which
-accepts `reasoning_effort` and function tools together. This requires a
-gateway-side change (outside this repo); core's role is to describe the
-contract and stop forcing `"none"` once the gateway honors it.
-
-### Gateway contract
-
-- The gateway detects GPT models (`gpt-5.*`, `o\d.*`) with `tools.length > 0`
-  in the existing Anthropic-shaped `/messages` body and translates internally
-  to a Responses API call, on the same auth/billing lane used today. Core does
-  not send a different request shape for this — no new header or field is
-  required for the gateway to make this decision, since it can inspect model
-  - tools the same way `isGPTReasoningModel()` does client-side.
-- Streaming JSONL semantics must stay outwardly identical: thinking deltas,
-  tool-call deltas, and stop events in the same shape `builder-engine.ts`
-  already parses. Reasoning summaries from the Responses API need to map onto
-  the same thinking-delta event shape as Claude's extended thinking.
-- Claude requests are unaffected — they continue through the existing
-  Anthropic-shaped lane.
-
-### Acceptance criteria for the gateway change
-
-- `gpt-5.6-luna` (or another `gpt-5.x`/`o*` model) with function tools and
-  `reasoning_effort: "high"` or `"xhigh"` succeeds end to end — no Chat
-  Completions rejection.
-- The Claude path is unchanged: effort + tools still works exactly as today.
-- Load and timeout behavior holds up for the longest automation runs (up to
-  the 10-minute background hard timeout in
-  [`app-config/agent.ts`](../../src/app-config/agent.ts)'s
-  `backgroundRunHardTimeoutMs`).
-
-### Core-side rollout
-
-Core gates the forced `"none"` behind a deployment-wide app-config field,
-`agent.builderGatewayGptResponsesLane` (env alias
-`AGENT_BUILDER_GATEWAY_GPT_RESPONSES_LANE`), default `false`. This is
-infrastructure status, not a per-user or per-org product rollout — every
-deployment pointed at a given Builder gateway sees the same behavior — so it
-belongs in `defineAppConfig()` rather than the per-app feature-flag system.
-
-Once the gateway change is verified in staging, flipping this flag to `true`
-is what lets `builder-engine.ts` forward the caller's actual requested effort
-for GPT + tools instead of overriding it to `"none"`. **Do not flip it before
-the gateway change ships** — every GPT + tools request would start 400ing
-again, exactly as it did before the `"none"` guard was added.
+Remove the guard. `builder-engine.ts` now forwards the caller's requested
+`reasoning_effort` for GPT reasoning models unconditionally, the same as
+every other model family. The `agent.builderGatewayGptResponsesLane`
+app-config field this doc originally proposed was never released and has
+been deleted rather than defaulted to `true` — there is no pending gateway
+migration to gate against, so keeping a flag for a scenario that never
+existed on this endpoint would just be an if-statement with a pension plan.
 
 ## Consequences
 
-- Until the gateway ships this lane, GPT + tools automations and chat turns
-  on hosted Builder continue to run at `reasoning_effort: "none"` regardless
-  of what effort the caller configured. Automation `reasoningEffort` (see the
-  `automations` skill) still persists and applies immediately for non-GPT
-  models (e.g. Claude), and will apply to GPT once this lane is live.
+- GPT reasoning models on hosted Builder (chat and automations) now honor
+  the caller's requested effort with tools attached, matching Claude's
+  existing behavior.
+- `ai-sdk-engine.ts`'s narrower `forcedChatCompletionsWithTools` guard is
+  unaffected and still correct — it protects a genuinely different scenario
+  (a customer-configured custom OpenAI-compatible base URL that only
+  implements Chat Completions), unrelated to the Builder gateway.
 - `error-detail.ts`'s `provider_config_error` classification for
-  `reasoning_effort` + tools should become rare once the lane is live and
-  enabled; keep it for deployments running a stale gateway or with the flag
-  still off.
-- The BYOK `ai-sdk:openai` path is unaffected — it already calls the
-  Responses API directly except when a custom `baseUrl` forces Chat
-  Completions, which is a narrower, separate case.
+  `reasoning_effort` + tools should now be rare on the Builder lane; it stays
+  in place for the `ai-sdk:openai` custom-baseUrl case and as a defensive
+  classification if a future gateway regression reintroduces this shape of
+  error.
+- Terra and Sol were not independently load-tested the way Luna was, but
+  ai-services describes them as sharing the identical `sdk: "openai"` →
+  `responses.create` code path, differing only in pricing/context-window
+  configuration — not routing.
