@@ -20218,6 +20218,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       needsAutoLayoutConversion?: boolean;
       conversionTarget?: Element;
     } | null = null;
+    var autoLayoutTargetFrame = 0;
+    var pendingAutoLayoutTargetPoint: {
+      clientX: number;
+      clientY: number;
+      metaKey: boolean;
+      ctrlKey: boolean;
+      altKey: boolean;
+      shiftKey: boolean;
+    } | null = null;
     // Snap candidates (siblings + parent content box) are computed once at
     // drag start — a single getBoundingClientRect pass per candidate — not
     // recomputed on every move event. Other group members are excluded: they
@@ -20279,6 +20288,50 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         dropMode: "flow-insert",
       };
     }
+    function cancelAutoLayoutTargetResolution(): void {
+      pendingAutoLayoutTargetPoint = null;
+      if (autoLayoutTargetFrame) {
+        window.cancelAnimationFrame(autoLayoutTargetFrame);
+        autoLayoutTargetFrame = 0;
+      }
+    }
+
+    function scheduleAutoLayoutTargetResolution(ev): void {
+      pendingAutoLayoutTargetPoint = {
+        clientX: ev.clientX,
+        clientY: ev.clientY,
+        metaKey: !!ev.metaKey,
+        ctrlKey: !!ev.ctrlKey,
+        altKey: !!ev.altKey,
+        shiftKey: !!ev.shiftKey,
+      };
+      if (autoLayoutTargetFrame) return;
+      autoLayoutTargetFrame = window.requestAnimationFrame(function () {
+        autoLayoutTargetFrame = 0;
+        var point = pendingAutoLayoutTargetPoint;
+        pendingAutoLayoutTargetPoint = null;
+        if (!point || !dragEl || !document.documentElement.contains(dragEl)) {
+          return;
+        }
+        var target = autoLayoutInsertionTargetForPoint(
+          dragEl,
+          point.clientX,
+          point.clientY,
+          groupOthers,
+          isPlatformPrimaryChord(point),
+        );
+        if (target && isIgnoreAutoLayoutChord(point)) {
+          target = ignoreAutoLayoutForDropTarget(target);
+        }
+        currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
+        if (currentAutoLayoutTarget) {
+          showInsertionGuideFor(currentAutoLayoutTarget);
+        } else {
+          hideInsertionGuide();
+        }
+      });
+    }
+
     // Client px per CSS px for this element. 1 unless an ancestor between it
     // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
     // Client px per CSS px contributed by ANCESTORS. Measured on the offset
@@ -20524,6 +20577,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         scheduleCrossScreenDragMove(ev);
       }
       if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        cancelAutoLayoutTargetResolution();
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
       } else {
@@ -20538,28 +20592,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // host only resends a claim message on a claimed-value CHANGE, so
         // once clobbered it stayed false for the rest of the drag with no
         // further message ever arriving to correct it.
-        currentAutoLayoutTarget = !bridgeSpaceKeyPressed
-          ? autoLayoutInsertionTargetForPoint(
-              dragEl,
-              ev.clientX,
-              ev.clientY,
-              groupOthers,
-              isPlatformPrimaryChord(ev),
-            )
-          : null;
-        if (currentAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
-          currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
-            currentAutoLayoutTarget,
-          );
-        }
-        currentAutoLayoutTarget = applyFreeDropSizeGuard(
-          currentAutoLayoutTarget,
-          ev,
-        );
-        if (currentAutoLayoutTarget) {
-          showInsertionGuideFor(currentAutoLayoutTarget);
+        if (!bridgeSpaceKeyPressed) {
+          scheduleAutoLayoutTargetResolution(ev);
         } else {
-          hideInsertionGuide();
+          cancelAutoLayoutTargetResolution();
+          currentAutoLayoutTarget = null;
         }
       }
       // Snap guides only make sense for a free absolute placement — never at
@@ -20598,7 +20635,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (duplicatedForDrag) {
         showTransformBadge("Duplicate layer", ev.clientX, ev.clientY);
       }
-      refreshOverlays();
+      scheduleRefreshOverlays();
     }
     function restoreSourceDragPosition(): void {
       memberStates.forEach(function (state) {
@@ -20610,6 +20647,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       positionOverlay(selectionOverlay, selectedEl);
     }
     function cleanupMoveDrag() {
+      cancelAutoLayoutTargetResolution();
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onMoveKeyDown, true);

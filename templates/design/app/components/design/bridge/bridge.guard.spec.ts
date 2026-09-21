@@ -14132,6 +14132,36 @@ it("keeps isAbsolutePrimitiveContainer identical in both bridges", () => {
   );
 });
 
+it("coalesces free-drag target and overlay work", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var currentAutoLayoutTarget:");
+  const end = bridge.indexOf(
+    "function restoreSourceDragPosition(): void {",
+    start,
+  );
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const freeDragLoop = bridge.slice(start, end);
+
+  // Auto-layout hit testing reads live geometry. It must run once per frame
+  // after pointer-follow writes, while pointerup keeps the authoritative final
+  // synchronous resolution for the committed drop.
+  expect(freeDragLoop).toContain("scheduleAutoLayoutTargetResolution(ev)");
+  expect(freeDragLoop).toContain("scheduleRefreshOverlays()");
+  expect(freeDragLoop).not.toContain(
+    `currentAutoLayoutTarget = !bridgeSpaceKeyPressed
+          ? autoLayoutInsertionTargetForPoint(`,
+  );
+  expect(freeDragLoop).not.toContain(`      refreshOverlays();
+`);
+
+  const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
+  expect(pointerUp).toContain("autoLayoutInsertionTargetForPoint(");
+});
+
 it("keeps the authored inline-style key list in sync with the bridge", () => {
   const bridge = readFileSync(
     join(bridgeDir, "editor-chrome.bridge.ts"),

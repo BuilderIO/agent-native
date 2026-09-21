@@ -14218,6 +14218,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var moved = false;
       dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
       var currentAutoLayoutTarget = null;
+      var autoLayoutTargetFrame = 0;
+      var pendingAutoLayoutTargetPoint = null;
       var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
       var dragElStartRect = dragEl.getBoundingClientRect();
       var dragElStartWidth = dragElStartRect.width;
@@ -14249,6 +14251,48 @@ export const editorChromeBridgeScript: string = `"use strict";
           axis: pAxis,
           dropMode: "flow-insert"
         };
+      }
+      function cancelAutoLayoutTargetResolution() {
+        pendingAutoLayoutTargetPoint = null;
+        if (autoLayoutTargetFrame) {
+          window.cancelAnimationFrame(autoLayoutTargetFrame);
+          autoLayoutTargetFrame = 0;
+        }
+      }
+      function scheduleAutoLayoutTargetResolution(ev) {
+        pendingAutoLayoutTargetPoint = {
+          clientX: ev.clientX,
+          clientY: ev.clientY,
+          metaKey: !!ev.metaKey,
+          ctrlKey: !!ev.ctrlKey,
+          altKey: !!ev.altKey,
+          shiftKey: !!ev.shiftKey
+        };
+        if (autoLayoutTargetFrame) return;
+        autoLayoutTargetFrame = window.requestAnimationFrame(function() {
+          autoLayoutTargetFrame = 0;
+          var point = pendingAutoLayoutTargetPoint;
+          pendingAutoLayoutTargetPoint = null;
+          if (!point || !dragEl || !document.documentElement.contains(dragEl)) {
+            return;
+          }
+          var target = autoLayoutInsertionTargetForPoint(
+            dragEl,
+            point.clientX,
+            point.clientY,
+            groupOthers,
+            isPlatformPrimaryChord(point)
+          );
+          if (target && isIgnoreAutoLayoutChord(point)) {
+            target = ignoreAutoLayoutForDropTarget(target);
+          }
+          currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
+          if (currentAutoLayoutTarget) {
+            showInsertionGuideFor(currentAutoLayoutTarget);
+          } else {
+            hideInsertionGuide();
+          }
+        });
       }
       function ancestorScale(el, axis) {
         var host = el && el.offsetParent;
@@ -14431,29 +14475,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           scheduleCrossScreenDragMove(ev);
         }
         if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+          cancelAutoLayoutTargetResolution();
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
         } else {
-          currentAutoLayoutTarget = !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
-            dragEl,
-            ev.clientX,
-            ev.clientY,
-            groupOthers,
-            isPlatformPrimaryChord(ev)
-          ) : null;
-          if (currentAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
-            currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
-              currentAutoLayoutTarget
-            );
-          }
-          currentAutoLayoutTarget = applyFreeDropSizeGuard(
-            currentAutoLayoutTarget,
-            ev
-          );
-          if (currentAutoLayoutTarget) {
-            showInsertionGuideFor(currentAutoLayoutTarget);
+          if (!bridgeSpaceKeyPressed) {
+            scheduleAutoLayoutTargetResolution(ev);
           } else {
-            hideInsertionGuide();
+            cancelAutoLayoutTargetResolution();
+            currentAutoLayoutTarget = null;
           }
         }
         var flowInsertPending = !!currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode !== "absolute-container";
@@ -14474,7 +14504,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (duplicatedForDrag) {
           showTransformBadge("Duplicate layer", ev.clientX, ev.clientY);
         }
-        refreshOverlays();
+        scheduleRefreshOverlays();
       }
       function restoreSourceDragPosition() {
         memberStates.forEach(function(state) {
@@ -14486,6 +14516,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         positionOverlay(selectionOverlay, selectedEl);
       }
       function cleanupMoveDrag() {
+        cancelAutoLayoutTargetResolution();
         document.removeEventListener(events.move, onMove, true);
         document.removeEventListener(events.up, onUp, true);
         document.removeEventListener("keydown", onMoveKeyDown, true);
