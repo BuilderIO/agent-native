@@ -63,23 +63,16 @@ export function missingDesignSystemDataFields(value: unknown): string[] {
 
 export type DesignSystemIndexingStatus = "ready" | "indexing" | "unavailable";
 
-const READY_BUILDER_STATUSES = new Set(["ready", "complete", "completed"]);
-const UNAVAILABLE_BUILDER_STATUSES = new Set([
-  "error",
-  "failed",
-  "cancelled",
-  "canceled",
-]);
-
 /**
  * A Builder-indexed proxy design system (see `builder-design-system-proxy.ts`)
  * has no usable tokens/components until Builder confirms indexing finished —
  * selecting it before then is exactly what produced the "still being
- * indexed" agent stall this guards against. A locally authored design system
- * has no `builderStatus` at all and is always immediately usable. An
- * unrecognized or missing status on a Builder-sourced row is treated as still
- * indexing rather than ready, so a stale or malformed row never becomes
- * silently selectable.
+ * indexed" agent stall this guards against (ENG-13035).
+ *
+ * Rather than rely on builderStatus (which can get stuck), check for actual work:
+ * if colors/typography are present, indexing completed regardless of status.
+ * A locally authored design system has no `builderStatus` at all and is always
+ * immediately usable.
  */
 export function getDesignSystemIndexingStatus(
   data: unknown,
@@ -88,11 +81,15 @@ export function getDesignSystemIndexingStatus(
     data && typeof data === "object" ? (data as Record<string, unknown>) : null;
   if (!record || record.source !== "builder") return "ready";
 
-  const rawStatus = record.builderStatus;
-  const status =
-    typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : "";
-  if (READY_BUILDER_STATUSES.has(status)) return "ready";
-  if (UNAVAILABLE_BUILDER_STATUSES.has(status)) return "unavailable";
+  // Proof of work: if colors or typography exist, indexing completed
+  const hasColors = record.colors && typeof record.colors === "object";
+  const hasTypography = record.typography && typeof record.typography === "object";
+  if (hasColors || hasTypography) return "ready";
+
+  // Check for explicit warning (error message)
+  if (record.warning) return "unavailable";
+
+  // Default: still indexing or uninitialized
   return "indexing";
 }
 
