@@ -887,7 +887,7 @@ function ChatGPTSubscriptionCard({
     }
   }, [onConfigured]);
 
-  const useSubscription = useCallback(async () => {
+  const selectSubscriptionEngine = useCallback(async () => {
     setError(null);
     try {
       await callAction(
@@ -981,7 +981,7 @@ function ChatGPTSubscriptionCard({
                 type="button"
                 intent="primary"
                 emphasis="solid"
-                onClick={() => void useSubscription()}
+                onClick={() => void selectSubscriptionEngine()}
                 className={cn(
                   "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90",
                   isPage ? "text-sm" : "text-[11px]",
