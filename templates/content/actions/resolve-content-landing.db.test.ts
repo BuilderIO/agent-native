@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { writeAppState } from "@agent-native/core/application-state";
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -52,6 +53,14 @@ beforeAll(async () => {
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
+  )`);
 }, 60_000);
 
 afterAll(() => {
@@ -134,6 +143,53 @@ describe("resolve-content-landing", () => {
       visibility: "private",
     });
     expect(membership).toEqual({ documentId: welcomeDocumentId });
+  });
+
+  it("reuses an organization workspace welcome for another member", async () => {
+    const ownerEmail = "workspace-welcome-owner@example.com";
+    const memberEmail = "workspace-welcome-member@example.com";
+    const orgId = "workspace-welcome-org";
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: [orgId, "Workspace Welcome Org", ownerEmail, Date.now()],
+    });
+    for (const [id, email, role] of [
+      ["workspace-welcome-owner", ownerEmail, "owner"],
+      ["workspace-welcome-member", memberEmail, "member"],
+    ]) {
+      await getDbExec().execute({
+        sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+        args: [id, orgId, email, role, Date.now()],
+      });
+    }
+
+    const provisioned = await runWithRequestContext(
+      { userEmail: ownerEmail },
+      () => provisionContentSpaces(getDb(), ownerEmail),
+    );
+    const spaceId = provisioned.spaceIds.find(
+      (candidate) => candidate !== provisioned.personalSpaceId,
+    )!;
+    const created = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+      resolveContentLandingAction.run({ spaceId }),
+    );
+    const reused = await runWithRequestContext({ userEmail: memberEmail }, () =>
+      resolveContentLandingAction.run({ spaceId }),
+    );
+
+    expect(created.resolution).toBe("welcome-created");
+    expect(reused).toEqual({
+      resolution: "welcome-reused",
+      target: created.target,
+    });
+    const [welcome] = await getDb()
+      .select({
+        orgId: schema.documents.orgId,
+        visibility: schema.documents.visibility,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.target!.documentId));
+    expect(welcome).toEqual({ orgId, visibility: "org" });
   });
 
   it("restores each workspace's exact saved page independently", async () => {

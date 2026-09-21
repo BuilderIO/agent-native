@@ -426,6 +426,81 @@ describe("query-content-database-items Files navigation", () => {
     }
   });
 
+  it("uses sidebar sort direction instead of an unrelated view direction", async () => {
+    await addFile({
+      id: "sidebar-sort-parent",
+      position: 101,
+    });
+    await addFile({
+      id: "sidebar-sort-alpha",
+      parentId: "sidebar-sort-parent",
+      title: "Alpha",
+      createdAt: "2026-03-01T00:00:00.000Z",
+      updatedAt: "2026-03-03T00:00:00.000Z",
+    });
+    await addFile({
+      id: "sidebar-sort-beta",
+      parentId: "sidebar-sort-parent",
+      title: "Beta",
+      createdAt: "2026-03-02T00:00:00.000Z",
+      updatedAt: "2026-03-01T00:00:00.000Z",
+    });
+    await addFile({
+      id: "sidebar-sort-gamma",
+      parentId: "sidebar-sort-parent",
+      title: "Gamma",
+      createdAt: "2026-03-03T00:00:00.000Z",
+      updatedAt: "2026-03-02T00:00:00.000Z",
+    });
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    const saveSidebarSort = (mode: "name" | "created" | "last_edited") =>
+      putUserSetting(OWNER, personalDatabaseViewSettingKey(DATABASE_ID), {
+        version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+        activeViewId: "files",
+        views: [
+          {
+            id: "files",
+            sorts: [{ key: "name", label: "Name", direction: "desc" }],
+            filters: [],
+            filterMode: "and",
+            sidebarOrder: { mode, itemIds: [] },
+          },
+        ],
+      });
+
+    await saveSidebarSort("name");
+    expect(
+      (await navigate({ parentId: "sidebar-sort-parent" })).items.map(
+        (item) => item.documentId,
+      ),
+    ).toEqual([
+      "sidebar-sort-alpha",
+      "sidebar-sort-beta",
+      "sidebar-sort-gamma",
+    ]);
+    await saveSidebarSort("created");
+    expect(
+      (await navigate({ parentId: "sidebar-sort-parent" })).items.map(
+        (item) => item.documentId,
+      ),
+    ).toEqual([
+      "sidebar-sort-gamma",
+      "sidebar-sort-beta",
+      "sidebar-sort-alpha",
+    ]);
+    await saveSidebarSort("last_edited");
+    expect(
+      (await navigate({ parentId: "sidebar-sort-parent" })).items.map(
+        (item) => item.documentId,
+      ),
+    ).toEqual([
+      "sidebar-sort-alpha",
+      "sidebar-sort-gamma",
+      "sidebar-sort-beta",
+    ]);
+  });
+
   it("returns exactly 25 mixed ranked and unlisted siblings once across sequential pages", async () => {
     await addFile({ id: "exact-page-parent", position: 200 });
     const documentIds = Array.from(

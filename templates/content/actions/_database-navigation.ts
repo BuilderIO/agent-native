@@ -344,10 +344,11 @@ export async function getContentDatabaseNavigationPage(args: {
             sharedSort?.key === "last_edited"
           ? "last_edited"
           : null;
-  const effectiveSort =
-    personalView?.sidebarOrder?.mode ?? configuredSort ?? args.sort;
-  const descending =
-    effectiveSort !== "custom" && sharedSort?.direction === "desc";
+  const sidebarSort = personalView?.sidebarOrder?.mode;
+  const effectiveSort = sidebarSort ?? configuredSort ?? args.sort;
+  const descending = sidebarSort
+    ? sidebarSort === "created" || sidebarSort === "last_edited"
+    : effectiveSort !== "custom" && sharedSort?.direction === "desc";
   const itemIds =
     effectiveSort === "custom"
       ? (personalView?.sidebarOrder?.itemIds ?? [])

@@ -46,6 +46,12 @@ function legacyWelcomeDocumentId(userEmail: string, generation: number) {
   return `content_welcome_${digest.slice(0, 32)}`;
 }
 
+function spaceWelcomeDocumentId(spaceId: string, generation: number) {
+  const input = generation === 0 ? spaceId : `${spaceId}:${generation}`;
+  const digest = createHash("sha256").update(input).digest("hex");
+  return `content_welcome_${digest.slice(0, 32)}`;
+}
+
 function randomWelcomeDocumentId() {
   return `content_welcome_${randomUUID().replace(/-/g, "")}`;
 }
@@ -214,11 +220,7 @@ async function resolveUsableSpaceTarget(
   };
 }
 
-async function resolveWelcomeDocument(
-  userEmail: string,
-  spaceId: string,
-  documentId: string,
-) {
+async function resolveWelcomeDocument(spaceId: string, documentId: string) {
   const access = await resolveContentDocumentAccess(documentId);
   const document = access?.resource;
   if (!document) {
@@ -230,12 +232,7 @@ async function resolveWelcomeDocument(
     return { status: "unavailable" as const };
   }
 
-  if (
-    document.spaceId !== spaceId ||
-    document.parentId !== null ||
-    normalizeContentSpaceEmail(document.ownerEmail) !==
-      normalizeContentSpaceEmail(userEmail)
-  ) {
+  if (document.spaceId !== spaceId || document.parentId !== null) {
     return { status: "unavailable" as const };
   }
   const db = getDb();
@@ -283,12 +280,8 @@ async function resolveWelcome(
       state.documentId ??
       (isPersonal
         ? legacyWelcomeDocumentId(normalizedEmail, state.generation)
-        : randomWelcomeDocumentId());
-    const existing = await resolveWelcomeDocument(
-      normalizedEmail,
-      spaceId,
-      documentId,
-    );
+        : spaceWelcomeDocumentId(spaceId, state.generation));
+    const existing = await resolveWelcomeDocument(spaceId, documentId);
     if (existing.status === "usable") {
       if (!state.documentId) {
         await compareAndSetAppState(stateKey, state.expectedValue, {
@@ -306,7 +299,9 @@ async function resolveWelcome(
       await compareAndSetAppState(stateKey, state.expectedValue, {
         ...state.expectedValue,
         generation: state.generation + 1,
-        documentId: randomWelcomeDocumentId(),
+        documentId: isPersonal
+          ? randomWelcomeDocumentId()
+          : spaceWelcomeDocumentId(spaceId, state.generation + 1),
       });
       continue;
     }
@@ -322,11 +317,7 @@ async function resolveWelcome(
       );
       return { documentId, resolution: "welcome-created" };
     } catch (error) {
-      const raced = await resolveWelcomeDocument(
-        normalizedEmail,
-        spaceId,
-        documentId,
-      );
+      const raced = await resolveWelcomeDocument(spaceId, documentId);
       if (raced.status === "usable") {
         return {
           documentId: raced.documentId,
@@ -338,7 +329,9 @@ async function resolveWelcome(
         await compareAndSetAppState(stateKey, state.expectedValue, {
           ...state.expectedValue,
           generation: state.generation + 1,
-          documentId: randomWelcomeDocumentId(),
+          documentId: isPersonal
+            ? randomWelcomeDocumentId()
+            : spaceWelcomeDocumentId(spaceId, state.generation + 1),
         });
         continue;
       }
