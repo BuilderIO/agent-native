@@ -195,7 +195,6 @@ import {
   suggestionSessionVisuals,
   type DraftSuggestion,
   type SuggestionDraftSession,
-  type SuggestionDraftCaret,
   unpersistedDraftSuggestions,
 } from "./suggestions/draft-session";
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
@@ -216,9 +215,17 @@ import type {
   VisualEditorHistoryController,
   VisualEditorHistoryState,
   VisualEditorPersistenceController,
+  VisualEditorSelectionController,
+  VisualEditorSelectionSnapshot,
 } from "./VisualEditor";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
+
+export function shouldResumeSelectedSuggestionFromPageActions(
+  capturedSelection: VisualEditorSelectionSnapshot | null,
+) {
+  return capturedSelection == null;
+}
 
 export function documentEditorCommentThreads(
   threads: CommentThread[] | null | undefined,
@@ -1590,8 +1597,11 @@ function PageEditorSessionBody({
   const [editingSuggestionId, setEditingSuggestionId] = useState<string | null>(
     null,
   );
-  const [suggestionInitialSelection, setSuggestionInitialSelection] =
-    useState<SuggestionDraftCaret | null>(null);
+  const [suggestionInitialSelection, setSuggestionInitialSelection] = useState<
+    | { from: number; prefix: string; suffix: string }
+    | VisualEditorSelectionSnapshot
+    | null
+  >(null);
   const suggestionBaseRef = useRef<SuggestionDraftSession | null>(null);
   const createdSuggestionOperationsRef = useRef(new Map());
   const suggestionAmendmentKeysRef = useRef(new Map<string, string>());
@@ -1735,6 +1745,11 @@ function PageEditorSessionBody({
     useState(false);
   const editorHistoryControllerRef =
     useRef<VisualEditorHistoryController | null>(null);
+  const editorSelectionControllerRef =
+    useRef<VisualEditorSelectionController | null>(null);
+  const pageActionsSelectionRef = useRef<VisualEditorSelectionSnapshot | null>(
+    null,
+  );
   const editorEscapeTargetRef = useRef<HTMLButtonElement>(null);
   const editorPersistenceControllerRef =
     useRef<VisualEditorPersistenceController | null>(null);
@@ -3615,7 +3630,10 @@ function PageEditorSessionBody({
   ]);
 
   const startSuggestionDraft = useCallback(
-    (suggestion?: ResourceSuggestion) => {
+    (
+      suggestion?: ResourceSuggestion,
+      initialSelection?: VisualEditorSelectionSnapshot | null,
+    ) => {
       if (!canSuggest || isSuggesting) return false;
       try {
         suggestionMarkedSourceRanges(document.content);
@@ -3648,7 +3666,9 @@ function PageEditorSessionBody({
           startedAt: new Date().toISOString(),
         });
       setSuggestionDraft(existing?.content ?? document.content);
-      setSuggestionInitialSelection(existing?.caret ?? null);
+      setSuggestionInitialSelection(
+        existing?.caret ?? initialSelection ?? null,
+      );
       setEditingSuggestionId(existing?.session.existingSuggestion?.id ?? null);
       if (existing) setSelectedSuggestionId(null);
       setIsSuggesting(true);
@@ -3668,6 +3688,15 @@ function PageEditorSessionBody({
   const handleSuggestionModeChange = useCallback(
     async (next: boolean) => {
       if (next) {
+        const initialSelection = pageActionsSelectionRef.current;
+        pageActionsSelectionRef.current = null;
+        // The captured range belongs to canonical content; an existing
+        // suggestion draft can have a different document and is edited through
+        // its own activation path.
+        if (!shouldResumeSelectedSuggestionFromPageActions(initialSelection)) {
+          startSuggestionDraft(undefined, initialSelection);
+          return;
+        }
         const selected = savedSuggestions.find(
           (suggestion) => suggestion.id === selectedSuggestionId,
         );
@@ -3685,6 +3714,38 @@ function PageEditorSessionBody({
       startSuggestionDraft,
     ],
   );
+
+  const capturePageActionsSelection = useCallback(
+    (includeRemembered = false) => {
+      pageActionsSelectionRef.current =
+        editorSelectionControllerRef.current?.captureSelection({
+          includeRemembered,
+        }) ?? null;
+    },
+    [],
+  );
+
+  const handleSelectionControllerChange = useCallback(
+    (controller: VisualEditorSelectionController | null) => {
+      editorSelectionControllerRef.current = controller;
+    },
+    [],
+  );
+
+  const preservePageActionsSelection = useCallback(() => {
+    const snapshot = pageActionsSelectionRef.current;
+    if (snapshot) {
+      editorSelectionControllerRef.current?.preserveSelection(snapshot);
+    }
+  }, []);
+
+  const restorePageActionsSelection = useCallback(() => {
+    const snapshot = pageActionsSelectionRef.current;
+    editorSelectionControllerRef.current?.releaseSelectionPreservation();
+    if (snapshot) {
+      editorSelectionControllerRef.current?.restoreSelection(snapshot);
+    }
+  }, []);
 
   const handleSuggestionReplacementIntent = useCallback(
     (intent: {
@@ -5096,6 +5157,9 @@ function PageEditorSessionBody({
             canSuggest={canSuggest}
             suggesting={isSuggesting}
             editorEscapeTargetRef={editorEscapeTargetRef}
+            onCaptureEditorSelection={capturePageActionsSelection}
+            onPreserveEditorSelection={preservePageActionsSelection}
+            onRestoreEditorSelection={restorePageActionsSelection}
             onSuggestingChange={(next) => {
               void handleSuggestionModeChange(next);
             }}
@@ -5608,6 +5672,9 @@ function PageEditorSessionBody({
                               handleHistoryControllerChange
                             }
                             onHistoryStateChange={handleHistoryStateChange}
+                            onSelectionControllerChange={
+                              handleSelectionControllerChange
+                            }
                             onPersistenceControllerChange={
                               handlePersistenceControllerChange
                             }
