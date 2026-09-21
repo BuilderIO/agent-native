@@ -51,7 +51,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
   );
   fs.writeFileSync(
     path.join(rootPath, "src/main.tsx"),
-    'import { hydrateRoot } from "react-dom/client"; import { BrowserRouter } from "react-router"; import { App } from "./App"; hydrateRoot(document, <BrowserRouter><App /></BrowserRouter>);',
+    'import { hydrateRoot } from "react-dom/client"; import { BrowserRouter } from "react-router"; import { App } from "./App"; let appRoot = hydrateRoot(document, <BrowserRouter><App /></BrowserRouter>); (window as typeof window & { __forceReactDocumentRemount?: () => void }).__forceReactDocumentRemount = () => { appRoot.unmount(); appRoot = hydrateRoot(document, <BrowserRouter><App /></BrowserRouter>); };',
   );
   fs.writeFileSync(
     path.join(rootPath, "src/App.tsx"),
@@ -339,8 +339,9 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
 
     // React Router/framework hydration can replace the whole document body
     // after the iframe first boots. The editor host lives outside that tree;
-    // prove a real physical click still selects after a document-level route
-    // render rather than trusting the initial bridge handshake.
+    // prove a real physical click still selects after both a route render and
+    // a document-level React unmount/hydrate remount rather than trusting the
+    // initial bridge handshake.
     const reloadedFrame = await page
       .locator("iframe[data-design-preview-iframe]")
       .first()
@@ -354,10 +355,30 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     await expect(reloaded.locator("[data-route-label]")).toHaveText(
       "Next route",
     );
+    await reloadedFrame.evaluate(() => {
+      const remount = (
+        window as typeof window & {
+          __forceReactDocumentRemount?: () => void;
+        }
+      ).__forceReactDocumentRemount;
+      if (!remount) throw new Error("missing React document remount hook");
+      remount();
+    });
+    await expect(
+      reloaded.locator("[data-agent-native-editor-chrome-host]"),
+    ).toHaveCount(1);
+    await expect(
+      reloaded.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached();
     await reloaded.locator("body").evaluate(() => {
       document
         .querySelector("[data-agent-native-editor-chrome-host]")
         ?.remove();
+    });
+    await expect(
+      reloaded.locator("[data-agent-native-editor-chrome-host]"),
+    ).toHaveCount(1);
+    await reloaded.locator("body").evaluate(() => {
       const bridgeScript = document.querySelector(
         "script[data-agent-native-editor-chrome-bridge]",
       );
@@ -394,6 +415,45 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
           ).length,
       ),
     ).toBe(1);
+
+    // A framework hydration recovery can replace the documentElement itself,
+    // which disconnects observers attached only to the previous <html> node.
+    await reloaded.locator("body").evaluate(() => {
+      window.setTimeout(() => {
+        const currentDocumentElement = document.documentElement;
+        const replacement = currentDocumentElement.cloneNode(
+          true,
+        ) as HTMLElement;
+        replacement
+          .querySelector("[data-agent-native-editor-chrome-host]")
+          ?.remove();
+        currentDocumentElement.replaceWith(replacement);
+      }, 0);
+    });
+    await expect(
+      reloaded.locator("[data-agent-native-editor-chrome-host]"),
+    ).toHaveCount(1);
+    await expect(
+      reloaded.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached();
+    await page.evaluate(() => ((window as any).__bridge = []));
+    const rootReplacementTarget = reloaded.locator(
+      '[data-agent-native-node-id="v2"]',
+    );
+    const rootReplacementBox = await rootReplacementTarget.boundingBox();
+    if (!rootReplacementBox)
+      throw new Error("missing document-root replacement geometry");
+    await page.keyboard.down(healedModifier);
+    try {
+      await page.mouse.click(
+        rootReplacementBox.x + rootReplacementBox.width / 2,
+        rootReplacementBox.y + rootReplacementBox.height / 2,
+      );
+    } finally {
+      await page.keyboard.up(healedModifier);
+    }
+    const rootReplacementSelection = await waitForSelection("v2");
+    expect(rootReplacementSelection.payload.sourceId).toBe("v2");
     expect(componentDetailsRequests).toEqual([]);
   } finally {
     await bridge?.server.close();

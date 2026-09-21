@@ -82,12 +82,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return;
   }
 
+  var readOnly = __READ_ONLY__;
   var editorChromeNodes: HTMLElement[] = [];
   var editorChromeHost: HTMLElement | null = null;
   var editorChromeHostObserver: MutationObserver | null = null;
   var editorChromeDocumentObserver: MutationObserver | null = null;
+  var editorChromeRootObserver: MutationObserver | null = null;
   var repairingEditorChromeHost = false;
-  var readOnly = __READ_ONLY__;
 
   function sendEditorChromeReady(): void {
     (window.parent as Window).postMessage(
@@ -171,6 +172,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     editorChromeDocumentObserver.observe(document.documentElement, {
       childList: true,
     });
+    if (!editorChromeRootObserver) {
+      editorChromeRootObserver = new MutationObserver(function () {
+        observeEditorChromeHost();
+        repairEditorChromeHost();
+      });
+      editorChromeRootObserver.observe(document, { childList: true });
+    }
   }
 
   ensureEditorChromeHost();
