@@ -319,6 +319,19 @@ const SECTION_ELEMENT_ID = "__design_layers_elements__";
 let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
 let activeDropIntent: LayersPanelMoveIntent | null = null;
 
+export function canUseActiveDragStateForDrop(
+  dragState: { sourceId: string; draggedIds: string[] } | null,
+  dropIntent: LayersPanelMoveIntent | null,
+  targetId: string,
+): boolean {
+  return Boolean(
+    dragState &&
+    dragState.sourceId !== targetId &&
+    dragState.draggedIds.includes(dragState.sourceId) &&
+    dropIntent?.targetId === targetId,
+  );
+}
+
 // Module-level continuous-toggle-drag state for the eye/lock icon
 // "click-drag across a run of rows" gesture (Figma parity, unique-paths.md
 // #13): a plain mousedown/up, not HTML5 DnD, so per-row React state can't
@@ -2296,6 +2309,12 @@ const LayerRow = memo(function LayerRow({
       }
     } catch {
       // Ignore malformed drag payloads and fall back to the primary id.
+    }
+    if (
+      !draggedIds.some(Boolean) &&
+      canUseActiveDragStateForDrop(activeDragState, activeDropIntent, node.id)
+    ) {
+      draggedIds = activeDragState!.draggedIds;
     }
     const cleanedIds = draggedIds.filter(
       (id) => id && id !== node.id && !id.startsWith("__"),
