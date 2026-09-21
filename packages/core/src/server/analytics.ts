@@ -122,10 +122,15 @@ export function getGaInlineConfigScriptBody(options?: {
     dataLayerName === "dataLayer"
       ? ""
       : `&l=${encodeURIComponent(dataLayerName)}`;
+  const gtagCall = dataLayerName === "dataLayer" ? "gtag" : "agentNativeGtag";
+  const gtagBootstrap =
+    dataLayerName === "dataLayer"
+      ? `window.gtag=window.gtag||function(){${dataLayer}.push(arguments);};`
+      : `var agentNativeGtag=function(){${dataLayer}.push(arguments);};window.__AGENT_NATIVE_GA_GTAG__=agentNativeGtag;`;
   const config =
     options?.sendPageView === false
-      ? `gtag('config',${JSON.stringify(id)},{send_page_view:false});`
-      : `gtag('config',${JSON.stringify(id)});`;
+      ? `${gtagCall}('config',${JSON.stringify(id)},{send_page_view:false});`
+      : `${gtagCall}('config',${JSON.stringify(id)});`;
   const src = JSON.stringify(
     `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}${dataLayerQuery}`,
   );
@@ -133,12 +138,12 @@ export function getGaInlineConfigScriptBody(options?: {
   return (
     `if(${guard}){` +
     `${dataLayer}=${dataLayer}||[];` +
-    `window.gtag=window.gtag||function(){${dataLayer}.push(arguments);};` +
-    `gtag('js',new Date());` +
+    gtagBootstrap +
+    `${gtagCall}('js',new Date());` +
     config +
     `if(typeof sessionStorage!=='undefined'&&sessionStorage.getItem('__an_signin')){` +
     `sessionStorage.removeItem('__an_signin');` +
-    `gtag('event','sign_in');` +
+    `${gtagCall}('event','sign_in');` +
     `}` +
     `var agentNativeGtagScript=document.createElement('script');` +
     `agentNativeGtagScript.async=true;` +

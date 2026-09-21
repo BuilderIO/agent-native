@@ -23,7 +23,7 @@ describe("wrapDocumentResponse", () => {
       "gtag/js?id=G-UNITTEST123&l=__AGENT_NATIVE_GA_DATA_LAYER__",
     );
     expect(html).toContain(
-      "gtag('config',\"G-UNITTEST123\",{send_page_view:false});",
+      "agentNativeGtag('config',\"G-UNITTEST123\",{send_page_view:false});",
     );
     expect(response.headers.has("content-length")).toBe(false);
   });

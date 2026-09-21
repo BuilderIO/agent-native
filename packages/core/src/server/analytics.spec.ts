@@ -158,8 +158,9 @@ describe("wrapWithAnalytics", () => {
     expect(html).toContain(
       "https://www.googletagmanager.com/gtag/js?id=G-IGNORED123&l=__AGENT_NATIVE_GA_DATA_LAYER__",
     );
+    expect(html).toContain("window.__AGENT_NATIVE_GA_GTAG__=agentNativeGtag;");
     expect(html).toContain(
-      "gtag('config',\"G-IGNORED123\",{send_page_view:false});",
+      "agentNativeGtag('config',\"G-IGNORED123\",{send_page_view:false});",
     );
     expect(html).not.toContain("gtag('config',\"G-IGNORED123\")");
     expect(html.indexOf("</head>")).toBeLessThan(html.indexOf("<body>"));
