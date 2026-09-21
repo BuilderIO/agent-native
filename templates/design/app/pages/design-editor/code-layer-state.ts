@@ -21,8 +21,11 @@ export {
   replaceDataScreenReferences,
 } from "@shared/screen-rename";
 
+import { GOOGLE_FONT_QUERIES } from "@agent-native/toolkit/design-tweaks";
+
 import type { LayersPanelNode } from "@/components/design/LayersPanel";
 import type { ElementInfo } from "@/components/design/types";
+import type { UploadedFont } from "@/lib/font-upload";
 
 import { queryUniqueSelector } from "./dom-utils";
 
@@ -1272,16 +1275,9 @@ export function codeLayerPatchMessage(
     : message;
 }
 
-// Known Google Font families offered by the inspector's font-family picker.
 // Lato's weight 500 comes from the pinned OFL face below because the CSS2 API
 // currently serves only its 400 and 700 files.
-export const KNOWN_GOOGLE_FONTS: Record<string, string> = {
-  Inter: "Inter:wght@400;500;600;700",
-  Poppins: "Poppins:wght@400;500;600;700",
-  "Playfair Display": "Playfair+Display:wght@400;500;600;700",
-  "JetBrains Mono": "JetBrains+Mono:wght@400;500;600;700",
-  Lato: "Lato:wght@400;700",
-};
+export const KNOWN_GOOGLE_FONTS = GOOGLE_FONT_QUERIES;
 
 const LATO_MEDIUM_FACE_URL =
   "https://raw.githubusercontent.com/google/fonts/809e4d8b8d7e9364a914909bb777679606c178b8/ofl/lato/Lato-Medium.ttf";
@@ -1346,7 +1342,18 @@ export function ensureGoogleFontLinkInHtml(
     );
     const alreadyLoaded = existingLinks.some((link) => {
       const href = link.getAttribute("href") ?? "";
-      return href.includes(encodeURIComponent(family)) || href.includes(family);
+      let normalizedHref = href;
+      try {
+        normalizedHref = decodeURIComponent(href);
+      } catch {
+        // coercion-ok: malformed legacy URL stays raw for conservative matching.
+        // Keep the raw URL when a legacy link contains malformed escaping.
+      }
+      normalizedHref = normalizedHref.replace(/\+/g, " ").toLowerCase();
+      return (
+        href.includes(`family=${fontQuery}`) ||
+        normalizedHref.includes(`family=${family.toLowerCase()}:`)
+      );
     });
     let changed = ensurePinnedFontFace(doc, family);
     if (!alreadyLoaded) {
@@ -1386,6 +1393,51 @@ export function ensureGoogleFontLinkInHtml(
   } catch {
     return content;
   }
+}
+
+function escapeCssString(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/[\r\n]/g, "");
+}
+
+/** Persist an uploaded face next to the screen HTML that uses it. */
+export function ensureUploadedFontFaceInHtml(
+  content: string,
+  font: UploadedFont,
+): string {
+  if (typeof window === "undefined") return content;
+  if (!font.url || !font.family) return content;
+  const doc = new DOMParser().parseFromString(content, "text/html");
+  const head = doc.head;
+  if (!head) return content;
+  const alreadyLoaded = Array.from(
+    head.querySelectorAll('style[data-agent-native-uploaded-font="true"]'),
+  ).some(
+    (style) =>
+      style.getAttribute("data-font-family") === font.family &&
+      style.getAttribute("data-font-url") === font.url &&
+      style.getAttribute("data-font-weight") === font.weight &&
+      style.getAttribute("data-font-style") === font.style,
+  );
+  if (alreadyLoaded) return content;
+
+  const style = doc.createElement("style");
+  style.setAttribute("data-agent-native-uploaded-font", "true");
+  style.setAttribute("data-font-family", font.family);
+  style.setAttribute("data-font-url", font.url);
+  style.setAttribute("data-font-weight", font.weight);
+  style.setAttribute("data-font-style", font.style);
+  style.textContent = `@font-face {
+  font-family: "${escapeCssString(font.family)}";
+  font-style: ${font.style};
+  font-weight: ${font.weight};
+  font-display: swap;
+  src: url("${escapeCssString(font.url)}") format("${font.format}");
+}`;
+  head.appendChild(style);
+  return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
 }
 
 export function refreshElementInfoFromContent(
