@@ -939,9 +939,14 @@ export function authoredElementPosition(
               : (autoSlot % columnCount) + 1;
             const rowSpan = gridSpan(siblingStyle, "row");
             const columnSpan = gridSpan(siblingStyle, "column");
+            const rowFitsExplicitTracks =
+              row > rowCount ? true : row + rowSpan - 1 <= rowCount;
+            const columnFitsExplicitTracks =
+              column > columnCount
+                ? true
+                : column + columnSpan - 1 <= columnCount;
             const fitsExplicitTracks =
-              (row > rowCount || row + rowSpan - 1 <= rowCount) &&
-              (column > columnCount || column + columnSpan - 1 <= columnCount);
+              rowFitsExplicitTracks && columnFitsExplicitTracks;
             const fits =
               fitsExplicitTracks &&
               Array.from({ length: rowSpan }).every((_, rowOffset) =>
