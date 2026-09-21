@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-18
+
+### Fixed
+
+- Calendar now preserves grouped guest counts and keeps the event detail panel keyboard accessible.
+
 ## 2026-09-16
 
 ### Fixed
