@@ -83,6 +83,24 @@ export interface NudgeSelectionArgs {
   viewModeRef: RefObject<"single" | "overview">;
 }
 
+export function resolveNudgeTarget(
+  selectedElement: ElementInfo | null,
+  selectedLayerTarget: SelectedLayerTarget | undefined,
+  renderedElementInfoByLayerKey: ReadonlyMap<string, ElementInfo>,
+): ElementInfo | null {
+  return (
+    (selectedLayerTarget
+      ? renderedElementInfoByLayerKey.get(
+          `${selectedLayerTarget.fileId}:${selectedLayerTarget.layerId}`,
+        )
+      : undefined) ??
+    (selectedElement?.selector
+      ? selectedElement
+      : selectedLayerTarget?.elementInfo) ??
+    null
+  );
+}
+
 export function runNudgeSelection(
   {
     applyLinkedComponentEdit,
@@ -173,17 +191,11 @@ export function runNudgeSelection(
   // Selecting in the layers tree fills selectedLayerTargets before the
   // bridge round-trip fills selectedElement, so keying off the latter
   // alone silently drops the first nudge after every tree selection.
-  const selectedLayerTarget = selectedLayerTargetsRef.current[0];
-  const renderedTarget = selectedLayerTarget
-    ? renderedElementInfoByLayerKeyRef.current.get(
-        `${selectedLayerTarget.fileId}:${selectedLayerTarget.layerId}`,
-      )
-    : undefined;
-  const nudgeTarget =
-    renderedTarget ??
-    (selectedElement?.selector
-      ? selectedElement
-      : selectedLayerTarget?.elementInfo);
+  const nudgeTarget = resolveNudgeTarget(
+    selectedElement,
+    selectedLayerTargetsRef.current[0],
+    renderedElementInfoByLayerKeyRef.current,
+  );
   if (!nudgeTarget?.selector) return;
 
   if (isRunningAppSource && canEditLiveScreen) {
