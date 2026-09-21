@@ -178,6 +178,21 @@ describe("primitive drop target authored layout fallback", () => {
     ).toEqual(["grid", "grid-child"]);
   });
 
+  it("sizes an auto grid child from its authored track", () => {
+    const screen = {
+      id: "grid-auto-size-screen",
+      filename: "grid-auto-size-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:grid;grid-template-columns:100px 200px;grid-template-rows:100px">
+          <div data-agent-native-node-id="child" data-an-primitive="rectangle" style="grid-column:2;grid-row:1;width:auto;height:auto"></div>
+        </div>
+      </body></html>`,
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "child"),
+    ).toMatchObject({ localWidth: 200, localHeight: 100 });
+  });
+
   it("uses flex-basis for fixed items when estimating a Fill sibling", () => {
     const screen = {
       id: "basis-screen",

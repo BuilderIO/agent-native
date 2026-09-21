@@ -553,6 +553,37 @@ function parentContentSize(
   return style.boxSizing === "border-box" ? Math.max(0, size - padding) : size;
 }
 
+function authoredGridTrackSize(
+  element: Element,
+  parent: Element,
+  axis: AuthoredSizeAxis,
+  reference: number,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  const parentStyle = (parent as HTMLElement).style;
+  const template =
+    axis === "x"
+      ? parentStyle.gridTemplateColumns
+      : parentStyle.gridTemplateRows;
+  const tracks = gridTracks(template);
+  const line = gridStartIndex(
+    (element as HTMLElement).style,
+    axis === "x" ? "column" : "row",
+    template,
+  );
+  if (!tracks.length || line === undefined || line < 1) return reference;
+  return (
+    gridTrackPixels(
+      tracks,
+      parentContentSize(parent, axis, cache, visiting),
+      cssPixelNumber(
+        parentStyle[axis === "x" ? "columnGap" : "rowGap"] || parentStyle.gap,
+      ),
+    )[line - 1] ?? reference
+  );
+}
+
 function flexItemBaseSize(
   element: Element,
   axis: AuthoredSizeAxis,
@@ -713,7 +744,16 @@ function authoredElementSize(
           );
         } else if (mainAxis === axis) {
           size = flexItemBaseSize(element, axis, reference, cache, visiting);
-        } else if (mainAxis !== axis || parentIsGrid) {
+        } else if (parentIsGrid) {
+          size = authoredGridTrackSize(
+            element,
+            parent,
+            axis,
+            reference,
+            cache,
+            visiting,
+          );
+        } else if (mainAxis !== axis) {
           const alignSelf =
             style.alignSelf || parentStyle.alignItems || "stretch";
           if (alignSelf === "stretch" || parentIsGrid) size = reference;
