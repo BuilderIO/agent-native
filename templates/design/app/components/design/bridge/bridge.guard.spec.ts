@@ -538,6 +538,24 @@ it(
   },
 );
 
+it("keeps cancel cleanup compatible with held modifiers", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const resetStart = bridge.indexOf(
+    "function resetBridgeDragModifierStateOnCancel",
+  );
+  const resetEnd = bridge.indexOf(
+    "var activeCrossScreenStyleSnapshot",
+    resetStart,
+  );
+  const cancel = bridge.slice(resetStart, resetEnd);
+  expect(cancel).toContain("bridgeSpaceKeyPressed = false");
+  expect(cancel).not.toContain("bridgeIgnoreAutoLayoutKeyPressed = false");
+  expect(bridge).toContain("crossScreenControlPressedRef.current = false");
+});
+
 // ── test 3: generated output is fresh ──────────────────────────────────────
 
 describe("generated bridge modules", () => {
