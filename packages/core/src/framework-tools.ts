@@ -331,6 +331,10 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-audit-events": "audit",
   "get-audit-event": "audit",
   "export-audit-events": "audit",
+  // Observability promotion reuses `labs` until a dedicated group exists.
+  // A new FRAMEWORK_TOOL_GROUPS member is filtered at thirteen composition
+  // sites; do not add `observability` in the same change as this action.
+  "promote-trace-eval": "labs",
 
   "create-resource-version": "history",
   "list-resource-versions": "history",

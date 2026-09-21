@@ -23,6 +23,7 @@ import {
   useObservabilityOverview,
   useTraces,
   useTraceDetail,
+  usePromoteTraceEval,
   useFeedbackList,
   useFeedbackStats,
   useSatisfaction,
@@ -312,16 +313,43 @@ function TraceDetailView({
 }) {
   const t = useT();
   const { data, isLoading } = useTraceDetail(runId);
+  const promote = usePromoteTraceEval();
 
   return (
     <div>
-      <button
-        onClick={onBack}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
-      >
-        <IconArrowLeft size={14} />
-        {t("observability.backToList")}
-      </button>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <IconArrowLeft size={14} />
+          {t("observability.backToList")}
+        </button>
+        <button
+          type="button"
+          disabled={promote.isPending || !data}
+          onClick={() => promote.mutate({ runId })}
+          className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+        >
+          {promote.isPending
+            ? t("observability.promotingToEval")
+            : t("observability.promoteToEval")}
+        </button>
+      </div>
+
+      {promote.isSuccess && promote.data && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {t("observability.promotedEval", { id: promote.data.dataset.id })}{" "}
+          {t("observability.promotedEvalHint", { runId })}
+        </p>
+      )}
+      {promote.isError && (
+        <p className="mb-3 text-xs text-destructive">
+          {promote.error instanceof Error
+            ? promote.error.message
+            : t("observability.promoteEvalFailed")}
+        </p>
+      )}
 
       {isLoading && <LoadingState />}
 

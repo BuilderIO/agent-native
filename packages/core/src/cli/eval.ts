@@ -1,5 +1,6 @@
 /**
  * `agent-native eval [pattern] [--json] [--threshold N]`
+ * `agent-native eval promote <runId> [--write path] [--json] [--must-contain text]`
  *
  * Discover the app's `*.eval.ts` / `evals/*.ts` files, actually run the agent
  * for each eval input, score the output with the eval's scorers, print a
@@ -8,26 +9,154 @@
  *
  *   - run: agent-native eval                 (block deploy on regressions)
  *   - or:  agent-native eval --json          (machine-readable for CI)
+ *   - or:  agent-native eval promote <runId> --write evals/from-trace.eval.ts
  *
  * The runner resolves a provider-agnostic engine/model from the existing
  * registry — no model is hardcoded — so the same suite runs against whatever
  * engine the app is configured for.
  */
 
+import fs from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
 
-/** Parse `[pattern] [--json] [--threshold N]` from the eval argv. */
-function parseEvalArgs(argv: string[]): {
+export type EvalRunCliArgs = {
+  command: "run";
   pattern?: string;
   json: boolean;
   threshold?: number;
-} {
+};
+
+export type EvalPromoteCliArgs = {
+  command: "promote";
+  runId: string;
+  write?: string;
+  json: boolean;
+  mustContain?: string;
+  datasetName?: string;
+};
+
+export type ParsedEvalArgs = EvalRunCliArgs | EvalPromoteCliArgs;
+
+function takeValue(
+  argv: string[],
+  i: number,
+  flag: string,
+): { value: string; next: number } | null {
+  const arg = argv[i];
+  if (arg === flag && argv[i + 1] !== undefined) {
+    return { value: argv[i + 1]!, next: i + 1 };
+  }
+  if (arg.startsWith(`${flag}=`)) {
+    return { value: arg.slice(`${flag}=`.length), next: i };
+  }
+  return null;
+}
+
+function printHelp(): void {
+  console.log(`agent-native eval — run agent evals as a CI deploy gate
+
+Usage:
+  agent-native eval [pattern] [--json] [--threshold N]
+  agent-native eval promote <runId> [--write path] [--json] [--must-contain text]
+
+Discovers **/*.eval.ts and evals/*.ts under the current app, runs the agent
+for each eval input, scores the output with the eval's scorers, and exits
+non-zero if any eval scores below its threshold (so it gates CI/deploys).
+
+promote maps a completed production run into a defineEval case, persists an
+EvalDataset row, and optionally writes a *.eval.ts the CI gate already
+discovers. The hosted action never writes files.
+
+Arguments:
+  pattern            Only run eval files whose path contains this substring.
+  runId              Completed observability run id to promote.
+
+Options:
+  --json             Emit a machine-readable JSON report (for CI).
+  --threshold N      Override every eval's pass threshold (0..1).
+  --write path       Write a loadable *.eval.ts for the promoted case.
+  --must-contain txt Optional contains() needle for the promoted case.
+  --dataset-name n   Optional EvalDataset name (defaults to from-trace:<runId>).
+  -h, --help         Show this help.
+
+Authoring (evals/example.eval.ts):
+  import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
+  export default defineEval({
+    name: "answers the FAQ",
+    input: { prompt: "What is your return policy?" },
+    threshold: 0.7,
+    scorers: [contains("30 days"), llmJudge({ criteria: "accuracy" })],
+  });`);
+}
+
+/** Parse `[pattern] [--json] [--threshold N]` or `promote <runId> ...`. */
+export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
+  if (argv[0] === "promote") {
+    let runId: string | undefined;
+    let write: string | undefined;
+    let json = false;
+    let mustContain: string | undefined;
+    let datasetName: string | undefined;
+
+    for (let i = 1; i < argv.length; i += 1) {
+      const arg = argv[i]!;
+      if (arg === "--json") {
+        json = true;
+        continue;
+      }
+      if (arg === "--help" || arg === "-h") {
+        printHelp();
+        process.exit(0);
+      }
+      const writeVal = takeValue(argv, i, "--write");
+      if (writeVal) {
+        write = writeVal.value;
+        i = writeVal.next;
+        continue;
+      }
+      const containVal = takeValue(argv, i, "--must-contain");
+      if (containVal) {
+        mustContain = containVal.value;
+        i = containVal.next;
+        continue;
+      }
+      const datasetVal = takeValue(argv, i, "--dataset-name");
+      if (datasetVal) {
+        datasetName = datasetVal.value;
+        i = datasetVal.next;
+        continue;
+      }
+      if (!arg.startsWith("-") && runId === undefined) {
+        runId = arg;
+      }
+    }
+
+    if (!runId) {
+      console.error("eval promote: <runId> is required");
+      process.exit(2);
+    }
+    if (write !== undefined && write.length === 0) {
+      console.error("eval promote: --write requires a path");
+      process.exit(2);
+    }
+
+    return {
+      command: "promote",
+      runId,
+      json,
+      ...(write ? { write } : {}),
+      ...(mustContain ? { mustContain } : {}),
+      ...(datasetName ? { datasetName } : {}),
+    };
+  }
+
   let pattern: string | undefined;
   let json = false;
   let threshold: number | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+    const arg = argv[i]!;
     if (arg === "--json") {
       json = true;
     } else if (arg === "--threshold" && argv[i + 1] !== undefined) {
@@ -50,39 +179,69 @@ function parseEvalArgs(argv: string[]): {
     process.exit(2);
   }
 
-  return { pattern, json, threshold };
+  return { command: "run", pattern, json, threshold };
 }
 
-function printHelp(): void {
-  console.log(`agent-native eval — run agent evals as a CI deploy gate
+async function runPromote(args: EvalPromoteCliArgs): Promise<void> {
+  const { promoteTraceEvalFromStore } =
+    await import("../observability/actions/promote-trace-eval.js");
+  const { generateEvalModuleSource } = await import("../eval/from-trace.js");
 
-Usage:
-  agent-native eval [pattern] [--json] [--threshold N]
+  let result: Awaited<ReturnType<typeof promoteTraceEvalFromStore>>;
+  try {
+    result = await promoteTraceEvalFromStore({
+      runId: args.runId,
+      mustContain: args.mustContain,
+      datasetName: args.datasetName,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (args.json) {
+      console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+    } else {
+      console.error(`\n  eval promote failed: ${message}\n`);
+    }
+    process.exit(1);
+  }
 
-Discovers **/*.eval.ts and evals/*.ts under the current app, runs the agent
-for each eval input, scores the output with the eval's scorers, and exits
-non-zero if any eval scores below its threshold (so it gates CI/deploys).
+  if (args.write) {
+    const target = path.resolve(process.cwd(), args.write);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, generateEvalModuleSource(result.eval), "utf8");
+  }
 
-Arguments:
-  pattern            Only run eval files whose path contains this substring.
-
-Options:
-  --json             Emit a machine-readable JSON report (for CI).
-  --threshold N      Override every eval's pass threshold (0..1).
-  -h, --help         Show this help.
-
-Authoring (evals/example.eval.ts):
-  import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
-  export default defineEval({
-    name: "answers the FAQ",
-    input: { prompt: "What is your return policy?" },
-    threshold: 0.7,
-    scorers: [contains("30 days"), llmJudge({ criteria: "accuracy" })],
-  });`);
+  if (args.json) {
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          sourceRunId: result.sourceRunId,
+          dataset: result.dataset,
+          eval: result.eval,
+          ...(args.write ? { written: args.write } : {}),
+        },
+        null,
+        2,
+      ),
+    );
+  } else {
+    console.log(
+      `\n  Promoted ${result.sourceRunId} → dataset ${result.dataset.id}` +
+        (args.write ? `\n  Wrote ${args.write}` : "") +
+        `\n  agent-native eval promote ${result.sourceRunId} --write evals/from-trace.eval.ts\n`,
+    );
+  }
+  process.exit(0);
 }
 
 export async function runEval(argv: string[]): Promise<void> {
-  const { pattern, json, threshold } = parseEvalArgs(argv);
+  const parsed = parseEvalArgs(argv);
+  if (parsed.command === "promote") {
+    await runPromote(parsed);
+    return;
+  }
+
+  const { pattern, json, threshold } = parsed;
 
   // Lazy import: the runner pulls in server-only deps (engine registry, action
   // discovery) we don't want to load for `--help`.

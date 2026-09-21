@@ -7,6 +7,7 @@
  *   GET    /traces?since=N&limit=N     — list trace summaries
  *   GET    /traces/:runId              — get trace detail (spans + summary)
  *   GET    /traces/:runId/evals        — get evals for a run
+ *   POST   /traces/:runId/promote      — promote a completed run into a CI eval
  *   POST   /feedback                   — submit feedback
  *   GET    /feedback?since=N&limit=N&feedbackType=text — list feedback entries
  *   GET    /feedback/stats?since=N     — feedback aggregation stats
@@ -29,10 +30,12 @@ import {
   type H3Event,
 } from "h3";
 
+import { isActionContractError } from "../action.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getRequestContext } from "../server/request-context.js";
 import { track } from "../tracking/registry.js";
+import { promoteTraceEvalFromStore } from "./actions/promote-trace-eval.js";
 import { emitAiFeedbackSurveyEvent } from "./posthog-ai.js";
 import {
   getObservabilityOverview,
@@ -157,6 +160,49 @@ export function createObservabilityHandler() {
       parts[2] === "evals"
     ) {
       return getEvalsForRun(decodeURIComponent(parts[1]), { userId: owner });
+    }
+
+    // POST /traces/:runId/promote — turn a completed run into a CI eval case.
+    // Same owner scope as GET /traces/:runId: a guessed runId from another
+    // user is not_found, never an empty passing fixture.
+    if (
+      method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "traces" &&
+      parts[2] === "promote"
+    ) {
+      const runId = decodeURIComponent(parts[1]);
+      let body: { mustContain?: unknown; datasetName?: unknown } = {};
+      try {
+        const raw = await readBody(event);
+        if (raw && typeof raw === "object") {
+          body = raw as { mustContain?: unknown; datasetName?: unknown };
+        }
+      } catch {
+        body = {};
+      }
+      try {
+        return await promoteTraceEvalFromStore(
+          {
+            runId,
+            mustContain:
+              typeof body.mustContain === "string"
+                ? body.mustContain
+                : undefined,
+            datasetName:
+              typeof body.datasetName === "string"
+                ? body.datasetName
+                : undefined,
+          },
+          { userId: owner },
+        );
+      } catch (err) {
+        if (isActionContractError(err)) {
+          setResponseStatus(event, err.statusCode);
+          return { error: err.errorCode, message: err.message };
+        }
+        throw err;
+      }
     }
 
     // GET /traces/:runId — trace detail (summary + spans). Looking up by

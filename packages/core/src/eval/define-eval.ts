@@ -51,5 +51,6 @@ export function defineEval(spec: Eval): Eval {
       `defineEval("${spec.name}"): \`threshold\` must be in [0, 1]`,
     );
   }
+  // `source` is provenance only — threshold math never reads it.
   return spec;
 }

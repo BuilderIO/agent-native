@@ -7,6 +7,7 @@ const mockGetTraceSummary = vi.hoisted(() => vi.fn());
 const mockInsertFeedback = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockPromoteTraceEvalFromStore = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -40,6 +41,11 @@ vi.mock("../server/h3-helpers.js", () => ({
 
 vi.mock("../tracking/registry.js", () => ({
   track: (...args: unknown[]) => mockTrack(...args),
+}));
+
+vi.mock("./actions/promote-trace-eval.js", () => ({
+  promoteTraceEvalFromStore: (...args: unknown[]) =>
+    mockPromoteTraceEvalFromStore(...args),
 }));
 
 vi.mock("./store.js", () => ({
@@ -286,5 +292,44 @@ describe("observability routes", () => {
       feedbackType: "text",
       userId: "alice@example.com",
     });
+  });
+
+  it("promotes a completed trace through POST /traces/:runId/promote", async () => {
+    mockReadBody.mockResolvedValue({ mustContain: "30 days" });
+    mockPromoteTraceEvalFromStore.mockResolvedValue({
+      sourceRunId: "run-1",
+      dataset: { id: "ds-1", name: "from-trace:run-1" },
+      eval: { name: "from-trace:run-1", scorers: [] },
+    });
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/traces/run-1/promote", "POST");
+
+    await expect(handler(event)).resolves.toMatchObject({
+      sourceRunId: "run-1",
+      dataset: { id: "ds-1" },
+    });
+    expect(mockPromoteTraceEvalFromStore).toHaveBeenCalledWith(
+      { runId: "run-1", mustContain: "30 days", datasetName: undefined },
+      { userId: "alice@example.com" },
+    );
+  });
+
+  it("maps a typed promote failure onto the HTTP status", async () => {
+    const { ActionContractError } = await import("../action.js");
+    mockReadBody.mockResolvedValue({});
+    mockPromoteTraceEvalFromStore.mockRejectedValue(
+      new ActionContractError("Run is not completed", {
+        errorCode: "run_not_completed",
+        statusCode: 409,
+      }),
+    );
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/traces/run-1/promote", "POST");
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "run_not_completed",
+      message: "Run is not completed",
+    });
+    expect(event._status).toBe(409);
   });
 });

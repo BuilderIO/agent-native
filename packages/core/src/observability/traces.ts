@@ -2,6 +2,7 @@ import type {
   AgentLoopOutcome,
   AgentLoopUsage,
 } from "../agent/production-agent.js";
+import { isToolDoneFailure } from "../agent/tool-done-error.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -1080,12 +1081,7 @@ export async function instrumentAgentLoop(opts: {
         const finishedAt = Date.now();
 
         const explicitError = event.isError === true;
-        const isError =
-          typeof event.isError === "boolean"
-            ? event.isError
-            : typeof event.result === "string" &&
-              (event.result.startsWith("Error") ||
-                event.result.startsWith("Error running "));
+        const isError = isToolDoneFailure(event);
         if (isError) {
           failedTools++;
           reportedToolFailures++;

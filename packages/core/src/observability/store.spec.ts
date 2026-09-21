@@ -11,6 +11,7 @@ interface ExecCall {
 }
 
 const execCalls: ExecCall[] = [];
+const ensuredColumns = vi.hoisted(() => [] as string[]);
 
 function createCapturingDb() {
   return {
@@ -33,7 +34,11 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
-  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureColumnExists: vi.fn(
+    async (table: string, column: string, sql: string) => {
+      ensuredColumns.push(`${table}.${column}:${sql}`);
+    },
+  ),
   ensureIndexExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
@@ -53,6 +58,8 @@ const {
   insertTraceSpan,
   insertEvalResult,
   insertFeedback,
+  insertEvalDataset,
+  getEvalDatasetByName,
   upsertTraceSummary,
   upsertSatisfactionScore,
 } = await import("./store.js");
@@ -144,6 +151,21 @@ describe("observability store: per-user isolation", () => {
       expect(call.args).toEqual(["run-x", "alice"]);
     });
 
+    it("getEvalDatasetByName scopes by user_id (prevents IDOR by name)", async () => {
+      await getEvalDatasetByName("from-trace:run-x", { userId: "alice" });
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \? AND user_id = \?/);
+      expect(call.args).toEqual(["from-trace:run-x", "alice"]);
+    });
+
+    it("getEvalDatasetByName omits user_id filter when userId is undefined", async () => {
+      await getEvalDatasetByName("from-trace:run-x");
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \?/);
+      expect(call.sql).not.toMatch(/user_id/);
+      expect(call.args).toEqual(["from-trace:run-x"]);
+    });
+
     it("getEvalStats applies user_id to BOTH sub-queries", async () => {
       await getEvalStats(3000, { userId: "alice" });
       // getEvalStats fires two SELECTs (totals + per-criteria); both must
@@ -232,6 +254,24 @@ describe("observability store: per-user isolation", () => {
       expect(call!.args).toContain("alice");
     });
 
+    it("insertEvalDataset persists user_id", async () => {
+      await insertEvalDataset({
+        id: "ds1",
+        name: "from-trace:run-1",
+        description: "Promoted from production run run-1",
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      const call = execCalls.find((c) =>
+        /INSERT INTO agent_eval_datasets/.test(c.sql),
+      );
+      expect(call).toBeDefined();
+      expect(call!.sql).toMatch(/\buser_id\b/);
+      expect(call!.args).toContain("alice");
+    });
+
     it("insertEvalResult persists user_id", async () => {
       await insertEvalResult({
         id: "e1",
@@ -269,6 +309,21 @@ describe("observability store: per-user isolation", () => {
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
       expect(call!.args).toContain("alice");
+    });
+
+    it("adds user_id to an existing agent_eval_datasets table before insert", async () => {
+      await insertEvalDataset({
+        id: "ds-migrate",
+        name: "from-trace:run-migrate",
+        description: "",
+        entries: [],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.user_id:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS user_id TEXT",
+      );
     });
 
     it("insertFeedback persists user_id and dedupes idempotency keys", async () => {

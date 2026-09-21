@@ -19,7 +19,7 @@ Ces trois pages sont faciles à confondre. Choisissez en fonction de la question
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                  | "L'agent fait-il ce qu'il faut sur cette entrée fixe ?"                    | Actif, déterministe, une porte CI/déploiement         | Qualité         |
 | **[Observational Memory](/docs/observational-memory)**         | "Est-ce que ce long fil reste bon marché et à l'intérieur de la fenêtre ?" | Compactage en arrière-plan sur les threads longs      | Coût / contexte |
 
-L'observabilité et CI Eval Gate obtiennent tous deux une _qualité_ mais à partir d'extrémités opposées : notation passive post-hoc du trafic réel par rapport aux contrôles actifs de réussite/d'échec sur les entrées fixes. La mémoire observationnelle n'est pas liée à la qualité ; il s'agit du coût des jetons et de la pression de la fenêtre contextuelle.
+L'observabilité et CI Eval Gate obtiennent tous deux une _qualité_ mais à partir d'extrémités opposées : notation passive post-hoc du trafic réel par rapport aux contrôles actifs de réussite/d'échec sur les entrées fixes. La mémoire observationnelle n'est pas liée à la qualité ; il s'agit du coût des jetons et de la pression de la fenêtre contextuelle. Promouvez une trace de production terminée en cas `*.eval.ts` (tableau de bord **Promote to eval**, action `promote-trace-eval`, ou `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). Voir [Depuis une trace de production](/docs/evals#from-trace).
 
 ## Ce qui est capturé automatiquement {#captured}
 
@@ -293,6 +293,7 @@ Tous montés automatiquement sur `/_agent-native/observability/` :
 | GET     | `/traces`                  | Liste des résumés de trace              |
 | GET     | `/traces/:runId`           | Détails de la trace (résumé + étendues) |
 | GET     | `/traces/:runId/evals`     | Évaluations pour une exécution          |
+| POST    | `/traces/:runId/promote`   | Promouvoir une exécution terminée en eval CI |
 | POST    | `/feedback`                | Envoyer des commentaires                |
 | GET     | `/feedback`                | Répertorier les commentaires            |
 | GET     | `/feedback/stats`          | Agrégation de commentaires              |

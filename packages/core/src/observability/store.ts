@@ -43,6 +43,7 @@ const USER_SCOPED_TABLES = [
   "agent_satisfaction_scores",
   "agent_evals",
   "agent_feedback",
+  "agent_eval_datasets",
 ] as const;
 
 /**
@@ -158,7 +159,8 @@ export async function ensureObservabilityTables(): Promise<void> {
           description TEXT NOT NULL DEFAULT '',
           entries TEXT NOT NULL DEFAULT '[]',
           created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
+          updated_at BIGINT NOT NULL,
+          user_id TEXT
         )
       `;
 
@@ -764,8 +766,8 @@ export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
   const client = getDbExec();
   await client.execute({
     sql: `INSERT INTO agent_eval_datasets
-      (id, name, description, entries, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)`,
+      (id, name, description, entries, created_at, updated_at, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     args: [
       dataset.id,
       dataset.name,
@@ -773,6 +775,7 @@ export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
       JSON.stringify(dataset.entries),
       dataset.createdAt,
       dataset.updatedAt,
+      dataset.userId ?? null,
     ],
   });
 }
@@ -792,6 +795,21 @@ export async function getEvalDataset(id: string): Promise<EvalDataset | null> {
   const { rows } = await client.execute({
     sql: `SELECT * FROM agent_eval_datasets WHERE id = ?`,
     args: [id],
+  });
+  if (rows.length === 0) return null;
+  return rowToDataset(rows[0] as any);
+}
+
+export async function getEvalDatasetByName(
+  name: string,
+  opts: { userId?: string } = {},
+): Promise<EvalDataset | null> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const { where, args } = withUserFilter("name = ?", [name], opts.userId);
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets WHERE ${where} ORDER BY updated_at DESC LIMIT 1`,
+    args,
   });
   if (rows.length === 0) return null;
   return rowToDataset(rows[0] as any);
@@ -1172,6 +1190,7 @@ function rowToDataset(row: Record<string, any>): EvalDataset {
     entries: safeJsonParse(row.entries, []),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
+    userId: row.user_id ? String(row.user_id) : null,
   };
 }
 

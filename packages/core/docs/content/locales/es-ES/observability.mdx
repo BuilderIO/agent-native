@@ -19,7 +19,7 @@ Estas tres páginas son fáciles de confundir. Elija según la pregunta que est�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                        | "¿El agente hace lo correcto en esta entrada fija?"        | Activo, determinista, una puerta de implementación/CI    | Calidad        |
 | **[Observational Memory](/docs/observational-memory)**               | "¿Este hilo largo se queda barato y dentro de la ventana?" | Compactación de fondo en hilos largos                    | Costo/contexto |
 
-La observabilidad y la puerta de evaluación de CI puntúan _calidad_ pero desde extremos opuestos: puntuación pasiva post-hoc del tráfico real frente a comprobaciones activas de aprobación/rechazo en entradas fijas. La Memoria Observacional no está relacionada con la calidad; se trata del costo simbólico y la presión de la ventana de contexto.
+La observabilidad y la puerta de evaluación de CI puntúan _calidad_ pero desde extremos opuestos: puntuación pasiva post-hoc del tráfico real frente a comprobaciones activas de aprobación/rechazo en entradas fijas. La Memoria Observacional no está relacionada con la calidad; se trata del costo simbólico y la presión de la ventana de contexto. Promocione una traza de producción completada a un caso `*.eval.ts` (panel **Promote to eval**, acción `promote-trace-eval`, o `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). Véase [Desde una traza de producción](/docs/evals#from-trace).
 
 ## Qué se captura automáticamente {#captured}
 
@@ -293,6 +293,7 @@ Todo montado automáticamente en `/_agent-native/observability/`:
 | GET    | `/traces`                  | Enumerar resúmenes de seguimiento         |
 | GET    | `/traces/:runId`           | Detalle de seguimiento (resumen + tramos) |
 | GET    | `/traces/:runId/evals`     | Evaluaciones para una ejecución           |
+| POST   | `/traces/:runId/promote`   | Promover una ejecución completada a eval CI |
 | POST   | `/feedback`                | Enviar comentarios                        |
 | GET    | `/feedback`                | Enumerar comentarios                      |
 | GET    | `/feedback/stats`          | Agregación de comentarios                 |

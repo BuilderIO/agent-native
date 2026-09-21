@@ -1226,6 +1226,8 @@ switch (command) {
     // Discover and run the app's evals (**/*.eval.ts, evals/*.ts), score the
     // agent's output, and exit non-zero if any eval falls below its threshold.
     // Doubles as a CI deploy gate. `--json` emits a machine-readable report.
+    // `eval promote <runId> --write <file>` turns a production trace into a
+    // loadable *.eval.ts; the hosted action never writes the app tree.
     import("./eval.js")
       .then((m) => m.runEval(args))
       .catch((err) => {
@@ -1372,6 +1374,10 @@ Usage:
                                 and exit non-zero if any scores below its
                                 threshold. A CI deploy gate. --json for CI,
                                 --threshold N to override all thresholds.
+                                eval promote <runId> [--write path] [--json]
+                                turns a completed production trace into a
+                                defineEval case (SQL dataset; --write emits
+                                the *.eval.ts CI already discovers).
 
 Options:
   -h, --help                    Show this help message

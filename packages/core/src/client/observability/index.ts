@@ -9,6 +9,7 @@ export {
   useObservabilityOverview,
   useTraces,
   useTraceDetail,
+  usePromoteTraceEval,
   useFeedbackList,
   useFeedbackStats,
   useSubmitFeedback,

@@ -19,7 +19,7 @@ description: "代理跟踪、评估、反馈、A/B 实验和内置仪表板 - �
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | “代理在此固定输入上执行正确的操作吗？” | 主动、确定性、CI/部署门          | 质量      |
 | **[Observational Memory](/docs/observational-memory)** | “这条长线是否便宜且位于窗户内？”       | 长线程上的后台压缩               | 成本/环境 |
 
-可观察性和 CI 评估门都对质量进行评分，但两端不同——对实际流量进行被动事后评分，与对固定输入进行主动通过/失败检查。观察记忆与质量无关；这与代币成本和上下文窗口压力有关。
+可观察性和 CI 评估门都对质量进行评分，但两端不同——对实际流量进行被动事后评分，与对固定输入进行主动通过/失败检查。观察记忆与质量无关；这与代币成本和上下文窗口压力有关。 将已完成的生产 trace 提升为 `*.eval.ts` 用例（仪表盘 **Promote to eval**、`promote-trace-eval` 或 `agent-native eval promote <runId> --write evals/from-trace.eval.ts`）。见 [从生产 Trace 提升](/docs/evals#from-trace)。
 
 ## 自动捕获的内容 {#captured}
 
@@ -291,6 +291,7 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 | GET  | `/traces`                  | 列出跟踪摘要              |
 | GET  | `/traces/:runId`           | 跟踪详细信息（摘要+跨度） |
 | GET  | `/traces/:runId/evals`     | 运行评估                  |
+| POST | `/traces/:runId/promote`   | 将已完成运行提升为 CI eval |
 | POST | `/feedback`                | 提交反馈                  |
 | GET  | `/feedback`                | 列出反馈                  |
 | GET  | `/feedback/stats`          | 反馈聚合                  |

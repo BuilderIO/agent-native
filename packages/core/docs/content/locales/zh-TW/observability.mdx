@@ -19,7 +19,7 @@ description: "代理跟蹤、評估、意見回饋、A/B 實驗和內建儀表�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | “代理在此固定輸入上執行正確的操作嗎？” | 主動、確定性、CI/部署門          | 品質      |
 | **[Observational Memory](/docs/observational-memory)** | “這條長線是否便宜且位於窗戶內？”       | 長對話串上的背景壓縮             | 成本/環境 |
 
-可觀察性和 CI 評估門都對品質進行評分，但兩端不同——對實際流量進行被動事後評分，與對固定輸入進行主動透過/失敗檢查。觀察記憶與品質無關；這與代幣成本和脈絡視窗壓力有關。
+可觀察性和 CI 評估門都對品質進行評分，但兩端不同——對實際流量進行被動事後評分，與對固定輸入進行主動透過/失敗檢查。觀察記憶與品質無關；這與代幣成本和脈絡視窗壓力有關。 將已完成的生產 trace 提升為 `*.eval.ts` 案例（儀表板 **Promote to eval**、`promote-trace-eval` 或 `agent-native eval promote <runId> --write evals/from-trace.eval.ts`）。見 [從生產 Trace 提升](/docs/evals#from-trace)。
 
 ## 自動捕獲的內容 {#captured}
 
@@ -291,6 +291,7 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 | GET  | `/traces`                  | 列出跟蹤摘要              |
 | GET  | `/traces/:runId`           | 跟蹤詳細資訊（摘要+跨度） |
 | GET  | `/traces/:runId/evals`     | 執行評估                  |
+| POST | `/traces/:runId/promote`   | 將已完成執行提升為 CI eval |
 | POST | `/feedback`                | 提交意見回饋              |
 | GET  | `/feedback`                | 列出意見回饋              |
 | GET  | `/feedback/stats`          | 意見回饋聚合              |
