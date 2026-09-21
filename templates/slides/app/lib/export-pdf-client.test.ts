@@ -270,6 +270,49 @@ describe("exportDeckAsPdf", () => {
     expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
   });
 
+  it("cleans up temporary font styles when stylesheet loading is cancelled", async () => {
+    const fontCss =
+      '@font-face { font-family: "Geist"; src: url(https://fonts.gstatic.com/geist.woff2); }';
+    const controller = new AbortController();
+    const firstLink = document.createElement("link");
+    firstLink.rel = "stylesheet";
+    firstLink.href = "https://fonts.googleapis.com/css2?family=Geist";
+    const secondLink = document.createElement("link");
+    secondLink.rel = "stylesheet";
+    secondLink.href = "https://fonts.googleapis.com/css2?family=Inter";
+    const querySelectorAll = document.querySelectorAll.bind(document);
+    vi.spyOn(document, "querySelectorAll").mockImplementation((selector) => {
+      if (selector === 'link[rel~="stylesheet"][href]') {
+        return [firstLink, secondLink] as unknown as NodeListOf<Element>;
+      }
+      return querySelectorAll(selector);
+    });
+    const fetchMock = vi.fn((href: string) => {
+      if (href.endsWith("Geist")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () => fontCss,
+        });
+      }
+      controller.abort();
+      return new Promise<never>((_, reject) => {
+        queueMicrotask(() => reject(new Error("stylesheet request aborted")));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSlide("s1");
+
+    await expect(
+      exportDeckAsPdf(
+        "Q3 review",
+        [{ id: "s1", content: "<div></div>" }],
+        undefined,
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+    expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
+  });
+
   it("still writes a text layer for a slide measured from a sidebar thumbnail", async () => {
     // Inside the scaled, contained thumbnail subtree Chrome measures every
     // Range as 0x0 while element boxes still measure. Every slide but the one

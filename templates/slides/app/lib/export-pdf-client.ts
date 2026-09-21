@@ -272,41 +272,48 @@ async function exposeGoogleFontStylesheetsForPdf(
   );
   const styles: HTMLStyleElement[] = [];
 
-  await Promise.all(
-    [...hrefs].map(async (href) => {
-      try {
-        throwIfExportAborted(signal);
-        const response = await fetch(href, {
-          credentials: "omit",
-          mode: "cors",
-          signal,
-        });
-        if (!response.ok) {
-          throw new Error(`Font stylesheet returned ${response.status}`);
-        }
-        const cssText = await response.text();
-        if (!cssText.includes("@font-face")) return;
-
-        const style = document.createElement("style");
-        style.dataset.pdfExportFontFaces = "true";
-        style.textContent = cssText;
-        document.head.appendChild(style);
-        styles.push(style);
-      } catch (error) {
-        throwIfExportAborted(signal);
-        // coercion-ok: font CSS is an enhancement; the original exporter can
-        // still complete with its existing fallback when the font CDN fails.
-        console.warn(
-          `[export-pdf] could not inline Google Font CSS for ${href}; the PDF may use fallback metrics`,
-          error,
-        );
-      }
-    }),
-  );
-
-  return () => {
+  const cleanup = () => {
     for (const style of styles) style.remove();
   };
+
+  try {
+    await Promise.all(
+      [...hrefs].map(async (href) => {
+        try {
+          throwIfExportAborted(signal);
+          const response = await fetch(href, {
+            credentials: "omit",
+            mode: "cors",
+            signal,
+          });
+          if (!response.ok) {
+            throw new Error(`Font stylesheet returned ${response.status}`);
+          }
+          const cssText = await response.text();
+          if (!cssText.includes("@font-face")) return;
+
+          const style = document.createElement("style");
+          style.dataset.pdfExportFontFaces = "true";
+          style.textContent = cssText;
+          document.head.appendChild(style);
+          styles.push(style);
+        } catch (error) {
+          throwIfExportAborted(signal);
+          // coercion-ok: font CSS is an enhancement; the original exporter can
+          // still complete with its existing fallback when the font CDN fails.
+          console.warn(
+            `[export-pdf] could not inline Google Font CSS for ${href}; the PDF may use fallback metrics`,
+            error,
+          );
+        }
+      }),
+    );
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+
+  return cleanup;
 }
 
 async function waitForExportStage(
