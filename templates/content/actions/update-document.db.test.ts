@@ -872,6 +872,10 @@ describe("update-document compare-and-swap", () => {
       targetId: documentId,
       status: "success",
     });
+    expect(await documentRow(documentId)).toMatchObject({
+      createdBy: null,
+      updatedBy: EDITOR,
+    });
     expect(JSON.stringify(result)).not.toContain(OWNER);
   });
 

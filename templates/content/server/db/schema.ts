@@ -33,6 +33,11 @@ export const documents = table("documents", {
   sourceUpdatedAt: text("source_updated_at"),
   trashedAt: text("trashed_at"),
   trashRootId: text("trash_root_id"),
+  trashedBy: text("trashed_by"),
+  trashOrigin: text("trash_origin"),
+  trashParentId: text("trash_parent_id"),
+  createdBy: text("created_by"),
+  updatedBy: text("updated_by"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -411,6 +416,93 @@ export const contentDatabaseBodyHydrationQueue = table(
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
+);
+
+export const contentTrashPurgePlans = table(
+  "content_trash_purge_plans",
+  {
+    id: text("id").primaryKey(),
+    actorEmail: text("actor_email").notNull(),
+    orgId: text("org_id"),
+    mode: text("mode").notNull(),
+    spaceId: text("space_id"),
+    filtersJson: text("filters_json").notNull().default("{}"),
+    state: text("state").notNull().default("ready"),
+    scopeTokenHash: text("scope_token_hash").notNull(),
+    eligibleCount: integer("eligible_count").notNull().default(0),
+    blockedCount: integer("blocked_count").notNull().default(0),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (plan) => [index("content_trash_purge_plans_actor_idx").on(plan.actorEmail)],
+);
+
+export const contentTrashPurgePlanItems = table(
+  "content_trash_purge_plan_items",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id").notNull(),
+    unitId: text("unit_id").notNull(),
+    rootDocumentId: text("root_document_id").notNull(),
+    documentId: text("document_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    title: text("title").notNull(),
+    spaceId: text("space_id"),
+    expectedTrashedAt: text("expected_trashed_at").notNull(),
+    expectedParentId: text("expected_parent_id"),
+    expectedScopeFingerprint: text("expected_scope_fingerprint").notNull(),
+    ancestorUnitIdsJson: text("ancestor_unit_ids_json").notNull().default("[]"),
+    survivorEffect: text("survivor_effect"),
+    eligibility: text("eligibility").notNull(),
+    blocker: text("blocker"),
+    outcome: text("outcome").notNull().default("pending"),
+    outcomeDetail: text("outcome_detail"),
+    completedAt: text("completed_at"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (item) => [
+    uniqueIndex("content_trash_purge_plan_items_plan_document_unique").on(
+      item.planId,
+      item.documentId,
+    ),
+    index("content_trash_purge_plan_items_plan_unit_idx").on(
+      item.planId,
+      item.unitId,
+    ),
+  ],
+);
+
+export const contentTrashPurgeOperations = table(
+  "content_trash_purge_operations",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    orgId: text("org_id"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: text("status").notNull().default("queued"),
+    eligibleCount: integer("eligible_count").notNull().default(0),
+    deletedCount: integer("deleted_count").notNull().default(0),
+    blockedCount: integer("blocked_count").notNull().default(0),
+    conflictedCount: integer("conflicted_count").notNull().default(0),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: text("lease_expires_at"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    completedAt: text("completed_at"),
+  },
+  (operation) => [
+    uniqueIndex("content_trash_purge_operations_actor_key_unique").on(
+      operation.actorEmail,
+      operation.idempotencyKey,
+    ),
+    uniqueIndex("content_trash_purge_operations_plan_unique").on(
+      operation.planId,
+    ),
+    index("content_trash_purge_operations_plan_idx").on(operation.planId),
+  ],
 );
 
 export const contentDatabaseSources = table("content_database_sources", {

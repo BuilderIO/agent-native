@@ -9,6 +9,10 @@ import type { CreativeContextReuseLabel } from "@agent-native/creative-context/t
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -211,6 +215,7 @@ export async function mutateDocumentBody(
 ): Promise<DocumentEditMutationResult> {
   const db = args.db ?? getDb();
   const scope = callerScope(args.ctx);
+  const actor = requireDocumentRequestActor(args.ctx);
   const base = parseDocumentRevisionToken(args.baseRevision);
   if (base === null) {
     throw new ActionContractError(
@@ -345,6 +350,7 @@ export async function mutateDocumentBody(
           .set({
             content: resolved.content,
             bodyRevision: afterRevision,
+            ...documentEditAttribution(actor),
             updatedAt: now,
           })
           .where(

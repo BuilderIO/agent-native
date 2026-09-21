@@ -22,6 +22,8 @@ const DOCUMENT_MUTATIONS = new Set([
   "delete-document",
   "delete-document-property",
   "delete-content-database",
+  "execute-content-trash-purge",
+  "permanently-delete-document",
   "duplicate-document-property",
   "edit-document",
   "execute-builder-source-batch",
@@ -85,7 +87,10 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "delete-content-database",
+  "execute-content-trash-purge",
+  "permanently-delete-document",
   "restore-content-database",
+  "restore-document",
 ]);
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
@@ -95,6 +100,7 @@ const DATABASE_LIFECYCLE_QUERIES = new Set([
   "list-documents",
   "list-trashed-content-databases",
   "list-trashed-documents",
+  "list-content-trash",
 ]);
 
 const CONTENT_MUTATIONS = new Set([
