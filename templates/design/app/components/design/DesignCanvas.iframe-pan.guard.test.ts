@@ -58,8 +58,9 @@ describe("DesignCanvas iframe pan bridge wiring", () => {
       "useEffect(() => {\n    if (interactMode) return;\n    const isInspectorTarget",
     );
     expect(canvasSource).toContain(
-      "if (interactMode || tool !== \"pen\") return;",
+      "if (interactMode) return;",
     );
+    expect(canvasSource).toContain('if (tool !== "pen") return;');
   });
 
   it("centers focused Interact previews without changing edit-mode zoom anchoring", () => {
