@@ -15900,7 +15900,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var deepestContainer = null;
     var deepestDepth = -1;
-    document.querySelectorAll("[data-an-primitive]").forEach(function (node) {
+    document.querySelectorAll("*").forEach(function (node) {
       if (!isContainerDropTarget(node) || isDraggedOrInsideDragged(node))
         return;
       var rect = node.getBoundingClientRect();
@@ -22584,7 +22584,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         startMove(ev, groupGestureMember, {
           clientX: startX,
           clientY: startY,
-          ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+          ignoreAutoLayout:
+            isIgnoreAutoLayoutChord(ev) || (!!ev.ctrlKey && !ev.metaKey),
         });
         return;
       }
@@ -22593,7 +22594,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       startMove(ev, undefined, {
         clientX: startX,
         clientY: startY,
-        ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+        ignoreAutoLayout:
+          isIgnoreAutoLayoutChord(ev) || (!!ev.ctrlKey && !ev.metaKey),
       });
     }
     function onUp(ev) {

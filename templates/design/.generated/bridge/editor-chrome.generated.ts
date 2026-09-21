@@ -11409,7 +11409,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var deepestContainer = null;
       var deepestDepth = -1;
-      document.querySelectorAll("[data-an-primitive]").forEach(function(node) {
+      document.querySelectorAll("*").forEach(function(node) {
         if (!isContainerDropTarget(node) || isDraggedOrInsideDragged(node))
           return;
         var rect = node.getBoundingClientRect();
@@ -15999,7 +15999,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           startMove(ev, groupGestureMember, {
             clientX: startX,
             clientY: startY,
-            ignoreAutoLayout: isIgnoreAutoLayoutChord(ev)
+            ignoreAutoLayout: isIgnoreAutoLayoutChord(ev) || !!ev.ctrlKey && !ev.metaKey
           });
           return;
         }
@@ -16008,7 +16008,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         startMove(ev, void 0, {
           clientX: startX,
           clientY: startY,
-          ignoreAutoLayout: isIgnoreAutoLayoutChord(ev)
+          ignoreAutoLayout: isIgnoreAutoLayoutChord(ev) || !!ev.ctrlKey && !ev.metaKey
         });
       }
       function onUp(ev) {
