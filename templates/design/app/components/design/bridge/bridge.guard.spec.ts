@@ -14178,18 +14178,18 @@ it("snapshots drag modifiers before queued target resolution", () => {
 
   // A queued frame must answer for the pointer sample that scheduled it. A
   // later Space/S key transition must not leak through a stale global read.
-  expect(dragScheduler).toContain("spaceKeyPressed: bridgeSpaceKeyPressed");
-  expect(dragScheduler).toContain(
-    "ignoreAutoLayoutKeyPressed: bridgeIgnoreAutoLayoutKeyPressed",
+  expect(dragScheduler).toMatch(/spaceKeyPressed:\s*[\s\S]*bridgeSpaceKeyPressed/);
+  expect(dragScheduler).toMatch(
+    /ignoreAutoLayoutKeyPressed:\s*[\s\S]*bridgeIgnoreAutoLayoutKeyPressed/,
   );
-  expect(dragScheduler).toContain(
-    "if (point.spaceKeyPressed || bridgeSpaceKeyPressed)",
-  );
+  expect(dragScheduler).toContain("if (point.spaceKeyPressed)");
   expect(dragScheduler).toContain("isIgnoreAutoLayoutChordForDragPoint(point)");
   expect(dragScheduler).toContain("dragChromeSuppressed = true");
   expect(dragScheduler).toContain("hideSnapGuides()");
   expect(dragScheduler).toContain("hideSizeBadge()");
   expect(dragScheduler).toContain("hideConstraintGuides()");
+  expect(dragScheduler).toContain("showSnapGuides(");
+  expect(dragScheduler).toContain("showConstraintGuides(dragEl)");
   expect(dragScheduler).not.toContain("isIgnoreAutoLayoutChord(point)");
 
   const moveStart = bridge.indexOf("        if (!bridgeSpaceKeyPressed) {");
@@ -14201,6 +14201,7 @@ it("snapshots drag modifiers before queued target resolution", () => {
   // Pointerup remains the authoritative live resolution for the final event.
   const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
   expect(pointerUp).toContain("isIgnoreAutoLayoutChord(ev)");
+  expect(bridge).toContain("cancelAutoLayoutTargetResolution();");
 });
 
 it("keeps the authored inline-style key list in sync with the bridge", () => {
