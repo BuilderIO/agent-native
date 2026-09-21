@@ -8726,6 +8726,34 @@ describe("server/auth", () => {
       expect(html).not.toContain("return to Mail");
     });
 
+    it("uses the Nightly deep link for Nightly desktop exchange completion", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 ... Electron/41.2.2 AgentNativeDesktop/0.1.7 AgentNativeDesktopNightly/0.1.7",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          {
+            desktop: true,
+            flowId: "flow-1",
+            sessionToken: "token-1",
+          },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).toContain("agentnative-nightly://oauth-complete");
+      expect(html).toContain("token=token-1");
+      expect(html).toContain("state=state-1");
+      expect(html).not.toContain("agentnative://oauth-complete");
+    });
+
     it("returns a staged session cookie to a bound native WebView", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       const event = createMockEvent({ query: { state: "state-1" } });
