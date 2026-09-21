@@ -430,6 +430,11 @@ describe("DesignCanvas live embedded-frame offset", () => {
         "iframe[data-design-preview-iframe]",
       );
       expect(iframe?.contentWindow).toBeTruthy();
+      const contentWindow = iframe!.contentWindow;
+      let loadCount = 0;
+      iframe!.addEventListener("load", () => {
+        loadCount += 1;
+      });
       const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
 
       await act(async () => root.render(render(true)));
@@ -437,6 +442,8 @@ describe("DesignCanvas live embedded-frame offset", () => {
       expect(
         container.querySelector("iframe[data-design-preview-iframe]"),
       ).toBe(iframe);
+      expect(iframe!.contentWindow).toBe(contentWindow);
+      expect(loadCount).toBe(0);
       expect(postMessage).toHaveBeenCalledWith(
         { type: "set-interaction-mode", interact: true },
         "*",
