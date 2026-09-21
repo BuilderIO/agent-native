@@ -384,6 +384,8 @@
     return null;
   }
 
+  var BESIDE_CONTAINER_EDGE_PX = 12;
+
   // keep in sync with editor-chrome.bridge.ts edgePlacementForRect
   function edgePlacementForRect(
     rect: DOMRect,
@@ -394,8 +396,12 @@
     var size = axis === "x" ? rect.width : rect.height;
     if (!size) return null;
     var offset = axis === "x" ? clientX - rect.left : clientY - rect.top;
-    if (offset < size * 0.22) return "before";
-    if (offset > size * 0.78) return "after";
+    // Only nestable containers reach here, so this band decides "beside the
+    // container" vs "into it"; left proportional, a wide one reads as
+    // "beside" across most of its own interior.
+    var band = Math.min(size * 0.22, BESIDE_CONTAINER_EDGE_PX);
+    if (offset < band) return "before";
+    if (offset > size - band) return "after";
     return null;
   }
 

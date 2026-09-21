@@ -242,12 +242,14 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return null;
     }
+    var BESIDE_CONTAINER_EDGE_PX = 12;
     function edgePlacementForRect(rect, axis, clientX, clientY) {
       var size = axis === "x" ? rect.width : rect.height;
       if (!size) return null;
       var offset = axis === "x" ? clientX - rect.left : clientY - rect.top;
-      if (offset < size * 0.22) return "before";
-      if (offset > size * 0.78) return "after";
+      var band = Math.min(size * 0.22, BESIDE_CONTAINER_EDGE_PX);
+      if (offset < band) return "before";
+      if (offset > size - band) return "after";
       return null;
     }
     function getNodeId(el) {
