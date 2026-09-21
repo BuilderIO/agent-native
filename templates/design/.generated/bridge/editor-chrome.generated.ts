@@ -14331,6 +14331,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           } else {
             hideInsertionGuide();
             dragChromeSuppressed = false;
+            showSnapGuides(
+              point.snapResult.guides,
+              point.snapResult.spacingGuides,
+              point.snapResult.measurements
+            );
+            showConstraintGuides(dragEl);
           }
         });
       }

@@ -20390,6 +20390,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         } else {
           hideInsertionGuide();
           dragChromeSuppressed = false;
+          showSnapGuides(
+            point.snapResult.guides,
+            point.snapResult.spacingGuides,
+            point.snapResult.measurements,
+          );
+          showConstraintGuides(dragEl);
         }
       });
     }
