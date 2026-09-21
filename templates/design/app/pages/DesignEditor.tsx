@@ -17782,8 +17782,6 @@ function DesignEditor() {
   // embedded hosts keep their own chrome and are left alone.
   const responsiveInteractActive =
     mode === "interact" && viewMode === "single" && !!activeFile && !embedded;
-  const overviewInteractActive =
-    mode === "interact" && viewMode === "overview" && !!activeFile;
   const handleInteractDeviceChange = useCallback((name: string) => {
     setInteractDeviceName(name);
     const preset = findInteractDevicePreset(name);
@@ -17889,23 +17887,17 @@ function DesignEditor() {
       files,
     ],
   );
-  const handleOverviewFrameAction = useCallback((screenId: string) => {
-    // The overview already owns the live iframe. Keep it mounted when the
-    // user enters Interact from All Screens so the browser app state and
-    // bridge session survive the mode change.
-    setActiveFileId(screenId);
-    setOverviewSelectedScreenIds([screenId]);
-    setMode("interact");
-  }, []);
+  const handleOverviewFrameAction = useCallback(
+    (screenId: string) => {
+      handleModeChange("interact", { targetFileId: screenId });
+    },
+    [handleModeChange],
+  );
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
   // screen with no device chrome and no canvas around it.
   const handleExitResponsiveInteract = useCallback(() => {
     setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
-    if (viewModeRef.current === "overview") {
-      setMode("edit");
-      return;
-    }
     handleModeChange("edit");
   }, [handleModeChange]);
   // Escape is the standard "leave this mode" convention users try first, and
@@ -27070,7 +27062,6 @@ function DesignEditor() {
                 <div
                   ref={canvasContainerRef}
                   data-design-canvas-container
-                  data-overview-interact={overviewInteractActive || undefined}
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.
