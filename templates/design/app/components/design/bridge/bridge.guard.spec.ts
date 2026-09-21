@@ -14162,6 +14162,37 @@ it("coalesces free-drag target and overlay work", () => {
   expect(pointerUp).toContain("autoLayoutInsertionTargetForPoint(");
 });
 
+it("snapshots drag modifiers before queued target resolution", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var pendingAutoLayoutTargetPoint:");
+  const end = bridge.indexOf(
+    "// Client px per CSS px for this element.",
+    start,
+  );
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const dragScheduler = bridge.slice(start, end);
+
+  // A queued frame must answer for the pointer sample that scheduled it. A
+  // later Space/S key transition must not leak through a stale global read.
+  expect(dragScheduler).toContain("spaceKeyPressed: bridgeSpaceKeyPressed");
+  expect(dragScheduler).toContain(
+    "ignoreAutoLayoutKeyPressed: bridgeIgnoreAutoLayoutKeyPressed",
+  );
+  expect(dragScheduler).toContain(
+    "if (point.spaceKeyPressed || bridgeSpaceKeyPressed)",
+  );
+  expect(dragScheduler).toContain("isIgnoreAutoLayoutChordForDragPoint(point)");
+  expect(dragScheduler).not.toContain("isIgnoreAutoLayoutChord(point)");
+
+  // Pointerup remains the authoritative live resolution for the final event.
+  const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
+  expect(pointerUp).toContain("isIgnoreAutoLayoutChord(ev)");
+});
+
 it("keeps the authored inline-style key list in sync with the bridge", () => {
   const bridge = readFileSync(
     join(bridgeDir, "editor-chrome.bridge.ts"),

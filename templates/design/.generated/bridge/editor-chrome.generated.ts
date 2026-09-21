@@ -7847,6 +7847,15 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isIgnoreAutoLayoutChord(e) {
       return isApplePlatformBridge() ? Boolean(e.ctrlKey && !e.metaKey) : bridgeIgnoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
     }
+    function isIgnoreAutoLayoutChordForDragPoint(e) {
+      if (isApplePlatformBridge()) {
+        return Boolean(e.ctrlKey && !e.metaKey);
+      }
+      if (typeof e.ignoreAutoLayoutKeyPressed === "boolean") {
+        return e.ignoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
+      }
+      return isIgnoreAutoLayoutChord(e);
+    }
     function isShowShortcutsChord(e) {
       if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
       return e.key === "?" || e.key === "/";
@@ -14228,7 +14237,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert") {
           return target;
         }
-        if (ev && (isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev))) {
+        if (ev && (isIgnoreAutoLayoutChordForDragPoint(ev) || isPlatformPrimaryChord(ev))) {
           return target;
         }
         var container = dropContainerForTarget(target);
@@ -14266,7 +14275,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           metaKey: !!ev.metaKey,
           ctrlKey: !!ev.ctrlKey,
           altKey: !!ev.altKey,
-          shiftKey: !!ev.shiftKey
+          shiftKey: !!ev.shiftKey,
+          spaceKeyPressed: bridgeSpaceKeyPressed,
+          ignoreAutoLayoutKeyPressed: bridgeIgnoreAutoLayoutKeyPressed
         };
         if (autoLayoutTargetFrame) return;
         autoLayoutTargetFrame = window.requestAnimationFrame(function() {
@@ -14276,6 +14287,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!point || !dragEl || !document.documentElement.contains(dragEl)) {
             return;
           }
+          if (point.spaceKeyPressed || bridgeSpaceKeyPressed) {
+            currentAutoLayoutTarget = null;
+            hideInsertionGuide();
+            return;
+          }
           var target = autoLayoutInsertionTargetForPoint(
             dragEl,
             point.clientX,
@@ -14283,7 +14299,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             groupOthers,
             isPlatformPrimaryChord(point)
           );
-          if (target && isIgnoreAutoLayoutChord(point)) {
+          if (target && isIgnoreAutoLayoutChordForDragPoint(point)) {
             target = ignoreAutoLayoutForDropTarget(target);
           }
           currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);

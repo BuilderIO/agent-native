@@ -10541,6 +10541,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           String(e && e.key).toLowerCase() === "s";
   }
 
+  function isIgnoreAutoLayoutChordForDragPoint(e): boolean {
+    if (isApplePlatformBridge()) {
+      return Boolean(e.ctrlKey && !e.metaKey);
+    }
+    if (typeof e.ignoreAutoLayoutKeyPressed === "boolean") {
+      return (
+        e.ignoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s"
+      );
+    }
+    return isIgnoreAutoLayoutChord(e);
+  }
+
   function isShowShortcutsChord(e) {
     if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
     // macOS delivers Control+Shift+/ as "/" — Control suppresses the shifted
@@ -20226,6 +20238,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ctrlKey: boolean;
       altKey: boolean;
       shiftKey: boolean;
+      spaceKeyPressed: boolean;
+      ignoreAutoLayoutKeyPressed: boolean;
     } | null = null;
     // Snap candidates (siblings + parent content box) are computed once at
     // drag start — a single getBoundingClientRect pass per candidate — not
@@ -20248,7 +20262,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return target;
       }
-      if (ev && (isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev))) {
+      if (
+        ev &&
+        (isIgnoreAutoLayoutChordForDragPoint(ev) || isPlatformPrimaryChord(ev))
+      ) {
         return target;
       }
       var container = dropContainerForTarget(target);
@@ -20304,6 +20321,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ctrlKey: !!ev.ctrlKey,
         altKey: !!ev.altKey,
         shiftKey: !!ev.shiftKey,
+        spaceKeyPressed: bridgeSpaceKeyPressed,
+        ignoreAutoLayoutKeyPressed: bridgeIgnoreAutoLayoutKeyPressed,
       };
       if (autoLayoutTargetFrame) return;
       autoLayoutTargetFrame = window.requestAnimationFrame(function () {
@@ -20313,6 +20332,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!point || !dragEl || !document.documentElement.contains(dragEl)) {
           return;
         }
+        if (point.spaceKeyPressed || bridgeSpaceKeyPressed) {
+          currentAutoLayoutTarget = null;
+          hideInsertionGuide();
+          return;
+        }
         var target = autoLayoutInsertionTargetForPoint(
           dragEl,
           point.clientX,
@@ -20320,7 +20344,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           groupOthers,
           isPlatformPrimaryChord(point),
         );
-        if (target && isIgnoreAutoLayoutChord(point)) {
+        if (target && isIgnoreAutoLayoutChordForDragPoint(point)) {
           target = ignoreAutoLayoutForDropTarget(target);
         }
         currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
