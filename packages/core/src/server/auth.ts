@@ -6536,7 +6536,8 @@ async function mountBetterAuthRoutes(
   );
 
   // Better Auth redirects new magic-link users through this small public
-  // callback so first-run onboarding is marked only for newly created users.
+  // callback, so its route is the new-user signal. The session cookie is
+  // handed off by the preceding redirect and may not resolve again here.
   // Keep this before the generic magic-link handler for runtimes whose
   // app.use() middleware paths match descendants as prefixes.
   app.use(
@@ -6550,9 +6551,7 @@ async function mountBetterAuthRoutes(
       const rawReturn = Array.isArray(query.return)
         ? query.return[0]
         : query.return;
-      if (await getSession(event)) {
-        setFirstRunOnboardingCookie(event);
-      }
+      setFirstRunOnboardingCookie(event);
       return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
     }),
   );
