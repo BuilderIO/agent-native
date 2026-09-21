@@ -1,5 +1,4 @@
 import type { BuilderGatewayAuth } from "../server/credential-provider.js";
-import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getBuilderGatewayRequestHeaders } from "./engine/builder-gateway-headers.js";
 import type { EngineTool } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
@@ -268,7 +267,7 @@ async function requestJev(options: {
   builderAuth?: BuilderGatewayAuth | null;
   request: JevRequest;
 }): Promise<JevResponse> {
-  if (options.builderAuth && resolveDeployEnvironment() !== "production") {
+  if (options.builderAuth) {
     try {
       return await requestJevThroughBuilder(
         options.builderAuth,
