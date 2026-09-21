@@ -474,9 +474,10 @@ async function heldSnapshot(
           `[data-agent-native-node-id="${ids.targetId}"]`,
         );
         const sourceStyle = source ? getComputedStyle(source) : null;
-        const guide = body.querySelector<HTMLElement>(
-          "[data-agent-native-insertion-guide]",
-        );
+        const guide =
+          body.ownerDocument.documentElement.querySelector<HTMLElement>(
+            "[data-agent-native-insertion-guide]",
+          );
         const guideStyle = guide ? getComputedStyle(guide) : null;
         const guideRect = guide?.getBoundingClientRect();
         const targetRect = target?.getBoundingClientRect();
