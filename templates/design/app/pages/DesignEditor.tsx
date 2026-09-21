@@ -18512,7 +18512,7 @@ function DesignEditor() {
     onCut: canEditDesign ? handleCutSelection : undefined,
     onPasteOver: canEditDesign ? handlePasteOverSelection : undefined,
     onPasteToReplace: canEditDesign ? handlePasteToReplace : undefined,
-    onCopyProps: canEditDesign ? handleCopyProps : undefined,
+    onCopyProps: canEditActiveVisualScreen ? handleCopyProps : undefined,
     onPasteProps: canEditActiveVisualScreen ? handlePasteProps : undefined,
     onDuplicate: canEditActiveVisualScreen
       ? handleDuplicateSelection
@@ -26610,7 +26610,7 @@ function DesignEditor() {
             }
             // Figma: Duplicate requires a selection, matching canDelete.
             canDuplicate={Boolean(
-              canEditDesign &&
+              canEditActiveVisualScreen &&
               (selectedElement || selectedScreenIds.length > 0),
             )}
             canDelete={Boolean(
@@ -26639,7 +26639,9 @@ function DesignEditor() {
             }
             canCopyProps={Boolean(selectedElement)}
             canPasteProps={
-              canEditDesign && hasPropsClipboard && Boolean(selectedElement)
+              canEditActiveVisualScreen &&
+              hasPropsClipboard &&
+              Boolean(selectedElement)
             }
             canCopyAnimation={
               Boolean(selectedElement) && selectedElementHasMotionTrack

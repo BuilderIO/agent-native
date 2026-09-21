@@ -188,7 +188,7 @@ export function runNudgeSelection(
         left: `${Math.round(left + dx)}px`,
         top: `${Math.round(top + dy)}px`,
       },
-      { runtimeApplied: true, elementInfo: nudgeTarget },
+      { elementInfo: nudgeTarget },
     );
     return;
   }

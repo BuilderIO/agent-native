@@ -4976,6 +4976,35 @@ describe("editor chrome bridge — text editing session", () => {
   );
 
   it(
+    "blurs an active text edit when bridge reconfiguration disables text editing",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const bridge = (window as any).__anEditorChromeBridgeInstance;
+          if (!bridge || typeof bridge.updateConfig !== "function") {
+            throw new Error("missing editor chrome config updater");
+          }
+          bridge.updateConfig({
+            readOnly: false,
+            textEditingEnabled: false,
+          });
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]", {
+          state: "detached",
+        });
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "clears the native selection when the host deselects the text element",
     { timeout: 30_000 },
     async () => {

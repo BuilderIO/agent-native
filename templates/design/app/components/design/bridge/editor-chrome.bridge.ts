@@ -25897,6 +25897,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof next.textEditingEnabled === "boolean"
           ? next.textEditingEnabled
           : textEditingEnabledFlag;
+      var wasTextEditingEnabled = textEditingEnabled;
       if (readOnly !== nextReadOnly) {
         readOnly = nextReadOnly;
         textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
@@ -25914,6 +25915,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
       }
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
+      if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
+        activeTextEditEl.blur();
+      }
       if (typeof next.screenId === "string") {
         designCanvasScreenId = next.screenId;
       }

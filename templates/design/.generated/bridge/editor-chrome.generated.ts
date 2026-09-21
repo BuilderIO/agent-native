@@ -18258,6 +18258,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!next || typeof next !== "object") return;
         var nextReadOnly = typeof next.readOnly === "boolean" ? next.readOnly : readOnly;
         var nextTextEditingEnabledFlag = typeof next.textEditingEnabled === "boolean" ? next.textEditingEnabled : textEditingEnabledFlag;
+        var wasTextEditingEnabled = textEditingEnabled;
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
           textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
@@ -18275,6 +18276,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
         }
         textEditingEnabledFlag = nextTextEditingEnabledFlag;
+        if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
+          activeTextEditEl.blur();
+        }
         if (typeof next.screenId === "string") {
           designCanvasScreenId = next.screenId;
         }
