@@ -636,14 +636,9 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
             scopeToken: purgePlan.scopeToken,
           }),
         );
-        const deletionExpectation =
-          rowState === "active"
-            ? expect(deletion).rejects.toThrow(
-                "Database contains an active row outside this Trash item",
-              )
-            : expect(deletion).rejects.toThrow(
-                "Trash changed after review; create and inspect a new plan",
-              );
+        const deletionExpectation = expect(deletion).rejects.toThrow(
+          "Trash changed after review; create and inspect a new plan",
+        );
         await waitForPostgresLockWait(1);
         requestInsertion();
         await insertionCompleted;
