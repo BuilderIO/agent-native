@@ -21,6 +21,7 @@ import {
   rawCliBoolean,
   requireActionUserEmail,
   requireExplicitBound,
+  resolveBulkGoogleEventAccountEmail,
   resolveOwnedAccountEmail,
   startsWithinRange,
   undeletableEventReason,
@@ -218,7 +219,7 @@ export default defineAction({
 
     if (hasIds) {
       const accountEmail = await resolveOwnedAccountEmail(
-        args.accountEmail,
+        resolveBulkGoogleEventAccountEmail(args.ids!, args.accountEmail),
         ownerEmail,
       );
       // Two spellings of one id ("google-a" and "a") would otherwise enqueue two

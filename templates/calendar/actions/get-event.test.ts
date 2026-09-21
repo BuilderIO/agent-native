@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getEventMock = vi.hoisted(() => vi.fn());
+const getClientsMock = vi.hoisted(() => vi.fn());
+const calendarGetEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: vi.fn(() => "/home"),
@@ -8,15 +10,18 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("../server/lib/google-api.js", () => ({
-  calendarGetEvent: vi.fn(),
+  calendarGetEvent: calendarGetEventMock,
 }));
 
 vi.mock("../server/lib/google-calendar.js", () => ({
-  getClients: vi.fn(),
+  getClients: getClientsMock,
   getEvent: getEventMock,
 }));
 
-import { createGoogleCalendarSourceKey } from "../shared/google-calendar-sources";
+import {
+  createGoogleAccountEventId,
+  createGoogleCalendarSourceKey,
+} from "../shared/google-calendar-sources";
 import action from "./get-event";
 
 describe("get-event shared calendar reads", () => {
@@ -60,5 +65,35 @@ describe("get-event shared calendar reads", () => {
         {},
       ),
     ).rejects.toThrow("require a validated calendarSourceKey");
+  });
+
+  it("routes a multi-account event identity to its encoded account", async () => {
+    getClientsMock.mockResolvedValue([
+      { email: "alpha@example.com", accessToken: "alpha-token" },
+      { email: "zulu@example.com", accessToken: "zulu-token" },
+    ]);
+    calendarGetEventMock.mockResolvedValue({
+      id: "same-provider-id",
+      summary: "Z account event",
+      start: { dateTime: "2026-07-06T16:00:00Z" },
+      end: { dateTime: "2026-07-06T16:30:00Z" },
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "zulu@example.com",
+      googleEventId: "same-provider-id",
+    });
+
+    const result = await action.run({ id, calendarId: "primary" }, {});
+
+    expect(calendarGetEventMock).toHaveBeenCalledTimes(1);
+    expect(calendarGetEventMock).toHaveBeenCalledWith(
+      "zulu-token",
+      "primary",
+      "same-provider-id",
+    );
+    expect(result).toMatchObject({
+      id,
+      accountEmail: "zulu@example.com",
+    });
   });
 });

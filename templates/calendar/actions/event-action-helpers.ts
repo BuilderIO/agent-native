@@ -12,6 +12,7 @@ import {
 } from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
+import { parseGoogleAccountEventId } from "../shared/google-calendar-sources.js";
 
 export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -190,7 +191,40 @@ export function requireActionUserEmail(): string {
 }
 
 export function normalizeGoogleEventId(id: string): string {
+  const accountEvent = parseGoogleAccountEventId(id);
+  if (accountEvent) return accountEvent.googleEventId;
   return id.startsWith("google-") ? id.slice("google-".length) : id;
+}
+
+export function resolveGoogleEventAccountEmail(
+  id: string,
+  accountEmail: string | undefined,
+): string | undefined {
+  const accountEvent = parseGoogleAccountEventId(id);
+  if (!accountEvent) return accountEmail;
+  if (
+    accountEmail &&
+    accountEmail.trim().toLowerCase() !== accountEvent.accountEmail
+  ) {
+    throw new Error("Google event account does not match the selected account");
+  }
+  return accountEvent.accountEmail;
+}
+
+export function resolveBulkGoogleEventAccountEmail(
+  ids: string[],
+  accountEmail: string | undefined,
+): string | undefined {
+  const accounts = new Set(
+    ids
+      .map((id) => resolveGoogleEventAccountEmail(id, accountEmail))
+      .filter((email): email is string => !!email)
+      .map((email) => email.trim().toLowerCase()),
+  );
+  if (accounts.size > 1) {
+    throw new Error("Bulk event ids must belong to one Google account");
+  }
+  return accounts.values().next().value ?? accountEmail;
 }
 
 export function normalizeWritableGoogleEventId(id: string): string {

@@ -5,7 +5,11 @@ import { z } from "zod";
 import { calendarGetEvent } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
-import { parseGoogleCalendarSourceKey } from "../shared/google-calendar-sources.js";
+import {
+  createGoogleAccountEventId,
+  parseGoogleAccountEventId,
+  parseGoogleCalendarSourceKey,
+} from "../shared/google-calendar-sources.js";
 import { getGoogleEventColorHex } from "../shared/google-event-colors.js";
 
 export default defineAction({
@@ -78,9 +82,12 @@ export default defineAction({
       );
     }
 
-    const rawId = args.id.startsWith("google-")
-      ? args.id.slice("google-".length)
-      : args.id;
+    const accountEvent = parseGoogleAccountEventId(args.id);
+    const rawId = accountEvent
+      ? accountEvent.googleEventId
+      : args.id.startsWith("google-")
+        ? args.id.slice("google-".length)
+        : args.id;
     const calendarId = args.calendarId ?? "primary";
     if (calendarId !== "primary") {
       throw new Error(
@@ -95,13 +102,24 @@ export default defineAction({
       };
     }
 
-    for (const { email: acctEmail, accessToken } of clients) {
+    const selectedClients = accountEvent
+      ? clients.filter(
+          ({ email: accountEmail }) =>
+            accountEmail.trim().toLowerCase() === accountEvent.accountEmail,
+        )
+      : clients;
+    for (const { email: acctEmail, accessToken } of selectedClients) {
       try {
         const evt = await calendarGetEvent(accessToken, calendarId, rawId);
         const selfAttendee = evt.attendees?.find((a: any) => a.self === true);
 
         const calEvent: CalendarEvent = {
-          id: `google-${evt.id}`,
+          id: accountEvent
+            ? createGoogleAccountEventId({
+                accountEmail: acctEmail,
+                googleEventId: evt.id,
+              })
+            : `google-${evt.id}`,
           title: evt.summary || "Untitled",
           titleIsGenerated: !evt.summary,
           description: evt.description || "",

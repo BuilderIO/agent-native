@@ -26,6 +26,7 @@ import {
   reminderMinutesInput,
   remindersInput,
   requireActionUserEmail,
+  resolveGoogleEventAccountEmail,
   resolveOwnedAccountEmail,
   validateEventTimeOrder,
   validateStatusEventTiming,
@@ -256,11 +257,11 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
-      args.accountEmail,
+      resolveGoogleEventAccountEmail(args.id, args.accountEmail),
       ownerEmail,
     );
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const targetAccountEmail =
       args.targetAccountEmail !== undefined
         ? await resolveOwnedAccountEmail(args.targetAccountEmail, ownerEmail)

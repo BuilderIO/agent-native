@@ -18,6 +18,7 @@ import {
   normalizeWritableGoogleEventId,
   requireActionUserEmail,
   requireExplicitBound,
+  resolveBulkGoogleEventAccountEmail,
   validateEventTimeOrder,
   resolveOwnedAccountEmail,
   startsWithinRange,
@@ -188,7 +189,7 @@ export default defineAction({
 
     if (hasIds) {
       const accountEmail = await resolveOwnedAccountEmail(
-        args.accountEmail,
+        resolveBulkGoogleEventAccountEmail(args.ids!, args.accountEmail),
         ownerEmail,
       );
       const requested = Array.from(

@@ -28,6 +28,7 @@ vi.mock("./list-events.js", () => ({
   resolveCalendarEventRange: resolveCalendarEventRangeMock,
 }));
 
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./update-events";
 
 const OWNER = "owner@example.com";
@@ -156,6 +157,27 @@ describe("update-events", () => {
         shiftMinutes: 15,
       }),
     ).rejects.toThrow("Shared Google calendar events are read-only");
+
+    expect(getEventMock).not.toHaveBeenCalled();
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicit account that conflicts with an opaque event id", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "alpha@example.com" }, { email: "zulu@example.com" }],
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "alpha@example.com",
+      googleEventId: "same-provider-id",
+    });
+
+    await expect(
+      run({
+        ids: [id],
+        accountEmail: "zulu@example.com",
+        shiftMinutes: 15,
+      }),
+    ).rejects.toThrow("does not match");
 
     expect(getEventMock).not.toHaveBeenCalled();
     expect(updateEventMock).not.toHaveBeenCalled();

@@ -24,6 +24,7 @@ vi.mock("../server/lib/event-guest-notifications.js", () => ({
   sendEventGuestNotificationNote: vi.fn(),
 }));
 
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./delete-event";
 
 describe("delete-event", () => {
@@ -95,6 +96,27 @@ describe("delete-event", () => {
         scope: "single",
       }),
     ).rejects.toThrow("Overlay Google calendar events are read-only");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+    expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an account that conflicts with the opaque event identity", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "alpha@example.com" }, { email: "zulu@example.com" }],
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "alpha@example.com",
+      googleEventId: "same-provider-id",
+    });
+
+    await expect(
+      action.run({
+        id,
+        accountEmail: "zulu@example.com",
+        scope: "single",
+      }),
+    ).rejects.toThrow("does not match");
 
     expect(deleteEventMock).not.toHaveBeenCalled();
     expect(removeEventFromCalendarMock).not.toHaveBeenCalled();

@@ -22,6 +22,7 @@ import type {
   UpdateEventScope,
 } from "../../shared/api.js";
 import {
+  createGoogleAccountEventId,
   createGoogleCalendarCanonicalKey,
   createGoogleCalendarSourceKey,
 } from "../../shared/google-calendar-sources.js";
@@ -1087,6 +1088,26 @@ function compareCalendarSourcePaths(
   return a.accountEmail.localeCompare(b.accountEmail);
 }
 
+function compareCalendarEventSources(
+  a: CalendarEvent,
+  b: CalendarEvent,
+): number {
+  const writable =
+    Number(b.calendarReadOnly === false) - Number(a.calendarReadOnly === false);
+  if (writable !== 0) return writable;
+
+  const primary =
+    Number(b.calendarPrimary === true) - Number(a.calendarPrimary === true);
+  if (primary !== 0) return primary;
+
+  const access =
+    (CALENDAR_ACCESS_RANK[b.calendarAccessRole ?? "freeBusyReader"] ?? -1) -
+    (CALENDAR_ACCESS_RANK[a.calendarAccessRole ?? "freeBusyReader"] ?? -1);
+  if (access !== 0) return access;
+
+  return (a.accountEmail ?? "").localeCompare(b.accountEmail ?? "");
+}
+
 /**
  * Resolve a client-supplied canonical source identity against the user's live
  * CalendarList. Provider paths stay server-selected, so a stale or forged
@@ -1366,6 +1387,7 @@ export async function listEvents(
           ...(selectedSourcesByAccount.get(accountKey) ?? []),
           {
             ...source,
+            sourceKey: path.sourceKey,
             accountEmail: path.accountEmail,
             accessRole: path.accessRole,
             primary: path.primary,
@@ -1457,7 +1479,12 @@ export async function listEvents(
             id:
               calendarSource && !calendarSource.primary
                 ? `google-${calendarSource.sourceKey}-${event.id}`
-                : `google-${event.id}`,
+                : !calendarSource && clients.length > 1
+                  ? createGoogleAccountEventId({
+                      accountEmail: email,
+                      googleEventId: event.id,
+                    })
+                  : `google-${event.id}`,
             title: event.summary || "Untitled",
             titleIsGenerated: !event.summary,
             description: event.description || "",
@@ -1538,8 +1565,13 @@ export async function listEvents(
     const key =
       event.canonicalKey && event.googleEventId
         ? `${event.canonicalKey}:${event.googleEventId}`
-        : event.id;
-    if (!dedupedEvents.has(key)) dedupedEvents.set(key, event);
+        : event.googleEventId && event.accountEmail
+          ? `google-account:${event.accountEmail.toLowerCase()}:${event.googleEventId}`
+          : event.id;
+    const existing = dedupedEvents.get(key);
+    if (!existing || compareCalendarEventSources(event, existing) < 0) {
+      dedupedEvents.set(key, event);
+    }
   }
   return { events: Array.from(dedupedEvents.values()), errors };
 }

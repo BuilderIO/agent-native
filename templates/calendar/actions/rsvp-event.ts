@@ -5,6 +5,7 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   normalizeWritableGoogleEventId,
   requireActionUserEmail,
+  resolveGoogleEventAccountEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
 
@@ -49,11 +50,11 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
-      args.accountEmail,
+      resolveGoogleEventAccountEmail(args.id, args.accountEmail),
       ownerEmail,
     );
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
 
     await googleCalendar.rsvpEvent(
       googleEventId,
