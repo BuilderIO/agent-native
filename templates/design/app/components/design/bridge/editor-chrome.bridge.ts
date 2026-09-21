@@ -20326,8 +20326,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ctrlKey: !!ev.ctrlKey,
         altKey: !!ev.altKey,
         shiftKey: !!ev.shiftKey,
-        spaceKeyPressed: bridgeSpaceKeyPressed,
-        ignoreAutoLayoutKeyPressed: bridgeIgnoreAutoLayoutKeyPressed,
+        // Capture the modifier state carried by this move. The RAF can run
+        // after the host's keyboard state has changed, so reading only the
+        // bridge globals there can resolve a different gesture than the one
+        // that scheduled the move.
+        spaceKeyPressed:
+          Boolean(ev.spaceKeyPressed) || bridgeSpaceKeyPressed,
+        ignoreAutoLayoutKeyPressed:
+          Boolean(ev.ignoreAutoLayoutKeyPressed) ||
+          bridgeIgnoreAutoLayoutKeyPressed ||
+          (!isApplePlatformBridge() && String(ev.key).toLowerCase() === "s"),
         snapResult: {
           guides: snapResult.guides,
           spacingGuides: snapResult.spacingGuides,
@@ -20342,7 +20350,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!point || !dragEl || !document.documentElement.contains(dragEl)) {
           return;
         }
-        if (point.spaceKeyPressed || bridgeSpaceKeyPressed) {
+        if (point.spaceKeyPressed) {
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
           return;
