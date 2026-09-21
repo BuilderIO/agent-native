@@ -792,11 +792,9 @@ function ReviewTab({ days }: { days: number }) {
         threadId: selected.threadId,
         target,
         instruction: instruction.trim(),
-        feedback: feedbackNote.trim() || undefined,
       },
       {
         onSuccess: () => {
-          setFeedbackNote("");
           setInstruction("");
           setInstructionSaved(true);
           setInstructionOpen(false);

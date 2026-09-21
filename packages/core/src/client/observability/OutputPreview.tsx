@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 
 type ChartPoint = { label: string; value: number };
 type DesignToken = { label: string; value: string };
+type TableColumn = { source: string | number; label: string };
 
 export type OutputPreviewModel =
   | { kind: "text"; text: string }
@@ -178,27 +179,36 @@ function parseStructuredPreview(
           })
           .slice(0, MAX_COLUMNS)
       : [];
-    const headers = Array.isArray(value.headers)
+    const columns: TableColumn[] = Array.isArray(value.headers)
       ? value.headers
-          .flatMap((header) => {
+          .flatMap((header, index) => {
             const text = boundedString(header);
-            return text ? [text] : [];
+            return text ? [{ source: index, label: text }] : [];
           })
           .slice(0, MAX_COLUMNS)
-      : inferredHeaders.map(({ label }) => label);
-    const rowKeys = Array.isArray(value.headers)
-      ? headers
-      : inferredHeaders.map(({ key }) => key);
+      : inferredHeaders.map(({ key, label }) => ({ source: key, label }));
+    const resolvedColumns = columns.map((column) => {
+      if (typeof column.source !== "number" || !objectRows[0]) {
+        return column;
+      }
+      const rawKeys = Object.keys(objectRows[0]);
+      const source = Object.prototype.hasOwnProperty.call(
+        objectRows[0],
+        column.label,
+      )
+        ? column.label
+        : (rawKeys[column.source] ?? column.source);
+      return { ...column, source };
+    });
+    const headers = resolvedColumns.map(({ label }) => label);
     const rows = sourceRows.slice(0, MAX_ROWS).flatMap((row) => {
       if (Array.isArray(row)) {
-        return [row.slice(0, headers.length).map(tableCell)];
+        return [
+          resolvedColumns.map(({ source }) => tableCell(row[Number(source)])),
+        ];
       }
       if (isRecord(row) && headers.length > 0) {
-        return [
-          headers.map((header, index) =>
-            tableCell(row[rowKeys[index] ?? header]),
-          ),
-        ];
+        return [resolvedColumns.map(({ source }) => tableCell(row[source]))];
       }
       return [];
     });

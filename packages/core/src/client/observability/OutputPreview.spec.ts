@@ -86,6 +86,36 @@ describe("parseOutputPreview", () => {
     });
   });
 
+  it("keeps display labels separate from object row keys and array indexes", () => {
+    expect(
+      parseOutputPreview(
+        JSON.stringify({
+          type: "table",
+          headers: ["Name", "", "Score"],
+          rows: [{ name: "Ada", hidden: "ignore", score: 0.9 }],
+        }),
+      ),
+    ).toEqual({
+      kind: "table",
+      headers: ["Name", "Score"],
+      rows: [["Ada", "0.9"]],
+    });
+
+    expect(
+      parseOutputPreview(
+        JSON.stringify({
+          type: "table",
+          headers: ["Name", "", "Score"],
+          rows: [["Ada", "ignore", "0.9"]],
+        }),
+      ),
+    ).toEqual({
+      kind: "table",
+      headers: ["Name", "Score"],
+      rows: [["Ada", "0.9"]],
+    });
+  });
+
   it("limits Markdown scanning to a bounded line prefix", () => {
     const answer = [
       ...Array.from({ length: 50 }, () => "noise"),
