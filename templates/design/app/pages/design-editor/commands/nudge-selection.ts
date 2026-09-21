@@ -52,6 +52,7 @@ export interface NudgeSelectionArgs {
   boardFrameGeometry: FrameGeometry | undefined;
   canEditDesign: boolean;
   canEditLiveScreen?: boolean;
+  isRunningAppSource: boolean;
   commitVisualStyles: (
     selector: string,
     styles: Record<string, string>,
@@ -90,6 +91,7 @@ export function runNudgeSelection(
     boardFrameGeometry,
     canEditDesign,
     canEditLiveScreen,
+    isRunningAppSource,
     commitVisualStyles,
     designDataJsonRef,
     editorPreferences,
@@ -174,7 +176,7 @@ export function runNudgeSelection(
     : selectedLayerTargetsRef.current[0]?.elementInfo;
   if (!nudgeTarget?.selector) return;
 
-  if (!canEditDesign && canEditLiveScreen) {
+  if (isRunningAppSource && canEditLiveScreen) {
     hideSelectionChromeForNudge();
     const left = parseFloat(nudgeTarget.computedStyles.left || "0") || 0;
     const top = parseFloat(nudgeTarget.computedStyles.top || "0") || 0;

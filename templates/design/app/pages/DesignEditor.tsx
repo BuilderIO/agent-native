@@ -16887,6 +16887,7 @@ function DesignEditor() {
           boardFrameGeometry,
           canEditDesign,
           canEditLiveScreen: canEditActiveVisualScreen,
+          isRunningAppSource: isRunningAppSourceType(activeCanvasSourceType),
           commitVisualStyles,
           designDataJsonRef,
           editorPreferences,
