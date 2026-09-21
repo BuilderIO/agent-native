@@ -11,7 +11,11 @@ export const editorChromeBridgeScript: string = `"use strict";
   var __getProtoOf = Object.getPrototypeOf;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
   var __commonJS = (cb, mod) => function __require() {
-    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+    try {
+      return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+    } catch (e) {
+      throw mod = 0, e;
+    }
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
@@ -30,9 +34,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     mod
   ));
 
-  // ../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
+  // ../../../Users/steve/Projects/builder/agent-native/framework/node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
   var require_resolve_uri_umd = __commonJS({
-    "../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
+    "../../../Users/steve/Projects/builder/agent-native/framework/node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
       (function(global, factory) {
         typeof exports === "object" && typeof module !== "undefined" ? module.exports = factory() : typeof define === "function" && define.amd ? define(factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, global.resolveURI = factory());
       })(exports, (function() {
@@ -209,7 +213,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
   });
 
-  // ../../packages/toolkit/dist/canvas-interactions/canvas-interactions.js
+  // ../../../Users/steve/Projects/builder/agent-native/framework/packages/toolkit/dist/canvas-interactions/canvas-interactions.js
   var DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
   var DEFAULT_CANVAS_NUDGE = 1;
   var DEFAULT_CANVAS_ACCELERATED_NUDGE = 10;
@@ -617,7 +621,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
   }
 
-  // ../../node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
+  // ../../../Users/steve/Projects/builder/agent-native/framework/node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
   var comma = ",".charCodeAt(0);
   var semicolon = ";".charCodeAt(0);
   var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -716,7 +720,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     return a[0] - b[0];
   }
 
-  // ../../node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
+  // ../../../Users/steve/Projects/builder/agent-native/framework/node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
   var import_resolve_uri = __toESM(require_resolve_uri_umd(), 1);
   function stripFilename(path) {
     if (!path) return "";
@@ -903,7 +907,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
-  // app/components/design/bridge/editor-chrome.bridge.ts
+  // templates/design/app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     var readOnly = __READ_ONLY__;
     var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
@@ -14218,6 +14222,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var moved = false;
       dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
       var currentAutoLayoutTarget = null;
+      var dragIgnoreAutoLayout = isIgnoreAutoLayoutChord(e);
+      function ignoreAutoLayoutHeld(ev) {
+        return dragIgnoreAutoLayout || isIgnoreAutoLayoutChord(ev);
+      }
       var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
       var dragElStartRect = dragEl.getBoundingClientRect();
       var dragElStartWidth = dragElStartRect.width;
@@ -14226,7 +14234,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert") {
           return target;
         }
-        if (ev && (isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev))) {
+        if (ev && (ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev))) {
           return target;
         }
         var container = dropContainerForTarget(target);
@@ -14269,7 +14277,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           modifiers: {
             metaKey: !!e.metaKey,
             ctrlKey: !!e.ctrlKey,
-            ignoreAutoLayout: isIgnoreAutoLayoutChord(e),
+            ignoreAutoLayout: dragIgnoreAutoLayout,
             forceNestedAutoLayout: isPlatformPrimaryChord(e)
           }
         });
@@ -14298,7 +14306,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           clientY: ev.clientY,
           metaKey: !!ev.metaKey,
           ctrlKey: !!ev.ctrlKey,
-          ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+          ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
           forceNestedAutoLayout: isPlatformPrimaryChord(ev)
         };
         if (crossScreenDragMoveScheduled) return;
@@ -14391,7 +14399,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var rawDy = controllerMove.gesture.canvasDelta.y;
         var nextLeft = originLeft + rawDx;
         var nextTop = originTop + rawDy;
-        var snapBypass = isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev);
+        var snapBypass = ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev);
         var snapResult = !snapBypass && !duplicatedForDrag ? computeMoveSnapOffset(
           {
             // snapCandidateRects are client space; nextLeft/nextTop are
@@ -14441,7 +14449,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             groupOthers,
             isPlatformPrimaryChord(ev)
           ) : null;
-          if (currentAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
+          if (currentAutoLayoutTarget && ignoreAutoLayoutHeld(ev)) {
             currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
               currentAutoLayoutTarget
             );
@@ -14561,7 +14569,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             modifiers: {
               metaKey: !!ev.metaKey,
               ctrlKey: !!ev.ctrlKey,
-              ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+              ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
               forceNestedAutoLayout: isPlatformPrimaryChord(ev)
             }
           });
@@ -14585,7 +14593,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             groupOthers,
             isPlatformPrimaryChord(ev)
           );
-          if (finalAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
+          if (finalAutoLayoutTarget && ignoreAutoLayoutHeld(ev)) {
             finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
               finalAutoLayoutTarget
             );
