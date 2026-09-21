@@ -1383,6 +1383,14 @@ export function getPrimitiveDropTargetForPoint(
       continue;
     }
     if (geometryContainsPoint(boardRect, point)) {
+      // Prefer the deepest eligible container.  DOM order is not paint order:
+      // overwriting `best` made a later ancestor steal nested flow drops and
+      // left the held insertion guide anchored to the wrong layout owner.
+      const currentArea = boardRect.width * boardRect.height;
+      const bestArea = best
+        ? best.boardRect.width * best.boardRect.height
+        : Infinity;
+      if (currentArea >= bestArea) continue;
       best = {
         nodeId: primitive.nodeId,
         screenId: topScreen.screen.id,

@@ -11245,6 +11245,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           // identical Figma-style indicator between siblings.
           <span
             data-primitive-drop-target
+            data-agent-native-insertion-guide
             data-primitive-drop-placement={primitiveDropTarget.placement}
             className="pointer-events-none absolute z-40 rounded-sm"
             style={getCrossScreenDropGuideStyle({

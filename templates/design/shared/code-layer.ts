@@ -7093,7 +7093,10 @@ function applyWrapNodes(
   const measuredFlowAttr = hasMeasuredGroupRuntime
     ? ` ${MEASURED_FLOW_GROUP_ATTR}="true"`
     : "";
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${measuredFlowAttr}${wrapperStyleAttr}>`;
+  const measuredFlowOriginAttr = hasMeasuredGroupRuntime
+    ? ` data-agent-native-group-origin-left="${formatMeasuredPixel(measuredFlowGeometry!.left)}" data-agent-native-group-origin-top="${formatMeasuredPixel(measuredFlowGeometry!.top)}"`
+    : "";
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${measuredFlowAttr}${measuredFlowOriginAttr}${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
@@ -8096,14 +8099,26 @@ function applyUnwrap(
   const wrapperStyle = parseStyle(attributeValue(element, "style"));
   const wrapperLeft = parsePixelLength(wrapperStyle.left);
   const wrapperTop = parsePixelLength(wrapperStyle.top);
+  const measuredGroupLeft = parsePixelLength(
+    attributeValue(element, "data-agent-native-group-origin-left"),
+  );
+  const measuredGroupTop = parsePixelLength(
+    attributeValue(element, "data-agent-native-group-origin-top"),
+  );
   const shouldRebase =
     wrapperStyle.position === "absolute" &&
     (wrapperLeft !== null || wrapperTop !== null);
+  const shouldRebaseMeasuredFlowGroup =
+    !shouldRebase && (measuredGroupLeft !== null || measuredGroupTop !== null);
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
-  if (shouldRebase) {
-    const deltaLeftPx = wrapperLeft ?? 0;
-    const deltaTopPx = wrapperTop ?? 0;
+  if (shouldRebase || shouldRebaseMeasuredFlowGroup) {
+    const deltaLeftPx = shouldRebase
+      ? (wrapperLeft ?? 0)
+      : (measuredGroupLeft ?? 0);
+    const deltaTopPx = shouldRebase
+      ? (wrapperTop ?? 0)
+      : (measuredGroupTop ?? 0);
     const fragmentElements = parseHtmlElements(innerContent);
     const directChildren = fragmentElements.filter(
       (fe) => fe.parentIndex === undefined,

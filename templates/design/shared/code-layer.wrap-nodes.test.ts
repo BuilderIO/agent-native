@@ -15,6 +15,31 @@ const THREE_SIBLINGS = `<body>
 </body>`;
 
 describe("applyWrapNodes (Cmd+G group)", () => {
+  it("ungroup rebases measured in-flow children back to world coordinates", () => {
+    const content = `<body style="display:flex;flex-direction:column;gap:20px">
+  <div data-agent-native-node-id="first" style="width:100px;height:40px">First</div>
+  <div data-agent-native-node-id="second" style="width:100px;height:40px">Second</div>
+</body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["first", "second"],
+      sizeHints: {
+        first: { width: 100, height: 40, left: 12, top: 80 },
+        second: { width: 100, height: 40, left: 12, top: 140 },
+      },
+    });
+
+    expect(grouped.result.status).toBe("applied");
+    const ungrouped = applyVisualEdit(grouped.content, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+    expect(ungrouped.result.status).toBe("applied");
+    expect(ungrouped.content).toContain("left: 12px");
+    expect(ungrouped.content).toContain("top: 80px");
+    expect(ungrouped.content).toContain("top: 140px");
+  });
+
   it("places the group at the TOPMOST selected child's z-position, not the bottommost, for a non-adjacent selection", () => {
     // Select red (bottom) + blue (top), skipping green (middle). Figma
     // places the resulting group at blue's stacking position, so green
