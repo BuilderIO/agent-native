@@ -326,6 +326,20 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain('type: "request-runtime-layer-snapshot"');
   });
 
+  it("keeps a focused localhost screen on its live route when returning to Edit", () => {
+    const focusedCanvas = source.slice(
+      source.lastIndexOf("<DesignCanvas"),
+      source.indexOf(
+        "onRoutePathChange={handleLiveRoutePathChange}",
+        source.lastIndexOf("<DesignCanvas"),
+      ) + 100,
+    );
+    expect(focusedCanvas).toContain('activeCanvasSourceType === "localhost"');
+    expect(focusedCanvas).toContain("previewUrlAtLiveRoute(");
+    expect(focusedCanvas).toContain("liveRoutePathsByScreenIdRef.current[");
+    expect(focusedCanvas).toContain("activeFile.id");
+  });
+
   it("uses the selected screen size and the real canvas bounds", () => {
     expect(editorSurface).toContain("resolveInteractDeviceForScreen(");
     expect(source).toContain("container.clientWidth - 48");
