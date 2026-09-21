@@ -759,6 +759,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
       // The bridge's own closing handshake must survive intact, proving its
       // <script> tag was never prematurely closed partway through.
       expect(srcdoc).toContain("agent-native:editor-chrome-ready");
+      expect(srcdoc).toContain("agent-native:editor-chrome-ready-probe");
       expect(srcdoc).toContain("data-agent-native-content-size-bridge");
     } finally {
       await act(async () => root.unmount());

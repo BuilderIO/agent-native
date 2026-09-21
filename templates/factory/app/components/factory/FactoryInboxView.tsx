@@ -19,10 +19,12 @@ import { useEffect, useRef, useState, type ComponentType } from "react";
 import { useSearchParams } from "react-router";
 
 import {
+  INBOX_CONFIDENCE,
   INBOX_RANGES,
   INBOX_RISKS,
   INBOX_SOURCES,
   INBOX_STATUSES,
+  parseInboxConfidence,
   parseInboxRange,
   parseInboxRisk,
   parseInboxSource,
@@ -36,6 +38,7 @@ import { SlackMrkdwn } from "@/components/factory/SlackMrkdwn";
 import {
   InboxPill,
   type InboxPillData,
+  TriageConfidencePill,
   TriageRiskPill,
   TriageStatusPill,
 } from "@/components/triage/triage-status-pill";
@@ -47,8 +50,13 @@ import { collapseConsecutiveInboxEvents } from "@/lib/collapse-inbox-events";
 
 const INBOX_PAGE_SIZE = 50;
 
+// Each row is its own grid instance (a <button>), so `auto`/`fr`-sized
+// columns compute independently per row and drift out of alignment across
+// rows once content length differs (e.g. "Merged" vs. "Needs reconciliation").
+// Every column but the title is a fixed width for that reason; long labels
+// wrap within their pill instead of resizing the column.
 const inboxListColumns =
-  "w-full gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(4.75rem,auto)_minmax(7rem,auto)_minmax(7rem,auto)_minmax(4.5rem,auto)] sm:items-start";
+  "w-full gap-3 sm:grid-cols-[minmax(0,1.4fr)_5.5rem_4.5rem_8.5rem_8.5rem_4.5rem] sm:items-start";
 
 type Verdict = "correct" | "incorrect" | "uncertain";
 
@@ -62,6 +70,7 @@ type InboxListItem = {
   sourceName?: string | null;
   sourceUrl?: string | null;
   risk?: string | null;
+  confidence?: string | null;
   status?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -152,6 +161,7 @@ export function FactoryInboxView({
   const [searchParams, setSearchParams] = useSearchParams();
   const status = parseInboxStatus(searchParams.get("status"));
   const risk = parseInboxRisk(searchParams.get("risk"));
+  const confidence = parseInboxConfidence(searchParams.get("confidence"));
   const range = parseInboxRange(searchParams.get("range"));
   const source = parseInboxSource(searchParams.get("source"));
   const updatedAfter = updatedAfterForRange(range);
@@ -169,6 +179,7 @@ export function FactoryInboxView({
     limit: INBOX_PAGE_SIZE,
     ...(status ? { status } : {}),
     ...(risk ? { risk } : {}),
+    ...(confidence ? { confidence } : {}),
     ...(source ? { source } : {}),
     ...(updatedAfter ? { updatedAfter } : {}),
     ...(cursor ? { cursor } : {}),
@@ -215,7 +226,7 @@ export function FactoryInboxView({
   useEffect(() => {
     setCursor(null);
     setCursorStack([]);
-  }, [status, risk, range, source]);
+  }, [status, risk, confidence, range, source]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -226,7 +237,7 @@ export function FactoryInboxView({
   }, [selectedId, items.length]);
 
   function setInboxFilter(
-    key: "status" | "risk" | "range" | "source",
+    key: "status" | "risk" | "confidence" | "range" | "source",
     value: string,
   ) {
     setCursor(null);
@@ -309,17 +320,6 @@ export function FactoryInboxView({
                   onChange={(value) => setInboxFilter("range", value)}
                 />
                 <InboxFilterSelect
-                  id="factory-status-filter"
-                  label={t("triage.status")}
-                  value={status}
-                  placeholder={t("triage.statusPlaceholder")}
-                  options={INBOX_STATUSES.map((value) => ({
-                    value,
-                    label: t(`triage.statusValues.${value}`),
-                  }))}
-                  onChange={(value) => setInboxFilter("status", value)}
-                />
-                <InboxFilterSelect
                   id="factory-risk-filter"
                   label={t("triage.risk")}
                   value={risk}
@@ -329,6 +329,28 @@ export function FactoryInboxView({
                     label: t(`triage.riskValues.${value}`),
                   }))}
                   onChange={(value) => setInboxFilter("risk", value)}
+                />
+                <InboxFilterSelect
+                  id="factory-confidence-filter"
+                  label={t("triage.confidence")}
+                  value={confidence}
+                  placeholder={t("triage.confidencePlaceholder")}
+                  options={INBOX_CONFIDENCE.map((value) => ({
+                    value,
+                    label: t(`triage.confidenceValues.${value}`),
+                  }))}
+                  onChange={(value) => setInboxFilter("confidence", value)}
+                />
+                <InboxFilterSelect
+                  id="factory-status-filter"
+                  label={t("triage.status")}
+                  value={status}
+                  placeholder={t("triage.statusPlaceholder")}
+                  options={INBOX_STATUSES.map((value) => ({
+                    value,
+                    label: t(`triage.statusValues.${value}`),
+                  }))}
+                  onChange={(value) => setInboxFilter("status", value)}
                 />
                 <InboxFilterSelect
                   id="factory-source-filter"
@@ -372,6 +394,7 @@ export function FactoryInboxView({
                   >
                     <span />
                     <span>{t("triage.risk")}</span>
+                    <span>{t("triage.confidence")}</span>
                     <span>{t("triage.status")}</span>
                     <span>{t("triage.inboxColumnAutomation")}</span>
                     <span>{t("triage.updatedAt")}</span>
@@ -418,6 +441,12 @@ export function FactoryInboxView({
                             {t("triage.risk")}
                           </span>
                           <TriageRiskPill risk={item.risk} />
+                        </span>
+                        <span>
+                          <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                            {t("triage.confidence")}
+                          </span>
+                          <TriageConfidencePill confidence={item.confidence} />
                         </span>
                         <span>
                           <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
@@ -605,7 +634,9 @@ function InboxDetailPane({
     ),
   ]
     .filter(Boolean)
-    .join(" · ");
+    // Non-breaking spaces so the wider gap survives HTML whitespace
+    // collapsing instead of rendering as a single space.
+    .join("  ·  ");
   const inboxPresentation = resolveInboxPresentation(item, listItem);
   const pullRequestLabel =
     inboxPullRequestLabel(item) ?? inboxPullRequestLabel(listItem);
@@ -618,27 +649,44 @@ function InboxDetailPane({
 
   return (
     <>
-      <header className="space-y-1.5">
+      <header className="space-y-3">
         {showDetailTitle ? (
-          <div className="space-y-0.5">
+          <h2 className="break-words text-base font-medium">
             {pullRequestLabel ? (
-              <p className="text-xs tabular-nums text-muted-foreground">
-                {pullRequestLabel}
-              </p>
+              <span className="tabular-nums text-muted-foreground">
+                {pullRequestLabel}{" "}
+              </span>
             ) : null}
-            <h2 className="break-words text-base font-medium">{title}</h2>
-          </div>
+            {title}
+          </h2>
         ) : null}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span className="inline-flex min-w-0 items-center gap-1">
+            <EvidenceIcon source={source} />
+            <span className="truncate">{meta}</span>
+          </span>
+          {sourceUrl && (
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1 text-primary hover:underline"
+            >
+              {t("triage.openSource")}
+              <IconExternalLink className="size-3" />
+            </a>
+          )}
+        </div>
+        <div className="flex flex-wrap items-start gap-x-4 gap-y-2 text-xs text-muted-foreground">
           {inboxPresentation ? (
             <>
-              <span className="inline-flex items-center gap-1.5">
+              <span className="flex flex-col gap-1">
                 <span className="text-[11px] font-medium uppercase tracking-wide">
                   {t("triage.status")}
                 </span>
                 <InboxPill pill={inboxPresentation.routing} />
               </span>
-              <span className="inline-flex items-center gap-1.5">
+              <span className="flex flex-col gap-1">
                 <span className="text-[11px] font-medium uppercase tracking-wide">
                   {t("triage.inboxColumnAutomation")}
                 </span>
@@ -652,21 +700,20 @@ function InboxDetailPane({
           ) : (
             <TriageStatusPill status={item.status ?? listItem?.status} />
           )}
-          <span className="inline-flex min-w-0 items-center gap-1">
-            <EvidenceIcon source={source} />
-            <span className="truncate">{meta}</span>
+          <span className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium uppercase tracking-wide">
+              {t("triage.risk")}
+            </span>
+            <TriageRiskPill risk={item.risk ?? listItem?.risk} />
           </span>
-          {sourceUrl && (
-            <a
-              href={sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="ms-auto inline-flex items-center gap-1 text-primary hover:underline"
-            >
-              {t("triage.openSource")}
-              <IconExternalLink className="size-3" />
-            </a>
-          )}
+          <span className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium uppercase tracking-wide">
+              {t("triage.confidence")}
+            </span>
+            <TriageConfidencePill
+              confidence={item.confidence ?? listItem?.confidence}
+            />
+          </span>
         </div>
       </header>
 

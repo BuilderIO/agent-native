@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   promptResourceBlock,
   type PromptSection,
+  resourceScopeForOwner,
   selectPromptSectionsWithinBudget,
 } from "./prompt-resources.js";
 
@@ -131,6 +132,20 @@ describe("selectPromptSectionsWithinBudget", () => {
     expect(result.skipped).toEqual([
       { label: "workspace-index (test)", chars: sections[0]!.content.length },
     ]);
+  });
+});
+
+describe("resourceScopeForOwner", () => {
+  it("labels bare and organization-scoped workspace owners as workspace", () => {
+    expect(resourceScopeForOwner("__workspace__")).toBe("workspace");
+    expect(resourceScopeForOwner("__workspace__:__organization__:org-a")).toBe(
+      "workspace",
+    );
+    expect(resourceScopeForOwner("__organization__:org-a")).toBe("shared");
+    expect(resourceScopeForOwner("__shared__")).toBe("shared");
+    expect(resourceScopeForOwner("me@example.test", "me@example.test")).toBe(
+      "personal",
+    );
   });
 });
 

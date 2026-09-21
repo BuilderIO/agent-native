@@ -529,7 +529,9 @@ export function isMarketingWebsiteSessionEvent({
   app: string | null;
   template: string | null;
 }): boolean {
-  if (eventName !== "session status") return false;
+  if (eventName !== "session status" && eventName !== "session_status") {
+    return false;
+  }
   const normalizedHostname = hostname?.trim().toLowerCase().replace(/\.$/, "");
   if (
     normalizedHostname === "agent-native.com" ||
