@@ -1197,6 +1197,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // Track the host key state before then so a chord held during the source drag
   // is still present when that start initializes the host payload.
   const crossScreenSKeyPressedRef = useRef(false);
+  const crossScreenControlPressedRef = useRef(false);
   /** False once this canvas unmounts. Nothing may persist a drop after that.
    *  Mount-scoped on purpose: the message effect's cleanup also runs on every
    *  dependency change, and invalidating there kills live commits. */
@@ -3640,6 +3641,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const handleParentWindowBlur = () => {
           cancelPendingParentDrag();
           crossScreenIgnoreAutoLayoutRef.current = false;
+          crossScreenControlPressedRef.current = false;
           // An iframe-focus handoff also emits blur on some browsers, while the
           // top document remains focused. Only a real window blur may discard
           // the S timeline before the source end message arrives.
@@ -3669,6 +3671,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }
         };
         const handleParentKeyDown = (ev: KeyboardEvent) => {
+          if (isApplePlatform() && ev.key === "Control") {
+            crossScreenControlPressedRef.current = true;
+          }
           if (hostUsesSForIgnoreAutoLayout() && ev.key.toLowerCase() === "s") {
             syncHostIgnoreAutoLayout(true, ev.timeStamp);
             ev.preventDefault();
@@ -3697,6 +3702,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           clearCrossScreenDrag();
         };
         const handleParentKeyUp = (ev: KeyboardEvent) => {
+          if (isApplePlatform() && ev.key === "Control") {
+            crossScreenControlPressedRef.current = false;
+          }
           if (hostUsesSForIgnoreAutoLayout() && ev.key.toLowerCase() === "s") {
             syncHostIgnoreAutoLayout(false, ev.timeStamp);
             ev.preventDefault();
@@ -8238,6 +8246,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             type: "agent-native:drag-modifiers",
             ignoreAutoLayout:
               crossScreenIgnoreAutoLayoutRef.current ||
+              crossScreenControlPressedRef.current ||
               (isApplePlatform() &&
                 pressModifiers.ctrlKey &&
                 !pressModifiers.metaKey),
