@@ -37,18 +37,34 @@ export default defineAction({
       });
     }
     const db = getDb();
-    const resumeRetryable = async (operation: {
+    const resumeIncomplete = async (operation: {
       id: string;
       planId: string;
       status: string;
+      leaseExpiresAt: string | null;
     }) => {
       await assertTrashPurgePlanAuthority(operation.planId);
-      if (operation.status !== "retryable") {
+      const resumable =
+        operation.status === "retryable" ||
+        (operation.status === "running" &&
+          (!operation.leaseExpiresAt ||
+            Date.parse(operation.leaseExpiresAt) <= Date.now()));
+      if (!resumable) {
         return { operationId: operation.id, status: operation.status };
       }
       try {
         await dispatchContentTrashPurge(operation.id);
-      } catch {
+      } catch (error) {
+        await db
+          .update(schema.contentTrashPurgeOperations)
+          .set({
+            status: "retryable",
+            leaseToken: null,
+            leaseExpiresAt: null,
+            lastError: error instanceof Error ? error.message : String(error),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.contentTrashPurgeOperations.id, operation.id));
         fail("Trash purge retry could not dispatch its next batch", {
           errorCode: "dispatch_failed",
           statusCode: 503,
@@ -83,7 +99,7 @@ export default defineAction({
           statusCode: 409,
         });
       }
-      return resumeRetryable(existing);
+      return resumeIncomplete(existing);
     }
     const [existingForPlan] = await db
       .select()
@@ -96,7 +112,7 @@ export default defineAction({
       )
       .limit(1);
     if (existingForPlan) {
-      return resumeRetryable(existingForPlan);
+      return resumeIncomplete(existingForPlan);
     }
 
     const [ownedPlan] = await db

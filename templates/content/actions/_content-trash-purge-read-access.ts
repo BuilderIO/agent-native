@@ -1,34 +1,45 @@
 import { fail } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import { getDb, schema } from "../server/db/index.js";
+import { contentTrashPredicates } from "./_content-trash-query.js";
 
 export async function assertContentTrashPurgeReadAccess(planId: string) {
-  const units = await getDb()
-    .selectDistinct({
-      rootDocumentId: schema.contentTrashPurgePlanItems.rootDocumentId,
+  const items = await getDb()
+    .select({
+      documentId: schema.contentTrashPurgePlanItems.documentId,
     })
     .from(schema.contentTrashPurgePlanItems)
     .where(eq(schema.contentTrashPurgePlanItems.planId, planId));
-  const unitIds = units.map(({ rootDocumentId }) => rootDocumentId);
-  const authorized = unitIds.length
+  const documentIds = items.map(({ documentId }) => documentId);
+  const document = alias(schema.documents, "purge_read_document");
+  const database = alias(schema.contentDatabases, "purge_read_database");
+  const host = alias(schema.documents, "purge_read_host");
+  const canonicalDatabaseId = sql<string>`(select min(${schema.contentDatabases.id}) from ${schema.contentDatabases} where ${schema.contentDatabases.documentId} = ${document.id})`;
+  const { authority, deletedAt } = contentTrashPredicates(
+    document,
+    database,
+    accessFilter(document, schema.documentShares, undefined, "admin"),
+    accessFilter(document, schema.documentShares),
+    accessFilter(host, schema.documentShares, undefined, "editor"),
+  );
+  const authorized = documentIds.length
     ? await getDb()
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
+        .select({ id: document.id })
+        .from(document)
+        .leftJoin(database, eq(database.id, canonicalDatabaseId))
+        .leftJoin(host, eq(host.id, database.ownerDocumentId))
         .where(
           and(
-            inArray(schema.documents.id, unitIds),
-            accessFilter(
-              schema.documents,
-              schema.documentShares,
-              undefined,
-              "admin",
-            ),
+            inArray(document.id, documentIds),
+            isNotNull(deletedAt),
+            authority,
           ),
         )
     : [];
-  if (authorized.length !== unitIds.length) {
+  if (authorized.length !== documentIds.length) {
     fail("Trash purge record not found", {
       errorCode: "not_found",
       statusCode: 404,
