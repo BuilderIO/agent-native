@@ -460,10 +460,20 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       "second",
     ]);
     expect(
-      findAutoLayoutInsertionAnchor(parent, primitives, { x: 310, y: 135 }, null),
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 310, y: 135 },
+        null,
+      ),
     ).toMatchObject({ anchorNodeId: "first", placement: "before" });
     expect(
-      findAutoLayoutInsertionAnchor(parent, primitives, { x: 375, y: 135 }, null),
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 375, y: 135 },
+        null,
+      ),
     ).toMatchObject({ anchorNodeId: "first", placement: "after" });
   });
 
