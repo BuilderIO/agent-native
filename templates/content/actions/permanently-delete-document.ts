@@ -6,7 +6,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { hashTrashScopeToken } from "../server/lib/content-trash-purge.js";
+import {
+  authorizedTrashDocumentIds,
+  hashTrashScopeToken,
+} from "../server/lib/content-trash-purge.js";
 import {
   deleteTrashedDocumentSubtree,
   PermanentDeleteScopeChangedError,
@@ -73,6 +76,12 @@ export default defineAction({
     try {
       deleted = await db.transaction(async (tx) => {
         const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+        const authorizedIds = await authorizedTrashDocumentIds(
+          transactionDb,
+          items.map((item) => item.documentId),
+        );
+        if (authorizedIds.size !== items.length)
+          throw new PermanentDeleteScopeChangedError();
         const result = await deleteTrashedDocumentSubtree(
           transactionDb,
           id,

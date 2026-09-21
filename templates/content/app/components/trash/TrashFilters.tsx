@@ -21,6 +21,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import type { ContentSpaceSummary } from "@/hooks/use-content-spaces";
 import {
   changeTrashSort,
   type ContentTrashFilters,
@@ -29,6 +30,7 @@ import {
 
 const FILTER_KEYS = [
   "kind",
+  "spaceId",
   "createdBy",
   "updatedBy",
   "actor",
@@ -49,11 +51,13 @@ export function TrashFilters({
   onChange,
   onEmptyTrash,
   emptyTrashRef,
+  spaces,
 }: {
   filters: ContentTrashFilters;
   onChange: (filters: ContentTrashFilters) => void;
   onEmptyTrash: () => void;
   emptyTrashRef?: Ref<HTMLButtonElement>;
+  spaces: ContentSpaceSummary[];
 }) {
   const t = useT();
   const [searchOpen, setSearchOpen] = useState(Boolean(filters.query));
@@ -72,6 +76,8 @@ export function TrashFilters({
     });
   const label = (key: (typeof FILTER_KEYS)[number]) => {
     const value = filters[key];
+    if (key === "spaceId")
+      return `${t("sidebar.workspaces")}: ${spaces.find((space) => space.id === value)?.name ?? value}`;
     if (key === "kind")
       return `${t("trash.kind")}: ${t(value === "database" ? "trash.collections" : "trash.pages")}`;
     const labelKey = {
@@ -143,6 +149,32 @@ export function TrashFilters({
             </ContentTableToolbarButton>
           </PopoverTrigger>
           <PopoverContent align="end" className="grid w-80 gap-3">
+            <fieldset className="grid gap-1.5">
+              <legend className="text-xs font-medium">
+                {t("sidebar.workspaces")}
+              </legend>
+              <div className="grid gap-1">
+                {spaces.map((space) => (
+                  <Button
+                    key={space.id}
+                    type="button"
+                    size="sm"
+                    variant={
+                      filters.spaceId === space.id ? "secondary" : "ghost"
+                    }
+                    className="justify-start"
+                    onClick={() =>
+                      set(
+                        "spaceId",
+                        filters.spaceId === space.id ? undefined : space.id,
+                      )
+                    }
+                  >
+                    {space.name}
+                  </Button>
+                ))}
+              </div>
+            </fieldset>
             <fieldset className="grid gap-1.5">
               <legend className="text-xs font-medium">{t("trash.kind")}</legend>
               <div className="grid grid-cols-2 gap-1">
@@ -219,6 +251,7 @@ export function TrashFilters({
           size="sm"
           className="ms-auto h-7 shrink-0 gap-1.5 px-2 text-destructive hover:text-destructive"
           onClick={onEmptyTrash}
+          disabled={spaces.length !== 1 && !filters.spaceId}
           aria-label={t("trash.emptyTrash")}
         >
           <IconTrash className="size-3.5" />

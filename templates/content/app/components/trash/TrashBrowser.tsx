@@ -17,6 +17,7 @@ import { TrashDocumentPreview } from "@/components/editor/TrashDocumentPreview";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useContentSpaces } from "@/hooks/use-content-spaces";
 import {
   useContentTrash,
   clearTrashSelection,
@@ -104,6 +105,8 @@ export function TrashBrowser({
   const [trashOperationStateError, setTrashOperationStateError] =
     useState(false);
   const query = useContentTrash(deferredFilters);
+  const contentSpaces = useContentSpaces();
+  const spaces = contentSpaces.data?.spaces ?? [];
   const restore = useRestoreTrashItem();
   const items = useMemo(
     () =>
@@ -239,12 +242,16 @@ export function TrashBrowser({
         <TrashFilters
           emptyTrashRef={emptyTrashRef}
           filters={filters}
+          spaces={spaces}
           onChange={updateFilters}
           onEmptyTrash={() => {
             purgeInvokerRef.current = emptyTrashRef.current;
             setPurgeRequest({
               id: crypto.randomUUID(),
-              input: trashScopePlanInput(filters.spaceId),
+              input: trashScopePlanInput(
+                filters.spaceId ??
+                  (spaces.length === 1 ? spaces[0]?.id : undefined),
+              ),
             });
           }}
         />

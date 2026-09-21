@@ -39,7 +39,7 @@ const LEASE_MS = 2 * 60 * 1000;
 
 class ContentTrashPurgeLeaseLostError extends Error {}
 
-async function authorizedTrashDocumentIds(
+export async function authorizedTrashDocumentIds(
   db: ReturnType<typeof getDb>,
   documentIds: string[],
 ) {
@@ -388,14 +388,30 @@ export async function processContentTrashPurge(operationId: string) {
     try {
       await dispatchContentTrashPurge(operationId);
     } catch (error) {
-      await db
+      const [retryReceipt] = await db
         .update(schema.contentTrashPurgeOperations)
         .set({
           status: "retryable",
           lastError: error instanceof Error ? error.message : String(error),
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(schema.contentTrashPurgeOperations.id, operationId));
+        .where(
+          and(
+            eq(schema.contentTrashPurgeOperations.id, operationId),
+            eq(schema.contentTrashPurgeOperations.status, "queued"),
+          ),
+        )
+        .returning({ id: schema.contentTrashPurgeOperations.id });
+      if (!retryReceipt) {
+        const [current] = await db
+          .select({ status: schema.contentTrashPurgeOperations.status })
+          .from(schema.contentTrashPurgeOperations)
+          .where(eq(schema.contentTrashPurgeOperations.id, operationId))
+          .limit(1);
+        if (!current)
+          throw new Error("Trash purge operation disappeared after dispatch");
+        return { accepted: true, continued: true, status: current.status };
+      }
       throw error;
     }
     return { accepted: true, continued: true };

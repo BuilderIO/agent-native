@@ -180,14 +180,30 @@ export default defineAction({
       await dispatchContentTrashPurge(operationId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await db
+      const [retryReceipt] = await db
         .update(schema.contentTrashPurgeOperations)
         .set({
           status: "retryable",
           lastError: message,
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(schema.contentTrashPurgeOperations.id, operationId));
+        .where(
+          and(
+            eq(schema.contentTrashPurgeOperations.id, operationId),
+            eq(schema.contentTrashPurgeOperations.status, "queued"),
+          ),
+        )
+        .returning({ status: schema.contentTrashPurgeOperations.status });
+      if (!retryReceipt) {
+        const [current] = await db
+          .select({ status: schema.contentTrashPurgeOperations.status })
+          .from(schema.contentTrashPurgeOperations)
+          .where(eq(schema.contentTrashPurgeOperations.id, operationId))
+          .limit(1);
+        if (!current)
+          throw new Error("Trash purge operation disappeared after dispatch");
+        return { operationId, status: current.status };
+      }
       fail("Trash purge was saved but its worker could not be dispatched", {
         errorCode: "dispatch_failed",
         statusCode: 503,
