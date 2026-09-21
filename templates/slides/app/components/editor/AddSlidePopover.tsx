@@ -211,6 +211,7 @@ export function AddSlidePopover({
               `Fill in slide ${activeSlideIndex + 1} of ${slideCount} (id: ${targetSlideId}) in deck "${deckTitle}" (id: ${deckId}).`,
               "This slide already exists as a blank placeholder that the user just inserted — update it with `update-slide`, do not call `add-slide` for it.",
               "The visible user message above contains the user's request and/or pasted source material for this slide. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+              `Before authoring this slide, call \`get-deck\` with id="${deckId}" and compact=true. Reuse its linked designSystem.agentContext and deckStyle; if it returns a designSystemId, call \`get-design-system\` with that id before generating. Do not fall back to generic styling.`,
               WEBSITE_STYLE_REFERENCE_DIRECTIVE,
               googleDocSourceForContext.text,
               googleDocSourceForContext.truncated
@@ -225,6 +226,7 @@ export function AddSlidePopover({
               `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
               `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
               "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+              `Before authoring these slides, call \`get-deck\` with id="${deckId}" and compact=true. Reuse its linked designSystem.agentContext and deckStyle; if it returns a designSystemId, call \`get-design-system\` with that id before generating. Do not fall back to generic styling.`,
               WEBSITE_STYLE_REFERENCE_DIRECTIVE,
               googleDocSourceForContext.text,
               googleDocSourceForContext.truncated
