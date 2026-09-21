@@ -80,8 +80,10 @@ function readThreadMessages(threadData: string): Array<{
         ? [{ role: message.role, text, runId: messageRunId(message) }]
         : [];
     });
-  } catch {
-    return [];
+  } catch (error) {
+    throw new Error("Unable to parse observability thread data", {
+      cause: error,
+    });
   }
 }
 
