@@ -1834,7 +1834,7 @@ function DesignEditor() {
             : {}),
         }))
         .filter((patch) => Object.keys(patch.styles).length > 0);
-      if (patches.length === 0) return;
+      if (patches.length === 0) return undefined;
       const requestId = Date.now() + Math.random();
       const sendStyleForScreen = (window as any)
         .__designCanvasSendStyleForScreen;
@@ -1854,7 +1854,7 @@ function DesignEditor() {
           patches: fallbackPatches,
         });
       }
-      setPendingVisualStyleBaselineResetRequest(requestId);
+      return requestId;
     },
     [],
   );

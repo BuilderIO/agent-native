@@ -174,7 +174,7 @@ describe("pending live history order", () => {
       setPendingTextRevertRequest: vi.fn(),
       setPendingVisualStyleBaselineResetRequest: vi.fn(),
       setPendingVisualStyleRevertRequest: vi.fn(),
-      replayPendingVisualStyleRuntime: vi.fn(),
+      replayPendingVisualStyleRuntime: vi.fn(() => 42),
     } as any;
     runRedo(redoArgs);
     expect(redoArgs.replayPendingVisualStyleRuntime).toHaveBeenNthCalledWith(
@@ -192,6 +192,12 @@ describe("pending live history order", () => {
       3,
       [expect.objectContaining({ styles: { backgroundColor: "blue" } })],
     );
+    expect(
+      redoArgs.setPendingVisualStyleBaselineResetRequest,
+    ).toHaveBeenCalledTimes(3);
+    expect(
+      redoArgs.setPendingVisualStyleBaselineResetRequest,
+    ).toHaveBeenNthCalledWith(1, 42);
     runRedo(redoArgs);
     expect(redoArgs.setPendingTextRevertRequest).toHaveBeenCalledTimes(1);
     expect(historyOrderRef.current).toEqual([
