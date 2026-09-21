@@ -22977,7 +22977,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       true,
     );
   } catch (_err) {
-    // Cross-origin previews cannot inspect the host document.
+    // coercion-ok: cross-origin previews intentionally cannot inspect the host document.
   }
 
   // Space-pan release: keydown forwarding above arms the parent's temporary
