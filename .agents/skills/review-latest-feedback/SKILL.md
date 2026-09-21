@@ -441,16 +441,13 @@ instruction or prompt exception.
 
 ### The bar for saying "Fixed"
 
-Say **Fixed** only when all four hold: the reporter's observed symptom is named;
-the exact reproduction fails before and passes after (a prop-threading test is
-not proof of "double-click schedules two emails," and a docs diff is not the
-clean-scaffold copy-paste proof); the sibling sweep is clean or triaged; and
-the verified change is in the merged shipping snapshot with its source or
-built runtime layer named. **Shipped** requires build/deploy provenance;
-**Live verified** requires the target runtime. Otherwise use a narrower
-disposition and never imply beta or production health. An upvoted improvement
-states requested versus actual behavior, then holds the same bars and is
-**Shipped**, not **Fixed**.
+Say **Fixed** only when all four hold: named symptom; exact pre/post
+reproduction; clean or triaged sibling sweep; and verified change in the merged
+shipping snapshot with its source or built layer named. **Shipped** adds
+build/deploy provenance; **Live verified** adds target-runtime proof. Otherwise
+use a narrower disposition and never imply beta or production health. Upvoted
+improvements state requested versus actual behavior and use **Shipped**, not
+**Fixed**.
 
 ## Phase 3: reply
 
@@ -461,15 +458,13 @@ workflow ends with `this was sent from a bot.` after the plain-language status.
 Reply only where the reply carries information the thread does not already
 have. Three kinds qualify:
 
-- **Fixed** / **Shipped** / **Live verified** — all four bars above are met. A
-  live-verified row may be silent when its live observation is already recorded;
-  do not manufacture a reply. For package reports,
-  include the published version when available. Otherwise name the merged fix
-  and say publication plus the upgrade or re-scaffold command are follow-ups;
-  never imply the current published package is already fixed. Name the beta
-  URL/runtime only when it was actually exercised; never use “on beta later
-  today” as a substitute for release or live proof. Use **Shipped** for an
-  upvoted improvement.
+- **Fixed** / **Shipped** / **Live verified** - meet the applicable bars above.
+  A live-verified row may be silent if its observation is recorded. For
+  packages, name the published version when available; otherwise name the
+  merged fix and list publication plus the upgrade/re-scaffold follow-up without
+  claiming the published package is fixed. Name beta URL/runtime only when
+  exercised; never substitute a future beta promise for release or live proof.
+  Use **Shipped** for upvoted improvements.
 - **In progress** — the thread already has real, concrete ownership (a named
   PR, a person actively working it). Acknowledge it; ask nothing.
 - **A question** — subject to the budget below.
