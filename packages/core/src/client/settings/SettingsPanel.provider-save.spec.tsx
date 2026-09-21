@@ -40,6 +40,16 @@ const openai: EngineFixture = {
   configured: true,
 };
 
+const ollama: EngineFixture = {
+  name: "ai-sdk:ollama",
+  label: "Ollama",
+  defaultModel: "llama3.1",
+  supportedModels: ["llama3.1", "llama3.2", "mistral", "codestral"],
+  requiredEnvVars: [],
+  packageInstalled: true,
+  configured: false,
+};
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -67,6 +77,7 @@ function createFetchFixture({
   setResponse,
   providerSettingsResponse,
   disconnectResponse,
+  ollamaModelsResponse,
 }: {
   engines?: EngineFixture[] | (() => EngineFixture[]);
   current?: { engine: string; model: string };
@@ -76,6 +87,7 @@ function createFetchFixture({
   setResponse: () => Promise<Response> | Response;
   providerSettingsResponse?: () => Promise<Response> | Response;
   disconnectResponse?: () => Promise<Response> | Response;
+  ollamaModelsResponse?: () => Promise<Response> | Response;
 }) {
   const setRequests: Array<Record<string, unknown>> = [];
   const providerSettingsRequests: Array<Record<string, unknown>> = [];
@@ -109,6 +121,9 @@ function createFetchFixture({
       if (url.endsWith("/_agent-native/agent-engine/api-key")) {
         providerSettingsRequests.push(JSON.parse(String(init?.body)));
         return providerSettingsResponse?.() ?? json({ ok: true });
+      }
+      if (url.includes("/_agent-native/agent-engine/ollama-models")) {
+        return ollamaModelsResponse?.() ?? json({ ok: true, models: [] });
       }
       if (url.endsWith("/_agent-native/actions/manage-agent-engine")) {
         const body = JSON.parse(String(init?.body ?? "{}")) as Record<
@@ -710,6 +725,98 @@ describe("AgentSettingsContent provider save", () => {
     expect(fixture.listRequests).toBe(3);
     expect(model.value).toBe("dirty/custom-model");
     expect(test.disabled).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("puts the Ollama endpoint field before the model field, with a Find models button", async () => {
+    const fixture = createFetchFixture({
+      engines: [anthropic, ollama],
+      current: { engine: "anthropic", model: "claude-sonnet-5" },
+      setResponse: () => json({ ok: true }),
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await click(buttonNamed("Manage"));
+    const picker = document.querySelector(
+      'button[aria-label="Choose a provider"]',
+    );
+    if (!(picker instanceof HTMLButtonElement)) {
+      throw new Error("Missing provider picker");
+    }
+    await click(picker);
+    const ollamaOption = Array.from(
+      document.querySelectorAll("[cmdk-item]"),
+    ).find((candidate) => candidate.textContent?.includes("Ollama"));
+    if (!(ollamaOption instanceof HTMLElement)) {
+      throw new Error("Missing Ollama provider option");
+    }
+    await click(ollamaOption);
+
+    const endpoint =
+      document.querySelector<HTMLInputElement>('input[type="url"]');
+    const model = document.querySelector<HTMLInputElement>(
+      'input[list="model-suggestions-ai-sdk:ollama"]',
+    );
+    if (!endpoint) throw new Error("Missing endpoint input");
+    // Ollama's model field is a free-typed input with no static datalist —
+    // the suggestion list only comes from a live "Find models" fetch.
+    expect(model).toBeNull();
+    const endpointOffset = Array.from(
+      document.querySelectorAll("input, button"),
+    ).indexOf(endpoint);
+    const findModelsButton = buttonNamed("Find models");
+    const findModelsOffset = Array.from(
+      document.querySelectorAll("input, button"),
+    ).indexOf(findModelsButton);
+    expect(endpointOffset).toBeLessThan(findModelsOffset);
+    act(() => root.unmount());
+  });
+
+  it("replaces the static Ollama suggestions with the server's installed models after Find models", async () => {
+    const fixture = createFetchFixture({
+      engines: [anthropic, ollama],
+      current: { engine: "anthropic", model: "claude-sonnet-5" },
+      setResponse: () => json({ ok: true }),
+      ollamaModelsResponse: () =>
+        json({
+          ok: true,
+          models: ["qwen3.8-code-131k:latest", "mistral:latest"],
+        }),
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await click(buttonNamed("Manage"));
+    const picker = document.querySelector(
+      'button[aria-label="Choose a provider"]',
+    );
+    if (!(picker instanceof HTMLButtonElement)) {
+      throw new Error("Missing provider picker");
+    }
+    await click(picker);
+    const ollamaOption = Array.from(
+      document.querySelectorAll("[cmdk-item]"),
+    ).find((candidate) => candidate.textContent?.includes("Ollama"));
+    if (!(ollamaOption instanceof HTMLElement)) {
+      throw new Error("Missing Ollama provider option");
+    }
+    await click(ollamaOption);
+
+    const endpoint =
+      document.querySelector<HTMLInputElement>('input[type="url"]');
+    if (!endpoint) throw new Error("Missing endpoint input");
+    await changeInput(endpoint, "http://192.168.1.68:11434");
+    await click(buttonNamed("Find models"));
+
+    expect(buttonNamed("qwen3.8-code-131k:latest")).toBeTruthy();
+    expect(buttonNamed("mistral:latest")).toBeTruthy();
+    // A successful check persists the confirmed address immediately, so
+    // surfaces without their own endpoint field (the chat model picker) stop
+    // falling back to the localhost default.
+    expect(fixture.providerSettingsRequests).toEqual([
+      {
+        key: "OLLAMA_BASE_URL",
+        baseUrl: "http://192.168.1.68:11434",
+        scope: "org",
+      },
+    ]);
     act(() => root.unmount());
   });
 });

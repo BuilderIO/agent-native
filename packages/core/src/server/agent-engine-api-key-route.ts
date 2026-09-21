@@ -5,7 +5,10 @@ import {
   type H3Event,
 } from "h3";
 
-import { normalizeOpenAiBaseUrl } from "../agent/engine/openai-compatible-endpoint.js";
+import {
+  normalizeOpenAiBaseUrl,
+  stripOllamaV1Suffix,
+} from "../agent/engine/openai-compatible-endpoint.js";
 import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
 import {
   OLLAMA_BASE_URL_ENV_VAR,
@@ -14,8 +17,11 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
 import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
-import { getSession, isLoopbackRequest } from "./auth.js";
-import { clearProviderCredentialAuthFailure } from "./credential-provider.js";
+import { getSession } from "./auth.js";
+import {
+  clearProviderCredentialAuthFailure,
+  isTrustedSelfHostedRuntime,
+} from "./credential-provider.js";
 import { readBody } from "./h3-helpers.js";
 
 const PROVIDER_TO_ENV_VAR = new Map(
@@ -139,6 +145,9 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
     }
     try {
       baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
+      if (key === OLLAMA_BASE_URL_ENV_VAR) {
+        baseUrl = stripOllamaV1Suffix(baseUrl);
+      }
     } catch (err) {
       return {
         ok: false,
@@ -314,10 +323,10 @@ export function createAgentEngineApiKeyHandler() {
     if (payload.baseUrl) {
       try {
         await validateProviderBaseUrl(payload.baseUrl, {
+          isOllama: payload.key === OLLAMA_BASE_URL_ENV_VAR,
           allowLocalOllama:
             payload.key === OLLAMA_BASE_URL_ENV_VAR &&
-            process.env.NODE_ENV !== "production" &&
-            isLoopbackRequest(event),
+            isTrustedSelfHostedRuntime(),
         });
       } catch (err) {
         setResponseStatus(event, 400);

@@ -21,6 +21,7 @@ import {
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
+  isTrustedSelfHostedRuntime,
   prefetchSecrets,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
@@ -856,10 +857,13 @@ async function resolveProviderBaseUrl(
     ? readDeployCredentialEnv(envVar)
     : undefined;
 
+  const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
+
   if (!raw) {
     if (!deployValue) return undefined;
     return validateProviderBaseUrl(deployValue, {
       allowPrivate: true,
+      isOllama,
     });
   }
 
@@ -870,9 +874,8 @@ async function resolveProviderBaseUrl(
         // allowance as the explicit deploy-only branch above without extending
         // it to user-, org-, or workspace-scoped endpoint values.
         allowPrivate: deployValue !== undefined && raw === deployValue,
-        allowLocalOllama:
-          envVar === OLLAMA_BASE_URL_ENV_VAR &&
-          process.env.NODE_ENV !== "production",
+        allowLocalOllama: isOllama && isTrustedSelfHostedRuntime(),
+        isOllama,
       })
     : undefined;
 }
@@ -1055,10 +1058,10 @@ async function engineCreateConfigForEntry(
   }
   if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
+      const isOllama = entry.name === "ai-sdk:ollama";
       safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
-        allowLocalOllama:
-          entry.name === "ai-sdk:ollama" &&
-          process.env.NODE_ENV !== "production",
+        allowLocalOllama: isOllama && isTrustedSelfHostedRuntime(),
+        isOllama,
       });
     }
     if (safeExtra.baseUrl == null) {

@@ -1,0 +1,123 @@
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+
+import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
+import { OLLAMA_BASE_URL_ENV_VAR } from "../agent/engine/provider-env-vars.js";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { getOrgContext } from "../org/context.js";
+import { getSession } from "./auth.js";
+import {
+  isTrustedSelfHostedRuntime,
+  resolveSecret,
+} from "./credential-provider.js";
+import { runWithRequestContext } from "./request-context.js";
+
+const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
+
+/**
+ * `resolveSecret` reads through the ambient request context set by
+ * `runWithRequestContext`, not from this event directly — a plain route
+ * handler that never establishes it (unlike action routes, which are wrapped
+ * upstream) sees no signed-in user/org, so every saved secret read comes back
+ * empty and the caller silently falls back to a default. Mirrors
+ * `resolveAgentEngineStatusIdentity` in `core-routes-plugin.ts`.
+ */
+async function resolveRequestIdentity(
+  event: H3Event,
+): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
+  // coercion-ok: a session lookup failure here degrades to the unauthenticated
+  // path (no saved secret, DEFAULT_OLLAMA_BASE_URL) rather than 500ing this
+  // best-effort model-discovery route. The real connectivity/config error still
+  // surfaces from the /api/tags request below, so a session-lookup blip is
+  // never reported to the caller as a clean success.
+  const session = await getSession(event).catch(() => null);
+  const userEmail = session?.email;
+  if (!userEmail) return { userEmail: undefined, orgId: undefined };
+  try {
+    const orgCtx = await getOrgContext(event);
+    return { userEmail, orgId: orgCtx.orgId ?? undefined };
+  } catch {
+    return { userEmail, orgId: undefined };
+  }
+}
+
+interface OllamaTagsResponse {
+  models?: Array<{ name?: unknown }>;
+}
+
+function parseModelNames(payload: unknown): string[] {
+  const models = (payload as OllamaTagsResponse | null)?.models;
+  if (!Array.isArray(models)) return [];
+  const names = models
+    .map((entry) => (typeof entry?.name === "string" ? entry.name.trim() : ""))
+    .filter((name) => name.length > 0);
+  return [...new Set(names)];
+}
+
+/**
+ * GET /_agent-native/agent-engine/ollama-models — lists the models an Ollama
+ * server actually has pulled, via its native `/api/tags` endpoint. Backs the
+ * provider setup form so it shows real installed models instead of only the
+ * static suggestion list in `model-config.ts`.
+ */
+export function createAgentEngineOllamaModelsHandler() {
+  return defineEventHandler(async (event: H3Event) => {
+    const query = getQuery(event);
+    const requestedBaseUrl =
+      typeof query.baseUrl === "string" ? query.baseUrl.trim() : "";
+    const { userEmail, orgId } = await resolveRequestIdentity(event);
+
+    return runWithRequestContext({ userEmail, orgId }, async () => {
+      const trusted = isTrustedSelfHostedRuntime();
+      let baseUrl: string;
+      try {
+        if (requestedBaseUrl) {
+          baseUrl = await validateProviderBaseUrl(requestedBaseUrl, {
+            allowLocalOllama: trusted,
+            isOllama: true,
+          });
+        } else {
+          const saved = await resolveSecret(OLLAMA_BASE_URL_ENV_VAR);
+          baseUrl = await validateProviderBaseUrl(
+            saved ?? DEFAULT_OLLAMA_BASE_URL,
+            { allowLocalOllama: trusted, isOllama: true },
+          );
+        }
+      } catch (err) {
+        setResponseStatus(event, 400);
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+
+      try {
+        // `validateProviderBaseUrl` already approved this exact URL above;
+        // `ssrfSafeFetch` runs its own independent private-address check on
+        // every request (by design — it has no idea about the Ollama
+        // allowance), so the same trusted local/LAN origin must be passed
+        // through here too, or a loopback/LAN endpoint we just approved would
+        // be blocked again at fetch time.
+        const response = await ssrfSafeFetch(
+          `${baseUrl}/api/tags`,
+          { signal: AbortSignal.timeout(8_000) },
+          { allowedPrivateOrigins: trusted ? [baseUrl] : [] },
+        );
+        if (!response.ok) {
+          setResponseStatus(event, 502);
+          return {
+            error: `Ollama responded with HTTP ${response.status}. Is the server running at ${baseUrl}?`,
+          };
+        }
+        const models = parseModelNames(await response.json());
+        return { ok: true, models };
+      } catch {
+        setResponseStatus(event, 502);
+        return {
+          error: `Could not reach Ollama at ${baseUrl}. Check that it's running and the address is correct.`,
+        };
+      }
+    });
+  });
+}
