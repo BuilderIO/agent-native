@@ -486,6 +486,40 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     );
   });
 
+  it("resolves named, negative, and spanning grid starts for fallback geometry", () => {
+    const screen = {
+      id: "grid-line-variants-screen",
+      filename: "grid-line-variants-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:grid;grid-template-columns:[first] 100px [second] 100px [third] 100px;grid-template-rows:50px 50px">
+          <div data-agent-native-node-id="named" data-an-primitive="rectangle" style="grid-column:second;grid-row:1;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="negative" data-an-primitive="rectangle" style="grid-column:-2;grid-row:2;width:100px;height:50px"></div>
+          <div data-agent-native-node-id="spanning" data-an-primitive="rectangle" style="grid-column:span 2;width:100px;height:50px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    expect(primitives).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "named",
+          localLeft: 100,
+          localTop: 0,
+        }),
+        expect.objectContaining({
+          nodeId: "negative",
+          localLeft: 200,
+          localTop: 50,
+        }),
+        expect.objectContaining({
+          nodeId: "spanning",
+          localLeft: 0,
+          localTop: 50,
+        }),
+      ]),
+    );
+  });
+
   it("distributes remaining space above a minmax grid minimum", () => {
     const screen = {
       id: "grid-minmax-screen",
