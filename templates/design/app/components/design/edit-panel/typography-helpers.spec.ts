@@ -109,11 +109,11 @@ describe("resolveFontFamilySelectValue", () => {
   it("passes through an unrecognized font stack unchanged (no silent default)", () => {
     // Previously any unmatched value should surface as its own trimmed raw
     // string, not silently fall back to the first FONT_FAMILY_OPTIONS entry.
-    expect(resolveFontFamilySelectValue("Roboto, sans-serif")).toBe(
-      "Roboto, sans-serif",
+    expect(resolveFontFamilySelectValue("No Such Font, sans-serif")).toBe(
+      "No Such Font, sans-serif",
     );
     expect(resolveFontFamilySelectValue(FONT_FAMILY_OPTIONS[0].value)).not.toBe(
-      "Roboto, sans-serif",
+      "No Such Font, sans-serif",
     );
   });
 });

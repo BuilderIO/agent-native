@@ -526,6 +526,7 @@ import {
   type LiveFigmaSvgSnapshot,
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
+import type { UploadedFont } from "@/lib/font-upload";
 import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
@@ -598,6 +599,7 @@ import {
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
   resolveSelectedCodeLayerNode,
+  ensureUploadedFontFaceInHtml,
   type SelectedLayerTarget,
 } from "./design-editor/code-layer-state";
 import type {
@@ -13331,6 +13333,37 @@ function DesignEditor() {
       textEditingState.active,
       textEditingState.hasRange,
       textEditingState.selector,
+    ],
+  );
+
+  const handleFontUploaded = useCallback(
+    async (font: UploadedFont) => {
+      if (!activeFile?.id || activeCanvasSourceType !== "inline") {
+        throw new Error(t("common.genericError"));
+      }
+      const currentContent = getFreshActiveContent();
+      const nextContent = ensureUploadedFontFaceInHtml(currentContent, font);
+      const result = applyFileContentUpdate(activeFile.id, nextContent, {
+        forcePreviewFullDocument: true,
+        refreshPreview: false,
+        recordHistory: false,
+      });
+      if (result.status !== "accepted") {
+        throw new Error(t("common.genericError"));
+      }
+      handleStyleChange(
+        "fontFamily",
+        `${JSON.stringify(font.family)}, sans-serif`,
+      );
+    },
+    [
+      activeCanvasSourceType,
+      activeFile?.id,
+      applyFileContentUpdate,
+      ensureUploadedFontFaceInHtml,
+      getFreshActiveContent,
+      handleStyleChange,
+      t,
     ],
   );
 
@@ -26234,6 +26267,10 @@ function DesignEditor() {
     componentSwapPickerRequest,
     onComponentPropApplied: handleComponentPropApplied,
     onShaderSourceApplied: handleShaderSourceApplied,
+    onFontUploaded:
+      canEditActiveVisualScreen && activeCanvasSourceType === "inline"
+        ? handleFontUploaded
+        : undefined,
     onTweakChange: handleTweakChange,
     onRequestTweaks: handleRequestTweaks,
     onStyleChange: handleStyleChange,

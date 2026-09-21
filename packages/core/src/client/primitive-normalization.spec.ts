@@ -35,4 +35,15 @@ describe("Core design-system primitive normalization", () => {
       expect(source).toContain("[&_svg]:!size-auto");
     },
   );
+
+  it.each(normalizedSurfaces)(
+    "%s does not inherit hover text for solid buttons",
+    (sourcePath) => {
+      const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+
+      expect(source).toContain(
+        'props.emphasis === "solid" ? null : "hover:text-inherit"',
+      );
+    },
+  );
 });

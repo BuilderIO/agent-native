@@ -61,6 +61,7 @@ export function useContentSpaces() {
 export function useEnsureContentSpaces() {
   const queryClient = useQueryClient();
   return useActionMutation("ensure-content-spaces", {
+    skipActionQueryInvalidation: true,
     onSuccess: async () => {
       await queryClient.refetchQueries({
         queryKey: ["action", "list-content-spaces"],
