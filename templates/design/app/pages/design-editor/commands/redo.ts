@@ -55,6 +55,7 @@ import type {
   ContentHistorySelectionAfterMap,
   FileCreationHistoryEntry,
   FileDeletionHistoryEntry,
+  FileDeletionHistorySnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
   SelectionHistoryEntry,
@@ -230,6 +231,7 @@ export interface RedoArgs {
       onMutationSettled?: (
         deletedFiles: DesignFile[],
         failedFiles: DesignFile[],
+        deletedFileSnapshots: FileDeletionHistorySnapshot[],
       ) => void;
     },
   ) => void;
@@ -1571,19 +1573,29 @@ export function runRedo({
     };
     performDeleteFiles(currentEntry.files, {
       preserveHistory: true,
-      onMutationSettled: (deletedFiles, failedFiles) => {
+      onMutationSettled: (deletedFiles, failedFiles, deletedFileSnapshots) => {
         if (deletedFiles.length > 0) {
           const deletedIds = new Set(deletedFiles.map((file) => file.id));
-          fileDeletionUndoStackRef.current = [
-            ...fileDeletionUndoStackRef.current.slice(
-              -(MAX_DESIGN_UNDO_STACK - 1),
-            ),
-            filterFileDeletionHistoryEntry(currentEntry, deletedIds),
-          ];
-          historyOrderRef.current = [
-            ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-            "file-deleted",
-          ];
+          const authoritativeSnapshots = (deletedFileSnapshots ?? []).filter(
+            (file) => deletedIds.has(file.id),
+          );
+          if (authoritativeSnapshots.length === deletedFiles.length) {
+            fileDeletionUndoStackRef.current = [
+              ...fileDeletionUndoStackRef.current.slice(
+                -(MAX_DESIGN_UNDO_STACK - 1),
+              ),
+              filterFileDeletionHistoryEntry(
+                { files: authoritativeSnapshots },
+                deletedIds,
+              ),
+            ];
+            historyOrderRef.current = [
+              ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+              "file-deleted",
+            ];
+          } else {
+            toast.error(t("common.genericError"));
+          }
           clearPendingHistory?.();
         }
         if (failedFiles.length > 0) {

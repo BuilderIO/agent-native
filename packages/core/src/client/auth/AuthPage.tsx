@@ -8,12 +8,14 @@ import { normalizeLocaleCode } from "../../localization/shared.js";
 import { canonicalTrackingEvent } from "../../shared/analytics-events.js";
 import { getAppStatus } from "../../shared/app-status.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
+import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { frameworkRoutePrefix } from "../api-path.js";
 import { openOAuthPopup } from "../oauth-popup.js";
 import { OceanBackground } from "../ocean/OceanBackground.js";
 
@@ -808,7 +810,8 @@ export function AuthPage(props: AuthPageProps) {
     [defaultLocale, locale, locales],
   );
   const apiPath = React.useCallback(
-    (path: string) => `${runtimeAppBasePath}${path}`,
+    (path: string) =>
+      `${runtimeAppBasePath}${toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() })}`,
     [runtimeAppBasePath],
   );
   const identityHref = React.useMemo(
@@ -1570,7 +1573,7 @@ export function AuthPage(props: AuthPageProps) {
       try {
         popup = openOAuthPopup({
           initialUrl: new URL(
-            `${runtimeAppBasePath}/_agent-native/oauth/popup`,
+            apiPath("/_agent-native/oauth/popup"),
             window.location.origin,
           ).href,
           features: "width=640,height=760",
@@ -1667,6 +1670,7 @@ export function AuthPage(props: AuthPageProps) {
       });
     }
   }, [
+    apiPath,
     googleAuthUrlPath,
     googleBusy,
     identityHref,
@@ -1674,7 +1678,6 @@ export function AuthPage(props: AuthPageProps) {
     googleViaIdentitySso,
     resolveGoogleFlow,
     resumeHref,
-    runtimeAppBasePath,
     setNotice,
     showGoogle,
     startOAuthExchange,

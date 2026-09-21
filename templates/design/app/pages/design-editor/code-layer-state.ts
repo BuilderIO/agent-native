@@ -263,6 +263,63 @@ export function resolvedLayerName(node: CodeLayerTreeNode): string {
   return node.name;
 }
 
+export function previewCodeLayerTreeMove(
+  nodes: CodeLayerTreeNode[],
+  args: {
+    sourceId: string;
+    anchorId: string;
+    placement: "before" | "after" | "inside";
+    insert?: boolean;
+  },
+): CodeLayerTreeNode[] | null {
+  let moved: CodeLayerTreeNode | null = null;
+  let anchorFound = false;
+  const remove = (siblings: CodeLayerTreeNode[]): CodeLayerTreeNode[] =>
+    siblings.flatMap((node) => {
+      if (node.id === args.anchorId) anchorFound = true;
+      if (node.id === args.sourceId) {
+        moved = node;
+        return [];
+      }
+      return [{ ...node, children: remove(node.children) }];
+    });
+  const withoutSource = remove(nodes);
+  const movedNode = moved as CodeLayerTreeNode | null;
+  if (movedNode === null || movedNode.id === args.anchorId || !anchorFound) {
+    return null;
+  }
+  if (args.insert === false) return withoutSource;
+
+  const insert = (siblings: CodeLayerTreeNode[]): CodeLayerTreeNode[] => {
+    const next: CodeLayerTreeNode[] = [];
+    for (const node of siblings) {
+      if (args.placement === "before" && node.id === args.anchorId) {
+        next.push(movedNode, node);
+      } else if (args.placement === "after" && node.id === args.anchorId) {
+        next.push(node, movedNode);
+      } else {
+        next.push({ ...node, children: insert(node.children) });
+      }
+    }
+    if (args.placement === "inside") {
+      return next.map((node) =>
+        node.id === args.anchorId
+          ? { ...node, children: [...node.children, movedNode] }
+          : node,
+      );
+    }
+    return next;
+  };
+  const result = insert(withoutSource);
+  let sourceInserted = false;
+  const visit = (node: CodeLayerTreeNode) => {
+    if (node.id === args.sourceId) sourceInserted = true;
+    node.children.forEach(visit);
+  };
+  result.forEach(visit);
+  return sourceInserted ? result : null;
+}
+
 export function codeLayerTreeToPanelNodes(
   nodes: CodeLayerTreeNode[],
   lockedIds: Set<string>,

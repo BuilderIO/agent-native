@@ -4741,6 +4741,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var spacingOverlayRenderKey = "";
     var activeDragCancel = null;
     var activeDragStartedAt = null;
+    var editorDragIdCounter = 0;
+    var activeEditorDragId = "";
     var bridgeSpaceKeyPressed = false;
     var bridgeIgnoreAutoLayoutKeyPressed = false;
     var bridgeSpaceKeyConsumedByDrag = false;
@@ -4767,13 +4769,43 @@ export const editorChromeBridgeScript: string = `"use strict";
       hideSpacingOverlay();
       hideMeasurements();
     }
-    function postEditorDragState(active) {
+    function postEditorDragState(active, preview) {
       window.parent.postMessage(
-        { type: "agent-native:editor-drag-state", active },
+        {
+          type: "agent-native:editor-drag-state",
+          active,
+          screenId: designCanvasScreenId,
+          dragId: activeEditorDragId || void 0,
+          eventAt: typeof performance !== "undefined" && typeof performance.timeOrigin === "number" && typeof performance.now === "function" ? performance.timeOrigin + performance.now() : Date.now(),
+          preview
+        },
         "*"
       );
     }
+    function postLayerStructurePreview(el, target) {
+      if (!target) {
+        postEditorDragState(true, { phase: "clear" });
+        return;
+      }
+      var anchor = target && (target.persistenceAnchor || target.anchor);
+      var placement = target && (target.persistencePlacement || target.placement);
+      var sourceId = getSourceId(el);
+      var anchorId = getSourceId(anchor);
+      if (!sourceId || !anchorId || placement !== "before" && placement !== "after" && placement !== "inside") {
+        postEditorDragState(true, { phase: "clear" });
+        return;
+      }
+      postEditorDragState(true, {
+        phase: "preview",
+        sourceId,
+        anchorId,
+        placement,
+        insert: true
+      });
+    }
     function setActiveDragCancel(cancel, startedAt) {
+      editorDragIdCounter += 1;
+      activeEditorDragId = Date.now().toString(36) + "-" + editorDragIdCounter + "-" + Math.random().toString(36).slice(2);
       activeDragCancel = cancel;
       activeDragStartedAt = typeof startedAt === "number" ? startedAt : Date.now();
       postEditorDragState(true);
@@ -4784,12 +4816,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       activeDragCancel = null;
       activeDragStartedAt = null;
       postEditorDragState(false);
+      activeEditorDragId = "";
     }
     function cancelActiveBridgeDrag() {
       var cancel = activeDragCancel;
       if (!cancel) return false;
       activeDragCancel = null;
       postEditorDragState(false);
+      activeEditorDragId = "";
       return cancel();
     }
     var MOVE_CANCEL_RACE_GRACE_MS = 200;
@@ -10824,11 +10858,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         var childStyles = window.getComputedStyle(child);
         return childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0";
       });
+      var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
+      var singleSourceStyles = singleSource ? window.getComputedStyle(singleSource) : null;
+      var singleSourceColumn = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "column") : null;
+      var singleSourceRow = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "row") : null;
+      var hasAuthoredSingleCellSourcePlacement = Boolean(
+        singleSource && singleSource.parentElement === container && singleSourceStyles && singleSourceStyles.gridColumnStart !== "auto" && singleSourceStyles.gridColumnStart.indexOf("span") !== 0 && singleSourceStyles.gridRowStart !== "auto" && singleSourceStyles.gridRowStart.indexOf("span") !== 0 && (singleSourceStyles.gridColumnEnd === "auto" || singleSourceColumn?.span === 1) && (singleSourceStyles.gridRowEnd === "auto" || singleSourceRow?.span === 1)
+      );
       var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
       while (hit && hit.parentElement && hit.parentElement !== container) {
         hit = hit.parentElement;
       }
-      if (trackLayout && hasExplicitPlacement) {
+      if (trackLayout && hasExplicitPlacement && !hasAuthoredSingleCellSourcePlacement) {
         var column = trackLayout.columnBounds.findIndex(function(bound) {
           return clientX >= bound.start && clientX <= bound.end;
         });
@@ -10855,15 +10896,23 @@ export const editorChromeBridgeScript: string = `"use strict";
             return rect.left < cellRight && rect.right > cellLeft && // i18n-ignore non-user-facing pointer geometry condition
             rect.top < cellBottom && rect.bottom > cellTop;
           });
+          var autoFlow = (styles.gridAutoFlow || "row").split(/\\s+/);
+          var gridAxis = autoFlow[0] === "column" ? "y" : "x";
+          var pointer = gridAxis === "x" ? clientX : clientY;
+          var midpoint = gridAxis === "x" ? (cellLeft + cellRight) / 2 : (cellTop + cellBottom) / 2;
           return {
             anchor: container,
+            // Grid placement is calculated against the container, while the
+            // insertion line communicates the layer-order position within the
+            // occupied cell. Keep the structural target as "inside" so the
+            // grid placement path still owns persistence and displacement.
             placement: "inside",
             // Grid placement is calculated against the container, but source
             // order must follow the occupied cell so persistence matches the
             // held preview and Figma's layer order.
             persistenceAnchor: displaced || container,
-            persistencePlacement: displaced ? "before" : "inside",
-            axis: "x",
+            persistencePlacement: displaced ? pointer <= midpoint ? "before" : "after" : "inside",
+            axis: gridAxis,
             dropMode: "flow-insert",
             guideRect: {
               left: cellLeft,
@@ -10871,7 +10920,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               width: cellRight - cellLeft,
               height: cellBottom - cellTop
             },
-            guideMode: "grid-cell",
+            guideMode: displaced ? "grid-line" : "grid-cell",
+            guidePlacement: pointer <= midpoint ? "before" : "after",
             gridCell: { column, row },
             gridDisplacement: displaced
           };
@@ -11405,7 +11455,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               axis: betweenContainerChildren.axis,
               dropMode: "flow-insert",
               guideRect: betweenContainerChildren.guideRect,
-              guideMode: betweenContainerChildren.guideMode
+              guideMode: betweenContainerChildren.guideMode,
+              guidePlacement: betweenContainerChildren.guidePlacement
             };
           }
           return {
@@ -11443,7 +11494,8 @@ export const editorChromeBridgeScript: string = `"use strict";
                 axis: cloneFallback.axis,
                 dropMode: "flow-insert",
                 guideRect: cloneFallback.guideRect,
-                guideMode: cloneFallback.guideMode
+                guideMode: cloneFallback.guideMode,
+                guidePlacement: cloneFallback.guidePlacement
               };
             }
             return {
@@ -11544,6 +11596,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       insertionGuide.style.border = "0";
       insertionGuide.style.borderRadius = "999px";
       insertionGuide.style.boxShadow = "0 0 0 1px var(--design-editor-accent-color)";
+      if (target.guideMode === "grid-line") {
+        if (target.axis === "x") {
+          var x = target.guidePlacement === "before" ? rect.left : rect.right;
+          insertionGuide.style.left = x - line / 2 + "px";
+          insertionGuide.style.top = rect.top + "px";
+          insertionGuide.style.width = line + "px";
+          insertionGuide.style.height = rect.height + "px";
+        } else {
+          var y = target.guidePlacement === "before" ? rect.top : rect.bottom;
+          insertionGuide.style.left = rect.left + "px";
+          insertionGuide.style.top = y - line / 2 + "px";
+          insertionGuide.style.width = rect.width + "px";
+          insertionGuide.style.height = line + "px";
+        }
+        return;
+      }
       if (target.placement === "inside") {
         insertionGuide.style.left = rect.left + "px";
         insertionGuide.style.top = rect.top + "px";
@@ -13206,6 +13274,19 @@ export const editorChromeBridgeScript: string = `"use strict";
             s.el.style.transform = s.prevTransform;
             s.el.style.transition = s.prevTransition;
           });
+          if (reflowDomOrigin) {
+            if (reorderEl.parentNode === reflowDomOrigin.parent) {
+              if (reflowDomOrigin.nextSibling && reflowDomOrigin.nextSibling.parentNode === reflowDomOrigin.parent) {
+                reflowDomOrigin.parent.insertBefore(
+                  reorderEl,
+                  reflowDomOrigin.nextSibling
+                );
+              } else {
+                reflowDomOrigin.parent.appendChild(reorderEl);
+              }
+            }
+            reflowDomOrigin = null;
+          }
           reflowSiblings = [];
           reflowKey = null;
           reflowGuideRect = null;
@@ -13215,6 +13296,22 @@ export const editorChromeBridgeScript: string = `"use strict";
             s.el.style.transform = s.prevTransform;
             s.el.style.transition = s.prevTransition;
           });
+          if (reflowDomOrigin) {
+            if (reorderEl.parentNode === reflowDomOrigin.parent) {
+              if (reflowDomOrigin.nextSibling && reflowDomOrigin.nextSibling.parentNode === reflowDomOrigin.parent) {
+                reflowDomOrigin.parent.insertBefore(
+                  reorderEl,
+                  reflowDomOrigin.nextSibling
+                );
+              } else {
+                reflowDomOrigin.parent.appendChild(reorderEl);
+              }
+            }
+            reflowDomOrigin = null;
+            reflowKey = null;
+            reflowGuideRect = null;
+            reflowGuideMode = null;
+          }
         }, clearGroupGridPreview2 = function() {
           if (!restoreGroupGridPreview) return;
           restoreGroupGridPreview();
@@ -13481,6 +13578,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }),
             [reorderEl]
           );
+          var isWrappedFlex = containerStyles.flexWrap === "wrap" || containerStyles.flexWrap === "wrap-reverse";
           var axis = reorderMainAxis2(target);
           var key = axis + ":" + slotInfo.slot;
           if (key === reflowKey) {
@@ -13521,7 +13619,7 @@ export const editorChromeBridgeScript: string = `"use strict";
                 top: projected.top
               });
             });
-            if (containerStyles.flexWrap === "wrap" || containerStyles.flexWrap === "wrap-reverse") {
+            if (isWrappedFlex) {
               var projectedGuide = placeholder.getBoundingClientRect();
               reflowGuideRect = {
                 left: projectedGuide.left,
@@ -13539,27 +13637,51 @@ export const editorChromeBridgeScript: string = `"use strict";
             } else {
               container.appendChild(reorderEl);
             }
-            projectedRects.forEach(function(projected) {
-              var el = projected.el;
-              var current = el.getBoundingClientRect();
-              var dx = projected.left - current.left;
-              var dy = projected.top - current.top;
-              if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-              var prevTransform = el.style.transform;
-              var authoredTransform = authoredTransformOf2(el);
-              var previewTransition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
-              var previewTransform = "translate(" + dx + "px, " + dy + "px)" + (authoredTransform ? " " + authoredTransform : "");
-              reflowSiblings.push({
-                el,
-                prevTransform,
-                authoredTransform,
-                prevTransition: el.style.transition,
-                previewTransform,
-                previewTransition
+            if (!isWrappedFlex)
+              projectedRects.forEach(function(projected) {
+                var el = projected.el;
+                var current = el.getBoundingClientRect();
+                var dx = projected.left - current.left;
+                var dy = projected.top - current.top;
+                if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+                var prevTransform = el.style.transform;
+                var authoredTransform = authoredTransformOf2(el);
+                var previewTransition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+                var previewTransform = "translate(" + dx + "px, " + dy + "px)" + (authoredTransform ? " " + authoredTransform : "");
+                reflowSiblings.push({
+                  el,
+                  prevTransform,
+                  authoredTransform,
+                  prevTransition: el.style.transition,
+                  previewTransform,
+                  previewTransition
+                });
+                el.style.transition = previewTransition;
+                el.style.transform = previewTransform;
               });
-              el.style.transition = previewTransition;
-              el.style.transform = previewTransform;
-            });
+            if (isWrappedFlex) {
+              var heldRectBefore = reorderEl.getBoundingClientRect();
+              reflowDomOrigin = {
+                parent: container,
+                nextSibling: originalNextSibling
+              };
+              if (target.placement === "inside") {
+                container.appendChild(reorderEl);
+              } else if (target.placement === "before") {
+                container.insertBefore(reorderEl, target.anchor);
+              } else {
+                container.insertBefore(reorderEl, target.anchor.nextSibling);
+              }
+              var heldRectAfter = reorderEl.getBoundingClientRect();
+              var sourceLift = reorderLiftedMembers.filter(function(snap) {
+                return snap.el === reorderEl;
+              })[0];
+              if (sourceLift) {
+                var heldLiftDx = cx - reorderPointerStart.clientX + (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+                var heldLiftDy = cy - reorderPointerStart.clientY + (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
+                reorderEl.style.transform = "translate(" + (heldLiftDx + heldRectBefore.left - heldRectAfter.left) + "px, " + (heldLiftDy + heldRectBefore.top - heldRectAfter.top) + "px)" + (sourceLift.authoredTransform ? " " + sourceLift.authoredTransform : "");
+              }
+            }
           } catch (error) {
             clearReorderReflow2();
             throw error;
@@ -13659,6 +13781,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             hideInsertionGuide();
             clearReorderLift2();
             clearReorderReflow2();
+            postEditorDragState(true, { phase: "clear" });
             showTransformBadge(
               duplicatedForDrag ? "Duplicate layer" : "Move layer",
               cx,
@@ -13685,6 +13808,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             if (_dndKey !== reorderLastTargetKey) {
               reorderLastTargetKey = _dndKey;
               dndLog("target", dndTarget(currentTarget));
+              postLayerStructurePreview(reorderEl, currentTarget);
             }
             applyReorderLift2(dx, dy);
             applyReorderReflow2(currentTarget, cx, cy);
@@ -13941,6 +14065,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           reorderIgnoresAutoLayout,
           isPlatformPrimaryChord(e)
         );
+        postLayerStructurePreview(reorderEl, currentTarget);
         showInsertionGuideFor(currentTarget);
         dndLog("start:reorder", {
           el: getSelector(reorderEl),
@@ -13985,6 +14110,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reflowKey = null;
         var reflowGuideRect = null;
         var reflowGuideMode = null;
+        var reflowDomOrigin = null;
         var restoreGroupGridPreview = null;
         var reorderLastMoveEvent = null;
         var reorderMoved = false;

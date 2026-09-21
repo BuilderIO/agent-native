@@ -471,6 +471,7 @@ export interface UndoArgs {
       onMutationSettled?: (
         deletedFiles: DesignFile[],
         failedFiles: DesignFile[],
+        deletedFileSnapshots: FileDeletionHistorySnapshot[],
       ) => void;
     },
   ) => void;

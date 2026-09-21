@@ -5899,6 +5899,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // so a delayed cancel meant for an earlier gesture can be told apart from
   // one meant for whatever is active now — see cancelActiveBridgeDragOrPendingCommit.
   var activeDragStartedAt: number | null = null;
+  var editorDragIdCounter = 0;
+  var activeEditorDragId = "";
   var bridgeSpaceKeyPressed = false;
   var bridgeIgnoreAutoLayoutKeyPressed = false;
   var bridgeSpaceKeyConsumedByDrag = false;
@@ -5943,11 +5945,60 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hideMeasurements();
   }
 
-  function postEditorDragState(active: boolean): void {
+  function postEditorDragState(
+    active: boolean,
+    preview?: {
+      phase: "preview" | "clear";
+      sourceId?: string;
+      anchorId?: string;
+      placement?: "before" | "after" | "inside";
+      insert?: boolean;
+    },
+  ): void {
     (window.parent as Window).postMessage(
-      { type: "agent-native:editor-drag-state", active },
+      {
+        type: "agent-native:editor-drag-state",
+        active,
+        screenId: designCanvasScreenId,
+        dragId: activeEditorDragId || undefined,
+        eventAt:
+          typeof performance !== "undefined" &&
+          typeof performance.timeOrigin === "number" &&
+          typeof performance.now === "function"
+            ? performance.timeOrigin + performance.now()
+            : Date.now(),
+        preview,
+      },
       "*",
     );
+  }
+
+  function postLayerStructurePreview(el, target): void {
+    if (!target) {
+      postEditorDragState(true, { phase: "clear" });
+      return;
+    }
+    var anchor = target && (target.persistenceAnchor || target.anchor);
+    var placement = target && (target.persistencePlacement || target.placement);
+    var sourceId = getSourceId(el);
+    var anchorId = getSourceId(anchor);
+    if (
+      !sourceId ||
+      !anchorId ||
+      (placement !== "before" &&
+        placement !== "after" &&
+        placement !== "inside")
+    ) {
+      postEditorDragState(true, { phase: "clear" });
+      return;
+    }
+    postEditorDragState(true, {
+      phase: "preview",
+      sourceId,
+      anchorId,
+      placement,
+      insert: true,
+    });
   }
 
   // `startedAt` should be performance.timeOrigin + <the originating pointer
@@ -5960,6 +6011,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     cancel: () => boolean,
     startedAt?: number,
   ): void {
+    editorDragIdCounter += 1;
+    activeEditorDragId =
+      Date.now().toString(36) +
+      "-" +
+      editorDragIdCounter +
+      "-" +
+      Math.random().toString(36).slice(2);
     activeDragCancel = cancel;
     activeDragStartedAt =
       typeof startedAt === "number" ? startedAt : Date.now();
@@ -5972,6 +6030,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     activeDragCancel = null;
     activeDragStartedAt = null;
     postEditorDragState(false);
+    activeEditorDragId = "";
   }
 
   function cancelActiveBridgeDrag(): boolean {
@@ -5979,6 +6038,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!cancel) return false;
     activeDragCancel = null;
     postEditorDragState(false);
+    activeEditorDragId = "";
     return cancel();
   }
 
@@ -14879,6 +14939,33 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         childStyles.order !== "0"
       );
     });
+    // Preserve a single-cell authored slot only for a single source already
+    // owned by this grid. Cross-grid and grouped drops must resolve the
+    // destination cell normally.
+    var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
+    var singleSourceStyles = singleSource
+      ? window.getComputedStyle(singleSource)
+      : null;
+    var singleSourceColumn =
+      singleSource && trackLayout
+        ? gridItemAxisPlacement(singleSource, trackLayout, "column")
+        : null;
+    var singleSourceRow =
+      singleSource && trackLayout
+        ? gridItemAxisPlacement(singleSource, trackLayout, "row")
+        : null;
+    var hasAuthoredSingleCellSourcePlacement = Boolean(
+      singleSource &&
+      singleSource.parentElement === container &&
+      singleSourceStyles &&
+      singleSourceStyles.gridColumnStart !== "auto" &&
+      singleSourceStyles.gridColumnStart.indexOf("span") !== 0 &&
+      singleSourceStyles.gridRowStart !== "auto" &&
+      singleSourceStyles.gridRowStart.indexOf("span") !== 0 &&
+      (singleSourceStyles.gridColumnEnd === "auto" ||
+        singleSourceColumn?.span === 1) &&
+      (singleSourceStyles.gridRowEnd === "auto" || singleSourceRow?.span === 1),
+    );
     var hit = elementFromEditorPointIgnoring(clientX, clientY, excluded);
     while (hit && hit.parentElement && hit.parentElement !== container) {
       hit = hit.parentElement;
@@ -14886,7 +14973,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Resolve the pointer against rendered tracks and carry the cell through
     // the drop so the source and its persisted markup move together. The
     // occupied cell is also retained as the source-order insertion anchor.
-    if (trackLayout && hasExplicitPlacement) {
+    if (
+      trackLayout &&
+      hasExplicitPlacement &&
+      !hasAuthoredSingleCellSourcePlacement
+    ) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
       });
@@ -14929,15 +15020,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             rect.bottom > cellTop
           );
         });
+        var autoFlow = (styles.gridAutoFlow || "row").split(/\s+/);
+        var gridAxis = autoFlow[0] === "column" ? "y" : "x";
+        var pointer = gridAxis === "x" ? clientX : clientY;
+        var midpoint =
+          gridAxis === "x"
+            ? (cellLeft + cellRight) / 2
+            : (cellTop + cellBottom) / 2;
         return {
           anchor: container,
+          // Grid placement is calculated against the container, while the
+          // insertion line communicates the layer-order position within the
+          // occupied cell. Keep the structural target as "inside" so the
+          // grid placement path still owns persistence and displacement.
           placement: "inside",
           // Grid placement is calculated against the container, but source
           // order must follow the occupied cell so persistence matches the
           // held preview and Figma's layer order.
           persistenceAnchor: displaced || container,
-          persistencePlacement: displaced ? "before" : "inside",
-          axis: "x",
+          persistencePlacement: displaced
+            ? pointer <= midpoint
+              ? "before"
+              : "after"
+            : "inside",
+          axis: gridAxis,
           dropMode: "flow-insert",
           guideRect: {
             left: cellLeft,
@@ -14945,7 +15051,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             width: cellRight - cellLeft,
             height: cellBottom - cellTop,
           },
-          guideMode: "grid-cell",
+          guideMode: displaced ? "grid-line" : "grid-cell",
+          guidePlacement: pointer <= midpoint ? "before" : "after",
           gridCell: { column, row },
           gridDisplacement: displaced,
         };
@@ -15926,6 +16033,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             dropMode: "flow-insert",
             guideRect: betweenContainerChildren.guideRect,
             guideMode: betweenContainerChildren.guideMode,
+            guidePlacement: betweenContainerChildren.guidePlacement,
           };
         }
         return {
@@ -15984,6 +16092,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               dropMode: "flow-insert",
               guideRect: cloneFallback.guideRect,
               guideMode: cloneFallback.guideMode,
+              guidePlacement: cloneFallback.guidePlacement,
             };
           }
           return {
@@ -16143,6 +16252,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     insertionGuide.style.borderRadius = "999px";
     insertionGuide.style.boxShadow =
       "0 0 0 1px var(--design-editor-accent-color)";
+    if (target.guideMode === "grid-line") {
+      if (target.axis === "x") {
+        var x = target.guidePlacement === "before" ? rect.left : rect.right;
+        insertionGuide.style.left = x - line / 2 + "px";
+        insertionGuide.style.top = rect.top + "px";
+        insertionGuide.style.width = line + "px";
+        insertionGuide.style.height = rect.height + "px";
+      } else {
+        var y = target.guidePlacement === "before" ? rect.top : rect.bottom;
+        insertionGuide.style.left = rect.left + "px";
+        insertionGuide.style.top = y - line / 2 + "px";
+        insertionGuide.style.width = rect.width + "px";
+        insertionGuide.style.height = line + "px";
+      }
+      return;
+    }
     if (target.placement === "inside") {
       insertionGuide.style.left = rect.left + "px";
       insertionGuide.style.top = rect.top + "px";
@@ -18703,6 +18828,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         reorderIgnoresAutoLayout,
         isPlatformPrimaryChord(e),
       );
+      postLayerStructurePreview(reorderEl, currentTarget);
       showInsertionGuideFor(currentTarget);
       dndLog("start:reorder", {
         el: getSelector(reorderEl),
@@ -18843,6 +18969,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: number;
       } | null = null;
       var reflowGuideMode: string | null = null;
+      var reflowDomOrigin: {
+        parent: Element;
+        nextSibling: ChildNode | null;
+      } | null = null;
       function reorderMainAxis(target): "x" | "y" {
         return target && target.axis === "y" ? "y" : "x";
       }
@@ -18866,6 +18996,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           s.el.style.transform = s.prevTransform;
           s.el.style.transition = s.prevTransition;
         });
+        if (reflowDomOrigin) {
+          if (reorderEl.parentNode === reflowDomOrigin.parent) {
+            if (
+              reflowDomOrigin.nextSibling &&
+              reflowDomOrigin.nextSibling.parentNode === reflowDomOrigin.parent
+            ) {
+              reflowDomOrigin.parent.insertBefore(
+                reorderEl,
+                reflowDomOrigin.nextSibling,
+              );
+            } else {
+              reflowDomOrigin.parent.appendChild(reorderEl);
+            }
+          }
+          reflowDomOrigin = null;
+        }
         reflowSiblings = [];
         reflowKey = null;
         reflowGuideRect = null;
@@ -18876,6 +19022,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           s.el.style.transform = s.prevTransform;
           s.el.style.transition = s.prevTransition;
         });
+        if (reflowDomOrigin) {
+          if (reorderEl.parentNode === reflowDomOrigin.parent) {
+            if (
+              reflowDomOrigin.nextSibling &&
+              reflowDomOrigin.nextSibling.parentNode === reflowDomOrigin.parent
+            ) {
+              reflowDomOrigin.parent.insertBefore(
+                reorderEl,
+                reflowDomOrigin.nextSibling,
+              );
+            } else {
+              reflowDomOrigin.parent.appendChild(reorderEl);
+            }
+          }
+          reflowDomOrigin = null;
+          reflowKey = null;
+          reflowGuideRect = null;
+          reflowGuideMode = null;
+        }
       }
       var restoreGroupGridPreview: (() => void) | null = null;
       function clearGroupGridPreview(): void {
@@ -19248,6 +19413,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }),
           [reorderEl],
         );
+        var isWrappedFlex =
+          containerStyles.flexWrap === "wrap" ||
+          containerStyles.flexWrap === "wrap-reverse";
         var axis = reorderMainAxis(target);
         var key = axis + ":" + slotInfo.slot;
         if (key === reflowKey) {
@@ -19296,10 +19464,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               top: projected.top,
             });
           });
-          if (
-            containerStyles.flexWrap === "wrap" ||
-            containerStyles.flexWrap === "wrap-reverse"
-          ) {
+          if (isWrappedFlex) {
             var projectedGuide = placeholder.getBoundingClientRect();
             reflowGuideRect = {
               left: projectedGuide.left,
@@ -19320,36 +19485,77 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           } else {
             container.appendChild(reorderEl);
           }
-          projectedRects.forEach(function (projected) {
-            var el = projected.el as HTMLElement;
-            var current = el.getBoundingClientRect();
-            var dx = projected.left - current.left;
-            var dy = projected.top - current.top;
-            if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-            var prevTransform = el.style.transform;
-            var authoredTransform = authoredTransformOf(el);
-            var previewTransition =
-              "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
-            var previewTransform =
-              "translate(" +
-              dx +
-              "px, " +
-              dy +
-              "px)" +
-              (authoredTransform ? " " + authoredTransform : "");
-            reflowSiblings.push({
-              el: el,
-              prevTransform: prevTransform,
-              authoredTransform: authoredTransform,
-              prevTransition: el.style.transition,
-              previewTransform: previewTransform,
-              previewTransition: previewTransition,
+          // A physical wrapped reorder already makes the browser lay out each
+          // sibling at its projected slot; translating them too would double
+          // the displacement.
+          if (!isWrappedFlex)
+            projectedRects.forEach(function (projected) {
+              var el = projected.el as HTMLElement;
+              var current = el.getBoundingClientRect();
+              var dx = projected.left - current.left;
+              var dy = projected.top - current.top;
+              if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+              var prevTransform = el.style.transform;
+              var authoredTransform = authoredTransformOf(el);
+              var previewTransition =
+                "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+              var previewTransform =
+                "translate(" +
+                dx +
+                "px, " +
+                dy +
+                "px)" +
+                (authoredTransform ? " " + authoredTransform : "");
+              reflowSiblings.push({
+                el: el,
+                prevTransform: prevTransform,
+                authoredTransform: authoredTransform,
+                prevTransition: el.style.transition,
+                previewTransform: previewTransform,
+                previewTransition: previewTransition,
+              });
+              el.style.transition = previewTransition;
+              // Translate FIRST (screen space) composed with the sibling's own
+              // transform so an authored rotate/scale survives the reflow shift.
+              el.style.transform = previewTransform;
             });
-            el.style.transition = previewTransition;
-            // Translate FIRST (screen space) composed with the sibling's own
-            // transform so an authored rotate/scale survives the reflow shift.
-            el.style.transform = previewTransform;
-          });
+          if (isWrappedFlex) {
+            var heldRectBefore = reorderEl.getBoundingClientRect();
+            reflowDomOrigin = {
+              parent: container,
+              nextSibling: originalNextSibling,
+            };
+            if (target.placement === "inside") {
+              container.appendChild(reorderEl);
+            } else if (target.placement === "before") {
+              container.insertBefore(reorderEl, target.anchor);
+            } else {
+              container.insertBefore(reorderEl, target.anchor.nextSibling);
+            }
+            var heldRectAfter = reorderEl.getBoundingClientRect();
+            var sourceLift = reorderLiftedMembers.filter(function (snap) {
+              return snap.el === reorderEl;
+            })[0];
+            if (sourceLift) {
+              var heldLiftDx =
+                cx -
+                reorderPointerStart.clientX +
+                (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+              var heldLiftDy =
+                cy -
+                reorderPointerStart.clientY +
+                (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
+              reorderEl.style.transform =
+                "translate(" +
+                (heldLiftDx + heldRectBefore.left - heldRectAfter.left) +
+                "px, " +
+                (heldLiftDy + heldRectBefore.top - heldRectAfter.top) +
+                "px)" +
+                (sourceLift.authoredTransform
+                  ? " " + sourceLift.authoredTransform
+                  : "");
+            }
+          }
         } catch (error) {
           // A layout read or DOM insertion can fail if the editor is tearing
           // down the frame during a cancel. Restore all preview transforms
@@ -19480,6 +19686,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           hideInsertionGuide();
           clearReorderLift();
           clearReorderReflow();
+          postEditorDragState(true, { phase: "clear" });
           showTransformBadge(
             duplicatedForDrag ? "Duplicate layer" : "Move layer",
             cx,
@@ -19526,6 +19733,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           if (_dndKey !== reorderLastTargetKey) {
             reorderLastTargetKey = _dndKey;
             dndLog("target", dndTarget(currentTarget));
+            postLayerStructurePreview(reorderEl, currentTarget);
           }
           applyReorderLift(dx, dy);
           applyReorderReflow(currentTarget, cx, cy);

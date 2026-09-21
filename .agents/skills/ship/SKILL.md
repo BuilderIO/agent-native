@@ -43,6 +43,26 @@ the next task.
 7. Report source checks, PR, merge, branch rotation, and deployment boundaries
    separately.
 
+## Existing PR backlog
+
+When the user asks to ship a backlog, inspect every relevant open PR directly
+with fresh `gh pr view` and `gh pr checks` state. Do not create a second
+reminder or leave a scheduler repeating an unchanged status. For each PR:
+
+- If required CI is failing, open the failing run logs, fix only an actionable
+  repo-owned failure, publish one coherent update, and recheck the same head.
+- If CI is green, the PR is mergeable, and review items are addressed, use the
+  authorized admin merge after the unchanged 10-minute soak:
+  `gh pr merge <number> --squash --admin`.
+- If an external dependency is unchanged, record the exact blocker once and
+  keep the watcher quiet until a meaningful state change. Do not send repeated
+  "continue" prompts that only renew a lease or restate CI status.
+
+The scheduler is a trigger, not the work. A ship task must inspect, fix,
+publish, merge, verify `origin/main`, and rotate the branch in the same
+lifecycle; it must not stop at a progress report while an actionable PR state
+is available.
+
 ## 1. Preflight
 
 Start by refreshing the remote and reading the actual checkout:
@@ -167,6 +187,9 @@ Then use the explicit squash-admin merge:
 ```bash
 gh pr merge <number> --squash --admin
 ```
+
+This admin merge is the normal `/ship` completion step once the gates hold; do
+not wait for an additional approval or enable auto-merge.
 
 Never enable auto-merge. If a gate fails, fix the actionable cause, publish one
 coherent update to the same PR, and restart the soak. A queued, skipped,

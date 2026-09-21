@@ -79,9 +79,10 @@ the right abstraction, not the most general one.
    and was reported again two weeks later.
 
    Search before fixing, going back at least three months: the source channel
-   in the reporter's words and in your own, Sentry, and merged PR titles. Search
-   the feature name, the error text, and the surface separately — repeat reports
-   rarely share vocabulary.
+   in the reporter's words and in your own, Sentry, first-party Agent-Native
+   Analytics error issues, and merged PR titles. Search the feature name, the
+   error text, and the surface separately - repeat reports rarely share
+   vocabulary.
 
    - **No prior report** — proceed normally.
    - **Prior report, no fix landed** — say how long it has been open. The person
@@ -139,13 +140,20 @@ state, never the opening or the prose of the reporter-facing reply.
    - Treat possible cross-user or cross-organization exposure as a security/correctness bug and verify it before proposing polish.
    - Keep undefined product policy separate from implementation bugs. If supported source types or scope semantics are not defined, flag the contract question instead of inventing behavior.
 
-5. Check Sentry when the feedback smells like an error.
+5. Check Sentry and first-party Agent-Native Analytics when the feedback smells
+   like an error.
 
    - Use the Sentry skill/plugin if available, or the repo's Sentry scripts if documented.
+   - Use authenticated Agent-Native Analytics `list-error-issues` for captured
+     client/server issue groups, then `get-error-issue` for stack and occurrence
+     details. Use the linked session replay when it is available.
    - Search by route, stack symbol, error text, and symptom keywords.
    - Default org is `builder-io` unless the user specifies another.
-   - Cite issue IDs or links when you find a match.
-   - If nothing matches, say that plainly.
+   - Query both when available. If Sentry is unavailable or rate-limited,
+     Analytics is the fallback for errors it captured.
+   - Cite the matching issue ID or link and say which source it came from.
+   - If a source cannot be read, record it as unavailable; do not say nothing
+     matched for that source.
 
 ## Fix-altitude gate
 
@@ -277,13 +285,15 @@ one short sentence.
 - Do not bundle unrelated cleanups.
 - Do not implement UX changes that make an important screen busier without explicit user approval.
 - Do not claim a UI change is done without browser verification when a local app can be run.
-- Do not invent Sentry matches, affected users, or reproduction steps.
+- Do not invent Sentry or Agent-Native Analytics matches, affected users, or
+  reproduction steps.
 - Do not expose the technical details used to verify or implement the work unless the user asks for them.
 
 ## Related Skills
 
 - `github:gh-address-comments` for GitHub PR review threads.
 - `github:gh-fix-ci` for failing GitHub checks.
-- `sentry:sentry` for production error investigation.
+- `sentry:sentry` for external Sentry investigation; use Analytics error issue
+  actions for first-party captured errors.
 - `frontend-design` for approved UI implementation work.
 - `qa` for broader browser verification.

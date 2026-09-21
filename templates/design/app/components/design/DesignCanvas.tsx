@@ -523,6 +523,20 @@ type StyleReplayPatch = {
 
 type BridgeRegistrationAttemptResult = boolean | "stale-preview-token" | null;
 
+export type EditorDragStateChange = {
+  active: boolean;
+  screenId?: string;
+  dragId?: string;
+  eventAt?: number;
+  preview?: {
+    phase: "preview" | "clear";
+    sourceId?: string;
+    anchorId?: string;
+    placement?: "before" | "after" | "inside";
+    insert?: boolean;
+  };
+};
+
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
@@ -765,7 +779,7 @@ interface DesignCanvasProps {
   onFigmaClipboardPaste?: (event: IframeFigmaClipboardPastePayload) => void;
   onImagePaste?: (event: IframeImagePastePayload) => void;
   onIframeContextMenu?: (event: IframeContextMenuPayload) => void;
-  onEditorDragStateChange?: (active: boolean) => void;
+  onEditorDragStateChange?: (state: EditorDragStateChange) => void;
   onVisualStructureChange?: (
     selector: string,
     anchorSelector: string,
@@ -3881,7 +3895,39 @@ export function DesignCanvas({
         onElementHover(e.data.payload);
       }
       if (e.data.type === "agent-native:editor-drag-state") {
-        onEditorDragStateChange?.(Boolean(e.data.active));
+        onEditorDragStateChange?.({
+          active: Boolean(e.data.active),
+          screenId:
+            typeof e.data.screenId === "string" ? e.data.screenId : undefined,
+          dragId: typeof e.data.dragId === "string" ? e.data.dragId : undefined,
+          eventAt:
+            typeof e.data.eventAt === "number" ? e.data.eventAt : undefined,
+          preview:
+            e.data.preview && typeof e.data.preview === "object"
+              ? {
+                  phase:
+                    e.data.preview.phase === "preview" ? "preview" : "clear",
+                  sourceId:
+                    typeof e.data.preview.sourceId === "string"
+                      ? e.data.preview.sourceId
+                      : undefined,
+                  anchorId:
+                    typeof e.data.preview.anchorId === "string"
+                      ? e.data.preview.anchorId
+                      : undefined,
+                  placement:
+                    e.data.preview.placement === "before" ||
+                    e.data.preview.placement === "after" ||
+                    e.data.preview.placement === "inside"
+                      ? e.data.preview.placement
+                      : undefined,
+                  insert:
+                    typeof e.data.preview.insert === "boolean"
+                      ? e.data.preview.insert
+                      : undefined,
+                }
+              : undefined,
+        });
         return;
       }
       if (e.data.type === "visual-style-change") {
