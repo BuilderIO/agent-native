@@ -52,6 +52,7 @@ export function normalizeConnectUrl(value: string): URL | null {
 export function parseConnectAgentCard(
   value: unknown,
   targetOrigin: string,
+  targetPath = "/",
 ): ConnectAgentCard | null {
   if (!value || typeof value !== "object") return null;
   const card = value as Record<string, unknown>;
@@ -71,6 +72,15 @@ export function parseConnectAgentCard(
   }
   if (cardUrl.username || cardUrl.password) return null;
   if (cardUrl.origin !== targetOrigin) return null;
+  const normalizedTargetPath = targetPath.replace(/\/+$/, "") || "/";
+  const normalizedCardPath = cardUrl.pathname.replace(/\/+$/, "") || "/";
+  if (
+    normalizedTargetPath !== "/" &&
+    normalizedCardPath !== normalizedTargetPath &&
+    !normalizedCardPath.startsWith(`${normalizedTargetPath}/`)
+  ) {
+    return null;
+  }
   const capabilities =
     card.capabilities && typeof card.capabilities === "object"
       ? (card.capabilities as Record<string, unknown>)
@@ -88,9 +98,12 @@ export function parseConnectAgentCard(
  * client; no wildcard cookie or shared bearer is introduced.
  */
 export function buildIdentityConnectUrl(appUrl: string): string {
-  const url = new URL("/_agent-native/identity/login", appUrl);
+  const url = appPathUrl(appUrl, "/_agent-native/identity/login");
   url.searchParams.set("prompt", "none");
-  url.searchParams.set("return", "/_agent-native/open");
+  url.searchParams.set(
+    "return",
+    appPathUrl(appUrl, "/_agent-native/open").pathname,
+  );
   return url.toString();
 }
 
@@ -145,7 +158,7 @@ export async function fetchConnectAgentCard(
   const target = normalizeConnectUrl(appUrl);
   if (!target) throw new Error("Enter a secure app URL.");
   const response = await fetch(
-    new URL("/.well-known/agent-card.json", target).toString(),
+    appPathUrl(target.toString(), "/.well-known/agent-card.json").toString(),
     {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(5_000),
@@ -156,8 +169,18 @@ export async function fetchConnectAgentCard(
   if (length > 256_000) throw new Error("Agent card is too large");
   const body = await response.text();
   if (body.length > 256_000) throw new Error("Agent card is too large");
-  const card = parseConnectAgentCard(JSON.parse(body), target.origin);
+  const card = parseConnectAgentCard(
+    JSON.parse(body),
+    target.origin,
+    target.pathname,
+  );
   if (!card)
     throw new Error("This app has an invalid or incompatible agent card.");
   return card;
+}
+
+function appPathUrl(appUrl: string, suffix: string): URL {
+  const target = new URL(appUrl);
+  const prefix = target.pathname.replace(/\/+$/, "");
+  return new URL(`${prefix}${suffix}`, target.origin);
 }

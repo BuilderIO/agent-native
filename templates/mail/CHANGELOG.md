@@ -3,6 +3,19 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-19
+
+### Fixed
+
+- New Mail drafts stay pinned to the bottom of the viewport.
+- OpenAI automation settings load without a missing engine package error
+
+## 2026-09-18
+
+### Added
+
+- Mail rules can tag messages or move spam out of Inbox with Jev-powered previews and feedback
+
 ## 2026-09-17
 
 ### Fixed

@@ -6,7 +6,6 @@ import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
-import { getOrigin } from "../server/google-oauth.js";
 import {
   resolveIdentityHubUrl,
   resolveIdentitySsoAppId,
@@ -454,7 +453,11 @@ export async function validateFederatedOrganizationMembership(
     throw new Error("Organization has an invalid identity mapping.");
   }
 
-  const currentOrigin = event ? normalizeAuthority(getOrigin(event)) : null;
+  const currentOrigin = event
+    ? normalizeAuthority(
+        (await import("../server/google-oauth.js")).getOrigin(event),
+      )
+    : null;
   if (currentOrigin === identityAuthority) {
     return { active: true, role: localRole };
   }

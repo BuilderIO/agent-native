@@ -124,6 +124,8 @@ export {
 export {
   AGENT_NATIVE_ACTION_EVENTS,
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  LEGACY_TRACKING_EVENT_NAME_ALIASES,
+  canonicalTrackingEvent,
   normalizeTrackingDimension,
   withCanonicalTrackingProperties,
   type AgentNativeActionEventName,

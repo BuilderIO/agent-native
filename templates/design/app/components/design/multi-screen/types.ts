@@ -9,6 +9,7 @@ import type { CodeLayerProjection, CodeLayerSource } from "@shared/code-layer";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
+import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode } from "react";
 
 import type {
@@ -110,6 +111,8 @@ export interface CanvasToolProps {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   text?: string;
 }
 
@@ -123,6 +126,8 @@ export interface CanvasPrimitiveInsert {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
@@ -198,6 +203,8 @@ export interface MultiScreenCanvasProps {
   interactMode?: boolean;
   /** Viewer mode keeps selection/inspection available without edit chrome. */
   readOnly?: boolean;
+  /** Live localhost screens whose DOM editor may receive pointer input. */
+  editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;
@@ -848,6 +855,8 @@ export interface DraftPrimitive {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
@@ -882,6 +891,7 @@ export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 export interface KScaleStyleChange {
   selector: string;
   sourceId?: string;
+  elementInfo?: ElementInfo;
   styles: Record<string, string>;
   originalStyles?: Record<string, string>;
   preserveSelection?: boolean;

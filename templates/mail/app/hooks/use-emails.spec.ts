@@ -9,6 +9,8 @@ import {
   consumeExternalEmailRefresh,
   beginReadMutation,
   confirmReadMutation,
+  clearOptimisticOverride,
+  forgetSuppressionClaim,
   filterSuppressedThreads,
   markExternalEmailRefresh,
   parseAccountErrorsHeader,
@@ -16,7 +18,10 @@ import {
   releaseSuppression,
   releaseSuppressionClaims,
   rollbackReadMutation,
+  settleSuppression,
+  setOptimisticOverride,
   suppressThread,
+  hasFreshOptimisticOverrideEvidence,
 } from "./use-emails";
 
 function makeEmail(id: string, threadId: string): EmailMessage {
@@ -74,6 +79,7 @@ describe("removal undo claim ownership", () => {
       const hook = hookSource.slice(start, end === -1 ? undefined : end);
 
       expect(hook).toContain("recordSuppressionClaim");
+      expect(hook).toContain("recordInboxMutationClaim");
       expect(hook).toContain("suppressionToken");
       expect(hook).toContain(
         "return { ...mutation, createSuppressionToken, getSuppressionIds }",
@@ -81,10 +87,15 @@ describe("removal undo claim ownership", () => {
       expect(hook.indexOf("recordSuppressionClaim")).toBeLessThan(
         hook.indexOf("await Promise.all"),
       );
+      expect(hook.indexOf("recordInboxMutationClaim")).toBeLessThan(
+        hook.indexOf("await Promise.all"),
+      );
     }
     for (const source of [listSource, threadSource]) {
       expect(source).not.toContain("unsuppressThread");
       expect(source).toContain("releaseSuppressionClaims");
+      expect(source).toContain("releaseOwnedInboxRemoval");
+      expect(source).toContain("inboxRemovalSnapshot");
       expect(source).toContain("createSuppressionToken");
       expect(source).toContain("getSuppressionIds");
     }
@@ -133,6 +144,117 @@ describe("filterSuppressedThreads", () => {
     // still list the thread.
     expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
+  });
+
+  it("does not expire a pending archive claim while stale data is possible", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-26T12:00:00.000Z"));
+    archivedSuppressionIds.push(
+      suppressThread("thread-archived", "archive", {
+        views: ["inbox", "unread"],
+      }),
+    );
+
+    vi.advanceTimersByTime(60_001);
+
+    expect(
+      filterSuppressedThreads(
+        [makeEmail("msg-archived", "thread-archived")],
+        "inbox",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("optimistic property overrides", () => {
+  it("requires a provider request that started after the local mutation", () => {
+    expect(hasFreshOptimisticOverrideEvidence(true, true, 4, 4)).toBe(false);
+    expect(hasFreshOptimisticOverrideEvidence(true, true, 5, 4)).toBe(true);
+    expect(hasFreshOptimisticOverrideEvidence(false, true, 5, 4)).toBe(false);
+  });
+
+  it("retires read and star overrides only after provider evidence", () => {
+    const source = emailsHookSource();
+
+    expect(source).not.toContain("OVERRIDE_DURATION");
+    expect(source).toContain("reconcileOptimisticOverrides");
+    expect(source).toContain("hasFreshOptimisticOverrideEvidence(");
+    expect(source).toContain("providerSnapshotFences");
+    expect(source).toContain("observed.providerSnapshotId <=");
+
+    const threadHook = source.slice(
+      source.indexOf("export function useThreadMessages("),
+      source.indexOf("export function useMarkRead()"),
+    );
+    expect(threadHook).toContain("subscribeToOptimisticOverrides");
+    expect(threadHook).toContain("reconcileOptimisticOverrides");
+    expect(threadHook).toContain("providerSnapshotId");
+    expect(threadHook).toContain("applyOverrides(messages)");
+    expect(threadCacheSource()).toContain(
+      "prev?.providerSnapshotId !== result.providerSnapshotId",
+    );
+  });
+});
+
+describe("suppression evidence", () => {
+  it("does not use placeholder or search data to retire canonical claims", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain("providerSnapshotId");
+    expect(source).toContain("suppressionFence");
+    expect(source).toContain("if (search) return;");
+    expect(source).toContain("q.isPlaceholderData");
+    expect(source).toContain("page.suppressionFence < id");
+    expect(source).toContain("pages[pages.length - 1]?.nextPageToken");
+    expect(source).toContain("if (removed.onlyIn) return false;");
+  });
+
+  it("keeps an Undo claim addressable after evidence retires it", () => {
+    const threadId = "thread-evidence-settled";
+    const id = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+
+    // Provider evidence can retire the active suppression before the toast's
+    // Undo callback runs.
+    expect(settleSuppression(threadId, id)).toBe(true);
+    expect(releaseSuppressionClaims(threadId, [id])).toBe(true);
+    expect(releaseSuppressionClaims(threadId, [])).toBe(false);
+  });
+
+  it("does not undo an older claim after newer evidence has settled", () => {
+    const threadId = "thread-settled-overlap";
+    const archived = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+    const muted = suppressThread(threadId, "mute", {
+      views: ["inbox", "unread"],
+    });
+
+    expect(settleSuppression(threadId, muted)).toBe(true);
+    expect(releaseSuppressionClaims(threadId, [archived])).toBe(false);
+
+    // Releasing the newer committed claim removes its tombstone, so the
+    // older Undo can be honored after the newer action is explicitly undone.
+    expect(releaseSuppressionClaims(threadId, [muted])).toBe(true);
+  });
+
+  it("removes failed claims from a still-visible Undo token", () => {
+    const threadId = "thread-failed-undo";
+    const id = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+    const token = {
+      ids: new Map([[threadId, [id]]]),
+      inboxMutationIds: new Map<string, string[]>(),
+    };
+
+    forgetSuppressionClaim(token, threadId, id);
+    releaseSuppression(threadId, id);
+
+    expect(
+      releaseSuppressionClaims(threadId, token.ids.get(threadId) ?? []),
+    ).toBe(false);
   });
 });
 
@@ -311,6 +433,16 @@ describe("useMarkRead", () => {
 
     confirmReadMutation("message-confirmed", first, false);
     expect(rollbackReadMutation("message-confirmed", second)).toBe(false);
+  });
+
+  it("uses a retained optimistic confirmation over stale cache data", () => {
+    const first = beginReadMutation("message-stale-cache", false, true);
+    expect(confirmReadMutation("message-stale-cache", first, true)).toBe(true);
+    setOptimisticOverride("message-stale-cache", { isRead: true });
+
+    const second = beginReadMutation("message-stale-cache", false, false);
+    expect(rollbackReadMutation("message-stale-cache", second)).toBe(true);
+    clearOptimisticOverride("message-stale-cache");
   });
 
   it("keeps a newer completion authoritative over an older completion", () => {
@@ -573,9 +705,26 @@ describe("inbox-thread cache rollback on mutation error", () => {
 
       expect(hook).toContain("onMutate:");
       expect(hook).toContain("findInboxThreadIdByMessageId(qc, id)");
-      expect(hook).toContain("clearInboxThreadRemoval(qc, threadId)");
+      expect(hook).toContain("releaseOwnedInboxRemoval(qc, threadId");
       expect(hook).toContain("restoreInboxThreadRemovals(qc");
     }
+  });
+
+  it("keeps a newer same-thread suppression claim after an older undo", () => {
+    const threadId = "thread-overlap";
+    const archived = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+    const muted = suppressThread(threadId, "mute", {
+      views: ["inbox", "unread"],
+    });
+    const row = [makeEmail("message-overlap", threadId)];
+
+    expect(releaseSuppression(threadId, archived)).toBe(false);
+    expect(filterSuppressedThreads(row, "inbox")).toEqual([]);
+
+    expect(releaseSuppression(threadId, muted)).toBe(true);
+    expect(filterSuppressedThreads(row, "inbox")).toEqual(row);
   });
 
   it("keeps bulk Gmail rollbacks scoped to the items that failed", () => {

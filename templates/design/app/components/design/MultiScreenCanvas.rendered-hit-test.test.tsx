@@ -258,7 +258,7 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
     expect(primarySandboxById.get("remote-library")).toContain(
       "allow-same-origin",
     );
-    expect(primarySandboxById.get("localhost-settings")).toContain(
+    expect(primarySandboxById.get("localhost-settings")).not.toContain(
       "allow-same-origin",
     );
     expect(primarySandboxById.get("same-origin")).not.toContain(

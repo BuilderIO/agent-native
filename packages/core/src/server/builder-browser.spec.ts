@@ -70,6 +70,7 @@ import {
   getBuilderBrowserStatusForEvent,
   withBuilderConnectTrackingParams,
   BuilderAccountProvisioningError,
+  isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderBranchingEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -197,6 +198,21 @@ describe("Builder account provisioning", () => {
       message: "An account already exists for this email.",
       code: "account_incomplete",
     });
+  });
+
+  it("classifies existing-account errors across runtime boundaries", () => {
+    expect(
+      isBuilderAccountAlreadyExistsError({
+        name: "BuilderAccountProvisioningError",
+        code: "account_incomplete",
+      }),
+    ).toBe(true);
+    expect(
+      isBuilderAccountAlreadyExistsError({
+        name: "BuilderAccountProvisioningError",
+        code: "account_provisioning",
+      }),
+    ).toBe(false);
   });
 });
 

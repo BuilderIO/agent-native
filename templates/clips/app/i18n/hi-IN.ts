@@ -161,6 +161,10 @@ const messages = {
     aiRequestFailed: "एआई अनुरोध विफल रहा",
     titleUpdated: "शीर्षक अद्यतन किया गया",
     descriptionUpdated: "विवरण अपडेट किया गया",
+    tags: "टैग",
+    addTag: "टैग जोड़ें…",
+    tagsUpdateFailed: "टैग अपडेट नहीं हो सके",
+    tagTooLong: "टैग अधिकतम {{max}} वर्णों के हो सकते हैं",
     chaptersGenerated: "अध्याय बनाए गए",
     fillerCompleted: "भराव शब्द हटाना पूरा हुआ",
     workflowReady: "वर्कफ़्लो तैयार है",
@@ -1217,7 +1221,7 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "नई स्पेस",
-    description: "वर्तमान संगठन में एक स्पेस बनाएं।",
+    description: "स्पेस आपके संगठन की रिकॉर्डिंग व्यवस्थित करने के लिए साझा स्थान हैं।",
     name: "नाम",
     color: "रंग",
     useColor: "रंग {{color}} उपयोग करें",
@@ -1416,7 +1420,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app (स्थानीयकृत)",
     surfaceBrowser: "Browser tab (स्थानीयकृत)",
     surfaceBrowserDescription: "Choose an open tab (स्थानीयकृत)",
-    surfaceScreen: "Screen (स्थानीयकृत)",
+    surfaceScreen: "पूरी स्क्रीन",
     surfaceScreenDescription: "Capture everything (स्थानीयकृत)",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection. (स्थानीयकृत)",
@@ -1535,7 +1539,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app (स्थानीयकृत)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (स्थानीयकृत)",
+    recordOnDesktop: "डेस्कटॉप पर रिकॉर्ड",
     downloadDesktopApp: "Download desktop app (स्थानीयकृत)",
+    getChromeExtension: "Chrome एक्सटेंशन प्राप्त करें",
     technicalDetails: "Technical details (स्थानीयकृत)",
     whatToCheck: "What to check (स्थानीयकृत)",
     downloadRecording: "Download (स्थानीयकृत)",

@@ -42,11 +42,9 @@ function renderBar(props: Partial<ResponsiveInteractBarProps> = {}): string {
           deviceName: "Desktop",
           width: 1440,
           height: 900,
-          zoom: 100,
           onDeviceChange: vi.fn(),
           onWidthChange: vi.fn(),
           onHeightChange: vi.fn(),
-          onZoomChange: vi.fn(),
           onModeChange: vi.fn(),
           canAnnotate: true,
           onClose: vi.fn(),
@@ -125,9 +123,7 @@ describe("ResponsiveInteractBar mode exits", () => {
         ),
       );
     }
-    expect(markup).toMatch(
-      /<button[^>]*class="[^"]*shrink-0[^"]*"[^>]*>100\.0%/,
-    );
+    expect(markup).not.toContain("100.0%");
     expect(markup).toContain(
       'class="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1"',
     );

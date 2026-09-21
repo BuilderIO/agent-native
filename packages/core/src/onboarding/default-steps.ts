@@ -24,7 +24,7 @@ import {
 } from "../server/credential-provider.js";
 import { getSetting } from "../settings/store.js";
 import { registerOnboardingStep } from "./registry.js";
-import type { OnboardingStep } from "./types.js";
+import type { OnboardingMethod, OnboardingStep } from "./types.js";
 
 type LlmKeyMethod = {
   provider: keyof typeof PROVIDER_ENV_META;
@@ -79,6 +79,25 @@ const LLM_KEY_METHODS: LlmKeyMethod[] = [
   },
 ];
 
+const JEV_KEY_METHOD: OnboardingMethod = {
+  id: "jev-key",
+  kind: "form",
+  label: "Decision model (Jev)",
+  description:
+    "Optional direct Jev API key for smarter tool and skill selection. Builder-managed Jev may be available through Connect Builder, so both are not required.",
+  badge: "recommended",
+  payload: {
+    writeScope: "user",
+    fields: [
+      {
+        key: "JEV_API_KEY",
+        label: "JEV_API_KEY",
+        secret: true,
+      },
+    ],
+  },
+};
+
 const llmStep: OnboardingStep = {
   id: "llm",
   order: 10,
@@ -97,6 +116,7 @@ const llmStep: OnboardingStep = {
         scope: "llm",
       },
     },
+    JEV_KEY_METHOD,
     ...LLM_KEY_METHODS.map(({ provider, id, label, description, primary }) => {
       const meta = PROVIDER_ENV_META[provider];
       return {

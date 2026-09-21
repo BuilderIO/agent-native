@@ -19,6 +19,7 @@ import {
   IconPhoto,
   IconPlus,
   IconRefresh,
+  IconTarget,
   IconTrash,
   IconVector,
 } from "@tabler/icons-react";
@@ -54,6 +55,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 import type { EditorMode } from "@/pages/design-editor/types";
 
@@ -341,6 +343,7 @@ interface EditPanelProps {
   onAddLocalhostScreen?: () => void;
   onRemoveScreen?: () => void;
   screenSourcePending?: boolean;
+  screenBreakpointControls?: ReactNode;
   pageStyles?: Record<string, string>;
   /** The selected screen's own document element, plus the writer for it. A
    *  screen's box comes from the board and its paint from that document, which
@@ -356,6 +359,8 @@ interface EditPanelProps {
    *  replacement. Multiple scopes may belong to one file or several screens. */
   selectionColorScopes?: SelectionColorScope[];
   onSelectionColorChange?: SelectionColorChangeHandler;
+  onSelectionColorTarget?: (color: string) => void;
+  canSelectSelectionColorTarget?: (color: string) => boolean;
   onSelectionColorPickerOpenChange?: (from: string, open: boolean) => void;
   onGroupFillStylesChange?: (
     styles: Record<string, string>,
@@ -382,6 +387,7 @@ interface EditPanelProps {
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  onFontUploaded?: (font: UploadedFont) => void | Promise<void>;
   onExport?: (settings: ExportSettingsValue[]) => void;
   /** Rasterizes the current selection for the export preview. Must go through
    *  the same renderer as `onExport`, or the preview lies about the output. */
@@ -401,6 +407,8 @@ interface EditPanelProps {
   >;
   /** Server revision for activeContent. */
   activeFileUpdatedAt?: string | null;
+  /** Current hashes for every HTML file when a linked component edit spans Screens. */
+  componentExpectedFiles?: Array<{ fileId: string; versionHash: string }>;
   /**
    * Every file's content in the current design (all screens, not just the
    * active one) — used to compute the document-wide "Document colors"
@@ -1335,6 +1343,7 @@ function ScreenGeometryProperties({
   onAddLocalhostScreen,
   onRemoveScreen,
   screenSourcePending = false,
+  screenBreakpointControls,
 }: {
   screen: ScreenGeometrySelection;
   onGeometryChange?: (
@@ -1363,6 +1372,7 @@ function ScreenGeometryProperties({
   onAddLocalhostScreen?: () => void;
   onRemoveScreen?: () => void;
   screenSourcePending?: boolean;
+  screenBreakpointControls?: ReactNode;
 }) {
   const t = useT();
   const noop = useCallback(() => {}, []);
@@ -1421,41 +1431,73 @@ function ScreenGeometryProperties({
 
   return (
     <>
-      <PanelSection title={t("editPanel.sections.page")}>
+      <PanelSection
+        title={t("editPanel.sections.page")}
+        actions={
+          onAddLocalhostScreen || onRemoveScreen ? (
+            <>
+              {onAddLocalhostScreen ? (
+                <SectionIconButton
+                  label={t("layersPanel.addScreen")}
+                  disabled={!sourceEditable || screenSourcePending}
+                  onClick={onAddLocalhostScreen}
+                >
+                  <IconPlus className="size-3.5" />
+                </SectionIconButton>
+              ) : null}
+              {onRemoveScreen ? (
+                <SectionIconButton
+                  label={t("editPanel.screenSource.remove")}
+                  className="hover:text-destructive"
+                  disabled={!sourceEditable || screenSourcePending}
+                  onClick={onRemoveScreen}
+                >
+                  <IconTrash className="size-3.5" />
+                </SectionIconButton>
+              ) : null}
+            </>
+          ) : undefined
+        }
+      >
         <div className="design-sidebar-property-group space-y-2">
           <SubsectionLabel>{t("editPanel.screenSource.title")}</SubsectionLabel>
-          <div className="grid grid-cols-2 gap-1 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
-            <Button
-              type="button"
-              size="sm"
-              variant={sourceMode === "static" ? "secondary" : "ghost"}
-              className="h-6 justify-center px-2 text-[11px]"
-              disabled={!sourceEditable || screenSourcePending}
-              onClick={() => {
-                if (persistedSourceType === "static") {
-                  setSourceMode("static");
-                  return;
-                }
-                // Keep the control pessimistic while a URL-to-static snapshot
-                // is in flight. A failed bridge snapshot must not make the
-                // inspector claim that the screen changed modes.
+          <Tabs
+            value={sourceMode}
+            onValueChange={(value) => {
+              const nextMode = value as "static" | "url";
+              if (nextMode === "url") {
                 setSourceMode("url");
-                onScreenSourceChange?.(screen.id, { sourceType: "static" });
-              }}
-            >
-              {t("editPanel.positionOptions.static")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={sourceMode === "url" ? "secondary" : "ghost"}
-              className="h-6 justify-center px-2 text-[11px]"
-              disabled={!sourceEditable || screenSourcePending}
-              onClick={() => setSourceMode("url")}
-            >
-              {t("editPanel.screenSource.url")}
-            </Button>
-          </div>
+                return;
+              }
+              if (persistedSourceType === "static") {
+                setSourceMode("static");
+                return;
+              }
+              // Keep the control pessimistic while a URL-to-static snapshot
+              // is in flight. A failed bridge snapshot must not make the
+              // inspector claim that the screen changed modes.
+              setSourceMode("url");
+              onScreenSourceChange?.(screen.id, { sourceType: "static" });
+            }}
+            className="w-full"
+          >
+            <TabsList className="h-7 w-full justify-start gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
+              <TabsTrigger
+                value="static"
+                disabled={!sourceEditable || screenSourcePending}
+                className="h-6 min-w-0 flex-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-bg)] data-[state=active]:text-[var(--design-editor-accent-color)] data-[state=active]:shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]"
+              >
+                {t("editPanel.positionOptions.static")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="url"
+                disabled={!sourceEditable || screenSourcePending}
+                className="h-6 min-w-0 flex-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-bg)] data-[state=active]:text-[var(--design-editor-accent-color)] data-[state=active]:shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]"
+              >
+                {t("editPanel.screenSource.url")}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           {sourceMode === "url" ? (
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5">
@@ -1476,12 +1518,13 @@ function ScreenGeometryProperties({
                   placeholder={t("editPanel.screenSource.urlPlaceholder")}
                   aria-label={t("editPanel.screenSource.urlLabel")}
                   disabled={!sourceEditable || screenSourcePending}
-                  className="h-7 min-w-0 flex-1 text-[11px]"
+                  className="h-6 min-w-0 flex-1 text-[11px]"
                 />
                 <Button
                   type="button"
                   size="sm"
-                  className="h-7 shrink-0 px-2 text-[11px]"
+                  variant="outline"
+                  className="h-6 shrink-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none hover:bg-[var(--design-editor-panel-raised-bg)]"
                   disabled={
                     !sourceEditable ||
                     screenSourcePending ||
@@ -1503,7 +1546,7 @@ function ScreenGeometryProperties({
                   }}
                   disabled={!sourceEditable || screenSourcePending}
                 >
-                  <SelectTrigger className="h-7 w-full min-w-0 text-[11px]">
+                  <SelectTrigger className="h-6 w-full min-w-0 text-[11px]">
                     <SelectValue
                       placeholder={t("editPanel.screenSource.chooseLocalApp")}
                     />
@@ -1525,37 +1568,8 @@ function ScreenGeometryProperties({
               ) : null}
             </div>
           ) : null}
-          <div className="flex items-center justify-between gap-2 pt-0.5">
-            {onAddLocalhostScreen ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1 px-1.5 text-[11px]"
-                disabled={!sourceEditable || screenSourcePending}
-                onClick={onAddLocalhostScreen}
-              >
-                <IconPlus className="size-3.5" />
-                {t("layersPanel.addScreen")}
-              </Button>
-            ) : (
-              <span />
-            )}
-            {onRemoveScreen ? (
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-7 text-muted-foreground hover:text-destructive"
-                disabled={!sourceEditable || screenSourcePending}
-                onClick={onRemoveScreen}
-                aria-label={t("editPanel.screenSource.remove")}
-              >
-                <IconTrash className="size-3.5" />
-              </Button>
-            ) : null}
-          </div>
         </div>
+        {screenBreakpointControls}
       </PanelSection>
       <PanelSection title={t("editPanel.sections.positionLayout")}>
         <div className="design-sidebar-property-group">
@@ -1851,7 +1865,11 @@ function PageProperties({
   const baseFontFamilyOptions = sortFontFamilyOptions(
     FONT_FAMILY_OPTIONS.map((option) => ({
       value: option.value,
-      label: t(`editPanel.fontFamilies.${option.key}`),
+      label:
+        option.label ??
+        (option.key
+          ? t(`editPanel.fontFamilies.${option.key}`)
+          : displayFontFamilyName(option.value)),
     })),
   );
   const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
@@ -2070,6 +2088,8 @@ export function SelectionColorsProperties({
   elements,
   scopes,
   onColorChange,
+  onColorTarget,
+  canSelectColorTarget,
   onColorPickerOpenChange,
   colors: providedColors,
   title,
@@ -2077,6 +2097,8 @@ export function SelectionColorsProperties({
   elements: ElementInfo[];
   scopes?: SelectionColorScope[];
   onColorChange?: SelectionColorChangeHandler;
+  onColorTarget?: (color: string) => void;
+  canSelectColorTarget?: (color: string) => boolean;
   onColorPickerOpenChange?: (from: string, open: boolean) => void;
   colors?: SelectionColorValue[];
   title?: string;
@@ -2085,6 +2107,7 @@ export function SelectionColorsProperties({
   // affordance, expanding to one editable [swatch · hex · opacity] row per
   // unique color — matching the Fill row grammar instead of a swatch strip.
   const [expanded, setExpanded] = useState(false);
+  const t = useT();
   const colors = providedColors ?? selectionColorValues(elements, scopes);
   const onColorPickerOpenChangeRef = useRef(onColorPickerOpenChange);
   onColorPickerOpenChangeRef.current = onColorPickerOpenChange;
@@ -2220,59 +2243,79 @@ export function SelectionColorsProperties({
             const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
             return (
               <InspectorGridCell key={index} span={28}>
-                <DesignColorPicker
-                  trigger={
-                    <button
-                      type="button"
-                      className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-                      aria-label={value}
-                      disabled={!onColorChange}
-                    >
-                      <span
-                        className="size-4 shrink-0 rounded-[3px] border border-border/60"
-                        style={swatchStyle(value)}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
-                        {selectionDisplayHex(value)}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
-                        {opacity}%
-                      </span>
-                      {color.count && color.count > 1 ? (
-                        <span className="shrink-0 tabular-nums text-muted-foreground">
-                          ×{color.count}
+                <div className="flex w-full items-center gap-1">
+                  <DesignColorPicker
+                    className="min-w-0 flex-1"
+                    trigger={
+                      <button
+                        type="button"
+                        className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                        aria-label={value}
+                        disabled={!onColorChange}
+                      >
+                        <span
+                          className="size-4 shrink-0 rounded-[3px] border border-border/60"
+                          style={swatchStyle(value)}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
+                          {selectionDisplayHex(value)}
                         </span>
-                      ) : null}
-                    </button>
-                  }
-                  value={cssColorOrFallback(value, DEFAULT_AUTHORED_COLOR)}
-                  open={
-                    pickerSession?.scopeIdentity === scopeIdentity &&
-                    pickerSession.index === index
-                  }
-                  onOpenChange={(open) =>
-                    setColorPickerOpen(index, color, open)
-                  }
-                  supportedPaintTypes={["solid"]}
-                  // PF12: per-tick drag preview vs. one authoritative
-                  // commit on gesture-end — same split as ColorInput's
-                  // setNext (see its PF12 comment above).
-                  onChange={(next) =>
-                    changeColor(index, color, next, "preview")
-                  }
-                  onChangeComplete={(next) =>
-                    changeColor(index, color, next, "commit")
-                  }
-                  onChangeCancel={(next) =>
-                    changeColor(index, color, next, "cancel")
-                  }
-                  allowDesignHistoryHotkeys
-                  onDesignHistoryHotkey={() => {
-                    if (activeGestureRef.current) return;
-                    setColorPickerOpen(index, color, false);
-                  }}
-                  disabled={!onColorChange}
-                />
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {opacity}%
+                        </span>
+                        {color.count && color.count > 1 ? (
+                          <span className="shrink-0 tabular-nums text-muted-foreground">
+                            ×{color.count}
+                          </span>
+                        ) : null}
+                      </button>
+                    }
+                    value={cssColorOrFallback(value, DEFAULT_AUTHORED_COLOR)}
+                    open={
+                      pickerSession?.scopeIdentity === scopeIdentity &&
+                      pickerSession.index === index
+                    }
+                    onOpenChange={(open) =>
+                      setColorPickerOpen(index, color, open)
+                    }
+                    supportedPaintTypes={["solid"]}
+                    // PF12: per-tick drag preview vs. one authoritative
+                    // commit on gesture-end — same split as ColorInput's
+                    // setNext (see its PF12 comment above).
+                    onChange={(next) =>
+                      changeColor(index, color, next, "preview")
+                    }
+                    onChangeComplete={(next) =>
+                      changeColor(index, color, next, "commit")
+                    }
+                    onChangeCancel={(next) =>
+                      changeColor(index, color, next, "cancel")
+                    }
+                    allowDesignHistoryHotkeys
+                    onDesignHistoryHotkey={() => {
+                      if (activeGestureRef.current) return;
+                      setColorPickerOpen(index, color, false);
+                    }}
+                    disabled={!onColorChange}
+                  />
+                  {onColorTarget && (canSelectColorTarget?.(value) ?? true) ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                          aria-label={`${t("designEditor.keyboardShortcuts.commands.find")}: ${value}`}
+                          onClick={() => onColorTarget(value)}
+                        >
+                          <IconTarget className="size-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        {t("designEditor.keyboardShortcuts.commands.find")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </div>
               </InspectorGridCell>
             );
           })}
@@ -2400,12 +2443,15 @@ export const EditPanel = memo(function EditPanel({
   onAddLocalhostScreen,
   onRemoveScreen,
   screenSourcePending,
+  screenBreakpointControls,
   pageStyles = {},
   selectedScreenElement,
   onSelectedScreenStyleChange,
   onSelectedScreenStylesChange,
   selectionColorScopes = [],
   onSelectionColorChange: onSelectionColorChangeProp,
+  onSelectionColorTarget,
+  canSelectSelectionColorTarget,
   onSelectionColorPickerOpenChange,
   onGroupFillStylesChange: onGroupFillStylesChangeProp,
   viewMode,
@@ -2433,10 +2479,12 @@ export const EditPanel = memo(function EditPanel({
   activeContent,
   pendingInteractionStateStyles,
   activeFileUpdatedAt,
+  componentExpectedFiles,
   files,
   designId,
   onComponentPropApplied,
   onShaderSourceApplied,
+  onFontUploaded,
   reviewPanelProps,
   reviewCommentsPanelProps,
   reviewCommentsCount = 0,
@@ -3076,6 +3124,7 @@ export const EditPanel = memo(function EditPanel({
                   }
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFileUpdatedAt}
+                  expectedFiles={componentExpectedFiles}
                   componentDetailsReady={componentDetailsReady}
                   nodeId={componentNodeId}
                   runtime={componentRuntime}
@@ -3137,6 +3186,7 @@ export const EditPanel = memo(function EditPanel({
                     }
                     onRemoveScreen={readOnly ? undefined : onRemoveScreen}
                     screenSourcePending={screenSourcePending}
+                    screenBreakpointControls={screenBreakpointControls}
                   />
                   {onLayoutGridChange ? (
                     <LayoutGridProperties
@@ -3183,6 +3233,8 @@ export const EditPanel = memo(function EditPanel({
                       <SelectionColorsProperties
                         elements={[selectedScreenElement]}
                         scopes={selectionColorScopes}
+                        onColorTarget={onSelectionColorTarget}
+                        canSelectColorTarget={canSelectSelectionColorTarget}
                         onColorPickerOpenChange={
                           onSelectionColorPickerOpenChange
                         }
@@ -3203,6 +3255,8 @@ export const EditPanel = memo(function EditPanel({
                 <SelectionColorsProperties
                   elements={[]}
                   scopes={selectionColorScopes}
+                  onColorTarget={onSelectionColorTarget}
+                  canSelectColorTarget={canSelectSelectionColorTarget}
                   onColorPickerOpenChange={onSelectionColorPickerOpenChange}
                   onColorChange={
                     readOnly || interactionState
@@ -3277,6 +3331,8 @@ export const EditPanel = memo(function EditPanel({
                       onStylesChange={
                         onStylesChangeProp ? onStylesChange : undefined
                       }
+                      designId={designId}
+                      onFontUploaded={onFontUploaded}
                     />
                   ) : null}
                   {selectionIsGroup ? (
@@ -3323,6 +3379,8 @@ export const EditPanel = memo(function EditPanel({
                   <SelectionColorsProperties
                     elements={effectiveSelectedElements}
                     scopes={selectionColorScopes}
+                    onColorTarget={onSelectionColorTarget}
+                    canSelectColorTarget={canSelectSelectionColorTarget}
                     onColorPickerOpenChange={onSelectionColorPickerOpenChange}
                     onColorChange={
                       readOnly || interactionState

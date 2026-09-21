@@ -94,6 +94,7 @@ export interface DeleteSelectionArgs {
     },
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreen?: boolean;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
       string,
@@ -167,6 +168,7 @@ export function runDeleteSelection({
   applyFileContentUpdate,
   applyLocalContentUpdate,
   canEditDesign,
+  canEditLiveScreen = false,
   codeLayerOwnerByNodeIdRef,
   deleteRuntimeElement,
   files,
@@ -190,7 +192,7 @@ export function runDeleteSelection({
   viewModeRef,
 }: DeleteSelectionArgs) {
   trace("structure", "delete", { layers: selectedLayerIdsState.length });
-  if (!canEditDesign) return;
+  if (!canEditDesign && !canEditLiveScreen) return;
   const snapshots = getSelectedLayerSnapshots();
   const candidates =
     snapshots.length > 0

@@ -186,6 +186,7 @@ export function resolveScreenMetadata(
   const heightMode = resolveScreenHeightMode(
     metadata.heightMode,
     metadata.heightPinned,
+    metadata.sourceType,
   );
   return {
     source:

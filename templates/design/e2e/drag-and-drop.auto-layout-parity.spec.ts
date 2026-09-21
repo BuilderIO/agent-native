@@ -68,6 +68,14 @@ const META_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
+const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <div data-agent-native-node-id="oversized-source" data-agent-native-layer-name="Oversized Source"
+    style="position:absolute;left:500px;top:300px;width:500px;height:110px;background:#ea580c">Source</div>
+  <section data-agent-native-node-id="plain-target" data-agent-native-layer-name="Empty Flow"
+    style="position:absolute;left:80px;top:70px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
+</body></html>`;
+
 function preview(page: Page): Locator {
   return page
     .locator("iframe[data-design-preview-iframe]")
@@ -121,6 +129,7 @@ async function dragCanvasNode(
   target: { x: number; y: number },
   feedback?: "inside" | "line" | "ghost",
   modifier?: "Meta" | "Control",
+  onHeld?: () => Promise<void>,
 ): Promise<void> {
   const beforeHtml = await indexHtml(page, designId);
   const source = (await node(page, sourceId).boundingBox())!;
@@ -152,6 +161,7 @@ async function dragCanvasNode(
       )
       .toBe(true);
   }
+  if (onHeld) await onHeld();
   await page.mouse.up();
   if (modifier) await page.keyboard.up(modifier);
   await expect
@@ -174,10 +184,67 @@ test("physical vertical auto-layout reorder keeps parent, order, and geometry", 
     await openEditor(page, designId);
     await selectCanvasNode(page, "v1");
     const v3 = (await node(page, "v3").boundingBox())!;
-    await dragCanvasNode(page, designId, "v1", {
-      x: v3.x + v3.width / 2,
-      y: v3.y + v3.height * 0.8,
-    });
+    await dragCanvasNode(
+      page,
+      designId,
+      "v1",
+      {
+        x: v3.x + v3.width / 2,
+        y: v3.y + v3.height * 0.8,
+      },
+      "line",
+      undefined,
+      async () => {
+        const held = await preview(page).evaluate(() => {
+          const parent = document.querySelector(
+            '[data-agent-native-node-id="vertical"]',
+          );
+          const source = document.querySelector(
+            '[data-agent-native-node-id="v1"]',
+          ) as HTMLElement | null;
+          const target = document.querySelector(
+            '[data-agent-native-node-id="v3"]',
+          ) as HTMLElement | null;
+          const guide = document.querySelector(
+            "[data-agent-native-insertion-guide]",
+          ) as HTMLElement | null;
+          const guideRect = guide?.getBoundingClientRect();
+          const targetRect = target?.getBoundingClientRect();
+          return {
+            order: parent
+              ? Array.from(parent.children).map((child) =>
+                  child.getAttribute("data-agent-native-node-id"),
+                )
+              : [],
+            sourceParent: source?.parentElement?.getAttribute(
+              "data-agent-native-node-id",
+            ),
+            guideDisplay: guide ? getComputedStyle(guide).display : "none",
+            guideWidth: guideRect?.width ?? 0,
+            guideHeight: guideRect?.height ?? 0,
+            guideTop: guideRect?.top ?? 0,
+            targetTop: targetRect?.top ?? 0,
+            targetBottom: targetRect?.bottom ?? 0,
+            siblingTransforms: ["v2", "v3"].map((id) => {
+              const element = document.querySelector(
+                `[data-agent-native-node-id="${id}"]`,
+              );
+              return element ? getComputedStyle(element).transform : "none";
+            }),
+          };
+        });
+        expect(held.order).toEqual(["v1", "v2", "v3"]);
+        expect(held.sourceParent).toBe("vertical");
+        expect(held.guideDisplay).toBe("block");
+        expect(held.guideWidth).toBeGreaterThan(0);
+        expect(held.guideHeight).toBeGreaterThan(0);
+        expect(held.guideTop).toBeGreaterThanOrEqual(held.targetTop);
+        expect(held.guideTop).toBeLessThanOrEqual(held.targetBottom + 8);
+        expect(
+          held.siblingTransforms.some((transform) => transform !== "none"),
+        ).toBe(true);
+      },
+    );
 
     await openEditor(page, designId);
     const html = await indexHtml(page, designId);
@@ -355,6 +422,70 @@ test("physical drop into a nested frame in a regular flex row still nests", asyn
       parent: "nested-frame",
       position: "static",
     });
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("physical oversized free layer stays beside an empty auto-layout target", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, OVERSIZED_PLAIN_DROP_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "oversized-source");
+    const sourceBefore = (await node(page, "oversized-source").boundingBox())!;
+    const target = (await node(page, "plain-target").boundingBox())!;
+    expect(sourceBefore.width).toBeGreaterThan(target.width);
+    await page.mouse.move(
+      sourceBefore.x + sourceBefore.width / 2,
+      sourceBefore.y + sourceBefore.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(sourceBefore.x + 12, sourceBefore.y + 8, {
+      steps: 5,
+    });
+    await page.mouse.move(
+      target.x + target.width * 0.75,
+      target.y + target.height / 2,
+      { steps: 24 },
+    );
+    await expect
+      .poll(() => insertionGuideKind(page), {
+        timeout: 5_000,
+        message: "oversized source must resolve a sibling line, not inside",
+      })
+      .toBe("line");
+    await page.mouse.up();
+
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .toMatch(
+        /data-agent-native-node-id="plain-target"[\s\S]*data-agent-native-node-id="oversized-source"/,
+      );
+    await openEditor(page, designId);
+    const state = await preview(page).evaluate(() => {
+      const source = document.querySelector(
+        '[data-agent-native-node-id="oversized-source"]',
+      ) as HTMLElement | null;
+      const target = document.querySelector(
+        '[data-agent-native-node-id="plain-target"]',
+      );
+      return {
+        sourceParent:
+          source?.parentElement?.tagName === "BODY"
+            ? "BODY"
+            : source?.parentElement?.getAttribute("data-agent-native-node-id"),
+        targetContains: !!target && !!source && target.contains(source),
+        position: source ? getComputedStyle(source).position : null,
+      };
+    });
+    expect(state).toEqual({
+      sourceParent: "BODY",
+      targetContains: false,
+      position: "static",
+    });
+    expect(state.sourceParent).not.toBe("flow");
   } finally {
     await deleteDesign(page, designId);
   }
