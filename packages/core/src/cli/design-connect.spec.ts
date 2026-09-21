@@ -559,6 +559,23 @@ describe("design connect bridge endpoints", () => {
     ).rejects.toThrow(/connection ID, not a bridge token/);
   });
 
+  it("rejects a preview token that does not match the bridge token", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+
+    await expect(
+      startDesignConnectBridge(manifest, {
+        bridgeToken: "bridge-token",
+        previewToken: "stale-preview-token",
+      }),
+    ).rejects.toThrow(/previewToken must match/);
+  });
+
   it("reuses the persisted bridge token after a daemon restart", async () => {
     const root = tmpDir();
     const port = await freePort();

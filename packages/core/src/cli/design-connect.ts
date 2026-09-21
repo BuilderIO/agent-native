@@ -2609,10 +2609,18 @@ export async function startDesignConnectBridge(
     manifest.rootPath,
     configuredBridgeToken,
   );
-  const previewToken =
-    options.previewToken ||
-    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] ||
-    deriveDesignPreviewToken(bridgeToken);
+  const configuredPreviewToken =
+    options.previewToken || process.env["AGENT_NATIVE_PREVIEW_TOKEN"];
+  const derivedPreviewToken = deriveDesignPreviewToken(bridgeToken);
+  if (
+    configuredPreviewToken &&
+    configuredPreviewToken !== derivedPreviewToken
+  ) {
+    throw new Error(
+      "previewToken must match the deterministic token derived from bridgeToken",
+    );
+  }
+  const previewToken = configuredPreviewToken || derivedPreviewToken;
   const configuredOrigins = new Set(
     (options.allowedOrigins ?? []).flatMap((raw): string[] => {
       try {
@@ -4066,23 +4074,16 @@ export async function runDesign(argv: string[]) {
   console.error(`Routes:   ${manifest.routeCount}`);
   console.error(`Dev URL:  ${manifest.devServerUrl}`);
 
-  if (seedBridgeToken) {
-    // Server already stored this token on the row; bridge matches it, so no
-    // self-registration needed. Zero-config path for the remote-MCP flow.
+  if (appUrl) {
+    // Always refresh the server row with the token actually serving requests.
+    // A persisted local token can outlive a row refresh, and skipping this
+    // POST leaves the browser with a deterministic but unusable credential.
+    await registerConnectionWithServer(appUrl, bridge, resolveAuthToken());
+  } else if (!seedBridgeToken) {
+    // No token source at all — warn rather than 401 silently at edit time.
     console.error(
-      "[design connect] Using server-provided bridge token; skipping self-registration.",
+      "[design connect] No bridge token or app URL resolved (pass --bridge-token, or --app-url / AGENT_NATIVE_URL); skipping self-registration — browser preview and live-edit will fail to authorize.",
     );
-  } else {
-    // No seed: fall back to self-registration — POST the minted token to
-    // connect-localhost. Needs an auth token in env or it 401s (the old gap).
-    if (appUrl) {
-      void registerConnectionWithServer(appUrl, bridge, resolveAuthToken());
-    } else {
-      // No token source at all — warn rather than 401 silently at edit time.
-      console.error(
-        "[design connect] No bridge token or app URL resolved (pass --bridge-token, or --app-url / AGENT_NATIVE_URL); skipping self-registration — browser preview and live-edit will fail to authorize.",
-      );
-    }
   }
 
   return await new Promise<number>((resolve) => {
