@@ -313,6 +313,30 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
     expect(stack[0]?.revertValue).toBe("Hello");
   });
 
+  it("keeps a text edit after an interleaved global history entry", () => {
+    const stack: Array<{
+      kind: "text";
+      edit: PendingLiveTextEdit;
+      revertValue: string;
+    }> = [];
+    appendPendingLiveNonStyleUndoEntry(stack, {
+      kind: "text",
+      edit: textEdit("Hel"),
+      revertValue: "Hello",
+    });
+    appendPendingLiveNonStyleUndoEntry(
+      stack,
+      {
+        kind: "text",
+        edit: textEdit("Help"),
+        revertValue: "Hel",
+      },
+      false,
+    );
+    expect(stack).toHaveLength(2);
+    expect(stack.map((entry) => entry.edit.value)).toEqual(["Hel", "Help"]);
+  });
+
   it("coalesces live layer renames and removes the edit when reverted", () => {
     const first = layerNameEdit("Hero copy");
     const second = { ...layerNameEdit("Hero final"), updatedAt: 2 };

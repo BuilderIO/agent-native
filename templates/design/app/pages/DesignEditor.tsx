@@ -8661,6 +8661,9 @@ function DesignEditor() {
           pendingStructureRedoReplayTimerRef,
           pendingVisualStyleRedoStackRef,
           recordPendingHistoryEntry,
+          canCoalescePendingLiveEdit: () =>
+            historyOrderRef.current[historyOrderRef.current.length - 1] ===
+            "pending-live",
           runtimeLayerSnapshotsById,
           selectedElement,
           setPendingLiveNonStyleEdits,
@@ -8883,6 +8886,8 @@ function DesignEditor() {
       appendPendingLiveNonStyleUndoEntry(
         pendingLiveNonStyleUndoStackRef.current,
         { kind: "layer-name", edit: nextEdit, revertName },
+        historyOrderRef.current[historyOrderRef.current.length - 1] ===
+          "pending-live",
       );
       if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
         recordPendingHistoryEntry("pending-live");

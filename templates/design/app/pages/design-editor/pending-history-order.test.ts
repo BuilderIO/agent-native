@@ -1,11 +1,64 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { runRecordPendingLiveTextEdit } from "./commands/record-pending-live-text-edit";
 import { runRedo } from "./commands/redo";
 import { runUndo } from "./commands/undo";
 
 const ref = <T>(current: T) => ({ current });
 
 describe("pending live history order", () => {
+  it("does not coalesce text across an interleaved style history entry", () => {
+    const historyOrderRef = ref<string[]>([]);
+    const pendingLiveNonStyleUndoStackRef = ref<any[]>([]);
+    const pendingLiveNonStyleRedoStackRef = ref<any[]>([]);
+    const pendingVisualStyleRedoStackRef = ref<any[]>([]);
+    const pendingLiveNonStyleEditsRef = ref<any[]>([]);
+    const recordPendingHistoryEntry = vi.fn((kind: string) => {
+      historyOrderRef.current.push(kind);
+    });
+    const args = {
+      activeFile: { id: "home", filename: "index.html" },
+      canEditDesign: true,
+      cancelPendingStructureVerification: vi.fn(),
+      files: [{ id: "home", filename: "index.html" }],
+      localhostConnectionRootPathByIdRef: ref(new Map()),
+      overviewScreens: [],
+      pendingLiveNonStyleEditsRef,
+      pendingLiveNonStyleRedoStackRef,
+      pendingLiveNonStyleUndoStackRef,
+      pendingStructureRedoReplayRef: ref(undefined),
+      pendingStructureRedoReplayTimerRef: ref(undefined),
+      pendingVisualStyleRedoStackRef,
+      recordPendingHistoryEntry,
+      canCoalescePendingLiveEdit: () =>
+        historyOrderRef.current[historyOrderRef.current.length - 1] ===
+        "pending-live",
+      runtimeLayerSnapshotsById: {},
+      selectedElement: null,
+      setPendingLiveNonStyleEdits: vi.fn(),
+    } as any;
+    const record = (value: string) =>
+      runRecordPendingLiveTextEdit(args, "home", "#title", value, undefined, {
+        originalValue: "Original",
+      });
+
+    record("Hel");
+    record("Help");
+    historyOrderRef.current.push("pending-style");
+    record("Helper");
+
+    expect(pendingLiveNonStyleUndoStackRef.current).toHaveLength(2);
+    expect(
+      pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit.value),
+    ).toEqual(["Help", "Helper"]);
+    expect(recordPendingHistoryEntry).toHaveBeenCalledTimes(2);
+    expect(historyOrderRef.current).toEqual([
+      "pending-live",
+      "pending-style",
+      "pending-live",
+    ]);
+  });
+
   it("undoes and redoes interleaved style and text edits in strict LIFO order", () => {
     const radius24Edit = {
       screenId: "home",

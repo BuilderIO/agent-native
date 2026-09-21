@@ -60,6 +60,7 @@ import {
   applyScopedVisualStyleEdit,
   replayPendingVisualStyleRuntimePatch,
   resolveVisualStyleCommitContent,
+  runtimeStyleTarget,
 } from "@/pages/design-editor/pending-edits";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { applyInlineStylesToHtml } from "@/pages/design-editor/screen-command-utils";
@@ -270,6 +271,37 @@ export function runCommitVisualStyles(
     (liveTargetInfo.boundingRect.width <= 0 ||
       liveTargetInfo.boundingRect.height <= 0)
   ) {
+    // A live gesture may have already painted the wrapper before its measured
+    // box proved non-rendered. Roll that preview back through the same bridge
+    // identity used by undo, then reject the invisible edit below.
+    if (options.runtimeApplied && options.originalStyles) {
+      const runtimePatch = {
+        screenId: activeFile.id,
+        selector,
+        sourceId: liveTargetInfo.sourceId,
+        runtimeSelector: liveTargetInfo.runtimeSelector,
+        runtimeSourceId: liveTargetInfo.runtimeSourceId,
+        ...(options.routePath ? { routePath: options.routePath } : {}),
+        styles: options.originalStyles,
+      };
+      const sendStyleChangeForScreen = (window as any)
+        .__designCanvasSendStyleForScreen;
+      const sendStyleChange = (window as any).__designCanvasSendStyle;
+      if (typeof sendStyleChangeForScreen === "function") {
+        replayPendingVisualStyleRuntimePatch(
+          runtimePatch,
+          sendStyleChangeForScreen,
+        );
+      } else if (typeof sendStyleChange === "function") {
+        const target = runtimeStyleTarget(runtimePatch);
+        Object.entries(runtimePatch.styles).forEach(([property, value]) => {
+          sendStyleChange(target.selector, property, value, {
+            selectorCandidates: target.selectorCandidates,
+            nodeId: target.nodeId,
+          });
+        });
+      }
+    }
     recordPendingVisualStyleEdit(
       activeFile.id,
       selector,

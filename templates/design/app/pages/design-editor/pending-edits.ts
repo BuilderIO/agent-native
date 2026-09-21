@@ -786,9 +786,11 @@ export function pendingVisualStyleEditsFromUndoStack(
 export function appendPendingLiveNonStyleUndoEntry(
   stack: PendingLiveNonStyleUndoEntry[],
   entry: PendingLiveNonStyleUndoEntry,
+  coalesceAdjacent = true,
 ): void {
   const last = stack[stack.length - 1];
   if (
+    coalesceAdjacent &&
     last?.kind === "text" &&
     entry.kind === "text" &&
     pendingLiveEditSubjectKey(last.edit) ===
@@ -811,6 +813,7 @@ export function appendPendingLiveNonStyleUndoEntry(
     return;
   }
   if (
+    coalesceAdjacent &&
     last?.kind === "layer-name" &&
     entry.kind === "layer-name" &&
     pendingLiveEditSubjectKey(last.edit) ===
