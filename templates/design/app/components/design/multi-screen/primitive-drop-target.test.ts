@@ -486,6 +486,24 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     );
   });
 
+  it("distributes remaining space above a minmax grid minimum", () => {
+    const screen = {
+      id: "grid-minmax-screen",
+      filename: "grid-minmax-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:grid;grid-template-columns:minmax(100px,1fr) 1fr;gap:10px">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    expect(parsePrimitivesFromScreen(screen)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeId: "second", localLeft: 155 }),
+      ]),
+    );
+  });
+
   it("keeps nested minmax functions inside a repeat track", () => {
     const screen = {
       ...flexScreen,
