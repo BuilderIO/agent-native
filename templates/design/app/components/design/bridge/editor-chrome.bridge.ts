@@ -16552,6 +16552,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var authoredSpan =
       endValue.trim().match(/^span\s+(\d+)$/) ||
       startValue.trim().match(/^span\s+(\d+)$/);
+    var hasAuthoredPlacement =
+      authoredSpan !== null ||
+      (startValue.trim() !== "auto" && startValue.trim() !== "") ||
+      (endValue.trim() !== "auto" && endValue.trim() !== "");
     var geometricRange = layout
       ? gridTrackRangeForRect(
           el.getBoundingClientRect(),
@@ -16570,6 +16574,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (start === null && end !== null && authoredSpan) start = end - span;
     return {
       authoredStart: start,
+      hasAuthoredPlacement: hasAuthoredPlacement,
       start: start ?? (geometricRange ? geometricRange.start + 1 : null),
       span,
     };
@@ -17031,7 +17036,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var sourceColumn = gridItemAxisPlacement(el, sourceGridLayout, "column");
       var sourceRow = gridItemAxisPlacement(el, sourceGridLayout, "row");
       var sourceHasAuthoredPlacement =
-        sourceColumn.authoredStart !== null || sourceRow.authoredStart !== null;
+        sourceColumn.hasAuthoredPlacement || sourceRow.hasAuthoredPlacement;
       var columnStart = sourceColumn.start ?? NaN;
       var columnSpan = sourceColumn.span;
       var columnEnd = columnStart + columnSpan;
@@ -17179,8 +17184,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             "row",
           );
           var displacedHasAuthoredPlacement =
-            displacedColumnPlacement.authoredStart !== null ||
-            displacedRowPlacement.authoredStart !== null;
+            displacedColumnPlacement.hasAuthoredPlacement ||
+            displacedRowPlacement.hasAuthoredPlacement;
           if (!displacedHasAuthoredPlacement) return;
           var displacedRange = gridTrackRangeForRect(
             displaced.getBoundingClientRect(),

@@ -11827,6 +11827,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var start = gridLinePosition(startValue, layout, axis);
       var end = gridLinePosition(endValue, layout, axis);
       var authoredSpan = endValue.trim().match(/^span\\s+(\\d+)$/) || startValue.trim().match(/^span\\s+(\\d+)$/);
+      var hasAuthoredPlacement = authoredSpan !== null || startValue.trim() !== "auto" && startValue.trim() !== "" || endValue.trim() !== "auto" && endValue.trim() !== "";
       var geometricRange = layout ? gridTrackRangeForRect(
         el.getBoundingClientRect(),
         axis === "column" ? layout.columnBounds : layout.rowBounds,
@@ -11837,6 +11838,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (start === null && end !== null && authoredSpan) start = end - span;
       return {
         authoredStart: start,
+        hasAuthoredPlacement,
         start: start ?? (geometricRange ? geometricRange.start + 1 : null),
         span
       };
@@ -12089,7 +12091,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var sourceColumn = gridItemAxisPlacement(el, sourceGridLayout, "column");
         var sourceRow = gridItemAxisPlacement(el, sourceGridLayout, "row");
-        var sourceHasAuthoredPlacement = sourceColumn.authoredStart !== null || sourceRow.authoredStart !== null;
+        var sourceHasAuthoredPlacement = sourceColumn.hasAuthoredPlacement || sourceRow.hasAuthoredPlacement;
         var columnStart = sourceColumn.start ?? NaN;
         var columnSpan = sourceColumn.span;
         var columnEnd = columnStart + columnSpan;
@@ -12168,9 +12170,17 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           };
           targetDisplacements.forEach(function(displaced) {
-            var displacedColumnPlacement = gridItemAxisPlacement(displaced, targetGridLayout, "column");
-            var displacedRowPlacement = gridItemAxisPlacement(displaced, targetGridLayout, "row");
-            var displacedHasAuthoredPlacement = displacedColumnPlacement.authoredStart !== null || displacedRowPlacement.authoredStart !== null;
+            var displacedColumnPlacement = gridItemAxisPlacement(
+              displaced,
+              targetGridLayout,
+              "column"
+            );
+            var displacedRowPlacement = gridItemAxisPlacement(
+              displaced,
+              targetGridLayout,
+              "row"
+            );
+            var displacedHasAuthoredPlacement = displacedColumnPlacement.hasAuthoredPlacement || displacedRowPlacement.hasAuthoredPlacement;
             if (!displacedHasAuthoredPlacement) return;
             var displacedRange = gridTrackRangeForRect(
               displaced.getBoundingClientRect(),
