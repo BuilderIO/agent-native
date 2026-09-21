@@ -20240,6 +20240,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       shiftKey: boolean;
       spaceKeyPressed: boolean;
       ignoreAutoLayoutKeyPressed: boolean;
+      snapResult: {
+        guides: unknown[];
+        spacingGuides: unknown[];
+        measurements: unknown[];
+      };
     } | null = null;
     // Snap candidates (siblings + parent content box) are computed once at
     // drag start — a single getBoundingClientRect pass per candidate — not
@@ -20313,7 +20318,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
 
-    function scheduleAutoLayoutTargetResolution(ev): void {
+    function scheduleAutoLayoutTargetResolution(ev, snapResult): void {
       pendingAutoLayoutTargetPoint = {
         clientX: ev.clientX,
         clientY: ev.clientY,
@@ -20323,6 +20328,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         shiftKey: !!ev.shiftKey,
         spaceKeyPressed: bridgeSpaceKeyPressed,
         ignoreAutoLayoutKeyPressed: bridgeIgnoreAutoLayoutKeyPressed,
+        snapResult: {
+          guides: snapResult.guides,
+          spacingGuides: snapResult.spacingGuides,
+          measurements: snapResult.measurements,
+        },
       };
       if (autoLayoutTargetFrame) return;
       autoLayoutTargetFrame = window.requestAnimationFrame(function () {
@@ -20362,6 +20372,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             // A deferred result may move from a flow target to a free-drop
             // container. Restore the chrome state for that transition.
             dragChromeSuppressed = false;
+            showSnapGuides(
+              point.snapResult.guides,
+              point.snapResult.spacingGuides,
+              point.snapResult.measurements,
+            );
+            showConstraintGuides(dragEl);
           }
         } else {
           hideInsertionGuide();
@@ -20631,7 +20647,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // once clobbered it stayed false for the rest of the drag with no
         // further message ever arriving to correct it.
         if (!bridgeSpaceKeyPressed) {
-          scheduleAutoLayoutTargetResolution(ev);
+          scheduleAutoLayoutTargetResolution(ev, snapResult);
         } else {
           cancelAutoLayoutTargetResolution();
           currentAutoLayoutTarget = null;

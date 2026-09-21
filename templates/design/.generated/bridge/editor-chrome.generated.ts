@@ -14268,7 +14268,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           autoLayoutTargetFrame = 0;
         }
       }
-      function scheduleAutoLayoutTargetResolution(ev) {
+      function scheduleAutoLayoutTargetResolution(ev, snapResult) {
         pendingAutoLayoutTargetPoint = {
           clientX: ev.clientX,
           clientY: ev.clientY,
@@ -14277,7 +14277,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           altKey: !!ev.altKey,
           shiftKey: !!ev.shiftKey,
           spaceKeyPressed: bridgeSpaceKeyPressed,
-          ignoreAutoLayoutKeyPressed: bridgeIgnoreAutoLayoutKeyPressed
+          ignoreAutoLayoutKeyPressed: bridgeIgnoreAutoLayoutKeyPressed,
+          snapResult: {
+            guides: snapResult.guides,
+            spacingGuides: snapResult.spacingGuides,
+            measurements: snapResult.measurements
+          }
         };
         if (autoLayoutTargetFrame) return;
         autoLayoutTargetFrame = window.requestAnimationFrame(function() {
@@ -14312,6 +14317,12 @@ export const editorChromeBridgeScript: string = `"use strict";
               hideConstraintGuides();
             } else {
               dragChromeSuppressed = false;
+              showSnapGuides(
+                point.snapResult.guides,
+                point.snapResult.spacingGuides,
+                point.snapResult.measurements
+              );
+              showConstraintGuides(dragEl);
             }
           } else {
             hideInsertionGuide();
@@ -14505,7 +14516,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideInsertionGuide();
         } else {
           if (!bridgeSpaceKeyPressed) {
-            scheduleAutoLayoutTargetResolution(ev);
+            scheduleAutoLayoutTargetResolution(ev, snapResult);
           } else {
             cancelAutoLayoutTargetResolution();
             currentAutoLayoutTarget = null;
