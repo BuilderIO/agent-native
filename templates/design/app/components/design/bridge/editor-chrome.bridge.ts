@@ -54,9 +54,117 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // content swap in replaceRuntimeDocument that preserves persistent overlay
   // nodes but re-runs inline <script> tags). Without this, a second instance
   // would double-post every message and double-attach every document-level
-  // listener. Bail out entirely if an instance is already installed.
-  if ((window as any).__anEditorChromeBridge) return;
-  (window as any).__anEditorChromeBridge = true;
+  // listener. A plain boolean is not enough: document hydration can remove
+  // the editor host while leaving the flag behind, so only a live host owns
+  // the installation.
+  var previousEditorChromeBridge = (window as any).__anEditorChromeBridge;
+  if (
+    previousEditorChromeBridge &&
+    typeof previousEditorChromeBridge === "object" &&
+    previousEditorChromeBridge.host instanceof HTMLElement &&
+    previousEditorChromeBridge.host.isConnected
+  ) {
+    return;
+  }
+
+  var editorChromeNodes: HTMLElement[] = [];
+  var editorChromeHost: HTMLElement | null = null;
+  var editorChromeHostObserver: MutationObserver | null = null;
+  var editorChromeDocumentObserver: MutationObserver | null = null;
+  var repairingEditorChromeHost = false;
+
+  function sendEditorChromeReady(): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:editor-chrome-ready",
+        routePath: window.location.pathname + window.location.search,
+      },
+      "*",
+    );
+  }
+
+  function ensureEditorChromeHost(): HTMLElement {
+    if (
+      editorChromeHost &&
+      editorChromeHost.isConnected &&
+      editorChromeHost.parentNode === document.documentElement
+    ) {
+      var currentBridgeState = (window as any).__anEditorChromeBridge;
+      if (currentBridgeState && typeof currentBridgeState === "object") {
+        currentBridgeState.host = editorChromeHost;
+      }
+      return editorChromeHost;
+    }
+    editorChromeHost = document.createElement("div");
+    editorChromeHost.setAttribute(
+      "data-agent-native-editor-chrome-host",
+      "true",
+    );
+    editorChromeHost.setAttribute("aria-hidden", "true");
+    editorChromeHost.style.cssText =
+      "position:fixed;inset:0;z-index:2147483000;pointer-events:none;overflow:visible;";
+    (document.documentElement || document.body).appendChild(editorChromeHost);
+    var currentBridgeState = (window as any).__anEditorChromeBridge;
+    if (currentBridgeState && typeof currentBridgeState === "object") {
+      currentBridgeState.host = editorChromeHost;
+    }
+    return editorChromeHost;
+  }
+
+  function appendEditorChromeNode(node: HTMLElement): void {
+    if (editorChromeNodes.indexOf(node) === -1) {
+      editorChromeNodes.push(node);
+    }
+    var host = ensureEditorChromeHost();
+    if (node.parentNode !== host) host.appendChild(node);
+  }
+
+  function removeEditorChromeNode(node: HTMLElement): void {
+    var index = editorChromeNodes.indexOf(node);
+    if (index !== -1) editorChromeNodes.splice(index, 1);
+    if (node.parentNode) node.parentNode.removeChild(node);
+  }
+
+  function repairEditorChromeHost(): void {
+    if (repairingEditorChromeHost) return;
+    repairingEditorChromeHost = true;
+    try {
+      var host = ensureEditorChromeHost();
+      editorChromeNodes.forEach(function (node) {
+        if (node.parentNode !== host) host.appendChild(node);
+      });
+      sendEditorChromeReady();
+    } finally {
+      repairingEditorChromeHost = false;
+    }
+  }
+
+  function observeEditorChromeHost(): void {
+    if (typeof MutationObserver === "undefined") return;
+    var host = ensureEditorChromeHost();
+    editorChromeHostObserver?.disconnect();
+    editorChromeDocumentObserver?.disconnect();
+    editorChromeHostObserver = new MutationObserver(repairEditorChromeHost);
+    editorChromeHostObserver.observe(host, { childList: true });
+    editorChromeDocumentObserver = new MutationObserver(function () {
+      if (
+        !editorChromeHost ||
+        !editorChromeHost.isConnected ||
+        editorChromeHost.parentNode !== document.documentElement
+      ) {
+        observeEditorChromeHost();
+        repairEditorChromeHost();
+      }
+    });
+    editorChromeDocumentObserver.observe(document.documentElement, {
+      childList: true,
+    });
+  }
+
+  ensureEditorChromeHost();
+  (window as any).__anEditorChromeBridge = {
+    host: editorChromeHost,
+  };
 
   var readOnly = __READ_ONLY__;
   var gridGroupBatchingEnabled = false;
@@ -4944,13 +5052,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   shieldOverlay.setAttribute("data-agent-native-edit-overlay", "shield");
   shieldOverlay.style.cssText =
     "position:fixed;inset:0;z-index:99990;background:transparent;pointer-events:auto;touch-action:none;cursor:default;";
-  document.body.appendChild(shieldOverlay);
+  appendEditorChromeNode(shieldOverlay);
 
   var highlightOverlay = document.createElement("div");
   highlightOverlay.setAttribute("data-agent-native-edit-overlay", "highlight");
   highlightOverlay.style.cssText =
     "position:fixed;pointer-events:none;z-index:99997;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
-  document.body.appendChild(highlightOverlay);
+  appendEditorChromeNode(highlightOverlay);
 
   var marqueeSelectionOverlay = document.createElement("div");
   marqueeSelectionOverlay.setAttribute(
@@ -4959,7 +5067,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   marqueeSelectionOverlay.style.cssText =
     "position:fixed;pointer-events:none;z-index:99995;border:1px solid var(--design-editor-accent-color);background:color-mix(in srgb,var(--design-editor-accent-color) 14%,transparent);display:none;box-sizing:border-box;";
-  document.body.appendChild(marqueeSelectionOverlay);
+  appendEditorChromeNode(marqueeSelectionOverlay);
 
   var parentAutoLayoutOverlay = document.createElement("div");
   parentAutoLayoutOverlay.setAttribute(
@@ -4968,7 +5076,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   parentAutoLayoutOverlay.style.cssText =
     "position:fixed;pointer-events:none;z-index:99996;border:1px dashed var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;border-radius:2px;opacity:0.68;";
-  document.body.appendChild(parentAutoLayoutOverlay);
+  appendEditorChromeNode(parentAutoLayoutOverlay);
 
   var selectionOverlay = document.createElement("div");
   selectionOverlay.setAttribute("data-agent-native-edit-overlay", "selection");
@@ -5083,7 +5191,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   spacingOverlay.style.cssText =
     "position:absolute;inset:0;display:none;pointer-events:none;";
   selectionOverlay.appendChild(spacingOverlay);
-  document.body.appendChild(selectionOverlay);
+  appendEditorChromeNode(selectionOverlay);
   if (readOnly) setSelectionOverlayResizeChromeVisible(false);
 
   // ── Gradient edit overlay (in-iframe parity for MultiScreenCanvas's
@@ -5150,7 +5258,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     gradientOverlayStartHandle.style.cssText;
   gradientOverlay.appendChild(gradientOverlayStartHandle);
   gradientOverlay.appendChild(gradientOverlayEndHandle);
-  document.body.appendChild(gradientOverlay);
+  appendEditorChromeNode(gradientOverlay);
 
   var transformBadge = document.createElement("div");
   transformBadge.setAttribute("data-agent-native-transform-badge", "");
@@ -5163,14 +5271,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   transformBadge.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid rgba(255,255,255,0.16);border-radius:4px;background:rgba(24,24,27,0.96);color:rgba(255,255,255,0.96);font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px rgba(0,0,0,0.28);";
-  document.body.appendChild(transformBadge);
+  appendEditorChromeNode(transformBadge);
 
   var spacingBadge = document.createElement("div");
   spacingBadge.setAttribute("data-agent-native-spacing-badge", "");
   spacingBadge.setAttribute("data-agent-native-edit-overlay", "spacing-badge");
   spacingBadge.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
-  document.body.appendChild(spacingBadge);
+  appendEditorChromeNode(spacingBadge);
 
   // Figma's constraint indicator: dashed lines running from the dragged
   // element to the frame edges it is pinned to. Distinct from the snap
@@ -5183,13 +5291,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   constraintGuideLayer.style.cssText =
     "position:fixed;inset:0;z-index:99999;display:none;pointer-events:none;";
-  document.body.appendChild(constraintGuideLayer);
+  appendEditorChromeNode(constraintGuideLayer);
 
   var sizeBadge = document.createElement("div");
   sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
   sizeBadge.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 15%,transparent);";
-  document.body.appendChild(sizeBadge);
+  appendEditorChromeNode(sizeBadge);
 
   var insertionGuide = document.createElement("div");
   insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
@@ -5199,7 +5307,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   insertionGuide.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
-  document.body.appendChild(insertionGuide);
+  appendEditorChromeNode(insertionGuide);
 
   // Alignment and spacing guides shown while dragging (and resizing) an
   // element inside the iframe — Figma-style snap-to-sibling guides. One
@@ -5212,7 +5320,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   snapGuideLayer.setAttribute("data-agent-native-edit-overlay", "snap-guide");
   snapGuideLayer.style.cssText =
     "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
-  document.body.appendChild(snapGuideLayer);
+  appendEditorChromeNode(snapGuideLayer);
 
   // Cell boundaries of a selected grid container, empty cells included: the
   // gap handles alone leave a two-child grid looking like a flex row.
@@ -5220,7 +5328,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   gridCellOverlay.setAttribute("data-agent-native-edit-overlay", "grid-cells");
   gridCellOverlay.style.cssText =
     "position:fixed;inset:0;z-index:99993;display:none;pointer-events:none;";
-  document.body.appendChild(gridCellOverlay);
+  appendEditorChromeNode(gridCellOverlay);
 
   // Grid-track controls sit just outside the selected grid. They are a
   // separate surface from cell insertion: a track drag moves the row/column
@@ -5232,7 +5340,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   gridTrackOverlay.style.cssText =
     "position:fixed;inset:0;z-index:99994;display:none;pointer-events:none;";
-  document.body.appendChild(gridTrackOverlay);
+  appendEditorChromeNode(gridTrackOverlay);
 
   // Name labels above the outermost frames, the in-screen twin of the overview
   // canvas's screen labels. Above the shield's z-index so a label click can
@@ -5241,7 +5349,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   frameLabelLayer.setAttribute("data-agent-native-edit-overlay", "frame-label");
   frameLabelLayer.style.cssText =
     "position:fixed;inset:0;z-index:99992;display:block;pointer-events:none;";
-  document.body.appendChild(frameLabelLayer);
+  appendEditorChromeNode(frameLabelLayer);
 
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
@@ -5253,7 +5361,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   measurementOverlay.style.cssText =
     "position:fixed;inset:0;z-index:100001;display:none;pointer-events:none;color:var(--design-editor-measure-color);font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;";
-  document.body.appendChild(measurementOverlay);
+  appendEditorChromeNode(measurementOverlay);
 
   // Component-instance tag: a small pill that floats above the selection
   // outline whenever the selected element carries a data-agent-native-component
@@ -5284,7 +5392,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "outline:2px solid transparent",
       "transition:opacity 0.1s",
     ].join(";") + ";";
-  document.body.appendChild(componentTagOverlay);
+  appendEditorChromeNode(componentTagOverlay);
 
   componentTagOverlay.addEventListener("click", function (e) {
     e.stopPropagation();
@@ -5972,7 +6080,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function removePassiveSelectionOverlays(): void {
     passiveSelectionOverlays.forEach(function (overlay) {
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      removeEditorChromeNode(overlay);
     });
     passiveSelectionOverlays = [];
   }
@@ -6003,13 +6111,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     overlay.setAttribute("data-agent-native-edit-overlay", "repeat-instance");
     overlay.style.cssText =
       "position:fixed;pointer-events:none;z-index:99995;border:1px dashed color-mix(in srgb,var(--design-editor-accent-color) 70%,transparent);background:transparent;display:none;box-sizing:border-box;";
-    document.body.appendChild(overlay);
+    appendEditorChromeNode(overlay);
     return overlay;
   }
 
   function removeRepeatInstanceOverlays(): void {
     repeatInstanceOverlays.forEach(function (overlay) {
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      removeEditorChromeNode(overlay);
     });
     repeatInstanceOverlays = [];
     repeatInstanceAnchor = null;
@@ -6059,7 +6167,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       style === "soft"
         ? "position:fixed;pointer-events:none;z-index:99996;border:1px solid color-mix(in srgb,var(--design-editor-accent-color) 64%,transparent);background:color-mix(in srgb,var(--design-editor-accent-color) 5%,transparent);display:none;box-sizing:border-box;"
         : "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
-    document.body.appendChild(overlay);
+    appendEditorChromeNode(overlay);
     return overlay;
   }
 
@@ -6101,7 +6209,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     while (passiveSelectionOverlays.length > count) {
       var extra = passiveSelectionOverlays.pop();
-      if (extra && extra.parentNode) extra.parentNode.removeChild(extra);
+      if (extra) removeEditorChromeNode(extra);
     }
     while (passiveSelectionOverlays.length < count) {
       passiveSelectionOverlays.push(makePassiveSelectionOverlay(style));
@@ -7380,7 +7488,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     persistentNodes.forEach(function (node) {
-      document.body.appendChild(node);
+      appendEditorChromeNode(node);
     });
     hydrateVectorEndpointMarkers();
     applyLayerStateSelectors();
@@ -8687,7 +8795,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       },
       true,
     );
-    document.body.appendChild(overlay);
+    appendEditorChromeNode(overlay);
     multiSelectionBoundsOverlay = overlay;
     return overlay;
   }
@@ -9986,7 +10094,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // A content re-render can rebuild document.body and drop this overlay;
     // re-attach it before drawing so the lines always render.
     if (!measurementOverlay.isConnected) {
-      document.body.appendChild(measurementOverlay);
+      appendEditorChromeNode(measurementOverlay);
     }
     measurementOverlay.innerHTML = "";
     measurementOverlay.style.display = "block";
@@ -18245,7 +18353,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var frame = parent.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return hideConstraintGuides();
     if (!constraintGuideLayer.isConnected) {
-      document.body.appendChild(constraintGuideLayer);
+      appendEditorChromeNode(constraintGuideLayer);
     }
     constraintNodeCount = 0;
     if (constraintGuideLayer.style.display !== "block") {
@@ -18352,7 +18460,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       scale;
     if (key === sizeBadgeKey && sizeBadge.style.display === "block") return;
     sizeBadgeKey = key;
-    if (!sizeBadge.isConnected) document.body.appendChild(sizeBadge);
+    if (!sizeBadge.isConnected) appendEditorChromeNode(sizeBadge);
     sizeBadge.textContent =
       Math.round(rect.width) + " × " + Math.round(rect.height);
     sizeBadge.style.display = "block";
@@ -25533,18 +25641,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // One-time ready signal: tells the host that every message listener above is
-  // now attached, so one-shot commands (begin-text-edit, set-editor-chrome-scale,
-  // style-change, delete-element, replace-document-content) sent immediately
-  // after (re)creating this iframe are safe to deliver. Without this, a command
-  // posted before the bridge script has executed — or while the iframe is
-  // reloading — is simply lost; replayIframeEditorState only replays
-  // steady-state selection/hover/tweak/motion state, not one-shot commands.
-  (window.parent as Window).postMessage(
-    {
-      type: "agent-native:editor-chrome-ready",
-      routePath: window.location.pathname + window.location.search,
-    },
-    "*",
-  );
+  // Tell the host that every message listener above is attached, then keep the
+  // chrome host alive across document hydration. A React Router hydration
+  // recovery can remove foreign body children after this script runs; the
+  // repair observer restores the shield/overlays and repeats this handshake so
+  // the host's Edit-mode gate cannot silently reopen native app input.
+  observeEditorChromeHost();
+  sendEditorChromeReady();
 })();

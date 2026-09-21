@@ -281,7 +281,8 @@ describe("responsive Interact wiring", () => {
       source.indexOf("<ResponsiveInteractBar"),
       source.indexOf("onClose={handleExitResponsiveInteract}"),
     );
-    expect(barMount).toContain("onModeChange={handleModeChange}");
+    expect(barMount).toContain("onModeChange={(next) => {");
+    expect(barMount).toContain("setRuntimeLayerSnapshotRequest(");
     expect(barMount).toContain("canAnnotate={canEditDesign}");
     const bar = readFileSync(
       "app/components/design/ResponsiveInteractBar.tsx",

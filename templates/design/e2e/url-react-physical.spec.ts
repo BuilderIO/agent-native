@@ -11,6 +11,8 @@ import {
 } from "@agent-native/core/testing";
 import { expect, test } from "@playwright/test";
 
+import { expandAllLayers, installBridge } from "./helpers";
+
 async function freePort(): Promise<number> {
   return await new Promise((resolve, reject) => {
     const server = http.createServer();
@@ -168,8 +170,76 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       .first()
       .contentFrame();
     await frame.locator('[data-agent-native-node-id="flow-root"]').waitFor();
-    const order = () =>
-      frame
+    await expect(
+      frame.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached();
+    await expect(
+      frame.locator("script[data-agent-native-editor-chrome-bridge]"),
+    ).toHaveAttribute("type", "module");
+    await expandAllLayers(page);
+    await installBridge(page);
+    await page.evaluate(() => ((window as any).__bridge = []));
+    const waitForAnySelection = async () => {
+      const handle = await page.waitForFunction(
+        () =>
+          [...((window as any).__bridge ?? [])]
+            .reverse()
+            .find((message: any) => message.type === "element-select") ?? null,
+        undefined,
+        { timeout: 15_000 },
+      );
+      return await handle.jsonValue();
+    };
+    const waitForSelection = async (nodeId: string) => {
+      const handle = await page.waitForFunction(
+        (id) =>
+          [...((window as any).__bridge ?? [])]
+            .reverse()
+            .find(
+              (message: any) =>
+                message.type === "element-select" &&
+                message.payload?.selector?.includes(
+                  `[data-agent-native-node-id="${id}"]`,
+                ),
+            ) ?? null,
+        nodeId,
+        { timeout: 15_000 },
+      );
+      return await handle.jsonValue();
+    };
+    const clickTarget = frame.locator('[data-agent-native-node-id="v1"]');
+    const clickBox = await clickTarget.boundingBox();
+    if (!clickBox) throw new Error("missing React selection geometry");
+    await page.mouse.click(
+      clickBox.x + clickBox.width / 2,
+      clickBox.y + clickBox.height / 2,
+    );
+    const firstSelection = await waitForAnySelection();
+    expect(firstSelection.payload.selector).toBeTruthy();
+    expect(firstSelection.payload.sourceId).toBeTruthy();
+    await page.evaluate(() => ((window as any).__bridge = []));
+    await page.keyboard.down(
+      process.platform === "darwin" ? "Meta" : "Control",
+    );
+    try {
+      await page.mouse.click(
+        clickBox.x + clickBox.width / 2,
+        clickBox.y + clickBox.height / 2,
+      );
+    } finally {
+      await page.keyboard.up(
+        process.platform === "darwin" ? "Meta" : "Control",
+      );
+    }
+    const selected = await waitForSelection("v1");
+    expect(selected.payload.sourceId).toBe("v1");
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]').filter({
+        hasText: "V1",
+      }),
+    ).toBeVisible();
+    const order = (previewFrame = frame) =>
+      previewFrame
         .locator(
           '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
         )
@@ -249,6 +319,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     await expect(page.locator("[data-design-editor]")).toBeVisible({
       timeout: 30_000,
     });
+    await installBridge(page);
     const reloaded = page
       .locator("iframe[data-design-preview-iframe]")
       .first()
@@ -256,7 +327,43 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     await expect(reloaded.getByText("V1 updated", { exact: true })).toBeVisible(
       { timeout: 15_000 },
     );
-    expect(await order()).toEqual(["v2", "v3", "v1"]);
+    expect(await order(reloaded)).toEqual(["v2", "v3", "v1"]);
+
+    // React Router/framework hydration can replace the whole document body
+    // after the iframe first boots. The editor host lives outside that tree;
+    // prove a real physical click still selects after the replacement rather
+    // than trusting the initial bridge handshake.
+    await reloaded.locator("body").evaluate(() => {
+      document.body.replaceChildren(
+        Object.assign(document.createElement("main"), {
+          innerHTML:
+            '<div data-agent-native-node-id="v1" style="width:320px;height:64px;margin:24px;border:2px solid #0f766e;padding:12px">V1 after hydration</div>',
+        }),
+      );
+    });
+    await reloaded
+      .locator("[data-agent-native-editor-chrome-host]")
+      .evaluate((host) => host.remove());
+    await expect(
+      reloaded.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached();
+    await page.evaluate(() => ((window as any).__bridge = []));
+    const healedTarget = reloaded.locator('[data-agent-native-node-id="v1"]');
+    const healedBox = await healedTarget.boundingBox();
+    if (!healedBox)
+      throw new Error("missing post-hydration selection geometry");
+    const healedModifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(healedModifier);
+    try {
+      await page.mouse.click(
+        healedBox.x + healedBox.width / 2,
+        healedBox.y + healedBox.height / 2,
+      );
+    } finally {
+      await page.keyboard.up(healedModifier);
+    }
+    const healedSelection = await waitForSelection("v1");
+    expect(healedSelection.payload.sourceId).toBe("v1");
   } finally {
     await bridge?.server.close();
     vite?.kill();

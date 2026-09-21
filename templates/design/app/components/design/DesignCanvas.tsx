@@ -483,7 +483,7 @@ function createEditorBridgeThemeScript(vars: Record<string, string>) {
  * editing is enabled only while the editor is specifically in Edit mode.
  */
 const EDITOR_CHROME_BRIDGE_SCRIPT = `
-<script data-agent-native-editor-chrome-bridge>
+<script type="module" data-agent-native-editor-chrome-bridge>
 ${editorChromeBridgeScript}
 </script>
 `;

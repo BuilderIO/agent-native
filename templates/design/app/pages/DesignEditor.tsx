@@ -1098,6 +1098,24 @@ type RequestDesignAccessResult = {
 // DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
 
+function previewUrlAtLiveRoute(
+  previewUrl: string | undefined,
+  routePath: string | undefined,
+): string | undefined {
+  if (!previewUrl || !routePath) return previewUrl;
+  try {
+    const base = new URL(previewUrl);
+    const route = new URL(routePath, base.origin);
+    if (route.origin !== base.origin) return previewUrl;
+    base.pathname = route.pathname;
+    base.search = route.search;
+    base.hash = route.hash;
+    return base.toString();
+  } catch {
+    return previewUrl;
+  }
+}
+
 function pageHasWebMcpHost(): boolean {
   return hasNativeWebMcpHost();
 }
@@ -23793,6 +23811,11 @@ function DesignEditor() {
         metadata.source ?? designSourceType,
       );
       const screenBridgeUrl = screen.bridgeUrl;
+      const screenPreviewUrl = screen.url ?? screen.previewUrl;
+      const currentLiveRoutePath =
+        mode === "interact"
+          ? undefined
+          : liveRoutePathsByScreenIdRef.current[screen.id];
       const screenPreviewToken =
         effectivePreviewTokensByScreenId[screen.id] ??
         ("previewToken" in screen && typeof screen.previewToken === "string"
@@ -23919,7 +23942,7 @@ function DesignEditor() {
           screenId={screen.id}
           previewUrlOverride={
             screenSourceType === "localhost"
-              ? (screen.url ?? screen.previewUrl)
+              ? previewUrlAtLiveRoute(screenPreviewUrl, currentLiveRoutePath)
               : undefined
           }
           previewFrameId={
@@ -25706,7 +25729,12 @@ function DesignEditor() {
       onDeviceChange={handleInteractDeviceChange}
       onWidthChange={handleInteractWidthChange}
       onHeightChange={handleInteractHeightChange}
-      onModeChange={handleModeChange}
+      onModeChange={(next) => {
+        if (next === "edit") {
+          setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
+        }
+        handleModeChange(next);
+      }}
       canAnnotate={canEditDesign}
       onClose={handleExitResponsiveInteract}
       // The docked bar sits in the canvas column, inset by the left rail's
@@ -26759,6 +26787,9 @@ function DesignEditor() {
                             <DropdownMenuContent
                               align="end"
                               className="design-editor-app-menu-content w-64"
+                              onEscapeKeyDown={(event) =>
+                                event.stopPropagation()
+                              }
                             >
                               <DropdownMenuLabel className="text-xs text-muted-foreground">
                                 {t(
