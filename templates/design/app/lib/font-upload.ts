@@ -70,10 +70,15 @@ export async function uploadFont(
     credentials: "include",
     body: form,
   });
-  const payload = (await response.json().catch(() => null)) as
-    | (UploadedFont & { error?: never })
-    | { error?: string }
-    | null;
+  let payload: (UploadedFont & { error?: never }) | { error?: string } | null;
+  try {
+    payload = (await response.json()) as
+      | (UploadedFont & { error?: never })
+      | { error?: string }
+      | null;
+  } catch {
+    throw new Error("Font upload failed");
+  }
   if (!response.ok || !payload || !("url" in payload)) {
     throw new Error(
       payload && "error" in payload && payload.error

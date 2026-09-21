@@ -75,7 +75,14 @@ function safeStyle(value: string | undefined): "normal" | "italic" {
 }
 
 export const uploadFont = defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
+  let session;
+  try {
+    session = await getSession(event);
+  } catch (error) {
+    console.error("[design-font-upload] session lookup failed", error);
+    setResponseStatus(event, 503);
+    return { error: "Authentication service unavailable" };
+  }
   if (!session?.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
