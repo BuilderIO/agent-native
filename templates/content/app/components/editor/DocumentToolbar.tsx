@@ -9,6 +9,8 @@ import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import { ShareTrigger } from "@agent-native/toolkit/sharing";
+import MessageEdit01Icon from "@hugeicons/core-free-icons/MessageEdit01Icon";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
@@ -1185,7 +1187,12 @@ export function DocumentToolbar({
                       }, 50);
                     }}
                   >
-                    <IconPencil className="me-2 h-4 w-4" />
+                    <HugeiconsIcon
+                      aria-hidden="true"
+                      className="me-2 shrink-0"
+                      icon={MessageEdit01Icon}
+                      size={16}
+                    />
                     {t(
                       suggesting
                         ? "editor.toolbar.stopSuggesting"
