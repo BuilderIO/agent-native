@@ -16901,6 +16901,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "dblclick",
       function(e) {
+        if (interactionMode) return;
         if (isOverlayElement(e.target)) return;
         beginTextEditingFromEvent(e);
       },
@@ -18202,7 +18203,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return isOverlayElement(target) || isEditorTypingTarget(target) || !!activeDragCancel;
     }
     function interceptNativeInteractionNet(e) {
-      if (readOnly) return;
+      if (readOnly || interactionMode) return;
       var target = e.target && e.target.nodeType === 1 ? e.target : null;
       if (isNativeInteractionNetExempt(target)) return;
       stopNativeInteraction(e);

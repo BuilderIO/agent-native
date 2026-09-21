@@ -23944,6 +23944,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "dblclick",
     function (e) {
+      if (interactionMode) return;
       if (isOverlayElement(e.target)) return;
       beginTextEditingFromEvent(e);
     },
@@ -25808,7 +25809,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function interceptNativeInteractionNet(e: Event): void {
-    if (readOnly) return;
+    if (readOnly || interactionMode) return;
     var target =
       e.target && (e.target as Element).nodeType === 1
         ? (e.target as Element)
