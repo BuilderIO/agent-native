@@ -133,8 +133,8 @@ function gridTrackCount(template: string): number {
   flush();
   for (const track of tokens) {
     if (/^\[[^\]]+\]$/.test(track)) continue;
-    const repeatCount = track.match(/^repeat\(\s*(\d+)\s*,/i)?.[1];
-    count += repeatCount ? Number(repeatCount) : 1;
+    const repeat = track.match(/^repeat\(\s*(\d+)\s*,([\s\S]+)\)$/i);
+    count += repeat ? Number(repeat[1]) * gridTrackCount(repeat[2]) : 1;
   }
   return count;
 }
@@ -788,10 +788,16 @@ export function authoredElementPosition(
       if (isGrid) {
         const columns = gridTracks(parentStyle.gridTemplateColumns);
         const rows = gridTracks(parentStyle.gridTemplateRows);
-        const columnValue =
-          style.gridColumnStart || style.gridColumn.split("/")[0] || "";
-        const rowValue =
-          style.gridRowStart || style.gridRow.split("/")[0] || "";
+        const columnValue = (
+          style.gridColumnStart ||
+          style.gridColumn.split("/")[0] ||
+          ""
+        ).trim();
+        const rowValue = (
+          style.gridRowStart ||
+          style.gridRow.split("/")[0] ||
+          ""
+        ).trim();
         const autoChildren = siblings.filter(
           (sibling) => !isOutOfFlow(sibling),
         );

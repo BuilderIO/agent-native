@@ -175,7 +175,7 @@ describe("primitive drop target authored layout fallback", () => {
 
     expect(
       parsePrimitivesFromScreen(screen).map((primitive) => primitive.nodeId),
-    ).toEqual(["grid"]);
+    ).toEqual(["grid", "grid-child"]);
   });
 
   it("uses flex-basis for fixed items when estimating a Fill sibling", () => {
@@ -430,6 +430,20 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     ).toBe("y");
   });
 
+  it("counts repeated tracks while ignoring multi-name grid lines", () => {
+    const screen = {
+      ...flexScreen,
+      content: flexScreen.content.replace(
+        "display:flex;flex-direction:row",
+        "display:grid;grid-template-columns:[a b] repeat(2, 1fr 2fr) [c d]",
+      ),
+    };
+    expect(
+      parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent")
+        ?.autoLayoutAxis,
+    ).toBe("x");
+  });
+
   it("keeps nested minmax functions inside a repeat track", () => {
     const screen = {
       ...flexScreen,
@@ -495,7 +509,7 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     const parent = primitives.find((p) => p.nodeId === "parent")!;
     expect(primitives.find((p) => p.nodeId === "first")).toMatchObject({
       localLeft: 430,
-      localTop: 100,
+      localTop: 115,
     });
     expect(
       findAutoLayoutInsertionAnchor(
