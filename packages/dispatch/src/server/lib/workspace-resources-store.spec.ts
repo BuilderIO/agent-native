@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   })),
   recordAudit: vi.fn(async () => undefined),
   resourcePut: vi.fn(async () => undefined),
+  resourcePutIfSnapshot: vi.fn(async () => undefined),
+  resourceRestoreSnapshotIfCurrent: vi.fn(async () => true),
   resourceGetByPath: vi.fn(async () => null),
   resourceDeleteIfCurrent: vi.fn(async () => true),
   resourceListAllOwners: vi.fn(async () => []),
@@ -113,6 +115,8 @@ vi.mock("./dispatch-store.js", () => ({
 }));
 
 vi.mock("@agent-native/core/resources/store", () => ({
+  isLocalWorkspaceResourceId: (id: string) =>
+    id.startsWith("local-workspace-resource:"),
   LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE: "local-workspace-resource",
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
@@ -123,6 +127,10 @@ vi.mock("@agent-native/core/resources/store", () => ({
   isWorkspaceResourceOwner: (owner: string) =>
     owner === "__workspace__" || owner.startsWith("__workspace__:"),
   resourcePut: (...args: any[]) => mocks.resourcePut(...args),
+  resourcePutIfSnapshot: (...args: any[]) =>
+    mocks.resourcePutIfSnapshot(...args),
+  resourceRestoreSnapshotIfCurrent: (...args: any[]) =>
+    mocks.resourceRestoreSnapshotIfCurrent(...args),
   resourceGetByPath: (...args: any[]) => mocks.resourceGetByPath(...args),
   resourceDeleteIfCurrent: (...args: any[]) =>
     mocks.resourceDeleteIfCurrent(...args),
@@ -311,6 +319,35 @@ const ORG_WORKSPACE_OWNER = "__workspace__:__organization__:org_123";
 beforeEach(() => {
   mocks.currentOrgId.mockReturnValue("org_123");
   mocks.resourcePut.mockResolvedValue(undefined);
+  mocks.resourcePutIfSnapshot.mockImplementation(async (input: any) => {
+    await mocks.resourcePut(
+      input.owner,
+      input.path,
+      input.content,
+      input.mimeType,
+      input.options,
+    );
+    return {
+      before: input.previous,
+      resource: {
+        id: `${input.owner}_${input.path}`,
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+        mimeType: input.mimeType ?? "text/markdown",
+        size: input.content.length,
+        createdAt: 1,
+        updatedAt: 2,
+        createdBy: "system",
+        visibility: "workspace",
+        threadId: null,
+        runId: null,
+        expiresAt: null,
+        metadata: JSON.stringify(input.options?.metadata ?? null),
+      },
+    };
+  });
+  mocks.resourceRestoreSnapshotIfCurrent.mockResolvedValue(true);
   mocks.resourceGetByPath.mockResolvedValue(null);
   mocks.resourceDeleteIfCurrent.mockResolvedValue(true);
   mocks.getDb.mockReturnValue(createFakeDb({ resources: [] }));
@@ -1035,6 +1072,49 @@ describe("workspace resource materialization", () => {
       scope: "all",
       updatedAt: 99,
     });
+    expect(mocks.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["All-app overwrite", { name: "Updated guardrails" }],
+    ["All-to-Selected cleanup", { scope: "selected" }],
+  ])("rejects a newer materialization before %s", async (_label, input) => {
+    const state = {
+      resources: [
+        {
+          id: "resource_1",
+          ownerEmail: "owner@example.test",
+          orgId: "org_123",
+          kind: "instruction",
+          name: "Starter guardrails",
+          description: null,
+          path: "instructions/starter.md",
+          content: "# Starter",
+          scope: "all",
+          createdBy: "owner@example.test",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    mocks.getDb.mockReturnValue(createFakeDb(state));
+    mocks.resourceGetByPath.mockResolvedValue({
+      id: "materialized_1",
+      owner: ORG_WORKSPACE_OWNER,
+      path: "instructions/starter.md",
+      metadata: JSON.stringify({
+        source: "dispatch-workspace-resource",
+        resourceId: "resource_1",
+        updatedAt: Number.MAX_SAFE_INTEGER,
+      }),
+    });
+
+    await expect(updateWorkspaceResource("resource_1", input)).rejects.toThrow(
+      "Workspace resource materialization changed concurrently: instructions/starter.md",
+    );
+
+    expect(mocks.resourcePutIfSnapshot).not.toHaveBeenCalled();
+    expect(mocks.resourceDeleteIfCurrent).not.toHaveBeenCalled();
     expect(mocks.recordAudit).not.toHaveBeenCalled();
   });
 

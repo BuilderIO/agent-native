@@ -9,7 +9,8 @@ import {
   resourceEffectiveContext,
   resourceGetByPath,
   resourceListAllOwners,
-  resourcePut,
+  resourcePutIfSnapshot,
+  resourceRestoreSnapshotIfCurrent,
   SHARED_OWNER,
   WORKSPACE_OWNER,
   workspaceResourceOwner,
@@ -106,6 +107,60 @@ class WorkspaceResourceMaterializationConflictError extends Error {
   }
 }
 
+interface MaterializationMutation {
+  before: Resource | null;
+  after: Resource | null;
+}
+
+async function compensateMaterialization(mutations: MaterializationMutation[]) {
+  const errors: unknown[] = [];
+  for (const mutation of [...mutations].reverse()) {
+    try {
+      const restored = mutation.before
+        ? await resourceRestoreSnapshotIfCurrent(
+            mutation.before,
+            mutation.after,
+          )
+        : mutation.after
+          ? await resourceDeleteIfCurrent(mutation.after)
+          : true;
+      if (restored) continue;
+      errors.push(
+        new WorkspaceResourceMaterializationConflictError(
+          (mutation.before ?? mutation.after)!.path,
+        ),
+      );
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(
+      errors,
+      "Workspace resource materialization could not be rolled back",
+    );
+  }
+}
+
+async function withMaterializationCompensation<T>(
+  operation: (mutations: MaterializationMutation[]) => Promise<T>,
+): Promise<T> {
+  const mutations: MaterializationMutation[] = [];
+  try {
+    return await operation(mutations);
+  } catch (error) {
+    try {
+      await compensateMaterialization(mutations);
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        "Workspace resource materialization failed and could not be rolled back",
+      );
+    }
+    throw error;
+  }
+}
+
 interface MaterializableWorkspaceResource {
   id: string;
   orgId: string | null;
@@ -116,6 +171,19 @@ interface MaterializableWorkspaceResource {
   content: string;
   scope: string;
   updatedAt: number;
+}
+
+function isNewerDispatchMaterialization(
+  candidate: Pick<Resource, "metadata">,
+  resource: Pick<MaterializableWorkspaceResource, "id" | "updatedAt">,
+) {
+  const metadata = parseResourceMetadata(candidate.metadata);
+  return (
+    metadata.source === DISPATCH_RESOURCE_METADATA_SOURCE &&
+    metadata.resourceId === resource.id &&
+    typeof metadata.updatedAt === "number" &&
+    metadata.updatedAt > resource.updatedAt
+  );
 }
 
 function mimeTypeForWorkspaceResource(
@@ -158,11 +226,29 @@ async function materializeGlobalResource(
   resource: MaterializableWorkspaceResource,
   previous?: Pick<
     MaterializableWorkspaceResource,
-    "id" | "path" | "orgId" | "content" | "scope"
+    "id" | "path" | "orgId" | "content" | "scope" | "updatedAt"
   >,
 ) {
+  return withMaterializationCompensation((mutations) =>
+    materializeGlobalResourceWithMutations(resource, previous, mutations),
+  );
+}
+
+async function materializeGlobalResourceWithMutations(
+  resource: MaterializableWorkspaceResource,
+  previous:
+    | Pick<
+        MaterializableWorkspaceResource,
+        "id" | "path" | "orgId" | "content" | "scope" | "updatedAt"
+      >
+    | undefined,
+  mutations: MaterializationMutation[],
+) {
   if (resource.scope !== "all") {
-    await removeMaterializedGlobalResource(previous ?? resource);
+    await removeMaterializedGlobalResourceWithMutations(
+      previous ?? resource,
+      mutations,
+    );
     return;
   }
 
@@ -175,6 +261,9 @@ async function materializeGlobalResource(
     orgId: resource.orgId,
   });
   const existingMetadata = parseResourceMetadata(existing?.metadata ?? null);
+  if (existing && isNewerDispatchMaterialization(existing, resource)) {
+    throw new WorkspaceResourceMaterializationConflictError(resource.path);
+  }
   if (
     existing &&
     existing.owner === owner &&
@@ -184,36 +273,49 @@ async function materializeGlobalResource(
     existingMetadata.resourceId === resource.id &&
     existingMetadata.updatedAt === resource.updatedAt
   ) {
-    await removeMaterializedLegacyCopies(owner, resource);
+    await removeMaterializedLegacyCopies(owner, resource, mutations);
     return;
   }
 
-  await resourcePut(owner, resource.path, resource.content, mimeType, {
-    createdBy: "system",
-    metadata: {
-      source: DISPATCH_RESOURCE_METADATA_SOURCE,
-      resourceId: resource.id,
-      kind: resource.kind,
-      name: resource.name,
-      description: resource.description,
-      updatedAt: resource.updatedAt,
+  const before = existing?.owner === owner ? existing : null;
+  const written = await resourcePutIfSnapshot({
+    previous: before,
+    owner,
+    path: resource.path,
+    content: resource.content,
+    mimeType,
+    options: {
+      createdBy: "system",
+      metadata: {
+        source: DISPATCH_RESOURCE_METADATA_SOURCE,
+        resourceId: resource.id,
+        kind: resource.kind,
+        name: resource.name,
+        description: resource.description,
+        updatedAt: resource.updatedAt,
+      },
     },
   });
-  await removeMaterializedLegacyCopies(owner, resource);
+  if (!written) {
+    throw new WorkspaceResourceMaterializationConflictError(resource.path);
+  }
+  mutations.push({ before: written.before, after: written.resource });
+  await removeMaterializedLegacyCopies(owner, resource, mutations);
 }
 
 async function removeMaterializedLegacyCopies(
   owner: string,
   resource: Pick<
     MaterializableWorkspaceResource,
-    "id" | "path" | "orgId" | "content" | "scope"
+    "id" | "path" | "orgId" | "content" | "scope" | "updatedAt"
   >,
+  mutations: MaterializationMutation[],
 ) {
   for (const legacyOwner of materializedOwners(resource)) {
     if (legacyOwner === owner) continue;
-    await removeMaterializedResourceFromOwner(legacyOwner, resource);
+    await removeMaterializedResourceFromOwner(legacyOwner, resource, mutations);
   }
-  await removeMaterializedResourceFromOwner(SHARED_OWNER, resource);
+  await removeMaterializedResourceFromOwner(SHARED_OWNER, resource, mutations);
 }
 
 async function ensureMaterializedGlobalResources(
@@ -228,8 +330,9 @@ async function removeMaterializedResourceFromOwner(
   owner: string,
   resource: Pick<
     MaterializableWorkspaceResource,
-    "id" | "path" | "orgId" | "content" | "scope"
+    "id" | "path" | "orgId" | "content" | "scope" | "updatedAt"
   >,
+  mutations: MaterializationMutation[],
 ) {
   // Legacy tenancy filtering hides a tagged bare row outside its organization,
   // so scoped reads cannot identify the physical bare row during cleanup.
@@ -265,8 +368,14 @@ async function removeMaterializedResourceFromOwner(
   };
 
   for (const existing of await exactResources()) {
+    if (isNewerDispatchMaterialization(existing, resource)) {
+      throw new WorkspaceResourceMaterializationConflictError(resource.path);
+    }
     if (!isMaterializedByResource(existing)) continue;
-    if (await resourceDeleteIfCurrent(existing)) continue;
+    if (await resourceDeleteIfCurrent(existing)) {
+      mutations.push({ before: existing, after: null });
+      continue;
+    }
 
     const current = (await exactResources()).find(
       (candidate) => candidate.id === existing.id,
@@ -280,13 +389,25 @@ async function removeMaterializedResourceFromOwner(
 async function removeMaterializedGlobalResource(
   resource: Pick<
     MaterializableWorkspaceResource,
-    "id" | "path" | "orgId" | "content" | "scope"
+    "id" | "path" | "orgId" | "content" | "scope" | "updatedAt"
   >,
 ) {
+  return withMaterializationCompensation((mutations) =>
+    removeMaterializedGlobalResourceWithMutations(resource, mutations),
+  );
+}
+
+async function removeMaterializedGlobalResourceWithMutations(
+  resource: Pick<
+    MaterializableWorkspaceResource,
+    "id" | "path" | "orgId" | "content" | "scope" | "updatedAt"
+  >,
+  mutations: MaterializationMutation[],
+) {
   for (const owner of materializedOwners(resource)) {
-    await removeMaterializedResourceFromOwner(owner, resource);
+    await removeMaterializedResourceFromOwner(owner, resource, mutations);
   }
-  await removeMaterializedResourceFromOwner(SHARED_OWNER, resource);
+  await removeMaterializedResourceFromOwner(SHARED_OWNER, resource, mutations);
 }
 
 function orgFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {

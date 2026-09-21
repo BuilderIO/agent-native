@@ -610,4 +610,639 @@ describe("workspace resource approval lifecycle", () => {
       ).resolves.toMatchObject({ rows: [] });
     });
   }, 60_000);
+
+  it("restores an overwritten primary materialization when legacy cleanup conflicts", async () => {
+    const conflictPath = "context/materialization-forward-rollback.md";
+    const previousContent = "# Original all-app materialization";
+    const nextContent = "# Rejected all-app materialization";
+    const [
+      { getDbExec },
+      { runWithRequestContext },
+      coreResources,
+      { applyWorkspaceResourceUpdate, createWorkspaceResource },
+    ] = await Promise.all([
+      import("@agent-native/core/db"),
+      import("@agent-native/core/server"),
+      import("@agent-native/core/resources/store"),
+      import("./workspace-resources-store.js"),
+    ]);
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const created = await createWorkspaceResource({
+        kind: "instruction",
+        name: "Original all-app materialization",
+        path: conflictPath,
+        content: previousContent,
+        scope: "all",
+      });
+      const resourceId = (created as { id: string }).id;
+      const primary = await coreResources.resourceGetByPath(
+        coreResources.WORKSPACE_OWNER,
+        conflictPath,
+        { orgId },
+      );
+      expect(primary).toMatchObject({
+        owner: coreResources.workspaceResourceOwner(orgId),
+        content: previousContent,
+      });
+      await coreResources.resourcePut(
+        coreResources.WORKSPACE_OWNER,
+        conflictPath,
+        previousContent,
+        "text/markdown",
+        { createdBy: "system", metadata: JSON.parse(primary!.metadata!) },
+      );
+      const deleteSpy = vi
+        .spyOn(coreResources, "resourceDeleteIfCurrent")
+        .mockImplementation(async (candidate) => {
+          if (candidate.owner === coreResources.WORKSPACE_OWNER) return false;
+          return false;
+        });
+
+      try {
+        await expect(
+          applyWorkspaceResourceUpdate(resourceId, { content: nextContent }),
+        ).rejects.toThrow(
+          `Workspace resource materialization changed concurrently: ${conflictPath}`,
+        );
+      } finally {
+        deleteSpy.mockRestore();
+      }
+
+      await expect(
+        coreResources.resourceGetByPath(
+          coreResources.WORKSPACE_OWNER,
+          conflictPath,
+          { orgId },
+        ),
+      ).resolves.toMatchObject({
+        id: primary!.id,
+        owner: primary!.owner,
+        path: conflictPath,
+        content: previousContent,
+        mimeType: primary!.mimeType,
+        metadata: primary!.metadata,
+      });
+      await expect(
+        getDbExec().execute({
+          sql: "SELECT content, scope FROM workspace_resources WHERE id = ?",
+          args: [resourceId],
+        }),
+      ).resolves.toMatchObject({
+        rows: [{ content: previousContent, scope: "all" }],
+      });
+    });
+  }, 60_000);
+
+  it("restores an earlier deleted materialization when a later legacy cleanup conflicts", async () => {
+    const conflictPath = "context/materialization-partial-rollback.md";
+    const previousContent = "# Original selected rollback materialization";
+    const [
+      { getDbExec },
+      { runWithRequestContext },
+      coreResources,
+      { applyWorkspaceResourceUpdate, createWorkspaceResource },
+    ] = await Promise.all([
+      import("@agent-native/core/db"),
+      import("@agent-native/core/server"),
+      import("@agent-native/core/resources/store"),
+      import("./workspace-resources-store.js"),
+    ]);
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const created = await createWorkspaceResource({
+        kind: "instruction",
+        name: "Original selected rollback materialization",
+        path: conflictPath,
+        content: previousContent,
+        scope: "all",
+      });
+      const resourceId = (created as { id: string }).id;
+      const primary = await coreResources.resourceGetByPath(
+        coreResources.WORKSPACE_OWNER,
+        conflictPath,
+        { orgId },
+      );
+      expect(primary).toMatchObject({
+        owner: coreResources.workspaceResourceOwner(orgId),
+        content: previousContent,
+      });
+      await coreResources.resourcePut(
+        coreResources.WORKSPACE_OWNER,
+        conflictPath,
+        previousContent,
+        "text/markdown",
+        { createdBy: "system", metadata: JSON.parse(primary!.metadata!) },
+      );
+
+      const deleteIfCurrent = coreResources.resourceDeleteIfCurrent;
+      const deleteSpy = vi
+        .spyOn(coreResources, "resourceDeleteIfCurrent")
+        .mockImplementation(async (candidate) => {
+          if (candidate.owner === coreResources.WORKSPACE_OWNER) return false;
+          return deleteIfCurrent(candidate);
+        });
+
+      try {
+        await expect(
+          applyWorkspaceResourceUpdate(resourceId, { scope: "selected" }),
+        ).rejects.toThrow(
+          `Workspace resource materialization changed concurrently: ${conflictPath}`,
+        );
+      } finally {
+        deleteSpy.mockRestore();
+      }
+
+      await expect(
+        coreResources.resourceGetByPath(
+          coreResources.WORKSPACE_OWNER,
+          conflictPath,
+          { orgId },
+        ),
+      ).resolves.toMatchObject({
+        id: primary!.id,
+        owner: primary!.owner,
+        path: conflictPath,
+        content: previousContent,
+        metadata: primary!.metadata,
+      });
+      await expect(
+        getDbExec().execute({
+          sql: "SELECT content, scope FROM workspace_resources WHERE id = ?",
+          args: [resourceId],
+        }),
+      ).resolves.toMatchObject({
+        rows: [{ content: previousContent, scope: "all" }],
+      });
+    });
+  }, 60_000);
+
+  it("updates and restores the bare SQL materialization for no-org All-app resources", async () => {
+    const conflictPath = "context/no-org-sql-materialization.md";
+    const initialContent = "# Initial no-org materialization";
+    const updatedContent = "# Updated no-org materialization";
+    const rejectedContent = "# Rejected no-org materialization";
+    const [
+      { getDbExec },
+      { runWithRequestContext },
+      coreResources,
+      { applyWorkspaceResourceUpdate, createWorkspaceResource },
+    ] = await Promise.all([
+      import("@agent-native/core/db"),
+      import("@agent-native/core/server"),
+      import("@agent-native/core/resources/store"),
+      import("./workspace-resources-store.js"),
+    ]);
+
+    await runWithRequestContext(
+      { userEmail: ownerEmail, orgId: null },
+      async () => {
+        const created = await createWorkspaceResource({
+          kind: "instruction",
+          name: "No-org SQL materialization",
+          path: conflictPath,
+          content: initialContent,
+          scope: "all",
+        });
+        const resourceId = (created as { id: string }).id;
+        const initial = await coreResources.resourceGetByPath(
+          coreResources.WORKSPACE_OWNER,
+          conflictPath,
+          { orgId: null },
+        );
+        expect(initial).toMatchObject({
+          owner: coreResources.WORKSPACE_OWNER,
+          content: initialContent,
+        });
+
+        await expect(
+          applyWorkspaceResourceUpdate(resourceId, { content: updatedContent }),
+        ).resolves.toMatchObject({ content: updatedContent, scope: "all" });
+        const updated = await coreResources.resourceGetByPath(
+          coreResources.WORKSPACE_OWNER,
+          conflictPath,
+          { orgId: null },
+        );
+        expect(updated).toMatchObject({
+          id: initial!.id,
+          owner: coreResources.WORKSPACE_OWNER,
+          content: updatedContent,
+        });
+
+        await coreResources.resourcePut(
+          coreResources.SHARED_OWNER,
+          conflictPath,
+          updatedContent,
+          "text/markdown",
+          { createdBy: "system", metadata: JSON.parse(updated!.metadata!) },
+        );
+        const deleteIfCurrent = coreResources.resourceDeleteIfCurrent;
+        const deleteSpy = vi
+          .spyOn(coreResources, "resourceDeleteIfCurrent")
+          .mockImplementation(async (candidate) => {
+            if (candidate.owner === coreResources.SHARED_OWNER) return false;
+            return deleteIfCurrent(candidate);
+          });
+
+        try {
+          await expect(
+            applyWorkspaceResourceUpdate(resourceId, {
+              content: rejectedContent,
+            }),
+          ).rejects.toThrow(
+            `Workspace resource materialization changed concurrently: ${conflictPath}`,
+          );
+        } finally {
+          deleteSpy.mockRestore();
+        }
+
+        await expect(
+          coreResources.resourceGetByPath(
+            coreResources.WORKSPACE_OWNER,
+            conflictPath,
+            { orgId: null },
+          ),
+        ).resolves.toMatchObject({
+          id: updated!.id,
+          owner: updated!.owner,
+          content: updatedContent,
+          metadata: updated!.metadata,
+        });
+        await expect(
+          getDbExec().execute({
+            sql: "SELECT content, scope FROM workspace_resources WHERE id = ?",
+            args: [resourceId],
+          }),
+        ).resolves.toMatchObject({
+          rows: [{ content: updatedContent, scope: "all" }],
+        });
+      },
+    );
+  }, 60_000);
+
+  it("preserves a newer primary materialization when rollback loses its derived snapshot", async () => {
+    const conflictPath = "context/materialization-derived-race.md";
+    const previousContent = "# Original derived materialization";
+    const attemptedContent = "# Attempted derived materialization";
+    const concurrentContent = "# Newer derived materialization";
+    const [
+      { getDbExec },
+      { runWithRequestContext },
+      coreResources,
+      { applyWorkspaceResourceUpdate, createWorkspaceResource },
+    ] = await Promise.all([
+      import("@agent-native/core/db"),
+      import("@agent-native/core/server"),
+      import("@agent-native/core/resources/store"),
+      import("./workspace-resources-store.js"),
+    ]);
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const created = await createWorkspaceResource({
+        kind: "instruction",
+        name: "Original derived materialization",
+        path: conflictPath,
+        content: previousContent,
+        scope: "all",
+      });
+      const resourceId = (created as { id: string }).id;
+      const primary = await coreResources.resourceGetByPath(
+        coreResources.WORKSPACE_OWNER,
+        conflictPath,
+        { orgId },
+      );
+      expect(primary).toMatchObject({
+        owner: coreResources.workspaceResourceOwner(orgId),
+        content: previousContent,
+      });
+      await coreResources.resourcePut(
+        coreResources.WORKSPACE_OWNER,
+        conflictPath,
+        previousContent,
+        "text/markdown",
+        { createdBy: "system", metadata: JSON.parse(primary!.metadata!) },
+      );
+
+      const concurrentMetadata = {
+        source: "dispatch-workspace-resource",
+        resourceId: "newer-dispatch-resource",
+        updatedAt: Date.now() + 10_000,
+      };
+      const deleteIfCurrent = coreResources.resourceDeleteIfCurrent;
+      const deleteSpy = vi
+        .spyOn(coreResources, "resourceDeleteIfCurrent")
+        .mockImplementation(async (candidate) => {
+          if (candidate.owner !== coreResources.WORKSPACE_OWNER) {
+            return deleteIfCurrent(candidate);
+          }
+          await coreResources.resourcePut(
+            primary!.owner,
+            conflictPath,
+            concurrentContent,
+            "text/markdown",
+            { createdBy: "system", metadata: concurrentMetadata },
+          );
+          return false;
+        });
+
+      try {
+        await expect(
+          applyWorkspaceResourceUpdate(resourceId, {
+            content: attemptedContent,
+          }),
+        ).rejects.toThrow(
+          `Workspace resource materialization failed and could not be rolled back`,
+        );
+      } finally {
+        deleteSpy.mockRestore();
+      }
+
+      await expect(
+        coreResources.resourceGetByPath(
+          coreResources.WORKSPACE_OWNER,
+          conflictPath,
+          { orgId },
+        ),
+      ).resolves.toMatchObject({
+        owner: primary!.owner,
+        content: concurrentContent,
+        metadata: JSON.stringify(concurrentMetadata),
+      });
+      await expect(
+        getDbExec().execute({
+          sql: "SELECT content, scope FROM workspace_resources WHERE id = ?",
+          args: [resourceId],
+        }),
+      ).resolves.toMatchObject({
+        rows: [{ content: previousContent, scope: "all" }],
+      });
+    });
+  }, 60_000);
+
+  it("continues compensating earlier materializations after one undo restore fails", async () => {
+    const conflictPath = "context/materialization-undo-continues.md";
+    const previousContent = "# Original multi-owner materialization";
+    const [
+      { getDbExec },
+      { runWithRequestContext },
+      coreResources,
+      { applyWorkspaceResourceUpdate, createWorkspaceResource },
+    ] = await Promise.all([
+      import("@agent-native/core/db"),
+      import("@agent-native/core/server"),
+      import("@agent-native/core/resources/store"),
+      import("./workspace-resources-store.js"),
+    ]);
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const created = await createWorkspaceResource({
+        kind: "instruction",
+        name: "Original multi-owner materialization",
+        path: conflictPath,
+        content: previousContent,
+        scope: "all",
+      });
+      const resourceId = (created as { id: string }).id;
+      const primary = await coreResources.resourceGetByPath(
+        coreResources.WORKSPACE_OWNER,
+        conflictPath,
+        { orgId },
+      );
+      expect(primary).toMatchObject({
+        owner: coreResources.workspaceResourceOwner(orgId),
+        content: previousContent,
+      });
+      const metadata = JSON.parse(primary!.metadata!);
+      await Promise.all([
+        coreResources.resourcePut(
+          coreResources.WORKSPACE_OWNER,
+          conflictPath,
+          previousContent,
+          "text/markdown",
+          { createdBy: "system", metadata },
+        ),
+        coreResources.resourcePut(
+          coreResources.SHARED_OWNER,
+          conflictPath,
+          previousContent,
+          "text/markdown",
+          { createdBy: "system", metadata },
+        ),
+      ]);
+
+      const deleteIfCurrent = coreResources.resourceDeleteIfCurrent;
+      const restoreSnapshot = coreResources.resourceRestoreSnapshotIfCurrent;
+      const deleteSpy = vi
+        .spyOn(coreResources, "resourceDeleteIfCurrent")
+        .mockImplementation(async (candidate) => {
+          if (candidate.owner === coreResources.SHARED_OWNER) return false;
+          return deleteIfCurrent(candidate);
+        });
+      const restoreSpy = vi
+        .spyOn(coreResources, "resourceRestoreSnapshotIfCurrent")
+        .mockImplementation(async (snapshot, current) => {
+          if (snapshot.owner === coreResources.WORKSPACE_OWNER) {
+            throw new Error("Injected bare undo failure");
+          }
+          return restoreSnapshot(snapshot, current);
+        });
+
+      try {
+        await expect(
+          applyWorkspaceResourceUpdate(resourceId, { scope: "selected" }),
+        ).rejects.toThrow(
+          "Workspace resource materialization failed and could not be rolled back",
+        );
+      } finally {
+        restoreSpy.mockRestore();
+        deleteSpy.mockRestore();
+      }
+
+      await expect(
+        coreResources.resourceGetByPath(
+          coreResources.WORKSPACE_OWNER,
+          conflictPath,
+          { orgId },
+        ),
+      ).resolves.toMatchObject({
+        id: primary!.id,
+        owner: primary!.owner,
+        content: previousContent,
+        metadata: primary!.metadata,
+      });
+      await expect(
+        coreResources.resourceListAllOwners(conflictPath, {
+          includeShadowedWorkspaceRows: true,
+        }),
+      ).resolves.toEqual(
+        expect.not.arrayContaining([
+          expect.objectContaining({
+            owner: coreResources.WORKSPACE_OWNER,
+            path: conflictPath,
+          }),
+        ]),
+      );
+      await expect(
+        getDbExec().execute({
+          sql: "SELECT content, scope FROM workspace_resources WHERE id = ?",
+          args: [resourceId],
+        }),
+      ).resolves.toMatchObject({
+        rows: [{ content: previousContent, scope: "all" }],
+      });
+    });
+  }, 60_000);
+
+  it("restores local and hidden bare-SQL materializations after a later shared cleanup conflict", async () => {
+    const manifestPath = path.join(tempDir!, "agent-native.json");
+    const localPath = "AGENTS.md";
+    const previousContent = "# Local All-app instructions";
+    const previousManifest = process.env.AGENT_NATIVE_MANIFEST;
+    const previousManifestPath = process.env.AGENT_NATIVE_MANIFEST_PATH;
+
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({ mode: "local-files" }),
+      "utf8",
+    );
+    process.env.AGENT_NATIVE_MANIFEST = manifestPath;
+    delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+
+    try {
+      const [
+        { getDbExec },
+        { runWithRequestContext },
+        coreResources,
+        { applyWorkspaceResourceUpdate, createWorkspaceResource },
+      ] = await Promise.all([
+        import("@agent-native/core/db"),
+        import("@agent-native/core/server"),
+        import("@agent-native/core/resources/store"),
+        import("./workspace-resources-store.js"),
+      ]);
+
+      await runWithRequestContext(
+        { userEmail: ownerEmail, orgId: null },
+        async () => {
+          const created = await createWorkspaceResource({
+            kind: "instruction",
+            name: "Local rollback instructions",
+            path: localPath,
+            content: previousContent,
+            scope: "all",
+          });
+          const resourceId = (created as { id: string }).id;
+          const local = await coreResources.resourceGetByPath(
+            coreResources.WORKSPACE_OWNER,
+            localPath,
+            { orgId: null },
+          );
+          expect(local).toMatchObject({
+            owner: coreResources.WORKSPACE_OWNER,
+            content: previousContent,
+          });
+
+          const { rows } = await getDbExec().execute({
+            sql: "SELECT updated_at FROM workspace_resources WHERE id = ?",
+            args: [resourceId],
+          });
+          const metadata = {
+            source: "dispatch-workspace-resource",
+            resourceId,
+            kind: "instruction",
+            name: "Local rollback instructions",
+            description: null,
+            updatedAt: Number(rows[0]?.updated_at),
+          };
+          const hiddenBareId = `hidden-bare-${resourceId}`;
+          const timestamp = Date.now();
+          await getDbExec().execute({
+            sql: "INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            args: [
+              hiddenBareId,
+              localPath,
+              coreResources.WORKSPACE_OWNER,
+              previousContent,
+              "text/markdown",
+              Buffer.byteLength(previousContent, "utf8"),
+              timestamp,
+              timestamp,
+              "system",
+              "workspace",
+              JSON.stringify(metadata),
+            ],
+          });
+          await coreResources.resourcePut(
+            coreResources.SHARED_OWNER,
+            localPath,
+            previousContent,
+            "text/markdown",
+            { createdBy: "system", metadata },
+          );
+
+          const deleteIfCurrent = coreResources.resourceDeleteIfCurrent;
+          let localDeleted = false;
+          let bareDeleted = false;
+          const deleteSpy = vi
+            .spyOn(coreResources, "resourceDeleteIfCurrent")
+            .mockImplementation(async (candidate) => {
+              if (candidate.owner === coreResources.SHARED_OWNER) return false;
+              const deleted = await deleteIfCurrent(candidate);
+              if (candidate.id === local!.id) localDeleted = deleted;
+              if (candidate.id === hiddenBareId) bareDeleted = deleted;
+              return deleted;
+            });
+
+          try {
+            await expect(
+              applyWorkspaceResourceUpdate(resourceId, { scope: "selected" }),
+            ).rejects.toThrow(
+              `Workspace resource materialization changed concurrently: ${localPath}`,
+            );
+          } finally {
+            deleteSpy.mockRestore();
+          }
+
+          expect(localDeleted).toBe(true);
+          expect(bareDeleted).toBe(true);
+          expect(fs.readFileSync(path.join(tempDir!, localPath), "utf8")).toBe(
+            previousContent,
+          );
+          await expect(
+            getDbExec().execute({
+              sql: "SELECT id, content, metadata FROM resources WHERE id = ?",
+              args: [hiddenBareId],
+            }),
+          ).resolves.toMatchObject({
+            rows: [
+              {
+                id: hiddenBareId,
+                content: previousContent,
+                metadata: JSON.stringify(metadata),
+              },
+            ],
+          });
+          await expect(
+            getDbExec().execute({
+              sql: "SELECT content, scope FROM workspace_resources WHERE id = ?",
+              args: [resourceId],
+            }),
+          ).resolves.toMatchObject({
+            rows: [{ content: previousContent, scope: "all" }],
+          });
+        },
+      );
+    } finally {
+      if (previousManifest === undefined) {
+        delete process.env.AGENT_NATIVE_MANIFEST;
+      } else {
+        process.env.AGENT_NATIVE_MANIFEST = previousManifest;
+      }
+      if (previousManifestPath === undefined) {
+        delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+      } else {
+        process.env.AGENT_NATIVE_MANIFEST_PATH = previousManifestPath;
+      }
+    }
+  }, 60_000);
 });

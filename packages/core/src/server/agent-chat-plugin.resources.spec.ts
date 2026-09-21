@@ -346,6 +346,9 @@ describe("agent chat resource route organization scopes", () => {
       userEmail: "user@example.test",
       orgId: "org-active",
     });
+    expect(mocks.resourceList).toHaveBeenCalledWith("__shared__", undefined, {
+      orgId: "org-active",
+    });
     expect(mocks.resourceList).toHaveBeenCalledWith(
       "__workspace__",
       undefined,
@@ -355,6 +358,9 @@ describe("agent chat resource route organization scopes", () => {
     mocks.resourceList.mockClear();
     await fetchWithRequestContext(h3App, "/_agent-native/agent-chat/skills", {
       userEmail: "user@example.test",
+      orgId: "org-active",
+    });
+    expect(mocks.resourceList).toHaveBeenCalledWith("__shared__", "skills/", {
       orgId: "org-active",
     });
     expect(mocks.resourceList).toHaveBeenCalledWith(
@@ -371,6 +377,9 @@ describe("agent chat resource route organization scopes", () => {
       { userEmail: "user@example.test", orgId: "org-active" },
     );
     await mentions.text();
+    expect(mocks.resourceList).toHaveBeenCalledWith("__shared__", undefined, {
+      orgId: "org-active",
+    });
     expect(mocks.resourceList).toHaveBeenCalledWith(
       "__workspace__",
       undefined,
@@ -425,6 +434,9 @@ describe("agent chat resource route organization scopes", () => {
       orgId: "org-active",
     });
 
+    expect(mocks.resourceList).toHaveBeenCalledWith("__shared__", "skills/", {
+      orgId: "org-resolved",
+    });
     expect(mocks.resourceList).toHaveBeenCalledWith(
       "__workspace__",
       "skills/",
@@ -435,6 +447,68 @@ describe("agent chat resource route organization scopes", () => {
       orgId: "org-resolved",
     });
   });
+
+  it.each([
+    ["/_agent-native/agent-chat/files", undefined],
+    ["/_agent-native/agent-chat/skills", "skills/"],
+    ["/_agent-native/agent-chat/mentions", undefined],
+  ])(
+    "uses the resolver organization instead of the ambient organization for shared %s reads",
+    async (path, prefix) => {
+      const h3App = await mountResourceRoutes({
+        resolveOrgId: () => "org-resolved",
+      });
+
+      const response = await fetchWithRequestContext(h3App, path, {
+        userEmail: "user@example.test",
+        orgId: "org-ambient",
+      });
+      if (path.endsWith("/mentions")) await response.text();
+
+      expect(mocks.resourceList).toHaveBeenCalledWith("__shared__", prefix, {
+        orgId: "org-resolved",
+      });
+    },
+  );
+
+  it.each([
+    ["/_agent-native/agent-chat/files", undefined],
+    ["/_agent-native/agent-chat/skills", "skills/"],
+    ["/_agent-native/agent-chat/mentions", undefined],
+  ])(
+    "preserves an explicit personal resolver scope for no-owner shared %s reads",
+    async (path, prefix) => {
+      const h3App = await mountResourceRoutes({ resolveOrgId: () => null });
+      const resourceList = mocks.resourceList.getMockImplementation()!;
+      const resourceListContexts: Array<{
+        orgId: string | undefined;
+        orgScope: "personal" | undefined;
+      }> = [];
+      mocks.resourceList.mockImplementation(async (...args) => {
+        resourceListContexts.push({
+          orgId: getRequestOrgId(),
+          orgScope: getRequestContext()?.orgScope,
+        });
+        return resourceList(...args);
+      });
+
+      const response = await fetchWithRequestContext(h3App, path, {
+        userEmail: "user@example.test",
+        orgId: "org-ambient",
+      });
+      if (path.endsWith("/mentions")) await response.text();
+
+      expect(mocks.resourceList).toHaveBeenCalledWith("__shared__", prefix, {
+        orgId: null,
+      });
+      if (path.endsWith("/mentions")) {
+        expect(resourceListContexts).toContainEqual({
+          orgId: undefined,
+          orgScope: "personal",
+        });
+      }
+    },
+  );
 
   it("preserves an explicit personal resolver scope for owned skills and mentions", async () => {
     mocks.getSession.mockResolvedValue({ email: "user@example.test" });

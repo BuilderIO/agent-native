@@ -34,7 +34,7 @@ beforeAll(async () => {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
       const stmt = await pglite.prepare(sql);
-      if (/^\s*select/i.test(sql)) {
+      if (/^\s*select/i.test(sql) || /\breturning\b/i.test(sql)) {
         const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
@@ -1273,6 +1273,70 @@ describe("resourceEffectiveContext", () => {
       ).resolves.toMatchObject({
         content: "first",
       });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("guards snapshot writes and restores with the full SQL resource state", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+      resourcePutIfSnapshot,
+      resourceRestoreSnapshotIfCurrent,
+    } = await import("./store.js");
+    const path = `context/snapshot-${Date.now()}-${Math.random()}.md`;
+    try {
+      const before = await resourcePut(
+        SHARED_OWNER,
+        path,
+        "before",
+        undefined,
+        {
+          metadata: { source: "before" },
+        },
+      );
+      const written = await resourcePutIfSnapshot({
+        previous: before,
+        owner: SHARED_OWNER,
+        path,
+        content: "written",
+        options: {
+          createdBy: "agent",
+          metadata: { source: "dispatch" },
+        },
+      });
+      expect(written?.resource).toMatchObject({
+        id: before.id,
+        content: "written",
+        createdBy: "agent",
+        metadata: expect.stringContaining("dispatch"),
+      });
+      await resourcePut(SHARED_OWNER, path, "written", undefined, {
+        metadata: { source: "replacement" },
+      });
+
+      await expect(
+        resourcePutIfSnapshot({
+          previous: written!.resource,
+          owner: SHARED_OWNER,
+          path,
+          content: "stale",
+        }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceRestoreSnapshotIfCurrent(before, written!.resource),
+      ).resolves.toBe(false);
+
+      const replacement = await resourceGetByPath(SHARED_OWNER, path);
+      await expect(resourceDeleteIfCurrent(replacement!)).resolves.toBe(true);
+      await resourcePut(SHARED_OWNER, path, "new owner");
+      await expect(
+        resourceRestoreSnapshotIfCurrent(before, null),
+      ).resolves.toBe(false);
     } finally {
       await resourceDeleteByPath(SHARED_OWNER, path);
     }

@@ -5046,7 +5046,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           );
           try {
             const resources = [
-              ...(await resourceList(SHARED_OWNER)),
+              ...(await resourceList(SHARED_OWNER, undefined, {
+                orgId: filesOrgId,
+              })),
               ...(await resourceList(WORKSPACE_OWNER, undefined, {
                 orgId: filesOrgId,
               })),
@@ -5211,7 +5213,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   orgId: skillsOrgId,
                 })
               : [
-                  ...(await resourceList(SHARED_OWNER, "skills/")),
+                  ...(await resourceList(SHARED_OWNER, "skills/", {
+                    orgId: skillsOrgId,
+                  })),
                   ...(await resourceList(WORKSPACE_OWNER, "skills/", {
                     orgId: skillsOrgId,
                   })),
@@ -5416,7 +5420,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                         ...(await resourceList(WORKSPACE_OWNER, undefined, {
                           orgId: mentionsOrgId,
                         })),
-                        ...(await resourceList(SHARED_OWNER)),
+                        ...(await resourceList(SHARED_OWNER, undefined, {
+                          orgId: mentionsOrgId,
+                        })),
                       ];
                   flush(
                     resources.map((r) => {

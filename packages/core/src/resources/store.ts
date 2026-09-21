@@ -16,6 +16,8 @@ import {
   listLocalWorkspaceResources,
   localWorkspaceResourcePathFromId,
   readLocalWorkspaceResource,
+  writeLocalWorkspaceResourceIfAbsentAtPath,
+  writeLocalWorkspaceResourceIfCurrent,
   writeLocalWorkspaceResource,
   type LocalWorkspaceResourceFile,
   type LocalWorkspaceResourceMeta,
@@ -344,6 +346,23 @@ export interface ResourceConditionalWrite {
   /** Also guards the rare case where two writes share the same millisecond. */
   expectedContent: string;
   mimeType?: string;
+}
+
+export interface ResourceSnapshotWrite {
+  previous: Resource | null;
+  owner: string;
+  path: string;
+  content: string;
+  mimeType?: string;
+  options?: Pick<
+    ResourceWriteOptions,
+    "createdBy" | "metadata" | "requestSource"
+  >;
+}
+
+export interface ResourceSnapshotWriteResult {
+  before: Resource | null;
+  resource: Resource;
 }
 
 export interface ResourceListOptions {
@@ -1847,6 +1866,232 @@ export async function resourcePutIfCurrent(
   const resource = rowToResource(rows[0]);
   emitResourceChange(resource.id, resource.path, resource.owner);
   return resource;
+}
+
+function resourceSnapshotMatch(resource: Resource) {
+  return {
+    sql: `owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
+    args: [
+      resource.owner,
+      resource.path,
+      resource.id,
+      resource.updatedAt,
+      resource.content,
+      resource.mimeType,
+      resource.size,
+      resource.createdAt,
+      resource.createdBy,
+      resource.visibility,
+      resource.threadId,
+      resource.runId,
+      resource.expiresAt,
+      resource.metadata,
+    ],
+  };
+}
+
+function localWorkspaceResourceSnapshot(resource: Resource) {
+  return isLocalWorkspaceResourceId(resource.id)
+    ? localWorkspaceResourceMetadataFromResource(resource)
+    : null;
+}
+
+export async function resourcePutIfSnapshot(
+  input: ResourceSnapshotWrite,
+): Promise<ResourceSnapshotWriteResult | null> {
+  await ensureTable();
+  let previous = input.previous;
+  if (
+    previous &&
+    (previous.owner !== input.owner || previous.path !== input.path)
+  ) {
+    return null;
+  }
+  const localPrevious = previous
+    ? localWorkspaceResourceSnapshot(previous)
+    : null;
+  const localPath =
+    isBareWorkspaceResourceOwner(input.owner) &&
+    (await shouldHandleWorkspaceResourceAsLocal(input.path));
+  if (localPath && previous && !localPrevious) {
+    // A bare SQL fallback is not the local target. Preserve it for legacy
+    // cleanup, but materialize the requested workspace file only if absent.
+    previous = null;
+  }
+  if (localPath && (!previous || localPrevious)) {
+    const written = previous
+      ? await writeLocalWorkspaceResourceIfCurrent({
+          path: input.path,
+          content: input.content,
+          expectedHash: localPrevious!.hash,
+          expectedAbsolutePath: localPrevious!.absolutePath,
+        })
+      : await (async () => {
+          if (await localWorkspaceResourceByPath(input.path)) return null;
+          return writeLocalWorkspaceResource({
+            path: input.path,
+            content: input.content,
+            ifNotExists: true,
+          });
+        })();
+    if (!written) return null;
+    const resource = localWorkspaceResourceToResource({
+      ...written,
+      content: input.content,
+    });
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      input.options?.requestSource,
+    );
+    return {
+      before: input.previous && localPrevious ? input.previous : null,
+      resource,
+    };
+  }
+  if (isBareWorkspaceResourceOwner(input.owner)) {
+    await assertWritableWorkspaceResourcePath(input.path);
+  }
+
+  if (!previous) {
+    const resource = await resourcePutIfAbsent(
+      input.owner,
+      input.path,
+      input.content,
+      input.mimeType,
+      input.options,
+    );
+    return resource ? { before: null, resource } : null;
+  }
+  const serializedMetadata = serializeMetadata(input.options?.metadata);
+  const metadata =
+    serializedMetadata !== undefined ? serializedMetadata : previous.metadata;
+  const createdBy = normalizeCreatedBy(
+    hasOption(input.options, "createdBy")
+      ? input.options?.createdBy
+      : previous.createdBy,
+  );
+  const client = getDbExec();
+  const updatedAt = Math.max(Date.now(), previous.updatedAt + 1);
+  const size = Buffer.byteLength(input.content, "utf8");
+  const mimeType = input.mimeType || "text/markdown";
+  const match = resourceSnapshotMatch(previous);
+  const { rows } = await client.execute({
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?, created_by = ?, metadata = ? WHERE ${match.sql} RETURNING *`,
+    args: [
+      input.content,
+      mimeType,
+      size,
+      updatedAt,
+      createdBy,
+      metadata,
+      ...match.args,
+    ],
+  });
+  if (rows.length !== 1) return null;
+  const resource = rowToResource(rows[0]);
+  emitResourceChange(
+    resource.id,
+    resource.path,
+    resource.owner,
+    input.options?.requestSource,
+  );
+  return { before: previous, resource };
+}
+
+export async function resourceRestoreSnapshotIfCurrent(
+  snapshot: Resource,
+  current: Resource | null,
+): Promise<boolean> {
+  await ensureTable();
+  const snapshotLocal = localWorkspaceResourceSnapshot(snapshot);
+  if (snapshotLocal) {
+    if (current) {
+      const currentLocal = localWorkspaceResourceSnapshot(current);
+      if (
+        !currentLocal ||
+        current.owner !== snapshot.owner ||
+        current.path !== snapshot.path ||
+        currentLocal.absolutePath !== snapshotLocal.absolutePath
+      ) {
+        return false;
+      }
+      const restored = await writeLocalWorkspaceResourceIfCurrent({
+        path: snapshot.path,
+        content: snapshot.content,
+        expectedHash: currentLocal.hash,
+        expectedAbsolutePath: currentLocal.absolutePath,
+      });
+      if (!restored) return false;
+      emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
+      return true;
+    }
+    const restored = await writeLocalWorkspaceResourceIfAbsentAtPath({
+      path: snapshot.path,
+      content: snapshot.content,
+      expectedAbsolutePath: snapshotLocal.absolutePath,
+    });
+    if (!restored) return false;
+    emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
+    return true;
+  }
+  if (
+    current &&
+    (current.owner !== snapshot.owner || current.path !== snapshot.path)
+  ) {
+    return false;
+  }
+  const client = getDbExec();
+  const restoredAt = Math.max(
+    Date.now(),
+    (current?.updatedAt ?? snapshot.updatedAt) + 1,
+  );
+  if (!current) {
+    const { rows } = await client.execute({
+      sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING RETURNING *`,
+      args: [
+        snapshot.id,
+        snapshot.path,
+        snapshot.owner,
+        snapshot.content,
+        snapshot.mimeType,
+        snapshot.size,
+        snapshot.createdAt,
+        restoredAt,
+        snapshot.createdBy,
+        snapshot.visibility,
+        snapshot.threadId,
+        snapshot.runId,
+        snapshot.expiresAt,
+        snapshot.metadata,
+      ],
+    });
+    if (rows.length !== 1) return false;
+    emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
+    return true;
+  }
+  const match = resourceSnapshotMatch(current);
+  const { rows } = await client.execute({
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, created_at = ?, updated_at = ?, created_by = ?, visibility = ?, thread_id = ?, run_id = ?, expires_at = ?, metadata = ? WHERE ${match.sql} RETURNING *`,
+    args: [
+      snapshot.content,
+      snapshot.mimeType,
+      snapshot.size,
+      snapshot.createdAt,
+      restoredAt,
+      snapshot.createdBy,
+      snapshot.visibility,
+      snapshot.threadId,
+      snapshot.runId,
+      snapshot.expiresAt,
+      snapshot.metadata,
+      ...match.args,
+    ],
+  });
+  if (rows.length !== 1) return false;
+  emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
+  return true;
 }
 
 export async function resourceDeleteIfCurrent(
