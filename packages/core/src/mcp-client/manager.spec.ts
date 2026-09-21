@@ -78,6 +78,9 @@ class FakeClient {
   }
   async connect(transport: FakeTransport) {
     this.transport = transport;
+    if (transport instanceof FakeHttp) {
+      transport.sessionId = `session-${fakeClients.indexOf(this)}`;
+    }
   }
   getTransport() {
     return this.transport;
@@ -122,6 +125,7 @@ class FakeStdio {
 
 class FakeHttp {
   key: string;
+  sessionId?: string;
   onerror?: (error: unknown) => void;
   requestInit?: Record<string, unknown>;
   fetchImpl?: (input: unknown, init?: unknown) => Promise<unknown>;
@@ -390,6 +394,68 @@ describe("McpClientManager", () => {
       { tool: "a:ping", args: { hello: 1 } },
       { tool: "b:ping", args: { hello: 2 } },
     ]);
+  });
+
+  it("reconnects once and replays concurrent calls after an HTTP session expires", async () => {
+    let calls = 0;
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => {
+        calls += 1;
+        if (calls <= 2) {
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        return { content: [{ type: "text", text: "pong" }] };
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+
+    const results = await Promise.all([
+      mgr.callTool("mcp__remote__ping", {}),
+      mgr.callTool("mcp__remote__ping", {}),
+    ]);
+
+    expect(results).toEqual([
+      { content: [{ type: "text", text: "pong" }] },
+      { content: [{ type: "text", text: "pong" }] },
+    ]);
+    expect(calls).toBe(4);
+    expect(fakeClients).toHaveLength(2);
+    expect(staleTransport.closed).toBe(true);
+  });
+
+  it("reconnects and replays ui resources after an HTTP session expires", async () => {
+    let reads = 0;
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "show" }],
+      callImpl: () => ({ content: [] }),
+      readResourceImpl: (uri) => {
+        reads += 1;
+        if (reads === 1) {
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        return { contents: [{ uri, text: "<p>hi</p>" }] };
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+
+    await expect(
+      mgr.readResource("remote", "ui://remote/show"),
+    ).resolves.toEqual({
+      contents: [{ uri: "ui://remote/show", text: "<p>hi</p>" }],
+    });
+
+    expect(reads).toBe(2);
+    expect(fakeClients).toHaveLength(2);
+    expect(staleTransport.closed).toBe(true);
   });
 
   it(
