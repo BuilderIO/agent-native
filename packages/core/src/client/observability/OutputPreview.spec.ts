@@ -72,6 +72,31 @@ describe("parseOutputPreview", () => {
     });
   });
 
+  it("bounds inferred table headers", () => {
+    const longHeader = "h".repeat(800);
+
+    expect(
+      parseOutputPreview(
+        JSON.stringify({ type: "table", rows: [{ [longHeader]: "value" }] }),
+      ),
+    ).toEqual({
+      kind: "table",
+      headers: [longHeader.slice(0, 600)],
+      rows: [["value"]],
+    });
+  });
+
+  it("limits Markdown scanning to a bounded line prefix", () => {
+    const answer = [
+      ...Array.from({ length: 50 }, () => "noise"),
+      "| Name | Score |",
+      "| --- | ---: |",
+      "| Ada | 0.9 |",
+    ].join("\n");
+
+    expect(parseOutputPreview(answer)).toEqual({ kind: "text", text: answer });
+  });
+
   it("bounds oversized answers before parsing or scanning", () => {
     const answer = Array.from({ length: 4_000 }, () => "noise").join("\n");
     const preview = parseOutputPreview(answer);

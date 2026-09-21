@@ -170,6 +170,14 @@ function parseStructuredPreview(
   if (type === "table") {
     const sourceRows = Array.isArray(value.rows) ? value.rows : [];
     const objectRows = sourceRows.filter(isRecord);
+    const inferredHeaders = objectRows[0]
+      ? Object.keys(objectRows[0])
+          .flatMap((key) => {
+            const label = boundedString(key);
+            return label ? [{ key, label }] : [];
+          })
+          .slice(0, MAX_COLUMNS)
+      : [];
     const headers = Array.isArray(value.headers)
       ? value.headers
           .flatMap((header) => {
@@ -177,20 +185,20 @@ function parseStructuredPreview(
             return text ? [text] : [];
           })
           .slice(0, MAX_COLUMNS)
-      : objectRows[0]
-        ? Object.keys(objectRows[0])
-            .flatMap((header) => {
-              const text = boundedString(header);
-              return text ? [text] : [];
-            })
-            .slice(0, MAX_COLUMNS)
-        : [];
+      : inferredHeaders.map(({ label }) => label);
+    const rowKeys = Array.isArray(value.headers)
+      ? headers
+      : inferredHeaders.map(({ key }) => key);
     const rows = sourceRows.slice(0, MAX_ROWS).flatMap((row) => {
       if (Array.isArray(row)) {
         return [row.slice(0, headers.length).map(tableCell)];
       }
       if (isRecord(row) && headers.length > 0) {
-        return [headers.map((header) => tableCell(row[header]))];
+        return [
+          headers.map((header, index) =>
+            tableCell(row[rowKeys[index] ?? header]),
+          ),
+        ];
       }
       return [];
     });
