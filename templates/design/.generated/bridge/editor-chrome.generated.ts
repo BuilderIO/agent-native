@@ -16278,6 +16278,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         true
       );
     } catch (_err) {
+      // coercion-ok: cross-origin previews intentionally cannot inspect the host document.
     }
     document.addEventListener(
       "keyup",
