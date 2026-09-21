@@ -91,9 +91,15 @@ export function resolveNudgeTarget(
   const selectedLayerTarget =
     selectedLayerTargets.find(
       (target) =>
+        selectedElement?.sourceLayerIdentity?.screenId === target.fileId &&
+        selectedElement.sourceLayerIdentity.nodeId === target.layerId,
+    ) ??
+    selectedLayerTargets.find(
+      (target) =>
         selectedElement?.sourceId === target.layerId ||
         selectedElement?.sourceId === target.node.id,
-    ) ?? selectedLayerTargets[0];
+    ) ??
+    selectedLayerTargets[0];
   return (
     (selectedLayerTarget
       ? renderedElementInfoByLayerKey.get(

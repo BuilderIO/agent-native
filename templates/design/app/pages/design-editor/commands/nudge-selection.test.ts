@@ -32,7 +32,7 @@ describe("resolveNudgeTarget", () => {
 
   it("uses the focused layer when multiple layers are selected", () => {
     const focused = element("30px");
-    focused.sourceId = "focused";
+    focused.sourceLayerIdentity = { screenId: "screen-a", nodeId: "focused" };
     const first = {
       fileId: "screen-a",
       layerId: "first",
@@ -43,7 +43,7 @@ describe("resolveNudgeTarget", () => {
       fileId: "screen-a",
       layerId: "focused",
       elementInfo: focused,
-      node: { id: "focused" },
+      node: { id: "different-node-id" },
     } as any;
     const rendered = element("230px");
 
