@@ -5938,6 +5938,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var activeEditorDragId = "";
   var bridgeSpaceKeyPressed = false;
   var bridgeIgnoreAutoLayoutKeyPressed = false;
+  var hostIgnoreAutoLayoutAtPointerDown = false;
   var bridgeSpaceKeyConsumedByDrag = false;
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var activeCrossScreenDragIdentity: {
@@ -20250,6 +20251,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Preserve the modifier captured at pointerdown. Playwright and real
     // browsers can deliver the first move/up without the held key flags.
     var dragIgnoreAutoLayout =
+      hostIgnoreAutoLayoutAtPointerDown ||
       pointerStartParam?.ignoreAutoLayout === true ||
       isIgnoreAutoLayoutChord(e);
     function ignoreAutoLayoutHeld(ev): boolean {
@@ -24239,6 +24241,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         bridgeIgnoreAutoLayoutKeyPressed = true;
       }
+      return;
+    }
+    if (e.data.type === "agent-native:drag-modifiers") {
+      hostIgnoreAutoLayoutAtPointerDown = e.data.ignoreAutoLayout === true;
       return;
     }
     if (e.data.type === "design-hotkey-up") {

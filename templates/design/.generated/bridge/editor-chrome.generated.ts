@@ -4776,6 +4776,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeEditorDragId = "";
     var bridgeSpaceKeyPressed = false;
     var bridgeIgnoreAutoLayoutKeyPressed = false;
+    var hostIgnoreAutoLayoutAtPointerDown = false;
     var bridgeSpaceKeyConsumedByDrag = false;
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenDragIdentity = null;
@@ -14242,7 +14243,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var moved = false;
       dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
       var currentAutoLayoutTarget = null;
-      var dragIgnoreAutoLayout = pointerStartParam?.ignoreAutoLayout === true || isIgnoreAutoLayoutChord(e);
+      var dragIgnoreAutoLayout = hostIgnoreAutoLayoutAtPointerDown || pointerStartParam?.ignoreAutoLayout === true || isIgnoreAutoLayoutChord(e);
       function ignoreAutoLayoutHeld(ev) {
         return dragIgnoreAutoLayout || isIgnoreAutoLayoutChord(ev);
       }
@@ -17114,6 +17115,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!isApplePlatformBridge() && String(e.data.key).toLowerCase() === "s") {
           bridgeIgnoreAutoLayoutKeyPressed = true;
         }
+        return;
+      }
+      if (e.data.type === "agent-native:drag-modifiers") {
+        hostIgnoreAutoLayoutAtPointerDown = e.data.ignoreAutoLayout === true;
         return;
       }
       if (e.data.type === "design-hotkey-up") {

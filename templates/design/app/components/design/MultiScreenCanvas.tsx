@@ -8233,6 +8233,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const startBridgeDrag = () => {
         if (bridgeDragStarted) return;
         bridgeDragStarted = true;
+        iframe.contentWindow?.postMessage(
+          {
+            type: "agent-native:drag-modifiers",
+            ignoreAutoLayout: crossScreenIgnoreAutoLayoutRef.current,
+          },
+          "*",
+        );
         dispatchAt(
           selectionOverlay,
           "mousedown",
