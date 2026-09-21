@@ -61,6 +61,7 @@ import {
   FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
+  repairFirstPartyBigQueryDashboardQueries,
 } from "./canonical-first-party-dashboard-repair";
 import {
   repairPersistedFirstPartyDashboardQueries,
@@ -486,6 +487,25 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(panels[0].sql).not.toMatch(/\bFROM\s+analytics_events\b/i);
     expect(panels[2].sql).toBe("");
     expect(panels[3].sql).toBe("");
+  });
+
+  it("repairs a stale BigQuery daily activity filter", () => {
+    const repaired = repairFirstPartyBigQueryDashboardQueries({
+      panels: [
+        {
+          ...requiredFirstPartyPanel("dau-over-time"),
+          source: "bigquery",
+          sql: "SELECT event_date FROM `events` WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL",
+        },
+      ],
+    });
+
+    expect(repaired.changed).toBe(true);
+    const panel = (repaired.config.panels as Array<{ sql: string }>)[0]!;
+    expect(panel.sql).toContain(
+      "event_name IN ('session status', 'session_status')",
+    );
+    expect(panel.sql).toContain("event_name = 'app_entered'");
   });
 
   it("repairs the persisted BigQuery retention query after a data gap", async () => {
