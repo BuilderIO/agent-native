@@ -4774,6 +4774,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     var bridgeIgnoreAutoLayoutKeyPressed = false;
     var hostIgnoreAutoLayoutAtPointerDown = false;
     var bridgeSpaceKeyConsumedByDrag = false;
+    function resetBridgeDragModifierStateOnCancel() {
+      bridgeSpaceKeyPressed = false;
+      bridgeSpaceKeyConsumedByDrag = false;
+      bridgeIgnoreAutoLayoutKeyPressed = false;
+      hostIgnoreAutoLayoutAtPointerDown = false;
+    }
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenDragIdentity = null;
     var spacingDrag = null;
@@ -13198,6 +13204,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearActiveDragCancel(onRejectedEscape2);
           shieldOverlay.style.cursor = "default";
         }, onRejectedEscape2 = function() {
+          resetBridgeDragModifierStateOnCancel();
           cleanupRejectedDrag2();
           hideTransformBadge();
           suppressNextShieldClickBriefly();
@@ -13868,6 +13875,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }, onReorderVisibilityChange2 = function() {
           if (document.visibilityState === "hidden") onReorderEscape2();
         }, onReorderEscape2 = function() {
+          resetBridgeDragModifierStateOnCancel();
           cleanupReorderDrag2();
           hideTransformBadge();
           hideInsertionGuide();
@@ -14502,6 +14510,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         suppressNextShieldClickBriefly();
       }
       function cancelMoveDrag() {
+        resetBridgeDragModifierStateOnCancel();
         bridgeMoveController.cancel();
         cleanupMoveDrag();
         hideTransformBadge();
@@ -16241,29 +16250,38 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     try {
       var parentDocument = window.parent.document;
-      var modifierListenerWindows = parentDocument.__agentNativeDesignModifierListeners || /* @__PURE__ */ new WeakSet();
-      if (!modifierListenerWindows.has(window)) {
-        modifierListenerWindows.add(window);
-        parentDocument.__agentNativeDesignModifierListeners = modifierListenerWindows;
-        parentDocument.addEventListener(
+      var modifierListenerWindows = parentDocument.__agentNativeDesignModifierListeners || /* @__PURE__ */ new WeakMap();
+      parentDocument.__agentNativeDesignModifierListeners = modifierListenerWindows;
+      modifierListenerWindows.get(window)?.cleanup();
+      var onParentModifierKeyDown = function(e) {
+        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          bridgeIgnoreAutoLayoutKeyPressed = true;
+        }
+      };
+      var onParentModifierKeyUp = function(e) {
+        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          bridgeIgnoreAutoLayoutKeyPressed = false;
+        }
+      };
+      var cleanupParentModifierListeners = function() {
+        parentDocument.removeEventListener(
           "keydown",
-          function(e) {
-            if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
-              bridgeIgnoreAutoLayoutKeyPressed = true;
-            }
-          },
+          onParentModifierKeyDown,
           true
         );
-        parentDocument.addEventListener(
-          "keyup",
-          function(e) {
-            if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
-              bridgeIgnoreAutoLayoutKeyPressed = false;
-            }
-          },
-          true
-        );
-      }
+        parentDocument.removeEventListener("keyup", onParentModifierKeyUp, true);
+        if (modifierListenerWindows.get(window)?.cleanup === cleanupParentModifierListeners) {
+          modifierListenerWindows.delete(window);
+        }
+      };
+      parentDocument.addEventListener("keydown", onParentModifierKeyDown, true);
+      parentDocument.addEventListener("keyup", onParentModifierKeyUp, true);
+      modifierListenerWindows.set(window, {
+        cleanup: cleanupParentModifierListeners
+      });
+      window.addEventListener("unload", cleanupParentModifierListeners, {
+        once: true
+      });
     } catch (_err) {
       void _err;
     }

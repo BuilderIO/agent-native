@@ -5940,6 +5940,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var bridgeIgnoreAutoLayoutKeyPressed = false;
   var hostIgnoreAutoLayoutAtPointerDown = false;
   var bridgeSpaceKeyConsumedByDrag = false;
+
+  function resetBridgeDragModifierStateOnCancel(): void {
+    bridgeSpaceKeyPressed = false;
+    bridgeSpaceKeyConsumedByDrag = false;
+    bridgeIgnoreAutoLayoutKeyPressed = false;
+    hostIgnoreAutoLayoutAtPointerDown = false;
+  }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
@@ -18781,6 +18788,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         shieldOverlay.style.cursor = "default";
       }
       function onRejectedEscape() {
+        resetBridgeDragModifierStateOnCancel();
         cleanupRejectedDrag();
         hideTransformBadge();
         suppressNextShieldClickBriefly();
@@ -19821,6 +19829,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (document.visibilityState === "hidden") onReorderEscape();
       }
       function onReorderEscape() {
+        resetBridgeDragModifierStateOnCancel();
         cleanupReorderDrag();
         hideTransformBadge();
         hideInsertionGuide();
@@ -20645,6 +20654,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       suppressNextShieldClickBriefly();
     }
     function cancelMoveDrag() {
+      resetBridgeDragModifierStateOnCancel();
       bridgeMoveController.cancel();
       cleanupMoveDrag();
       hideTransformBadge();
@@ -22945,34 +22955,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // same drag state as an iframe-focused keydown.
   try {
     var parentDocument = window.parent.document as Document & {
-      __agentNativeDesignModifierListeners?: WeakSet<Window>;
+      __agentNativeDesignModifierListeners?: WeakMap<
+        Window,
+        { cleanup: () => void }
+      >;
     };
     var modifierListenerWindows =
       parentDocument.__agentNativeDesignModifierListeners ||
-      new WeakSet<Window>();
-    if (!modifierListenerWindows.has(window)) {
-      modifierListenerWindows.add(window);
-      parentDocument.__agentNativeDesignModifierListeners =
-        modifierListenerWindows;
-      parentDocument.addEventListener(
+      new WeakMap<Window, { cleanup: () => void }>();
+    parentDocument.__agentNativeDesignModifierListeners =
+      modifierListenerWindows;
+    modifierListenerWindows.get(window)?.cleanup();
+    var onParentModifierKeyDown = function (e) {
+      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        bridgeIgnoreAutoLayoutKeyPressed = true;
+      }
+    };
+    var onParentModifierKeyUp = function (e) {
+      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        bridgeIgnoreAutoLayoutKeyPressed = false;
+      }
+    };
+    var cleanupParentModifierListeners = function () {
+      parentDocument.removeEventListener(
         "keydown",
-        function (e) {
-          if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
-            bridgeIgnoreAutoLayoutKeyPressed = true;
-          }
-        },
+        onParentModifierKeyDown,
         true,
       );
-      parentDocument.addEventListener(
-        "keyup",
-        function (e) {
-          if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
-            bridgeIgnoreAutoLayoutKeyPressed = false;
-          }
-        },
-        true,
-      );
-    }
+      parentDocument.removeEventListener("keyup", onParentModifierKeyUp, true);
+      if (
+        modifierListenerWindows.get(window)?.cleanup ===
+        cleanupParentModifierListeners
+      ) {
+        modifierListenerWindows.delete(window);
+      }
+    };
+    parentDocument.addEventListener("keydown", onParentModifierKeyDown, true);
+    parentDocument.addEventListener("keyup", onParentModifierKeyUp, true);
+    modifierListenerWindows.set(window, {
+      cleanup: cleanupParentModifierListeners,
+    });
+    window.addEventListener("unload", cleanupParentModifierListeners, {
+      once: true,
+    });
   } catch (_err) {
     // coercion-ok: cross-origin previews intentionally cannot inspect the host document.
     void _err;
