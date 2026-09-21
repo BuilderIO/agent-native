@@ -4937,6 +4937,10 @@ export function DesignCanvas({
     const iframe = iframeRef.current;
     if (!iframe) return;
     iframe.contentWindow?.postMessage(
+      { type: "agent-native:editor-chrome-ready-probe" },
+      "*",
+    );
+    iframe.contentWindow?.postMessage(
       {
         type: "embedded-canvas-pan-mode",
         leftButtonEnabled: handToolActive || spacePanActive,
@@ -6888,6 +6892,10 @@ export function DesignCanvas({
               onBootReady();
             }
             sendBridgeToContainer();
+            event.currentTarget.contentWindow?.postMessage(
+              { type: "agent-native:editor-chrome-ready-probe" },
+              "*",
+            );
             // The bridge logs into the IFRAME console and cannot read
             // import.meta.env, so dev has to switch it on from out here.
             if (!import.meta.env?.DEV) return;
