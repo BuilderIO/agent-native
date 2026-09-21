@@ -48,6 +48,10 @@ interface ServerEntry {
   transport: any;
   tools: McpTool[];
   error?: string;
+  pendingRequests: number;
+  pendingRequestsDrained: Promise<void>;
+  resolvePendingRequests?: () => void;
+  replacement?: ServerEntry;
 }
 
 type ErrorSink = (error: unknown) => void;
@@ -356,6 +360,8 @@ export class McpClientManager {
       client: null,
       transport: null,
       tools: [],
+      pendingRequests: 0,
+      pendingRequestsDrained: Promise.resolve(),
     };
     this.servers.set(id, entry);
     try {
@@ -543,18 +549,58 @@ export class McpClientManager {
     await safelyClose(entry.transport);
   }
 
+  private beginRequest(entry: ServerEntry): void {
+    if (entry.pendingRequests === 0) {
+      entry.pendingRequestsDrained = new Promise<void>((resolve) => {
+        entry.resolvePendingRequests = resolve;
+      });
+    }
+    entry.pendingRequests += 1;
+  }
+
+  private endRequest(entry: ServerEntry): void {
+    entry.pendingRequests -= 1;
+    if (entry.pendingRequests === 0) {
+      entry.resolvePendingRequests?.();
+      entry.resolvePendingRequests = undefined;
+    }
+  }
+
+  private async runRequest<T>(
+    entry: ServerEntry,
+    operation: (entry: ServerEntry) => Promise<T>,
+  ): Promise<T> {
+    this.beginRequest(entry);
+    try {
+      return await operation(entry);
+    } finally {
+      this.endRequest(entry);
+    }
+  }
+
   private async reconnectExpiredSession(
     entry: ServerEntry,
     failedTransport: any,
-  ): Promise<void> {
+  ): Promise<ServerEntry | null> {
     const task = this.reconfigureQueue.then(async () => {
       if (
         this.servers.get(entry.id) !== entry ||
         entry.transport !== failedTransport
       ) {
-        return;
+        return this.servers.get(entry.id) === entry.replacement
+          ? (entry.replacement ?? null)
+          : null;
       }
 
+      await entry.pendingRequestsDrained;
+      if (
+        this.servers.get(entry.id) !== entry ||
+        entry.transport !== failedTransport
+      ) {
+        return this.servers.get(entry.id) === entry.replacement
+          ? (entry.replacement ?? null)
+          : null;
+      }
       this.servers.delete(entry.id);
       await this.closeEntry(entry);
       const sdk = await this.loadSdk(
@@ -562,12 +608,15 @@ export class McpClientManager {
       );
       if (!sdk) throw new Error("MCP SDK is unavailable");
       await this.addServer(entry.id, entry.config, sdk);
+      entry.replacement = this.servers.get(entry.id);
       this.emitChange();
+      return entry.replacement ?? null;
     });
     this.reconfigureQueue = task.catch(() => {
       /* failures surface on the caller, not on the queue */
     });
     await task;
+    return task;
   }
 
   private async withExpiredSessionRetry<T>(
@@ -577,7 +626,7 @@ export class McpClientManager {
     const failedTransport = entry.transport;
     const sessionId = failedTransport?.sessionId;
     try {
-      return await operation(entry);
+      return await this.runRequest(entry, operation);
     } catch (error) {
       if (
         typeof sessionId !== "string" ||
@@ -586,16 +635,19 @@ export class McpClientManager {
       ) {
         throw error;
       }
-      await this.reconnectExpiredSession(entry, failedTransport);
-      const current = this.servers.get(entry.id);
-      if (!current?.client) {
+      const replacement = await this.reconnectExpiredSession(
+        entry,
+        failedTransport,
+      );
+      if (!replacement) throw error;
+      if (!replacement.client) {
         throw new Error(
           `MCP server "${entry.id}" is not connected${
-            current?.error ? `: ${current.error}` : ""
+            replacement.error ? `: ${replacement.error}` : ""
           }`,
         );
       }
-      return operation(current);
+      return this.runRequest(replacement, operation);
     }
   }
 
@@ -799,10 +851,16 @@ export class McpClientManager {
 
   /** Cleanly close all MCP clients and child processes. */
   async stop(): Promise<void> {
-    const entries = Array.from(this.servers.values());
-    this.servers.clear();
-    this.started = false;
-    await Promise.all(entries.map((entry) => this.closeEntry(entry)));
+    const task = this.reconfigureQueue.then(async () => {
+      const entries = Array.from(this.servers.values());
+      this.servers.clear();
+      this.started = false;
+      await Promise.all(entries.map((entry) => this.closeEntry(entry)));
+    });
+    this.reconfigureQueue = task.catch(() => {
+      /* failures surface on the caller, not on the queue */
+    });
+    await task;
   }
 
   /** Diagnostic snapshot used by `/_agent-native/mcp/status`. */
