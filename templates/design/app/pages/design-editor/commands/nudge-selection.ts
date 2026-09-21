@@ -77,9 +77,40 @@ export interface NudgeSelectionArgs {
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
   selectedLayerTargetsRef: RefObject<SelectedLayerTarget[]>;
+  renderedElementInfoByLayerKeyRef: RefObject<Map<string, ElementInfo>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   viewModeRef: RefObject<"single" | "overview">;
+}
+
+export function resolveNudgeTarget(
+  selectedElement: ElementInfo | null,
+  selectedLayerTargets: readonly SelectedLayerTarget[],
+  renderedElementInfoByLayerKey: ReadonlyMap<string, ElementInfo>,
+): ElementInfo | null {
+  const selectedLayerTarget =
+    selectedLayerTargets.find(
+      (target) =>
+        selectedElement?.sourceLayerIdentity?.screenId === target.fileId &&
+        selectedElement.sourceLayerIdentity.nodeId === target.layerId,
+    ) ??
+    selectedLayerTargets.find(
+      (target) =>
+        selectedElement?.sourceId === target.layerId ||
+        selectedElement?.sourceId === target.node.id,
+    ) ??
+    selectedLayerTargets[0];
+  return (
+    (selectedLayerTarget
+      ? renderedElementInfoByLayerKey.get(
+          `${selectedLayerTarget.fileId}:${selectedLayerTarget.layerId}`,
+        )
+      : undefined) ??
+    (selectedElement?.selector
+      ? selectedElement
+      : selectedLayerTarget?.elementInfo) ??
+    null
+  );
 }
 
 export function runNudgeSelection(
@@ -104,6 +135,7 @@ export function runNudgeSelection(
     selectedElement,
     selectedLayerIdsState,
     selectedLayerTargetsRef,
+    renderedElementInfoByLayerKeyRef,
     setSelectedElement,
     setSelectedLayerIdsState,
     viewModeRef,
@@ -171,9 +203,11 @@ export function runNudgeSelection(
   // Selecting in the layers tree fills selectedLayerTargets before the
   // bridge round-trip fills selectedElement, so keying off the latter
   // alone silently drops the first nudge after every tree selection.
-  const nudgeTarget = selectedElement?.selector
-    ? selectedElement
-    : selectedLayerTargetsRef.current[0]?.elementInfo;
+  const nudgeTarget = resolveNudgeTarget(
+    selectedElement,
+    selectedLayerTargetsRef.current,
+    renderedElementInfoByLayerKeyRef.current,
+  );
   if (!nudgeTarget?.selector) return;
 
   if (isRunningAppSource && canEditLiveScreen) {
