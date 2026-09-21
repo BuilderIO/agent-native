@@ -24175,6 +24175,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   window.addEventListener("message", function (e) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
+    // The child can finish booting before the parent installs its one-shot
+    // ready listener. Let the parent ask again after the iframe load event;
+    // this is idempotent and also survives a document remount.
+    if (e.data.type === "agent-native:editor-chrome-ready-probe") {
+      sendEditorChromeReady();
+      return;
+    }
     // NOTE: no message type in this handler is sourced from a `payload`
     // sub-object — every host sender (DesignCanvas.tsx) puts its fields
     // directly on the top-level message. A previous blanket

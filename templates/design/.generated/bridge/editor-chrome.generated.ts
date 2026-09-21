@@ -17082,6 +17082,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
+      if (e.data.type === "agent-native:editor-chrome-ready-probe") {
+        sendEditorChromeReady();
+        return;
+      }
       if (e.data.type === "resume-text-edit") {
         var resumeScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
         var resumeSelector = typeof e.data.selector === "string" ? e.data.selector : "";
