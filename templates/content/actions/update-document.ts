@@ -3,7 +3,6 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { mutateUserSettingTransaction } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -53,6 +52,7 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
 // shared/api.ts, which another workstream owns concurrently. Structural
@@ -207,7 +207,7 @@ async function setFavoriteAndOrder(args: {
 }) {
   const favoritesDatabaseId = favoritesSystemIds(args.userEmail).databaseId;
   const settingName = personalDatabaseViewSettingKey(favoritesDatabaseId);
-  return mutateUserSettingTransaction(
+  return mutateContentUserSettingTransaction(
     (callback) => args.db.transaction(callback),
     args.userEmail,
     settingName,

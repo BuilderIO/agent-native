@@ -11,10 +11,8 @@
 import {
   getSetting,
   mutateSetting,
-  mutateSettingTransaction,
   putSetting,
   deleteSettingIfValue,
-  type SettingsTransaction,
   type StoreWriteOptions,
 } from "./store.js";
 
@@ -104,30 +102,6 @@ export async function mutateUserSetting(
     throw new Error("User setting was deleted while migrating its legacy key");
   }
   return result;
-}
-
-/** Mutate user settings and caller-owned data in one serialized transaction. */
-export async function mutateUserSettingTransaction<
-  TTransaction extends SettingsTransaction,
-  TResult,
->(
-  runTransaction: <T>(callback: (tx: TTransaction) => Promise<T>) => Promise<T>,
-  email: string,
-  key: string,
-  updater: (
-    tx: TTransaction,
-    current: Record<string, unknown> | null,
-  ) =>
-    | Promise<{ value: Record<string, unknown> | null; result: TResult }>
-    | { value: Record<string, unknown> | null; result: TResult },
-  options?: StoreWriteOptions,
-) {
-  const normalized = userKey(email, key);
-  const legacy = legacyUserKey(email, key);
-  return mutateSettingTransaction(runTransaction, normalized, updater, {
-    ...options,
-    ...(legacy !== normalized && { fallbackKey: legacy }),
-  });
 }
 
 /** Delete a user-scoped setting. */

@@ -1,5 +1,4 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { mutateUserSettingTransaction } from "@agent-native/core/settings";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -18,6 +17,7 @@ import {
   personalDatabaseViewSettingKey,
   personalViewOverridesSchema,
 } from "./_content-database-personal-view.js";
+import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
 export function personalSidebarOrderItemIds(
   overrides: z.infer<typeof personalViewOverridesSchema>,
@@ -57,7 +57,7 @@ export default defineAction({
         | Promise<{ value: Record<string, unknown> | null; result: T }>
         | { value: Record<string, unknown> | null; result: T },
     ) =>
-      mutateUserSettingTransaction(
+      mutateContentUserSettingTransaction(
         (callback) => db.transaction(callback),
         userEmail,
         key,

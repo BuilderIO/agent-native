@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mock the store module
 const mockGetSetting = vi.fn();
 const mockMutateSetting = vi.fn();
-const mockMutateSettingTransaction = vi.fn();
 const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
 const mockDeleteSettingIfValue = vi.fn();
@@ -11,8 +10,6 @@ const mockDeleteSettingIfValue = vi.fn();
 vi.mock("./store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
   mutateSetting: (...args: any[]) => mockMutateSetting(...args),
-  mutateSettingTransaction: (...args: any[]) =>
-    mockMutateSettingTransaction(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
   deleteSettingIfValue: (...args: any[]) => mockDeleteSettingIfValue(...args),

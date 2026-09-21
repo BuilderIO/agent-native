@@ -9,7 +9,9 @@ const boundary = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: boundary.read,
-  mutateUserSettingTransaction: boundary.mutate,
+}));
+vi.mock("./_user-setting-transaction.js", () => ({
+  mutateContentUserSettingTransaction: boundary.mutate,
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({

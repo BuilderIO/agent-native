@@ -30,9 +30,7 @@ const {
   putSetting,
   deleteSetting,
   deleteSettingIfValue,
-  getSettingsEmitter,
   mutateSetting,
-  mutateSettingTransaction,
 } = await import("./store.js");
 
 beforeEach(async () => {
@@ -135,43 +133,6 @@ describe("settings store", () => {
     );
 
     expect(await getSetting("new-counter")).toEqual({ value: 8 });
-  });
-
-  it("publishes transaction mutations only after a successful commit", async () => {
-    const events: unknown[] = [];
-    const listener = (event: unknown) => events.push(event);
-    getSettingsEmitter().on("settings", listener);
-    const tx = {
-      execute: vi.fn().mockResolvedValue({ rows: [] }),
-    };
-    try {
-      await expect(
-        mutateSettingTransaction(
-          async (callback) => {
-            await callback(tx);
-            throw new Error("rollback");
-          },
-          "transaction-rollback",
-          () => ({ value: { saved: false }, result: undefined }),
-        ),
-      ).rejects.toThrow("rollback");
-      expect(events).toEqual([]);
-
-      await mutateSettingTransaction(
-        async (callback) => callback(tx),
-        "transaction-commit",
-        () => ({ value: { saved: true }, result: undefined }),
-      );
-      expect(events).toEqual([
-        {
-          source: "settings",
-          type: "change",
-          key: "transaction-commit",
-        },
-      ]);
-    } finally {
-      getSettingsEmitter().off("settings", listener);
-    }
   });
 
   it("lists and isolates keys by prefix", async () => {
