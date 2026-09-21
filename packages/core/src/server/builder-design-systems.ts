@@ -101,6 +101,10 @@ export interface BuilderDesignSystemProxyReference {
   builderJobId: string;
   builderProjectId?: string;
   builderUrl?: string;
+  /**
+   * @deprecated This field can get stuck or become inaccurate. Use `docCount > 0` on the hydrated reference
+   * to check if indexing has completed instead.
+   */
   builderStatus?: string;
   githubSources?: BuilderDesignSystemGitHubSource[];
   syncedAt?: string;
@@ -128,6 +132,7 @@ export interface BuilderDesignSystemDocument {
 export interface BuilderDesignSystemHydratedReference extends BuilderDesignSystemProxyReference {
   docs: BuilderDesignSystemDocument[];
   tokenValues: Record<string, string>;
+  /** Preferred signal for checking if indexing has completed. When `docCount > 0`, indexing has successfully indexed at least one document. */
   docCount: number;
   /** True only when Builder explicitly confirms that indexing is complete. */
   completionConfirmed?: boolean;

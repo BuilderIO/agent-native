@@ -10,7 +10,7 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
   description:
-    "Check Builder DSI indexing status for a design system without modifying it. Use this while a large import is processing instead of repeatedly calling the refresh action.",
+    "Check Builder DSI indexing status for a design system without modifying it. Use this while a large import is processing instead of repeatedly calling the refresh action. Check the ready field or docCount > 0 to determine if indexing has completed.",
   schema: z.object({
     id: z.string().min(1).describe("Local design system id"),
   }),

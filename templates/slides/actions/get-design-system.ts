@@ -138,7 +138,6 @@ function buildDesignSystemAgentContext({
         ? `- Project id: ${builder.builderProjectId}`
         : "",
       builder.builderUrl ? `- URL: ${builder.builderUrl}` : "",
-      builder.builderStatus ? `- Status: ${builder.builderStatus}` : "",
       "- Builder DSI docs and token values override local proxy placeholders.",
       "- Do not substitute a generic style if DSI docs or tokens are unavailable; call get-design-system again or tell the user Builder indexing is not ready.",
     );

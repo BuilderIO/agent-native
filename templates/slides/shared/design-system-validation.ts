@@ -80,6 +80,10 @@ const UNAVAILABLE_BUILDER_STATUSES = new Set([
  * unrecognized or missing status on a Builder-sourced row is treated as still
  * indexing rather than ready, so a stale or malformed row never becomes
  * silently selectable.
+ *
+ * Note: The `builderStatus` field can get stuck or become inaccurate.
+ * For new code, prefer checking `docCount > 0` via the hydrated reference
+ * returned by `hydrateBuilderDesignSystemReference()`.
  */
 export function getDesignSystemIndexingStatus(
   data: unknown,

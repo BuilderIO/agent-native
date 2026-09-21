@@ -42,7 +42,7 @@ function stopAgentOnUnsyncedResult<
 
 export default defineAction({
   description:
-    "Refresh a Builder-backed design-system proxy after checking Builder indexing status; if syncing is incomplete, the agent turn stops and the returned status says when to retry.",
+    "Refresh a Builder-backed design-system proxy after checking Builder indexing status; if syncing is incomplete, the agent turn stops and the returned docCount and message indicate when to retry.",
   schema: z.object({
     id: z.string().min(1).describe("Local design system id"),
   }),
