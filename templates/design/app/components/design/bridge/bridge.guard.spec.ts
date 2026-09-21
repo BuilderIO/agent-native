@@ -14149,7 +14149,9 @@ it("coalesces free-drag target and overlay work", () => {
   // Auto-layout hit testing reads live geometry. It must run once per frame
   // after pointer-follow writes, while pointerup keeps the authoritative final
   // synchronous resolution for the committed drop.
-  expect(freeDragLoop).toContain("scheduleAutoLayoutTargetResolution(ev)");
+  expect(freeDragLoop).toContain(
+    "scheduleAutoLayoutTargetResolution(ev, snapResult)",
+  );
   expect(freeDragLoop).toContain("scheduleRefreshOverlays()");
   expect(freeDragLoop).not.toContain(
     `currentAutoLayoutTarget = !bridgeSpaceKeyPressed

@@ -209,7 +209,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
   });
 
-  // ../../packages/toolkit/dist/canvas-interactions/index.js
+  // ../../packages/toolkit/dist/canvas-interactions/canvas-interactions.js
   var DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
   var DEFAULT_CANVAS_NUDGE = 1;
   var DEFAULT_CANVAS_ACCELERATED_NUDGE = 10;
