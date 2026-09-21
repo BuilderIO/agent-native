@@ -42,7 +42,7 @@ Two things surfaced that changed the diagnosis:
    (`forcedChatCompletionsWithTools` in
    [`ai-sdk-engine.ts`](../../src/agent/engine/ai-sdk-engine.ts), scoped to
    `isCustomOpenAiBaseUrl(this.baseUrl)`), added the same day as that
-   incident (2026-07-26, `52cce19f63`) — 5 days *before* the `builder-engine`
+   incident (2026-07-26, `52cce19f63`) — 5 days _before_ the `builder-engine`
    guard.
 
    The `builder-engine` guard's own comment said "Same guard as the ai-sdk

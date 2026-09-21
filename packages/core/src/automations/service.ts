@@ -445,6 +445,16 @@ export async function defineAutomation(
       ? input.timezone || (await resolveUserSchedulingTimezone(actor.userEmail))
       : undefined;
 
+  if (
+    input.reasoningEffort !== undefined &&
+    !isReasoningEffort(input.reasoningEffort)
+  ) {
+    throw httpError(
+      `Invalid reasoning effort "${input.reasoningEffort}".`,
+      400,
+    );
+  }
+
   const mcpTools = normalizeJobMcpTools(input.mcpTools);
   const executionHostId = normalizeExecutionTarget(
     input.executionHostId,

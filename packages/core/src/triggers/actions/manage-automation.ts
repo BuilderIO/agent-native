@@ -6,6 +6,7 @@ import {
   deleteAutomation,
   updateAutomation,
 } from "../../automations/service.js";
+import { REASONING_EFFORTS } from "../../shared/reasoning-effort.js";
 import { refreshEventSubscriptions } from "../dispatcher.js";
 
 export default defineAction({
@@ -22,6 +23,7 @@ export default defineAction({
     enabled: z.boolean().optional(),
     schedule: z.string().min(1).optional(),
     timezone: z.string().min(1).optional(),
+    reasoningEffort: z.enum(REASONING_EFFORTS).nullable().optional(),
     executionHostId: z.string().min(1).nullable().optional(),
     executionEngine: z.string().min(1).nullable().optional(),
     executionCwd: z.string().min(1).nullable().optional(),
@@ -37,6 +39,7 @@ export default defineAction({
       enabled,
       schedule,
       timezone,
+      reasoningEffort,
       executionHostId,
       executionEngine,
       executionCwd,
@@ -65,6 +68,7 @@ export default defineAction({
         event,
         schedule,
         timezone,
+        reasoningEffort: reasoningEffort ?? undefined,
       });
       await refreshEventSubscriptions();
       return {
@@ -75,6 +79,7 @@ export default defineAction({
         event: definition.meta.event ?? null,
         schedule: definition.meta.schedule || null,
         timezone: definition.meta.timezone ?? null,
+        reasoningEffort: definition.meta.reasoningEffort ?? null,
         webhookPath: definition.webhookPath ?? null,
         nextRun: definition.meta.nextRun ?? null,
       };
@@ -89,12 +94,15 @@ export default defineAction({
       enabled === undefined &&
       schedule === undefined &&
       timezone === undefined &&
+      reasoningEffort === undefined &&
       executionHostId === undefined &&
       executionEngine === undefined &&
       executionCwd === undefined
     ) {
       throw Object.assign(
-        new Error("enabled, schedule, or timezone is required for update."),
+        new Error(
+          "enabled, schedule, timezone, or reasoningEffort is required for update.",
+        ),
         { statusCode: 400 },
       );
     }
@@ -104,6 +112,7 @@ export default defineAction({
       ...(enabled === undefined ? {} : { enabled }),
       ...(schedule === undefined ? {} : { schedule }),
       ...(timezone === undefined ? {} : { timezone }),
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       ...(executionHostId === undefined ? {} : { executionHostId }),
       ...(executionEngine === undefined ? {} : { executionEngine }),
       ...(executionCwd === undefined ? {} : { executionCwd }),
@@ -114,6 +123,7 @@ export default defineAction({
       enabled: definition.meta.enabled,
       schedule: definition.meta.schedule || null,
       timezone: definition.meta.timezone ?? null,
+      reasoningEffort: definition.meta.reasoningEffort ?? null,
       executionHostId: definition.meta.executionHostId ?? null,
       executionEngine: definition.meta.executionEngine ?? null,
       executionCwd: definition.meta.executionCwd ?? null,

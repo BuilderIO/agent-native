@@ -30,7 +30,6 @@ import {
   getRequestOrgId,
 } from "../server/request-context.js";
 import {
-  isReasoningEffort,
   REASONING_EFFORTS,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
@@ -193,9 +192,13 @@ async function handleDefine(
             ? args.delegated_policy_id
             : undefined,
         model: typeof args.model === "string" ? args.model : undefined,
-        reasoningEffort: isReasoningEffort(args.reasoning_effort)
-          ? args.reasoning_effort
-          : undefined,
+        // Passed through rather than validated here: `defineAutomation`
+        // rejects an unrecognized value with a clear error, instead of this
+        // layer silently downgrading a typo to "use the model default".
+        reasoningEffort:
+          typeof args.reasoning_effort === "string"
+            ? (args.reasoning_effort as ReasoningEffort)
+            : undefined,
         executionHostId:
           typeof args.execution_host_id === "string"
             ? args.execution_host_id
