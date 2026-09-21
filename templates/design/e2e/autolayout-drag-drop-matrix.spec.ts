@@ -156,7 +156,7 @@ const ROOT_SCREEN_FIXTURES = {
   "grid-authored-column-flow": `<!doctype html><html><body style="margin:0;width:620px;height:420px;box-sizing:border-box;display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));grid-template-rows:repeat(2,minmax(72px,1fr));grid-auto-flow:column;gap:18px;padding:28px;background:#111827;color:#f8fafc">
   <div data-agent-native-node-id="root-a" data-agent-native-layer-name="Root A" style="min-height:48px;background:#38bdf8">A</div>
   <div data-agent-native-node-id="root-b" data-agent-native-layer-name="Root B" style="min-height:48px;background:#a78bfa">B</div>
-  <div data-agent-native-node-id="root-c" data-agent-native-layer-name="Root C" style="min-height:48px;background:#fbbf24">C</div>
+  <div data-agent-native-node-id="root-c" data-agent-native-layer-name="Root C" style="min-height:48px;grid-row:1;grid-column:2;background:#fbbf24">C</div>
   </body></html>`,
 } as const;
 
@@ -1953,15 +1953,15 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         .poll(() => rootChildIds(page, design.primaryId))
         .toEqual(["root-c", "root-a", "root-b"]);
       const html = await fileHtml(request, design.id, design.primaryId);
-      for (const nodeId of ["root-c", "root-a"]) {
-        const style = html.match(
-          new RegExp(
-            `data-agent-native-node-id="${nodeId}"[^>]*\\sstyle="([^"]*)"`,
-          ),
-        )?.[1];
-        expect(style).toBeDefined();
-        expect(style).not.toMatch(/(?:^|;)grid-(?:column|row)\s*:/);
-      }
+      const authoredStyle = html.match(
+        /data-agent-native-node-id="root-c"[^>]*\sstyle="([^"]*)"/,
+      )?.[1];
+      expect(authoredStyle).toMatch(/grid-(?:column|row)\s*:/);
+      const autoFlowStyle = html.match(
+        /data-agent-native-node-id="root-a"[^>]*\sstyle="([^"]*)"/,
+      )?.[1];
+      expect(autoFlowStyle).toBeDefined();
+      expect(autoFlowStyle).not.toMatch(/(?:^|;)grid-(?:column|row)\s*:/);
     } finally {
       await deleteDesign(request, design.id);
     }

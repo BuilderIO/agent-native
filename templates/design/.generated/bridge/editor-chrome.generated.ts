@@ -10884,6 +10884,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var singleSourceStyles = singleSource ? window.getComputedStyle(singleSource) : null;
       var singleSourceColumn = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "column") : null;
       var singleSourceRow = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "row") : null;
+      var sourceHasAuthoredPlacement = Boolean(singleSource?.parentElement === container && (singleSourceColumn?.hasAuthoredPlacement || singleSourceRow?.hasAuthoredPlacement));
       var hasAuthoredSingleCellSourcePlacement = Boolean(
         singleSource && singleSource.parentElement === container && singleSourceStyles && singleSourceStyles.gridColumnStart !== "auto" && singleSourceStyles.gridColumnStart.indexOf("span") !== 0 && singleSourceStyles.gridRowStart !== "auto" && singleSourceStyles.gridRowStart.indexOf("span") !== 0 && (singleSourceStyles.gridColumnEnd === "auto" || singleSourceColumn?.span === 1) && (singleSourceStyles.gridRowEnd === "auto" || singleSourceRow?.span === 1)
       );
@@ -10947,7 +10948,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             // Column auto-flow derives placement from source order. Persisting
             // measured coordinates here would freeze responsive auto-flow into
             // explicit gridColumn/gridRow styles.
-            ...autoFlow[0] === "column" ? {} : { gridCell: { column, row } },
+            ...autoFlow[0] === "column" && !sourceHasAuthoredPlacement ? {} : { gridCell: { column, row } },
             gridDisplacement: displaced
           };
         }

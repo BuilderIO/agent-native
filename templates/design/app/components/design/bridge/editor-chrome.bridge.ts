@@ -14978,6 +14978,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       singleSource && trackLayout
         ? gridItemAxisPlacement(singleSource, trackLayout, "row")
         : null;
+    var sourceHasAuthoredPlacement = Boolean(
+      singleSource?.parentElement === container &&
+        (singleSourceColumn?.hasAuthoredPlacement ||
+          singleSourceRow?.hasAuthoredPlacement),
+    );
     var hasAuthoredSingleCellSourcePlacement = Boolean(
       singleSource &&
       singleSource.parentElement === container &&
@@ -15076,7 +15081,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // Column auto-flow derives placement from source order. Persisting
           // measured coordinates here would freeze responsive auto-flow into
           // explicit gridColumn/gridRow styles.
-          ...(autoFlow[0] === "column" ? {} : { gridCell: { column, row } }),
+          ...(autoFlow[0] === "column" && !sourceHasAuthoredPlacement
+            ? {}
+            : { gridCell: { column, row } }),
           gridDisplacement: displaced,
         };
       }
