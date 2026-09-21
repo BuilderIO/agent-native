@@ -14963,17 +14963,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container,
       );
     }
-    var placementCandidates = children.concat(excluded || []);
-    var hasExplicitPlacement = placementCandidates.some(function (child) {
-      var childStyles = window.getComputedStyle(child);
-      return (
-        childStyles.gridColumnStart !== "auto" ||
-        childStyles.gridColumnEnd !== "auto" ||
-        childStyles.gridRowStart !== "auto" ||
-        childStyles.gridRowEnd !== "auto" ||
-        childStyles.order !== "0"
-      );
-    });
     // Preserve a single-cell authored slot only for a single source already
     // owned by this grid. Cross-grid and grouped drops must resolve the
     // destination cell normally.

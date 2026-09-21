@@ -10880,11 +10880,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           container
         );
       }
-      var placementCandidates = children.concat(excluded || []);
-      var hasExplicitPlacement = placementCandidates.some(function(child) {
-        var childStyles = window.getComputedStyle(child);
-        return childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0";
-      });
       var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
       var singleSourceStyles = singleSource ? window.getComputedStyle(singleSource) : null;
       var singleSourceColumn = singleSource && trackLayout ? gridItemAxisPlacement(singleSource, trackLayout, "column") : null;
