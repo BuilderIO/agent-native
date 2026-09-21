@@ -753,6 +753,7 @@ export function useUpdateDocument() {
           currentDocumentSpaceId(queryClient, variables.id),
         );
         const sidebarStateKey = sidebarStateEntry?.[0];
+        const documentSpaceId = sidebarStateKey?.[2].spaceId;
         await Promise.all([
           queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
@@ -830,6 +831,11 @@ export function useUpdateDocument() {
               queryKey: ["action", "get-content-database"],
             })) {
               if (!isFavoritesDatabaseCache(database)) continue;
+              if (
+                (databaseKey[2] as { contentSpaceId?: unknown } | undefined)
+                  ?.contentSpaceId !== documentSpaceId
+              )
+                continue;
               if (
                 database.items.some((item) => item.document.id === variables.id)
               )
@@ -1039,13 +1045,19 @@ export function useUpdateDocument() {
             queryKey: ["action", "get-content-database-personal-view"],
           });
           if (nextSidebarState && sidebarStateKey)
-            void updateSidebarState.mutateAsync(nextSidebarState).then(
-              (saved) => queryClient.setQueryData(sidebarStateKey, saved),
-              () =>
-                queryClient.invalidateQueries({
-                  queryKey: ["action", "get-content-sidebar-state"],
-                }),
-            );
+            void updateSidebarState
+              .mutateAsync({
+                version: 2,
+                spaceId: sidebarStateKey[2].spaceId,
+                sectionsPatch: { pinned: { expanded: true } },
+              })
+              .then(
+                (saved) => queryClient.setQueryData(sidebarStateKey, saved),
+                () =>
+                  queryClient.invalidateQueries({
+                    queryKey: ["action", "get-content-sidebar-state"],
+                  }),
+              );
           if (
             variables.isFavorite === true &&
             previousSidebarState?.state?.sections.pinned.visible === false
@@ -1084,13 +1096,22 @@ export function useUpdateDocument() {
                     },
                   };
                   queryClient.setQueryData(sidebarStateKey, { state: next });
-                  void updateSidebarState.mutateAsync(next).then(
-                    (saved) => queryClient.setQueryData(sidebarStateKey, saved),
-                    () => {
-                      queryClient.setQueryData(sidebarStateKey, current);
-                      toast.error(t("sidebar.failedSaveSidebarState"));
-                    },
-                  );
+                  void updateSidebarState
+                    .mutateAsync({
+                      version: 2,
+                      spaceId: sidebarStateKey[2].spaceId,
+                      sectionsPatch: {
+                        pinned: { visible: true, expanded: true },
+                      },
+                    })
+                    .then(
+                      (saved) =>
+                        queryClient.setQueryData(sidebarStateKey, saved),
+                      () => {
+                        queryClient.setQueryData(sidebarStateKey, current);
+                        toast.error(t("sidebar.failedSaveSidebarState"));
+                      },
+                    );
                 },
               },
             });

@@ -225,12 +225,34 @@ describe("title changes and database query membership", () => {
     client.setQueryData(LIST_DOCUMENTS_QUERY_KEY, [
       { id: "row-1", spaceId: "space-a" },
     ]);
+    const favoritesResponse = {
+      database: {
+        id: "favorites",
+        systemRole: "favorites",
+        viewConfig: { activeViewId: "default" },
+      },
+      items: [],
+    };
+    const favoritesAKey = [
+      "action",
+      "get-content-database",
+      { databaseId: "favorites", contentSpaceId: "space-a" },
+    ] as const;
+    const favoritesBKey = [
+      "action",
+      "get-content-database",
+      { databaseId: "favorites", contentSpaceId: "space-b" },
+    ] as const;
+    client.setQueryData(favoritesAKey, favoritesResponse);
+    client.setQueryData(favoritesBKey, favoritesResponse);
 
     useUpdateDocument();
     const mutation = useActionMutation.mock.calls.find(
       ([name]) => name === "update-document",
     )![1];
     const context = await mutation.onMutate({ id: "row-1", isFavorite: true });
+    expect(client.getQueryData<any>(favoritesAKey).items).toHaveLength(1);
+    expect(client.getQueryData<any>(favoritesBKey).items).toHaveLength(0);
     mutation.onSuccess(
       {
         id: "row-1",
@@ -260,10 +282,7 @@ describe("title changes and database query membership", () => {
     expect(saveSidebarState).toHaveBeenCalledWith({
       version: 2,
       spaceId: "space-a",
-      sections: {
-        ...newerState.state.sections,
-        pinned: { visible: true, expanded: true, limit: 5 },
-      },
+      sectionsPatch: { pinned: { visible: true, expanded: true } },
     });
     await vi.waitFor(() => {
       expect(client.getQueryData(sidebarKey)).toEqual(newerState);

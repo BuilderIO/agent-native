@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { defaultContentSidebarSections } from "../shared/content-personal-navigation.js";
 import {
   CONTENT_SIDEBAR_STATE_SETTING_KEY,
   contentSidebarStateSettingKey,
@@ -9,14 +10,30 @@ import {
   normalizeContentSidebarState,
 } from "./_content-sidebar-state.js";
 
+const sidebarSectionPatchSchema = z.object({
+  visible: z.boolean().optional(),
+  expanded: z.boolean().optional(),
+});
+const contentSidebarSectionsPatchSchema = z.object({
+  order: contentSidebarStateSchema.shape.sections
+    .unwrap()
+    .shape.order.optional(),
+  pinned: sidebarSectionPatchSchema.optional(),
+  recent: sidebarSectionPatchSchema.optional(),
+  files: sidebarSectionPatchSchema.optional(),
+});
+
 export default defineAction({
   description: "Persist the current user's Content sidebar expansion state.",
   schema: contentSidebarStateSchema
     .partial()
     .required({ version: true })
-    .extend({ spaceId: z.string().min(1).max(256).optional() }),
+    .extend({
+      spaceId: z.string().min(1).max(256).optional(),
+      sectionsPatch: contentSidebarSectionsPatchSchema.optional(),
+    }),
   agentTool: false,
-  run: async ({ spaceId, ...state }, ctx) => {
+  run: async ({ spaceId, sectionsPatch, ...state }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     const scopedKey = contentSidebarStateSettingKey(spaceId);
     const legacy =
@@ -29,11 +46,39 @@ export default defineAction({
     const saved = await mutateUserSetting(
       ctx.userEmail,
       scopedKey,
-      (current) =>
-        normalizeContentSidebarState({
-          ...normalizeContentSidebarState(current ?? legacy, spaceId),
+      (current) => {
+        const normalized = normalizeContentSidebarState(
+          current ?? legacy,
+          spaceId,
+        );
+        const sections = state.sections ?? normalized?.sections;
+        return normalizeContentSidebarState({
+          ...normalized,
           ...state,
-        })!,
+          ...(sectionsPatch
+            ? {
+                sections: {
+                  ...(sections ?? defaultContentSidebarSections()),
+                  ...(sectionsPatch.order
+                    ? { order: sectionsPatch.order }
+                    : {}),
+                  pinned: {
+                    ...(sections ?? defaultContentSidebarSections()).pinned,
+                    ...sectionsPatch.pinned,
+                  },
+                  recent: {
+                    ...(sections ?? defaultContentSidebarSections()).recent,
+                    ...sectionsPatch.recent,
+                  },
+                  files: {
+                    ...(sections ?? defaultContentSidebarSections()).files,
+                    ...sectionsPatch.files,
+                  },
+                },
+              }
+            : {}),
+        })!;
+      },
     );
     return { state: normalizeContentSidebarState(saved, spaceId) };
   },

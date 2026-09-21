@@ -965,6 +965,7 @@ export function DocumentSidebar({
   const updateDocument = useUpdateDocument();
   const ensureContentSpaces = useEnsureContentSpaces();
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
+  const lastSyncedSpaceIdRef = useRef<string | null>(null);
   const explicitSpaceSelectionRef = useRef<string | null>(null);
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const [storedSpaceId, setStoredSpaceId] = useLocalStorage<string | null>(
@@ -1239,8 +1240,8 @@ export function DocumentSidebar({
         await workspaceSelectionQueueRef.current(() =>
           selectContentSpace({
             space,
-            syncApplicationState: (selected) =>
-              setClientAppState(
+            syncApplicationState: async (selected) => {
+              await setClientAppState(
                 "content-space",
                 {
                   spaceId: selected.id,
@@ -1249,7 +1250,9 @@ export function DocumentSidebar({
                   filesDatabaseId: selected.filesDatabaseId,
                 },
                 { requestSource: "content-sidebar" },
-              ),
+              );
+              lastSyncedSpaceIdRef.current = selected.id;
+            },
             persistSelection: setStoredSpaceId,
             openSpace: (spaceId) => {
               if (targetDocumentId === null) return;
@@ -1289,19 +1292,26 @@ export function DocumentSidebar({
     [handleSelectContentSpace],
   );
   useEffect(() => {
-    if (!selectedSpace) return;
-    void setClientAppState(
-      "content-space",
-      {
-        spaceId: selectedSpace.id,
-        name: selectedSpace.name,
-        kind: selectedSpace.kind,
-        filesDatabaseId: selectedSpace.filesDatabaseId,
-      },
-      { requestSource: "content-sidebar" },
-    ).catch(() => {
-      // Space selection remains usable when best-effort agent context sync fails.
-    });
+    if (!selectedSpace || lastSyncedSpaceIdRef.current === selectedSpace.id)
+      return;
+    void workspaceSelectionQueueRef
+      .current(async () => {
+        if (lastSyncedSpaceIdRef.current === selectedSpace.id) return;
+        await setClientAppState(
+          "content-space",
+          {
+            spaceId: selectedSpace.id,
+            name: selectedSpace.name,
+            kind: selectedSpace.kind,
+            filesDatabaseId: selectedSpace.filesDatabaseId,
+          },
+          { requestSource: "content-sidebar" },
+        );
+        lastSyncedSpaceIdRef.current = selectedSpace.id;
+      })
+      .catch(() => {
+        // Space selection remains usable when best-effort agent context sync fails.
+      });
   }, [selectedSpace]);
   const removeLocalFileSource = useActionMutation<
     RemoveLocalFileSourceResult,

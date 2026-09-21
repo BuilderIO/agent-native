@@ -95,8 +95,8 @@ export async function selectContentSpace(args: {
   persistSelection: (spaceId: string) => void;
   openSpace: (spaceId: string) => void;
 }) {
-  args.persistSelection(args.space.id);
   await args.syncApplicationState(args.space);
+  args.persistSelection(args.space.id);
   args.openSpace(args.space.id);
 }
 

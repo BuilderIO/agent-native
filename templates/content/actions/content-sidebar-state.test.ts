@@ -172,4 +172,31 @@ describe("normalizeContentSidebarState", () => {
       state: { version: 2, sections: second },
     });
   });
+
+  it("merges an automatic section patch into the latest workspace state", async () => {
+    const ctx = { userEmail: "sidebar@example.test" };
+    const sections = defaultContentSidebarSections();
+    sections.order = ["recent", "files", "pinned"];
+    sections.pinned.visible = false;
+    await updateSidebar.run({ version: 2, spaceId: "space-a", sections }, ctx);
+
+    await updateSidebar.run(
+      {
+        version: 2,
+        spaceId: "space-a",
+        sectionsPatch: { pinned: { visible: true, expanded: true } },
+      },
+      ctx,
+    );
+
+    expect(await getSidebar.run({ spaceId: "space-a" }, ctx)).toEqual({
+      state: {
+        version: 2,
+        sections: {
+          ...sections,
+          pinned: { visible: true, expanded: true },
+        },
+      },
+    });
+  });
 });

@@ -376,6 +376,10 @@ describe("document sidebar layout", () => {
     expect(sections).toContain("queueBySpace.current.get(targetSpaceId)");
     expect(sections).toContain("pendingBySpace.current.get(targetSpaceId)");
     expect(sidebar).toContain("contentSpaceActionArgs(snapshot.spaceId)");
+    expect(sidebar).toContain("lastSyncedSpaceIdRef.current");
+    expect(sidebar).toContain(
+      "workspaceSelectionQueueRef\n      .current(async () =>",
+    );
     expect(sidebar).not.toContain("ensureWorkspaceExpanded(current, space.id)");
   });
 

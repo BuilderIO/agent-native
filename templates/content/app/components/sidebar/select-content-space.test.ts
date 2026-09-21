@@ -102,15 +102,15 @@ describe("selectContentSpace", () => {
     const second = select(personal);
 
     await firstStarted;
-    expect(events).toEqual(["persist:builder"]);
+    expect(events).toEqual([]);
     releaseFirst();
     await Promise.all([first, second]);
     expect(events).toEqual([
-      "persist:builder",
       "state:builder",
+      "persist:builder",
       "open:builder",
-      "persist:personal",
       "state:personal",
+      "persist:personal",
       "open:personal",
     ]);
   });
@@ -150,7 +150,7 @@ describe("selectContentSpace", () => {
     expect(storedSpaceId).toBe("personal");
   });
 
-  it("persists before asynchronous state sync and opening another org workspace", async () => {
+  it("persists after asynchronous state sync and before opening another org workspace", async () => {
     const events: string[] = [];
     const persistSelection = vi.fn((spaceId: string) => {
       events.push(`persist:${spaceId}`);
@@ -170,13 +170,13 @@ describe("selectContentSpace", () => {
     });
 
     expect(events).toEqual([
-      "persist:space_1",
       "state:space_1",
+      "persist:space_1",
       "open:space_1",
     ]);
   });
 
-  it("keeps the explicit selection persisted when application state cannot be updated", async () => {
+  it("does not persist the explicit selection when application state cannot be updated", async () => {
     const error = new Error("Application state failed");
     const persistSelection = vi.fn();
     const openSpace = vi.fn();
@@ -190,7 +190,7 @@ describe("selectContentSpace", () => {
       }),
     ).rejects.toBe(error);
 
-    expect(persistSelection).toHaveBeenCalledWith("space_1");
+    expect(persistSelection).not.toHaveBeenCalled();
     expect(openSpace).not.toHaveBeenCalled();
   });
 
