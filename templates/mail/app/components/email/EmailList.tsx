@@ -428,9 +428,9 @@ function EmailErrorState({
   );
 }
 
-// One or more connected accounts failed to list this fetch — the rest of the
-// accounts still rendered, so this is a quiet inline row, not a red banner
-// (that treatment is reserved for a fetch that failed outright).
+// No cached rows are available while one or more connected accounts failed.
+// Keep this only for the empty state so a failed initial load is not reported
+// as a trustworthy empty mailbox.
 function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
   const t = useT();
   return (
@@ -2266,9 +2266,6 @@ export function EmailList({
 
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
-      {!!accountErrors?.length && (
-        <AccountErrorsNotice errors={accountErrors} />
-      )}
       <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
         <AiFilterDialog
           open={!!aiFilterDialog}

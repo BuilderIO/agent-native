@@ -183,9 +183,11 @@ const messages = ["first", "middle", "last"].map((id, index) => ({
 function Harness({
   emails = messages,
   onCompose,
+  accountErrors,
 }: {
   emails?: typeof messages;
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
+  accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -201,6 +203,7 @@ function Harness({
         selectedIds={selectedIds}
         setSelectedIds={setSelectedIds}
         onCompose={onCompose}
+        accountErrors={accountErrors}
       />
     </>
   );
@@ -224,6 +227,19 @@ describe("EmailList keyboard navigation interactions", () => {
   });
 
   afterEach(() => cleanup());
+
+  it("keeps partial refresh warnings out of a populated cached list", () => {
+    render(
+      <Harness
+        accountErrors={[
+          { email: "steve@builder.io", error: "temporary refresh failure" },
+        ]}
+      />,
+    );
+
+    expect(rows()).toHaveLength(3);
+    expect(screen.queryByText("mail.error.someAccountsFailed")).toBeNull();
+  });
 
   it("moves visible focus with j/k and arrows and clamps at both ends", () => {
     render(<Harness />);
