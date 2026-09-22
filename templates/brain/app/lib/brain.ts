@@ -344,8 +344,10 @@ export interface BrainHealthResponse {
   privacy: {
     classifier: {
       configured: boolean;
+      classifier: "jev" | "model" | "deterministic";
       model: string | null;
       engine: string | null;
+      jevCredential: "stored-key" | "builder-gateway" | "none" | "unavailable";
       warning: string | null;
     };
     events: {
@@ -986,6 +988,7 @@ export interface BrainSettings {
   requireCitations?: boolean;
   autoArchiveResolved?: boolean;
   notifyOnSourceErrors?: boolean;
+  privacyClassifier?: "jev" | "model" | "deterministic";
   privacyClassifierModel?: string;
   privacyClassifierEngine?: string;
   sensitivityCustomInstructions?: string;

@@ -43,6 +43,12 @@ export default defineAction({
     captureSanitizationEnabled: z.coerce.boolean().optional(),
     captureSanitizationModel: z.string().max(160).optional(),
     captureSanitizationInstructions: z.string().max(4000).optional(),
+    privacyClassifier: z
+      .enum(["jev", "model", "deterministic"])
+      .optional()
+      .describe(
+        "Which classifier decides the sensitivity verdict. Jev returns calibrated probabilities; model uses the approved engine; deterministic uses regex screening only.",
+      ),
     privacyClassifierModel: z.string().max(160).optional(),
     privacyClassifierEngine: z.string().max(160).optional(),
     sensitivityCustomInstructions: privacyInstructionsSchema.optional(),

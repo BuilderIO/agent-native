@@ -8,6 +8,11 @@ import type {
   BrainSourceProvider,
 } from "../../shared/types.js";
 import {
+  classifyWithJev,
+  resolveClassifierPreference,
+  type JevClassificationOutcome,
+} from "./jev-classifier.js";
+import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
@@ -422,14 +427,21 @@ function parseClassifierOutput(value: string) {
   }
 }
 
+function approvedModelSettings(settings: BrainSettings) {
+  if (resolveClassifierPreference(settings) === "deterministic") return null;
+  const model = stringSetting(settings.privacyClassifierModel);
+  const engineName = stringSetting(settings.privacyClassifierEngine);
+  return model && engineName ? { model, engineName } : null;
+}
+
 async function classifyWithApprovedModel(
   input: CaptureSanitizationInput,
 ): Promise<BrainSensitivityDecision | null> {
   if (process.env.NODE_ENV === "test" || process.env.VITEST) return null;
 
-  const model = stringSetting(input.settings.privacyClassifierModel);
-  const engineName = stringSetting(input.settings.privacyClassifierEngine);
-  if (!model || !engineName) return null;
+  const approved = approvedModelSettings(input.settings);
+  if (!approved) return null;
+  const { model, engineName } = approved;
 
   const core = await import("@agent-native/core/server");
   const userApiKey = await core.resolveOwnerEngineApiKey({
@@ -540,22 +552,33 @@ export async function sanitizeCaptureForStorage(
   const sanitizationRequested = shouldSanitizeCaptureBeforeStorage(input);
   let fallbackReason: string | undefined;
   let classifierOutageFallback = false;
-  const classifierConfigured = Boolean(
-    stringSetting(input.settings.privacyClassifierModel) &&
-    stringSetting(input.settings.privacyClassifierEngine),
-  );
+  const jev: JevClassificationOutcome = decision
+    ? { configured: false }
+    : await classifyWithJev({
+        title: input.title,
+        content: input.content,
+        capturedAt: input.capturedAt,
+        settings: input.settings,
+        ownerEmail: input.source.ownerEmail,
+        orgId: input.source.orgId,
+      });
+  decision ??= jev.decision ?? null;
+  const classifierConfigured =
+    jev.configured || Boolean(approvedModelSettings(input.settings));
   let classifierFailed = false;
   try {
     decision ??= await classifyWithApprovedModel(input);
     if (!decision) {
       classifierFailed = classifierConfigured;
-      fallbackReason = classifierConfigured
-        ? "classifier-malformed"
-        : "classifier-not-approved-or-malformed";
+      fallbackReason =
+        jev.failureReason ??
+        (classifierConfigured
+          ? "classifier-malformed"
+          : "classifier-not-approved-or-malformed");
     }
   } catch {
     classifierFailed = classifierConfigured;
-    fallbackReason = "model-unavailable";
+    fallbackReason = jev.failureReason ?? "model-unavailable";
   }
   decision ??= fallbackSensitivityDecision(input.content, capturedAt);
   if (classifierFailed) {
@@ -629,6 +652,7 @@ export async function sanitizeCaptureForStorage(
           decision.classifier === "approved-model"
             ? input.settings.privacyClassifierModel
             : undefined,
+        jevAuthSource: jev.authSource,
         fallbackReason,
         classifierOutageFallback: classifierOutageFallback || undefined,
         disposition: decision.disposition,

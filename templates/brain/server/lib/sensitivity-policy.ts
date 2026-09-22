@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  BRAIN_SENSITIVITY_CATEGORIES,
   BRAIN_SENSITIVITY_POLICY_VERSION,
   type BrainSafeSegment,
   type BrainSensitivityCategory,
@@ -11,23 +12,7 @@ export const MAX_CLASSIFIER_OUTPUT_CHARS = 80_000;
 export const classifierDecisionSchema = z
   .object({
     disposition: z.enum(["allowed", "suppressed", "quarantined"]),
-    categories: z
-      .array(
-        z.enum([
-          "performance",
-          "discipline",
-          "termination",
-          "layoff-reorg",
-          "compensation",
-          "recruiting",
-          "health-accommodation",
-          "investigation",
-          "privileged-legal",
-          "secret-credential",
-          "personal",
-        ]),
-      )
-      .max(12),
+    categories: z.array(z.enum(BRAIN_SENSITIVITY_CATEGORIES)).max(12),
     safeContent: z.string().max(MAX_CLASSIFIER_OUTPUT_CHARS),
     safeSegments: z
       .array(
