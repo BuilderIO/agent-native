@@ -855,7 +855,6 @@ const BUILDER_WAITLIST_USE_CASES = new Set([
   "design_make_real_waitlist",
   "docs_build_online_waitlist",
   "docs_edit_online_waitlist",
-  "quality_assurance",
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
