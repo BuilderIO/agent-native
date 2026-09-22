@@ -5,8 +5,6 @@ import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,7 +15,6 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
-import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -1731,17 +1728,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
-    expect(html).toContain("__agentNativeLoadingLabelIndex");
-    expect(html).toContain("Math.random()");
-    expect(html).toContain("setInterval");
-    expect(html).toContain("__agentNativeLoadingLabelHydrated");
-    expect(html).toContain("__agentNativeLoadingLabelInterval");
-    expect(html).toContain("__agentNativeLoadingLabelCleanup");
-    expect(html).toContain("clearInterval");
-    expect(html).toContain("MutationObserver");
-    expect(html).toContain("loader.isConnected");
-    expect(html).toContain("an-cube-pulse");
-    expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
+    expect(html).toContain('data-agent-native-app-skeleton="true"');
+    expect(html).not.toContain("data-agent-native-session-bootstrap");
+    expect(html).not.toContain("data-agent-native-cube-loader");
+    expect(html).not.toContain("an-cube-pulse");
     expect(html).not.toContain("an-spin");
     expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
