@@ -11,6 +11,17 @@ const DNS_REBIND_SUFFIXES = [
   ".lvh.me",
 ];
 
+// RFC 2544 benchmark-device interconnect space. Not RFC 1918, not a cloud
+// metadata address — but Clash / mihomo's `fake-ip` mode defaults its whole
+// pool to this range, so a machine running that proxy resolves ordinary
+// public hostnames here. Treating a DNS answer in this range as "private" on
+// such a machine blocks every public hostname, not just attacker-chosen
+// ones. Block it only when a caller writes the address literally; a resolved
+// answer here is inconclusive, not evidence of an internal target.
+function isBenchmarkingIpv4(a: number, b: number): boolean {
+  return a === 198 && (b === 18 || b === 19);
+}
+
 function isPrivateIpv4(a: number, b: number, c = 0, d = 0): boolean {
   if (![a, b, c, d].every((part) => part >= 0 && part <= 255)) return true;
   if (a === 127) return true;
@@ -21,7 +32,6 @@ function isPrivateIpv4(a: number, b: number, c = 0, d = 0): boolean {
   if (a === 0) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
   if (a === 192 && b === 0) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true;
   if (a === 192 && b === 0 && c === 2) return true;
   if (a === 198 && b === 51 && c === 100) return true;
   if (a === 203 && b === 0 && c === 113) return true;
@@ -29,7 +39,10 @@ function isPrivateIpv4(a: number, b: number, c = 0, d = 0): boolean {
   return false;
 }
 
-function isPrivateIpv4MappedHex(host: string): boolean {
+function isPrivateIpv4MappedHex(
+  host: string,
+  options: { treatBenchmarkingAsPrivate: boolean },
+): boolean {
   const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
   if (!mapped) return false;
   const high = Number.parseInt(mapped[1], 16);
@@ -39,10 +52,22 @@ function isPrivateIpv4MappedHex(host: string): boolean {
   const b = high & 0xff;
   const c = (low >> 8) & 0xff;
   const d = low & 0xff;
-  return isPrivateIpv4(a, b, c, d);
+  if (isPrivateIpv4(a, b, c, d)) return true;
+  return options.treatBenchmarkingAsPrivate && isBenchmarkingIpv4(a, b);
 }
 
-function isPrivateHost(hostname: string): boolean {
+/**
+ * `treatBenchmarkingAsPrivate` defaults to true (literal-hostname callers,
+ * e.g. `isBlockedExtensionUrl`). Callers judging a resolved DNS/connect
+ * answer (`isBlockedExtensionUrlWithDns`, the connect-time dispatcher) pass
+ * `false` — see `isBenchmarkingIpv4` for why.
+ */
+function isPrivateHost(
+  hostname: string,
+  options: { treatBenchmarkingAsPrivate: boolean } = {
+    treatBenchmarkingAsPrivate: true,
+  },
+): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (
     host === "localhost" ||
@@ -64,8 +89,11 @@ function isPrivateHost(hostname: string): boolean {
   if (v4mappedDotted) {
     const [a, b, c, d] = v4mappedDotted[1].split(".").map(Number);
     if (isPrivateIpv4(a, b, c, d)) return true;
+    if (options.treatBenchmarkingAsPrivate && isBenchmarkingIpv4(a, b)) {
+      return true;
+    }
   }
-  if (isPrivateIpv4MappedHex(host)) return true;
+  if (isPrivateIpv4MappedHex(host, options)) return true;
 
   // Dotted IPv4. URL parsing normalizes shorthand/octal/hex IPv4 forms to
   // dotted decimal before we reach this point.
@@ -73,6 +101,9 @@ function isPrivateHost(hostname: string): boolean {
   if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p))) {
     const [a, b, c, d] = parts.map(Number);
     if (isPrivateIpv4(a, b, c, d)) return true;
+    if (options.treatBenchmarkingAsPrivate && isBenchmarkingIpv4(a, b)) {
+      return true;
+    }
   }
 
   // Decimal integer IPv4.
@@ -84,6 +115,9 @@ function isPrivateHost(hostname: string): boolean {
       const c = (num >>> 8) & 0xff;
       const d = num & 0xff;
       if (isPrivateIpv4(a, b, c, d)) return true;
+      if (options.treatBenchmarkingAsPrivate && isBenchmarkingIpv4(a, b)) {
+        return true;
+      }
     }
   }
 
@@ -140,7 +174,9 @@ export async function isBlockedExtensionUrlWithDns(
   try {
     const { lookup } = await import("node:dns/promises");
     const records = await lookup(hostname, { all: true, verbatim: true });
-    return records.some((record) => isPrivateHost(record.address));
+    return records.some((record) =>
+      isPrivateHost(record.address, { treatBenchmarkingAsPrivate: false }),
+    );
   } catch {
     // Some edge runtimes do not expose DNS lookup. Keep the deterministic
     // parser-based protections instead of failing every outbound request.
@@ -297,7 +333,10 @@ async function createSsrfSafeDispatcherUncached(
               const allowedOrigin = allowedPrivateOriginKeys.has(
                 `${normalizeLookupHostname(hostname)}:${destinationPort}`,
               );
-              if (isPrivateHost(record.address) && !allowedOrigin) {
+              const isBlockedAddress = isPrivateHost(record.address, {
+                treatBenchmarkingAsPrivate: false,
+              });
+              if (isBlockedAddress && !allowedOrigin) {
                 const e = new Error(
                   `Connect blocked: ${hostname} resolved to private address ${record.address}`,
                 ) as NodeJS.ErrnoException;

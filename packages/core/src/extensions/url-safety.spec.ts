@@ -166,6 +166,38 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
     vi.doUnmock("node:dns/promises");
     vi.resetModules();
   });
+
+  it("allows a public hostname whose DNS answer lands in the fake-ip benchmarking range (198.18.0.0/15)", async () => {
+    // Clash / mihomo's `fake-ip` DNS mode defaults its whole pool to this
+    // RFC 2544 benchmark range, so a machine running that proxy resolves
+    // every public hostname here — this must not read as "private".
+    vi.doMock("node:dns/promises", () => ({
+      lookup: async () => [{ address: "198.18.0.224", family: 4 }],
+    }));
+    vi.resetModules();
+    const mod = await import("./url-safety.js");
+    expect(
+      await mod.isBlockedExtensionUrlWithDns("https://api.openai.com/v1"),
+    ).toBe(false);
+    vi.doUnmock("node:dns/promises");
+    vi.resetModules();
+  });
+
+  it("still blocks a genuinely private answer alongside a fake-ip answer", async () => {
+    vi.doMock("node:dns/promises", () => ({
+      lookup: async () => [
+        { address: "198.18.0.224", family: 4 },
+        { address: "10.0.0.1", family: 4 },
+      ],
+    }));
+    vi.resetModules();
+    const mod = await import("./url-safety.js");
+    expect(
+      await mod.isBlockedExtensionUrlWithDns("https://attacker.example.com/"),
+    ).toBe(true);
+    vi.doUnmock("node:dns/promises");
+    vi.resetModules();
+  });
 });
 
 describe("ssrfSafeFetch per-hop policies", () => {
