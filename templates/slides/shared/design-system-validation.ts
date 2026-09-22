@@ -83,15 +83,13 @@ export function getDesignSystemIndexingStatus(
   const hasColors = record.colors && typeof record.colors === "object";
   const hasTypography =
     record.typography && typeof record.typography === "object";
-  const docCount =
-    typeof record.docCount === "number" ? record.docCount : 0;
+  const docCount = typeof record.docCount === "number" ? record.docCount : 0;
   const hasTokens =
     record.tokenValues &&
     typeof record.tokenValues === "object" &&
     Object.keys(record.tokenValues as Record<string, unknown>).length > 0;
 
-  if (hasColors || hasTypography || docCount > 0 || hasTokens)
-    return "ready";
+  if (hasColors || hasTypography || docCount > 0 || hasTokens) return "ready";
   if (record.warning) return "unavailable";
   return "indexing";
 }

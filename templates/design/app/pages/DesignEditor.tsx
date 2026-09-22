@@ -401,13 +401,13 @@ import {
   DesignAccessState,
   type DesignAccessStatus,
 } from "@/components/DesignAccessState";
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "@/components/editor/FigmaLinkComposerBubble";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenuGroup,

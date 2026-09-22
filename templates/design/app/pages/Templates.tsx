@@ -22,9 +22,9 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
 import {

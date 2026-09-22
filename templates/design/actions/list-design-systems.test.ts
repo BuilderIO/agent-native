@@ -138,9 +138,7 @@ describe("list-design-systems — live Builder docCount reconciliation", () => {
 
     const result = await action.run({});
 
-    expect(fetchBuilderDesignSystemDocumentCount).toHaveBeenCalledWith(
-      "bds-1",
-    );
+    expect(fetchBuilderDesignSystemDocumentCount).toHaveBeenCalledWith("bds-1");
     expect(result.designSystems[0]).toMatchObject({ docCount: 12 });
     const data = JSON.parse(result.designSystems[0].data as string);
     expect(data.docCount).toBe(12);
@@ -175,9 +173,7 @@ describe("list-design-systems — live Builder docCount reconciliation", () => {
 
     const result = await action.run({});
 
-    expect(fetchBuilderDesignSystemDocumentCount).toHaveBeenCalledWith(
-      "bds-2",
-    );
+    expect(fetchBuilderDesignSystemDocumentCount).toHaveBeenCalledWith("bds-2");
     expect(result.designSystems[0]).toMatchObject({ docCount: 8 });
     const data = JSON.parse(result.designSystems[0].data as string);
     expect(data.docCount).toBe(8);
