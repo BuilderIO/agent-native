@@ -546,16 +546,22 @@ class BudgetByteBuffer extends ByteBuffer {
     return super.readByte();
   }
 
+  // Budgeted from the declared length, before kiwi would allocate and copy it.
   override readByteArray(): Uint8Array {
-    const bytes = super.readByteArray();
-    this.binaryBytes += bytes.byteLength;
+    const length = this.readVarUint();
     if (
-      bytes.byteLength > MAX_DECODED_BINARY_FIELD_BYTES ||
-      this.binaryBytes > MAX_DECODED_BINARY_BYTES
+      length > MAX_DECODED_BINARY_FIELD_BYTES ||
+      this.binaryBytes + length > MAX_DECODED_BINARY_BYTES
     ) {
       throw new Error("Decoded .fig document contains too much binary data.");
     }
-    return bytes;
+    const state = this as unknown as KiwiByteBufferState;
+    const start = state._index;
+    const end = start + length;
+    if (end > state._data.length) throw new Error("Read array out of bounds");
+    state._index = end;
+    this.binaryBytes += length;
+    return state._data.slice(start, end);
   }
 
   // kiwi builds strings one character at a time, which leaves each one as a

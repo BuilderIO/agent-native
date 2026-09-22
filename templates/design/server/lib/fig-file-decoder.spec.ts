@@ -127,6 +127,20 @@ describe("budgeted kiwi decoding", () => {
     },
   );
 
+  it("rejects an oversized byte array from its declared length", () => {
+    const schema = parseSchema("message Message { byte[] hash = 1; }");
+    const compiled = compileSchema(schema) as {
+      encodeMessage(value: unknown): Uint8Array;
+    };
+    const document = compiled.encodeMessage({
+      hash: new Uint8Array(4 * 1024 * 1024 + 1),
+    });
+
+    expect(decodeFig(figFor(schema, document)).decodeError).toMatch(
+      /too much binary data/i,
+    );
+  });
+
   it("rejects a single string above the per-string budget", () => {
     const schema = parseSchema("message Message { string value = 1; }");
     const compiled = compileSchema(schema) as {
