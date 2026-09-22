@@ -1,7 +1,8 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep recent Slack, GitHub issue, Sentry, and explicitly linked tracker
+  Sweep recent Slack, GitHub issue, Sentry, first-party Agent-Native Analytics
+  error issues, and explicitly linked tracker
   feedback: first answer reporters, then fix verified bugs and actionable
   objective UI defects at the owning boundary, require human signoff for
   subjective UI changes, build features the invoking user endorsed with an
@@ -60,12 +61,15 @@ synonym in the recap or Slack reply:
 - **Evidence-limited or still active, retain the workflow's eye:** **Verified
   locally**, **Built - live unverified**, **Deployed - live unverified**,
   **Not reproducible - attempted**, **In progress**, **Asked**, **Clarification
-  needed**, **Blocked on reporter**, or **Merged - release pending**.
+  needed**, or **Blocked on reporter**.
 - **Foreign ownership, preserve the other workflow's eye:** **Owned elsewhere**.
 
-**Merged - release pending** is non-terminal: the source merged, but release
-delivery and the published rerun remain. **Clustered** closes a duplicate row
-without erasing its row.
+After the verified source fix merges, **Fixed** is terminal; publication, beta,
+and live reruns are separate follow-ups. Before closing, link a durable
+follow-up for remaining work with the original issue, target package/release/
+runtime, owner, and verification command or URL. Do not use open-issue scans to
+rediscover closed fixes or reopen them for release work. **Clustered** closes a
+duplicate row without erasing it.
 
 Use `✅` only for **Fixed**, **Shipped**, or **Live verified**; use
 `:no_entry_sign:` for other terminal states. Never delete `👀` as a substitute
@@ -272,10 +276,47 @@ fix, targeted clarification, or Phase 0 release.
 Group repeat symptoms into one cluster with one owning investigation; the
 repeat gate in Phase 2 owns how they are worked.
 
-For GitHub and Sentry, use native state as the cursor: recent open or
-unresolved items with no maintainer disposition, deduplicated against Slack.
-If a source cannot be read, record it as **unavailable**. Never report
-"nothing matched" for a source you could not query.
+For GitHub, Sentry, and first-party Agent-Native Analytics, use native state as
+the cursor: recent open or unresolved items with no maintainer disposition,
+deduplicated against Slack. If a source cannot be read, record it as
+**unavailable**. Never report "nothing matched" for a source you could not
+query.
+
+### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
+
+Read each issue's body, comments, author, labels, linked PRs. Treat
+prior `fixed`, `shipped`, or `merged` comments as leads; recheck the surface.
+When a fix merges, thank the reporter, link it, and close. Track release/runtime
+gaps separately; keep open only while scope is unfixed, unmerged, or needs input.
+
+Before claiming an issue, check comments for handoffs. If someone offers a PR,
+or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
+ship, reply, or close it. A direct request overrides this.
+
+Fix every defect at its root or ask an unblock question; do not
+skip old, bot-filed, or maintainer-commented issues. Feature requests and
+subjective feedback need user/`:upvote:` authorization. Ask three questions max;
+re-read before posting/closing.
+
+Query both production Sentry projects - frontend/browser and backend/CLI -
+paginate unresolved issues, and record representative events, releases, and
+fingerprints. Classify each as repo-owned, external/provider,
+deployment/configuration, or unclear; fix repo-owned failures at the boundary
+and verify the source/build. Check the published runtime when available, but
+record any release or live gap separately rather than holding a merged fix open.
+Record external actions for the rest; silence or an old release is not proof the
+current error is gone.
+
+Query authenticated Agent-Native Analytics error issues in parallel. Use
+`list-error-issues` for unresolved groups, then `get-error-issue` for stacks,
+occurrences, breadcrumbs, tags, and replay links. It captures client exceptions
+and server `captureError()` failures when the server Analytics key/provider is
+configured. Use it as the Sentry fallback when rate-limited. Do not query
+`error_issues` or `error_events` through
+`query-agent-native-analytics`; use that action only for bounded event/LLM
+correlation. Apply the same ownership gate: fix worthwhile repo-owned issues
+at their boundary, verify runtime, and record external, deployment, or unclear
+issues without inventing a fix.
 
 ## Phase 2: fix
 
@@ -351,12 +392,16 @@ surface is the contract:
    do not delete unless needed.
 4. **Test release and race layers.** Use deterministic concurrency or 10 runs,
    a clean scaffold/cache and exact published/candidate package, and the exact
-   beta/production URL. Source, tests, merge, or unchanged live state are not
-   runtime proof.
-5. Record untested layers/variants and use the narrowest evidence-limited
-   disposition. Never release `✅` or call **Fixed**, **Shipped**, or **Live
-   verified** on partial evidence. A post-checkmark repeat reopens the item and
-   needs a fresh failing pre-change reproduction.
+   beta/production URL when those layers are in scope. These strengthen
+   **Shipped** and **Live verified**; they do not keep a verified, merged source
+   fix open.
+5. Record untested layers/variants. Before a verified merge, use the narrowest
+   evidence-limited disposition. Once the source fix is verified in the merged
+   shipping snapshot, use **Fixed** even when publication, beta, or live layers
+   remain; create or link the durable follow-up required above. Use **Shipped**
+   or **Live verified** only after their additional bars hold. Never release
+   `✅` or call **Fixed** without merged source proof. A post-checkmark repeat
+   reopens the item and needs a fresh failing pre-change reproduction.
 
 ### Reproduction ledger - required for every row
 
@@ -365,37 +410,32 @@ reproduction command/click/URL/account state, expected and pre/post actuals,
 tested commit/build, sibling fingerprint results, untested layers, and runtime
 layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
 
-If the full bar was not exercised, use **Verified locally**, **Built - live
+If no merged source proof exists, use **Verified locally**, **Built - live
 unverified**, **Deployed - live unverified**, **Not reproducible - attempted**,
-**Asked**, **Blocked on reporter**, **Merged - release pending**, or
-**Clustered**. **Live verified** is valid only after all four bars hold. Never
-promote `handled`/`completed`, reactions, source tests, or unchanged live state
-to **Fixed**. Repeats require a new failing pre-change reproduction and the
-earlier false claim.
+**Asked**, **Blocked on reporter**, or **Clustered**. Once it exists, **Fixed**
+is valid while remaining release/runtime layers are tracked in the durable
+follow-up. **Live verified** is valid only after all four bars hold. Never
+promote `handled`/`completed`, reactions, or source tests without a verified
+regression to **Fixed**. Repeats require a new failing pre-change reproduction
+and the earlier false claim.
 
 Regression claims require Red/Green proof: reverse-apply hunk with
 `git apply -R`, record failure, reapply, record pass. Repeat timing checks 10x.
 If output missing, build it and rerun on `origin/main` before calling them
 pre-existing.
 
-### Npx and package reports have a release gate
+### Npx and package reports have a release follow-up
 
-An npx scaffold is versioned. Record its pinned core version, the version
-current when filed, and run the exact command with a fresh npm cache and no
-local override; run the same flow on the candidate separately. Record the
-release containing the change and the existing-app path (`pnpm add
-@agent-native/core@<version>` or a hand edit).
+Npx scaffolds are versioned. Record pinned/filed versions, fresh npm cache/no
+local override, candidate result, release, and existing-app path (`pnpm add
+@agent-native/core@<version>` or hand edit).
 
-Local source/tests, beta promises, and local scaffolds are not **Fixed**. A
-published pass is required; a fresh scaffold covers only new scaffolds. Reply
-with the version and bump/re-scaffold or hand-edit steps. If old-versus-fresh or
-the endpoint environment is unknown, ask one fork question and keep the row
-open.
-
-Before npm has the fix, use **Merged - release pending**, not **Fixed**. Record
-the merge commit, next core release, and verification command. After publish,
-rerun the clean scaffold and state whether existing apps must bump
-`@agent-native/core` or re-scaffold. Merge or beta status is not npx delivery.
+Local proof, beta promises, and scaffolds are not **Shipped**/**Live verified**
+until published. A verified merged fix is **Fixed** and closes the issue. Record
+merge commit, release, verification, and bump/re-scaffold follow-up. Unknown
+package/endpoint context is a release follow-up. Ask only if source scope or
+reporter input is unclear; missing evidence does not keep a merged fix open.
+Merge/beta is not npx delivery.
 
 ### Documentation has a runnable proof obligation
 
@@ -418,15 +458,12 @@ instruction or prompt exception.
 
 ### The bar for saying "Fixed"
 
-Say **Fixed** only when all four hold: the reporter's observed symptom is named;
-the exact reproduction fails before and passes after (a prop-threading test is
-not proof of "double-click schedules two emails," and a docs diff is not the
-clean-scaffold copy-paste proof); the sibling sweep is clean or triaged; and
-the change is in the shipping snapshot with its runtime layer named.
-**Shipped** requires build/deploy provenance; **Live verified** requires the
-target runtime. Otherwise use a narrower disposition and never imply beta or
-production health. An upvoted improvement states requested versus actual
-behavior, then holds the same bars and is **Shipped**, not **Fixed**.
+Say **Fixed** only when all four hold: named symptom; exact pre/post
+reproduction; clean or triaged sibling sweep; and verified change in the merged
+shipping snapshot with source or built layer named. **Shipped** adds
+build/deploy provenance; **Live verified** adds target-runtime proof. Otherwise
+use a narrower disposition without implying beta or production health. Upvoted
+improvements state requested versus actual behavior and use **Shipped**.
 
 ## Phase 3: reply
 
@@ -437,27 +474,21 @@ workflow ends with `this was sent from a bot.` after the plain-language status.
 Reply only where the reply carries information the thread does not already
 have. Three kinds qualify:
 
-- **Fixed** / **Shipped** / **Live verified** — all four bars above are met. A
-  live-verified row may be silent when its live observation is already recorded;
-  do not manufacture a reply. For package reports,
-  include the published version and the upgrade or re-scaffold command. Name
-  the beta URL/runtime only when it was actually exercised; never use “on beta
-  later today” as a substitute for release or live proof. Use **Shipped** for
-  an upvoted improvement.
+- **Fixed** / **Shipped** / **Live verified** - meet the applicable bars above.
+  A live-verified row may be silent if its observation is recorded. For
+  packages, name the published version when available; otherwise name the
+  merged fix and list publication plus the upgrade/re-scaffold follow-up without
+  claiming the published package is fixed. Name beta URL/runtime only when
+  exercised; never substitute a future beta promise for release or live proof.
+  Use **Shipped** for upvoted improvements.
 - **In progress** — the thread already has real, concrete ownership (a named
   PR, a person actively working it). Acknowledge it; ask nothing.
 - **A question** — subject to the budget below.
 
-Everything else gets an internal recap row and **no message**. Follow the Phase
-0 contract for the eye. An unverified defect earns a targeted question, not a
-release marker or silence, whenever one answer would unblock it; record **Open -
-no reply** only when no question would unblock it, and release that non-fixed
-closure with `:no_entry_sign:`. Do not message merely to hand off.
-Never post the same sentence into multiple threads: if three reports share one
-cause, reply in one and record the rest as clustered.
-
-Before replying, re-read the full thread to the end. If a human is actively
-working it, stay out — do not narrate over someone mid-conversation.
+Everything else gets an internal recap row and **no message**. An unverified
+defect earns a targeted question when one answer would unblock it; use **Open -
+no reply** and `:no_entry_sign:` only when none can. Cluster duplicate causes.
+Re-read the full thread before replying and stay out of active human work.
 
 ### The question budget
 
@@ -469,23 +500,9 @@ can ship the fix.* Ask the three with the strongest answer. If fewer than
 three clear that bar, ask fewer. Everything below the cut is an internal open
 item, not a message.
 
-Never ask for:
-
-- Anything already in the thread — a screenshot that is attached, an app the
-  message is tagged with, a slide number that is in the linked URL, a file
-  type the report already enumerated.
-- A run, request, or session ID as the primary ask. Reporters often cannot get
-  one — the `...` menu exposing it is not always present — and an unfulfillable
-  request reads as a brush-off. Prefer the surface URL, which they always have
-  and which usually contains the same id.
-- A build number, unless two builds plausibly differ and you will act on it.
-- Anything you could determine yourself from source, logs, the linked
-  artifact, or the deployed surface. Exhaust those first.
-- A subjective product choice — including on an upvoted item, where the
-  upvote already made the call. Build the smallest version instead of asking
-  which variant they want.
-- An internal blocker. Missing test tooling or a broken local install is your
-  problem, never a reporter question.
+Never ask for information already supplied, a run/request/session ID as the
+primary ask, a build number unless it changes the action, evidence you can
+inspect yourself, a subjective product choice, or an internal blocker.
 
 At most one clarification question may be pending per thread at a time. Once it
 is answered or resolved, attempt the fix; if that exposes a different required
@@ -493,21 +510,14 @@ detail, ask at most one new, non-repeating question. Never stack questions or
 repeat a pending one. If a needed artifact is inaccessible to you, ask for a
 fresh link - not for its contents again.
 
-### Ask a fork, not for evidence
-
-Name two seams you already narrowed, then ask the reporter to choose one, such
-as “browser or Desktop?” or “localhost or LAN/Docker host?” Do not outsource
-the investigation with a build or run-id request. If you cannot name the two
-causes, read the owning path first. Ask for a one-line answer from memory,
-without requiring devtools.
-
 ## Verification and identity
 
 Follow the `## Slack identity` contract in `address-feedback-with-replies`:
 confirm the connected profile is the invoking user before the first write, and
 keep that identity for every read, reaction, reply, and read-back.
 
-Resolve the Slack, GitHub, and Sentry schemas once and reuse them.
+Resolve the Slack, GitHub, Sentry, and first-party Analytics error action
+schemas once and reuse them.
 
 For every Slack write: use the exact parent `thread_ts` from a full-thread
 read, never a search-result or adjacent timestamp, and re-read after posting.

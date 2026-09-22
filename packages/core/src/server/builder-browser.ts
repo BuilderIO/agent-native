@@ -27,6 +27,7 @@ import {
 import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import {
   getAppBasePath,
   getOrigin,
@@ -108,9 +109,12 @@ export class BuilderAccountProvisioningError extends Error {
 }
 
 export function isBuilderAccountAlreadyExistsError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { name?: unknown; code?: unknown };
   return (
-    error instanceof BuilderAccountProvisioningError &&
-    (error.code === "account_incomplete" || error.code === "account_exists")
+    candidate.name === "BuilderAccountProvisioningError" &&
+    (candidate.code === "account_incomplete" ||
+      candidate.code === "account_exists")
   );
 }
 
@@ -1349,7 +1353,7 @@ export function buildBuilderCliAuthUrl(
  * request-bound owner and the connect route can fall back to Fetch Metadata.
  */
 export function getBuilderBrowserConnectUrl(origin: string): string {
-  return `${normalizeOrigin(origin)}${getAppBasePath()}/_agent-native/builder/connect`;
+  return `${normalizeOrigin(origin)}${getAppBasePath()}${publicFrameworkPath("/_agent-native/builder/connect")}`;
 }
 
 export function getBuilderBrowserConnectUrlForOwner(

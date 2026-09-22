@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "받은편지함 동기화 중…",
     },
+    sort: {
+      label: "받은편지함 정렬",
+      newest: "최신순",
+      priority: "우선순위",
+      priorityFailed: "받은편지함을 정렬하지 못했습니다.",
+    },
     toolbar: {
       toggleMenu: "메뉴 전환",
       menu: "Menu",
@@ -448,6 +454,8 @@ const messages = {
     aiFilter: {
       title: "AI 필터",
       subtitle: "사용자의 판단을 학습하는 되돌릴 수 있는 라벨입니다.",
+      rulesTitle: "규칙",
+      newRule: "새 규칙",
       lunaBadge: "사용 가능한 경우 Luna",
       toggle: "AI 필터 켜기/끄기",
       autoFilterTitle: "신뢰도가 높은 메일 자동 필터링",
@@ -500,6 +508,10 @@ const messages = {
       instructionFailed: "AI 필터 지침을 저장하지 못했습니다.",
       spamMode: "스팸",
       tagMode: "태그",
+      importantMode: "중요",
+      importantLabel: "AI 중요",
+      reviewImportant: "중요 메일 보기",
+      importantPlaceholder: "예: 답장이 필요하거나 기한이 있는 메시지",
       ruleAdded: "AI 규칙을 추가했습니다.",
       instructionHelp: "자연어로 입력하세요",
       tagNamePlaceholder: "태그 이름",
@@ -511,6 +523,7 @@ const messages = {
       previewTitle: "최근 메일 미리보기",
       previewDescription:
         "새 규칙을 사용 설정하기 전에 받은편지함의 최근 20개 메시지를 검토합니다. 보관되었거나 자동 보관된 메일은 평가하지 않습니다.",
+      previewScope: "받은편지함만 · 보관된 메일 제외",
       previewButton: "미리보기 실행",
       previewRunning: "최근 받은편지함 메일 확인 중…",
       jevBadge: "Jev",

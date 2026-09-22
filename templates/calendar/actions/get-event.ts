@@ -128,6 +128,11 @@ export default defineAction({
             responseStatus: a.responseStatus || undefined,
             organizer: a.organizer || undefined,
             self: a.self || undefined,
+            optional: a.optional === true ? true : undefined,
+            additionalGuests:
+              typeof a.additionalGuests === "number" && a.additionalGuests > 0
+                ? a.additionalGuests
+                : undefined,
           })),
           remindersUseDefault: evt.reminders?.useDefault ?? true,
           reminders: evt.reminders?.overrides?.map((r: any) => ({

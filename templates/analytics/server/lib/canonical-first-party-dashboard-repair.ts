@@ -14,6 +14,10 @@ import {
 export const FIRST_PARTY_BIGQUERY_DASHBOARD_ID =
   "agent-native-templates-first-party-bigquery-v2";
 
+const BIGQUERY_SESSION_STATUS_EVENT_FILTER =
+  "event_name IN ('session status', 'session_status')";
+const BIGQUERY_SIGNED_IN_ACTIVITY_FILTER = `(((${BIGQUERY_SESSION_STATUS_EVENT_FILTER} AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND NULLIF(user_key, '') IS NOT NULL)`;
+
 export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
   SELECT
     event_date,
@@ -30,9 +34,7 @@ export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
     ) AS template
   FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw_query\`
   WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
-    AND event_name = 'session status'
-    AND signed_in = 'true'
-    AND NULLIF(user_key, '') IS NOT NULL
+    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}
     AND ('{{emailFilter}}' IN ('', 'all')
       OR ('{{emailFilter}}' = 'exclude_builder' AND LOWER(COALESCE(user_id, '')) NOT LIKE '%@builder.io')
       OR ('{{emailFilter}}' = 'only_builder' AND LOWER(COALESCE(user_id, '')) LIKE '%@builder.io'))
@@ -132,9 +134,15 @@ ORDER BY date, p.period`;
 
 export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
-    "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\nperiods AS",
-    "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\ncoverage_dates AS (\n SELECT DISTINCT event_date\n FROM `builder-3b0a2.analytics.first_party_analytics_events_raw`\n WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'\n   AND event_name = 'session status'\n   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()\n),\nperiods AS",
+    "event_name = 'session status'\n  AND signed_in = 'true'\n  AND NULLIF(user_key, '') IS NOT NULL",
+    BIGQUERY_SIGNED_IN_ACTIVITY_FILTER,
   )
+    .split("event_name = 'session status'")
+    .join(BIGQUERY_SESSION_STATUS_EVENT_FILTER)
+    .replace(
+      "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\nperiods AS",
+      `all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\ncoverage_dates AS (\n SELECT DISTINCT event_date\n FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`\n WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'\n   AND ${BIGQUERY_SESSION_STATUS_EVENT_FILTER}\n   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()\n),\nperiods AS`,
+    )
     .replace(
       "periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14)\nSELECT FORMAT_DATE",
       "periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14),\ncoverage AS (\n SELECT a.date, p.period, COUNTIF(c.event_date IS NOT NULL) AS observed_days, COUNT(*) AS expected_days\n FROM anchor_dates a\n CROSS JOIN periods p\n CROSS JOIN UNNEST(GENERATE_DATE_ARRAY(\n   CASE WHEN p.period = '1-7d return' THEN DATE_SUB(a.date, INTERVAL 5 DAY) ELSE DATE_ADD(a.date, INTERVAL 1 DAY) END,\n   CASE WHEN p.period = '1-7d return' THEN DATE_ADD(a.date, INTERVAL 7 DAY) ELSE DATE_ADD(a.date, INTERVAL 14 DAY) END\n )) AS coverage_day\n LEFT JOIN coverage_dates c ON c.event_date = coverage_day\n GROUP BY a.date, p.period\n)\nSELECT FORMAT_DATE",
@@ -158,8 +166,31 @@ const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
     "WHEN '{{timeRange}}' = '{{timeRange}}'",
   );
 
+const LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL =
+  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    `    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}`,
+    "    AND event_name = 'session status'\n    AND signed_in = 'true'\n    AND NULLIF(user_key, '') IS NOT NULL",
+  );
+
 function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
   return sql.trim() === MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL.trim();
+}
+
+function isLegacyFirstPartyBigQueryWauSql(sql: string): boolean {
+  return (
+    sql.replace(/\s+/g, " ").trim() ===
+    LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(/\s+/g, " ").trim()
+  );
+}
+
+function repairFirstPartyBigQueryDauSql(sql: string): string {
+  return sql
+    .replace(
+      /event_name = 'session status'\s+AND signed_in = 'true'\s+AND NULLIF\(user_key, ''\) IS NOT NULL/g,
+      BIGQUERY_SIGNED_IN_ACTIVITY_FILTER,
+    )
+    .split("event_name = 'session status'")
+    .join(BIGQUERY_SESSION_STATUS_EVENT_FILTER);
 }
 
 function isLegacyFirstPartyBigQueryRetentionSql(sql: string): boolean {
@@ -189,11 +220,23 @@ export function repairFirstPartyBigQueryDashboardQueries(
       return { ...panel, sql: FIRST_PARTY_BIGQUERY_RETENTION_SQL };
     }
     if (
+      panel.id === "dau-over-time" &&
+      panel.source === "bigquery" &&
+      typeof panel.sql === "string"
+    ) {
+      const repairedSql = repairFirstPartyBigQueryDauSql(panel.sql);
+      if (repairedSql !== panel.sql) {
+        changed = true;
+        return { ...panel, sql: repairedSql };
+      }
+    }
+    if (
       panel.id !== "wau-over-time" ||
       panel.source !== "bigquery" ||
       typeof panel.sql !== "string" ||
       (panel.sql.trim() !== "" &&
-        !isMalformedFirstPartyBigQueryWauSql(panel.sql))
+        !isMalformedFirstPartyBigQueryWauSql(panel.sql) &&
+        !isLegacyFirstPartyBigQueryWauSql(panel.sql))
     ) {
       return rawPanel;
     }

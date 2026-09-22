@@ -101,6 +101,17 @@ vi.mock("@/hooks/use-account-filter", () => ({
   useAccountFilter: () => ({ activeAccounts: new Set(), allAccounts: [] }),
 }));
 
+vi.mock("@/hooks/use-ai-priority", () => ({
+  useAiPriority: () => ({
+    isPending: false,
+    mutateAsync: vi.fn().mockResolvedValue({ scores: [] }),
+  }),
+}));
+
+vi.mock("@/hooks/use-automations", () => ({
+  useAutomations: () => ({ data: [], isFetching: false }),
+}));
+
 vi.mock("@/hooks/use-emails", () => {
   const mutation = () => ({
     mutate: vi.fn(),

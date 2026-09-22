@@ -272,7 +272,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile --ignore-scripts
-          pnpm --filter @agent-native/recap-cli build
+          pnpm --filter '@agent-native/core...' build
           echo "RECAP_CLI=$PWD/node_modules/.bin/tsx $PWD/packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
           echo "CODE_CLI=$PWD/node_modules/.bin/tsx $PWD/packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$PWD/node_modules/.bin/playwright" >> "$GITHUB_ENV"

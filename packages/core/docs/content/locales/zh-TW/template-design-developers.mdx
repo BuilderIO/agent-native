@@ -1,0 +1,618 @@
+---
+title: "Design：開發者指南"
+description: "快速入門、完整的 action 清單、資料模型、一個逐步解析的 action、路由，以及如何擴充 Design 範本。"
+---
+
+# 開發者指南
+
+本頁面適用於任何要自訂 Design 範本，或直接在它之上建置的人：快速入門、每個 action、資料模型、一個逐步解析的 action、路由介面，以及如何新增內容。這個應用程式的功能說明請參閱[Design](/docs/template-design)。
+
+## 快速入門
+
+<Steps>
+
+### 建立應用程式
+
+```bash
+npx @agent-native/core@latest create my-design --standalone --template design
+cd my-design
+pnpm install
+```
+
+這需要先安裝 [Node.js](https://nodejs.org) 22.22 或更新版本，以及
+[pnpm](https://pnpm.io)。如果您還沒有安裝，或還沒有設定 LLM 連線
+（Builder.io、Anthropic/OpenAI 金鑰，或本機 Ollama），請參閱[開始使
+用](/docs/getting-started)。若想建立一個讓 Design 與其他應用程式並存的工
+作區，請改為執行 `npx @agent-native/core@latest create my-platform`，
+並在設定過程中選擇 Design。
+
+### 啟動開發伺服器
+
+```bash
+pnpm dev
+```
+
+應用程式會在 `http://localhost:8099` 開啟，這是 Design 的預設開發連接
+埠。Design 在沒有任何外部連線的情況下也能完全正常運作。只有在您嘗試 Figma
+匯入或完整應用程式建置，卻還沒設定好之前，才會遇到連線提示。
+
+</Steps>
+
+## Action 清單
+
+每一個 Design 專屬的操作，都是 `templates/design/actions/` 中的一個
+TypeScript 檔案，會自動掛載到 `POST /_agent-native/actions/:name`，也
+可以用 `pnpm action <name>` 從 CLI 執行。
+
+### 設計
+
+| Action                    | 功能說明                                         |
+| ------------------------- | ------------------------------------------------ |
+| `create-design`           | 建立空的設計外殼                                 |
+| `generate-design`         | 寫入產生的 HTML/JSX 檔案內容                     |
+| `edit-design`             | 對既有檔案進行精準的搜尋／取代編輯               |
+| `update-design`           | 更新一個設計的中繼資料，例如標題或連結的設計系統 |
+| `get-design`              | 依 id 讀取一個設計                               |
+| `list-designs`            | 列出可存取的設計                                 |
+| `duplicate-design`        | 複製一個設計及其檔案                             |
+| `delete-design`           | 刪除一個設計                                     |
+| `apply-tweaks`            | 持久儲存即時的 tweak 控制項數值                  |
+| `present-design-variants` | 把幾個方向儲存成畫面，並顯示並排選擇器           |
+| `show-design-questions`   | 為一個模糊的提示顯示釐清問題覆蓋層               |
+| `generate-screens`        | 批次產生多個畫面                                 |
+
+### 檔案
+
+| Action        | 功能說明                 |
+| ------------- | ------------------------ |
+| `create-file` | 為一個設計新增一個檔案   |
+| `update-file` | 更新一個檔案的內容       |
+| `list-files`  | 列出一個設計的檔案       |
+| `delete-file` | 從一個設計中刪除一個檔案 |
+
+### 範本
+
+| Action                        | 功能說明                                           |
+| ----------------------------- | -------------------------------------------------- |
+| `list-design-templates`       | 列出內建和已儲存的範本                             |
+| `create-design-from-template` | 把一個範本的檔案、尺寸和鎖定圖層複製到一個新設計中 |
+| `save-design-as-template`     | 把目前的設計儲存成一個可重複使用的範本             |
+| `delete-design-template`      | 刪除一個已儲存的範本                               |
+
+### 設計系統與品牌匯入
+
+| Action                             | 功能說明                                                                                                                         |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `create-design-system`             | 從頭建立一個設計系統，或從一個公開的預設集（例如 Material 3、Carbon 或 Primer）建立                                              |
+| `update-design-system`             | 更新一個設計系統的代幣或設定                                                                                                     |
+| `get-design-system`                | 依 id 讀取一個設計系統                                                                                                           |
+| `list-design-systems`              | 列出可存取的設計系統                                                                                                             |
+| `delete-design-system`             | 刪除一個設計系統                                                                                                                 |
+| `set-default-design-system`        | 設定哪個設計系統是帳號的預設值                                                                                                   |
+| `analyze-brand-assets`             | 從上傳的品牌資產中擷取顏色、版式和標誌參照                                                                                       |
+| `import-from-url`                  | 從一個真實網站擷取計算後的顏色、版式和標誌參照                                                                                   |
+| `index-design-system-with-builder` | 透過 Builder DSI，從已連接的程式碼、一個 GitHub 存放庫，或設計檔案（包括 `.fig`）為一個設計系統建立索引（需要已連接 Builder.io） |
+| `import-design-tokens`             | 直接匯入設計代幣                                                                                                                 |
+| `import-document`                  | 從一份上傳的 DOCX、PPTX 或 PDF 中擷取品牌訊號                                                                                    |
+| `import-design-project`            | 從一個既有的設計或設計系統開始建立一個設計系統                                                                                   |
+
+### Figma
+
+| Action                        | 功能說明                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| `import-figma-frame`          | 把一個 Figma 畫框或檔案匯入成一個真正、可編輯的畫面，並附上一份保真度報告          |
+| `import-figma-clipboard`      | 匯入一次 Figma 剪貼簿貼上，依隱藏中繼資料比對，否則需要至少 2 個高信心度的文字比對 |
+| `get-figma-design-context`    | 讀取一個 Figma 檔案或畫框的結構，不匯入任何內容                                    |
+| `get-figma-styles`            | 摘要一個 Figma 檔案已發布的樣式面板。不是 Enterprise Variables API                 |
+| `get-figma-connection-status` | 檢查一個 Figma 帳號是否已連線                                                      |
+| `list-figma-library-assets`   | 列出一個已連接 Figma 資源庫中可插入的元件                                          |
+| `insert-figma-library-asset`  | 把一個已發布的 Figma 元件插入設計中                                                |
+| `hydrate-figma-paste-images`  | 解析一次 Figma 剪貼簿貼上中的圖片參照                                              |
+
+### 中斷點與畫面狀態
+
+| Action                  | 功能說明                               |
+| ----------------------- | -------------------------------------- |
+| `add-breakpoint`        | 新增一個響應式中斷點                   |
+| `remove-breakpoint`     | 移除一個響應式中斷點                   |
+| `set-active-breakpoint` | 設定目前正在編輯哪個中斷點             |
+| `create-design-state`   | 儲存一個具名的替代狀態，例如空白或錯誤 |
+| `apply-design-state`    | 套用一個已儲存的狀態                   |
+| `capture-design-state`  | 把目前的狀態擷取成一個具名快照         |
+| `list-design-states`    | 列出已儲存的狀態                       |
+| `delete-design-state`   | 刪除一個已儲存的狀態                   |
+
+### 元件
+
+| Action                        | 功能說明                                   |
+| ----------------------------- | ------------------------------------------ |
+| `create-component`            | 把一個選取的元素升級成一個可重複使用的元件 |
+| `index-components`            | 偵測並把既有的重複元素登錄成元件           |
+| `get-component-details`       | 讀取一個元件實例的變體和屬性               |
+| `preview-component-prop-edit` | 在套用之前預覽一個屬性變更                 |
+| `apply-component-prop-edit`   | 把一個屬性變更套用到一個元件實例           |
+| `detach-component-instance`   | 分離一個實例，讓它不再追蹤該元件           |
+| `swap-component-instance`     | 交換一個實例所指向的元件                   |
+| `go-to-main-component`        | 跳到一個元件最早的實例，作為一個參考點     |
+| `open-component-source`       | 開啟一個元件的來源位置                     |
+
+### 動效與著色器
+
+| Action                   | 功能說明                                 |
+| ------------------------ | ---------------------------------------- |
+| `get-motion-timeline`    | 讀取一個元素的動效時間軸                 |
+| `apply-motion-edit`      | 在一個動效時間軸上新增或編輯一個關鍵影格 |
+| `remove-motion-timeline` | 移除一個動效時間軸                       |
+| `apply-shader`           | 套用一個著色器效果                       |
+| `apply-shader-fill`      | 把一個著色器套用成一個填色               |
+| `preview-shader-fill`    | 在套用之前預覽一個著色器填色             |
+| `get-shader`             | 讀取一個著色器目前的參數                 |
+
+### 品質 {#quality}
+
+| Action                   | 功能說明                                                             |
+| ------------------------ | -------------------------------------------------------------------- |
+| `run-design-audit`       | 檢查一個畫面的無障礙、對比度，以及跨畫面漂移問題                     |
+| `apply-a11y-fix`         | 為一項稽核發現套用一個自動修正                                       |
+| `take-design-screenshot` | 在一個真正的瀏覽器中渲染畫面，並檢查溢位、損壞的圖片，以及主控台錯誤 |
+| `get-design-review`      | 讀取快取的無障礙和視覺差異檢查結果                                   |
+
+### 審閱意見回饋
+
+框架層級的功能，不在 `templates/design/actions` 中。來自
+`@agent-native/core/review`，是任何應用程式都能掛接的同一套系統。
+
+| Action                        | 功能說明                     |
+| ----------------------------- | ---------------------------- |
+| `get-review-feedback`         | 讀取一個資源的未解決審閱留言 |
+| `create-review-comment`       | 留下一則錨定在元素上的留言   |
+| `reply-review-comment`        | 回覆一個留言討論串           |
+| `resolve-review-thread`       | 用一句話備註解決一個討論串   |
+| `send-review-thread-to-agent` | 把一個留言討論串送給代理處理 |
+| `consume-review-feedback`     | 把意見回饋標記為代理已經處理 |
+| `list-review-comments`        | 列出一個資源的留言           |
+| `delete-review-comment`       | 刪除一則留言                 |
+| `set-review-status`           | 設定一個設計整體的審閱狀態   |
+
+### 匯出與交接
+
+| Action                       | 功能說明                                                       |
+| ---------------------------- | -------------------------------------------------------------- |
+| `export-html`                | 匯出一個自成一體的 HTML 檔案                                   |
+| `export-zip`                 | 匯出依類型組織的所有設計檔案，加上一個中繼資料檔案             |
+| `export-pdf`                 | 為多畫面總覽匯出一份由用戶端渲染的 PDF                         |
+| `export-svg`                 | 匯出一個包裹著即時 HTML 的 SVG                                 |
+| `export-design-as-figma-svg` | 把真正的向量圖形匯出成一個可編輯的 Figma SVG                   |
+| `export-coding-handoff`      | 為一個外部編碼代理複製設計代幣、檔案，以及一段可直接貼上的提示 |
+
+### 完整應用程式建置（fusion，功能旗標閘控）{#full-app-building}
+
+位於 `full-app-building` 功能旗標之後，需要已連接 Builder.io，
+並設定一個分支專案 id。詳見下方的[完整應用程式建置](#full-app-building)。
+
+| Action                         | 功能說明                                                             |
+| ------------------------------ | -------------------------------------------------------------------- |
+| `create-fusion-app`            | 佈建一個 Builder Fusion 分支，並根據一個提示鷹架出一個真正的應用程式 |
+| `sync-fusion-app`              | 輪詢一個 fusion 分支的容器，取得它的預覽網址                         |
+| `add-fusion-screens`           | 為一個由 fusion 支援的設計新增畫面                                   |
+| `queue-fusion-edit`            | 為應用程式自己的編碼代理排入一個編輯佇列                             |
+| `list-fusion-edits`            | 列出已排入佇列和已套用的 fusion 編輯                                 |
+| `apply-fusion-edits`           | 把佇列中的編輯派送給應用程式的編碼代理                               |
+| `send-fusion-message`          | 傳送一則訊息給 fusion 應用程式的編碼代理                             |
+| `push-fusion-app`              | 推送一個 fusion 分支                                                 |
+| `deploy-fusion-app`            | 把一個 fusion 分支部署到一個真實網址                                 |
+| `get-fusion-deploy-status`     | 檢查一次部署的狀態                                                   |
+| `create-design-branch`         | 為一個由 fusion 支援的設計建立一個新分支                             |
+| `get-design-branch-diff`       | 把一個 fusion 分支與一個較早的版本進行差異比對                       |
+| `deploy-design-preview`        | 部署一個由 fusion 支援設計的預覽                                     |
+| `migrate-inline-design-to-app` | 把一個內嵌原型轉換成一個由 fusion 支援的應用程式                     |
+| `connect-builder-app`          | 開始 Builder.io OAuth 連線流程                                       |
+
+### Localhost 橋接（/visual-edit）
+
+| Action                            | 功能說明                                   |
+| --------------------------------- | ------------------------------------------ |
+| `connect-localhost`               | 把一個正在執行的本機應用程式註冊到一個設計 |
+| `list-localhost-connections`      | 列出已連接的本機應用程式                   |
+| `add-localhost-screens`           | 從一個已連接的本機應用程式新增畫面         |
+| `request-localhost-write-consent` | 請求寫回本機檔案的權限                     |
+| `grant-localhost-write-consent`   | 授予這項權限                               |
+| `revoke-localhost-write-consent`  | 撤銷這項權限                               |
+
+### 本機與程式碼來源編輯
+
+適用於由 localhost 和 fusion 支援的設計，這些設計底層的檔案
+不是內嵌的 HTML 資料列。
+
+| Action                      | 功能說明                               |
+| --------------------------- | -------------------------------------- |
+| `read-source-file`          | 讀取一個真正的來源檔案                 |
+| `apply-source-edit`         | 對一個真正的來源檔案套用一個編輯       |
+| `list-source-files`         | 列出一個真正應用程式的來源檔案         |
+| `get-code-layer-projection` | 把一個畫布圖層對應回它的來源位置       |
+| `read-local-file`           | 從一個已連接的本機應用程式讀取一個檔案 |
+| `write-local-file`          | 把一個檔案寫入一個已連接的本機應用程式 |
+| `list-local-files`          | 列出一個已連接本機應用程式的檔案       |
+
+### 情境與導覽
+
+| Action                | 功能說明                                               |
+| --------------------- | ------------------------------------------------------ |
+| `view-screen`         | 查看使用者目前正在看什麼，包括任何待決的問題或變體選擇 |
+| `get-design-snapshot` | 讀取一個設計目前的狀態，供一個外部代理接續處理         |
+| `navigate`            | 把 UI 移動到一個檢視、面板、分頁，或工具               |
+
+## 資料模型
+
+所有資料透過 Drizzle ORM 儲存在 SQL 中。架構：`templates/design/server/db/schema.ts`。設計和設計系統都帶有標準的 `ownableColumns`，以及一個對應的框架共用表，因此它們可以套入每使用者／每組織的共用模型。
+
+下表涵蓋核心的可擁有資源：設計、檔案、範本、版本，以及設計系統。
+
+| 資料表                                   | 它包含什麼                                                                                                                               |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `designs`                                | 一個設計專案 — `title`、`description`、`project_type`（`prototype` / `other`）、`data` JSON blob，以及一個選填的 `design_system_id` 連結 |
+| `design_files`                           | 屬於某個設計的個別檔案（`filename`、`content`、預設為 `html` 的 `file_type`）                                                            |
+| `design_templates`                       | 可重複使用的範本中繼資料、尺寸、預設值、來源設計參照，以及鎖定圖層數量                                                                   |
+| `design_template_files`                  | 當使用者從一個範本開始時，複製到一個普通可編輯設計中的快照範本檔案                                                                       |
+| `design_template_shares`                 | 供私人、組織、明確共用，以及公開範本探索使用的框架共用表                                                                                 |
+| `design_versions`                        | 一個設計在某個時間點的 `snapshot`，附有一個選填的 `label`，用於歷史紀錄和回滾                                                            |
+| `design_systems`                         | 可重複使用的品牌代幣 — `data`（顏色/版式/間距）、`assets`、`custom_instructions`，以及一個 `is_default` 旗標                             |
+| `design_shares` / `design_system_shares` | 把主體（使用者或組織）對應到角色（檢視者、編輯者、管理員）的框架共用表                                                                   |
+
+<DataModel
+  id="doc-block-design11"
+  title="設計資料模型"
+  summary={
+    "一個設計擁有自己的檔案和版本化快照，並可以選擇性地連結一個可重複使用的設計系統。設計和系統都是可擁有的，各自都有一個框架共用表。"
+  }
+  entities={[
+    {
+      id: "designs",
+      name: "designs",
+      note: "一個設計專案（可擁有）",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "project_type",
+          type: "text",
+          note: "prototype / other",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "起始值為 {}",
+        },
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "files",
+      name: "design_files",
+      note: "設計中的檔案",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "filename",
+          type: "text",
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "file_type",
+          type: "text",
+          note: "預設為 html",
+        },
+      ],
+    },
+    {
+      id: "versions",
+      name: "design_versions",
+      note: "歷史／回滾",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "snapshot",
+          type: "json",
+        },
+        {
+          name: "label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "systems",
+      name: "design_systems",
+      note: "可重複使用的品牌代幣（可擁有）",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "顏色／版式／間距",
+        },
+        {
+          name: "assets",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "design_shares",
+      name: "design_shares",
+      note: "框架共用表",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "system_shares",
+      name: "design_system_shares",
+      note: "框架共用表",
+      fields: [
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "designs",
+      to: "files",
+      kind: "1-n",
+    },
+    {
+      from: "designs",
+      to: "versions",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "designs",
+      kind: "1-n",
+      label: "套用於",
+    },
+    {
+      from: "designs",
+      to: "design_shares",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "system_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
+
+一個設計專案在有內容之前只是一個外殼：`create-design` 會建立一個空行
+（`data: "{}"`），然後 `generate-design` 會寫入真正獨立的 HTML/JSX 檔
+案。產生的成品、可編輯的來源，以及每一次匯出，全部都來自同一份 HTML，
+因此沒有一種獨立的「AI 模型」格式需要翻譯。一個已連結的設計系統會提供
+代幣和 `custom_instructions`，代理會在每一次產生時遵循它們。
+
+另外七個資料表支援本頁其他部分涵蓋的功能，而不是核心資源模型：
+`design_localhost_connections` 和 `design_localhost_write_grants` 支援
+[本機應用程式匯入](/docs/template-design-features#import)，
+`component_index` 支援[Design 分頁的元件區塊](/docs/template-design-features#design-tab)，
+`motion_timeline` 支援每個元素可編輯的動效時間軸（編輯器裡的動效
+dock），`design_state` 保存一個設計的具名替代狀態、靜態測試資料，以及
+真實應用程式的擷取畫面，`design_fusion_edits` 支援上方[完整應用程式建
+置](#full-app-building)所描述的 fusion 編輯佇列，`design_review_snapshot`
+則快取上方[品質](#quality)所描述、`get-design-review` 背後的無障礙檢查
+結果和視覺差異。
+
+持久化的審閱留言和討論串（`get-review-feedback`、
+`resolve-review-thread`，以及其他相關 action）完全不是一個 Design 專屬的
+資料表：它們是來自 `@agent-native/core/review` 的共用框架審閱系統
+（`agent_review_comments` / `agent_review_statuses`），以任何應用程式都
+能掛接的相同方式，範圍限定在一個設計上。使用者面的行為請參閱[留言分
+頁](/docs/template-design-features#comments-tab)。
+
+## 逐步解析一個 action
+
+`save-design-as-template` 展示了值得在任何 action 中重複使用的模式：在
+做任何工作之前先拒絕一個不支援的輸入形狀、防止儲存空內容、只重新對應
+id 一次而不是在每個讀取端各做一次，以及在一個交易中寫入兩個資料表，讓
+一個範本永遠不會落到只有中繼資料卻沒有檔案的狀態。
+
+<AnnotatedCode
+  id="doc-block-design-template-walkthrough"
+  title="儲存一個設計為範本"
+  filename="templates/design/actions/save-design-as-template.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        designSystemId:\n          typeof source.designSystemId === "string"\n            ? source.designSystemId\n            : null,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "42-45",
+      label: "只有編輯者能儲存它",
+      note: "resolveAccess() 會確認呼叫者確實能存取這個設計，角色檢查則會在任何快照工作開始之前，拒絕一個檢視者的請求。",
+    },
+    {
+      lines: "56-63",
+      label: "防範一個不支援的來源類型",
+      note: "一個由 fusion 或 localhost 支援的設計，它真正的檔案存在於這個資料庫列之外，因此在這裡把它儲存成範本，會悄悄產生一個空的或過時的副本。提前拒絕它，比一個悄悄失效的範本更省事，也更誠實。",
+    },
+    {
+      lines: "66-71",
+      label: "必須至少有一個真正的畫面",
+      note: "一個空的設計仍然會通過上面的每一項檢查，所以這裡會明確攔截它，而不是持久化一個沒有人能用的範本。",
+    },
+    {
+      lines: "78-84",
+      label: "檔案 id 只重新對應一次",
+      note: "fileIdMap 會為每個已儲存的檔案給予一個全新的 id，因此把同一個設計儲存成多個範本，或從多個帳號儲存，都不會在舊的 id 上發生衝突。",
+    },
+    {
+      lines: "94-129",
+      label: "一個交易，兩個資料表",
+      note: "範本的中繼資料列和它的檔案會一起插入。如果其中一半單獨失敗，讀取端就可能看到一個沒有檔案的範本，或是一批沒有所屬範本列的檔案。",
+    },
+  ]}
+/>
+
+## 編輯器模型
+
+Design 對多畫面工作採用總覽優先的方式。產生或進行大範圍更新後，編輯器會
+開啟畫面總覽：一個無限畫布，其中每個畫面都是可以選取、移動、調整大
+小、拖放，或複製的靜態框架。當某個畫面需要聚焦捲動或原型互動時，請使
+用該框架的完整檢視按鈕。
+
+單畫面模式用於捲動、與原型行為互動，以及編輯一個已渲染檔案內的
+DOM/程式碼圖層。圖層面板也反映這種分工：畫面是頂層框架，作用中畫面
+下方嵌套著 DOM/程式碼圖層。
+
+每個畫面都是同一份文件在不同寬度下的渲染結果，而不是每個中斷點各自的
+獨立副本：一個基準（最寬）框架會向下串聯，在一個較窄的作用中中斷點所
+做的編輯，會以寬度範圍的覆寫形式疊加在它上面並保留下來。
+
+## 編輯器擴充功能
+
+編輯器在 **Tweaks** 之後包含一個 **擴充功能**檢查器分頁。它就像一個 Design
+專屬的外掛通道：使用者可以點擊 **+ 擴充功能**，讓代理建立一個擴充功
+能，或安裝一個宣告 `design.editor.inspector` 插槽的擴充功能，使用框架
+的 `create-extension`、`add-extension-slot-target`，和 `install-extension`
+actions，而不是一個 Design 專屬的 action。
+
+Design 的擴充功能會透過標準的擴充功能沙盒，內嵌渲染在畫板旁邊。host 會透
+過 `window.slotContext` 和 `window.onSlotContext(...)` 更新，傳入目前的
+`designId`、作用中的檔案、畫面清單、已選取的畫面 id、已選取元素的中繼
+資料、檢視模式、縮放比例、作用中的工具，以及 tweak 值。這讓擴充功能可
+以顯示目前選取項目的資訊、提供樣式控制項，或圍繞著開啟中的設計，建立
+精簡的工作流程。
+
+對於確定性的工作，擴充功能可以透過擴充功能橋接呼叫應用程式的
+actions。對於由 AI 驅動的變更，讓擴充功能呼叫
+`agentNative.chat.send(...)`，並附上選取元素的 selector/source id 和要
+求的變更。代理應該先呼叫 `view-screen`，然後對元素的樣式、class、文
+字，或移動變更使用 `apply-visual-edit`，或對畫板放置變更，使用帶有
+`canvasFrames` 的 `update-design` / `generate-design`。sandbox、持久狀
+態，以及橋接 API，請參閱[擴充功能](/docs/extensions#capabilities)。
+
+## 路由參考
+
+<FileTree
+  id="doc-block-design12"
+  title="templates/design/：路由、結構描述和 skills"
+  entries={[
+    { path: "actions/", note: "~240 個檔案，每個代理可呼叫的操作各自一個檔案" },
+    { path: "app/routes/_index.tsx", note: "設計清單路由" },
+    { path: "app/routes/design.$id.tsx", note: "編輯器路由" },
+    { path: "app/routes/present.$id.tsx", note: "簡報／共用檢視" },
+    { path: "app/routes/templates.tsx", note: "範本頁面" },
+    {
+      path: "app/routes/design-systems.tsx",
+      note: "設計系統清單。design-systems_.setup.tsx 用於建立一個設計系統",
+    },
+    {
+      path: "app/routes/visual-edit.tsx",
+      note: "/visual-edit 本機應用程式橋接的到達路由",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "設計、檔案、版本、系統、共用的 Drizzle 結構描述，外加 7 個功能資料表",
+    },
+    {
+      path: ".agents/skills/design-generation/SKILL.md",
+      note: "五階段的產生流程、美感品質標準",
+    },
+    {
+      path: ".agents/skills/design-systems/SKILL.md",
+      note: "品牌代幣、Figma 匯入／讀取／貼上",
+    },
+    {
+      path: ".agents/skills/full-app-build/SKILL.md",
+      note: "功能旗標閘控的 fusion（完整應用程式）模式",
+    },
+  ]}
+/>
+
+`templates/design/app/routes/` 下的其他路由：`examples.tsx`、
+`extensions.tsx` 及其巢狀路由、`observability.tsx`，再加上
+`settings.tsx` 和 `team.tsx`。
+
+## 自訂它
+
+Design 是一個完整、可複製的範本。一些實際的擴充想法：
+
+- 「新增一個使用我們代幣和範例元件的可重複使用電子商務設計系統。」
+- 「新增一個匯出步驟，把 ZIP 上傳到我們的內部審核系統。」
+- 「讓我貼上既有的到達頁面 HTML，並向代理要求三個更強的版本。」
+- 「為產品頁面、儀表板和入門畫面簡報，新增一個已儲存的提示庫。」
+- 「新增一個自訂的 PDF 匯出預設，供利害關係人審核。」
+
+代理會視需要編輯路由、元件、actions，以及 SQL 支援的模型。完整的複
+製、自訂、部署流程請參閱[範本](/docs/cloneable-saas)，如果這是您第一
+個 Agent-Native 範本，請參閱[開始使用](/docs/getting-started)。
+
+## 接下來
+
+- [**Design**](/docs/template-design) — 總覽和入門步驟
+- [**功能**](/docs/template-design-features) — 這些 actions 和這個資料模型所驅動的使用者體驗行為
+- [**與 Agent 對話**](/docs/template-design-agent) — 代理如何在這些 actions 之間做選擇
+- [**Design 的跨應用使用**](/docs/template-design-integrations) — 這些 actions 如何公開給其他應用程式和外部代理
+- [**Actions**](/docs/actions-overview) — 這個範本所建立於其上的 action 系統
+- [**共用**](/docs/sharing) — `design_shares` 和 `design_system_shares` 所使用的共用授權模型
+- [**擴充功能**](/docs/extensions) — 編輯器擴充功能插槽背後的沙盒和橋接 API

@@ -1,0 +1,186 @@
+---
+title: "Clips einbetten"
+description: "Betten Sie das gehostete Clips mit einem Organisations-Service-Token, vorkonfiguriertem Videospeicher, kurzlebigen Intake-URLs und Abschlussnachrichten in Ihr Produkt ein."
+search: "Clips, einbetten, iframe, Organisations-Service-Token, anonyme Aufnahme, Intake, Builder, S3-Speicher, Self-Hosting"
+---
+
+# Clips einbetten
+
+Verwenden Sie gehostetes Clips als Aufnahme-Backend für Ihr Produkt. Eine Person kann aus einem iframe aufnehmen, ohne sich bei Clips anzumelden. Ihr Backend verwendet ein Organisations-Service-Token, um eine kurzlebige Intake-URL zu erstellen, und Clips speichert die entstehende Aufnahme im konfigurierten Speicher dieser Organisation.
+
+Diese Anleitung behandelt den gehosteten Einbettungsablauf. Die aufnehmende Person braucht dafür kein Clips-Konto.
+
+## Wie die Integration funktioniert
+
+Die Integration besteht aus vier Teilen:
+
+1. Ein Organisationsadmin konfiguriert den Videospeicher in Clips.
+2. Ihr Backend speichert das Organisations-Service-Token und fordert eine Intake-URL an.
+3. Ihr Produkt übergibt nur die kurzlebige Intake-URL an ein iframe.
+4. Clips lädt die Aufnahme in den Speicher der Organisation hoch und sendet eine Abschlussnachricht an Ihr Produkt.
+
+Das Organisations-Service-Token gehört niemals in das iframe. Es ist an die Organisation gebunden, die es geprägt hat, sodass das Token selbst den Organisationskontext liefert. Eine Organisations-ID ist nützlich für Ihre eigene Mandantenzuordnung, ist aber für sich allein kein Zugangsnachweis.
+
+## Die Clips-Organisation konfigurieren
+
+Erstellen oder wählen Sie die Clips-Organisation, der die Aufnahmen gehören sollen. Ein Organisationsadmin konfiguriert dann den Videospeicher über das Clips-Onboarding oder die Clips-Einstellungen:
+
+- **Builder.io Connect** stellt verwalteten Videospeicher und KI-Guthaben bereit.
+- **S3-kompatibler Speicher** verwendet den konfigurierten Endpunkt, Bucket, Access Key, Secret Key und optional die Region oder öffentliche Basis-URL der Organisation. Cloudflare R2 und DigitalOcean Spaces verwenden dieselben Speichereinstellungen mit ihren anbieterspezifischen Namen.
+
+Die Speicherkonfiguration ist organisationsbezogen. Jede Aufnahme, die über das Service-Token dieser Organisation erstellt wird, verwendet den Speicher, der bereits mit dieser Organisation verbunden ist. Das einbettende Produkt benötigt die Builder.io- oder S3-Zugangsdaten nicht.
+
+Das Video wird im konfigurierten Objektspeicher gespeichert. Clips speichert die Metadaten der Aufnahme, den Eigentümer, den Verarbeitungsstatus und die Speicherreferenz in seiner Datenbank.
+
+## Ein Organisations-Service-Token erstellen
+
+Führen Sie den vorhandenen Befehl `connect` als Organisations-Owner oder -Admin aus. Der Befehl öffnet eine Browser-Anmeldung, erstellt ein benanntes Service-Token für die aktive Organisation und gibt das Token einmalig aus:
+
+```bash
+npx @agent-native/core@latest connect https://clips.agent-native.com \
+  --service-token support-desk --ttl-days 365
+```
+
+Kopieren Sie das ausgegebene Token direkt in den serverseitigen Secret-Manager Ihres Produkts. Das Token gehört der Organisation, daher funktioniert es weiter, wenn die Person, die es geprägt hat, die Organisation verlässt oder ihre persönlichen Tokens widerruft. Es wird nie in eine lokale Client-Konfiguration geschrieben. Verwenden Sie für jede Integration einen anderen Servicenamen, damit ein Aufrufer widerrufen werden kann, ohne einen anderen zu beeinträchtigen.
+
+`--ttl-days` akzeptiert 1 bis 365 Tage und ist standardmäßig 365. Das Token verhält sich wie ein Organisationsmitglied. Es kann keine anderen Service-Tokens erstellen oder widerrufen und keine Organisationseinstellungen ändern.
+
+## Eine Intake-URL anfordern
+
+Ihr vertrauenswürdiges Backend ruft die Clips-Intake-Aktion auf. Verwenden Sie für gehostete Konten den gehosteten Clips-Origin, oder beim Self-Hosting Ihren eigenen Clips-Origin.
+
+```ts
+const clipsBaseUrl = "https://clips.agent-native.com";
+const clipsServiceToken = process.env.CLIPS_SERVICE_TOKEN;
+
+const response = await fetch(
+  `${clipsBaseUrl}/_agent-native/actions/create-recording-intake-link`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${clipsServiceToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ttlSeconds: 3600,
+    }),
+  },
+);
+
+if (!response.ok) {
+  throw new Error("Could not create a Clips intake URL");
+}
+
+const intake = await response.json();
+// intake.url is safe to pass to the recording iframe.
+```
+
+Der signierte Organisationskontext des Service-Tokens bestimmt, welcher Organisation das Intake gehört. Die Aktionsantwort ist das Intake-Objekt auf oberster Ebene. Die Standardlebensdauer des Intake ist eine Stunde. Das Maximum sind vier Stunden. Jede Intake-URL kann eine Aufnahme erstellen.
+
+Stellen Sie diese Anfrage nicht aus einem anonymen Browser. Geben Sie das Service-Token, Speicher-Zugangsdaten oder eine langlebige Clips-Sitzung nicht an den Browser zurück.
+
+## Den Rekorder einbetten
+
+Übergeben Sie die zurückgegebene URL direkt an ein iframe. Die URL enthält die eng begrenzte, signierte Berechtigung, die es dem Besucher erlaubt, eine private Aufnahme zu erstellen und hochzuladen.
+
+```tsx
+<iframe
+  data-clips-recorder
+  src={intake.url}
+  allow="display-capture; camera; microphone"
+  title="Report a problem"
+  style={{ width: 420, height: 560, border: 0 }}
+/>
+```
+
+Sie können der Intake-URL kleine, unkritische Kontextwerte hinzufügen, bevor Sie sie rendern, etwa eine Projekt-ID, einen Seitentitel, eine Anwendungsversion oder eine Umgebung. Legen Sie keine Passwörter, API-Schlüssel, Kundendaten oder andere sensiblen Werte in die URL. URLs können im Browser-Verlauf, in Logs, Analysen und Referrern auftauchen.
+
+Der Rekorder öffnet ein Popup der obersten Ebene, wenn der Besucher die Aufnahme startet. Browser-Medienberechtigungen und Bildschirmaufnahme erfordern eine Nutzergeste in einem Browsing-Kontext der obersten Ebene. Erlauben Sie während des Testens Popups für das Host-Produkt.
+
+## Die Abschlussnachricht empfangen
+
+Wenn die Aufnahme gespeichert ist, sendet die Fertig-Seite `agent-native.clips.bug-report.submitted` an das einbettende Elternfenster. Prüfen Sie den Clips-Origin und die Nachrichtenquelle, bevor Sie die Payload verwenden.
+
+```ts
+const clipsOrigin = new URL(clipsBaseUrl).origin;
+const recorderFrame = document.querySelector<HTMLIFrameElement>(
+  "iframe[data-clips-recorder]",
+);
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== clipsOrigin) return;
+  if (recorderFrame && event.source !== recorderFrame.contentWindow) return;
+  if (event.data?.type !== "agent-native.clips.bug-report.submitted") return;
+
+  const { recordingId, recordingUrl, embedUrl, agentAccessStatus } = event.data;
+  if (!recordingId) return;
+
+  // Send recordingId to your trusted backend and attach it to the support case.
+  console.log({ recordingId, recordingUrl, embedUrl, agentAccessStatus });
+});
+```
+
+Die Abschluss-Payload kann `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt` und `agentAccessStatus` enthalten. Behandeln Sie `recordingId` als den dauerhaften Bezeichner für den Support-Fall. Ein reines Write-Intake kann bis dahin `agentAccessStatus: "unavailable"` melden, bis Ihr authentifiziertes Backend einen separaten gescopten Agentenlink erstellt. Dieser Status bedeutet nicht, dass die Aufnahme leer ist.
+
+Die Browser-Nachricht ist eine Benachrichtigung, keine Autorisierung. Ihr Backend sollte seine eigene authentifizierte Verbindung zu Clips verwenden, wenn es die fertige Aufnahme lesen oder teilen muss.
+
+## Wo Aufnahmen gespeichert werden
+
+Aufnahmen, die über das Service-Token erstellt werden, gehören der Organisation, die mit diesem Token verknüpft ist. Clips schickt die Mediendatei durch seine normale Upload- und Abschluss-Pipeline. Die Pipeline verwendet den für diese Organisation konfigurierten Builder.io- oder S3-kompatiblen Speicher.
+
+Das iframe lädt nicht direkt in Ihren Bucket hoch und benötigt keine Bucket-Zugangsdaten. Ihr Produkt erhält Aufnahme-Bezeichner und gescopte URLs von Clips. Speichern Sie in Ihrem eigenen Support-System nur die Bezeichner oder URLs, die Sie brauchen.
+
+## Clips selbst hosten
+
+Self-Hosting verwendet denselben Organisationsvertrag:
+
+1. Stellen Sie Clips mit einer dauerhaften Datenbank und einer öffentlichen `BETTER_AUTH_URL` bereit.
+2. Erstellen Sie die Organisation, der die eingebetteten Aufnahmen gehören sollen.
+3. Konfigurieren Sie Builder.io Connect oder S3-kompatiblen Speicher einmal in dieser Organisation.
+4. Führen Sie `connect` gegen den selbst gehosteten Clips-Origin aus, um das Service-Token der Organisation zu erstellen.
+5. Stellen Sie dieses Token Ihrem einbettenden Backend einmalig als Deployment- oder Secret-Manager-Wert bereit.
+6. Verwenden Sie den selbst gehosteten Clips-Origin, wenn Ihr Backend Intake-URLs anfordert.
+
+```bash
+npx @agent-native/core@latest connect https://clips.example.com \
+  --service-token support-desk --ttl-days 365
+```
+
+Zum Beispiel kann das einbettende Backend diese Werte in seiner serverseitigen Konfiguration halten:
+
+```text
+CLIPS_BASE_URL=https://clips.example.com
+CLIPS_SERVICE_TOKEN=<secret>
+```
+
+Das Token wird dem Backend einmalig bereitgestellt. Jeder Besucher erhält weiterhin eine neue kurzlebige Intake-URL. Weder Token noch Speicher-Zugangsdaten werden dem iframe hinzugefügt, und es ist keine Änderung des iframe-Codes nötig, wenn das Token rotiert wird.
+
+Allgemeine Anforderungen an Self-Hosting finden Sie unter [Deployment](/docs/deployment).
+
+## Sicherheitscheckliste
+
+- Bewahren Sie das Organisations-Service-Token in einem serverseitigen Secret-Manager auf.
+- Verwenden Sie HTTPS sowohl für das Host-Produkt als auch für Clips.
+- Behandeln Sie jede Intake-URL als Bearer-Zugangsnachweis. Halten Sie sie aus Logs und Referrer-Daten heraus.
+- Verwenden Sie die kürzeste sinnvolle Intake-Lebensdauer.
+- Prüfen Sie sowohl `event.origin` als auch `event.source` im Abschluss-Listener.
+- Legen Sie die eigentümerbezogenen Upload-Endpunkte von Clips niemals direkt für anonyme Nutzer offen.
+- Rotieren Sie das Service-Token, indem Sie mit `connect` einen Ersatz erstellen, ihn bereitstellen, den Ablauf verifizieren und dann das alte Token mit `revoke-org-service-token` widerrufen.
+- Bewahren Sie die Organisations-ID und die Intake-ID beim vertrauenswürdigen Backend auf, statt vom Besucher gelieferten Werten zu vertrauen.
+
+## Fehlerbehebung
+
+**Die Intake-Anfrage ist nicht autorisiert.** Stellen Sie sicher, dass das Backend ein nicht abgelaufenes, nicht widerrufenes Service-Token verwendet, das für den vorgesehenen Clips-Origin geprägt wurde. Die Organisationsbindung des Tokens bestimmt, wo das Intake erstellt wird.
+
+**Das iframe öffnet eine Anmeldeseite.** Stellen Sie sicher, dass das iframe die kurzlebige URL verwendet, die von `create-recording-intake-link` zurückgegeben wird. Betten Sie für einen anonymen Besucher nicht `/record` oder eine normale Clips-Bibliotheks-URL ein.
+
+**Die Aufnahme wird nicht abgeschlossen.** Prüfen Sie, ob für die Organisation Builder.io- oder S3-kompatibler Speicher konfiguriert ist. Ein anonymer Besucher kann den Speicher nicht aus dem iframe heraus konfigurieren.
+
+**Der Abschluss hat keinen Agentenlink.** Das ist bei einem reinen Write-Intake zu erwarten. Lassen Sie Ihr authentifiziertes Backend einen separaten gescopten Agentenlink erstellen, wenn der Support-Workflow für Agenten lesbare Transkript- und Frame-Daten benötigt.
+
+## Wie geht es weiter?
+
+- [**Clips**](/docs/template-clips) — der Überblick und was es ersetzt
+- [**Entwicklerhandbuch**](/docs/template-clips-developers) — Schnellstart, Aktionen, Datenmodell und Routen für die vollständige App
+- [**Clips in einem Multi-App-Arbeitsbereich**](/docs/template-clips-integrations) — für Agenten lesbare Clips, Brain-Export und CRM-Anrufnachweise
+- [**Deployment**](/docs/deployment) — allgemeine Anforderungen an Self-Hosting

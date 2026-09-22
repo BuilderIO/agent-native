@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Sincronizando caixa de entrada…",
     },
+    sort: {
+      label: "Ordenar caixa de entrada",
+      newest: "Mais recentes",
+      priority: "Prioridade",
+      priorityFailed: "Não foi possível ordenar a caixa de entrada.",
+    },
     toolbar: {
       toggleMenu: "Alternar menu",
       menu: "Menu",
@@ -448,6 +454,8 @@ const messages = {
     aiFilter: {
       title: "Filtro de IA",
       subtitle: "Uma etiqueta reversível que aprende com suas decisões.",
+      rulesTitle: "Regras",
+      newRule: "Nova regra",
       lunaBadge: "Luna quando disponível",
       toggle: "Ativar filtro de IA",
       autoFilterTitle: "Filtrar automaticamente com alta confiança",
@@ -503,6 +511,11 @@ const messages = {
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
       spamMode: "Spam",
       tagMode: "Tag",
+      importantMode: "Importante",
+      importantLabel: "Importante por IA",
+      reviewImportant: "Ver importantes",
+      importantPlaceholder:
+        "ex.: mensagens que precisam de resposta ou têm prazo",
       ruleAdded: "Regra de IA adicionada.",
       instructionHelp: "Use linguagem natural",
       tagNamePlaceholder: "Nome da tag",
@@ -514,6 +527,7 @@ const messages = {
       previewTitle: "Prévia dos emails recentes",
       previewDescription:
         "Revise as 20 mensagens mais recentes da Caixa de entrada antes de ativar uma regra. Emails arquivados ou arquivados automaticamente nunca são avaliados.",
+      previewScope: "Somente Caixa de entrada · emails arquivados excluídos",
       previewButton: "Executar prévia",
       previewRunning: "Verificando emails recentes da Caixa de entrada…",
       jevBadge: "Jev",

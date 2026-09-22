@@ -16,6 +16,11 @@ use screencapturekit::audio_devices::AudioInputDevice;
 #[cfg(target_os = "macos")]
 use screencapturekit::cg::CGRect;
 #[cfg(target_os = "macos")]
+use screencapturekit::content_sharing_picker::{
+    SCContentSharingPicker, SCContentSharingPickerConfiguration, SCContentSharingPickerMode,
+    SCPickerOutcome,
+};
+#[cfg(target_os = "macos")]
 use screencapturekit::recording_output::{
     SCRecordingOutput, SCRecordingOutputCodec, SCRecordingOutputConfiguration,
     SCRecordingOutputDelegate, SCRecordingOutputFileType,
@@ -24,8 +29,11 @@ use screencapturekit::recording_output::{
 use screencapturekit::shareable_content::SCShareableContent;
 #[cfg(target_os = "macos")]
 use screencapturekit::stream::{
-    configuration::SCStreamConfiguration, content_filter::SCContentFilter,
-    output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, sc_stream::SCStream,
+    configuration::SCStreamConfiguration,
+    content_filter::{SCContentFilter, SCShareableContentStyle},
+    output_trait::SCStreamOutputTrait,
+    output_type::SCStreamOutputType,
+    sc_stream::SCStream,
 };
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
@@ -372,8 +380,9 @@ pub struct NativeCaptureRegion {
 }
 
 struct NativeFullscreenSession {
-    /// Active capture backend. `None` while paused — pause finalizes the
-    /// current segment and tears the backend down so the OS stops capturing.
+    /// Active capture backend. `None` while paused or waiting for recovery —
+    /// pause finalizes the current segment and tears the backend down so the
+    /// OS stops capturing.
     backend: Option<NativeFullscreenBackend>,
     /// Path the caller expects the final (single-file) recording at. When
     /// only one segment was recorded, this points directly at it. When the
@@ -403,6 +412,10 @@ struct NativeFullscreenSession {
     /// When the current pause began, if paused. Folded into `paused_total`
     /// on resume.
     paused_at: Option<Instant>,
+    /// A pause failure after backend teardown leaves the take paused for
+    /// recovery, but without a backend that can be resumed. Keep the error
+    /// explicit so Resume cannot treat that state as already running.
+    pause_failure: Option<String>,
     /// Info needed to spin up a fresh SCStream / screencapture child on
     /// resume so the new segment captures the same source with the same
     /// audio configuration as the initial start.
@@ -444,6 +457,10 @@ struct RestartInfo {
     segment_counter: u32,
     /// CGDirectDisplayID of the display to record. None = first available.
     target_display_id: Option<u32>,
+    /// CGWindowID of a selected window. Set only for native Window mode.
+    target_window_id: Option<u32>,
+    /// Pixel dimensions returned by the native picker for the selected window.
+    target_window_dimensions: Option<(u32, u32)>,
     /// Normalized display-relative capture rectangle for Region recordings.
     capture_region: Option<NativeCaptureRegion>,
 }
@@ -742,6 +759,20 @@ pub(crate) fn prepare_shared_clip_sink(
 
 #[cfg(target_os = "macos")]
 impl NativeFullscreenBackend {
+    /// Stop the physical capture source without closing the rolling writer.
+    /// Screen Memory uses this during short ownership handoffs so macOS does
+    /// not have two ScreenCaptureKit sessions competing while the native
+    /// content picker is being presented.
+    pub(crate) fn pause_capture_source(&self) -> Result<bool, String> {
+        match self {
+            Self::CustomScreenCaptureKit { resume, .. } => {
+                resume.pause()?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     /// Queue a local fMP4 fence without stopping the stream or recreating its
     /// writer. Only the custom segmented backend supports this; callers must
     /// treat unsupported capture backends as a hard local-buffer failure.
@@ -766,6 +797,13 @@ impl NativeFullscreenBackend {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+impl NativeFullscreenBackend {
+    pub(crate) fn pause_capture_source(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+}
+
 /// Start the custom ScreenCaptureKit path in local rolling-buffer mode.
 /// Unlike the ordinary recorder, this always selects delegate-fed fMP4 output
 /// and preserves microphone/system audio as separate tracks, regardless of
@@ -779,6 +817,8 @@ pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
@@ -790,9 +830,12 @@ pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
         mic_device_id,
         mic_device_label,
         target_display_id,
+        target_window_id,
+        target_window_dimensions,
         capture_region,
         defer_recording_output,
         true,
+        false,
         None,
     )
 }
@@ -1234,6 +1277,476 @@ pub struct NativeFullscreenStartInfo {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NativeWindowPickerSelection {
+    window_id: u32,
+    width: u32,
+    height: u32,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct WindowPickerRequests {
+    next_id: AtomicU64,
+    current: Mutex<Option<WindowPickerRequest>>,
+}
+
+#[cfg(target_os = "macos")]
+struct WindowPickerRequest {
+    attempt: Arc<WindowPickerAttempt>,
+    cancel: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+#[cfg(target_os = "macos")]
+struct WindowPickerAttempt {
+    id: u64,
+    started_at: Instant,
+    cancelled: AtomicBool,
+    live: AtomicBool,
+    finished: tokio::sync::watch::Sender<Option<Result<(), String>>>,
+}
+
+#[cfg(target_os = "macos")]
+impl WindowPickerAttempt {
+    fn log(&self, stage: &str) {
+        crate::logfile::diagnostic(&format!(
+            "[window-picker] request={} elapsed_ms={} {stage}",
+            self.id,
+            self.started_at.elapsed().as_millis()
+        ));
+    }
+
+    fn can_present(&self) -> bool {
+        self.live.load(Ordering::SeqCst) && !self.cancelled.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl WindowPickerRequests {
+    fn start(
+        &self,
+    ) -> Result<(Arc<WindowPickerAttempt>, tokio::sync::oneshot::Receiver<()>), String> {
+        let mut current = self.current.lock().map_err(|error| error.to_string())?;
+        if current.is_some() {
+            return Err("The macOS Window picker is already open.".to_string());
+        }
+        let attempt = Arc::new(WindowPickerAttempt {
+            id: self.next_id.fetch_add(1, Ordering::SeqCst) + 1,
+            started_at: Instant::now(),
+            cancelled: AtomicBool::new(false),
+            live: AtomicBool::new(true),
+            finished: tokio::sync::watch::channel(None).0,
+        });
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *current = Some(WindowPickerRequest {
+            attempt: Arc::clone(&attempt),
+            cancel: Some(tx),
+        });
+        Ok((attempt, rx))
+    }
+
+    fn cancel(&self) -> Result<Option<Arc<WindowPickerAttempt>>, String> {
+        let cancelled = {
+            let mut current = self.current.lock().map_err(|error| error.to_string())?;
+            current.as_mut().map(|request| {
+                request.attempt.cancelled.store(true, Ordering::SeqCst);
+                (Arc::clone(&request.attempt), request.cancel.take())
+            })
+        };
+        if let Some((attempt, tx)) = cancelled {
+            if let Some(tx) = tx {
+                attempt.log("cancellation requested");
+                let _ = tx.send(());
+            }
+            return Ok(Some(attempt));
+        }
+        Ok(None)
+    }
+
+    fn finish(&self, id: u64) -> Result<(), String> {
+        let mut current = self.current.lock().map_err(|error| error.to_string())?;
+        if current
+            .as_ref()
+            .is_some_and(|request| request.attempt.id == id)
+        {
+            *current = None;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn window_picker_requests() -> &'static WindowPickerRequests {
+    static REQUESTS: OnceLock<WindowPickerRequests> = OnceLock::new();
+    REQUESTS.get_or_init(WindowPickerRequests::default)
+}
+
+// The picker bridge queues presentation with DispatchQueue.main.async.
+// Dismissal must use that same FIFO, not Tauri's separate event-loop queue.
+#[cfg(target_os = "macos")]
+fn queue_window_picker_main(task: impl FnOnce() + Send + 'static) {
+    use std::ffi::c_void;
+    extern "C" {
+        static _dispatch_main_q: c_void;
+        fn dispatch_async_f(
+            queue: *const c_void,
+            context: *mut c_void,
+            work: extern "C" fn(*mut c_void),
+        );
+    }
+    extern "C" fn run(context: *mut c_void) {
+        // SAFETY: dispatch invokes this once with the Box allocated below.
+        let task = unsafe { Box::from_raw(context.cast::<Box<dyn FnOnce() + Send>>()) };
+        task();
+    }
+    let task: Box<Box<dyn FnOnce() + Send>> = Box::new(Box::new(task));
+    // SAFETY: libdispatch owns the process main queue; the callback owns task.
+    unsafe {
+        dispatch_async_f(&raw const _dispatch_main_q, Box::into_raw(task).cast(), run);
+    }
+}
+
+#[cfg(target_os = "macos")]
+const WINDOW_PICKER_DISPATCH_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[cfg(target_os = "macos")]
+async fn await_window_picker_main<T>(
+    attempt: &WindowPickerAttempt,
+    stage: &str,
+    rx: tokio::sync::oneshot::Receiver<T>,
+) -> Result<T, String> {
+    tokio::time::timeout(WINDOW_PICKER_DISPATCH_TIMEOUT, rx)
+        .await
+        .map_err(|_| {
+            attempt.log(&format!("{stage}: main queue timed out"));
+            format!("The macOS Window picker main queue timed out during {stage}.")
+        })?
+        .map_err(|_| format!("The macOS Window picker main queue stopped during {stage}."))
+}
+
+#[cfg(target_os = "macos")]
+struct WindowPickerStateGuard {
+    attempt: Arc<WindowPickerAttempt>,
+    dismissal_queued: bool,
+    completion: Option<Result<(), String>>,
+}
+
+#[cfg(target_os = "macos")]
+impl WindowPickerStateGuard {
+    fn dismiss(&mut self) -> tokio::sync::oneshot::Receiver<()> {
+        self.attempt.live.store(false, Ordering::SeqCst);
+        self.dismissal_queued = true;
+        let attempt = Arc::clone(&self.attempt);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        attempt.log("dismiss queued");
+        queue_window_picker_main(move || {
+            attempt.log("dismiss entered main queue");
+            SCContentSharingPicker::set_active(false);
+            attempt.log("dismiss completed");
+            let _ = tx.send(());
+        });
+        rx
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for WindowPickerStateGuard {
+    fn drop(&mut self) {
+        if !self.dismissal_queued {
+            let _ = self.dismiss();
+        }
+        if let Err(error) = window_picker_requests().finish(self.attempt.id) {
+            self.attempt.log(&format!("release failed: {error}"));
+            self.completion = Some(Err(error));
+        }
+        self.attempt
+            .finished
+            .send_replace(Some(self.completion.take().unwrap_or_else(|| {
+                Err(
+                    "The macOS Window picker request ended before dismissal was acknowledged."
+                        .to_string(),
+                )
+            })));
+        self.attempt.log("request released");
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn window_picker_active() -> bool {
+    window_picker_requests()
+        .current
+        .lock()
+        .expect("Window picker request state poisoned")
+        .is_some()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn window_picker_active() -> bool {
+    false
+}
+
+/// Cancel the native picker from the global Escape shortcut. macOS does not
+/// reliably deliver Escape to the picker observer when the tray app remains
+/// the active owner of the recording flow, so the command also wakes the
+/// Rust future directly instead of relying on the picker observer.
+#[cfg(target_os = "macos")]
+pub fn cancel_window_picker(_app: &AppHandle) {
+    // Called from hotkey callbacks too: never dispatch AppKit work or wait
+    // for dismissal while the Carbon callback is on the stack.
+    if let Err(error) = window_picker_requests().cancel() {
+        crate::logfile::diagnostic(&format!("[window-picker] cancel failed: {error}"));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn cancel_window_picker(_app: &AppHandle) {}
+
+/// Frontend cancellation waits until the picker releases its ownership before
+/// allowing a new recording attempt. Shortcut callbacks only signal it above.
+#[tauri::command]
+pub async fn cancel_native_window_picker() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if let Some(attempt) = window_picker_requests().cancel()? {
+        let mut finished = attempt.finished.subscribe();
+        let completion = tokio::time::timeout(
+            WINDOW_PICKER_DISPATCH_TIMEOUT + Duration::from_secs(1),
+            finished.wait_for(|value| value.is_some()),
+        )
+        .await
+        .map_err(|_| "The macOS Window picker cancellation did not settle.".to_string())?
+        .map_err(|_| "The macOS Window picker cancellation channel closed.".to_string())?;
+        return completion
+            .as_ref()
+            .expect("wait_for requires completion")
+            .clone();
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+async fn present_window_picker(
+    attempt: Arc<WindowPickerAttempt>,
+) -> Result<SCPickerOutcome, String> {
+    let (config_tx, config_rx) = tokio::sync::oneshot::channel();
+    let preparing = Arc::clone(&attempt);
+    attempt.log("prepare queued");
+    queue_window_picker_main(move || {
+        if !preparing.can_present() {
+            preparing.log("stale preparation skipped");
+            return;
+        }
+        preparing.log("prepare entered main queue");
+        SCContentSharingPicker::set_active(false);
+        let mut config = SCContentSharingPickerConfiguration::default_from_system();
+        config.set_allowed_picker_modes(&[SCContentSharingPickerMode::SingleWindow]);
+        config.set_allows_changing_selected_content(false);
+        config.set_excluded_bundle_ids(&["com.clips.tray"]);
+        preparing.log("configuration ready");
+        let _ = config_tx.send(config);
+    });
+    let config = await_window_picker_main(&attempt, "prepare", config_rx).await?;
+    let (outcome_tx, outcome_rx) = tokio::sync::oneshot::channel();
+    let callback_attempt = Arc::clone(&attempt);
+    attempt.log("present queued in bridge");
+    SCContentSharingPicker::show_using_style(
+        &config,
+        SCShareableContentStyle::Window,
+        move |outcome| {
+            callback_attempt.log(match &outcome {
+                SCPickerOutcome::Picked(_) => "callback picked",
+                SCPickerOutcome::Cancelled => "callback cancelled",
+                SCPickerOutcome::Error(_) => "callback error",
+            });
+            if outcome_tx.send(outcome).is_err() {
+                callback_attempt.log("late callback ignored");
+            }
+        },
+    );
+    // Enqueued after the bridge's present task, so this acknowledges actual
+    // main-queue progress rather than only the Rust FFI call returning.
+    let (present_tx, present_rx) = tokio::sync::oneshot::channel();
+    let presented = Arc::clone(&attempt);
+    queue_window_picker_main(move || {
+        presented.log("presentation main-queue fence reached");
+        let _ = present_tx.send(());
+    });
+    await_window_picker_main(&attempt, "present", present_rx).await?;
+    outcome_rx
+        .await
+        .map_err(|_| "The macOS Window picker closed unexpectedly.".to_string())
+}
+
+/// Show macOS's native single-window picker and remember the result for the
+/// native recorder. Keeping this outside the tray WebView avoids WebKit's
+/// `getDisplayMedia` handoff, which can leave a long-lived popover blank while
+/// the system sharing controls are still resolving.
+#[tauri::command]
+pub async fn show_window_picker(
+    app: AppHandle,
+) -> Result<Option<NativeWindowPickerSelection>, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        return Ok(None);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let (attempt, cancel_rx) = window_picker_requests().start().map_err(|error| {
+            crate::logfile::diagnostic(&format!("[window-picker] request rejected: {error}"));
+            error
+        })?;
+        let mut guard = WindowPickerStateGuard {
+            attempt: Arc::clone(&attempt),
+            dismissal_queued: false,
+            completion: None,
+        };
+        attempt.log("request acquired");
+        crate::state::SelectedRecordingWindow::set(&app, None);
+        let outcome = tokio::select! {
+            biased;
+            _ = cancel_rx => Ok(SCPickerOutcome::Cancelled),
+            outcome = async {
+                attempt.log("arming Escape");
+                tokio::time::timeout(
+                    WINDOW_PICKER_DISPATCH_TIMEOUT,
+                    crate::shortcuts::arm_window_picker_escape(&app),
+                ).await.map_err(|_| "The macOS Window picker Escape registration timed out.".to_string())??;
+                attempt.log("Escape armed");
+                present_window_picker(Arc::clone(&attempt)).await
+            } => outcome,
+        };
+
+        // Keep ownership until dismissal is acknowledged (or bounded out).
+        // No picker/state mutex is held while AppKit runs or this await parks.
+        let dismissal = guard.dismiss();
+        let completion = await_window_picker_main(&attempt, "dismiss", dismissal).await;
+        guard.completion = Some(completion.clone());
+        completion?;
+        let outcome = outcome.map_err(|error| {
+            attempt.log(&format!("failed: {error}"));
+            error
+        })?;
+        if attempt.cancelled.load(Ordering::SeqCst) {
+            attempt.log("returning Escape cancellation");
+            return Ok(None);
+        }
+        let selection = match outcome {
+            SCPickerOutcome::Cancelled => {
+                attempt.log("returning picker cancellation");
+                return Ok(None);
+            }
+            SCPickerOutcome::Error(error) => {
+                attempt.log(&format!("picker failed: {error}"));
+                return Err(error);
+            }
+            SCPickerOutcome::Picked(result) => {
+                let windows = result.windows();
+                attempt.log(&format!("result windows={}", windows.len()));
+                let Some(window) = windows.into_iter().last() else {
+                    return Err("The selected window is no longer available.".to_string());
+                };
+                let (width, height) = result.pixel_size();
+                if window.window_id() == 0 || width == 0 || height == 0 {
+                    return Err("The selected window has no capturable content.".to_string());
+                }
+                crate::state::RecordingWindowSelection {
+                    window_id: window.window_id(),
+                    width,
+                    height,
+                }
+            }
+        };
+        attempt.log(&format!(
+            "returning selection window={} width={} height={}",
+            selection.window_id, selection.width, selection.height
+        ));
+        crate::state::SelectedRecordingWindow::set(&app, Some(selection));
+        Ok(Some(NativeWindowPickerSelection {
+            window_id: selection.window_id,
+            width: selection.width,
+            height: selection.height,
+        }))
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod window_picker_tests {
+    use super::*;
+
+    #[test]
+    fn overlapping_request_cannot_replace_observer_or_cancel_sender() {
+        let requests = WindowPickerRequests::default();
+        let (first, mut cancelled) = requests.start().unwrap();
+        assert!(requests.start().is_err());
+        assert_eq!(requests.cancel().unwrap().unwrap().id, first.id);
+        assert!(cancelled.try_recv().is_ok());
+        assert!(
+            requests.start().is_err(),
+            "cancellation still owns dismissal"
+        );
+        requests.finish(first.id).unwrap();
+        assert!(requests.start().is_ok());
+    }
+
+    #[test]
+    fn cancellation_before_queued_preparation_prevents_presentation() {
+        let requests = WindowPickerRequests::default();
+        let (attempt, _cancelled) = requests.start().unwrap();
+        let queued_preparation = Arc::clone(&attempt);
+        requests.cancel().unwrap();
+        assert!(!queued_preparation.can_present());
+    }
+
+    #[test]
+    fn abandoned_preparation_cannot_run_after_request_is_released() {
+        let requests = WindowPickerRequests::default();
+        let (attempt, _cancelled) = requests.start().unwrap();
+        attempt.live.store(false, Ordering::SeqCst);
+        requests.finish(attempt.id).unwrap();
+        let (next, _cancelled) = requests.start().unwrap();
+        assert!(!attempt.can_present());
+        assert!(next.can_present());
+    }
+
+    #[test]
+    fn late_release_cannot_clear_new_request() {
+        let requests = WindowPickerRequests::default();
+        let (first, _cancelled) = requests.start().unwrap();
+        requests.finish(first.id).unwrap();
+        let (next, mut cancelled) = requests.start().unwrap();
+        requests.finish(first.id).unwrap();
+        assert_eq!(requests.cancel().unwrap().unwrap().id, next.id);
+        assert!(cancelled.try_recv().is_ok());
+    }
+
+    #[test]
+    fn repeated_cancellation_joins_same_request_until_dismissal() {
+        let requests = WindowPickerRequests::default();
+        let (attempt, mut cancelled) = requests.start().unwrap();
+        requests.cancel().unwrap();
+        assert!(cancelled.try_recv().is_ok());
+        assert_eq!(requests.cancel().unwrap().unwrap().id, attempt.id);
+        assert!(attempt.cancelled.load(Ordering::SeqCst));
+        assert!(requests.start().is_err());
+    }
+
+    #[tokio::test]
+    async fn cancellation_waiter_observes_completion_even_if_subscribed_late() {
+        let requests = WindowPickerRequests::default();
+        let (attempt, _cancelled) = requests.start().unwrap();
+        requests.cancel().unwrap();
+        requests.finish(attempt.id).unwrap();
+        attempt.finished.send_replace(Some(Ok(())));
+        let mut finished = attempt.finished.subscribe();
+        assert_eq!(
+            *finished.wait_for(|value| value.is_some()).await.unwrap(),
+            Some(Ok(()))
+        );
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NativeFullscreenUploadResult {
     pub(crate) recording_id: String,
     pub(crate) duration_ms: u128,
@@ -1458,6 +1971,10 @@ fn start_native_session_locked(
 ) -> Result<NativeFullscreenStartInfo, String> {
     let safe_id = sanitize_recording_id(recording_id);
     reset_native_upload_completion_state();
+    let window_selection = crate::state::SelectedRecordingWindow::get(app);
+    let target_window_id = window_selection.map(|selection| selection.window_id);
+    let target_window_dimensions =
+        window_selection.map(|selection| (selection.width, selection.height));
     let has_specific_mic = mic_device_id
         .as_deref()
         .is_some_and(|v| !v.trim().is_empty())
@@ -1471,6 +1988,8 @@ fn start_native_session_locked(
         capture_system_audio,
         mic_device_id.as_deref(),
         mic_device_label.as_deref(),
+        target_window_id,
+        target_window_dimensions,
         capture_region,
         defer_recording_output,
     ) {
@@ -1489,6 +2008,11 @@ fn start_native_session_locked(
                     "[clips-tray] ScreenCaptureKit recording unavailable due to screen-capture permission; not falling back to screencapture: {sck_err}"
                 );
                 return Err(permission_err);
+            }
+            if target_window_id.is_some() {
+                return Err(format!(
+                    "ScreenCaptureKit could not start the selected window recording: {sck_err}"
+                ));
             }
             if include_audio {
                 let mic_description = if has_specific_mic {
@@ -2457,6 +2981,7 @@ pub async fn native_fullscreen_recording_cancel(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
     preserve_display_override: Option<bool>,
+    preserve_window_override: Option<bool>,
 ) -> Result<(), String> {
     // Bump BEFORE taking the session: a warm task on a blocking-pool thread
     // may still be mid-setup right now, with nothing installed yet for this
@@ -2483,6 +3008,9 @@ pub async fn native_fullscreen_recording_cancel(
     if !preserve_display_override.unwrap_or(false) {
         crate::state::SelectedRecordingDisplay::set(&app, None);
     }
+    if !preserve_window_override.unwrap_or(false) {
+        crate::state::SelectedRecordingWindow::set(&app, None);
+    }
     Ok(())
 }
 
@@ -2500,6 +3028,11 @@ pub async fn native_fullscreen_recording_pause(
     let session = guard
         .as_mut()
         .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+    if let Some(error) = session.pause_failure.as_deref() {
+        return Err(format!(
+            "Recording pause needs recovery before another pause can be requested: {error}"
+        ));
+    }
     if session.paused_at.is_some() {
         return Ok(());
     }
@@ -2522,7 +3055,7 @@ pub async fn native_fullscreen_recording_pause(
             }) = session.backend.as_ref()
             {
                 if writer.segmented() && writer.is_started() {
-                    resume.pause();
+                    resume.pause()?;
                     true
                 } else {
                     false
@@ -2560,16 +3093,37 @@ pub async fn native_fullscreen_recording_pause(
         live.ctrl.cancelled.store(true, Ordering::SeqCst);
     }
     if session.backend.is_none() {
-        // No active backend means we're already paused (or never started).
-        eprintln!("[clips-tray] pause: no active backend; marking paused only");
-        session.paused_at = Some(Instant::now());
-        return Ok(());
+        return Err(mark_pause_failure(
+            session,
+            "Unable to pause recording safely: the capture backend is unavailable; the local recording was retained for recovery.",
+        ));
     }
     let stop_outcome = finalize_active_backend(session, true);
     if let Err(err) = &stop_outcome {
         eprintln!("[clips-tray] pause finalize reported an error: {err}");
+        return Err(mark_pause_failure(
+            session,
+            format!(
+                "Unable to pause recording safely: {err}. The local recording was retained for recovery."
+            ),
+        ));
     }
-    recover_from_unusable_current_segment(session, "pause", true);
+    if recover_from_unusable_current_segment(session, "pause", false) {
+        return Err(mark_pause_failure(
+            session,
+            "Unable to pause recording safely: the current segment was unusable; earlier local segments were retained for recovery.",
+        ));
+    }
+    if !session
+        .segments
+        .last()
+        .is_some_and(|path| playable_recording_file(path, session.mime_type))
+    {
+        return Err(mark_pause_failure(
+            session,
+            "Unable to pause recording safely: no usable local segment was finalized; the recording was retained for recovery.",
+        ));
+    }
     session.paused_at = Some(Instant::now());
     let current_segment_bytes = session
         .segments
@@ -2597,6 +3151,11 @@ pub async fn native_fullscreen_recording_resume(
     let session = guard
         .as_mut()
         .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+    if let Some(error) = session.pause_failure.as_deref() {
+        return Err(format!(
+            "Cannot resume recording after pause failed: {error} Stop recording to preserve the local take."
+        ));
+    }
     let Some(paused_at) = session.paused_at else {
         // Already running — nothing to do.
         return Ok(());
@@ -2676,6 +3235,8 @@ pub async fn native_fullscreen_recording_resume(
         restart.mic_device_label.as_deref(),
         &segment_path,
         restart.target_display_id,
+        restart.target_window_id,
+        restart.target_window_dimensions,
         restart.capture_region,
     )?;
     session.backend = Some(backend);
@@ -2773,6 +3334,8 @@ fn rotate_screencapturekit_segment(
             restart.mic_device_id.as_deref(),
             restart.mic_device_label.as_deref(),
             restart.target_display_id,
+            restart.target_window_id,
+            restart.target_window_dimensions,
             restart.capture_region,
             false,
             None,
@@ -2919,6 +3482,13 @@ fn finalize_active_backend(
     stop_native_recording(&mut backend, wait_for_finalize)
 }
 
+fn mark_pause_failure(session: &mut NativeFullscreenSession, message: impl Into<String>) -> String {
+    let message = message.into();
+    session.paused_at = Some(Instant::now());
+    session.pause_failure = Some(message.clone());
+    message
+}
+
 fn playable_recording_file(path: &Path, mime_type: &str) -> bool {
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.len() > 0 => {}
@@ -3028,6 +3598,7 @@ mod detached_discard_tests {
             lost_segment_duration: Duration::ZERO,
             lost_segment_count: 0,
             paused_at: None,
+            pause_failure: None,
             restart: RestartInfo {
                 safe_id: "test".to_string(),
                 include_audio: false,
@@ -3037,6 +3608,8 @@ mod detached_discard_tests {
                 mic_device_label: None,
                 segment_counter: 1,
                 target_display_id: None,
+                target_window_id: None,
+                target_window_dimensions: None,
                 capture_region: None,
             },
             pending_recording_output: false,
@@ -3117,6 +3690,8 @@ fn start_segment_backend(
     mic_device_label: Option<&str>,
     segment_path: &Path,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     #[cfg(target_os = "macos")]
@@ -3134,9 +3709,12 @@ fn start_segment_backend(
                     mic_device_id,
                     mic_device_label,
                     target_display_id,
+                    target_window_id,
+                    target_window_dimensions,
                     capture_region,
                     false,
                     false,
+                    true,
                     None,
                 )
             } else {
@@ -3148,6 +3726,8 @@ fn start_segment_backend(
                     mic_device_id,
                     mic_device_label,
                     target_display_id,
+                    target_window_id,
+                    target_window_dimensions,
                     capture_region,
                     false,
                     None,
@@ -3164,6 +3744,11 @@ fn start_segment_backend(
                     // so falling back here could race the same
                     // still-tearing-down session this guard exists to avoid.
                     return Err(sck_err);
+                }
+                if target_window_id.is_some() {
+                    return Err(format!(
+                        "ScreenCaptureKit could not resume the selected window recording: {sck_err}"
+                    ));
                 }
                 if let Some(permission_err) = should_skip_screencapture_fallback(&sck_err) {
                     eprintln!(
@@ -3214,6 +3799,8 @@ fn start_segment_backend(
             mic_device_label,
             segment_path,
             target_display_id,
+            target_window_id,
+            target_window_dimensions,
             capture_region,
         );
         Err("Native full-screen recording is currently macOS-only.".into())
@@ -3329,6 +3916,8 @@ pub(crate) fn start_screencapturekit_backend_at(
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
     // When true the SCStream is started WITHOUT attaching the recording
     // output — capture runs (warming the mic) but nothing is written until
@@ -3346,27 +3935,62 @@ pub(crate) fn start_screencapturekit_backend_at(
         None => SCShareableContent::get()
             .map_err(|e| format!("shareable content lookup failed: {e:?}"))?,
     };
+    let window = target_window_id.and_then(|id| {
+        content
+            .windows()
+            .into_iter()
+            .find(|candidate| candidate.window_id() == id)
+    });
+    if target_window_id.is_some() && window.is_none() {
+        return Err("The selected window is no longer available.".to_string());
+    }
     let displays = content.displays();
-    let display = target_display_id
-        .and_then(|id| displays.iter().find(|d| d.display_id() == id))
-        .or_else(|| displays.first())
-        .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
-
-    let source_width = display.width();
-    let source_height = display.height();
-    let region_rect = region_source_rect(capture_region, source_width, source_height)?;
+    let display = if window.is_none() {
+        Some(
+            target_display_id
+                .and_then(|id| displays.iter().find(|d| d.display_id() == id))
+                .or_else(|| displays.first())
+                .ok_or_else(|| {
+                    "No displays available for ScreenCaptureKit recording.".to_string()
+                })?,
+        )
+    } else {
+        None
+    };
+    let (source_width, source_height) = if let Some(window) = window.as_ref() {
+        target_window_dimensions.unwrap_or_else(|| {
+            let frame = window.frame();
+            (
+                frame.width.max(1.0).round() as u32,
+                frame.height.max(1.0).round() as u32,
+            )
+        })
+    } else {
+        let display = display.expect("display is present when no window is selected");
+        (display.width(), display.height())
+    };
+    let region_rect = if window.is_some() {
+        None
+    } else {
+        region_source_rect(capture_region, source_width, source_height)?
+    };
     let (capture_width, capture_height) = region_rect
         .as_ref()
         .map(|(_, width, height)| (*width, *height))
         .unwrap_or((source_width, source_height));
     let (width, height) = native_capture_dimensions(capture_width, capture_height);
-    let filter_builder = SCContentFilter::create()
-        .with_display(display)
-        .with_excluding_windows(&[]);
-    let filter = if let Some((rect, _, _)) = region_rect {
-        filter_builder.with_content_rect(rect).build()
+    let filter = if let Some(window) = window.as_ref() {
+        SCContentFilter::create().with_window(window).build()
     } else {
-        filter_builder.build()
+        let display = display.expect("display is present when no window is selected");
+        let filter_builder = SCContentFilter::create()
+            .with_display(display)
+            .with_excluding_windows(&[]);
+        if let Some((rect, _, _)) = region_rect {
+            filter_builder.with_content_rect(rect).build()
+        } else {
+            filter_builder.build()
+        }
     };
     let capture_microphone_in_recording = include_audio;
     let selected_mic = if capture_microphone_in_recording {
@@ -3468,7 +4092,8 @@ pub(crate) fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic_requested={include_audio} mic_recorded={capture_microphone_in_recording} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (source {source_width}x{source_height}, window={}), mic_requested={include_audio} mic_recorded={capture_microphone_in_recording} system_audio={capture_system_audio} deferred_output={defer_recording_output}",
+        target_window_id.is_some()
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
@@ -5298,6 +5923,8 @@ fn start_screencapturekit_recording(
     capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
 ) -> Result<NativeFullscreenSession, String> {
@@ -5335,9 +5962,12 @@ fn start_screencapturekit_recording(
             mic_device_id,
             mic_device_label,
             target_display_id,
+            target_window_id,
+            target_window_dimensions,
             capture_region,
             defer_recording_output,
             false,
+            true,
             take_prefetched_shareable_content(target_display_id),
         )?
     } else {
@@ -5349,6 +5979,8 @@ fn start_screencapturekit_recording(
             mic_device_id,
             mic_device_label,
             target_display_id,
+            target_window_id,
+            target_window_dimensions,
             capture_region,
             defer_recording_output,
             take_prefetched_shareable_content(target_display_id),
@@ -5370,6 +6002,8 @@ fn start_screencapturekit_recording(
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
             target_display_id,
+            target_window_id,
+            target_window_dimensions,
             capture_region,
         },
     );
@@ -5435,6 +6069,8 @@ fn start_screencapture_recording(
             mic_device_label: None,
             segment_counter: 0,
             target_display_id,
+            target_window_id: None,
+            target_window_dimensions: None,
             capture_region,
         },
     );
@@ -5475,6 +6111,7 @@ fn new_fullscreen_session(
         lost_segment_duration: Duration::ZERO,
         lost_segment_count: 0,
         paused_at: None,
+        pause_failure: None,
         restart,
         pending_recording_output: false,
         custom_pipeline,
@@ -9554,7 +10191,7 @@ mod audio_track_probe_tests {
 #[cfg(test)]
 mod segment_recovery_tests {
     use super::{
-        recover_from_unusable_current_segment, validate_recording_segment_file,
+        mark_pause_failure, recover_from_unusable_current_segment, validate_recording_segment_file,
         NativeFullscreenSession, RestartInfo, MP4_RECORDING_MIME_TYPE,
     };
     use std::io::Write;
@@ -9610,6 +10247,7 @@ mod segment_recovery_tests {
             lost_segment_duration: Duration::ZERO,
             lost_segment_count: 0,
             paused_at: None,
+            pause_failure: None,
             restart: RestartInfo {
                 safe_id: "test".to_string(),
                 include_audio: true,
@@ -9619,6 +10257,8 @@ mod segment_recovery_tests {
                 mic_device_label: None,
                 segment_counter: 0,
                 target_display_id: None,
+                target_window_id: None,
+                target_window_dimensions: None,
                 capture_region: None,
             },
             pending_recording_output: false,
@@ -9629,6 +10269,20 @@ mod segment_recovery_tests {
             had_live_upload: false,
             disk_monitor_stop: None,
         }
+    }
+
+    #[test]
+    fn failed_pause_enters_an_explicit_recoverable_state() {
+        let mut session = test_session(Vec::new());
+        let message = mark_pause_failure(&mut session, "backend finalize failed");
+
+        assert_eq!(message, "backend finalize failed");
+        assert!(session.paused_at.is_some());
+        assert_eq!(
+            session.pause_failure.as_deref(),
+            Some("backend finalize failed")
+        );
+        assert!(session.backend.is_none());
     }
 
     #[test]

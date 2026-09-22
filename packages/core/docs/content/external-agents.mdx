@@ -131,6 +131,41 @@ Every hosted app also has a helper page at
 host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, Grok, and
 Other.
 
+## Private Content links {#private-content-links}
+
+A private Content share link can identify the document without exposing its
+contents. Its agent-readable access information names two URLs on the same
+Content instance:
+
+```text
+https://<your-content-instance>/mcp
+https://<your-content-instance>/mcp/connect
+```
+
+Add the `/mcp` URL as a remote MCP server in your agent, authenticate with your
+Agent-Native account, enable the connection or its tools, and retry the original
+document request. The `/mcp/connect` page provides setup choices and copyable
+configuration; opening that page alone does not install a connection in the
+agent.
+
+This flow is host-neutral. Claude, ChatGPT, Claude Code, Codex, Cursor,
+Antigravity, OpenCode, GitHub Copilot / VS Code, and other MCP-capable hosts all
+connect to the same instance URL, while their configuration screens and
+authentication prompts differ. Use the host-specific sections below or the
+host's current MCP documentation when a client is not listed. Antigravity, for
+example, manages remote servers from **Settings → Customizations → Installed
+MCP Servers** or its MCP configuration file; Agent-Native's `connect` command
+does not currently write Antigravity configuration.
+
+Authentication identifies the connected account; it does not broaden document
+permissions. A public document remains readable from its share page without
+MCP. A private document becomes readable through MCP only when that account
+already has access. If `get-document` returns "not found" after connection, that
+response does not distinguish missing permission from a stale, deleted, or
+invalid document ID. Verify the link and connected account's access before
+changing permissions. Reinstalling the connector or changing the public share
+link does not resolve a confirmed account permission denial.
+
 <a id="access-tab"></a>
 
 ### The in-app MCP setting {#mcp-settings}

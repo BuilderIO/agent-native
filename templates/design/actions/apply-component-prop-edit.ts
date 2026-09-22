@@ -1201,7 +1201,11 @@ export default defineAction({
       }
     }
 
+    const isLinkedComponentAttributeEdit =
+      edit.kind === "attribute" &&
+      edit.attribute.startsWith(COMPONENT_PROP_PREFIX);
     if (
+      isLinkedComponentAttributeEdit ||
       edit.kind === "style" ||
       edit.kind === "styleBatch" ||
       edit.kind === "styleTargetsBatch" ||
@@ -1233,6 +1237,7 @@ export default defineAction({
           }
         | { kind: "resetOverrides" }
         | ComponentStructureEdit =
+        isLinkedComponentAttributeEdit ||
         edit.kind === "style" ||
         edit.kind === "textContent" ||
         edit.kind === "layerName"

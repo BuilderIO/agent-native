@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "受信トレイを同期中…",
     },
+    sort: {
+      label: "受信トレイを並べ替え",
+      newest: "新着順",
+      priority: "優先度",
+      priorityFailed: "受信トレイを並べ替えられませんでした。",
+    },
     toolbar: {
       toggleMenu: "メニューを切り替え",
       menu: "Menu",
@@ -451,6 +457,8 @@ const messages = {
     aiFilter: {
       title: "AI フィルター",
       subtitle: "判断から学習する、いつでも戻せるラベルです。",
+      rulesTitle: "ルール",
+      newRule: "新しいルール",
       lunaBadge: "Luna（利用可能な場合）",
       toggle: "AI フィルターを切り替え",
       autoFilterTitle: "確信度の高いメールを自動でフィルター",
@@ -502,6 +510,10 @@ const messages = {
       instructionFailed: "AI フィルターの指示を保存できませんでした。",
       spamMode: "スパム",
       tagMode: "タグ",
+      importantMode: "重要",
+      importantLabel: "AI重要",
+      reviewImportant: "重要を見る",
+      importantPlaceholder: "例：返信が必要なメールや期限のあるメール",
       ruleAdded: "AI ルールを追加しました。",
       instructionHelp: "自然な言葉で入力",
       tagNamePlaceholder: "タグ名",
@@ -512,6 +524,7 @@ const messages = {
       previewTitle: "最近のメールをプレビュー",
       previewDescription:
         "新しいルールを有効にする前に、受信トレイの最新20件を確認します。アーカイブ済み、または自動アーカイブされたメールは評価しません。",
+      previewScope: "受信トレイのみ · アーカイブ済みメールを除外",
       previewButton: "プレビューを実行",
       previewRunning: "最近の受信トレイを確認中…",
       jevBadge: "Jev",

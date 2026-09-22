@@ -96,7 +96,7 @@ describe("createCliTelemetry", () => {
     });
     telemetry.track("skills_cli started");
     await telemetry.flush();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const body = JSON.parse(
       (fetchMock.mock.calls[0][1] as RequestInit).body as string,
     );
@@ -124,8 +124,11 @@ describe("createCliTelemetry", () => {
     telemetry.track("skills_cli skills selected", { selectedCount: 2 });
     await telemetry.flush();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const [url, init] = fetchMock.mock.calls[0];
+    const canonicalBody = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    );
     expect(url).toBe("https://analytics.agent-native.com/track");
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body.publicKey).toBe("anpk_unit_test_key");
@@ -134,6 +137,11 @@ describe("createCliTelemetry", () => {
     expect(body.anonymousId).toBe(body.properties.installId);
     expect(body.properties.cli).toBe("skills-installer");
     expect(body.properties.selectedCount).toBe(2);
+    expect(canonicalBody.event).toBe("skills_cli_skills_selected");
+    expect(canonicalBody.properties).toMatchObject({
+      canonical_event_name: "skills_cli_skills_selected",
+      legacy_event_name: "skills_cli skills selected",
+    });
 
     fs.rmSync(home, { recursive: true, force: true });
   });

@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "इनबॉक्स सिंक हो रहा है…",
     },
+    sort: {
+      label: "इनबॉक्स क्रमित करें",
+      newest: "नवीनतम",
+      priority: "प्राथमिकता",
+      priorityFailed: "इनबॉक्स को क्रमित नहीं किया जा सका।",
+    },
     toolbar: {
       toggleMenu: "मेनू टॉगल करें",
       menu: "Menu",
@@ -448,6 +454,8 @@ const messages = {
     aiFilter: {
       title: "AI फ़िल्टर",
       subtitle: "एक ऐसा लेबल जिसे पलटा जा सकता है और जो आपके फ़ैसलों से सीखता है।",
+      rulesTitle: "नियम",
+      newRule: "नया नियम",
       lunaBadge: "उपलब्ध होने पर Luna",
       toggle: "AI फ़िल्टर चालू या बंद करें",
       autoFilterTitle: "उच्च भरोसे वाले संदेश अपने आप फ़िल्टर करें",
@@ -498,6 +506,10 @@ const messages = {
       instructionFailed: "AI फ़िल्टर निर्देश सहेजा नहीं जा सका।",
       spamMode: "स्पैम",
       tagMode: "टैग",
+      importantMode: "महत्वपूर्ण",
+      importantLabel: "AI महत्वपूर्ण",
+      reviewImportant: "महत्वपूर्ण देखें",
+      importantPlaceholder: "उदा. ऐसे संदेश जिनका जवाब देना है या जिनकी समय-सीमा है",
       ruleAdded: "AI नियम जोड़ा गया।",
       instructionHelp: "सामान्य भाषा का उपयोग करें",
       tagNamePlaceholder: "टैग का नाम",
@@ -508,6 +520,7 @@ const messages = {
       previewTitle: "हाल के ईमेल का पूर्वावलोकन",
       previewDescription:
         "नया नियम चालू करने से पहले इनबॉक्स के पिछले 20 संदेशों की समीक्षा करें। संग्रहीत या अपने-आप संग्रहीत ईमेल का मूल्यांकन कभी नहीं किया जाता।",
+      previewScope: "केवल इनबॉक्स · संग्रहीत मेल शामिल नहीं",
       previewButton: "पूर्वावलोकन चलाएँ",
       previewRunning: "हाल के इनबॉक्स ईमेल जाँचे जा रहे हैं…",
       jevBadge: "Jev",

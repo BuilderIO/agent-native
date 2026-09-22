@@ -25,6 +25,10 @@ import {
   type Resource,
 } from "../resources/store.js";
 import {
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
+import {
   deleteAutomationWebhookToken,
   readAutomationWebhookPath,
   saveAutomationWebhookToken,
@@ -79,6 +83,7 @@ export interface DefineAutomationInput {
   domain?: string;
   delegatedPolicyId?: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   executionHostId?: string;
   executionEngine?: string;
   executionCwd?: string;
@@ -98,6 +103,7 @@ export interface UpdateAutomationInput {
   schedule?: string;
   timezone?: string;
   model?: string | null;
+  reasoningEffort?: ReasoningEffort | null;
   executionHostId?: string | null;
   executionEngine?: string | null;
   executionCwd?: string | null;
@@ -439,6 +445,16 @@ export async function defineAutomation(
       ? input.timezone || (await resolveUserSchedulingTimezone(actor.userEmail))
       : undefined;
 
+  if (
+    input.reasoningEffort !== undefined &&
+    !isReasoningEffort(input.reasoningEffort)
+  ) {
+    throw httpError(
+      `Invalid reasoning effort "${input.reasoningEffort}".`,
+      400,
+    );
+  }
+
   const mcpTools = normalizeJobMcpTools(input.mcpTools);
   const executionHostId = normalizeExecutionTarget(
     input.executionHostId,
@@ -479,6 +495,7 @@ export async function defineAutomation(
         ? nextOccurrence(schedule, undefined, timezone).toISOString()
         : undefined,
     model: input.model?.trim() || undefined,
+    reasoningEffort: input.reasoningEffort,
     executionHostId,
     executionEngine,
     executionCwd,
@@ -588,6 +605,19 @@ export async function updateAutomation(
   if (input.model !== undefined) {
     meta.model = input.model?.trim() || undefined;
     fields.model = meta.model;
+  }
+  if (input.reasoningEffort !== undefined) {
+    if (
+      input.reasoningEffort !== null &&
+      !isReasoningEffort(input.reasoningEffort)
+    ) {
+      throw httpError(
+        `Invalid reasoning effort "${input.reasoningEffort}".`,
+        400,
+      );
+    }
+    meta.reasoningEffort = input.reasoningEffort ?? undefined;
+    fields.reasoningEffort = meta.reasoningEffort;
   }
   if (input.executionHostId !== undefined) {
     if (input.executionHostId && meta.triggerType !== "schedule") {

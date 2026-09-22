@@ -1,20 +1,29 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { ActionContractError } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   recordGenerationCreativeContext,
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -111,7 +120,9 @@ export default defineAction({
     parentId: z
       .string()
       .nullish()
-      .describe("Parent document ID for nesting; null creates a root page."),
+      .describe(
+        "Actual parent page ID for nesting; use spaceId or spaceName for a top-level root page. A workspace Files document ID is accepted as a top-level target for compatibility.",
+      ),
     icon: z.string().optional().describe("Optional emoji icon."),
     contextPackId: z
       .string()
@@ -193,21 +204,76 @@ export default defineAction({
       }
     }
 
-    const parentId = args.parentId || null;
+    let parentId = args.parentId || null;
     const icon = args.icon || null;
     const currentUserEmail = getRequestUserEmail();
     if (!currentUserEmail) throw new Error("no authenticated user");
+    const actor = requireDocumentRequestActor(ctx);
     let ownerEmail = currentUserEmail;
     let orgId = getRequestOrgId() ?? null;
     let visibility: "private" | "org" | "public" = "private";
     let hideFromSearch = 0;
     const db = getDb();
+    let rootSpaceId: string | null = null;
     let inheritedRole: "owner" | ShareRole = "owner";
     let inheritedShares: Array<{
       principalType: "user" | "group" | "org";
       principalId: string;
       role: ShareRole;
     }> = [];
+
+    if (parentId) {
+      const [filesTarget] = await db
+        .select({ spaceId: schema.contentDatabases.spaceId })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.documentId, parentId),
+            eq(schema.contentDatabases.systemRole, "files"),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (filesTarget?.spaceId) {
+        let canContribute = false;
+        try {
+          await resolveContentSpaceAccess(filesTarget.spaceId, "contributor", {
+            db,
+          });
+          canContribute = true;
+        } catch (error) {
+          if (
+            !(error instanceof ActionContractError) ||
+            !["FORBIDDEN", "SPACE_NOT_FOUND"].includes(error.errorCode)
+          ) {
+            throw error;
+          }
+          // An unauthorized Files target must behave like any other parent so
+          // its system role cannot be discovered through a conflict response.
+        }
+        if (canContribute) {
+          if (args.spaceId || args.spaceName) {
+            const explicitTarget = await resolveContentSpaceTarget({
+              db,
+              userEmail: currentUserEmail,
+              spaceId: args.spaceId,
+              spaceName: args.spaceName,
+            });
+            if (explicitTarget.spaceId !== filesTarget.spaceId) {
+              throw new ActionContractError(
+                "The Files document and workspace target must refer to the same Content space.",
+                { errorCode: "SPACE_TARGET_CONFLICT", statusCode: 409 },
+              );
+            }
+          }
+          rootSpaceId = filesTarget.spaceId;
+          parentId = null;
+        } else {
+          await assertAccess("document", parentId, "editor");
+          throw new ForbiddenError(`No access to document ${parentId}`);
+        }
+      }
+    }
 
     if (parentId) {
       const parentAccess = await assertAccess("document", parentId, "editor");
@@ -246,13 +312,17 @@ export default defineAction({
       }
       spaceId = parent.spaceId;
     } else {
-      const target = await resolveContentSpaceTarget({
-        db,
-        userEmail: currentUserEmail,
-        spaceId: args.spaceId,
-        spaceName: args.spaceName,
-      });
-      spaceId = target.spaceId;
+      if (rootSpaceId) {
+        spaceId = rootSpaceId;
+      } else {
+        const target = await resolveContentSpaceTarget({
+          db,
+          userEmail: currentUserEmail,
+          spaceId: args.spaceId,
+          spaceName: args.spaceName,
+        });
+        spaceId = target.spaceId;
+      }
       const spaceAccess = await resolveContentSpaceAccess(
         spaceId,
         "contributor",
@@ -301,6 +371,7 @@ export default defineAction({
             isFavorite: 0,
             hideFromSearch,
             visibility,
+            ...documentCreationAttribution(actor),
             createdAt: now,
             updatedAt: now,
           });

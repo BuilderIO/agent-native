@@ -223,15 +223,16 @@ export default defineAction({
             if (removeLabelId) removeLabelIds.push(removeLabelId);
           }
           const uniqueRemoveLabelIds = [...new Set(removeLabelIds)];
-          await gmailModifyThread(
+          const updated = (await gmailModifyThread(
             accessToken,
             resolvedThreadId,
             [addLabelId],
             uniqueRemoveLabelIds,
-          );
+          )) as { historyId?: string } | undefined;
           await syncInboxLabelDelta(ownerEmail, email, [resolvedThreadId], {
             add: [addLabelId],
             remove: uniqueRemoveLabelIds,
+            providerHistoryId: updated?.historyId,
           });
           success = true;
           break;

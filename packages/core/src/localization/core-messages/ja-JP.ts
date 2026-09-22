@@ -134,6 +134,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "共有キーを使用しています。",
   "agentPanel.useOrganizationKey": "組織のキーを使用",
   "agentPanel.keyStatusUnavailable": "キーの状態を取得できません。",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "このサイトのポップアップを許可してから、もう一度お試しください。",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT サブスクリプション",
+  "agentPanel.chatgptSubscriptionDescription":
+    "ChatGPT サブスクリプションによる実験的な Codex アクセス。",
+  "agentPanel.chatgptSubscriptionInUse": "使用中",
+  "agentPanel.chatgptSubscriptionConnected": "接続済み",
+  "agentPanel.chatgptSubscriptionConnecting": "接続中…",
+  "agentPanel.chatgptSubscriptionReconnect": "再接続",
+  "agentPanel.chatgptSubscriptionConnect": "ChatGPT を接続",
+  "agentPanel.chatgptSubscriptionUse": "チャットで使用",
+  "agentPanel.chatgptSubscriptionDisconnect": "接続解除",
   "agentHostNudge.sidebarTitle": "{{agent}}のチャットを使う",
   "agentHostNudge.sidebarDescription":
     "すでに{{agent}}とチャットしています。このアプリを直接操作するよう依頼できます。",

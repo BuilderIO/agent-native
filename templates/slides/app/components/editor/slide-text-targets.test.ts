@@ -298,6 +298,18 @@ describe("slide text targets", () => {
     expect(findSmartBlock(item, root)).toBe(block);
   });
 
+  it("keeps styled semantic bullet wrappers as one canvas block", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><div data-fmd-autofit-content><div data-builder-id="text" style="display:flex;align-items:baseline;gap:20px"><ul style="--slide-legacy-list:1;list-style:none;padding-left:0"><li style="display:flex;align-items:baseline;gap:20px;--slide-legacy-marker-content:\"●\""><p>First</p></li></ul></div></div></div>';
+
+    const block = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const paragraph = block.querySelector("p") as HTMLElement;
+
+    expect(isRichTextBlock(block)).toBe(true);
+    expect(findSmartBlock(paragraph, root)).toBe(block);
+  });
+
   it("keeps dividers inside one canvas text block", () => {
     const root = document.createElement("div");
     root.innerHTML =

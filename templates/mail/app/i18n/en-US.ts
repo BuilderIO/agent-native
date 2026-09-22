@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Syncing inbox…",
     },
+    sort: {
+      label: "Sort inbox",
+      newest: "Newest",
+      priority: "Priority",
+      priorityFailed: "Couldn’t rank this inbox.",
+    },
     toolbar: {
       toggleMenu: "Toggle menu",
       menu: "Menu",
@@ -446,6 +452,8 @@ const messages = {
     aiFilter: {
       title: "AI filter",
       subtitle: "A reversible label that learns from your decisions.",
+      rulesTitle: "Rules",
+      newRule: "New rule",
       lunaBadge: "Luna when available",
       toggle: "Toggle AI filter",
       autoFilterTitle: "Auto-filter high confidence",
@@ -498,16 +506,22 @@ const messages = {
       instructionFailed: "Could not save AI filter instruction.",
       spamMode: "Spam",
       tagMode: "Tag",
+      importantMode: "Important",
+      importantLabel: "AI Important",
+      reviewImportant: "View important",
       ruleAdded: "AI rule added.",
       instructionHelp: "Use plain language",
       tagNamePlaceholder: "Tag name",
       spamLabelHint: "Matches are labeled and moved out of Inbox.",
       spamPlaceholder: "e.g. Messages that are clearly promotional or unwanted",
       tagPlaceholder: "e.g. Receipts and order confirmations from online shops",
+      importantPlaceholder:
+        "e.g. Messages that need a reply or have a deadline",
       addShortcut: "Press ⌘ Enter to add",
       previewTitle: "Preview recent mail",
       previewDescription:
         "Review the last 20 Inbox messages before enabling a new rule. Archived and auto-archived mail is never sent for evaluation.",
+      previewScope: "Inbox only · archived excluded",
       previewButton: "Run preview",
       previewRunning: "Checking recent Inbox mail…",
       jevBadge: "Jev",

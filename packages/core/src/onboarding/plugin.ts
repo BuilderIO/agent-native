@@ -26,11 +26,7 @@ import {
 
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
-import {
-  cookieDomainAttrs,
-  crossSiteCookieAttrs,
-  getSession,
-} from "../server/auth.js";
+import { readBrowserSessionIdHeader } from "../server/agent-run-context.js";
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
@@ -43,7 +39,7 @@ import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
 } from "../shared/first-run-onboarding.js";
-import { track } from "../tracking/index.js";
+import { classifyTrackingFailure, track } from "../tracking/index.js";
 import { onboardingRoleSchema } from "../user-profile/shared.js";
 import { updateUserOnboardingRole } from "../user-profile/store.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
@@ -71,6 +67,7 @@ export interface OnboardingPluginOptions {
 async function resolveOnboardingContext(
   event: H3Event,
 ): Promise<OnboardingResolveContext> {
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
   if (!session) return { sessionId: "local" };
   return {
@@ -363,6 +360,8 @@ export function createOnboardingPlugin(
         }
         const context = await resolveOnboardingContext(event);
         if (!context.userEmail) return { firstRun: false };
+        const { cookieDomainAttrs, crossSiteCookieAttrs } =
+          await import("../server/auth.js");
 
         return withOnboardingRequestContext(context, async () => {
           const completed = await appStateGet(
@@ -416,7 +415,6 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
-
         const body = (await readBody(event)) as { role?: unknown } | null;
         const parsed = onboardingRoleSchema.safeParse(body?.role);
         if (!parsed.success) {
@@ -425,16 +423,43 @@ export function createOnboardingPlugin(
         }
 
         return withOnboardingRequestContext(context, async () => {
-          const savedRole = await updateUserOnboardingRole(
-            context.userEmail!,
-            parsed.data,
-          );
-          track(
-            "onboarding.role_selected",
-            { role: parsed.data },
-            { userId: context.userEmail },
-          );
-          return { ok: true, role: savedRole };
+          const sessionId = readBrowserSessionIdHeader(event);
+          const trackingSource = {
+            userId: context.userEmail!,
+            ...(sessionId ? { sessionId } : {}),
+          };
+          try {
+            const savedRole = await updateUserOnboardingRole(
+              context.userEmail!,
+              parsed.data,
+            );
+            track(
+              // Keep the established success event name so existing funnels
+              // remain comparable; the explicit outcome marks this as the
+              // server-confirmed save rather than a client intent.
+              "onboarding.role_selected",
+              {
+                flow: "first_run",
+                step_id: "role",
+                role: parsed.data,
+                outcome: "success",
+              },
+              trackingSource,
+            );
+            return { ok: true, role: savedRole };
+          } catch (error) {
+            track(
+              "onboarding_role_save_failed",
+              {
+                flow: "first_run",
+                step_id: "role",
+                role: parsed.data,
+                failure_type: classifyTrackingFailure(error),
+              },
+              trackingSource,
+            );
+            throw error;
+          }
         });
       }),
     );
@@ -452,6 +477,8 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
+        const { cookieDomainAttrs, crossSiteCookieAttrs } =
+          await import("../server/auth.js");
         await appStatePut(
           context.sessionId,
           FIRST_RUN_ONBOARDING_COMPLETED_KEY,

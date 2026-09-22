@@ -301,10 +301,10 @@ folding framework chrome into the product UI.
   the main question. Use \`create-prototype-plan\`, which still preserves static
   mocks where useful.
 
-For mixed canvas + prototype plans, reuse the same real labels, app statuses,
-and screen ids across both surfaces. The canvas is the inspectable static reference;
-the prototype is the interactive version of that same flow, not a separate
-design direction.
+For mixed canvas + prototype plans, reuse labels and IDs; patch surfaces
+together unless explicitly single-surface. For output audits, read the
+observability skill: support single-app and workspace tables, preserve app
+previews, and keep audit, synthesis, diffs, and applying changes admin-gated.
 
 Treat “higher fidelity,” “pixel-accurate,” “polished mockup,” “production-like,”
 “real design,” and “not a sketch/wireframe” as design-first language even when

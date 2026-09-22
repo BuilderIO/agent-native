@@ -26,10 +26,9 @@ import {
  * once it becomes a child of "Project card"? Every step below asserts the
  * FULL tree, not just the newest node.
  *
- * No-Figma-equivalent features recorded as findings, not tests: "Create
- * multiple components" (step 9) and "Move to page -> Components" (step 10)
- * — Design has no component or page/canvas system (see parity-tutorial-1/2/5
- * for the established single-object Cmd+Opt+K annotation precedent).
+ * Native Create component is available for the single-selection step 9. The
+ * Figma-only "Move to page -> Components" step 10 remains absent because
+ * Design has no page/canvas system.
  */
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -805,7 +804,7 @@ test.describe("tutorial 7 — card and container system", () => {
     ).toEqual(["Content"]);
   });
 
-  test("no-equivalent: 'Create multiple components' in one action and 'Move to page' are absent from the layer context menu", async ({
+  test("native Create component is available while page moves remain absent", async ({
     page,
     request,
   }) => {
@@ -820,9 +819,9 @@ test.describe("tutorial 7 — card and container system", () => {
     if (await menu.count()) {
       const items = await menu.getByRole("menuitem").allTextContents();
       expect(
-        items.some((i) => /create.*component/i.test(i)),
+        items.some((i) => /create\s+component/i.test(i)),
         `context menu items: ${JSON.stringify(items)}`,
-      ).toBe(false);
+      ).toBe(true);
       expect(
         items.some((i) => /move to page/i.test(i)),
         `context menu items: ${JSON.stringify(items)}`,

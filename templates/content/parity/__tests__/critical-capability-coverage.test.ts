@@ -15,6 +15,7 @@ const priorityCapabilityIds = [
   "local-files.import-export-mounted-folder",
   "sharing.document-discoverability-and-export",
   "source-sync.builder-cms-review-and-write-gates",
+  "trash.search-preview-and-purge",
 ] as const;
 
 describe("Content parity critical capability coverage", () => {

@@ -20,7 +20,11 @@ vi.mock("./analytics.js", () => ({
   trackSessionStatus: vi.fn(),
 }));
 
-import { clearActiveRun, getActiveRun } from "./active-run-state.js";
+import {
+  clearActiveRun,
+  getActiveRun,
+  setActiveRun,
+} from "./active-run-state.js";
 import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
@@ -3181,6 +3185,41 @@ describe("waitForThreadRunToClear", () => {
       threadId: "thread-deferred-successor",
       runId: "run-deferred-successor",
       lastSeq: -1,
+    });
+  });
+
+  it("preserves the existing stream owner while a queued surface waits", async () => {
+    setActiveRun({
+      threadId: "thread-owned",
+      runId: "run-owned",
+      tabId: "original-surface",
+      lastSeq: 7,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          active: true,
+          runId: "run-owned",
+          threadId: "thread-owned",
+          status: "running",
+          dispatchMode: "background",
+          awaitingRedispatch: true,
+          lastProgressAt: Date.now(),
+          serverNow: Date.now(),
+        }),
+      })),
+    );
+
+    await expect(
+      waitForThreadRunToClear("/_agent-native/agent-chat", "thread-owned"),
+    ).resolves.toBe(false);
+    expect(getActiveRun()).toEqual({
+      threadId: "thread-owned",
+      runId: "run-owned",
+      tabId: "original-surface",
+      lastSeq: 7,
     });
   });
 

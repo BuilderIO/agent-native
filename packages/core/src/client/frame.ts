@@ -1,4 +1,6 @@
+import { toPublicFrameworkPath } from "../shared/framework-route-prefix.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+import { frameworkRoutePrefix, isFrameworkRoutePath } from "./api-path.js";
 import { agentNativePath } from "./api-path.js";
 
 /**
@@ -255,7 +257,7 @@ function shouldUseWorkspaceCallbackRelay(path: string): boolean {
     window.__AGENT_NATIVE_CONFIG__?.workspaceRuntime === true;
   return (
     (projectedWorkspaceRuntime || envFlag("VITE_AGENT_NATIVE_WORKSPACE")) &&
-    path.startsWith("/_agent-native/") &&
+    isFrameworkRoutePath(path) &&
     (path.endsWith("/callback") || path.includes("/callback/"))
   );
 }
@@ -271,8 +273,12 @@ export function oauthRedirectUri(callbackPath: string): string {
   const normalized = callbackPath.startsWith("/")
     ? callbackPath
     : `/${callbackPath}`;
+  // The relay skips the app mount but still speaks the deployment's public
+  // namespace: the gateway routes only the configured prefix.
   const path = shouldUseWorkspaceCallbackRelay(normalized)
-    ? normalized
+    ? toPublicFrameworkPath(normalized, {
+        publicPrefix: frameworkRoutePrefix(),
+      })
     : agentNativePath(normalized);
   const oauthOrigin = shouldUseWorkspaceCallbackRelay(normalized)
     ? workspaceOAuthOrigin()

@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Synchronisation de la boîte...",
     },
+    sort: {
+      label: "Trier la boîte de réception",
+      newest: "Plus récents",
+      priority: "Priorité",
+      priorityFailed: "Impossible de trier la boîte de réception.",
+    },
     toolbar: {
       toggleMenu: "Basculer le menu",
       menu: "Menu",
@@ -452,6 +458,8 @@ const messages = {
     aiFilter: {
       title: "Filtre IA",
       subtitle: "Un libellé réversible qui apprend de vos décisions.",
+      rulesTitle: "Règles",
+      newRule: "Nouvelle règle",
       lunaBadge: "Luna si disponible",
       toggle: "Activer le filtre IA",
       autoFilterTitle: "Filtrer automatiquement avec une confiance élevée",
@@ -507,6 +515,11 @@ const messages = {
       instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
       spamMode: "Indésirable",
       tagMode: "Tag",
+      importantMode: "Important",
+      importantLabel: "Important par IA",
+      reviewImportant: "Voir les importants",
+      importantPlaceholder:
+        "ex. Messages nécessitant une réponse ou comportant une échéance",
       ruleAdded: "Règle IA ajoutée.",
       instructionHelp: "Utilisez le langage naturel",
       tagNamePlaceholder: "Nom du tag",
@@ -519,6 +532,7 @@ const messages = {
       previewTitle: "Prévisualiser les emails récents",
       previewDescription:
         "Examinez les 20 derniers messages de la boîte de réception avant d’activer une règle. Les emails archivés ou archivés automatiquement ne sont jamais évalués.",
+      previewScope: "Boîte de réception uniquement · e-mails archivés exclus",
       previewButton: "Lancer la prévisualisation",
       previewRunning: "Vérification des emails récents…",
       jevBadge: "Jev",

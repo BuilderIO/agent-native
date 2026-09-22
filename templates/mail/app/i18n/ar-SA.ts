@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "جارٍ مزامنة الوارد…",
     },
+    sort: {
+      label: "ترتيب الوارد",
+      newest: "الأحدث",
+      priority: "الأولوية",
+      priorityFailed: "تعذّر ترتيب الوارد.",
+    },
     toolbar: {
       toggleMenu: "تبديل القائمة",
       menu: "Menu",
@@ -447,6 +453,8 @@ const messages = {
     aiFilter: {
       title: "فلتر الذكاء الاصطناعي",
       subtitle: "تصنيف قابل للعكس يتعلم من قراراتك.",
+      rulesTitle: "القواعد",
+      newRule: "قاعدة جديدة",
       lunaBadge: "Luna عند توفرها",
       toggle: "تبديل فلتر الذكاء الاصطناعي",
       autoFilterTitle: "تصفية تلقائية بدرجة ثقة عالية",
@@ -498,6 +506,10 @@ const messages = {
       instructionFailed: "تعذّر حفظ تعليمات فلتر الذكاء الاصطناعي.",
       spamMode: "مزعج",
       tagMode: "وسم",
+      importantMode: "مهم",
+      importantLabel: "مهم بالذكاء الاصطناعي",
+      reviewImportant: "عرض المهم",
+      importantPlaceholder: "مثال: الرسائل التي تحتاج إلى رد أو لها موعد نهائي",
       ruleAdded: "تمت إضافة قاعدة الذكاء الاصطناعي.",
       instructionHelp: "استخدم لغة طبيعية",
       tagNamePlaceholder: "اسم الوسم",
@@ -508,6 +520,7 @@ const messages = {
       previewTitle: "معاينة البريد الأخير",
       previewDescription:
         "راجع آخر 20 رسالة في الوارد قبل تفعيل قاعدة جديدة. لا يُرسل البريد المؤرشف أو المؤرشف تلقائيًا للتقييم.",
+      previewScope: "الوارد فقط · البريد المؤرشف مستبعد",
       previewButton: "تشغيل المعاينة",
       previewRunning: "جارٍ فحص بريد الوارد الأخير…",
       jevBadge: "Jev",

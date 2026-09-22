@@ -98,6 +98,32 @@ export const DESIGN_SAVE_OUTBOX_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 let databasePromise: Promise<IDBDatabase> | null = null;
 
+const outboxOperationChains = new WeakMap<
+  DesignSaveOutboxStorage,
+  Map<string, Promise<void>>
+>();
+
+function enqueueOutboxOperation<T>(
+  storage: DesignSaveOutboxStorage,
+  key: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const chains =
+    outboxOperationChains.get(storage) ?? new Map<string, Promise<void>>();
+  outboxOperationChains.set(storage, chains);
+  const previous = chains.get(key) ?? Promise.resolve();
+  const current = previous.then(operation);
+  const settled = current.then(
+    () => undefined,
+    () => undefined,
+  );
+  chains.set(key, settled);
+  void settled.then(() => {
+    if (chains.get(key) === settled) chains.delete(key);
+  });
+  return current;
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") {
     return Promise.reject(
@@ -301,21 +327,27 @@ export async function journalDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
 ): Promise<void> {
-  await storage.putLatest(entry);
+  await enqueueOutboxOperation(storage, entry.key, () =>
+    storage.putLatest(entry),
+  );
 }
 
 export async function acknowledgeDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
 ): Promise<boolean> {
-  return await storage.deleteIfRevision(entry);
+  return await enqueueOutboxOperation(storage, entry.key, () =>
+    storage.deleteIfRevision(entry),
+  );
 }
 
 export async function discardDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
 ): Promise<boolean> {
-  return await storage.deleteIfRevision(entry);
+  return await enqueueOutboxOperation(storage, entry.key, () =>
+    storage.deleteIfRevision(entry),
+  );
 }
 
 /** A save requires an explicit acknowledgement. A supplied hash must match

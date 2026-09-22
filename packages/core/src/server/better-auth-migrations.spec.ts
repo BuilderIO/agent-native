@@ -113,4 +113,34 @@ describe("Better Auth migrations", () => {
     await db.exec(postgresSql("better-auth-jwks-alg-crv-columns"));
     await db.close();
   });
+
+  it("provisions opt-in TOTP storage without replacing existing users", async () => {
+    const db = await createTestPglite();
+    await db.exec(
+      `CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE);
+       INSERT INTO "user" (id, email) VALUES ('user-1', 'user@example.com')`,
+    );
+    await db.exec(postgresSql("better-auth-two-factor-tables"));
+    await db.exec(postgresSql("better-auth-two-factor-tables"));
+    await expect(
+      db
+        .prepare('SELECT two_factor_enabled FROM "user" WHERE id = ?')
+        .get("user-1"),
+    ).resolves.toMatchObject({ two_factor_enabled: false });
+    const columns = await db
+      .prepare(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'twoFactor' ORDER BY ordinal_position",
+      )
+      .all();
+    expect(columns.map((column) => column.column_name)).toEqual([
+      "id",
+      "secret",
+      "backup_codes",
+      "user_id",
+      "verified",
+      "failed_verification_count",
+      "locked_until",
+    ]);
+    await db.close();
+  });
 });

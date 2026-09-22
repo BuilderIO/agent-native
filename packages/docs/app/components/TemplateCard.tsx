@@ -150,7 +150,6 @@ export const featuredTemplates = [
   "mail",
   "assets",
   "content",
-  "chat",
   "dispatch",
   "forms",
   "plan",

@@ -54,6 +54,8 @@ import {
   boardSurfaceLocalPointToBoardPoint,
   getBoardSurfaceRenderGeometry,
   getBoardSurfaceLayerStyle,
+  getBoardSurfaceStaticPreviewClip,
+  getBoardSurfaceStaticPreviewTransform,
   getBoardSurfaceStaticPreviewViewport,
   shouldRenderBoardSurfaceStaticPreview,
   SURFACE_PADDING,
@@ -74,6 +76,7 @@ import {
   vectorEditCanvasToLocalPoint,
   vectorEditLocalToCanvasPoint,
 } from "./multi-screen/vector-edit-geometry";
+import { isApplePlatform } from "./MultiScreenCanvas";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -85,6 +88,37 @@ type ScreenStub = {
   content: string;
   codeLayerSource?: CodeLayerSource;
 };
+
+describe("isApplePlatform", () => {
+  it("follows the physical platform over an emulated user-agent platform", () => {
+    const originalPlatform = navigator.platform;
+    const originalUserAgentData = (
+      navigator as Navigator & { userAgentData?: { platform?: string } }
+    ).userAgentData;
+
+    try {
+      Object.defineProperty(navigator, "platform", {
+        configurable: true,
+        value: "Win32",
+      });
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: { platform: "MacIntel" },
+      });
+
+      expect(isApplePlatform()).toBe(false);
+    } finally {
+      Object.defineProperty(navigator, "platform", {
+        configurable: true,
+        value: originalPlatform,
+      });
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: originalUserAgentData,
+      });
+    }
+  });
+});
 
 function makeGeom(x: number, y: number, w: number, h: number): FrameGeometry {
   return { x, y, width: w, height: h };
@@ -306,6 +340,34 @@ describe("board surface pointer capture", () => {
     expect(content).toContain("transition:none!important");
   });
 
+  it("clips the static board preview to the camera window", () => {
+    expect(
+      getBoardSurfaceStaticPreviewClip({
+        logicalGeometry: makeGeom(-65_536, -65_536, 131_072, 131_072),
+        viewportGeometry: makeGeom(-36_000, -22_500, 72_000, 45_000),
+      }),
+    ).toBe("inset(43036px 29536px 43036px 29536px)");
+  });
+
+  it("maps the sampled board directly into viewport pixels", () => {
+    expect(
+      getBoardSurfaceStaticPreviewTransform({
+        logicalGeometry: makeGeom(-65_536, -65_536, 131_072, 131_072),
+        viewport: { width: 4096, height: 4096 },
+        pan: { x: 400, y: 300 },
+        zoom: 3.125,
+      }),
+    ).toBe("translate(-1640.5px, -1740.5px) scale(1, 1)");
+    expect(
+      getBoardSurfaceStaticPreviewTransform({
+        logicalGeometry: makeGeom(0, 0, 100, 200),
+        viewport: { width: 100, height: 200 },
+        pan: { x: -100, y: -100 },
+        zoom: 50,
+      }),
+    ).toBe("translate(20px, 20px) scale(0.5, 0.5)");
+  });
+
   it("round-trips board drag and hit-test points through the finite iframe origin", () => {
     const renderGeometry = makeGeom(-4096, -4096, 8192, 8192);
     for (const boardPoint of [
@@ -349,6 +411,17 @@ describe("board surface pointer capture", () => {
         hasSurfaceContent: false,
         viewportGeometry: null,
         renderGeometry: active,
+      }),
+    ).toBe(false);
+  });
+
+  it("waits for a measured viewport before enabling the opaque board replica", () => {
+    expect(
+      shouldRenderBoardSurfaceStaticPreview({
+        zoom: 2,
+        hasSurfaceContent: true,
+        viewportGeometry: null,
+        renderGeometry: makeGeom(-4096, -4096, 8192, 8192),
       }),
     ).toBe(false);
   });

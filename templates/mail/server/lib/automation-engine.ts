@@ -24,6 +24,11 @@ import {
   type AiFilterPreviewRule,
   type AiFilterState,
 } from "@shared/ai-filter.js";
+import {
+  AI_PRIORITY_DEFAULT_INSTRUCTION,
+  type AiPriorityEmail,
+} from "@shared/ai-priority.js";
+import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import type { AutomationAction } from "@shared/types.js";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -425,6 +430,7 @@ async function callModel(
   prompt: string,
   ownerEmail: string,
   settings: AutomationModelSettings,
+  signal?: AbortSignal,
 ): Promise<string> {
   registerBuiltinEngines();
 
@@ -438,7 +444,7 @@ async function callModel(
       apiKey: anthropicKey,
     });
     const model = settings.model || engine.defaultModel;
-    const controller = new AbortController();
+    const abortSignal = signal ?? new AbortController().signal;
     let text = "";
     let assistantText = "";
     let usage:
@@ -460,7 +466,7 @@ async function callModel(
         },
       ],
       tools: [],
-      abortSignal: controller.signal,
+      abortSignal,
       maxOutputTokens: 2048,
     })) {
       if (event.type === "text-delta") {
@@ -507,7 +513,7 @@ async function callModel(
   });
 }
 
-async function getAutomationModelSettings(
+export async function getAutomationModelSettings(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
   const autoSettings = await getUserSetting(ownerEmail, "automation-settings");
@@ -766,6 +772,230 @@ Be precise: only mark a rule as matching if the email clearly fits the condition
   }
 
   return results;
+}
+
+type PriorityScore = {
+  score: number;
+  reason?: string;
+};
+
+async function evaluatePriorityWithJev(
+  emails: EmailSummary[],
+  instruction: string,
+  ownerEmail: string,
+  signal?: AbortSignal,
+): Promise<Map<string, PriorityScore>> {
+  const apiKey = readDeployCredentialEnv("TYPESAFE_API_KEY");
+  if (!apiKey) throw new Error("TypeSafe Jev is not configured.");
+
+  const questions = Object.fromEntries(
+    emails.map((email, index) => [
+      `q_${index}`,
+      {
+        type: "noul",
+        instructions: `Should email ${email.id} be prioritized for the user? Follow this guidance: "${instruction}"`,
+        criteria: {
+          true: "The email deserves a higher place in the user's inbox.",
+          false: "The email can safely be lower in the inbox.",
+        },
+      },
+    ]),
+  );
+  const body = {
+    model: "jev-latest",
+    state: {
+      emails: emails.map((email) => ({
+        id: email.id,
+        from: email.from,
+        to: email.to,
+        subject: email.subject,
+        snippet: email.snippet,
+        labels: email.labelIds,
+        date: email.date,
+      })),
+    },
+    questions,
+  };
+
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    signal?.throwIfAborted();
+    response = await fetch("https://api.typesafe.ai/v1/systemone", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
+        : AbortSignal.timeout(12_000),
+    });
+    if (response.ok) break;
+    if (attempt === 0 && (response.status === 429 || response.status === 529)) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      continue;
+    }
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(
+      `TypeSafe Jev request failed (${response.status})${detail ? `: ${detail}` : ""}`,
+    );
+  }
+
+  if (!response?.ok) throw new Error("TypeSafe Jev request failed.");
+  const payload = (await response.json()) as {
+    answers?: Record<string, { noul?: number }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+  if (!payload.answers || typeof payload.answers !== "object") {
+    throw new Error("TypeSafe Jev returned no answers.");
+  }
+
+  if (payload.usage) {
+    try {
+      const { recordUsage } = await import("@agent-native/core/usage");
+      await recordUsage({
+        ownerEmail,
+        inputTokens: payload.usage.input_tokens ?? 0,
+        outputTokens: payload.usage.output_tokens ?? 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "jev-latest",
+        label: "automation",
+        app: "mail",
+      });
+    } catch (error) {
+      console.warn("[automation-engine] Jev usage recording failed:", error);
+    }
+  }
+
+  const results = new Map<string, PriorityScore>();
+  emails.forEach((email, index) => {
+    const probability = payload.answers?.[`q_${index}`]?.noul;
+    if (
+      typeof probability !== "number" ||
+      !Number.isFinite(probability) ||
+      probability < 0 ||
+      probability > 1
+    ) {
+      return;
+    }
+    results.set(email.id, {
+      score: probability,
+      reason: `Jev confidence ${Math.round(probability * 100)}%`,
+    });
+  });
+  return results;
+}
+
+async function evaluatePriorityWithTextModel(
+  emails: EmailSummary[],
+  instruction: string,
+  ownerEmail: string,
+  modelSettings: AutomationModelSettings,
+  signal?: AbortSignal,
+): Promise<Map<string, PriorityScore>> {
+  const results = new Map<string, PriorityScore>();
+  const batchSize = 25;
+  for (let i = 0; i < emails.length; i += batchSize) {
+    signal?.throwIfAborted();
+    const batch = emails.slice(i, i + batchSize);
+    const emailsText = batch
+      .map(
+        (email) =>
+          `--- Email (id: ${email.id}) ---\nFrom: ${email.from}\nTo: ${email.to}\nSubject: ${email.subject}\nSnippet: ${email.snippet}\nLabels: [${email.labelIds.join(", ")}]\nDate: ${email.date}`,
+      )
+      .join("\n\n");
+    const prompt = `Rank these emails for inbox priority using this user guidance: "${instruction}".
+
+Emails:
+${emailsText}
+
+Respond with ONLY a JSON array in this format:
+[{"emailId":"<id>","score":0.0,"reason":"short explanation"}]
+
+Use a score from 0 to 1. Give higher scores to emails that deserve attention sooner. Do not use the age of the email alone as the reason.`;
+    const text = await callModel(prompt, ownerEmail, modelSettings, signal);
+    const jsonStr = text
+      .replace(/```json?\n?/g, "")
+      .replace(/```/g, "")
+      .trim();
+    const parsed = JSON.parse(jsonStr) as Array<{
+      emailId: string;
+      score: number;
+      reason?: string;
+    }>;
+    if (!Array.isArray(parsed)) {
+      throw new Error("Priority model returned a non-array result.");
+    }
+    for (const result of parsed) {
+      if (
+        typeof result?.emailId !== "string" ||
+        typeof result.score !== "number" ||
+        !Number.isFinite(result.score)
+      ) {
+        continue;
+      }
+      results.set(result.emailId, {
+        score: Math.min(1, Math.max(0, result.score)),
+        ...(typeof result.reason === "string"
+          ? { reason: result.reason.slice(0, 500) }
+          : {}),
+      });
+    }
+  }
+  return results;
+}
+
+export async function previewAutomationPriority(
+  emails: AiPriorityEmail[],
+  ownerEmail: string,
+  instruction = AI_PRIORITY_DEFAULT_INSTRUCTION,
+  signal?: AbortSignal,
+): Promise<{
+  scores: Map<string, PriorityScore>;
+  model: AutomationModelSettings;
+}> {
+  const model = await getAutomationModelSettings(ownerEmail);
+  if (!(await canUseAutomationModel(ownerEmail, model))) {
+    throw new Error("No LLM provider is connected for Mail priority sort.");
+  }
+
+  const messages: EmailSummary[] = emails
+    .filter(
+      (email) =>
+        !email.isArchived &&
+        !email.isTrashed &&
+        mailLabelsInclude(email.labelIds, "inbox"),
+    )
+    .map((email) => ({
+      id: email.id,
+      threadId: email.threadId,
+      from: email.from,
+      to: email.to,
+      subject: email.subject,
+      snippet: email.snippet,
+      labelIds: email.labelIds,
+      date: email.date,
+    }));
+
+  const scores = new Map<string, PriorityScore>();
+  for (let i = 0; i < messages.length; i += 50) {
+    signal?.throwIfAborted();
+    const batch = messages.slice(i, i + 50);
+    const batchScores =
+      model.engine === TYPESAFE_AUTOMATION_ENGINE
+        ? await evaluatePriorityWithJev(batch, instruction, ownerEmail, signal)
+        : await evaluatePriorityWithTextModel(
+            batch,
+            instruction,
+            ownerEmail,
+            model,
+            signal,
+          );
+    for (const [emailId, score] of batchScores) scores.set(emailId, score);
+  }
+  return { scores, model };
 }
 
 export async function previewAutomationRules(

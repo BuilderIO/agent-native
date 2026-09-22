@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "收件箱同步中…",
     },
+    sort: {
+      label: "排序收件箱",
+      newest: "最新",
+      priority: "优先级",
+      priorityFailed: "无法对收件箱排序。",
+    },
     toolbar: {
       toggleMenu: "切换菜单",
       menu: "菜单",
@@ -439,6 +445,8 @@ const messages = {
     aiFilter: {
       title: "AI 筛选",
       subtitle: "可撤销的标签，会根据你的决定学习。",
+      rulesTitle: "规则",
+      newRule: "新建规则",
       lunaBadge: "有条件时使用 Luna",
       toggle: "切换 AI 筛选",
       autoFilterTitle: "自动筛选高置信度邮件",
@@ -486,6 +494,10 @@ const messages = {
       instructionFailed: "无法保存 AI 筛选指令。",
       spamMode: "垃圾邮件",
       tagMode: "标签",
+      importantMode: "重要",
+      importantLabel: "AI 重要",
+      reviewImportant: "查看重要邮件",
+      importantPlaceholder: "例如：需要回复或有截止日期的邮件",
       ruleAdded: "已添加 AI 规则。",
       instructionHelp: "使用自然语言",
       tagNamePlaceholder: "标签名称",
@@ -496,6 +508,7 @@ const messages = {
       previewTitle: "预览最近邮件",
       previewDescription:
         "启用新规则前，先检查收件箱中的最近 20 封邮件。已归档或自动归档的邮件不会被评估。",
+      previewScope: "仅收件箱 · 已归档邮件排除",
       previewButton: "运行预览",
       previewRunning: "正在检查最近的收件箱邮件…",
       jevBadge: "Jev",

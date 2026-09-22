@@ -29,6 +29,14 @@ vi.mock("./store.js", () => ({
       : null,
   sharedResourceOwner: (orgId?: string | null) =>
     orgId ? `__organization__:${encodeURIComponent(orgId)}` : "__shared__",
+  organizationIdFromWorkspaceResourceOwner: (owner: string) =>
+    owner.startsWith("__workspace__:__organization__:")
+      ? decodeURIComponent(
+          owner.slice("__workspace__:__organization__:".length),
+        )
+      : null,
+  isWorkspaceResourceOwner: (owner: string) =>
+    owner === "__workspace__" || owner.startsWith("__workspace__:"),
   canWriteLocalWorkspaceResourcePath: (...args: any[]) =>
     mockCanWriteLocalWorkspaceResourcePath(...args),
   isLocalWorkspaceResourceId: (...args: any[]) =>

@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Posteingang wird synchronisiert…",
     },
+    sort: {
+      label: "Posteingang sortieren",
+      newest: "Neueste",
+      priority: "Priorität",
+      priorityFailed: "Der Posteingang konnte nicht sortiert werden.",
+    },
     toolbar: {
       toggleMenu: "Menü umschalten",
       menu: "Menu",
@@ -453,6 +459,8 @@ const messages = {
     aiFilter: {
       title: "KI-Filter",
       subtitle: "Ein umkehrbares Label, das aus deinen Entscheidungen lernt.",
+      rulesTitle: "Regeln",
+      newRule: "Neue Regel",
       lunaBadge: "Luna, wenn verfügbar",
       toggle: "KI-Filter aktivieren",
       autoFilterTitle: "Mit hoher Sicherheit automatisch filtern",
@@ -509,6 +517,11 @@ const messages = {
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
       spamMode: "Unerwünscht",
       tagMode: "Tag",
+      importantMode: "Wichtig",
+      importantLabel: "KI-Wichtig",
+      reviewImportant: "Wichtige anzeigen",
+      importantPlaceholder:
+        "z. B. Nachrichten, die eine Antwort oder einen Termin erfordern",
       ruleAdded: "KI-Regel hinzugefügt.",
       instructionHelp: "Klare Sprache verwenden",
       tagNamePlaceholder: "Tag-Name",
@@ -521,6 +534,7 @@ const messages = {
       previewTitle: "Letzte E-Mails prüfen",
       previewDescription:
         "Prüfe die letzten 20 Nachrichten im Posteingang, bevor du eine neue Regel aktivierst. Archivierte und automatisch archivierte E-Mails werden nie ausgewertet.",
+      previewScope: "Nur Posteingang · archivierte E-Mails ausgeschlossen",
       previewButton: "Vorschau starten",
       previewRunning: "Letzte Posteingang-E-Mails werden geprüft…",
       jevBadge: "Jev",

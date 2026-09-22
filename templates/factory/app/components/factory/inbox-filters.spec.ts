@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseInboxConfidence,
   parseInboxRange,
   parseInboxRisk,
   parseInboxSource,
@@ -14,7 +15,10 @@ describe("inbox filter parsers", () => {
     expect(parseInboxStatus("failed")).toBe("failed");
     expect(parseInboxStatus("nope")).toBe("");
     expect(parseInboxRisk("high")).toBe("high");
+    expect(parseInboxRisk("negligible")).toBe("negligible");
     expect(parseInboxRisk("urgent")).toBe("");
+    expect(parseInboxConfidence("high")).toBe("high");
+    expect(parseInboxConfidence("certain")).toBe("");
     expect(parseInboxSource("slack")).toBe("slack");
     expect(parseInboxSource("email")).toBe("");
     expect(parseInboxRange("7d")).toBe("7d");

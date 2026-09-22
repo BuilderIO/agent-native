@@ -272,10 +272,31 @@ async function resolveSlackSenderProfile(
   }
 }
 
+async function resolveSlackSenderProfileWithinAckDeadline(
+  incoming: IncomingMessage,
+): Promise<SlackSenderProfile> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(
+      () => resolve({ email: null, name: null, trust: "unknown" }),
+      2_000,
+    );
+    void resolveSlackSenderProfile(incoming).then(
+      (profile) => {
+        clearTimeout(timeout);
+        resolve(profile);
+      },
+      () => {
+        clearTimeout(timeout);
+        resolve({ email: null, name: null, trust: "unknown" });
+      },
+    );
+  });
+}
+
 async function resolveSlackOwnerFromVerifiedEmail(
   incoming: IncomingMessage,
 ): Promise<string | null> {
-  const profile = await resolveSlackSenderProfile(incoming);
+  const profile = await resolveSlackSenderProfileWithinAckDeadline(incoming);
   if (!profile.email) return null;
 
   incoming.senderEmail = profile.email;
@@ -295,7 +316,7 @@ async function resolveManagedSlackDmExecutionContext(
     Awaited<ReturnType<typeof resolveManagedSlackInstallation>>
   >,
 ): Promise<IntegrationExecutionContext> {
-  const profile = await resolveSlackSenderProfile(incoming);
+  const profile = await resolveSlackSenderProfileWithinAckDeadline(incoming);
   incoming.actorTrust = {
     memberType:
       profile.trust === "guest"
@@ -508,6 +529,42 @@ export async function resolveDispatchExecutionContext(
     if (installation) {
       return resolveManagedSlackDmExecutionContext(incoming, installation);
     }
+    const linkedOwner = await resolveLinkedOwner(
+      "slack",
+      identityKeyForIncoming(incoming),
+      { allowAnyOrgFallback: true },
+    );
+    if (linkedOwner) {
+      const orgId = await resolveOrgIdForEmail(linkedOwner);
+      return {
+        ownerEmail: linkedOwner,
+        orgId,
+        principalType: "user",
+      };
+    }
+    const verifiedEmail = incoming.senderEmail?.trim().toLowerCase();
+    if (
+      incoming.actorTrust?.verified === true &&
+      incoming.senderVerified === true &&
+      verifiedEmail &&
+      incoming.actorTrust.memberType !== "guest" &&
+      incoming.actorTrust.memberType !== "external"
+    ) {
+      const orgId = await resolveOrgIdForEmail(verifiedEmail);
+      if (orgId) {
+        return {
+          ownerEmail: verifiedEmail,
+          orgId,
+          principalType: "user",
+        };
+      }
+      incoming.platformContext.identityLinkRequired = true;
+      return {
+        ownerEmail: fallbackOwnerForIncoming(incoming),
+        orgId: null,
+        principalType: "user",
+      };
+    }
     incoming.platformContext.identityVerificationFailed = true;
     return {
       ownerEmail: fallbackOwnerForIncoming(incoming),
@@ -551,7 +608,7 @@ export async function resolveDispatchExecutionContext(
   if (!teamId || !channelId) {
     throw new Error("Slack channel identity is incomplete");
   }
-  const profile = await resolveSlackSenderProfile(incoming);
+  const profile = await resolveSlackSenderProfileWithinAckDeadline(incoming);
   const conversation = await resolveSlackConversationTrust(
     incoming,
     profile.trust,
