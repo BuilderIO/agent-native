@@ -975,7 +975,7 @@ export default function DesignSystemSetup() {
       <div className="min-h-full bg-background">
         <main className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
           <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-6">
               <IconLock className="w-7 h-7 text-primary" />
             </div>
             <h1 className="text-xl font-semibold text-foreground mb-2">
@@ -1042,7 +1042,7 @@ export default function DesignSystemSetup() {
                   href={tierLimitUpgradeUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 font-medium text-red-200 underline-offset-2 hover:underline"
+                  className="mt-1 inline-flex items-center gap-1 font-medium text-destructive underline-offset-2 hover:underline"
                 >
                   <IconExternalLink className="w-3.5 h-3.5" />
                   {t("designSystems.tierLimitUpgrade")}

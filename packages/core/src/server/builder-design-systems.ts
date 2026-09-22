@@ -259,6 +259,8 @@ function parseTierLimitErrorBody(text: string): TierLimitResponseBody {
   try {
     parsed = JSON.parse(text) as Record<string, unknown>;
   } catch (parseError) {
+    // coercion-ok: 402 body isn't guaranteed to be JSON; every field this
+    // feeds into is optional and null-safe downstream.
     return {};
   }
   const nested = parsed.error;
@@ -973,6 +975,8 @@ async function assertBuilderDesignSystemIndexOk(
   if (response.ok) return;
 
   if (response.status === 402) {
+    // coercion-ok: still report the 402 as a tier-limit failure with a
+    // generic message if the body cannot be read, instead of masking it.
     const text = await response.text().catch(() => "");
     const body = parseTierLimitErrorBody(text);
     const limit = designSystemTierLimitFromBody(body);
