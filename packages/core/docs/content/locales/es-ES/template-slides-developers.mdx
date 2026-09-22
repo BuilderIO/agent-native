@@ -1,0 +1,495 @@
+---
+title: "Diapositivas: Guía para desarrolladores"
+description: "El modelo de datos de Diapositivas, el modelo de persistencia, el inventario completo de acciones, las rutas y dónde hacer los cambios habituales al personalizar o extender la plantilla."
+---
+
+# Guía para desarrolladores
+
+Esta página es para cualquiera que personalice la plantilla de Diapositivas
+o la extienda: el modelo de datos SQL, cómo se protege a los escritores
+concurrentes, todas las acciones que puede llamar el agente, el mapa de
+rutas y dónde hacer los cambios habituales.
+
+## Inicio rápido
+
+```bash
+npx @agent-native/core@latest create my-slides --standalone --template slides
+```
+
+Consulta [Primeros pasos](/docs/getting-started) para el resto de la configuración (`cd`, `pnpm install`, `pnpm dev`) y los fundamentos del framework.
+
+## Modelo de persistencia
+
+Cada presentación es un único blob JSON en `decks.data`. Cada escritura pasa por una acción de lectura-modificación-escritura en el servidor que mantiene un bloqueo por presentación, así que escritores concurrentes, un humano y el agente, o dos humanos, que tocan diapositivas distintas de la misma presentación nunca se sobrescriben el trabajo mutuamente.
+
+- **Las acciones del agente** (`add-slide`, `update-slide`) usan sus propias acciones dedicadas y granulares, y comparten ese mismo bloqueo.
+- **El editor del navegador** encola operaciones granulares (`patch-slide`, `delete-slide`, `reorder-slides`, `add-slide`, `patch-deck-fields`) a través de `patch-deck` en lugar de un PUT de la presentación completa.
+
+<Callout id="doc-block-slides10" tone="warning">
+
+Si estás extendiendo la ruta de guardado del editor, encola una nueva operación a través de `patch-deck`. No añadas un nuevo PUT de la presentación completa. Eso reintroduciría la carrera de "gana la última escritura" que el bloqueo existe para evitar.
+
+</Callout>
+
+## Modelo de datos
+
+Todos los datos de las presentaciones viven en SQL a través de Drizzle ORM. Esquema: `templates/slides/server/db/schema.ts`.
+
+<DataModel
+  id="doc-block-slides7"
+  title="Modelo de datos de Diapositivas"
+  summary={
+    "Una presentación posee sus diapositivas como JSON en decks.data. Los comentarios, las versiones, los recursos compartidos y los sistemas de diseño dependen de ella."
+  }
+  entities={[
+    {
+      id: "decks",
+      name: "decks",
+      note: "Las diapositivas viven como JSON en data, con ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          note: "p. ej. deck-1712345-abc",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "JSON: { title, slides: [{ id, content, layout }] }",
+        },
+        {
+          name: "design_system_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "slide_comments",
+      name: "slide_comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "slide_id",
+          type: "text",
+          note: "Diapositiva en la que vive el comentario",
+        },
+        {
+          name: "thread_id",
+          type: "text",
+          note: "Hilos",
+        },
+        {
+          name: "parent_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "quoted_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "author_email",
+          type: "text",
+        },
+        {
+          name: "author_name",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "resolved",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_versions",
+      name: "deck_versions",
+      note: "Instantáneas de un momento dado para restaurar",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "JSON completo de la presentación",
+        },
+        {
+          name: "change_label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Tokens de marca reutilizables, con ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "colores / tipografía / espaciado",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_share_links",
+      name: "deck_share_links",
+      note: "Instantáneas persistentes de enlaces públicos compartidos",
+      fields: [
+        {
+          name: "token",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "slides",
+          type: "text",
+          note: "Instantánea JSON de diapositivas",
+        },
+        {
+          name: "aspect_ratio",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "decks",
+      to: "slide_comments",
+      kind: "1-n",
+      label: "comentarios",
+    },
+    {
+      from: "decks",
+      to: "deck_versions",
+      kind: "1-n",
+      label: "instantáneas",
+    },
+    {
+      from: "design_systems",
+      to: "decks",
+      kind: "1-n",
+      label: "aplicado a",
+    },
+  ]}
+/>
+
+Las tablas de recursos compartidos del framework (`deck_shares`, `design_system_shares`) asignan principales, usuarios u organizaciones, a roles de lector/editor/administrador por recurso, y se crean mediante el helper compartido `createSharesTable` en lugar de escribirse a mano.
+
+#### Estructura de diapositiva
+
+Cada diapositiva dentro de `decks.data` es:
+
+```json
+{
+  "id": "slide-1",
+  "layout": "title",
+  "content": "<div class=\"fmd-slide\" style=\"...\">...</div>"
+}
+```
+
+`content` es HTML sin procesar. El renderizador se encarga de la relación de aspecto fija y del fondo, y el HTML se encarga de todo lo que hay dentro. También se admite la incrustación enriquecida: los diagramas dibujados a mano y los gráficos renderizados en vivo pueden convivir dentro de una diapositiva junto con HTML normal.
+
+## Inventario de acciones
+
+### Ciclo de vida de la presentación
+
+- `create-deck` — presentación nueva, opcionalmente prepoblada con diapositivas, o un reemplazo masivo atómico de las diapositivas de una presentación existente. Omite `slides` o pasa `[]` para una presentación vacía. La acción abre la nueva presentación a través del estado de la aplicación.
+- `get-deck` — el JSON completo de la presentación, o una vista resumida y compacta de las diapositivas
+- `list-decks` — todas las presentaciones que el que llama puede ver, con proyecciones ligera/compacta/diapositivas completas para sondeos económicos
+- `duplicate-deck` — copia una presentación con ids de diapositiva nuevos
+- `update-deck-aspect-ratio` — 16:9, 1:1, 9:16 o 4:5
+
+`add-deck`, `save-deck` y `delete-deck` respaldan los flujos de creación optimista, deshacer/rehacer y eliminación del editor del navegador. El agente usa en su lugar `create-deck`, `add-slide`/`update-slide`/`patch-deck`, y las propias acciones de uso compartido del framework.
+
+### Solicitudes de acceso
+
+- `request-deck-access`, `approve-deck-access-request`, `get-deck-access-status` — el flujo de solicitud de acceso para presentaciones privadas: un visitante sin acceso lo solicita, el propietario aprueba o rechaza desde la app o desde la ruta `/access-request/approve`, y cualquiera de los dos lados puede sondear el estado actual
+
+### Ediciones de diapositivas
+
+- `add-slide` — añade (o inserta en una posición) una diapositiva. Llámala secuencialmente después de un `create-deck` vacío para que el editor pueda mostrar el progreso.
+- `update-slide` — edición quirúrgica de buscar/reemplazar, o edición de contenido completo de la diapositiva
+- `patch-deck` — la cola de operaciones granulares que usa el editor del navegador en lugar de un PUT de la presentación completa
+- `get-layout-overflows` — lee los resultados de ajuste de diapositiva medidos por el navegador, para que una edición que ya no encaja en su diseño se pueda detectar y corregir
+
+### Historial
+
+- `list-deck-versions`, `get-deck-version`, `restore-deck-version` — cada escritura guarda primero una instantánea, así que cualquier momento en el tiempo se puede listar y restaurar
+
+### Comentarios
+
+- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`
+
+### Importación
+
+- `import-pptx`, `import-docx`, `import-google-doc` — importadores dedicados para un solo formato
+- `import-google-slides-reference` — importa una presentación de Google Slides como una presentación de referencia reutilizable, en lugar de traer su contenido a la presentación de trabajo
+- `import-file` — un único punto de entrada para PPTX, DOCX o PDF, o un archivo `.fig` de Figma (que se dirige a la indexación de sistemas de diseño de Builder en lugar de a una importación de diapositivas)
+- `extract-pdf` — volcado de texto sin procesar de un PDF, solo por CLI, sobre todo para depuración local
+
+### Exportación
+
+- `export-pptx` — PowerPoint nativo y editable
+- `export-google-slides` — genera el mismo PPTX más un enlace de importación de Google Slides listo para usar
+- `export-html` — un archivo HTML independiente y autocontenido con navegación por teclado integrada
+
+### Sistemas de diseño
+
+- `create-design-system`, `update-design-system`, `delete-design-system`, `get-design-system`, `list-design-systems`, `set-default-design-system`, `apply-design-system` (vincula uno a una presentación)
+- `get-workspace-defaults`, `set-workspace-defaults` — la presentación y el sistema de diseño predeterminados a nivel de espacio de trabajo. Establecer uno es solo para administradores
+- `analyze-brand-assets`, `import-document`, `import-from-url`, `import-code` — recopilan señales de marca sin procesar (CSS/fuentes del sitio web, contenido de documentos o archivos de código subidos) para un sistema de diseño **local**, redactado por el agente
+- `index-design-system-with-builder`, `sync-design-system-with-builder`, `import-design-project` — la ruta indexada por Builder para archivos de Figma, repositorios de código/GitHub conectados y `design.md`. `import-design-project` empieza a partir de un sistema de diseño existente en lugar de una fuente sin procesar
+
+### Creative Context
+
+- `clone-context-slide` — inserta una diapositiva fijada de la Library en una presentación sin cambios, sin regenerar su HTML/CSS
+- `clone-creative-context-deck` — recrea una versión exacta y gobernada de una presentación
+- `get-deck-reference-context` — extrae el lenguaje visual de una presentación existente como una biblioteca de patrones reutilizable
+- La recuperación y el envío a la Library (buscar, obtener un elemento de contexto, gestionar la pertenencia a la Library) son acciones compartidas del framework que el agente llama de la misma forma en cualquier app que admita Creative Context. Consulta el skill `creative-context` para conocer el procedimiento de recuperación y la escala de reutilización.
+
+### Escalado y datos preparados
+
+- `provider-api-catalog`, `provider-api-docs`, `provider-api-request` — acceso directo a la API de Google Drive sin procesar cuando una acción de importación/exportación predefinida es demasiado limitada. Diapositivas resuelve la autenticación a partir de la cuenta de Google Docs conectada del usuario
+- `list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset` — agrega un resultado grande y preparado del proveedor sin volver a obtenerlo
+
+### Navegación y contexto
+
+- `view-screen` — lo que el usuario está viendo en este momento: la presentación abierta, la diapositiva actual y cualquier selección visual activa
+- `navigate` — mueve la interfaz a una presentación, diapositiva o vista
+
+## Referencia de rutas
+
+| Ruta                             | Renderiza                                                                                          |
+| -------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `/`                              | Página pública de marketing/SEO                                                                    |
+| `/home`                          | Lista de presentaciones, la página de inicio privada de la app                                     |
+| `/deck/:id`                      | El editor                                                                                          |
+| `/deck/:id/present`              | Presentación en pantalla completa                                                                  |
+| `/p/:id`                         | Vista previa pública/legible por el agente de la presentación en vivo, distinta de `/share/:token` |
+| `/share/:token`                  | Instantánea pública de solo lectura, congelada en el momento de compartir                          |
+| `/slide`                         | Inserción de una sola diapositiva usada en las vistas previas del chat                             |
+| `/design-systems`                | Gestionar los sistemas de diseño guardados                                                         |
+| `/access-request/approve`        | Aprobar una solicitud de acceso a una presentación privada                                         |
+| `/agent`, `/extensions`, `/team` | Redirige a la pestaña `/settings` correspondiente                                                  |
+
+## Personalizarla
+
+La plantilla de Diapositivas es totalmente personalizable. Lugares clave donde mirar al extenderla:
+
+#### Actions — `templates/slides/actions/`
+
+Cada operación que el agente puede llamar vive aquí como un archivo TypeScript, montado automáticamente en `POST /_agent-native/actions/:name` y que se puede invocar desde la CLI como `pnpm action <name>`. Añade un nuevo archivo aquí para darle al agente una nueva capacidad.
+
+<AnnotatedCode
+  id="doc-block-slides9"
+  title="Anatomía de una acción de edición de diapositiva"
+  filename="actions/update-slide.ts (simplificado)"
+  language="ts"
+  code={
+    'import { defineAction, fail } from "@agent-native/core/action";\nimport { assertAccess } from "@agent-native/core/sharing";\nimport { eq } from "drizzle-orm";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { notifyClients } from "../server/handlers/decks.js";\nimport { withDeckLock } from "./patch-deck.js";\n\nexport default defineAction({\n  description:\n    "Surgically edit a slide\'s content using search-replace or full replacement. " +\n    "Syncs live to open editors. Prefer this over full deck rewrites.",\n  schema: z.object({\n    deckId: z.string(),\n    slideId: z.string(),\n    find: z.string().optional(),\n    replace: z.string().optional(),\n    fullContent: z.string().optional(),\n  }),\n  run: async ({ deckId, slideId, find, replace, fullContent }) => {\n    await assertAccess("deck", deckId, "editor");\n    return withDeckLock(deckId, async () => {\n      const db = getDb();\n      const [row] = await db\n        .select()\n        .from(schema.decks)\n        .where(eq(schema.decks.id, deckId));\n      if (!row) {\n        fail(`Deck ${deckId} not found`, { errorCode: "deck_not_found", statusCode: 404 });\n      }\n\n      const deck = JSON.parse(row.data);\n      const slide = deck.slides.find((s: { id: string }) => s.id === slideId);\n      if (!slide) {\n        fail(`Slide ${slideId} not found`, { errorCode: "slide_not_found", statusCode: 404 });\n      }\n\n      if (fullContent) {\n        slide.content = fullContent;\n      } else if (find) {\n        const idx = slide.content.indexOf(find);\n        if (idx === -1) {\n          fail("Text not found", { errorCode: "slide_find_no_match" });\n        }\n        slide.content =\n          slide.content.slice(0, idx) +\n          (replace ?? "") +\n          slide.content.slice(idx + find.length);\n      }\n\n      deck.updatedAt = new Date().toISOString();\n      await db\n        .update(schema.decks)\n        .set({ data: JSON.stringify(deck), updatedAt: deck.updatedAt })\n        .where(eq(schema.decks.id, deckId));\n\n      notifyClients(deckId, { slideId, actor: "agent" });\n      return { ok: true, deckId, slideId };\n    });\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "22",
+      label: "Comprobación de acceso",
+      note: "`assertAccess` lanza un error antes de que se ejecute nada más si quien llama no es al menos editor de esta presentación.",
+    },
+    {
+      lines: "23",
+      label: "Bloqueo por presentación",
+      note: "`withDeckLock` serializa esto frente a cualquier otra escritura sobre la misma presentación. `add-slide` y el `patch-deck` del navegador comparten el mismo bloqueo, así que dos escritores que tocan diapositivas distintas nunca se sobrescriben entre sí.",
+    },
+    {
+      lines: "29-37",
+      label: "Falla en voz alta, no devuelvas un valor en silencio",
+      note: '`fail(...)` lanza un error estructurado en lugar de devolver un valor simple. Esta acción antes devolvía `{ ok: false, message: "Text not found" }` cuando no había coincidencia, algo que quien la llamaba podía interpretar demasiado fácilmente como un éxito. Lanzar un error es el único canal que garantiza indicar que la presentación no se modificó.',
+    },
+    {
+      lines: "39-51",
+      label: "Edición quirúrgica",
+      note: "Un par `find`/`replace` cambia solo el texto encontrado, y ahora también falla en voz alta si no hay coincidencia. `fullContent` sustituye toda la diapositiva. Prefiere la forma más acotada para ediciones reales.",
+    },
+    {
+      lines: "53-57",
+      label: "SQL es la fuente de verdad",
+      note: "Toda la presentación es un único blob JSON en `decks.data`. No existe una tabla `slides` separada, así que cada escritura lee, edita y vuelve a escribir esa única columna.",
+    },
+    {
+      lines: "59",
+      label: "Sincronización en vivo",
+      note: "`notifyClients` empuja el cambio de inmediato a cualquier editor abierto. El sondeo es la ruta de respaldo. Consulta [Colaboración en tiempo real](/docs/real-time-collaboration).",
+    },
+  ]}
+/>
+
+La acción real también valida que se proporcionó exactamente un modo de edición, guarda una instantánea de versión antes de escribir, y escribe con una comprobación de concurrencia optimista para que una lectura obsoleta nunca pueda sobrescribir en silencio una más reciente, además de registrar la procedencia de reutilización de Creative Context y esperar brevemente a que el editor informe de una medición de desbordamiento de diseño. Este ejemplo reduce todo eso a la forma esencial de acceso, bloqueo, lectura-modificación-escritura y notificación.
+
+#### Estructura de archivos
+
+<FileTree
+  id="doc-block-slides8"
+  title="Estructura de templates/slides/"
+  entries={[
+    {
+      path: "actions/create-deck.ts",
+      note: "Presentación nueva, opcionalmente prepoblada con diapositivas, o un reemplazo masivo atómico",
+    },
+    {
+      path: "actions/add-slide.ts",
+      note: "Añade una diapositiva; se usa para la generación en streaming",
+    },
+    {
+      path: "actions/update-slide.ts",
+      note: "Edición de diapositiva por buscar/reemplazar o por contenido completo",
+    },
+    {
+      path: "actions/patch-deck.ts",
+      note: "Operaciones granulares que usa el editor del navegador en lugar de un PUT de la presentación completa",
+    },
+    {
+      path: "actions/index-design-system-with-builder.ts",
+      note: "Inicia la indexación de sistemas de diseño de Builder a partir de Figma, GitHub o código",
+    },
+    {
+      path: "app/routes/deck.$id.tsx",
+      note: "El editor de presentaciones",
+    },
+    {
+      path: "app/routes/deck.$id_.present.tsx",
+      note: "Modo de presentación en pantalla completa",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "Pestaña de Agent a pantalla completa",
+    },
+    {
+      path: "app/routes/p.$id.tsx",
+      note: "Vista previa pública/legible por el agente de una sola presentación",
+    },
+    {
+      path: "app/routes/share.$token.tsx",
+      note: "Página pública de instantánea de solo lectura",
+    },
+    {
+      path: "app/components/editor/",
+      note: "Lienzo de diapositivas, barra de herramientas, barra lateral y paneles",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "decks, slide_comments, deck_versions, design_systems, deck_share_links",
+    },
+    {
+      path: ".agents/skills/create-deck/SKILL.md",
+      note: "Plantillas HTML exactas de diapositivas para cada diseño",
+    },
+    {
+      path: ".agents/skills/creative-context/SKILL.md",
+      note: "La escala de reutilización y el procedimiento de recuperación",
+    },
+  ]}
+/>
+
+La mayor parte de la personalización de la interfaz del editor ocurre bajo `app/components/editor/`: el lienzo de diapositivas, la barra de herramientas, la barra lateral, el menú de burbujas, el menú de barra diagonal y el panel de historial.
+
+#### Skills — `templates/slides/.agents/skills/`
+
+Skills del agente que explican patrones cuando necesita modificar código:
+
+- `create-deck` — cómo crear una presentación nueva, con las plantillas HTML exactas de diapositivas para cada diseño
+- `slide-editing` — cómo editar diapositivas individuales
+- `deck-management` — cómo se almacenan y se accede a las presentaciones
+- `design-systems` — la forma de los datos de un sistema de diseño y cómo se aplican los tokens a las diapositivas generadas
+- `creative-context` — la escala de reutilización, el procedimiento de recuperación y el envío a la Library
+
+#### AGENTS.md
+
+`templates/slides/AGENTS.md` es el enrutador corto que el agente lee en cada conversación. Apunta a los skills bajo `.agents/skills/` y establece las reglas básicas, el modelo de persistencia y el contrato de estado de la aplicación. Actualiza el skill correspondiente cada vez que añadas o cambies un diseño de diapositiva o una fuente de sistema de diseño.
+
+## Qué sigue
+
+- [**Funciones**](/docs/template-slides-features) — el flujo de edición, presentación, uso compartido, sistemas de diseño e importación/exportación de cara al usuario que respalda este modelo de datos
+- [**Hablar con el Agent**](/docs/template-slides-agent) — peticiones por tarea y lo que ve el agente
+- [**Diapositivas en un espacio de trabajo con varias apps**](/docs/template-slides-integrations) — cómo se llama a estas acciones desde fuera de Diapositivas
+- [**Uso compartido**](/docs/sharing) — el modelo de concesión de acceso compartido sobre el que se construyen `deck_shares` y `design_system_shares`
+- [**Colaboración en tiempo real**](/docs/real-time-collaboration) — el pipeline de Yjs que las presentaciones comparten con otras superficies colaborativas
+- [**Resumen de Diapositivas**](/docs/template-slides) — de vuelta al resumen de la app

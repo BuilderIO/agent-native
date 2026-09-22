@@ -1,0 +1,91 @@
+---
+title: "Diapositivas"
+description: "Un editor de presentaciones de código abierto que sustituye a Google Slides, Pitch y PowerPoint. Genera una presentación a partir de un mensaje, edítala visualmente y preséntala en pantalla completa, con importación y exportación, sistemas de diseño y colaboración en tiempo real integrados."
+---
+
+# Diapositivas
+
+Diapositivas es un editor de presentaciones impulsado por el agente. Pídele al agente una presentación y la generará a partir de un mensaje, transmitiendo las diapositivas al editor mientras las construye, y luego la edita, le cambia el estilo o la exporta cuando lo pidas, en lenguaje sencillo o con un clic. Sustituye a Google Slides, Pitch y PowerPoint con una sola app, de modo que generar, editar, presentar y exportar una presentación nunca son herramientas separadas entre las que tengas que cambiar.
+
+<Cards columns={1}>
+
+### [Pruébalo ahora →](https://slides.agent-native.com)
+
+Mira Diapositivas en acción y genera una presentación real.
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9815f38535264c09985a25a2accd3ea3?alt=media&token=9d3a37f9-fd8a-43bd-852a-760b304ec488&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Un breve recorrido por la aplicación de Diapositivas."
+  caption="Un breve recorrido por la aplicación de Diapositivas."
+  autoplay={true}
+  loop={true}
+/>
+
+## Lo que sustituye
+
+<Comparison>
+
+### Antes
+
+- Google Slides, Pitch o PowerPoint para crear la propia presentación
+- Una suscripción por puesto solo para poder seguir editando y presentando
+- Copiar y pegar a mano los colores, las fuentes y el logotipo de tu marca en cada nueva presentación
+- Convertir archivos manualmente para compartir una presentación con personas que usan una herramienta distinta
+
+### Después
+
+- Un solo editor: genera a partir de un mensaje, edita visualmente y presenta, todo en la misma presentación
+- Controla toda la pila de extremo a extremo, sin suscripción
+- Un sistema de diseño guardado aplica tu marca automáticamente a cada nueva presentación
+- Importa PPTX, DOCX, PDF o Google Docs, y exporta de vuelta a PPTX, Google Slides o HTML en cualquier momento
+
+</Comparison>
+
+## Diapositivas en un espacio de trabajo con varias apps
+
+Si ejecutas Diapositivas junto con otras apps bajo [Dispatch](/docs/template-dispatch), una presentación deja de ser solo una página que abres a mano. El agente puede enviar una presentación a la Library compartida para que otras apps la reutilicen, o responder a una solicitud en lenguaje sencillo de una app hermana de la misma forma en que te responde a ti en el chat. Consulta [Diapositivas en un espacio de trabajo con varias apps](/docs/template-slides-integrations) para saber cómo funciona realmente la conexión y los mecanismos reales detrás de ella.
+
+## Qué puedes hacer con Diapositivas
+
+- **Genera presentaciones a partir de un mensaje.** "Genera una presentación de 10 diapositivas para un servicio de suscripción de café, el público son inversores." Consulta [Funciones](/docs/template-slides-features).
+- **Edita diapositivas visualmente.** Haz doble clic en el texto para editarlo, haz clic en un bloque para abrir el menú de burbujas, usa `/` para el menú de barra diagonal e insertar bloques. Consulta [Funciones](/docs/template-slides-features).
+- **Presenta en pantalla completa**, comenta, colabora en tiempo real y comparte una presentación con compañeros de equipo concretos o de forma pública. Consulta [Funciones](/docs/template-slides-features).
+- **Incorpora contenido existente.** Importa un PPTX, DOCX, PDF o Google Doc como punto de partida. Exporta a PPTX, Google Slides o un archivo HTML independiente. Consulta [Funciones](/docs/template-slides-features).
+- **Aplica un sistema de diseño creado a partir de tu marca.** Guarda colores, tipografía y logotipos una vez y reutilízalos en cada nueva presentación. Configúralo a partir de un archivo de Figma, un repositorio de código conectado o un sitio web. Consulta [Funciones](/docs/template-slides-features).
+- **Restaura versiones anteriores.** Cada cambio se guarda como una instantánea. Enumera o restaura cualquier versión anterior. Consulta [Funciones](/docs/template-slides-features).
+
+## Primeros pasos
+
+Cuando abres la app:
+
+1. Haz clic en **Nueva presentación**.
+2. Pídele al agente: "Genera una presentación de 10 diapositivas para un servicio de suscripción de café, el público son inversores."
+3. Observa cómo las diapositivas se van transmitiendo. Haz clic en cualquier diapositiva para editarla, o sigue pidiéndole al agente que la refine. Selecciona texto y haz clic en **Revisar con IA** en el menú de burbujas para darle al agente esa selección exacta.
+
+### Indicaciones útiles
+
+- "Genera una presentación de 10 diapositivas para un servicio de suscripción de café, el público son inversores."
+- "Añade una diapositiva de precios después de la diapositiva 3."
+- "Agranda el título de esta diapositiva y cambia el color de acento a verde."
+- "Resume este PDF como una presentación de 6 diapositivas." (adjunta el PDF)
+
+Para crear tu propia copia de Diapositivas:
+
+```bash
+npx --yes @agent-native/core@latest create my-slides --standalone --template slides
+```
+
+Consulta [Primeros pasos](/docs/getting-started) para el resto de la configuración (`cd`, `pnpm install`, `pnpm dev`) y los fundamentos del framework.
+
+## Qué sigue
+
+- [**Funciones**](/docs/template-slides-features) — peticiones, edición visual, presentación, comentarios, uso compartido, historial de versiones, sistemas de diseño e importación/exportación
+- [**Hablar con el Agent**](/docs/template-slides-agent) — lo que ve el agente y peticiones por tarea
+- [**Diapositivas en un espacio de trabajo con varias apps**](/docs/template-slides-integrations) — estrategias de integración y cómo conectar con Dispatch
+- [**Guía para desarrolladores**](/docs/template-slides-developers) — el modelo de datos, el inventario de acciones, las rutas y cómo extender la plantilla
+- [**Plantillas**](/docs/cloneable-saas) — el modelo Cloneable SaaS y todas las demás plantillas de dominio desde las que empezar
+- [**Primeros pasos**](/docs/getting-started) — los fundamentos del framework: acciones, estado de la aplicación y sincronización en vivo
+- [**Colaboración en tiempo real**](/docs/real-time-collaboration) — el pipeline de Yjs que las presentaciones comparten con otras superficies colaborativas
+- [**Uso compartido**](/docs/sharing) — el modelo de concesión de acceso compartido sobre el que se construyen las presentaciones y los sistemas de diseño

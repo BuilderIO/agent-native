@@ -1,0 +1,491 @@
+// @vitest-environment happy-dom
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { NewWorkspaceAppFlow } from "./NewWorkspaceAppFlow.js";
+
+const sendToAgentChatMock = vi.hoisted(() => vi.fn());
+const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
+const devState = vi.hoisted(() => ({ isDevMode: false }));
+const vaultState = vi.hoisted<{ mode: "all-apps" | "manual" }>(() => ({
+  mode: "manual",
+}));
+const builderConnectFlowState = vi.hoisted(() => ({
+  connecting: false,
+  start: vi.fn(),
+}));
+const startWorkspaceAppCreationResponse = vi.hoisted<{ result: unknown }>(
+  () => ({
+    result: {
+      mode: "builder",
+      appId: "qa-dashboard",
+      url: "https://branch.example.test",
+    },
+  }),
+);
+
+vi.mock("./agent-chat.js", () => ({
+  sendToAgentChat: sendToAgentChatMock,
+}));
+
+vi.mock("./builder-frame.js", () => ({
+  isInBuilderFrame: () => frameState.inBuilderFrame,
+}));
+
+vi.mock("./use-dev-mode.js", () => ({
+  useDevMode: () => ({ isDevMode: devState.isDevMode }),
+}));
+
+vi.mock("./settings/useBuilderStatus.js", () => ({
+  useBuilderConnectFlow: () => ({
+    configured: false,
+    connecting: builderConnectFlowState.connecting,
+    error: null,
+    statusResolved: true,
+    start: builderConnectFlowState.start,
+  }),
+}));
+
+vi.mock("./composer/index.js", async () => {
+  const React = await import("react");
+  return {
+    PromptComposer: ({
+      onSubmit,
+      placeholder,
+    }: {
+      onSubmit: (text: string, files: File[], references: unknown[]) => void;
+      placeholder?: string;
+    }) => {
+      const [value, setValue] = React.useState("");
+      return React.createElement(
+        "div",
+        null,
+        React.createElement("textarea", {
+          "aria-label": "Prompt",
+          placeholder,
+          value,
+          onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+            setValue(event.target.value),
+        }),
+        React.createElement(
+          "button",
+          {
+            disabled: !value.trim(),
+            onClick: () => onSubmit(value, [], []),
+            type: "button",
+          },
+          "Create app",
+        ),
+      );
+    },
+  };
+});
+
+const vaultSecrets = [
+  {
+    id: "secret-openai",
+    name: "OpenAI",
+    credentialKey: "OPENAI_API_KEY",
+    provider: "openai",
+  },
+];
+
+const workspaceResources = [
+  {
+    id: "resource-gtm",
+    kind: "knowledge",
+    name: "Core GTM Messaging",
+    description: "Positioning and proof points",
+    path: "context/core-gtm-messaging.md",
+    scope: "selected",
+  },
+];
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function findButton(container: HTMLElement, text: string): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll("button")).find(
+    (candidate) => candidate.textContent?.includes(text),
+  );
+  if (!button) throw new Error(`Button not found: ${text}`);
+  return button as HTMLButtonElement;
+}
+
+function changeValue(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+) {
+  const setter = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(element),
+    "value",
+  )?.set;
+  act(() => {
+    setter?.call(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+describe("NewWorkspaceAppFlow", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    frameState.inBuilderFrame = false;
+    devState.isDevMode = false;
+    vaultState.mode = "manual";
+    builderConnectFlowState.connecting = false;
+    builderConnectFlowState.start.mockReset();
+    startWorkspaceAppCreationResponse.result = {
+      mode: "builder",
+      appId: "qa-dashboard",
+      url: "https://branch.example.test",
+    };
+    sendToAgentChatMock.mockReset();
+    fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("get-vault-access-settings")) {
+        return jsonResponse({ mode: vaultState.mode });
+      }
+      if (url.includes("list-vault-secret-options")) {
+        return jsonResponse(vaultSecrets);
+      }
+      if (url.includes("list-workspace-resource-options")) {
+        return jsonResponse(workspaceResources);
+      }
+      if (url.includes("start-workspace-app-creation")) {
+        return jsonResponse(startWorkspaceAppCreationResponse.result);
+      }
+      if (url.includes("grant-vault-secrets-to-app")) {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: `Unexpected URL: ${url}` }, 404);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  async function renderAndSelectAccess() {
+    await act(async () => {
+      root.render(
+        React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+      );
+    });
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain("OPENAI_API_KEY"),
+      );
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain("Core GTM Messaging"),
+      );
+    });
+
+    changeValue(
+      container.querySelector('textarea[aria-label="Prompt"]')!,
+      "Build a quality dashboard",
+    );
+
+    act(() => {
+      findButton(container, "OPENAI_API_KEY").click();
+    });
+    act(() => {
+      findButton(container, "Core GTM Messaging").click();
+    });
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(findButton(container, "Create app").disabled).toBe(false),
+      );
+    });
+  }
+
+  async function submitForm() {
+    await act(async () => {
+      findButton(container, "Create app").click();
+    });
+  }
+
+  it("sends Builder-frame requested key grants in the prompt without marking grants active", async () => {
+    frameState.inBuilderFrame = true;
+    await renderAndSelectAccess();
+    await submitForm();
+
+    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    const payload = sendToAgentChatMock.mock.calls[0][0];
+    expect(payload).toMatchObject({ submit: true, type: "code" });
+    expect(payload).not.toHaveProperty("newTab");
+
+    const message = payload.message;
+    expect(message).toContain(
+      "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
+    );
+    expect(message).toContain(
+      "Do not ask a non-admin builder to add keys to local project settings or .env",
+    );
+    expect(message).toContain(
+      "Requested Dispatch workspace resources for this app:",
+    );
+    expect(message).toContain(
+      "- Core GTM Messaging (knowledge, context/core-gtm-messaging.md)",
+    );
+    expect(message).toContain(
+      "Dispatch workspace resources with scope=all are inherited workspace context.",
+    );
+    expect(message).toContain("Do not copy or sync them into the new app");
+    expect(message).toContain(
+      "After the app exists, grant the selected Dispatch vault keys",
+    );
+    expect(message).toContain(
+      "After the app exists, grant the selected Dispatch workspace resources",
+    );
+    expect(message).toContain(
+      "Treat these as requested grants, not active grants before creation succeeds.",
+    );
+    expect(message).toContain("shared workspace database/hosting model");
+    expect(message).toContain("not a feature request for the current app");
+    expect(message).toContain("inside apps/chat");
+    expect(message).toContain("treat it as scaffolding only");
+    expect(message).toContain('must not leave visible "Chat"');
+    expect(message).toContain("There is no separate workspace app registry");
+    expect(message).toContain("apps/quality/package.json exists");
+    expect(message).toContain("Do not hardcode localhost");
+    expect(message).toContain("appBasePath()");
+    expect(message).toContain(
+      'Use <Link to="/review"> and navigate("/review"), not "/quality/review"',
+    );
+    expect(message).toContain("named helper that uses callAction");
+    expect(message).toContain("Do not add lucide-react");
+    expect(message).toContain("manifest/package/deploy metadata");
+    expect(message).toContain("agent card/A2A metadata");
+    expect(message).not.toContain("Builder.io");
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("grant-vault-secrets-to-app"),
+      ),
+    ).toBe(false);
+  });
+
+  it("sends local chat requested key grants in the prompt without marking grants active", async () => {
+    devState.isDevMode = true;
+    await renderAndSelectAccess();
+    await submitForm();
+
+    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    const payload = sendToAgentChatMock.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      submit: true,
+      type: "code",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+    expect(payload.message).toContain(
+      "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
+    );
+    expect(payload.message).toContain(
+      "- Core GTM Messaging (knowledge, context/core-gtm-messaging.md)",
+    );
+    expect(payload.message).toContain("App readiness requirements");
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("grant-vault-secrets-to-app"),
+      ),
+    ).toBe(false);
+  });
+
+  it("opens a fresh local chat when the server hands off app creation", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "local-agent",
+      appId: "quality-dashboard",
+      prompt: "Create the quality dashboard in the new workspace app.",
+      message: "Starting the local coding chat.",
+    };
+    await renderAndSelectAccess();
+    await submitForm();
+
+    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    expect(sendToAgentChatMock).toHaveBeenCalledWith({
+      message: "Create the quality dashboard in the new workspace app.",
+      submit: true,
+      type: "code",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+    expect(container.textContent).toContain("Sent to the local agent.");
+  });
+
+  it("passes selected key ids to the server action as a pending request", async () => {
+    await renderAndSelectAccess();
+    await submitForm();
+
+    const startCall = fetchSpy.mock.calls.find(([url]) =>
+      String(url).includes("start-workspace-app-creation"),
+    );
+    expect(startCall).toBeTruthy();
+    const body = JSON.parse((startCall?.[1] as RequestInit).body as string);
+    expect(body.secretIds).toEqual(["secret-openai"]);
+    expect(body.resourceIds).toEqual(["resource-gtm"]);
+    expect(body).not.toHaveProperty("preparedPrompt");
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("grant-vault-secrets-to-app"),
+      ),
+    ).toBe(false);
+  });
+
+  it("uses the all-apps vault policy without per-app key grants", async () => {
+    vaultState.mode = "all-apps";
+    await act(async () => {
+      root.render(
+        React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+      );
+    });
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain("All keys included"),
+      );
+    });
+
+    changeValue(
+      container.querySelector('textarea[aria-label="Prompt"]')!,
+      "Build a quality dashboard",
+    );
+    await submitForm();
+
+    const startCall = fetchSpy.mock.calls.find(([url]) =>
+      String(url).includes("start-workspace-app-creation"),
+    );
+    expect(startCall).toBeTruthy();
+    const body = JSON.parse((startCall?.[1] as RequestInit).body as string);
+    expect(body.secretIds).toEqual([]);
+
+    frameState.inBuilderFrame = true;
+    sendToAgentChatMock.mockReset();
+    await act(async () => {
+      root.unmount();
+      root = createRoot(container);
+      root.render(
+        React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
+      );
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain("All keys included"),
+      );
+    });
+    changeValue(
+      container.querySelector('textarea[aria-label="Prompt"]')!,
+      "Build a support cockpit",
+    );
+    await submitForm();
+
+    const payload = sendToAgentChatMock.mock.calls[0][0];
+    expect(payload.message).toContain(
+      "all saved vault keys are available to every workspace app by default",
+    );
+    expect(payload.message).toContain("No per-app vault grants are needed");
+    expect(payload.message).not.toContain(
+      "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
+    );
+  });
+
+  it("renders a Connect Builder control when Builder is not connected", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "builder-unavailable",
+      reason: "builder-not-connected",
+      message: "Connect Builder for this user",
+      appId: "quality",
+    };
+    await renderAndSelectAccess();
+    await submitForm();
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "Connect Builder for this user",
+        ),
+      );
+    });
+
+    const connectButton = findButton(container, "Connect Builder");
+    act(() => {
+      connectButton.click();
+    });
+    expect(builderConnectFlowState.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "builder-unavailable",
+      reason: "builder-error",
+      message: "Builder rejected the request.",
+      appId: "quality",
+      detail: "500 from Builder",
+      projectId: "proj_1",
+    };
+    await renderAndSelectAccess();
+    await submitForm();
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "Builder rejected the request.",
+        ),
+      );
+    });
+
+    const matchingDivs = Array.from(container.querySelectorAll("div")).filter(
+      (el) => el.textContent?.includes("Builder rejected the request."),
+    );
+    expect(
+      matchingDivs.some((el) => el.className.includes("border-destructive")),
+    ).toBe(true);
+
+    expect(() => findButton(container, "Connect Builder")).toThrow();
+    expect(findButton(container, "Try again")).toBeTruthy();
+  });
+
+  it("renders coming-soon messages neutrally with no Connect Builder control", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "coming-soon",
+      message: "This template is coming soon.",
+      appId: "quality",
+    };
+    await renderAndSelectAccess();
+    await submitForm();
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "This template is coming soon.",
+        ),
+      );
+    });
+
+    const matchingDivs = Array.from(container.querySelectorAll("div")).filter(
+      (el) => el.textContent?.includes("This template is coming soon."),
+    );
+    expect(
+      matchingDivs.some((el) => el.className.includes("border-destructive")),
+    ).toBe(false);
+    expect(() => findButton(container, "Connect Builder")).toThrow();
+    expect(() => findButton(container, "Try again")).toThrow();
+  });
+});
