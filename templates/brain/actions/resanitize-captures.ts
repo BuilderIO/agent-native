@@ -179,6 +179,7 @@ export default defineAction({
           title: row.source.title,
           provider: row.source.provider as BrainSourceProvider,
           ownerEmail: row.source.ownerEmail,
+          orgId: row.source.orgId,
         },
         sourceConfig: parseJson<Record<string, unknown>>(
           row.source.configJson,

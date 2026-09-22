@@ -50,6 +50,7 @@ export function sanitizeSensitiveText(value: string): string {
         "[redacted]",
       )
       .replace(/\bAIza[A-Za-z0-9_-]{35}\b/g, "[redacted]")
+      .replace(/\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g, "[redacted]")
       .replace(
         /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
         "[redacted]",
@@ -110,7 +111,11 @@ const HARD_CATEGORY_PATTERNS: ReadonlyArray<
   ],
   [
     "secret-credential",
-    /\b(?:password|passcode|secret|api[- ]?key|access[- ]?token|private[- ]?key)\s*[:=]|\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)[_-][A-Za-z0-9_=-]{12,}\b/i,
+    // Labelled secrets, then unlabelled provider formats. The unlabelled ones
+    // must land here and not only in sanitizeSensitiveText: redaction alone
+    // would let a credential-bearing capture be stored as "allowed", while the
+    // policy for a labelled secret is to suppress the whole capture.
+    /\b(?:password|passcode|secret|api[- ]?key|access[- ]?token|private[- ]?key)\s*[:=]|\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)[_-][A-Za-z0-9_=-]{12,}\b|\bxox[abposr]-[A-Za-z0-9-]{10,}|\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b|\bAIza[A-Za-z0-9_-]{35}\b|\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/i,
   ],
 ];
 

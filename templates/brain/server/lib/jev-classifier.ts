@@ -273,21 +273,23 @@ export async function resolveJevAuth(identity: {
     ? { userEmail: identity.ownerEmail, orgId: identity.orgId ?? null }
     : core.getCredentialContext();
   if (!ctx?.userEmail) return null;
-  const apiKey = await resolveSourceCredential({
-    provider: "jev",
-    key: "JEV_API_KEY",
-    ctx,
-  });
+  // Both halves of the ladder read ambient request scope internally --
+  // resolveSourceCredential for workspace-connection discovery, and
+  // resolveBuilderGatewayAuth for the whole lookup -- so run them under the
+  // capture owner's identity. Otherwise a shared-source editor or a queue
+  // worker resolves the owner's content against their own credential.
+  const owned = <T>(fn: () => Promise<T>) =>
+    core.runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
+      fn,
+    ) as Promise<T>;
+
+  const apiKey = await owned(() =>
+    resolveSourceCredential({ provider: "jev", key: "JEV_API_KEY", ctx }),
+  );
   if (apiKey?.trim()) return { source: "stored-key", apiKey: apiKey.trim() };
 
-  // resolveBuilderGatewayAuth() reads the ambient request user/org, so bind it
-  // to the same identity as the stored-key lookup. Without this a shared-source
-  // editor or a queue worker would spend their own Builder OAuth grant on the
-  // capture owner's content.
-  const auth = await core.runWithRequestContext(
-    { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
-    () => core.resolveBuilderGatewayAuth(),
-  );
+  const auth = await owned(() => core.resolveBuilderGatewayAuth());
   if (!auth) return null;
   return {
     source: "builder-gateway",

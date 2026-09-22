@@ -71,6 +71,10 @@ describe("capture sanitization", () => {
       "Attorney-client privileged advice from outside counsel.",
     ],
     ["secret-credential", "api key: not-a-real-secret-value"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "rotate xoxb-000000000000-000000000000-EXAMPLEEXAMP"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "deploy uses AKIAEXAMPLEEXAMPLE99 today"],
   ])("hard category %s is always suppressed", async (category, content) => {
     const result = await sanitizeCaptureForStorage({ ...baseInput, content });
 
