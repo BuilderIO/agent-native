@@ -61,7 +61,9 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
 
     render(<DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />);
 
-    expect(screen.getByText("designSystems.tierLimitTitle")).toBeTruthy();
+    expect(
+      screen.getAllByText("designSystems.tierLimitTitle").length,
+    ).toBeGreaterThan(0);
     const upgradeLink = screen.getByRole("link", {
       name: /designSystems.tierLimitUpgrade/,
     });
