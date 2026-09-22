@@ -589,6 +589,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   pendingReviewScreenIds = EMPTY_SCREEN_IDS,
   onReviewPendingScreen,
   interactMode = false,
+  interactScreenId = null,
   readOnly = false,
   editableScreenIds,
   activeScreenHasHoveredChild = false,
@@ -10799,6 +10800,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               cullTier={cullTier}
               isExportPreview={isExportPreview}
               isActive={screen.id === activeId}
+              interactMode={interactMode || interactScreenId === screen.id}
               isTopScreen={screen.id === topScreenId}
               // BP-DEEP v2 item 3 — while a breakpoint sub-frame is the
               // active edit target, IT carries the selection chrome (accent
@@ -12311,6 +12313,7 @@ interface ScreenProps {
   measuredIframeHeights: Record<string, number>;
   locked: boolean;
   isActive: boolean;
+  interactMode: boolean;
   isSelected: boolean;
   /** True while the current selection is an element INSIDE this screen (not
    *  the screen/frame itself) — see selectedElementScreenId. The screen's own
@@ -12404,6 +12407,7 @@ const Screen = memo(function Screen({
   measuredIframeHeights,
   locked,
   isActive,
+  interactMode,
   isSelected,
   elementSelectedInScreen,
   isTopScreen,
@@ -12491,7 +12495,10 @@ const Screen = memo(function Screen({
   // its live DOM does, and that DOM is the only thing there is to select.
   const screenContentInteractive =
     Boolean(screenContent) &&
-    (isSelected || hasScreenChildLayers(screen.content) || contentEditable) &&
+    (interactMode ||
+      isSelected ||
+      hasScreenChildLayers(screen.content) ||
+      contentEditable) &&
     !locked &&
     !penActive &&
     !creationToolActive &&

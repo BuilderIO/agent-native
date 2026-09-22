@@ -9929,11 +9929,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // Alpine x-show toggling several siblings in one microtask). Collapse any
   // number of triggers within a frame into a single refreshOverlays() call.
   var refreshOverlaysScheduled = false;
+  var refreshOverlaysGeneration = 0;
   function scheduleRefreshOverlays(): void {
     if (refreshOverlaysScheduled) return;
     refreshOverlaysScheduled = true;
+    var generation = refreshOverlaysGeneration;
     window.requestAnimationFrame(function () {
       refreshOverlaysScheduled = false;
+      if (generation !== refreshOverlaysGeneration) return;
       refreshOverlays();
     });
   }
@@ -10541,6 +10544,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? Boolean(e.ctrlKey && !e.metaKey)
       : bridgeIgnoreAutoLayoutKeyPressed ||
           String(e && e.key).toLowerCase() === "s";
+  }
+
+  function isIgnoreAutoLayoutChordForDragPoint(e): boolean {
+    if (isApplePlatformBridge()) {
+      return Boolean(e.ctrlKey && !e.metaKey);
+    }
+    if (typeof e.ignoreAutoLayoutKeyPressed === "boolean") {
+      return (
+        e.ignoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s"
+      );
+    }
+    return isIgnoreAutoLayoutChord(e);
   }
 
   function isShowShortcutsChord(e) {
@@ -20255,6 +20270,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       needsAutoLayoutConversion?: boolean;
       conversionTarget?: Element;
     } | null = null;
+    var autoLayoutTargetFrame = 0;
+    var pendingAutoLayoutTargetPoint: {
+      clientX: number;
+      clientY: number;
+      metaKey: boolean;
+      ctrlKey: boolean;
+      altKey: boolean;
+      shiftKey: boolean;
+      spaceKeyPressed: boolean;
+      ignoreAutoLayoutKeyPressed: boolean;
+      snapResult: {
+        guides: unknown[];
+        spacingGuides: unknown[];
+        measurements: unknown[];
+      };
+    } | null = null;
     // Snap candidates (siblings + parent content box) are computed once at
     // drag start — a single getBoundingClientRect pass per candidate — not
     // recomputed on every move event. Other group members are excluded: they
@@ -20276,7 +20307,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return target;
       }
-      if (ev && (isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev))) {
+      if (
+        ev &&
+        (isIgnoreAutoLayoutChordForDragPoint(ev) || isPlatformPrimaryChord(ev))
+      ) {
         return target;
       }
       var container = dropContainerForTarget(target);
@@ -20316,6 +20350,95 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         dropMode: "flow-insert",
       };
     }
+    function cancelAutoLayoutTargetResolution(): void {
+      pendingAutoLayoutTargetPoint = null;
+      if (autoLayoutTargetFrame) {
+        window.cancelAnimationFrame(autoLayoutTargetFrame);
+        autoLayoutTargetFrame = 0;
+      }
+    }
+
+    function scheduleAutoLayoutTargetResolution(ev, snapResult): void {
+      pendingAutoLayoutTargetPoint = {
+        clientX: ev.clientX,
+        clientY: ev.clientY,
+        metaKey: !!ev.metaKey,
+        ctrlKey: !!ev.ctrlKey,
+        altKey: !!ev.altKey,
+        shiftKey: !!ev.shiftKey,
+        // Capture the modifier state carried by this move. The RAF can run
+        // after the host's keyboard state has changed, so reading only the
+        // bridge globals there can resolve a different gesture than the one
+        // that scheduled the move.
+        spaceKeyPressed: Boolean(ev.spaceKeyPressed) || bridgeSpaceKeyPressed,
+        ignoreAutoLayoutKeyPressed:
+          Boolean(ev.ignoreAutoLayoutKeyPressed) ||
+          bridgeIgnoreAutoLayoutKeyPressed ||
+          (!isApplePlatformBridge() && String(ev.key).toLowerCase() === "s"),
+        snapResult: {
+          guides: snapResult.guides,
+          spacingGuides: snapResult.spacingGuides,
+          measurements: snapResult.measurements,
+        },
+      };
+      if (autoLayoutTargetFrame) return;
+      autoLayoutTargetFrame = window.requestAnimationFrame(function () {
+        autoLayoutTargetFrame = 0;
+        var point = pendingAutoLayoutTargetPoint;
+        pendingAutoLayoutTargetPoint = null;
+        if (!point || !dragEl || !document.documentElement.contains(dragEl)) {
+          return;
+        }
+        if (point.spaceKeyPressed) {
+          currentAutoLayoutTarget = null;
+          hideInsertionGuide();
+          return;
+        }
+        var target = autoLayoutInsertionTargetForPoint(
+          dragEl,
+          point.clientX,
+          point.clientY,
+          groupOthers,
+          isPlatformPrimaryChord(point),
+        );
+        if (target && isIgnoreAutoLayoutChordForDragPoint(point)) {
+          target = ignoreAutoLayoutForDropTarget(target);
+        }
+        currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
+        if (currentAutoLayoutTarget) {
+          showInsertionGuideFor(currentAutoLayoutTarget);
+          if (currentAutoLayoutTarget.dropMode !== "absolute-container") {
+            hideSnapGuides();
+            // hideSnapGuides clears the suppression flag as part of its normal
+            // cleanup. Set it after that call so the queued overlay refresh
+            // cannot restore free-placement chrome during a flow insert.
+            dragChromeSuppressed = true;
+            hideSizeBadge();
+            hideConstraintGuides();
+          } else {
+            // A deferred result may move from a flow target to a free-drop
+            // container. Restore the chrome state for that transition.
+            dragChromeSuppressed = false;
+            showSnapGuides(
+              point.snapResult.guides,
+              point.snapResult.spacingGuides,
+              point.snapResult.measurements,
+            );
+            showConstraintGuides(dragEl);
+          }
+        } else {
+          hideInsertionGuide();
+          dragChromeSuppressed = false;
+          showSnapGuides(
+            point.snapResult.guides,
+            point.snapResult.spacingGuides,
+            point.snapResult.measurements,
+          );
+          showConstraintGuides(dragEl);
+        }
+      });
+    }
+
     // Client px per CSS px for this element. 1 unless an ancestor between it
     // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
     // Client px per CSS px contributed by ANCESTORS. Measured on the offset
@@ -20561,6 +20684,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         scheduleCrossScreenDragMove(ev);
       }
       if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        cancelAutoLayoutTargetResolution();
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
       } else {
@@ -20575,27 +20699,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // host only resends a claim message on a claimed-value CHANGE, so
         // once clobbered it stayed false for the rest of the drag with no
         // further message ever arriving to correct it.
-        currentAutoLayoutTarget = !bridgeSpaceKeyPressed
-          ? autoLayoutInsertionTargetForPoint(
-              dragEl,
-              ev.clientX,
-              ev.clientY,
-              groupOthers,
-              isPlatformPrimaryChord(ev),
-            )
-          : null;
-        if (currentAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
-          currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
-            currentAutoLayoutTarget,
-          );
-        }
-        currentAutoLayoutTarget = applyFreeDropSizeGuard(
-          currentAutoLayoutTarget,
-          ev,
-        );
-        if (currentAutoLayoutTarget) {
-          showInsertionGuideFor(currentAutoLayoutTarget);
+        if (!bridgeSpaceKeyPressed) {
+          scheduleAutoLayoutTargetResolution(ev, snapResult);
         } else {
+          cancelAutoLayoutTargetResolution();
+          currentAutoLayoutTarget = null;
           hideInsertionGuide();
         }
       }
@@ -20635,7 +20743,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (duplicatedForDrag) {
         showTransformBadge("Duplicate layer", ev.clientX, ev.clientY);
       }
-      refreshOverlays();
+      scheduleRefreshOverlays();
     }
     function restoreSourceDragPosition(): void {
       memberStates.forEach(function (state) {
@@ -20647,6 +20755,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       positionOverlay(selectionOverlay, selectedEl);
     }
     function cleanupMoveDrag() {
+      cancelAutoLayoutTargetResolution();
+      refreshOverlaysGeneration += 1;
+      refreshOverlaysScheduled = false;
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onMoveKeyDown, true);
@@ -20723,6 +20834,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       cleanupMoveDrag();
+      // cleanupMoveDrag invalidates any queued move repaint. Re-arm one for
+      // the successful release so pointerup cannot leave selection chrome at
+      // the pre-release geometry when it arrives before that frame runs.
+      scheduleRefreshOverlays();
       hideTransformBadge();
       hideInsertionGuide();
       hideSnapGuides();
@@ -20778,9 +20893,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           finalAutoLayoutTarget,
           ev,
         );
-        if (finalAutoLayoutTarget) {
-          currentAutoLayoutTarget = finalAutoLayoutTarget;
-        }
+        currentAutoLayoutTarget = finalAutoLayoutTarget;
       } else if (bridgeSpaceKeyPressed) {
         // Space is Figma's retain-parent modifier. Absolute/freeform drags
         // already move in their current containing-block coordinates, so

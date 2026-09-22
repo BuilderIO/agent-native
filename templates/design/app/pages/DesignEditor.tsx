@@ -1396,6 +1396,9 @@ function DesignEditor() {
   // ── Tool, mode, zoom, camera, and view state ───────────────────────────────
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
+  const [overviewInteractScreenId, setOverviewInteractScreenId] = useState<
+    string | null
+  >(null);
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
   // Drawing drops activeTool back to move (Figma parity), so the shape group
   // button cannot read its own identity off it.
@@ -1475,6 +1478,11 @@ function DesignEditor() {
   });
   const [interactZoom, setInteractZoom] = useState(100);
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
+  useEffect(() => {
+    if (viewMode !== "overview" || mode !== "edit") {
+      setOverviewInteractScreenId(null);
+    }
+  }, [mode, viewMode]);
   const viewModeRef = useRef<"single" | "overview">("overview");
   // Trusted parent origin captured from the first validated inbound message.
   // Used to restrict outgoing postMessage calls that carry user data so they
@@ -17888,12 +17896,11 @@ function DesignEditor() {
       files,
     ],
   );
-  const handleOverviewFrameAction = useCallback(
-    (screenId: string) => {
-      handleModeChange("interact", { targetFileId: screenId });
-    },
-    [handleModeChange],
-  );
+  const handleOverviewFrameAction = useCallback((screenId: string) => {
+    setOverviewInteractScreenId((current) =>
+      current === screenId ? null : screenId,
+    );
+  }, []);
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
   // screen with no device chrome and no canvas around it.
@@ -24403,8 +24410,10 @@ function DesignEditor() {
           fitRootBodyToFrame={metadata.heightMode !== "hug"}
           editorChromeScaleX={overviewCanvasZoom / 100}
           editorChromeScaleY={overviewCanvasZoom / 100}
-          editMode={mode === "edit"}
-          interactMode={mode === "interact"}
+          editMode={mode === "edit" && overviewInteractScreenId !== screen.id}
+          interactMode={
+            mode === "interact" || overviewInteractScreenId === screen.id
+          }
           readOnly={!canEditDesign && !canEditLiveScreen(screen.id)}
           scaleMode={screenIsActive && activeTool === "scale"}
           handToolActive={activeTool === "hand"}
@@ -24586,6 +24595,7 @@ function DesignEditor() {
       getEmbeddedFrame,
       overviewCanvasZoom,
       mode,
+      overviewInteractScreenId,
       canEditDesign,
       canEditLiveScreen,
       publicVisualEditConnectionId,
@@ -27245,6 +27255,7 @@ function DesignEditor() {
                         pendingReviewScreenIds={pendingNodeRewriteScreenIds}
                         onReviewPendingScreen={handleReviewPendingScreen}
                         interactMode={mode === "interact"}
+                        interactScreenId={overviewInteractScreenId}
                         readOnly={!canEditDesign}
                         editableScreenIds={editableLiveScreenIds}
                         activeScreenHasHoveredChild={
