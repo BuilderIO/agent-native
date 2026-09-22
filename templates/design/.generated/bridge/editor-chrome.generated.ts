@@ -10646,7 +10646,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
           modifiers: options?.modifiers,
           duplicate: options?.duplicate === true ? true : void 0,
-          sourceCloneHtml: options?.duplicate && el ? el.outerHTML : void 0,
+          // The host needs the frozen outerHTML for moves as well as copies. A
+          // live source has no stored HTML document to snapshot, so waiting for
+          // the duplicate-only field leaves move drops with no insert payload.
+          sourceCloneHtml: el ? el.outerHTML : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"

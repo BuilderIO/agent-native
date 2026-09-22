@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 
 import {
@@ -34,22 +35,24 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
   request,
 }, workerInfo) => {
   const baseURL = workerInfo.project.use.baseURL as string;
-  page.on("console", (message) => {
-    const text = message.text();
-    if (text.includes("dnd:") || text.includes("runtime structure")) {
-      console.log(`[browser:${message.type()}] ${text}`);
-    }
-  });
   const componentDetailsRequests: string[] = [];
   page.on("request", (request) => {
     if (request.url().includes("/actions/get-component-details")) {
       componentDetailsRequests.push(request.url());
     }
   });
-  fs.mkdirSync(path.join(process.cwd(), ".tmp"), { recursive: true });
   const rootPath = fs.mkdtempSync(
-    path.join(process.cwd(), ".tmp", "url-react-"),
+    path.join(os.tmpdir(), "agent-native-url-react-"),
   );
+  const fixtureNodeModules = path.join(rootPath, "node_modules");
+  fs.mkdirSync(fixtureNodeModules);
+  for (const packageName of ["react", "react-dom", "react-router"]) {
+    fs.symlinkSync(
+      path.resolve(process.cwd(), "node_modules", packageName),
+      path.join(fixtureNodeModules, packageName),
+      "dir",
+    );
+  }
   fs.mkdirSync(path.join(rootPath, "src"));
   fs.writeFileSync(
     path.join(rootPath, "index.html"),
@@ -61,7 +64,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
   );
   fs.writeFileSync(
     path.join(rootPath, "src/App.tsx"),
-    `import { useState } from "react"; import { useLocation, useNavigate } from "react-router";\nconst initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];\nexport function App() { const [cards] = useState(initialCards); const location = useLocation(); const navigate = useNavigate(); const prefix = location.search ? "dest-" : ""; return <html><head><title>React URL physical proof</title></head><body><main id="root" style={{ padding: 24, width: 720, position: "relative" }}><button type="button" onClick={() => navigate("/next")}>Go to next route</button><p data-route-label>{location.pathname === "/next" ? "Next route" : "Home route"}</p><div id={prefix + "flow"} data-source-id={prefix + "flow-root"} data-agent-native-node-id={prefix + "flow-root"} style={{ display: "flex", flexDirection: "column", gap: 16, border: "2px solid #334155", padding: 16, width: 640 }}>{cards.map((card) => <div key={card.id} id={prefix + card.id} data-source-id={prefix + card.id} data-agent-native-node-id={prefix + card.id} style={{ height: 64, border: "2px solid #0f766e", padding: 12 }}>{card.label}</div>)}</div></main><div id={prefix + "freeform"} data-source-id={prefix + "freeform"} data-agent-native-node-id={prefix + "freeform"} style={{ position: "absolute", left: 40, top: 420, width: 120, height: 70, border: "2px solid #be123c", background: "#fda4af", padding: 8 }}>Freeform</div></body></html>; }`,
+    `import { useState } from "react"; import { useLocation, useNavigate } from "react-router";\nconst initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];\nexport function App() { const [cards] = useState(initialCards); const location = useLocation(); const navigate = useNavigate(); const prefix = new URLSearchParams(location.search).has("screen") ? "dest-" : ""; return <html><head><title>React URL physical proof</title></head><body><main id="root" style={{ padding: 24, width: 720, position: "relative" }}><button type="button" onClick={() => navigate("/next")}>Go to next route</button><p data-route-label>{location.pathname === "/next" ? "Next route" : "Home route"}</p><div id={prefix + "flow"} data-source-id={prefix + "flow-root"} data-agent-native-node-id={prefix + "flow-root"} style={{ display: "flex", flexDirection: "column", gap: 16, border: "2px solid #334155", padding: 16, width: 640 }}>{cards.map((card) => <div key={card.id} id={prefix + card.id} data-source-id={prefix + card.id} data-agent-native-node-id={prefix + card.id} style={{ height: 64, border: "2px solid #0f766e", padding: 12 }}>{card.label}</div>)}</div></main><div id={prefix + "freeform"} data-source-id={prefix + "freeform"} data-agent-native-node-id={prefix + "freeform"} style={{ position: "absolute", left: 40, top: 420, width: 120, height: 70, border: "2px solid #be123c", background: "#fda4af", padding: 8 }}>Freeform</div></body></html>; }`,
   );
   const targetPort = await freePort();
   const targetUrl = `http://127.0.0.1:${targetPort}`; // e2e-harness-ignore: allocated live Vite port
@@ -99,6 +102,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
         "--port",
         String(targetPort),
         "--strictPort",
+        "--force",
       ],
       { cwd: rootPath, stdio: ["ignore", "pipe", "pipe"] },
     );
@@ -162,6 +166,12 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       `${baseURL}/visual-edit/${opened.designId}?editorView=overview`,
       { waitUntil: "domcontentloaded" },
     );
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (await page.locator("[data-design-editor]").count()) break;
+      await page.waitForTimeout(2_000);
+      if (await page.locator("[data-design-editor]").count()) break;
+      await page.reload({ waitUntil: "domcontentloaded" });
+    }
     await expect(page.locator("[data-design-editor]")).toBeVisible({
       timeout: 30_000,
     });
@@ -191,47 +201,18 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     await destinationFrame
       .locator('[data-agent-native-node-id="dest-flow-root"]')
       .waitFor();
-    await Promise.all([
-      frame.locator("html").evaluate(() => {
-        (window as typeof window & { __DND_DEBUG?: boolean }).__DND_DEBUG =
-          true;
-        (
-          window as typeof window & { __runtimeMessages?: string[] }
-        ).__runtimeMessages = [];
-        window.addEventListener("message", (event) => {
-          const type = event.data?.type;
-          if (typeof type === "string" && type.includes("runtime-structure")) {
-            (
-              window as typeof window & { __runtimeMessages?: string[] }
-            ).__runtimeMessages?.push(type);
-          }
-        });
-      }),
-      destinationFrame.locator("html").evaluate(() => {
-        (window as typeof window & { __DND_DEBUG?: boolean }).__DND_DEBUG =
-          true;
-        (
-          window as typeof window & { __runtimeMessages?: string[] }
-        ).__runtimeMessages = [];
-        window.addEventListener("message", (event) => {
-          const type = event.data?.type;
-          if (typeof type === "string" && type.includes("runtime-structure")) {
-            (
-              window as typeof window & { __runtimeMessages?: string[] }
-            ).__runtimeMessages?.push(type);
-          }
-        });
-      }),
-    ]);
     await page.keyboard.press("Shift+1");
     let previousCanvasBoxes = "";
     await expect
       .poll(
         async () => {
           const boxes = await Promise.all(
-            [frame, destinationFrame].map(async (candidate) => {
+            [
+              { candidate: frame, nodeId: "flow-root" },
+              { candidate: destinationFrame, nodeId: "dest-flow-root" },
+            ].map(async ({ candidate, nodeId }) => {
               const node = candidate.locator(
-                '[data-agent-native-node-id="flow-root"]',
+                `[data-agent-native-node-id="${nodeId}"]`,
               );
               const box = await node.boundingBox();
               return box ? `${box.x},${box.y},${box.width},${box.height}` : "";
@@ -283,24 +264,22 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       timeout: 5_000,
     });
     await page.mouse.up();
-    await page.waitForTimeout(500);
-    console.log(
-      "[iframe-runtime-messages]",
-      await Promise.all(
-        [frame, destinationFrame].map((candidate) =>
-          candidate
-            .locator("html")
-            .evaluate(
-              () =>
-                (window as typeof window & { __runtimeMessages?: string[] })
-                  .__runtimeMessages ?? [],
-            ),
-        ),
-      ),
-    );
     await expect.poll(() => crossSource.count(), { timeout: 5_000 }).toBe(0);
     await expect(crossTarget).toHaveCount(1, { timeout: 5_000 });
     await expect(movedTarget).toHaveCount(1, { timeout: 5_000 });
+    await expect
+      .poll(
+        () =>
+          destinationFrame
+            .locator(
+              '[data-agent-native-node-id="dest-flow-root"] > [data-agent-native-node-id]',
+            )
+            .evaluateAll((els) =>
+              els.map((el) => el.getAttribute("data-agent-native-node-id")),
+            ),
+        { timeout: 5_000 },
+      )
+      .toEqual(["dest-v2", "dest-v3"]);
     await expect(
       frame.locator('[data-agent-native-edit-overlay="shield"]'),
     ).toBeAttached();
@@ -478,7 +457,9 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       guide.some((x) => x.display !== "none" && x.width > 0 && x.height > 0),
     ).toBe(true);
     await page.mouse.up();
-    await expect.poll(order).toEqual(["v2", "v3", "v1"]);
+    // v2 was moved to the other live screen above, so the source reorder is
+    // applied to the remaining siblings.
+    await expect.poll(order).toEqual(["v3", "v1"]);
     await expect
       .poll(
         async () =>

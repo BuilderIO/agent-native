@@ -404,12 +404,10 @@ export function runCrossScreenElementDrop(
       sourceNodeId ??
       (sourceProvenance as { uniqueNodeId?: string } | undefined)?.uniqueNodeId;
     const sourceOwner = sourceOwnerEntry?.[1];
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
     const validatedSourceHtmlSnapshot =
-      subjectNodeId && sourceHtmlSnapshot
-        ? validateCrossScreenSourceHtmlSnapshot(
-            sourceHtmlSnapshot,
-            subjectNodeId,
-          )
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
         : undefined;
     if (!sourceOwner || !subjectNodeId || !validatedSourceHtmlSnapshot) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
@@ -761,14 +759,12 @@ export function runCrossScreenElementDrop(
     );
     const subjectNodeId =
       subjectNode?.dataAttributes["data-agent-native-node-id"];
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
     const validatedSourceHtmlSnapshot =
-      subjectNodeId && sourceHtmlSnapshot
-        ? validateCrossScreenSourceHtmlSnapshot(
-            sourceHtmlSnapshot,
-            subjectNodeId,
-          )
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
         : undefined;
-    if (sourceHtmlSnapshot && !validatedSourceHtmlSnapshot) {
+    if (sourceHtml && !validatedSourceHtmlSnapshot) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
         duration: 4000,
       });

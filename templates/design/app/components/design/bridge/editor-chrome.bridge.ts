@@ -14555,7 +14555,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         modifiers: options?.modifiers,
         duplicate: options?.duplicate === true ? true : undefined,
-        sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
+        // The host needs the frozen outerHTML for moves as well as copies. A
+        // live source has no stored HTML document to snapshot, so waiting for
+        // the duplicate-only field leaves move drops with no insert payload.
+        sourceCloneHtml: el ? el.outerHTML : undefined,
         releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : undefined,
       },
       "*",
