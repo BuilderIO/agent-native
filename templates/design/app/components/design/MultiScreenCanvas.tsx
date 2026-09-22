@@ -12627,6 +12627,7 @@ const Screen = memo(function Screen({
     <div
       data-frame-shell
       data-screen-shell
+      data-screen-interact-mode={interactMode ? "true" : "false"}
       // PERF9: stable per-screen lookup key so beginFrameDrag can grab this
       // exact DOM node once at drag-start and mutate its style.left/top
       // directly on every rAF tick (see frameStyleLeftTop), instead of

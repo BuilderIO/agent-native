@@ -452,19 +452,28 @@ export async function enterInteractView(
         .locator("[data-frame-full-view]")
     : page.locator("[data-frame-full-view]").last();
   await expect(fullView).toHaveCount(1);
+  const screenShell = fullView.locator("xpath=ancestor::*[@data-screen-shell]");
+  await expect(screenShell).toHaveAttribute(
+    "data-screen-interact-mode",
+    "false",
+  );
   // The screen card can extend beneath the fixed inspector at narrow canvas
   // widths; invoke the button without relying on the panel's overlapping
   // physical hit area.
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
+  await expect(screenShell).toHaveAttribute(
+    "data-screen-interact-mode",
+    "true",
+  );
   // Interact is a responsive view of the same editor. Rails and the screen
   // shell stay mounted; assert the view's own device preview below instead.
   await expect
     .poll(
       async () =>
         (
-          await page
+          await screenShell
             .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
             .last()
             .boundingBox()
