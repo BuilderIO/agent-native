@@ -1684,7 +1684,9 @@ function LLMSectionInner({
                           type="button"
                           intent="neutral"
                           emphasis="outline"
-                          disabled={saving || ollamaModelsLoading || clearBaseUrl}
+                          disabled={
+                            saving || ollamaModelsLoading || clearBaseUrl
+                          }
                           onClick={handleFindOllamaModels}
                           className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
                         >
