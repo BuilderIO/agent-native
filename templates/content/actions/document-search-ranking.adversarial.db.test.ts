@@ -120,6 +120,23 @@ beforeAll(async () => {
         visibility: "private",
         updatedAt: "2026-01-06T00:00:00.000Z",
       },
+      {
+        id: "qa-intitle-newer",
+        ownerEmail: OWNER,
+        title: "Copper launch newer",
+        content: "launch",
+        visibility: "private",
+        updatedAt: "2026-01-07T00:00:00.000Z",
+      },
+      {
+        id: "qa-intitle-older-description",
+        ownerEmail: OWNER,
+        title: "Copper launch older",
+        description: "copper",
+        content: "launch",
+        visibility: "private",
+        updatedAt: "2000-01-07T00:00:00.000Z",
+      },
     ]);
 }, 60_000);
 
@@ -167,6 +184,20 @@ describe("adversarial document search ranking", () => {
     expect(await searchIds("amber violet")).toEqual([
       "qa-title-only-newer",
       "qa-title-only-older-description",
+    ]);
+  });
+
+  it("keeps intitle terms neutral in description ranking", async () => {
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      searchDocuments.run({
+        query: "intitle:copper launch",
+        limit: 20,
+        offset: 0,
+      }),
+    );
+    expect(result.documents.map((document) => document.id)).toEqual([
+      "qa-intitle-newer",
+      "qa-intitle-older-description",
     ]);
   });
 });

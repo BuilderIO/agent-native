@@ -45,6 +45,16 @@ function groupSubstringMatch(column: SQLWrapper, group: SearchQueryGroup): SQL {
   return or(...group.terms.map((term) => substringMatch(column, term)))!;
 }
 
+function nonTitleGroupSubstringMatch(
+  column: SQLWrapper,
+  group: SearchQueryGroup,
+): SQL {
+  const terms = group.terms.filter((term) => !term.titleOnly);
+  return terms.length
+    ? or(...terms.map((term) => substringMatch(column, term)))!
+    : sql`false`;
+}
+
 function groupWordPrefixMatch(
   column: SQLWrapper,
   group: SearchQueryGroup,
@@ -55,12 +65,13 @@ function groupWordPrefixMatch(
 function countMatchingGroups(
   column: SQLWrapper,
   groups: SearchQueryGroup[],
+  nonTitleOnly = false,
 ): SQL<number> {
   if (!groups.length) return sql<number>`0`;
   return sql<number>`(${sql.join(
     groups.map(
       (group) =>
-        sql`case when ${groupSubstringMatch(column, group)} then 1 else 0 end`,
+        sql`case when ${nonTitleOnly ? nonTitleGroupSubstringMatch(column, group) : groupSubstringMatch(column, group)} then 1 else 0 end`,
     ),
     sql` + `,
   )})`;
@@ -115,11 +126,14 @@ export function documentSearchRanking(
   const normalizedSimpleQueries = simpleQueries.map((query) =>
     query.toLocaleLowerCase().replace(/\s+/g, " "),
   );
-  const allTitleWordPrefixes = groups.length
-    ? and(...groups.map((group) => groupWordPrefixMatch(columns.title, group)))!
-    : sql`false`;
+  const guardNormalizedTitle = groups.every((group) =>
+    group.terms.every((term) => !/\s/.test(term.text)),
+  );
   const allTitleSubstrings = groups.length
     ? and(...groups.map((group) => groupSubstringMatch(columns.title, group)))!
+    : sql`false`;
+  const allTitleWordPrefixes = groups.length
+    ? and(...groups.map((group) => groupWordPrefixMatch(columns.title, group)))!
     : sql`false`;
   const allTitleOrDescription = groups.length
     ? and(
@@ -127,7 +141,7 @@ export function documentSearchRanking(
           includeNonTitleFields
             ? or(
                 groupSubstringMatch(columns.title, group),
-                groupSubstringMatch(columns.description, group),
+                nonTitleGroupSubstringMatch(columns.description, group),
               )!
             : groupSubstringMatch(columns.title, group),
         ),
@@ -136,24 +150,30 @@ export function documentSearchRanking(
   const matchTier = sql<number>`case
     when ${
       normalizedSimpleQueries.length
-        ? or(
-            ...normalizedSimpleQueries.map(
-              (query) => sql`${normalizedTitle} = ${query}`,
-            ),
+        ? and(
+            guardNormalizedTitle ? allTitleSubstrings : sql`true`,
+            or(
+              ...normalizedSimpleQueries.map(
+                (query) => sql`${normalizedTitle} = ${query}`,
+              ),
+            )!,
           )!
         : sql`false`
     } then 5
     when ${
       normalizedSimpleQueries.length
-        ? or(
-            ...normalizedSimpleQueries.map(
-              (query) =>
-                sql`${normalizedTitle} like ${`${escapeLike(query)}%`} escape '\\'`,
-            ),
+        ? and(
+            guardNormalizedTitle ? allTitleSubstrings : sql`true`,
+            or(
+              ...normalizedSimpleQueries.map(
+                (query) =>
+                  sql`${normalizedTitle} like ${`${escapeLike(query)}%`} escape '\\'`,
+              ),
+            )!,
           )!
         : sql`false`
     } then 4
-    when ${allTitleWordPrefixes} then 3
+    when ${allTitleSubstrings} and ${allTitleWordPrefixes} then 3
     when ${allTitleSubstrings} then 2
     when ${allTitleOrDescription} then 1
     else 0
@@ -162,7 +182,7 @@ export function documentSearchRanking(
     matchTier,
     titleCoverage: countMatchingGroups(columns.title, groups),
     descriptionCoverage: includeNonTitleFields
-      ? countMatchingGroups(columns.description, groups)
+      ? countMatchingGroups(columns.description, groups, true)
       : sql<number>`0::integer`,
     bodyProximity: includeNonTitleFields
       ? bodyProximityScore(parsed, columns.content)
