@@ -100,23 +100,15 @@ import {
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
-  it("bundles SSR singleton dependencies for Node/serverless output", () => {
-    const bundledSsrPackages = [
-      "react",
-      "react-dom",
-      "react-router",
-      "@tanstack/react-query",
-    ];
-    expect(nitroNoExternalsForPreset("netlify")).toEqual(bundledSsrPackages);
-    expect(nitroNoExternalsForPreset("vercel")).toEqual(bundledSsrPackages);
-    expect(nitroNoExternalsForPreset("aws-lambda")).toEqual(bundledSsrPackages);
+  it("bundles all Amplify dependencies and leaves Yjs external elsewhere", () => {
+    expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
+    expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws_amplify")).toBe(true);
     expect(nitroNoExternalsForPreset("aws-amplify")).toBe(true);
     expect(nitroNoExternalsForPreset("awsAmplify")).toBe(true);
-    expect(nitroNoExternalsForPreset("node")).toEqual(bundledSsrPackages);
-    expect(nitroNoExternalsForPreset("node-server")).toEqual(
-      bundledSsrPackages,
-    );
+    expect(nitroNoExternalsForPreset("node")).toEqual([]);
+    expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
 
   it("bundles every dependency for edge output", () => {
