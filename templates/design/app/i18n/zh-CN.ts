@@ -162,14 +162,14 @@ const messages = {
     ...messagesByLocale["zh-CN"].designSystems,
     tierLimitTitle: "已达到设计系统数量上限",
     tierLimitDescription:
-      "您已达到当前套餐的设计系统数量上限。升级套餐以创建更多。",
+      "您已达到当前 Builder 套餐的设计系统数量上限。升级 Builder 套餐以创建更多。",
     tierLimitDescriptionWithCount:
-      "您在 {{plan}} 套餐中已使用 {{current}}/{{max}} 个设计系统。升级套餐以创建更多。",
+      "您在 Builder {{plan}} 套餐中已使用 {{current}}/{{max}} 个设计系统。升级 Builder 套餐以创建更多。",
     tierLimitUpgrade: "升级套餐",
   },
   designSystemSetup: {
     ...messagesByLocale["zh-CN"].designSystemSetup,
-    codeIndexingEnterpriseOnly: "代码和仓库索引需要企业版套餐",
+    codeIndexingEnterpriseOnly: "代码和仓库索引需要 Builder 企业版套餐",
   },
 };
 

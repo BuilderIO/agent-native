@@ -787,20 +787,36 @@ export function DesignSystemSetup({
       <DialogContent className="sm:max-w-2xl max-h-[85vh] p-0 bg-card border-border">
         <DialogHeader className="px-6 pt-6 pb-0">
           <DialogTitle className="text-foreground">
-            {editingId
-              ? t("designSystemSetup.editTitle")
-              : t("designSystemSetup.newTitle")}
+            {!editingId && atMax
+              ? t("designSystems.tierLimitTitle")
+              : editingId
+                ? t("designSystemSetup.editTitle")
+                : t("designSystemSetup.newTitle")}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {editingId
-              ? t("designSystemSetup.editDescription")
-              : t("designSystemSetup.newDescription")}
+            {!editingId && atMax
+              ? tierLimit?.current != null &&
+                tierLimit?.max != null &&
+                tierLimit?.plan
+                ? t("designSystems.tierLimitDescriptionWithCount", {
+                    current: tierLimit.current,
+                    max: tierLimit.max,
+                    plan: tierLimit.plan,
+                  })
+                : t("designSystems.tierLimitDescription")
+              : editingId
+                ? t("designSystemSetup.editDescription")
+                : t("designSystemSetup.newDescription")}
           </DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[calc(85vh-160px)] px-6">
           {!editingId && atMax ? (
-            <TierLimitCapNotice tierLimit={tierLimit} t={t} />
+            <div className="flex justify-center py-10">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center">
+                <IconLock className="w-7 h-7 text-primary" />
+              </div>
+            </div>
           ) : editingId &&
             (existingDsLoading || (!existingDs && !existingDsError)) ? (
             <DesignSystemEditSkeleton />
@@ -1365,26 +1381,42 @@ export function DesignSystemSetup({
           >
             {t("designSystemSetup.cancel")}
           </Button>
-          <Button
-            onClick={handleGenerate}
-            disabled={
-              editingId
-                ? generating || !existingDs || existingDsLoading
-                : !hasAnySources
-            }
-            className="cursor-pointer"
-          >
-            {generating ? (
-              <>
-                <IconLoader2 className="w-4 h-4 animate-spin" />
-                {t("designSystemSetup.saving")}
-              </>
-            ) : editingId ? (
-              t("designSystemSetup.saveChanges")
-            ) : (
-              t("designSystemSetup.continueToGeneration")
-            )}
-          </Button>
+          {!editingId && atMax ? (
+            <Button asChild className="cursor-pointer">
+              <a
+                href={
+                  tierLimit?.upgradeUrl ??
+                  "https://builder.io/account/subscription"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <IconExternalLink className="w-4 h-4" />
+                {t("designSystems.tierLimitUpgrade")}
+              </a>
+            </Button>
+          ) : (
+            <Button
+              onClick={handleGenerate}
+              disabled={
+                editingId
+                  ? generating || !existingDs || existingDsLoading
+                  : !hasAnySources
+              }
+              className="cursor-pointer"
+            >
+              {generating ? (
+                <>
+                  <IconLoader2 className="w-4 h-4 animate-spin" />
+                  {t("designSystemSetup.saving")}
+                </>
+              ) : editingId ? (
+                t("designSystemSetup.saveChanges")
+              ) : (
+                t("designSystemSetup.continueToGeneration")
+              )}
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -1803,39 +1835,4 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
-function TierLimitCapNotice(props: {
-  tierLimit: DesignSystemTierLimit | undefined;
-  t: ReturnType<typeof useT>;
-}) {
-  const tierLimit = props.tierLimit;
-  const t = props.t;
-  return (
-    <div className="space-y-3 rounded-lg border border-border bg-card p-4 my-4">
-      <p className="text-sm font-medium text-foreground">
-        {t("designSystems.tierLimitTitle")}
-      </p>
-      <p className="text-sm text-muted-foreground">
-        {tierLimit?.current != null && tierLimit?.max != null && tierLimit?.plan
-          ? t("designSystems.tierLimitDescriptionWithCount", {
-              current: tierLimit.current,
-              max: tierLimit.max,
-              plan: tierLimit.plan,
-            })
-          : t("designSystems.tierLimitDescription")}
-      </p>
-      {tierLimit?.upgradeUrl && (
-        <a
-          href={tierLimit.upgradeUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-        >
-          <IconExternalLink className="w-3.5 h-3.5" />
-          {t("designSystems.tierLimitUpgrade")}
-        </a>
-      )}
-    </div>
-  );
 }

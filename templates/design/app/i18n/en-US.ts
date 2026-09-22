@@ -106,15 +106,15 @@ const messages = {
     ...messagesByLocale["en-US"].designSystems,
     tierLimitTitle: "Design system limit reached",
     tierLimitDescription:
-      "You've reached the design-system limit for your plan. Upgrade to create another.",
+      "You've reached the design-system limit for your Builder plan. Upgrade your Builder plan to create another.",
     tierLimitDescriptionWithCount:
-      "You're using {{current}} of {{max}} design systems on the {{plan}} plan. Upgrade to create another.",
-    tierLimitUpgrade: "Upgrade plan",
+      "You're using {{current}} of {{max}} design systems on your Builder {{plan}} plan. Upgrade to create another.",
+    tierLimitUpgrade: "Upgrade Builder plan",
   },
   designSystemSetup: {
     ...messagesByLocale["en-US"].designSystemSetup,
     codeIndexingEnterpriseOnly:
-      "Code and repository indexing requires an Enterprise plan",
+      "Code and repository indexing requires the Builder Enterprise plan",
   },
 };
 

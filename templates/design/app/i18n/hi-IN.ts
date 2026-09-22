@@ -163,15 +163,15 @@ const messages = {
     ...messagesByLocale["hi-IN"].designSystems,
     tierLimitTitle: "डिज़ाइन सिस्टम की सीमा पूरी हो गई",
     tierLimitDescription:
-      "आपने अपनी योजना की डिज़ाइन सिस्टम सीमा पूरी कर ली है। नया बनाने के लिए अपग्रेड करें।",
+      "आपने अपनी Builder योजना की डिज़ाइन सिस्टम सीमा पूरी कर ली है। नया बनाने के लिए अपनी Builder Builder योजना अपग्रेड करें।",
     tierLimitDescriptionWithCount:
-      "आप {{plan}} योजना में {{max}} में से {{current}} डिज़ाइन सिस्टम का उपयोग कर रहे हैं। नया बनाने के लिए अपग्रेड करें।",
+      "आप अपनी Builder {{plan}} योजना में {{max}} में से {{current}} डिज़ाइन सिस्टम का उपयोग कर रहे हैं। नया बनाने के लिए अपग्रेड करें।",
     tierLimitUpgrade: "योजना अपग्रेड करें",
   },
   designSystemSetup: {
     ...messagesByLocale["hi-IN"].designSystemSetup,
     codeIndexingEnterpriseOnly:
-      "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Enterprise योजना आवश्यक है",
+      "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
   },
 };
 

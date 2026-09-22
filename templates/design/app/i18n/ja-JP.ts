@@ -164,15 +164,15 @@ const messages = {
     ...messagesByLocale["ja-JP"].designSystems,
     tierLimitTitle: "デザインシステムの上限に達しました",
     tierLimitDescription:
-      "現在のプランのデザインシステム上限に達しました。アップグレードして新しく作成してください。",
+      "現在のBuilderプランのデザインシステム上限に達しました。BuilderBuilderプランをアップグレードして新しく作成してください。",
     tierLimitDescriptionWithCount:
-      "{{plan}}プランでデザインシステムを{{current}}/{{max}}件使用しています。アップグレードして新しく作成してください。",
+      "Builderの{{plan}}プランでデザインシステムを{{current}}/{{max}}件使用しています。アップグレードして新しく作成してください。",
     tierLimitUpgrade: "プランをアップグレード",
   },
   designSystemSetup: {
     ...messagesByLocale["ja-JP"].designSystemSetup,
     codeIndexingEnterpriseOnly:
-      "コードとリポジトリのインデックス作成にはEnterpriseプランが必要です",
+      "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
   },
 };
 

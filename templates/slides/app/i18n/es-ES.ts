@@ -187,10 +187,10 @@ const messages = {
       "Crea un sistema de diseño con los colores, la tipografía y los logotipos de tu marca. Cada nueva presentación seguirá tu identidad visual.",
     tierLimitTitle: "Se alcanzó el límite de sistemas de diseño",
     tierLimitDescription:
-      "Has alcanzado el límite de sistemas de diseño de tu plan. Mejora tu plan para crear otro.",
+      "Has alcanzado el límite de sistemas de diseño de tu plan de Builder. Mejora tu plan de Builder para crear otro.",
     tierLimitDescriptionWithCount:
-      "Estás usando {{current}} de {{max}} sistemas de diseño en el plan {{plan}}. Mejora tu plan para crear otro.",
-    tierLimitUpgrade: "Mejorar plan",
+      "Estás usando {{current}} de {{max}} sistemas de diseño en tu plan {{plan}} de Builder. Mejora tu plan para crear otro.",
+    tierLimitUpgrade: "Mejorar plan de Builder",
   },
   editorToolbar: {
     layoutTitle: "Título",
@@ -778,7 +778,7 @@ const messages = {
     add: "Añadir",
     githubRepository: "Conectar código: repositorio de GitHub",
     codeIndexingEnterpriseOnly:
-      "La indexación de código y repositorios requiere un plan Enterprise",
+      "La indexación de código y repositorios requiere el plan Builder Enterprise",
     githubRef: "Rama, etiqueta o commit (opcional)",
     githubPaths: "Archivos o carpetas, separados por comas (opcional)",
     codeFiles: "Conectar archivos de código",

@@ -166,15 +166,15 @@ const messages = {
     ...messagesByLocale["es-ES"].designSystems,
     tierLimitTitle: "Se alcanzó el límite de sistemas de diseño",
     tierLimitDescription:
-      "Has alcanzado el límite de sistemas de diseño de tu plan. Mejora tu plan para crear otro.",
+      "Has alcanzado el límite de sistemas de diseño de tu plan de Builder. Mejora tu plan de Builder para crear otro.",
     tierLimitDescriptionWithCount:
-      "Estás usando {{current}} de {{max}} sistemas de diseño en el plan {{plan}}. Mejora tu plan para crear otro.",
-    tierLimitUpgrade: "Mejorar plan",
+      "Estás usando {{current}} de {{max}} sistemas de diseño en tu plan {{plan}} de Builder. Mejora tu plan para crear otro.",
+    tierLimitUpgrade: "Mejorar plan de Builder",
   },
   designSystemSetup: {
     ...messagesByLocale["es-ES"].designSystemSetup,
     codeIndexingEnterpriseOnly:
-      "La indexación de código y repositorios requiere un plan Enterprise",
+      "La indexación de código y repositorios requiere el plan Builder Enterprise",
   },
 };
 

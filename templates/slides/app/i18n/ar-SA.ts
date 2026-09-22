@@ -183,10 +183,10 @@ const messages = {
       "أنشئ نظام تصميم بألوان علامتك وخطوطها وشعاراتها. سيتبع كل عرض جديد هويتك البصرية.",
     tierLimitTitle: "تم الوصول إلى الحد الأقصى لأنظمة التصميم",
     tierLimitDescription:
-      "لقد وصلت إلى الحد الأقصى لأنظمة التصميم في خطتك. قم بالترقية لإنشاء نظام آخر.",
+      "لقد وصلت إلى الحد الأقصى لأنظمة التصميم في خطة Builder الخاصة بك. قم بترقية خطة Builder لإنشاء نظام آخر.",
     tierLimitDescriptionWithCount:
-      "أنت تستخدم {{current}} من {{max}} أنظمة تصميم في خطة {{plan}}. قم بالترقية لإنشاء نظام آخر.",
-    tierLimitUpgrade: "ترقية الخطة",
+      "أنت تستخدم {{current}} من {{max}} أنظمة تصميم في خطة Builder {{plan}}. قم بالترقية لإنشاء نظام آخر.",
+    tierLimitUpgrade: "ترقية خطة Builder",
   },
   editorToolbar: {
     layoutTitle: "العنوان",
@@ -772,7 +772,7 @@ const messages = {
     add: "إضافة",
     githubRepository: "ربط الكود: مستودع GitHub",
     codeIndexingEnterpriseOnly:
-      "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Enterprise",
+      "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
     githubRef: "الفرع أو الوسم أو الالتزام (اختياري)",
     githubPaths: "الملفات أو المجلدات، مفصولة بفواصل (اختياري)",
     codeFiles: "ربط ملفات الكود",
