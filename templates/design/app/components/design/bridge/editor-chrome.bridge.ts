@@ -14490,7 +14490,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): void {
     dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
     if (phase === "cancel") {
-      bridgeIgnoreAutoLayoutKeyPressed = false;
+      // Escape/cancel can arrive while the physical S key is still held.
+      // Keep that source-side state until the matching keyup so the next drag
+      // does not silently lose Ignore Auto Layout.
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenDragIdentity = null;
       (window.parent as Window).postMessage(

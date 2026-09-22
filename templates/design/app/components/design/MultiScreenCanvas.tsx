@@ -2704,6 +2704,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const clearCrossScreenDrag = () => {
       crossScreenPreviewGenerationRef.current += 1;
       stopParentCrossScreenDrag();
+      // The parent key listeners can be removed before a held Control keyup
+      // arrives. Clear the transient handoff state at the gesture boundary so
+      // a later drag cannot inherit a modifier from this one.
+      crossScreenIgnoreAutoLayoutRef.current = false;
+      crossScreenControlPressedRef.current = false;
       clearCrossScreenPreviewGuide();
       const previousClaim = crossScreenClaimSentRef.current;
       if (previousClaim?.claimed) {
@@ -8284,6 +8289,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         );
       };
       const cancelMove = (pressedAt: number) => {
+        crossScreenIgnoreAutoLayoutRef.current = false;
+        crossScreenControlPressedRef.current = false;
         if (!bridgeDragStarted) return;
         iframe.contentWindow?.postMessage(
           { type: "agent-native:cancel-active-drag", pressedAt },

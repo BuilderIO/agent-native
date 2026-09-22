@@ -10594,7 +10594,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
-        bridgeIgnoreAutoLayoutKeyPressed = false;
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenDragIdentity = null;
         window.parent.postMessage(
