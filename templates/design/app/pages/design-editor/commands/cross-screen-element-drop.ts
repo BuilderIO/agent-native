@@ -433,6 +433,7 @@ export function runCrossScreenElementDrop(
       getScreenContent(targetScreenId),
       [validatedSourceHtmlSnapshot],
       {
+        preserveIncomingNodeIds: true,
         positions: absolutePosition
           ? [
               {
