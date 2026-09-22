@@ -42,6 +42,7 @@ function readStoredReplaySession(): StoredReplaySession | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StoredReplaySession;
     return parsed && typeof parsed === "object" ? parsed : null;
+    // coercion-ok: disabled session storage means replay context is absent
   } catch {
     return null;
   }
@@ -99,6 +100,7 @@ function normalizeReplayLinkBaseUrl(value?: string): string | null {
       raw,
       typeof window !== "undefined" ? window.location.href : undefined,
     ).origin;
+    // coercion-ok: an invalid configured origin means no replay link is available
   } catch {
     return null;
   }
@@ -129,6 +131,7 @@ export function getSessionReplayUrl(
       url.searchParams.set("at", timestamp.toISOString());
     }
     return url.toString();
+    // coercion-ok: invalid link inputs produce no replay URL
   } catch {
     return null;
   }
