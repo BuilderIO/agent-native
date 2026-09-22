@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getBoardSurfaceContentBounds,
   getBoardSurfaceHtml,
+  shouldMountBoardSurface,
   shouldRenderOverviewReviewCanvas,
   shouldRenderEmptyBoardReviewCanvas,
 } from "./board-surface-html";
@@ -16,6 +17,33 @@ describe("board surface rendering", () => {
     expect(getBoardSurfaceHtml(undefined)).toBeUndefined();
     const authored = "<html><body><div>Canvas</div></body></html>";
     expect(getBoardSurfaceHtml(authored)).toBe(authored);
+  });
+
+  it("keeps a runtime board mounted through its insert acknowledgement", () => {
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasRuntimeContent: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: true,
+        hasRuntimeContent: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasRuntimeContent: true,
+      }),
+    ).toBe(true);
   });
 
   it("uses the viewport for a normal-flow app stored as the only board file", () => {

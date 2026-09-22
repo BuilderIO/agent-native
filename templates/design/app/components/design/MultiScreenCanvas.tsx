@@ -295,6 +295,7 @@ import {
   getBoardSurfaceRenderContent,
   getBoardSurfaceStaticPreviewContent,
   hasBoardSurfaceContent,
+  shouldMountBoardSurface,
   shouldRenderEmptyBoardReviewCanvas,
 } from "./multi-screen/board-surface-html";
 import {
@@ -729,6 +730,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // before the first layout measurement.
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [crossScreenDragActive, setCrossScreenDragActive] = useState(false);
+  const [boardRuntimeSurfaceActive, setBoardRuntimeSurfaceActive] =
+    useState(false);
   const boardCrossScreenDropPendingRef = useRef(false);
   const boardCrossScreenDropTimeoutRef = useRef<number | null>(null);
   const finishBoardCrossScreenDrop = useCallback(() => {
@@ -917,10 +920,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // Keep the empty board unmounted during normal editing so the text/shape
   // creation path can still own its first mount. Mount it for the duration of
   // a cross-screen drag so the drop has a real DOM target before release.
-  const boardSurfaceHtml =
-    crossScreenDragActive || hasBoardSurfaceContent(boardFileContent)
-      ? getBoardSurfaceHtml(boardFileContent)
-      : undefined;
+  const boardSurfaceHtml = shouldMountBoardSurface({
+    hasAuthoredContent: hasBoardSurfaceContent(boardFileContent),
+    crossScreenDragActive,
+    hasPendingRuntimeInsert: Boolean(boardRuntimeStructureInsertRequest),
+    hasRuntimeContent: boardRuntimeSurfaceActive,
+  })
+    ? getBoardSurfaceHtml(boardFileContent)
+    : undefined;
   const boardHasSurfaceContent = boardSurfaceHtml !== undefined;
   const boardReviewGeometry = boardSurfaceRenderGeometry ?? {
     x: 0,
@@ -1283,6 +1290,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     >
   >(new Map());
   const onCrossScreenElementDropRef = useRef(onCrossScreenElementDrop);
+  const boardRuntimeStructureInsertRequestRef = useRef(
+    boardRuntimeStructureInsertRequest,
+  );
+  const onBoardRuntimeStructureInsertRejectedRef = useRef(
+    onBoardRuntimeStructureInsertRejected,
+  );
+  boardRuntimeStructureInsertRequestRef.current =
+    boardRuntimeStructureInsertRequest;
+  onBoardRuntimeStructureInsertRejectedRef.current =
+    onBoardRuntimeStructureInsertRejected;
   const onBoardDrawPrimitiveRef = useRef(onBoardDrawPrimitive);
   // Ref wrapper for finishDrag so callbacks declared before finishDrag can
   // reference it via the ref without hitting the const TDZ.
@@ -3319,8 +3336,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         if (boardCrossScreenDropTimeoutRef.current !== null) {
           window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
         }
-        boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
+        const expireBoardCrossScreenDrop = () => {
+          if (!boardCrossScreenDropPendingRef.current) return;
+          // A late hit-test must not create a new runtime request after the
+          // host has cancelled this handoff. If a request already exists,
+          // reject it through the editor so its transaction lock is released.
+          crossScreenDropSeqRef.current += 1;
+          const transactionId =
+            boardRuntimeStructureInsertRequestRef.current?.transactionId;
+          if (transactionId) {
+            onBoardRuntimeStructureInsertRejectedRef.current?.(
+              "board-drop-timeout",
+              transactionId,
+            );
+          }
           finishBoardCrossScreenDrop();
+        };
+        boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
+          expireBoardCrossScreenDrop();
         }, HIT_TEST_COMMIT_TIMEOUT_MS + 1000);
       }
       clearCrossScreenDrag({
@@ -3525,7 +3558,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         if (!crossScreenEndSeenRef.current) {
           crossScreenDropSeqRef.current += 1;
         }
-        clearCrossScreenDrag();
+        clearCrossScreenDrag({
+          keepBoardMounted: boardCrossScreenDropPendingRef.current,
+        });
         return;
       }
 
@@ -3581,7 +3616,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
       }
       if (msg.phase === "start") {
-        finishBoardCrossScreenDrop();
         setCrossScreenDragActive(true);
         // A new gesture invalidates any commit hit-test still in flight from
         // the previous one. Only a start does — the bridge posts "cancel"
@@ -10785,9 +10819,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       reason,
                       transactionId,
                     );
+                    setBoardRuntimeSurfaceActive(false);
                     finishBoardCrossScreenDrop();
                   }}
                   onRuntimeStructureInsertApplied={(details) => {
+                    if (details.applied !== false) {
+                      setBoardRuntimeSurfaceActive(true);
+                    }
                     onBoardRuntimeStructureInsertApplied?.(details);
                     finishBoardCrossScreenDrop();
                   }}

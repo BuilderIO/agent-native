@@ -1107,6 +1107,7 @@ type RequestDesignAccessResult = {
 // first overview camera render — before any layout effect could measure the
 // DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
+const RUNTIME_STRUCTURE_TRANSACTION_TIMEOUT_MS = 10_000;
 
 function previewUrlAtLiveRoute(
   previewUrl: string | undefined,
@@ -16511,6 +16512,38 @@ function DesignEditor() {
     },
     [runtimeStructureDeleteRequest, runtimeStructurePendingTransactionRef, t],
   );
+  useEffect(() => {
+    const insertRequest = runtimeStructureInsertRequest;
+    const deleteRequest = runtimeStructureDeleteRequest;
+    const transactionId =
+      insertRequest?.transactionId ?? deleteRequest?.transactionId;
+    if (!transactionId) return;
+
+    const timeoutId = window.setTimeout(() => {
+      if (runtimeStructureInsertRequest?.transactionId === transactionId) {
+        handleRuntimeStructureInsertRejected(
+          "runtime-structure-timeout",
+          transactionId,
+        );
+        return;
+      }
+      const currentDeleteRequest = runtimeStructureDeleteRequest;
+      if (currentDeleteRequest?.transactionId !== transactionId) return;
+      handleRuntimeStructureDeleteRejected({
+        screenId: currentDeleteRequest.screenId,
+        requestId: currentDeleteRequest.requestId,
+        transactionId,
+        reason: "runtime-structure-timeout",
+      });
+    }, RUNTIME_STRUCTURE_TRANSACTION_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    handleRuntimeStructureDeleteRejected,
+    handleRuntimeStructureInsertRejected,
+    runtimeStructureDeleteRequest,
+    runtimeStructureInsertRequest,
+  ]);
   const discardPendingLiveStructureTransaction = useCallback(
     (transactionId: string) => {
       const matchesTransaction = (edit: PendingLiveStructureEdit) =>
