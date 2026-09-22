@@ -493,6 +493,10 @@ export function shouldSplitCurrentDayTimeSeries(
 ): boolean {
   if (panel.source === "prometheus") return false;
 
+  return isDailyChartKey(xKey);
+}
+
+function isDailyChartKey(xKey: string): boolean {
   const normalizedKey = xKey.trim().toLowerCase();
   if (normalizedKey === "timestamp" || normalizedKey.endsWith("_timestamp")) {
     return false;
@@ -573,15 +577,32 @@ export function formatSeriesLabelForPanel(
   return usesPrometheusPresentation(panel) ? formatSeriesLabel(value) : value;
 }
 
-function formatXLabel(value: string, panel: SqlPanel): string {
+function formatXLabel(
+  value: string,
+  panel: SqlPanel,
+  includeWeekday = false,
+): string {
   try {
     const s = String(value);
     const d = parseCalendarDate(s);
     if (d && s.length >= 8) {
-      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const options: Intl.DateTimeFormatOptions = {
+        month: "short",
+        day: "numeric",
+      };
+      if (includeWeekday) options.weekday = "long";
+      return d.toLocaleDateString("en-US", options);
     }
   } catch {}
   return formatSeriesLabelForPanel(panel, String(value));
+}
+
+export function formatSqlChartTooltipLabel(
+  value: string,
+  panel: SqlPanel,
+  xKey: string,
+): string {
+  return formatXLabel(value, panel, isDailyChartKey(xKey));
 }
 
 function shouldShowLegend(panel: SqlPanel, seriesCount: number): boolean {
@@ -2180,6 +2201,8 @@ function BarRenderer({
 }) {
   const xLabelFormatter = (value: any) =>
     formatXLabel(String(value ?? ""), panel);
+  const xTooltipLabelFormatter = (value: any) =>
+    formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
@@ -2220,10 +2243,10 @@ function BarRenderer({
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
             cursor={BAR_TOOLTIP_CURSOR_PROPS}
-            labelFormatter={xLabelFormatter}
+            labelFormatter={xTooltipLabelFormatter}
             content={
               <ChartTooltip
-                labelFormatter={xLabelFormatter}
+                labelFormatter={xTooltipLabelFormatter}
                 seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={valueFormatter}
                 stacked={stacked}
@@ -2273,6 +2296,8 @@ function TimeSeriesRenderer({
 }) {
   const xLabelFormatter = (value: any) =>
     formatXLabel(String(value ?? ""), panel);
+  const xTooltipLabelFormatter = (value: any) =>
+    formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
@@ -2329,10 +2354,10 @@ function TimeSeriesRenderer({
             />
             <Tooltip
               {...CHART_TOOLTIP_PROPS}
-              labelFormatter={xLabelFormatter}
+              labelFormatter={xTooltipLabelFormatter}
               content={
                 <ChartTooltip
-                  labelFormatter={xLabelFormatter}
+                  labelFormatter={xTooltipLabelFormatter}
                   seriesNameFormatter={seriesNameFormatter}
                   valueFormatter={valueFormatter}
                   stacked={stacked}
@@ -2435,10 +2460,10 @@ function TimeSeriesRenderer({
           />
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
-            labelFormatter={xLabelFormatter}
+            labelFormatter={xTooltipLabelFormatter}
             content={
               <ChartTooltip
-                labelFormatter={xLabelFormatter}
+                labelFormatter={xTooltipLabelFormatter}
                 seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={valueFormatter}
                 stacked={stacked}

@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.20.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- e973e00: Move the auth form to the top of the page on small screens and hide the learn-more link there.
+
 ## 0.20.5
 
 ### Patch Changes

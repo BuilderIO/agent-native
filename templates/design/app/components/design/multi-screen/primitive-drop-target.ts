@@ -54,6 +54,8 @@ export interface ParsedScreenPrimitive {
   /** data-agent-native-node-id of the nearest ancestor primitive, if any. */
   parentNodeId?: string;
   parentProjectionNodeId?: string;
+  /** Projection ancestry, including structural wrappers without primitives. */
+  projectionAncestorNodeIds?: string[];
   localLeft: number;
   localTop: number;
   localWidth: number;
@@ -93,19 +95,28 @@ function isPrimitiveAncestor(
   descendant: ParsedScreenPrimitive,
   primitives: ParsedScreenPrimitive[],
 ): boolean {
+  if (descendant.projectionAncestorNodeIds) {
+    return ancestor.projectionIdentity
+      ? descendant.projectionAncestorNodeIds.includes(
+          ancestor.projectionIdentity.nodeId,
+        )
+      : false;
+  }
   // Projection ids are unique even when authored data-agent-native-node-id
-  // values are duplicated. Prefer that identity for ancestry; the authored
-  // id is only a legacy fallback when no projection identity exists.
+  // values are duplicated. Prefer that identity for ancestry; authored ids
+  // are only followed when they resolve to exactly one primitive.
   let parentId = descendant.parentProjectionNodeId ?? descendant.parentNodeId;
   const seen = new Set<string>();
   while (parentId && !seen.has(parentId)) {
     const currentParentId = parentId;
     seen.add(currentParentId);
     if (primitiveMatchesNodeId(ancestor, currentParentId)) return true;
-    const parent = primitives.find((primitive) =>
+    const parents = primitives.filter((primitive) =>
       primitiveMatchesNodeId(primitive, currentParentId),
     );
-    parentId = parent?.parentNodeId ?? parent?.parentProjectionNodeId;
+    if (parents.length !== 1) return false;
+    const parent = parents[0];
+    parentId = parent.parentProjectionNodeId ?? parent.parentNodeId;
   }
   return false;
 }
@@ -1267,6 +1278,9 @@ export function parsePrimitivesFromScreen(
     const doc = new DOMParser().parseFromString(screen.content, "text/html");
     const sizeCache: AuthoredSizeCache = new Map();
     const projection = buildCodeLayerProjection(screen.content, { source });
+    const projectionParentIdByNodeId = new Map(
+      projection.nodes.map((node) => [node.id, node.parentId]),
+    );
     const projectionIdentityByElement = new Map<
       Element,
       ScreenProjectionNodeIdentity
@@ -1334,6 +1348,19 @@ export function parsePrimitivesFromScreen(
         (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
       const autoLayoutGrid =
         style.display === "grid" || style.display === "inline-grid";
+      const projectionIdentity = projectionIdentityByElement.get(element);
+      const projectionAncestorNodeIds: string[] = [];
+      const seenProjectionIds = new Set<string>();
+      let projectionAncestorId = projectionParentIdByElement.get(element);
+      while (
+        projectionAncestorId &&
+        !seenProjectionIds.has(projectionAncestorId)
+      ) {
+        seenProjectionIds.add(projectionAncestorId);
+        projectionAncestorNodeIds.push(projectionAncestorId);
+        projectionAncestorId =
+          projectionParentIdByNodeId.get(projectionAncestorId);
+      }
       const parsedZIndex = Number.parseInt(style.zIndex, 10);
       const stackingContextZIndices: number[] = [];
       const stackingContextOrders: number[] = [];
@@ -1379,9 +1406,12 @@ export function parsePrimitivesFromScreen(
       result.push({
         nodeId,
         screenId: screen.id,
-        projectionIdentity: projectionIdentityByElement.get(element),
+        projectionIdentity,
         parentProjectionNodeId: projectionParentIdByElement.get(element),
         parentNodeId,
+        ...(projectionAncestorNodeIds.length
+          ? { projectionAncestorNodeIds }
+          : {}),
         localLeft: position.x,
         localTop: position.y,
         localWidth: width,

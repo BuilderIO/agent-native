@@ -22958,6 +22958,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(events.up, onUp, true);
   }
 
+  // Resize and rotation handles are the only editable chrome that sits inside
+  // the selection overlay. At overview zoom their rendered hit box can be
+  // smaller than a screen pixel, so the first move often leaves the iframe.
+  // Capture the pointer before the existing mouse handler starts the gesture;
+  // otherwise the document-level move/up listeners stop receiving the drag.
+  selectionOverlay.addEventListener(
+    "pointerdown",
+    function (e) {
+      if (readOnly || e.button !== 0) return;
+      if (e.pointerId !== undefined && selectionOverlay.setPointerCapture) {
+        selectionOverlay.setPointerCapture(e.pointerId);
+      }
+    },
+    true,
+  );
+
   selectionOverlay.addEventListener(
     "mousedown",
     function (e) {
