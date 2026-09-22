@@ -127,6 +127,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "साझा कुंजी उपयोग में है।",
   "agentPanel.useOrganizationKey": "संगठन की कुंजी इस्तेमाल करें",
   "agentPanel.keyStatusUnavailable": "कुंजी की स्थिति उपलब्ध नहीं है।",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा प्रयास करें।",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT सदस्यता",
+  "agentPanel.chatgptSubscriptionDescription":
+    "आपकी ChatGPT सदस्यता के ज़रिए प्रयोगात्मक Codex एक्सेस।",
+  "agentPanel.chatgptSubscriptionInUse": "उपयोग में",
+  "agentPanel.chatgptSubscriptionConnected": "कनेक्ट हो गया",
+  "agentPanel.chatgptSubscriptionConnecting": "कनेक्ट हो रहा है…",
+  "agentPanel.chatgptSubscriptionReconnect": "फिर से कनेक्ट करें",
+  "agentPanel.chatgptSubscriptionConnect": "ChatGPT कनेक्ट करें",
+  "agentPanel.chatgptSubscriptionUse": "चैट में उपयोग करें",
+  "agentPanel.chatgptSubscriptionDisconnect": "डिस्कनेक्ट करें",
   "agentHostNudge.sidebarTitle": "{{agent}} की चैट का उपयोग करें",
   "agentHostNudge.sidebarDescription":
     "आप पहले से {{agent}} से चैट कर रहे हैं। इसे इस ऐप के साथ सीधे काम करने के लिए कहें।",

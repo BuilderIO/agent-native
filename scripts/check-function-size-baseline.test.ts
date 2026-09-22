@@ -25,13 +25,13 @@ function build(root: string, name: string): string {
   return dir;
 }
 
-/** An emitted function directory holding `appBytes` of app code, plus an
- *  optional bundled ffmpeg-static runtime of `ffmpegBytes`. */
+/** An emitted function directory holding app code and optional runtimes. */
 function emitFunction(
   root: string,
   name: string,
   appBytes: number,
   ffmpegBytes = 0,
+  resvgBytes = 0,
 ): void {
   const fnDir = path.join(root, name);
   mkdirSync(fnDir, { recursive: true });
@@ -40,6 +40,19 @@ function emitFunction(
     const ffmpegDir = path.join(fnDir, "node_modules", "ffmpeg-static");
     mkdirSync(ffmpegDir, { recursive: true });
     writeFileSync(path.join(ffmpegDir, "ffmpeg"), Buffer.alloc(ffmpegBytes));
+  }
+  if (resvgBytes > 0) {
+    const resvgDir = path.join(
+      fnDir,
+      "node_modules",
+      "@resvg",
+      "resvg-js-linux-x64-gnu",
+    );
+    mkdirSync(resvgDir, { recursive: true });
+    writeFileSync(
+      path.join(resvgDir, "resvgjs.linux-x64-gnu.node"),
+      Buffer.alloc(resvgBytes),
+    );
   }
 }
 
@@ -70,7 +83,7 @@ after(() => {
 
 describe("serverless function size baseline", () => {
   /**
-   * The measurement stays raw on purpose. Subtracting the deploy-gated payload
+   * The historical ffmpeg measurement stays raw on purpose. Subtracting it
    * while the committed baselines hold a mix of payload-inclusive and
    * payload-free numbers would let a real regression smaller than the payload
    * pass silently — the opposite of what this guard exists for.
@@ -93,6 +106,27 @@ describe("serverless function size baseline", () => {
     const checked = runGuard(withPayload, baselineFile);
     assert.equal(checked.status, 1, checked.output);
     assert.match(checked.output, /function payload grew/);
+  });
+
+  it("excludes the platform-selected Resvg binary from the comparison", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+
+    const withoutPayload = build(root, "beta");
+    emitFunction(withoutPayload, "server", 4 * MB);
+    assert.equal(
+      runGuard(withoutPayload, baselineFile, ["--update"]).status,
+      0,
+    );
+
+    const withPayload = build(root, "production");
+    emitFunction(withPayload, "server", 4 * MB, 0, 4 * MB);
+
+    const checked = runGuard(withPayload, baselineFile);
+    assert.equal(checked.status, 0, checked.output);
+    assert.match(checked.output, /resvg-js-linux-x64-gnu/);
+    assert.match(checked.output, /excluded/);
+    assert.doesNotMatch(checked.output, /function payload grew/);
   });
 
   /**

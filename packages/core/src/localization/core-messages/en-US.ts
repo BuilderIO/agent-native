@@ -130,6 +130,18 @@ const messages = {
   "agentPanel.sharedKeyInEffect": "A shared key is in effect.",
   "agentPanel.useOrganizationKey": "Use organization key",
   "agentPanel.keyStatusUnavailable": "Key status is unavailable.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Allow pop-ups for this site, then try again.",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT subscription",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Experimental Codex access through your ChatGPT subscription.",
+  "agentPanel.chatgptSubscriptionInUse": "In use",
+  "agentPanel.chatgptSubscriptionConnected": "Connected",
+  "agentPanel.chatgptSubscriptionConnecting": "Connecting…",
+  "agentPanel.chatgptSubscriptionReconnect": "Reconnect",
+  "agentPanel.chatgptSubscriptionConnect": "Connect ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "Use in chat",
+  "agentPanel.chatgptSubscriptionDisconnect": "Disconnect",
   "agentHostNudge.sidebarTitle": "Use {{agent}}'s chat",
   "agentHostNudge.sidebarDescription":
     "You're already chatting with {{agent}}. Ask it to work with this app directly.",

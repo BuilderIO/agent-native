@@ -21,6 +21,7 @@ it("uses the projected source and refuses a style commit while source actions ar
   const queueFileContentSave = vi.fn();
   const updateLiveScreenSnapshotContent = vi.fn(() => true);
   const recordLocalContentHistoryEntry = vi.fn();
+  const onNoRenderedBox = vi.fn();
   const latestActiveContentRef = ref<string | null>(pendingContent);
   const canApplyContentEdit = vi.fn(() => true);
 
@@ -51,6 +52,7 @@ it("uses the projected source and refuses a style commit while source actions ar
     liveScreenSnapshotsById: {
       [fileId]: { url: "about:blank", html: runtimeSnapshot },
     },
+    onNoRenderedBox,
     queueFileContentSave,
     recordContentHistoryEntry: vi.fn(),
     recordLocalContentHistoryChangeFallback: vi.fn(),
@@ -132,7 +134,8 @@ it("uses the projected source and refuses a style commit while source actions ar
       routePath: "/library",
     },
   );
-  expect(recordPendingVisualStyleEdit).toHaveBeenCalledOnce();
+  expect(recordPendingVisualStyleEdit).not.toHaveBeenCalled();
+  expect(onNoRenderedBox).toHaveBeenCalledOnce();
   expect(upsertMotionKeyframesFromStyles).not.toHaveBeenCalled();
   expect(sendStyleChangeForScreen).toHaveBeenCalledTimes(2);
   expect(sendStyleChangeForScreen).toHaveBeenNthCalledWith(

@@ -589,6 +589,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   pendingReviewScreenIds = EMPTY_SCREEN_IDS,
   onReviewPendingScreen,
   interactMode = false,
+  interactScreenId = null,
   readOnly = false,
   editableScreenIds,
   activeScreenHasHoveredChild = false,
@@ -707,6 +708,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     controlledZoomRevisionRef.current += 1;
   }
   const lastReportedZoomRef = useRef(zoom);
+  const onZoomChangeRef = useRef(onZoomChange);
+  onZoomChangeRef.current = onZoomChange;
   const lineupRecenterCameraRef = useRef({
     x: panRef.current.x,
     y: panRef.current.y,
@@ -3757,15 +3760,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // become negative or otherwise out of range. The parent window drag
         // listener has the real board point then; stale iframe coordinates
         // must not clear a valid board target.
-        if (
-          sourceScreenId !== boardFileId &&
-          !isPointerInsideSourceIframe({
-            iframeX,
-            iframeY,
-            viewportW,
-            viewportH,
-          })
-        ) {
+        const localPointerInside = isPointerInsideSourceIframe({
+          iframeX,
+          iframeY,
+          viewportW,
+          viewportH,
+          frameWidth:
+            renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+            frameGeometryRef.current[sourceScreenId]?.width,
+          frameHeight:
+            renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+            frameGeometryRef.current[sourceScreenId]?.height,
+        });
+        if (sourceScreenId !== boardFileId && !localPointerInside) {
           const previewPoint =
             boardPointFromParentPointer(
               iframeX,
@@ -3829,12 +3836,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             crossScreenDragMsgRef.current?.styleSnapshotCaptureFailed === true,
         };
 
-        const pointerInsideSourceIframe = isPointerInsideSourceIframe({
-          iframeX,
-          iframeY,
-          viewportW,
-          viewportH,
-        });
+        const pointerInsideSourceIframe =
+          sourceScreenId === boardFileId || localPointerInside;
         const sourceIsBoard = sourceScreenId === boardFileId;
         // Regular screen iframes are finite artboards, so an in-bounds pointer
         // means the source bridge should keep handling the drag. The board
@@ -3927,6 +3930,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             iframeY: msg.iframeY!,
             viewportW: msg.viewportW!,
             viewportH: msg.viewportH!,
+            frameWidth:
+              renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+              frameGeometryRef.current[sourceScreenId]?.width,
+            frameHeight:
+              renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+              frameGeometryRef.current[sourceScreenId]?.height,
           });
         const lastBoardPoint =
           (endPointOutsideSource
@@ -9077,13 +9086,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     setPan(panRef.current);
     if (lastReportedZoomRef.current !== zoomRef.current) {
       lastReportedZoomRef.current = zoomRef.current;
-      onZoomChange?.(zoomRef.current);
+      onZoomChangeRef.current?.(zoomRef.current);
     }
     // P18: the wheel/pinch gesture just settled (pan/zoom state is
     // reconciled into React here) — resync the pen ghost preview from the
     // last known cursor position now that the canvas-space mapping changed.
     recomputePenPointerForViewChange();
-  }, [onZoomChange, recomputePenPointerForViewChange, startChromeSettle]);
+  }, [recomputePenPointerForViewChange, startChromeSettle]);
 
   // Debounced: only commit to React state once the gesture has been idle for a
   // beat, so a continuous pinch produces zero re-renders until the user pauses.
@@ -10836,6 +10845,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               cullTier={cullTier}
               isExportPreview={isExportPreview}
               isActive={screen.id === activeId}
+              interactMode={interactMode || interactScreenId === screen.id}
               isTopScreen={screen.id === topScreenId}
               // BP-DEEP v2 item 3 — while a breakpoint sub-frame is the
               // active edit target, IT carries the selection chrome (accent
@@ -11290,6 +11300,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           // identical Figma-style indicator between siblings.
           <span
             data-primitive-drop-target
+            data-agent-native-insertion-guide
             data-primitive-drop-placement={primitiveDropTarget.placement}
             className="pointer-events-none absolute z-40 rounded-sm"
             style={getCrossScreenDropGuideStyle({
@@ -12347,6 +12358,7 @@ interface ScreenProps {
   measuredIframeHeights: Record<string, number>;
   locked: boolean;
   isActive: boolean;
+  interactMode: boolean;
   isSelected: boolean;
   /** True while the current selection is an element INSIDE this screen (not
    *  the screen/frame itself) — see selectedElementScreenId. The screen's own
@@ -12440,6 +12452,7 @@ const Screen = memo(function Screen({
   measuredIframeHeights,
   locked,
   isActive,
+  interactMode,
   isSelected,
   elementSelectedInScreen,
   isTopScreen,
@@ -12527,7 +12540,10 @@ const Screen = memo(function Screen({
   // its live DOM does, and that DOM is the only thing there is to select.
   const screenContentInteractive =
     Boolean(screenContent) &&
-    (isSelected || hasScreenChildLayers(screen.content) || contentEditable) &&
+    (interactMode ||
+      isSelected ||
+      hasScreenChildLayers(screen.content) ||
+      contentEditable) &&
     !locked &&
     !penActive &&
     !creationToolActive &&

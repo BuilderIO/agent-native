@@ -847,6 +847,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Content スペース",
     addChild: "子項目を追加",
     addChildTo: "{{title}} に子項目を追加",
     database: "コレクション",
@@ -884,6 +885,9 @@ const landing = {
   requestedPageUnavailable:
     "そのページはお使いのアカウントでは利用できないため、ようこそページを開きました。",
   saveFailed: "現在位置を保存できませんでした",
+  workspaceWelcomeUnavailableTitle: "まだ何も開かれていません",
+  workspaceWelcomeUnavailableDescription:
+    "このワークスペースは表示できますが、ようこそページを作成する権限がありません。",
 };
 
 const comments = {
@@ -951,6 +955,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "最近の閲覧",
+  customizeSidebar: "サイドバーをカスタマイズ",
+  noRecentVisits: "最近の閲覧はありません",
+  noPinnedItems: "固定された項目はありません",
+  showMore: "もっと見る",
+  showLess: "表示を減らす",
+  seeAll: "すべて表示…",
+  seeAllFiles: "すべてのファイルを表示",
   pinned: "固定済み",
   loadingPinned: "固定済みの項目を読み込み中…",
   dragToReorder: "{{label}} をドラッグして並べ替え",

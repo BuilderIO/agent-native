@@ -222,6 +222,12 @@ export interface RedoArgs {
   pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  replayPendingVisualStyleRuntime?: (
+    edits: readonly PendingVisualStyleEdit[],
+  ) => number | undefined;
+  setPendingVisualStyleBaselineResetRequest?: Dispatch<
+    SetStateAction<number | null>
+  >;
   performDeleteFiles: (
     filesToDelete: DesignFile[],
     options?: {
@@ -411,6 +417,7 @@ export function runRedo({
   pendingVisualStyleEditsRef,
   pendingVisualStyleRedoStackRef,
   pendingVisualStyleUndoStackRef,
+  replayPendingVisualStyleRuntime,
   performDeleteFiles,
   publishAuthoritativeClipboardMutation,
   queryClient,
@@ -429,6 +436,7 @@ export function runRedo({
   setPendingLayerStateReplayRequest,
   setPendingLiveNonStyleEdits,
   setPendingTextRevertRequest,
+  setPendingVisualStyleBaselineResetRequest,
   setPendingVisualStyleEdits,
   setPendingVisualStyleRevertRequest,
   setOverviewSelectedScreenIds,
@@ -768,30 +776,38 @@ export function runRedo({
       ),
     );
     pendingVisualStyleEditsRef.current = nextPending;
-    setPendingVisualStyleRevertRequest({
-      requestId: Date.now() + Math.random(),
-      patches: pendingVisualStyleUndoTargets(pendingLiveRedo).map(
-        ({ edit }) => ({
+    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    const redoneStyleTargets = redoneTargets.filter(
+      ({ edit }) => Object.keys(edit.styles).length > 0,
+    );
+    if (replayPendingVisualStyleRuntime) {
+      const requestId = replayPendingVisualStyleRuntime(
+        redoneStyleTargets.map(({ edit }) => edit),
+      );
+      if (requestId !== undefined) {
+        setPendingVisualStyleBaselineResetRequest?.(requestId);
+      }
+    } else if (redoneStyleTargets.length > 0) {
+      const requestId = Date.now() + Math.random();
+      setPendingVisualStyleRevertRequest({
+        requestId,
+        patches: redoneStyleTargets.map(({ edit }) => ({
           screenId: edit.screenId,
           selector: edit.selector,
           sourceId: edit.sourceId,
-          // Redo builds its patch inline rather than through
-          // buildPendingVisualStyleRevertPatches, so it needs the runtime
-          // pair explicitly or it re-applies into the wrong namespace.
           runtimeSelector: edit.runtimeSelector,
           runtimeSourceId: edit.runtimeSourceId,
           routePath: edit.routePath,
           styles: edit.styles,
           interactionState: edit.interactionState,
-        }),
-      ),
-    });
+        })),
+      });
+      setPendingVisualStyleBaselineResetRequest?.(requestId);
+    }
     setPendingVisualStyleEdits(nextPending);
-    // Bug fix — same stale-inspector-panel issue as handleUndo's style
-    // branch. Merge the redo's own style values (already applied to the
-    // DOM via setPendingVisualStyleRevertRequest above) into
-    // selectedElement.computedStyles.
-    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    // Keep the inspector cache in sync with the replay request. Runtime
+    // messages are asynchronous, so this is intentionally optimistic just
+    // like the forward live-style path.
     setSelectedElement((prev) => {
       if (!prev) return prev;
       const redoneTarget = redoneTargets.find(

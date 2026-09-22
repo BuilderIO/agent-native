@@ -82,7 +82,7 @@ const LLM_KEY_METHODS: LlmKeyMethod[] = [
 const JEV_KEY_METHOD: OnboardingMethod = {
   id: "jev-key",
   kind: "form",
-  label: "System one model (Jev)",
+  label: "Decision model (Jev)",
   description:
     "Optional direct Jev API key for smarter tool and skill selection. Builder-managed Jev may be available through Connect Builder, so both are not required.",
   badge: "recommended",

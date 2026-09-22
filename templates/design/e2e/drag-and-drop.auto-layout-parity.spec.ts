@@ -68,6 +68,8 @@ const META_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
+const IGNORE_AUTO_LAYOUT = process.platform === "darwin" ? "Control" : "S";
+
 const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
   <div data-agent-native-node-id="oversized-source" data-agent-native-layer-name="Oversized Source"
@@ -87,20 +89,25 @@ function preview(page: Page): Locator {
 async function insertionGuideKind(
   page: Page,
 ): Promise<"inside" | "line" | null> {
-  return preview(page)
-    .locator("[data-agent-native-insertion-guide]")
-    .evaluateAll((elements) => {
-      const guide = elements.find((element) => {
-        const style = getComputedStyle(element);
-        return style.display !== "none";
-      }) as HTMLElement | undefined;
-      if (!guide) return null;
-      const rect = guide.getBoundingClientRect();
-      if (!rect.width || !rect.height) return null;
-      return parseFloat(getComputedStyle(guide).borderTopWidth) > 0
-        ? "inside"
-        : "line";
+  return preview(page).evaluate(() => {
+    // Editor chrome is mounted under the iframe's <html> element so it can
+    // sit above the preview content; scoping the locator to <body> misses it.
+    const guide = Array.from(
+      document.documentElement.querySelectorAll<HTMLElement>(
+        "[data-agent-native-insertion-guide]",
+      ),
+    ).find((candidate) => {
+      const style = getComputedStyle(candidate);
+      const rect = candidate.getBoundingClientRect();
+      return style.display !== "none" && rect.width > 0 && rect.height > 0;
     });
+    if (!guide) return null;
+    const rect = guide.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return parseFloat(getComputedStyle(guide).borderTopWidth) > 0
+      ? "inside"
+      : "line";
+  });
 }
 
 async function selectCanvasNode(page: Page, rawNodeId: string): Promise<void> {
@@ -137,39 +144,62 @@ async function dragCanvasNode(
     x: source.x + source.width / 2,
     y: source.y + source.height / 2,
   };
-  if (modifier) await page.keyboard.down(modifier);
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
-  await page.mouse.move(target.x, target.y, { steps: 20 });
-  if (feedback === "line" || feedback === "inside") {
+  let mouseHeld = false;
+  let modifierHeld = false;
+  try {
+    if (modifier) {
+      modifierHeld = true;
+      await page.keyboard.down(modifier);
+    }
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    mouseHeld = true;
+    await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
+    await page.mouse.move(target.x, target.y, { steps: 20 });
+    if (feedback === "line" || feedback === "inside") {
+      await expect
+        .poll(() => insertionGuideKind(page), {
+          timeout: 5_000,
+          message: `no ${feedback} guide while dragging ${sourceId}`,
+        })
+        .toBe(feedback);
+    }
+    if (feedback === "ghost") {
+      await expect
+        .poll(
+          () =>
+            node(page, sourceId).evaluate(
+              (element) => getComputedStyle(element).transform !== "none",
+            ),
+          { timeout: 5_000, message: `no drag ghost for ${sourceId}` },
+        )
+        .toBe(true);
+    }
+    if (onHeld) await onHeld();
+    await page.mouse.up();
+    mouseHeld = false;
     await expect
-      .poll(() => insertionGuideKind(page), {
+      .poll(() => indexHtml(page, designId), {
         timeout: 5_000,
-        message: `no ${feedback} guide while dragging ${sourceId}`,
+        message: `dragging ${sourceId} did not persist a source update`,
       })
-      .toBe(feedback);
+      .not.toBe(beforeHtml);
+  } finally {
+    if (mouseHeld) {
+      try {
+        await page.mouse.up();
+      } catch {
+        // Preserve the original drag assertion if cleanup also fails.
+      }
+    }
+    if (modifierHeld) {
+      try {
+        await page.keyboard.up(modifier!);
+      } catch {
+        // Preserve the original drag assertion if cleanup also fails.
+      }
+    }
   }
-  if (feedback === "ghost") {
-    await expect
-      .poll(
-        () =>
-          node(page, sourceId).evaluate(
-            (element) => getComputedStyle(element).transform !== "none",
-          ),
-        { timeout: 5_000, message: `no drag ghost for ${sourceId}` },
-      )
-      .toBe(true);
-  }
-  if (onHeld) await onHeld();
-  await page.mouse.up();
-  if (modifier) await page.keyboard.up(modifier);
-  await expect
-    .poll(() => indexHtml(page, designId), {
-      timeout: 5_000,
-      message: `dragging ${sourceId} did not persist a source update`,
-    })
-    .not.toBe(beforeHtml);
 }
 
 async function deleteDesign(page: Page, designId: string): Promise<void> {
@@ -205,9 +235,17 @@ test("physical vertical auto-layout reorder keeps parent, order, and geometry", 
           const target = document.querySelector(
             '[data-agent-native-node-id="v3"]',
           ) as HTMLElement | null;
-          const guide = document.querySelector(
-            "[data-agent-native-insertion-guide]",
-          ) as HTMLElement | null;
+          const guide = Array.from(
+            document.documentElement.querySelectorAll<HTMLElement>(
+              "[data-agent-native-insertion-guide]",
+            ),
+          ).find((candidate) => {
+            const style = getComputedStyle(candidate);
+            const rect = candidate.getBoundingClientRect();
+            return (
+              style.display !== "none" && rect.width > 0 && rect.height > 0
+            );
+          });
           const guideRect = guide?.getBoundingClientRect();
           const targetRect = target?.getBoundingClientRect();
           return {
@@ -491,7 +529,7 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
   }
 });
 
-test("physical Meta-drag overrides auto-layout resistance", async ({
+test("physical command-drag overrides auto-layout resistance", async ({
   page,
 }) => {
   const designId = await newDesign(page, META_FIXTURE);
@@ -503,24 +541,41 @@ test("physical Meta-drag overrides auto-layout resistance", async ({
       x: source.x + source.width / 2,
       y: source.y + source.height / 2,
     };
-    await page.keyboard.down("Meta");
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
-    await page.mouse.move(start.x + 460, start.y + 220, { steps: 20 });
-    await expect
-      .poll(() =>
-        preview(page)
-          .locator("[data-agent-native-transform-badge]")
-          .evaluate(
-            (element) =>
+    await preview(page).focus();
+    let mouseHeld = false;
+    await page.keyboard.down(IGNORE_AUTO_LAYOUT);
+    try {
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      mouseHeld = true;
+      await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
+      await page.mouse.move(start.x + 460, start.y + 220, { steps: 20 });
+      await expect
+        .poll(() =>
+          preview(page).evaluate(() => {
+            const element = document.documentElement.querySelector<HTMLElement>(
+              "[data-agent-native-transform-badge]",
+            );
+            return Boolean(
+              element &&
               getComputedStyle(element).display !== "none" &&
               element.textContent === "Move layer",
-          ),
-      )
-      .toBe(true);
-    await page.mouse.up();
-    await page.keyboard.up("Meta");
+            );
+          }),
+        )
+        .toBe(true);
+      await page.mouse.up();
+      mouseHeld = false;
+    } finally {
+      if (mouseHeld) {
+        try {
+          await page.mouse.up();
+        } catch {
+          // Preserve the original drag assertion if cleanup also fails.
+        }
+      }
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT);
+    }
     await expect
       .poll(
         () =>
