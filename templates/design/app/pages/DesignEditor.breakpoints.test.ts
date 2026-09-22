@@ -667,9 +667,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(modeHandler).toContain("enterOverviewFromZoom(next)");
     expect(source).toContain('interactMode={mode === "interact"}');
     expect(source).toContain("setOverviewInteractScreenId((current)");
-    expect(source).toContain(
-      "interactScreenId={overviewInteractScreenId}",
-    );
+    expect(source).toContain("interactScreenId={overviewInteractScreenId}");
     // Two-view model: the infinite canvas is the editing view. Per-screen
     // Interact is an in-place bridge mode, so the iframe stays mounted.
     expect(source).toContain(
