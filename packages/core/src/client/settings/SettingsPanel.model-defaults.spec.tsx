@@ -93,6 +93,7 @@ describe("AppDefaultModelField", () => {
             "gpt-6-sol",
             "openai/gpt-6-luna",
             "anthropic/claude-opus-5.5",
+            "anthropic/claude-opus-4.8",
           ]}
           value="custom/provider-model"
           onValueChange={onValueChange}

@@ -288,8 +288,8 @@ export const AGENT_MODEL_CONFIG = {
     supportedModels: [
       "claude-haiku-4-5-20251001",
       CLAUDE_SONNET_MODEL_ID,
-      "claude-opus-4-8",
       "claude-opus-5-5",
+      "claude-opus-4-8",
       "claude-fable-5",
     ],
   },
@@ -299,8 +299,8 @@ export const AGENT_MODEL_CONFIG = {
       supportedModels: [
         "claude-haiku-4-5-20251001",
         CLAUDE_SONNET_MODEL_ID,
-        "claude-opus-4-8",
         "claude-opus-5-5",
+        "claude-opus-4-8",
         "claude-fable-5",
       ],
     },
