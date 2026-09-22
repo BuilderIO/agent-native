@@ -1300,13 +1300,12 @@ jobs:
           # other provider credentials remain managed by Netlify.
           node --experimental-strip-types scripts/sync-netlify-preview-database.ts
 
-      - name: Run the beta release migration against production
+      - name: Run the beta release migration against the site database
         if: >-
           inputs.target == 'beta' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
           steps.beta_pre_migration_freshness.outputs.current == 'true'
         env:
-          BETA_DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
           BUILD_CONTEXT: production
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_MIGRATION_SITE_ID: ${{ steps.target.outputs.migration_site_id }}
@@ -1316,15 +1315,12 @@ jobs:
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
           pnpm install --frozen-lockfile
 
-          migration_database_url="$BETA_DATABASE_URL_SECRET"
-          if [[ -z "$migration_database_url" ]]; then
-            migration_database_url="$(
-              netlify api getSiteDatabase \
-                --data "{\"site_id\":\"$NETLIFY_MIGRATION_SITE_ID\",\"role\":\"netlifydb_owner\"}" 2>/dev/null |
-                BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts ||
-                true
-            )"
-          fi
+          migration_database_url="$(
+            netlify api getSiteDatabase \
+              --data "{\"site_id\":\"$NETLIFY_MIGRATION_SITE_ID\",\"role\":\"netlifydb_owner\"}" 2>/dev/null |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts ||
+              true
+          )"
           if [[ -z "$migration_database_url" ]]; then
             migration_database_url="$(
               netlify api getEnvVars \
@@ -1333,7 +1329,7 @@ jobs:
             )"
           fi
           if [[ "$migration_database_url" != postgres://* && "$migration_database_url" != postgresql://* ]]; then
-            echo "::error::No production PostgreSQL migration URL is available for $SOURCE_TEMPLATE."
+            echo "::error::No beta PostgreSQL migration URL is available for $SOURCE_TEMPLATE."
             exit 1
           fi
           export CONTEXT=production
@@ -1349,7 +1345,7 @@ jobs:
               sleep "$delay"
             fi
           done
-          echo "::error::Beta release migration failed after 3 attempts."
+          echo "::error::Beta site release migration failed after 3 attempts."
           exit 1
 
       - name: Verify beta source is current immediately before upload

@@ -610,11 +610,13 @@ describe("production Netlify site concurrency guard", () => {
       .steps as Array<Workflow>;
     const betaMigration = reusableSteps.find(
       (step) =>
-        step.name === "Run the beta release migration against production",
+        step.name ===
+        "Run the beta release migration against the site database",
     );
     const betaMigrationIndex = reusableSteps.findIndex(
       (step) =>
-        step.name === "Run the beta release migration against production",
+        step.name ===
+        "Run the beta release migration against the site database",
     );
     const betaPreMigrationFreshnessIndex = reusableSteps.findIndex(
       (step) =>
@@ -689,10 +691,7 @@ describe("production Netlify site concurrency guard", () => {
       betaMigration?.env?.NETLIFY_MIGRATION_SITE_ID,
       "${{ steps.target.outputs.migration_site_id }}",
     );
-    assert.equal(
-      betaMigration?.env?.BETA_DATABASE_URL_SECRET,
-      "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}",
-    );
+    assert.equal(betaMigration?.env?.BETA_DATABASE_URL_SECRET, undefined);
     assert.match(String(betaMigration?.run), /netlify api getEnvVars/);
     assert.match(String(betaMigration?.run), /netlify api getSiteDatabase/);
     assert.match(String(betaMigration?.run), /migrate:production/);
