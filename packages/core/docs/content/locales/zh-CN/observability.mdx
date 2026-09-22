@@ -285,24 +285,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 全部自动安装在`/_agent-native/observability/`：
 
-| 方法 | 路径                       | 目的                      |
-| ---- | -------------------------- | ------------------------- |
-| GET  | `/`                        | 统计概览                  |
-| GET  | `/traces`                  | 列出跟踪摘要              |
-| GET  | `/traces/:runId`           | 跟踪详细信息（摘要+跨度） |
-| GET  | `/traces/:runId/evals`     | 运行评估                  |
+| 方法 | 路径                       | 目的                       |
+| ---- | -------------------------- | -------------------------- |
+| GET  | `/`                        | 统计概览                   |
+| GET  | `/traces`                  | 列出跟踪摘要               |
+| GET  | `/traces/:runId`           | 跟踪详细信息（摘要+跨度）  |
+| GET  | `/traces/:runId/evals`     | 运行评估                   |
 | POST | `/traces/:runId/promote`   | 将已完成运行提升为 CI eval |
-| POST | `/feedback`                | 提交反馈                  |
-| GET  | `/feedback`                | 列出反馈                  |
-| GET  | `/feedback/stats`          | 反馈聚合                  |
-| GET  | `/satisfaction`            | 满意度分数                |
-| GET  | `/evals/stats`             | 评估统计                  |
-| POST | `/experiments`             | 创建实验                  |
-| GET  | `/experiments`             | 列出实验                  |
-| GET  | `/experiments/:id`         | 获取实验详细信息          |
-| PUT  | `/experiments/:id`         | 更新实验                  |
-| POST | `/experiments/:id/results` | 计算结果                  |
-| GET  | `/experiments/:id/results` | 获取结果                  |
+| POST | `/feedback`                | 提交反馈                   |
+| GET  | `/feedback`                | 列出反馈                   |
+| GET  | `/feedback/stats`          | 反馈聚合                   |
+| GET  | `/satisfaction`            | 满意度分数                 |
+| GET  | `/evals/stats`             | 评估统计                   |
+| POST | `/experiments`             | 创建实验                   |
+| GET  | `/experiments`             | 列出实验                   |
+| GET  | `/experiments/:id`         | 获取实验详细信息           |
+| PUT  | `/experiments/:id`         | 更新实验                   |
+| POST | `/experiments/:id/results` | 计算结果                   |
+| GET  | `/experiments/:id/results` | 获取结果                   |
 
 所有端点均支持`?since=N`（毫秒时间戳）和`?limit=N`查询参数。
 

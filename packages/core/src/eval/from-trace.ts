@@ -96,6 +96,7 @@ function parseEvent(eventData: string): Record<string, unknown> | null {
     }
     return parsed as Record<string, unknown>;
   } catch {
+    // coercion-ok: malformed event JSON is skipped and callers treat null as no event
     return null;
   }
 }
@@ -111,6 +112,7 @@ function eventText(event: Record<string, unknown>): string {
     try {
       return JSON.stringify(event.content);
     } catch {
+      // coercion-ok: circular content cannot be stringified, so the turn contributes no text
       return "";
     }
   }
@@ -145,6 +147,7 @@ function parseThreadRepository(
     try {
       return asRecord(JSON.parse(trimmed) as unknown);
     } catch {
+      // coercion-ok: malformed thread JSON yields no repository for prompt extraction
       return null;
     }
   }

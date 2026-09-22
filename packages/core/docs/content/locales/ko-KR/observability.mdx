@@ -285,24 +285,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 `/_agent-native/observability/`에 모두 자동 마운트됨:
 
-| 방법 | 경로                       | 목적                       |
-| ---- | -------------------------- | -------------------------- |
-| GET  | `/`                        | 개요 통계                  |
-| GET  | `/traces`                  | 추적 요약 나열             |
-| GET  | `/traces/:runId`           | 추적 세부정보(요약 + 범위) |
-| GET  | `/traces/:runId/evals`     | 실행 평가                  |
+| 방법 | 경로                       | 목적                         |
+| ---- | -------------------------- | ---------------------------- |
+| GET  | `/`                        | 개요 통계                    |
+| GET  | `/traces`                  | 추적 요약 나열               |
+| GET  | `/traces/:runId`           | 추적 세부정보(요약 + 범위)   |
+| GET  | `/traces/:runId/evals`     | 실행 평가                    |
 | POST | `/traces/:runId/promote`   | 완료된 실행을 CI eval로 승격 |
-| POST | `/feedback`                | 의견 제출                  |
-| GET  | `/feedback`                | 피드백 나열                |
-| GET  | `/feedback/stats`          | 피드백 집계                |
-| GET  | `/satisfaction`            | 만족도 점수                |
-| GET  | `/evals/stats`             | 평가 통계                  |
-| POST | `/experiments`             | 실험 만들기                |
-| GET  | `/experiments`             | 실험 나열                  |
-| GET  | `/experiments/:id`         | 실험 세부정보 가져오기     |
-| PUT  | `/experiments/:id`         | 실험 업데이트              |
-| POST | `/experiments/:id/results` | 계산 결과                  |
-| GET  | `/experiments/:id/results` | 결과 얻기                  |
+| POST | `/feedback`                | 의견 제출                    |
+| GET  | `/feedback`                | 피드백 나열                  |
+| GET  | `/feedback/stats`          | 피드백 집계                  |
+| GET  | `/satisfaction`            | 만족도 점수                  |
+| GET  | `/evals/stats`             | 평가 통계                    |
+| POST | `/experiments`             | 실험 만들기                  |
+| GET  | `/experiments`             | 실험 나열                    |
+| GET  | `/experiments/:id`         | 실험 세부정보 가져오기       |
+| PUT  | `/experiments/:id`         | 실험 업데이트                |
+| POST | `/experiments/:id/results` | 계산 결과                    |
+| GET  | `/experiments/:id/results` | 결과 얻기                    |
 
 모든 엔드포인트는 `?since=N`(ms 타임스탬프) 및 `?limit=N` 쿼리 매개변수를 지원합니다.
 

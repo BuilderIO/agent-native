@@ -285,24 +285,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 `/_agent-native/observability/` पर सभी ऑटो-माउंटेड:
 
-| विधि | पथ                         | उद्देश्य                       |
-| ---- | -------------------------- | ------------------------------ |
-| GET  | `/`                        | अवलोकन आँकड़े                  |
-| GET  | `/traces`                  | सूची ट्रेस सारांश              |
-| GET  | `/traces/:runId`           | ट्रेस विवरण (सारांश + विस्तार) |
-| GET  | `/traces/:runId/evals`     | एक रन के लिए मूल्यांकन         |
+| विधि | पथ                         | उद्देश्य                           |
+| ---- | -------------------------- | ---------------------------------- |
+| GET  | `/`                        | अवलोकन आँकड़े                      |
+| GET  | `/traces`                  | सूची ट्रेस सारांश                  |
+| GET  | `/traces/:runId`           | ट्रेस विवरण (सारांश + विस्तार)     |
+| GET  | `/traces/:runId/evals`     | एक रन के लिए मूल्यांकन             |
 | POST | `/traces/:runId/promote`   | पूरे रन को CI eval में प्रमोट करें |
-| POST | `/feedback`                | प्रतिक्रिया सबमिट करें         |
-| GET  | `/feedback`                | प्रतिक्रिया सूचीबद्ध करें      |
-| GET  | `/feedback/stats`          | प्रतिक्रिया एकत्रीकरण          |
-| GET  | `/satisfaction`            | संतुष्टि स्कोर                 |
-| GET  | `/evals/stats`             | समान आँकड़े                    |
-| POST | `/experiments`             | प्रयोग बनाएं                   |
-| GET  | `/experiments`             | प्रयोगों की सूची बनाएं         |
-| GET  | `/experiments/:id`         | प्रयोग विवरण प्राप्त करें      |
-| PUT  | `/experiments/:id`         | अद्यतन प्रयोग                  |
-| POST | `/experiments/:id/results` | परिणामों की गणना करें          |
-| GET  | `/experiments/:id/results` | परिणाम प्राप्त करें            |
+| POST | `/feedback`                | प्रतिक्रिया सबमिट करें             |
+| GET  | `/feedback`                | प्रतिक्रिया सूचीबद्ध करें          |
+| GET  | `/feedback/stats`          | प्रतिक्रिया एकत्रीकरण              |
+| GET  | `/satisfaction`            | संतुष्टि स्कोर                     |
+| GET  | `/evals/stats`             | समान आँकड़े                        |
+| POST | `/experiments`             | प्रयोग बनाएं                       |
+| GET  | `/experiments`             | प्रयोगों की सूची बनाएं             |
+| GET  | `/experiments/:id`         | प्रयोग विवरण प्राप्त करें          |
+| PUT  | `/experiments/:id`         | अद्यतन प्रयोग                      |
+| POST | `/experiments/:id/results` | परिणामों की गणना करें              |
+| GET  | `/experiments/:id/results` | परिणाम प्राप्त करें                |
 
 सभी समापन बिंदु `?since=N` (एमएस टाइमस्टैम्प) और `?limit=N` क्वेरी पैरामीटर का समर्थन करते हैं।
 

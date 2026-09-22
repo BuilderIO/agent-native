@@ -247,7 +247,6 @@ agent-native eval --threshold 0.8    # override every eval's pass threshold (0..
 
 將任何評分器降低到閾值以下的回歸會導致該步驟失敗並阻止部署。沒有評估檔案的應用程式會退出 `0`，因此采用評估是每個應用程式的選取。
 
-
 ## 從生產 Trace 提升 {#from-trace}
 
 當一次真實執行出乎意料——示範能跑、上線卻壞了，或呼叫了錯誤的工具——把這條已完成的 trace 提升為 CI 案例，而不是憑空寫 prompt。

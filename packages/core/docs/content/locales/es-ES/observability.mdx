@@ -287,24 +287,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 Todo montado automáticamente en `/_agent-native/observability/`:
 
-| Método | Ruta                       | Propósito                                 |
-| ------ | -------------------------- | ----------------------------------------- |
-| GET    | `/`                        | Estadísticas generales                    |
-| GET    | `/traces`                  | Enumerar resúmenes de seguimiento         |
-| GET    | `/traces/:runId`           | Detalle de seguimiento (resumen + tramos) |
-| GET    | `/traces/:runId/evals`     | Evaluaciones para una ejecución           |
+| Método | Ruta                       | Propósito                                   |
+| ------ | -------------------------- | ------------------------------------------- |
+| GET    | `/`                        | Estadísticas generales                      |
+| GET    | `/traces`                  | Enumerar resúmenes de seguimiento           |
+| GET    | `/traces/:runId`           | Detalle de seguimiento (resumen + tramos)   |
+| GET    | `/traces/:runId/evals`     | Evaluaciones para una ejecución             |
 | POST   | `/traces/:runId/promote`   | Promover una ejecución completada a eval CI |
-| POST   | `/feedback`                | Enviar comentarios                        |
-| GET    | `/feedback`                | Enumerar comentarios                      |
-| GET    | `/feedback/stats`          | Agregación de comentarios                 |
-| GET    | `/satisfaction`            | Puntuaciones de satisfacción              |
-| GET    | `/evals/stats`             | Estadísticas de evaluación                |
-| POST   | `/experiments`             | Crear experimento                         |
-| GET    | `/experiments`             | Enumerar experimentos                     |
-| GET    | `/experiments/:id`         | Obtener detalles del experimento          |
-| PUT    | `/experiments/:id`         | Actualizar experimento                    |
-| POST   | `/experiments/:id/results` | Calcular resultados                       |
-| GET    | `/experiments/:id/results` | Obtener resultados                        |
+| POST   | `/feedback`                | Enviar comentarios                          |
+| GET    | `/feedback`                | Enumerar comentarios                        |
+| GET    | `/feedback/stats`          | Agregación de comentarios                   |
+| GET    | `/satisfaction`            | Puntuaciones de satisfacción                |
+| GET    | `/evals/stats`             | Estadísticas de evaluación                  |
+| POST   | `/experiments`             | Crear experimento                           |
+| GET    | `/experiments`             | Enumerar experimentos                       |
+| GET    | `/experiments/:id`         | Obtener detalles del experimento            |
+| PUT    | `/experiments/:id`         | Actualizar experimento                      |
+| POST   | `/experiments/:id/results` | Calcular resultados                         |
+| GET    | `/experiments/:id/results` | Obtener resultados                          |
 
 Todos los puntos finales admiten los parámetros de consulta `?since=N` (marca de tiempo ms) y `?limit=N`.
 

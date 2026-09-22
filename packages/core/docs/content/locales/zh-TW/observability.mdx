@@ -285,24 +285,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 全部自動安裝在`/_agent-native/observability/`：
 
-| 方法 | 路徑                       | 目的                      |
-| ---- | -------------------------- | ------------------------- |
-| GET  | `/`                        | 統計概覽                  |
-| GET  | `/traces`                  | 列出跟蹤摘要              |
-| GET  | `/traces/:runId`           | 跟蹤詳細資訊（摘要+跨度） |
-| GET  | `/traces/:runId/evals`     | 執行評估                  |
+| 方法 | 路徑                       | 目的                       |
+| ---- | -------------------------- | -------------------------- |
+| GET  | `/`                        | 統計概覽                   |
+| GET  | `/traces`                  | 列出跟蹤摘要               |
+| GET  | `/traces/:runId`           | 跟蹤詳細資訊（摘要+跨度）  |
+| GET  | `/traces/:runId/evals`     | 執行評估                   |
 | POST | `/traces/:runId/promote`   | 將已完成執行提升為 CI eval |
-| POST | `/feedback`                | 提交意見回饋              |
-| GET  | `/feedback`                | 列出意見回饋              |
-| GET  | `/feedback/stats`          | 意見回饋聚合              |
-| GET  | `/satisfaction`            | 滿意度分數                |
-| GET  | `/evals/stats`             | 評估統計                  |
-| POST | `/experiments`             | 建立實驗                  |
-| GET  | `/experiments`             | 列出實驗                  |
-| GET  | `/experiments/:id`         | 取得實驗詳細資訊          |
-| PUT  | `/experiments/:id`         | 更新實驗                  |
-| POST | `/experiments/:id/results` | 計算結果                  |
-| GET  | `/experiments/:id/results` | 取得結果                  |
+| POST | `/feedback`                | 提交意見回饋               |
+| GET  | `/feedback`                | 列出意見回饋               |
+| GET  | `/feedback/stats`          | 意見回饋聚合               |
+| GET  | `/satisfaction`            | 滿意度分數                 |
+| GET  | `/evals/stats`             | 評估統計                   |
+| POST | `/experiments`             | 建立實驗                   |
+| GET  | `/experiments`             | 列出實驗                   |
+| GET  | `/experiments/:id`         | 取得實驗詳細資訊           |
+| PUT  | `/experiments/:id`         | 更新實驗                   |
+| POST | `/experiments/:id/results` | 計算結果                   |
+| GET  | `/experiments/:id/results` | 取得結果                   |
 
 所有端點均支援`?since=N`（毫秒時間戳）和`?limit=N`查詢參數。
 

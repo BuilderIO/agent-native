@@ -279,24 +279,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 All auto-mounted at `/_agent-native/observability/`:
 
-| Method | Path                       | Purpose                        |
-| ------ | -------------------------- | ------------------------------ |
-| GET    | `/`                        | Overview stats                 |
-| GET    | `/traces`                  | List trace summaries           |
-| GET    | `/traces/:runId`           | Trace detail (summary + spans) |
-| GET    | `/traces/:runId/evals`     | Evals for a run                |
+| Method | Path                       | Purpose                              |
+| ------ | -------------------------- | ------------------------------------ |
+| GET    | `/`                        | Overview stats                       |
+| GET    | `/traces`                  | List trace summaries                 |
+| GET    | `/traces/:runId`           | Trace detail (summary + spans)       |
+| GET    | `/traces/:runId/evals`     | Evals for a run                      |
 | POST   | `/traces/:runId/promote`   | Promote a completed run to a CI eval |
-| POST   | `/feedback`                | Submit feedback                |
-| GET    | `/feedback`                | List feedback                  |
-| GET    | `/feedback/stats`          | Feedback aggregation           |
-| GET    | `/satisfaction`            | Satisfaction scores            |
-| GET    | `/evals/stats`             | Eval statistics                |
-| POST   | `/experiments`             | Create experiment              |
-| GET    | `/experiments`             | List experiments               |
-| GET    | `/experiments/:id`         | Get experiment detail          |
-| PUT    | `/experiments/:id`         | Update experiment              |
-| POST   | `/experiments/:id/results` | Compute results                |
-| GET    | `/experiments/:id/results` | Get results                    |
+| POST   | `/feedback`                | Submit feedback                      |
+| GET    | `/feedback`                | List feedback                        |
+| GET    | `/feedback/stats`          | Feedback aggregation                 |
+| GET    | `/satisfaction`            | Satisfaction scores                  |
+| GET    | `/evals/stats`             | Eval statistics                      |
+| POST   | `/experiments`             | Create experiment                    |
+| GET    | `/experiments`             | List experiments                     |
+| GET    | `/experiments/:id`         | Get experiment detail                |
+| PUT    | `/experiments/:id`         | Update experiment                    |
+| POST   | `/experiments/:id/results` | Compute results                      |
+| GET    | `/experiments/:id/results` | Get results                          |
 
 All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
 

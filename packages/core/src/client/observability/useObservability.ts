@@ -138,7 +138,7 @@ export function usePromoteTraceEval() {
           };
           code = body.message ?? body.error ?? code;
         } catch {
-          // Keep the status text when the body is not JSON.
+          // coercion-ok: non-JSON error bodies keep the HTTP status text already stored in code
         }
         throw new Error(code);
       }

@@ -285,24 +285,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 Alle automatisch montiert bei `/_agent-native/observability/`:
 
-| Methode | Pfad                       | Zweck                                     |
-| ------- | -------------------------- | ----------------------------------------- |
-| GET     | `/`                        | Übersichtsstatistiken                     |
-| GET     | `/traces`                  | Trace-Zusammenfassungen auflisten         |
-| GET     | `/traces/:runId`           | Trace-Details (Zusammenfassung + Spannen) |
-| GET     | `/traces/:runId/evals`     | Bewertungen für einen Lauf                |
+| Methode | Pfad                       | Zweck                                         |
+| ------- | -------------------------- | --------------------------------------------- |
+| GET     | `/`                        | Übersichtsstatistiken                         |
+| GET     | `/traces`                  | Trace-Zusammenfassungen auflisten             |
+| GET     | `/traces/:runId`           | Trace-Details (Zusammenfassung + Spannen)     |
+| GET     | `/traces/:runId/evals`     | Bewertungen für einen Lauf                    |
 | POST    | `/traces/:runId/promote`   | Abgeschlossenen Lauf zu einem CI-Eval fördern |
-| POST    | `/feedback`                | Feedback abgeben                          |
-| GET     | `/feedback`                | Feedback auflisten                        |
-| GET     | `/feedback/stats`          | Feedback-Aggregation                      |
-| GET     | `/satisfaction`            | Zufriedenheitswerte                       |
-| GET     | `/evals/stats`             | Bewertungsstatistiken                     |
-| POST    | `/experiments`             | Experiment erstellen                      |
-| GET     | `/experiments`             | Experimente auflisten                     |
-| GET     | `/experiments/:id`         | Testdetails abrufen                       |
-| PUT     | `/experiments/:id`         | Experiment aktualisieren                  |
-| POST    | `/experiments/:id/results` | Ergebnisse berechnen                      |
-| GET     | `/experiments/:id/results` | Ergebnisse erhalten                       |
+| POST    | `/feedback`                | Feedback abgeben                              |
+| GET     | `/feedback`                | Feedback auflisten                            |
+| GET     | `/feedback/stats`          | Feedback-Aggregation                          |
+| GET     | `/satisfaction`            | Zufriedenheitswerte                           |
+| GET     | `/evals/stats`             | Bewertungsstatistiken                         |
+| POST    | `/experiments`             | Experiment erstellen                          |
+| GET     | `/experiments`             | Experimente auflisten                         |
+| GET     | `/experiments/:id`         | Testdetails abrufen                           |
+| PUT     | `/experiments/:id`         | Experiment aktualisieren                      |
+| POST    | `/experiments/:id/results` | Ergebnisse berechnen                          |
+| GET     | `/experiments/:id/results` | Ergebnisse erhalten                           |
 
 Alle Endpunkte unterstützen die Abfrageparameter `?since=N` (ms-Zeitstempel) und `?limit=N`.
 

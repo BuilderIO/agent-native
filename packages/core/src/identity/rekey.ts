@@ -64,6 +64,11 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   },
   { table: "agent_evals", column: "user_id", mode: "email-user-id" },
   {
+    table: "agent_eval_datasets",
+    column: "user_id",
+    mode: "email-user-id",
+  },
+  {
     table: "agent_experiment_assignments",
     column: "user_id",
     mode: "email-user-id",
