@@ -91,6 +91,19 @@ describe("Factory route factory switching", () => {
     expect(source).toContain(
       "if (open) clearPersistedLastAutomationId(factoryId);",
     );
+    // A deep link (?automationId=B) resolves `selected` without ever going
+    // through selectAutomation's click handler. Persist as soon as `selected`
+    // is known, before branching on selectedId, so leaving the tab (which
+    // drops automationId from the URL) and coming back doesn't fall back to
+    // a stale persisted id or row 0 instead of the one the link pointed to.
+    expect(source).toContain(
+      "persistLastAutomationId(factoryId, selected.id);",
+    );
+    expect(
+      source.indexOf("persistLastAutomationId(factoryId, selected.id);"),
+    ).toBeLessThan(
+      source.indexOf("if (!selectedId) {\n      selectAutomation"),
+    );
   });
 
   it("resyncs the editor after a save and refuses to run a stale config", () => {

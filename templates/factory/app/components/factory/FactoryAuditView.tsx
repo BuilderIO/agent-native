@@ -442,7 +442,13 @@ function AuditRunDetail({
   const actions = run.actions ?? [];
   const items = run.items ?? [];
   const allItems = dedupeAuditItems([...inbox, ...work, ...actions, ...items]);
-  const filteredItems = filterAuditItems(allItems, filterKey);
+  // `item.listedStatus` can be null both for items never listed this run and
+  // for legacy `list-triage-items` events that recorded no per-item status --
+  // those two cases are indistinguishable from the field alone. `work` is
+  // built from the same `listed` map run.counts.listed counts, so membership
+  // in it is the reliable "was this item examined" signal.
+  const listedItemIds = new Set(work.map((item) => item.itemId));
+  const filteredItems = filterAuditItems(allItems, filterKey, listedItemIds);
   const trace = run.trace ?? [];
   const failedItems = uniqueFailedItems([...actions, ...items]);
   const duration = formatAuditDuration(run.startedAt, run.finishedAt);
@@ -586,6 +592,7 @@ function AuditRunDetail({
               item={item}
               factoryId={factoryId}
               builderSlackUserId={builderSlackUserId}
+              listedItemIds={listedItemIds}
             />
           ))}
         </AuditSection>
@@ -620,15 +627,17 @@ function AuditItemRow({
   item,
   factoryId,
   builderSlackUserId,
+  listedItemIds,
 }: {
   item: FactoryAuditItem;
   factoryId: string;
   builderSlackUserId: string | null;
+  listedItemIds: Set<string>;
 }) {
   const t = useT();
   const sourceLink = resolveAuditSourceLink(item);
   const pullRequestLabel = auditPullRequestLabel(item);
-  const hint = formatItemRowHint(item, t);
+  const hint = formatItemRowHint(item, t, listedItemIds);
 
   return (
     <details className="group overflow-hidden rounded-lg border border-border bg-muted/20">
@@ -959,12 +968,15 @@ type AuditItemFilterKey =
 
 const AUDIT_ITEM_FILTER_PREDICATES: Record<
   AuditItemFilterKey,
-  (item: FactoryAuditItem) => boolean
+  (item: FactoryAuditItem, listedItemIds: Set<string>) => boolean
 > = {
   added: (item) => Boolean(item.firstSeenThisRun),
   // Matches run.counts.listed: items this run actually listed/scanned, not
-  // just ones that showed up via the inbox or a stored decision.
-  examined: (item) => Boolean(item.listedStatus),
+  // just ones that showed up via the inbox or a stored decision. Membership
+  // in the listed set, not `listedStatus` truthiness -- a legacy event can
+  // list an item with no per-item status, which looks identical to "never
+  // listed" if you only check the field.
+  examined: (item, listedItemIds) => listedItemIds.has(item.itemId),
   failed: (item) => item.outcome === "failed",
   started: (item) => item.outcome === "dispatched",
   skipped: (item) => item.outcome === "held",
@@ -975,9 +987,11 @@ const AUDIT_ITEM_FILTER_PREDICATES: Record<
 function filterAuditItems(
   items: FactoryAuditItem[],
   filterKey: AuditItemFilterKey | null,
+  listedItemIds: Set<string>,
 ): FactoryAuditItem[] {
   if (!filterKey) return items;
-  return items.filter(AUDIT_ITEM_FILTER_PREDICATES[filterKey]);
+  const matchesFilter = AUDIT_ITEM_FILTER_PREDICATES[filterKey];
+  return items.filter((item) => matchesFilter(item, listedItemIds));
 }
 
 function AuditFilterChip({
@@ -1122,6 +1136,7 @@ function formatItemOutcome(
 function formatItemRowHint(
   item: FactoryAuditItem,
   t: ReturnType<typeof useT>,
+  listedItemIds: Set<string>,
 ): string {
   const parts: string[] = [];
   if (item.gitHubTerminal === "merged") {
@@ -1132,7 +1147,7 @@ function formatItemRowHint(
     parts.push(t("factoryRoute.auditDraftOnGitHub"));
   } else if (
     !item.firstSeenThisRun &&
-    (item.listedStatus || item.builderAlreadyStarted)
+    (listedItemIds.has(item.itemId) || item.builderAlreadyStarted)
   ) {
     parts.push(t("factoryRoute.auditSeenBefore"));
   }

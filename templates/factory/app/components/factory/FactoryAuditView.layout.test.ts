@@ -153,8 +153,17 @@ describe("FactoryAuditView outcome-first audit", () => {
     expect(source).not.toContain(
       "const parts = [formatItemOutcome(item.outcome, t)];",
     );
-    expect(source).toContain("const hint = formatItemRowHint(item, t);");
+    expect(source).toContain(
+      "const hint = formatItemRowHint(item, t, listedItemIds);",
+    );
     expect(source).toContain("{hint ? (");
+    // Same fix as the Examined filter: "seen before" must key off listed-set
+    // membership, not `listedStatus` truthiness, or a legacy null-status item
+    // silently loses its hint even though it really was listed before.
+    expect(source).toContain(
+      "listedItemIds.has(item.itemId) || item.builderAlreadyStarted",
+    );
+    expect(source).toContain("listedItemIds: Set<string>");
   });
 
   it("lets the Added/Examined/Failed/Started/Skipped chips filter the item list, with no filter active by default", () => {
@@ -166,13 +175,13 @@ describe("FactoryAuditView outcome-first audit", () => {
       "const [filterKey, setFilterKey] = useState<AuditItemFilterKey | null>(null);",
     );
     expect(source).toContain(
-      "const filteredItems = filterAuditItems(allItems, filterKey);",
+      "const filteredItems = filterAuditItems(allItems, filterKey, listedItemIds);",
     );
     // No filter key means show everything -- a real narrowing filter, not a
     // stable partition/sort.
     expect(source).toContain("if (!filterKey) return items;");
     expect(source).toContain(
-      "return items.filter(AUDIT_ITEM_FILTER_PREDICATES[filterKey]);",
+      "return items.filter((item) => matchesFilter(item, listedItemIds));",
     );
     // Clicking the active filter again clears it back to "no filter".
     expect(source).toContain(
@@ -180,10 +189,16 @@ describe("FactoryAuditView outcome-first audit", () => {
     );
     expect(source).toContain("function AuditFilterChip(");
     expect(source).toContain("aria-pressed={active}");
-    // Examined is a real, narrower subset (items.listedStatus is only set for
-    // items this run actually listed/scanned) -- not every item touched this
-    // run, so it filters too instead of staying a static count.
-    expect(source).toContain("examined: (item) => Boolean(item.listedStatus)");
+    // Examined is a real, narrower subset -- but membership in the listed
+    // set, not `listedStatus` truthiness: a legacy list event can list an
+    // item with no per-item status, which looks identical to "never listed"
+    // if you only check the field, so the count and the filter would diverge.
+    expect(source).toContain(
+      "examined: (item, listedItemIds) => listedItemIds.has(item.itemId)",
+    );
+    expect(source).toContain(
+      "const listedItemIds = new Set(work.map((item) => item.itemId));",
+    );
     expect(source).toContain(
       '<AuditFilterChip\n          active={filterKey === "examined"}',
     );
