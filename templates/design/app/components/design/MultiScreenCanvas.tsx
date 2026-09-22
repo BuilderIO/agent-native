@@ -734,6 +734,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     string | null
   >(null);
   const boardCrossScreenDropPendingRef = useRef(false);
+  const boardCrossScreenDropTransactionRef = useRef<string | null>(null);
   const boardCrossScreenDropTimeoutRef = useRef<number | null>(null);
   const finishBoardCrossScreenDrop = useCallback(() => {
     if (!boardCrossScreenDropPendingRef.current) return;
@@ -742,8 +743,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
       boardCrossScreenDropTimeoutRef.current = null;
     }
+    boardCrossScreenDropTransactionRef.current = null;
     setCrossScreenDragActive(false);
   }, []);
+  useEffect(() => {
+    const transactionId = boardRuntimeStructureInsertRequest?.transactionId;
+    if (!transactionId) return;
+    boardCrossScreenDropTransactionRef.current = transactionId;
+    if (boardCrossScreenDropTimeoutRef.current !== null) {
+      window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+      boardCrossScreenDropTimeoutRef.current = null;
+    }
+  }, [boardRuntimeStructureInsertRequest]);
   useEffect(
     () => () => {
       if (boardCrossScreenDropTimeoutRef.current !== null) {
@@ -919,13 +930,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const boardFrameGeometryRef = useRef(boardFrameGeometry);
   boardFrameGeometryRef.current = boardFrameGeometry;
   // Keep the empty board unmounted during normal editing so the text/shape
-  // creation path can still own its first mount. Mount it for the duration of
-  // a cross-screen drag so the drop has a real DOM target before release.
+  // creation path can still own its first mount. Mount it for a cross-screen
+  // drag and keep it through the runtime insert acknowledgement.
   const boardSurfaceHtml = shouldMountBoardSurface({
     hasAuthoredContent: hasBoardSurfaceContent(boardFileContent),
     crossScreenDragActive,
     hasPendingRuntimeInsert: Boolean(boardRuntimeStructureInsertRequest),
-    hasRuntimeContent: boardRuntimeSurfaceActive === boardFileId,
+    runtimeContentBoardId: boardRuntimeSurfaceActive,
+    boardFileId,
   })
     ? getBoardSurfaceHtml(boardFileContent)
     : undefined;
@@ -1291,16 +1303,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     >
   >(new Map());
   const onCrossScreenElementDropRef = useRef(onCrossScreenElementDrop);
-  const boardRuntimeStructureInsertRequestRef = useRef(
-    boardRuntimeStructureInsertRequest,
-  );
-  const onBoardRuntimeStructureInsertRejectedRef = useRef(
-    onBoardRuntimeStructureInsertRejected,
-  );
-  boardRuntimeStructureInsertRequestRef.current =
-    boardRuntimeStructureInsertRequest;
-  onBoardRuntimeStructureInsertRejectedRef.current =
-    onBoardRuntimeStructureInsertRejected;
   const onBoardDrawPrimitiveRef = useRef(onBoardDrawPrimitive);
   // Ref wrapper for finishDrag so callbacks declared before finishDrag can
   // reference it via the ref without hitting the const TDZ.
@@ -3340,17 +3342,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const expireBoardCrossScreenDrop = () => {
           if (!boardCrossScreenDropPendingRef.current) return;
           // A late hit-test must not create a new runtime request after the
-          // host has cancelled this handoff. If a request already exists,
-          // reject it through the editor so its transaction lock is released.
+          // host has cancelled this handoff. Once a runtime request exists,
+          // its iframe ack/reject path owns settlement and clears this timer.
           crossScreenDropSeqRef.current += 1;
-          const transactionId =
-            boardRuntimeStructureInsertRequestRef.current?.transactionId;
-          if (transactionId) {
-            onBoardRuntimeStructureInsertRejectedRef.current?.(
-              "board-drop-timeout",
-              transactionId,
-            );
-          }
           finishBoardCrossScreenDrop();
         };
         boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
@@ -10820,10 +10814,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       reason,
                       transactionId,
                     );
+                    const expectedTransactionId =
+                      boardCrossScreenDropTransactionRef.current;
+                    if (
+                      expectedTransactionId &&
+                      transactionId &&
+                      expectedTransactionId !== transactionId
+                    ) {
+                      return;
+                    }
                     setBoardRuntimeSurfaceActive(null);
                     finishBoardCrossScreenDrop();
                   }}
                   onRuntimeStructureInsertApplied={(details) => {
+                    const expectedTransactionId =
+                      boardCrossScreenDropTransactionRef.current;
+                    if (
+                      expectedTransactionId &&
+                      details.transactionId &&
+                      expectedTransactionId !== details.transactionId
+                    ) {
+                      onBoardRuntimeStructureInsertApplied?.(details);
+                      return;
+                    }
                     if (details.applied !== false) {
                       setBoardRuntimeSurfaceActive(boardFileId ?? null);
                     }

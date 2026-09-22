@@ -21,13 +21,14 @@ export function shouldMountBoardSurface(args: {
   hasAuthoredContent: boolean;
   crossScreenDragActive: boolean;
   hasPendingRuntimeInsert: boolean;
-  hasRuntimeContent: boolean;
+  runtimeContentBoardId: string | null;
+  boardFileId?: string;
 }): boolean {
   return (
     args.hasAuthoredContent ||
     args.crossScreenDragActive ||
     args.hasPendingRuntimeInsert ||
-    args.hasRuntimeContent
+    args.runtimeContentBoardId === args.boardFileId
   );
 }
 

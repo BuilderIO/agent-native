@@ -25,7 +25,8 @@ describe("board surface rendering", () => {
         hasAuthoredContent: false,
         crossScreenDragActive: false,
         hasPendingRuntimeInsert: false,
-        hasRuntimeContent: false,
+        runtimeContentBoardId: null,
+        boardFileId: "board-1",
       }),
     ).toBe(false);
     expect(
@@ -33,7 +34,8 @@ describe("board surface rendering", () => {
         hasAuthoredContent: false,
         crossScreenDragActive: false,
         hasPendingRuntimeInsert: true,
-        hasRuntimeContent: false,
+        runtimeContentBoardId: null,
+        boardFileId: "board-1",
       }),
     ).toBe(true);
     expect(
@@ -41,9 +43,19 @@ describe("board surface rendering", () => {
         hasAuthoredContent: false,
         crossScreenDragActive: false,
         hasPendingRuntimeInsert: false,
-        hasRuntimeContent: true,
+        runtimeContentBoardId: "board-1",
+        boardFileId: "board-1",
       }),
     ).toBe(true);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        runtimeContentBoardId: "board-1",
+        boardFileId: "board-2",
+      }),
+    ).toBe(false);
   });
 
   it("uses the viewport for a normal-flow app stored as the only board file", () => {
