@@ -2671,6 +2671,7 @@ describe("copyInstalledExternalSsrPackages", () => {
     dirs.push(root);
     const nodeModules = path.join(root, "node_modules");
     for (const [name, version] of [
+      ["react-dom", "19.2.7"],
       ["react-router", "8.1.0"],
       ["@tanstack/react-query", "5.101.2"],
     ] as const) {
@@ -2679,6 +2680,18 @@ describe("copyInstalledExternalSsrPackages", () => {
       fs.writeFileSync(
         path.join(dir, "package.json"),
         JSON.stringify({ name, version }),
+      );
+    }
+    const reactDomCjsDir = path.join(nodeModules, "react-dom", "cjs");
+    fs.mkdirSync(reactDomCjsDir, { recursive: true });
+    for (const fileName of [
+      "react-dom-profiling.profiling.js",
+      "react-dom-server.edge.production.js",
+      "react-dom-server.node.production.js",
+    ]) {
+      fs.writeFileSync(
+        path.join(reactDomCjsDir, fileName),
+        "module.exports = {};\n",
       );
     }
     fs.mkdirSync(
@@ -2713,12 +2726,46 @@ describe("copyInstalledExternalSsrPackages", () => {
       path.join(serverDir, "chunk.mjs"),
       [
         'import { useLocation } from "react-router";',
+        'import "react-dom/server";',
         'import { useQuery } from "@tanstack/react-query";',
         "export { useLocation, useQuery };",
       ].join("\n"),
     );
 
-    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(2);
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(3);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.node.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.edge.production.js",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-profiling.profiling.js",
+        ),
+      ),
+    ).toBe(false);
     expect(
       fs.existsSync(
         path.join(serverDir, "node_modules", "react-router", "package.json"),
