@@ -439,6 +439,7 @@ export async function fetchWithRetry(
         `Google probe request returned HTTP ${response.status}; retrying in ${Math.ceil(delay / 1000)}s.`,
       );
       await sleep(delay);
+      if (Date.now() >= deadline) return response;
     } catch (error) {
       lastError = error;
       if (attempt === MAX_TRANSIENT_ATTEMPTS - 1 || Date.now() >= deadline) {

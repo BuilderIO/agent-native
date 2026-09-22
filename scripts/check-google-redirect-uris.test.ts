@@ -399,6 +399,29 @@ test("retries a freshly published health route before classifying it absent", as
   }
 });
 
+test("returns the last response when a retry delay exhausts the probe budget", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    return new Response(null, {
+      status: 404,
+      headers: { "retry-after": "60" },
+    });
+  };
+  try {
+    const response = await fetchWithRetry(
+      "https://beta.mail.agent-native.com/_agent-native/health/google",
+      { redirect: "manual" },
+      Date.now() + 5,
+    );
+    assert.equal(response.status, 404);
+    assert.equal(attempts, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("does not fetch after the probe deadline", async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;
