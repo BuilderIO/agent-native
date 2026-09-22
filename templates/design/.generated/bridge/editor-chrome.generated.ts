@@ -12448,7 +12448,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return runtimeMutationApplied;
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId, requestIdOverride) {
       if (!el || !target || !target.anchor) return;
       var messageAnchor = collectMessages ? target.anchor : target.persistenceAnchor || target.anchor;
       var messagePlacement = collectMessages ? target.placement : target.persistencePlacement || target.placement;
@@ -12460,7 +12460,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         persistencePlacement: messagePlacement,
         dropMode: target.dropMode || "flow-insert"
       });
-      var requestId = "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      var requestId = requestIdOverride || "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
       pendingStructureMoves[requestId] = {
         requestId,
         el,
@@ -18204,7 +18204,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           void 0,
           void 0,
           void 0,
-          typeof e.data.transactionId === "string" ? e.data.transactionId : void 0
+          typeof e.data.transactionId === "string" ? e.data.transactionId : void 0,
+          String(insertRequestId)
         );
         acknowledgeInsert(parsedInsertEl);
         return;
