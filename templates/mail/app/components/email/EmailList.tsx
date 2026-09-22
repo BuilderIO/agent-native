@@ -2,6 +2,12 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
+import {
+  AI_PRIORITY_MAX_EMAILS,
+  type AiPriorityEmail,
+  type MailSortMode,
+} from "@shared/ai-priority";
+import { mailLabelsInclude } from "@shared/gmail-labels";
 import type { EmailMessage, Label } from "@shared/types";
 import {
   IconAlertCircle,
@@ -19,6 +25,7 @@ import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
@@ -34,6 +41,13 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -41,6 +55,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import { useAiPriority } from "@/hooks/use-ai-priority";
 import {
   useEmails,
   useMarkRead,
@@ -83,8 +98,22 @@ type SnoozeTarget = {
   emailId: string;
   accountEmail?: string;
 };
-import { toast } from "sonner";
 
+function toPriorityEmail(email: EmailMessage): AiPriorityEmail {
+  return {
+    id: email.id,
+    threadId: email.threadId,
+    accountEmail: email.accountEmail,
+    from: email.from.email,
+    to: email.to.map((recipient) => recipient.email).join(", "),
+    subject: email.subject,
+    snippet: email.snippet,
+    labelIds: email.labelIds,
+    date: email.date,
+    isArchived: email.isArchived,
+    isTrashed: email.isTrashed,
+  };
+}
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 
@@ -114,6 +143,8 @@ interface EmailListProps {
   onArchived?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
   onNavigateThread?: (threadId: string) => void;
+  sortMode?: MailSortMode;
+  onSortModeChange?: (mode: MailSortMode) => void;
 }
 
 // ─── Inbox Zero ─────────────────────────────────────────────────────────────
@@ -433,8 +464,11 @@ export function EmailList({
   onArchived,
   onDraftOpen,
   onNavigateThread,
+  sortMode = "newest",
+  onSortModeChange,
 }: EmailListProps) {
   const t = useT();
+  const aiPriority = useAiPriority();
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -443,6 +477,8 @@ export function EmailList({
   const [searchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") ?? undefined;
   const labelParam = searchParams.get("label");
+  const currentSortMode: MailSortMode =
+    view === "inbox" && !searchQuery && !labelParam ? sortMode : "newest";
   const routeSearchSuffix = searchParams.toString()
     ? `?${searchParams.toString()}`
     : "";
@@ -514,8 +550,117 @@ export function EmailList({
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
 
-  // Group emails into threads
-  const threads = useMemo(() => groupIntoThreads(emails), [emails]);
+  const chronologicalThreads = useMemo(
+    () => groupIntoThreads(emails),
+    [emails],
+  );
+  const priorityEmails = useMemo(
+    () =>
+      chronologicalThreads
+        .map((thread) => thread.latestMessage)
+        .filter(
+          (email) =>
+            !email.isArchived &&
+            !email.isTrashed &&
+            mailLabelsInclude(email.labelIds, "inbox"),
+        ),
+    [chronologicalThreads],
+  );
+  const priorityWindowEmails = useMemo(
+    () => priorityEmails.slice(0, AI_PRIORITY_MAX_EMAILS),
+    [priorityEmails],
+  );
+  const priorityWindowIds = useMemo(
+    () => new Set(priorityWindowEmails.map((email) => email.id)),
+    [priorityWindowEmails],
+  );
+  const chronologicalIndexes = useMemo(
+    () =>
+      new Map(
+        chronologicalThreads.map((thread, index) => [
+          thread.latestMessage.id,
+          index,
+        ]),
+      ),
+    [chronologicalThreads],
+  );
+  const priorityInputKey = useMemo(
+    () =>
+      priorityWindowEmails
+        .map(
+          (email) =>
+            `${email.id}:${email.date}:${email.from.email}:${email.subject}:${email.snippet}:${email.labelIds.join(",")}`,
+        )
+        .join("\u001f"),
+    [priorityWindowEmails],
+  );
+  const [priorityScores, setPriorityScores] = useState<Map<string, number>>(
+    () => new Map(),
+  );
+  const priorityRequestKeyRef = useRef("");
+  const previousSortModeRef = useRef(currentSortMode);
+  const runPriority = useCallback(async () => {
+    if (
+      priorityWindowEmails.length === 0 ||
+      priorityRequestKeyRef.current === priorityInputKey
+    ) {
+      return;
+    }
+    priorityRequestKeyRef.current = priorityInputKey;
+    try {
+      const result = await aiPriority.mutateAsync({
+        emails: priorityWindowEmails.map(toPriorityEmail),
+      });
+      setPriorityScores(
+        new Map(result.scores.map((score) => [score.emailId, score.score])),
+      );
+    } catch (error) {
+      priorityRequestKeyRef.current = "";
+      onSortModeChange?.("newest");
+      toast.error(
+        error instanceof Error ? error.message : t("mail.sort.priorityFailed"),
+      );
+    }
+  }, [aiPriority, onSortModeChange, priorityInputKey, priorityWindowEmails, t]);
+  useEffect(() => {
+    if (
+      currentSortMode === "priority" &&
+      previousSortModeRef.current !== "priority"
+    ) {
+      priorityRequestKeyRef.current = "";
+    }
+    previousSortModeRef.current = currentSortMode;
+    if (currentSortMode === "priority") void runPriority();
+  }, [currentSortMode, runPriority]);
+  const threads = useMemo(
+    () =>
+      currentSortMode === "priority"
+        ? [...chronologicalThreads].sort((a, b) => {
+            const aIsPriority = priorityWindowIds.has(a.latestMessage.id);
+            const bIsPriority = priorityWindowIds.has(b.latestMessage.id);
+            if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
+            if (!aIsPriority) {
+              return (
+                (chronologicalIndexes.get(a.latestMessage.id) ?? 0) -
+                (chronologicalIndexes.get(b.latestMessage.id) ?? 0)
+              );
+            }
+            return (
+              (priorityScores.get(b.latestMessage.id) ?? 0.5) -
+                (priorityScores.get(a.latestMessage.id) ?? 0.5) ||
+              new Date(b.latestMessage.date).getTime() -
+                new Date(a.latestMessage.date).getTime()
+            );
+          })
+        : chronologicalThreads,
+    [
+      chronologicalIndexes,
+      chronologicalThreads,
+      currentSortMode,
+      priorityScores,
+      priorityWindowIds,
+    ],
+  );
 
   const focusedIndex = threads.findIndex(
     (t) => t.latestMessage.id === focusedId,
@@ -1670,6 +1815,27 @@ export function EmailList({
     [handleSwipeSnooze],
   );
 
+  const sortHeaderAction =
+    view === "inbox" && !searchQuery && !labelParam && threads.length > 0 ? (
+      <Select
+        value={sortMode}
+        onValueChange={(value) => onSortModeChange?.(value as MailSortMode)}
+      >
+        <SelectTrigger
+          className="h-7 w-[104px] text-[11px]"
+          aria-label={t("mail.sort.label")}
+          aria-busy={aiPriority.isPending}
+        >
+          <SelectValue />
+          {aiPriority.isPending && <Spinner className="size-3" />}
+        </SelectTrigger>
+        <SelectContent align="end">
+          <SelectItem value="newest">{t("mail.sort.newest")}</SelectItem>
+          <SelectItem value="priority">{t("mail.sort.priority")}</SelectItem>
+        </SelectContent>
+      </Select>
+    ) : null;
+
   const bulkHeaderActions = useMemo(
     () =>
       selectedIds.size > 0 ? (
@@ -1829,7 +1995,17 @@ export function EmailList({
       selectUnstarredThreads,
     ],
   );
-  useSetHeaderActions(bulkHeaderActions);
+  const headerActions = useMemo(
+    () =>
+      sortHeaderAction || bulkHeaderActions ? (
+        <>
+          {sortHeaderAction}
+          {bulkHeaderActions}
+        </>
+      ) : null,
+    [bulkHeaderActions, sortHeaderAction],
+  );
+  useSetHeaderActions(headerActions);
 
   // Error state
   if (emailsError) {

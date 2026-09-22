@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "받은편지함 동기화 중…",
     },
+    sort: {
+      label: "받은편지함 정렬",
+      newest: "최신순",
+      priority: "우선순위",
+      priorityFailed: "받은편지함을 정렬하지 못했습니다.",
+    },
     toolbar: {
       toggleMenu: "메뉴 전환",
       menu: "Menu",
@@ -502,6 +508,10 @@ const messages = {
       instructionFailed: "AI 필터 지침을 저장하지 못했습니다.",
       spamMode: "스팸",
       tagMode: "태그",
+      importantMode: "중요",
+      importantLabel: "AI 중요",
+      reviewImportant: "중요 메일 보기",
+      importantPlaceholder: "예: 답장이 필요하거나 기한이 있는 메시지",
       ruleAdded: "AI 규칙을 추가했습니다.",
       instructionHelp: "자연어로 입력하세요",
       tagNamePlaceholder: "태그 이름",

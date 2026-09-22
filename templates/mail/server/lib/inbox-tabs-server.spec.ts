@@ -106,6 +106,17 @@ describe("partitionInboxItems", () => {
     expect(byTab.get("important")).not.toContain(unmatched);
   });
 
+  it("routes AI Important mail to Important even when automated", () => {
+    const important = item({
+      isAutomated: true,
+      labelIds: ["agent-native-important"],
+    });
+    const byTab = partitionInboxItems([important], tabs);
+
+    expect(byTab.get("important")).toContain(important);
+    expect(byTab.get("other")).not.toContain(important);
+  });
+
   it("matches label: queries against the hyphenated Gmail search form", () => {
     const notif = item({ labelIds: ["automated notifications"] });
     const byTab = partitionInboxItems([notif], tabs);

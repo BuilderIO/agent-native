@@ -147,6 +147,7 @@ describe("Inbox navigation commands", () => {
     expect(navigationHookSource()).toContain("tab?: string;");
     expect(navigationHookSource()).toContain("filter?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
+    expect(navigationHookSource()).toContain("sort?: MailSortMode;");
     // The inbox view reports the server-resolved tab id (falls back to the
     // raw URL param before the first response lands) so the agent sees the
     // actual active tab, including the default when the URL has none.
@@ -161,10 +162,12 @@ describe("Inbox navigation commands", () => {
     expect(viewScreenSource()).toContain(
       "activeInboxTab: nav.activeInboxTab ?? null",
     );
+    expect(viewScreenSource()).toContain('sort: nav.sort ?? "newest"');
     expect(viewScreenSource()).toContain("filter: nav.filter ?? null");
     expect(viewScreenSource()).toContain("nav.filter,");
     expect(navigateActionSource()).toContain("filter: z");
     expect(navigateActionSource()).toContain("nav.filter = args.filter");
+    expect(navigateActionSource()).toContain('enum(["newest", "priority"])');
   });
 
   it("filters the view-screen snapshot to the active Other partition", () => {
@@ -295,10 +298,10 @@ describe("Inbox pagination", () => {
       "const fetchNextPage = isInboxView ? fetchInboxNextPage : emailsFetchNextPage;",
     );
     expect(source).toContain("setInboxExtraPageCount((count) => count + 1);");
-    // Resets pagination on tab/account switch so "load more" always starts
+    // Priority preloads its bounded evaluation window; other routes start
     // from the newly-active tab's page 0.
     expect(source).toContain(
-      "  }, [isInboxView, resolvedInboxTab, activeAccounts]);",
+      "  }, [activeAccounts, isInboxView, resolvedInboxTab, sortMode]);",
     );
   });
 
