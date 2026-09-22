@@ -297,7 +297,7 @@ export function parseOutputPreview(answer: string): OutputPreviewModel {
     };
   }
 
-  return parseMarkdownTable(text) ?? { kind: "text", text: answer };
+  return parseMarkdownTable(text) ?? { kind: "text", text };
 }
 
 export function OutputPreview({

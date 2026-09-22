@@ -137,6 +137,12 @@ describe("parseOutputPreview", () => {
     });
   });
 
+  it("does not return an unbounded whitespace suffix", () => {
+    const preview = parseOutputPreview(`safe${" ".repeat(20_001)}`);
+
+    expect(preview).toEqual({ kind: "text", text: "safe" });
+  });
+
   it("does not turn untrusted image protocols into image previews", () => {
     expect(parseOutputPreview("![preview](javascript:alert(1))")).toEqual({
       kind: "text",
