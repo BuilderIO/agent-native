@@ -18,7 +18,6 @@ export const ONBOARDING_PREVIEW_STEP_QUERY_PARAM = "step";
 export const ONBOARDING_PREVIEW_STEPS = [
   "role",
   "choice",
-  "tools",
   "connecting",
   "ready",
   "extension",

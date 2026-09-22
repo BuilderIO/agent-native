@@ -6,7 +6,6 @@ import {
   IconInfoCircle,
   IconKey,
   IconLoader2,
-  IconSearch,
   IconX,
 } from "@tabler/icons-react";
 import React, {
@@ -29,29 +28,9 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
-import {
-  buildMcpOAuthStartUrl,
-  filterMcpIntegrations,
-  getDefaultMcpIntegrations,
-  isMcpIntegrationUrl,
-  navigateToMcpOAuthStart,
-  requiresMcpIntegrationOrganizationScope,
-  type DefaultMcpIntegration,
-} from "../resources/mcp-integration-catalog.js";
-import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
-import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
-import {
-  formatMcpServerError,
-  formatMcpServersLoadError,
-  useCreateMcpServer,
-  useMcpServers,
-  type CreateMcpServerArgs,
-} from "../resources/use-mcp-servers.js";
 import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
-import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
 import { saveFirstRunOnboardingRole } from "./first-run-status.js";
 import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
@@ -60,16 +39,10 @@ import {
   useOnboardingPreviewStep,
 } from "./use-preview-mode.js";
 
-type FirstRunScreen =
-  | "choice"
-  | "tools"
-  | "role"
-  | "connecting"
-  | "ready"
-  | "extension";
+type FirstRunScreen = "choice" | "role" | "connecting" | "ready" | "extension";
 
 const FIRST_RUN_SCREEN_ORDER: readonly Exclude<FirstRunScreen, "extension">[] =
-  ["role", "choice", "tools", "connecting", "ready"];
+  ["role", "choice", "connecting", "ready"];
 
 function firstRunStepProperties(
   screen: FirstRunScreen,
@@ -118,39 +91,12 @@ const BUILDER_MORE_SERVICES = [
   "Embeddings",
 ] as const;
 
-function integrationTrackingProperties(
-  integration: DefaultMcpIntegration,
-  scope?: string,
-): Record<string, unknown> {
-  return {
-    flow: "first_run",
-    step_id: "tools",
-    integration_id: integration.id,
-    connection_mode: integration.connectionMode,
-    auth_mode: integration.authMode,
-    availability: integration.availability,
-    ...(scope ? { scope } : {}),
-  };
-}
-
-function tryNavigateToMcpOAuthStart(url: string): boolean {
-  try {
-    return navigateToMcpOAuthStart(url);
-  } catch {
-    // coercion-ok: the caller turns false into terminal failure telemetry.
-    return false;
-  }
-}
-
 export interface FirstRunOnboardingProps {
-  /** Test hook; generated apps use the public Vite flag instead. */
-  skipIntegrations?: boolean;
   /** The shared startup gate has already resolved this account as eligible. */
   initialFirstRun?: boolean;
 }
 
 export function FirstRunOnboarding({
-  skipIntegrations = shouldSkipFirstRunIntegrations(),
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
@@ -171,14 +117,6 @@ export function FirstRunOnboarding({
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [savingRole, setSavingRole] = useState(false);
   const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
-  const [integrationQuery, setIntegrationQuery] = useState("");
-  const [integrationDialogId, setIntegrationDialogId] = useState<string | null>(
-    null,
-  );
-  const [connectingIntegrationId, setConnectingIntegrationId] = useState<
-    string | null
-  >(null);
-  const [connectError, setConnectError] = useState<string | null>(null);
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
     "existing" | "provision"
   >("existing");
@@ -187,13 +125,6 @@ export function FirstRunOnboarding({
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
   }, [previewMode, previewStep]);
-  const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
-  const mcpServersQuery = useMcpServers();
-  const createMcpServer = useCreateMcpServer();
-  const mcpIntegrations = useMemo(
-    () => filterMcpIntegrations(integrationQuery, mcpCatalog),
-    [integrationQuery, mcpCatalog],
-  );
   // completeFirstRun() rejects on failure — swallow it here so a Skip/
   // Continue click never becomes an unhandled rejection; completeFirstRunError
   // (rendered below) is the real signal, and the user stays on this screen
@@ -266,45 +197,23 @@ export function FirstRunOnboarding({
     profile,
     screen,
   ]);
-  const connectedServers = useMemo(() => {
-    if (previewMode) return [];
-    const servers = [
-      ...(mcpServersQuery.data?.user ?? []),
-      ...(mcpServersQuery.data?.org ?? []),
-    ];
-    return servers.filter((server) => server.status.state === "connected");
-  }, [mcpServersQuery.data, previewMode]);
-  const hasOrg = Boolean(mcpServersQuery.data?.orgId);
-  const canCreateOrgMcp = Boolean(
-    hasOrg &&
-    (mcpServersQuery.data?.role === "owner" ||
-      mcpServersQuery.data?.role === "admin"),
-  );
-
   const handleFinish = useCallback(
     (completedScreen: FirstRunScreen | null, track = true) => {
+      if (completedScreen && track) trackFirstRunStepCompleted(completedScreen);
       if (extensions.length === 0) {
-        void finishOnboarding(completedScreen);
+        setScreen("ready");
         return;
       }
-      if (completedScreen && track) trackFirstRunStepCompleted(completedScreen);
       setExtensionIndex(0);
       setScreen("extension");
     },
-    [extensions, finishOnboarding, trackFirstRunStepCompleted],
+    [extensions, trackFirstRunStepCompleted],
   );
-  const showTools = useCallback(() => {
-    if (skipIntegrations) {
-      handleFinish(null);
-      return;
-    }
-    setScreen("tools");
-  }, [handleFinish, skipIntegrations]);
   const handleBuilderConnected = useCallback(() => {
     trackFirstRunStepCompleted("choice");
     trackFirstRunStepCompleted("connecting");
-    showTools();
-  }, [showTools, trackFirstRunStepCompleted]);
+    handleFinish(null);
+  }, [handleFinish, trackFirstRunStepCompleted]);
   const connectFlow = useBuilderConnectFlow({
     enabled: firstRun && !previewMode,
     provisionAccount: true,
@@ -374,12 +283,12 @@ export function FirstRunOnboarding({
 
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
     if (previewMode) {
-      showTools();
+      setScreen("ready");
       return;
     }
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
       trackFirstRunStepCompleted("choice");
-      showTools();
+      handleFinish(null);
       return;
     }
     setBuilderConnectionMode(
@@ -423,177 +332,6 @@ export function FirstRunOnboarding({
       );
     } finally {
       setSavingRole(false);
-    }
-  };
-
-  const returnUrl =
-    typeof window === "undefined"
-      ? "/"
-      : window.location.pathname +
-        window.location.search +
-        window.location.hash;
-
-  const connectIntegration = async (integration: DefaultMcpIntegration) => {
-    if (previewMode) {
-      setScreen("ready");
-      return;
-    }
-    setConnectError(null);
-    trackOnboardingEvent(
-      "integration_cta_clicked",
-      integrationTrackingProperties(integration),
-    );
-
-    if (
-      connectedServers.some((server) =>
-        isMcpIntegrationUrl(integration, server.url),
-      ) ||
-      connectingIntegrationId === integration.id
-    ) {
-      return;
-    }
-
-    if (!mcpServersQuery.isSuccess) return;
-
-    if (hasOrg) {
-      setIntegrationDialogId(integration.id);
-      trackOnboardingEvent(
-        "integration_dialog_opened",
-        integrationTrackingProperties(integration),
-      );
-      return;
-    }
-
-    if (!integration.url.trim()) {
-      setIntegrationDialogId(integration.id);
-      trackOnboardingEvent(
-        "integration_dialog_opened",
-        integrationTrackingProperties(integration),
-      );
-      return;
-    }
-
-    if (
-      integration.authMode === "none" &&
-      integration.connectionMode === "direct"
-    ) {
-      setConnectingIntegrationId(integration.id);
-      trackOnboardingEvent(
-        "integration_connect_started",
-        integrationTrackingProperties(integration, "user"),
-      );
-      try {
-        await createMcpServer.mutateAsync({
-          scope: "user",
-          name: integration.name,
-          url: integration.url,
-          description: integration.description,
-        });
-        trackOnboardingEvent(
-          "integration_connect_completed",
-          integrationTrackingProperties(integration, "user"),
-        );
-      } catch (error) {
-        trackOnboardingEvent("integration_connect_failed", {
-          ...integrationTrackingProperties(integration, "user"),
-          error_type: error instanceof Error ? error.name : "unknown",
-        });
-        setConnectError(
-          formatMcpServerError(
-            error instanceof Error ? error.message : String(error),
-          ),
-        );
-      } finally {
-        setConnectingIntegrationId(null);
-      }
-      return;
-    }
-
-    if (
-      integration.authMode === "oauth" &&
-      integration.connectionMode === "oauth" &&
-      integration.availability === "ready" &&
-      // An org-only integration has no personal connection to start, and with
-      // no workspace yet the dialog is the surface that explains why.
-      !requiresMcpIntegrationOrganizationScope(integration)
-    ) {
-      trackOnboardingEvent(
-        "integration_connect_started",
-        integrationTrackingProperties(integration, "user"),
-      );
-      const opened = tryNavigateToMcpOAuthStart(
-        appPath(
-          buildMcpOAuthStartUrl({
-            name: integration.name,
-            url: integration.url,
-            description: integration.description,
-            scope: "user",
-            returnUrl,
-            trackingFlow: "first_run",
-            trackingIntegrationId: integration.id,
-          }),
-        ),
-      );
-      if (!opened) {
-        trackOnboardingEvent("integration_connect_failed", {
-          ...integrationTrackingProperties(integration, "user"),
-          error_type: "popup_or_navigation_blocked",
-        });
-        setConnectError(t("mcpIntegrations.connectionError"));
-      }
-      return;
-    }
-
-    setIntegrationDialogId(integration.id);
-    trackOnboardingEvent(
-      "integration_dialog_opened",
-      integrationTrackingProperties(integration),
-    );
-  };
-
-  const handleCreateMcpServer = async (args: CreateMcpServerArgs) => {
-    const integration = mcpCatalog.find(
-      (candidate) => candidate.id === integrationDialogId,
-    );
-    if (!integration) {
-      return createMcpServer.mutateAsync(args);
-    }
-    const properties = integrationTrackingProperties(integration, args.scope);
-    trackOnboardingEvent("integration_connect_started", properties);
-    try {
-      const result = await createMcpServer.mutateAsync(args);
-      trackOnboardingEvent("integration_connect_completed", properties);
-      return result;
-    } catch (error) {
-      trackOnboardingEvent("integration_connect_failed", {
-        ...properties,
-        error_type: error instanceof Error ? error.name : "unknown",
-      });
-      throw error;
-    }
-  };
-
-  const handleMcpOAuthStart = (url: string) => {
-    const integration = mcpCatalog.find(
-      (candidate) => candidate.id === integrationDialogId,
-    );
-    const scope = URL.canParse(url, window.location.origin)
-      ? new URL(url, window.location.origin).searchParams.get("scope")
-      : null;
-    if (integration) {
-      trackOnboardingEvent(
-        "integration_connect_started",
-        integrationTrackingProperties(integration, scope ?? "user"),
-      );
-    }
-    if (!tryNavigateToMcpOAuthStart(url)) {
-      if (integration) {
-        trackOnboardingEvent("integration_connect_failed", {
-          ...integrationTrackingProperties(integration, scope ?? "user"),
-          error_type: "popup_or_navigation_blocked",
-        });
-      }
-      throw new Error(t("mcpIntegrations.connectionError"));
     }
   };
 
@@ -824,146 +562,6 @@ export function FirstRunOnboarding({
     );
   }
 
-  if (screen === "tools") {
-    return (
-      <OnboardingShell
-        profile={profile}
-        screen="tools"
-        onDismiss={dismissOnboarding}
-        {...completionErrorProps}
-        footer={
-          <div
-            data-testid="onboarding-tools-footer"
-            className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-end gap-2"
-          >
-            <button
-              type="button"
-              className={secondaryButtonClass}
-              onClick={() => {
-                trackFirstRunStepSkipped("tools");
-                handleFinish(null);
-              }}
-            >
-              {t("agentChat.onboarding.skipForNow")}
-            </button>
-            <button
-              type="button"
-              className={primaryButtonClass}
-              onClick={() => handleFinish("tools")}
-            >
-              {t("agentChat.common.continue")}
-              <IconArrowRight size={15} />
-            </button>
-          </div>
-        }
-      >
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
-              This app is an agent.
-            </h1>
-            <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Connect the tools your agent can use to gather context and take
-              action. You can add more later in Settings.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 pb-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    Agent integrations
-                  </p>
-                </div>
-                <label className="relative w-full max-w-xs">
-                  <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    value={integrationQuery}
-                    onChange={(event) =>
-                      setIntegrationQuery(event.target.value)
-                    }
-                    className="h-9 w-full rounded-md border border-border bg-background pe-3 ps-8 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                    placeholder="Search integrations"
-                    aria-label="Search integrations"
-                  />
-                </label>
-              </div>
-              {connectError && (
-                <p className="text-xs leading-5 text-destructive">
-                  {connectError}
-                </p>
-              )}
-              {mcpServersQuery.isError ? (
-                <div
-                  role="alert"
-                  className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive"
-                >
-                  <p>{formatMcpServersLoadError(mcpServersQuery.error)}</p>
-                  <button
-                    type="button"
-                    onClick={() => void mcpServersQuery.refetch()}
-                    disabled={mcpServersQuery.isFetching}
-                    className="mt-2 font-medium underline underline-offset-2 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {mcpServersQuery.isFetching ? "Retrying…" : "Retry"}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-
-            <IntegrationGrid
-              items={mcpIntegrations.map((integration) => {
-                const connected = connectedServers.some((server) =>
-                  isMcpIntegrationUrl(integration, server.url),
-                );
-                return {
-                  id: integration.id,
-                  name: integration.name,
-                  description: integration.description,
-                  logo: (
-                    <McpIntegrationLogo
-                      name={integration.name}
-                      logoUrl={integration.logoUrl}
-                      integrationId={integration.id}
-                      className="size-7 rounded-md"
-                      imageClassName="size-full p-1"
-                    />
-                  ),
-                  status: connected ? "Connected" : undefined,
-                  statusClassName: "text-emerald-600 dark:text-emerald-400",
-                  actionLabel: connected ? "Connected" : "Connect",
-                  disabled:
-                    connected ||
-                    connectingIntegrationId === integration.id ||
-                    !mcpServersQuery.isSuccess,
-                  onAction: () => void connectIntegration(integration),
-                };
-              })}
-              emptyLabel="No integrations match."
-            />
-          </div>
-        </div>
-        {integrationDialogId && (
-          <McpIntegrationDialog
-            open
-            onOpenChange={(open) => {
-              if (!open) setIntegrationDialogId(null);
-            }}
-            connectIntegrationId={integrationDialogId}
-            defaultScope="user"
-            canCreateOrgMcp={canCreateOrgMcp}
-            hasOrg={hasOrg}
-            onCreateMcpServer={handleCreateMcpServer}
-            onOAuthStart={handleMcpOAuthStart}
-            trackingFlow="first_run"
-            trackingIntegrationId={integrationDialogId}
-          />
-        )}
-      </OnboardingShell>
-    );
-  }
-
   if (screen === "role") {
     return (
       <OnboardingShell
@@ -1156,30 +754,14 @@ export function FirstRunOnboarding({
           Start with a chat, then connect more tools whenever you need them.
         </p>
         <div className="mt-7 grid w-full gap-2 text-left sm:grid-cols-3">
-          {(skipIntegrations
-            ? [
-                [
-                  "Workflow actions",
-                  "Use the app's buttons and sidebar to run the workflow.",
-                ],
-                [
-                  "AI sidebar",
-                  "Ask the agent to review or refine a step in context.",
-                ],
-                [
-                  "Flexible providers",
-                  "Use Builder.io free credits or your own keys.",
-                ],
-              ]
-            : [
-                ["Chat + actions", "Ask your agent to work across the app."],
-                ["Agent integrations", "Connect tools from Settings anytime."],
-                [
-                  "Flexible providers",
-                  "Use Builder.io free credits or your own keys.",
-                ],
-              ]
-          ).map(([title, description]) => (
+          {[
+            ["Chat + actions", "Ask your agent to work across the app."],
+            ["Agent integrations", "Connect tools from Settings anytime."],
+            [
+              "Flexible providers",
+              "Use Builder.io free credits or your own keys.",
+            ],
+          ].map(([title, description]) => (
             <div key={title} className="rounded-xl bg-muted/35 px-4 py-4">
               <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <IconCheck size={14} />
@@ -1252,9 +834,7 @@ function OnboardingShell({
             width:
               screen === "role"
                 ? "33.33%"
-                : screen === "tools" ||
-                    screen === "ready" ||
-                    screen === "extension"
+                : screen === "ready" || screen === "extension"
                   ? "100%"
                   : "66.66%",
           }}
@@ -1262,8 +842,7 @@ function OnboardingShell({
       </div>
       <main
         className={cn(
-          "flex min-h-0 flex-1 overflow-y-auto px-5 sm:px-8",
-          screen === "tools" ? "items-start py-8" : "items-center py-10",
+          "flex min-h-0 flex-1 items-center overflow-y-auto px-5 py-10 sm:px-8",
         )}
       >
         <div className="mx-auto w-full max-w-3xl">{children}</div>
