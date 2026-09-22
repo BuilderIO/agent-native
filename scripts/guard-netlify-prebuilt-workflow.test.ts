@@ -691,9 +691,16 @@ describe("production Netlify site concurrency guard", () => {
       betaMigration?.env?.NETLIFY_MIGRATION_SITE_ID,
       "${{ steps.target.outputs.migration_site_id }}",
     );
-    assert.equal(betaMigration?.env?.BETA_DATABASE_URL_SECRET, undefined);
+    assert.equal(
+      betaMigration?.env?.BETA_DATABASE_URL_SECRET,
+      "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}",
+    );
+    assert.equal(betaMigration?.env?.SMOKE, "${{ inputs.smoke }}");
     assert.match(String(betaMigration?.run), /netlify api getEnvVars/);
     assert.match(String(betaMigration?.run), /netlify api getSiteDatabase/);
+    assert.match(String(betaMigration?.run), /BETA_DATABASE_URL_SECRET/);
+    assert.match(String(betaMigration?.run), /brain\|factory/);
+    assert.match(String(betaMigration?.run), /@agent-native\/docs/);
     assert.match(String(betaMigration?.run), /migrate:production/);
     const validation = (
       ((reusable.jobs as Workflow).deploy as Workflow).steps as Array<Workflow>
