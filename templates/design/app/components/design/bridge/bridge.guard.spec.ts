@@ -11579,6 +11579,33 @@ it(
       // Still exactly one "move" (the pending tick from right before mouseup
       // was cancelled, never posted after release).
       expect(postReleaseCounts.move).toBe(1);
+
+      // The same move/up burst also cancels the overlay frame scheduled by the
+      // final move. A successful pointerup must schedule its replacement so
+      // selection chrome follows the committed element instead of freezing at
+      // the last pre-release frame.
+      const overlayAlignment = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target");
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        if (!target || !overlay) return null;
+        const targetRect = target.getBoundingClientRect();
+        const overlayRect = overlay.getBoundingClientRect();
+        return {
+          targetLeft: targetRect.left,
+          targetTop: targetRect.top,
+          overlayLeft: overlayRect.left,
+          overlayTop: overlayRect.top,
+        };
+      });
+      expect(overlayAlignment).not.toBeNull();
+      expect(
+        Math.abs(overlayAlignment!.overlayLeft - overlayAlignment!.targetLeft),
+      ).toBeLessThan(1);
+      expect(
+        Math.abs(overlayAlignment!.overlayTop - overlayAlignment!.targetTop),
+      ).toBeLessThan(1);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -14150,6 +14177,85 @@ it("keeps isAbsolutePrimitiveContainer identical in both bridges", () => {
   expect(extract("hit-test.bridge.ts")).toBe(
     extract("editor-chrome.bridge.ts"),
   );
+});
+
+it("coalesces free-drag target and overlay work", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var currentAutoLayoutTarget:");
+  const end = bridge.indexOf(
+    "function restoreSourceDragPosition(): void {",
+    start,
+  );
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const freeDragLoop = bridge.slice(start, end);
+
+  // Auto-layout hit testing reads live geometry. It must run once per frame
+  // after pointer-follow writes, while pointerup keeps the authoritative final
+  // synchronous resolution for the committed drop.
+  expect(freeDragLoop).toContain(
+    "scheduleAutoLayoutTargetResolution(ev, snapResult)",
+  );
+  expect(freeDragLoop).toContain("scheduleRefreshOverlays()");
+  expect(freeDragLoop).not.toContain(
+    `currentAutoLayoutTarget = !bridgeSpaceKeyPressed
+          ? autoLayoutInsertionTargetForPoint(`,
+  );
+  expect(freeDragLoop).not.toContain(`      refreshOverlays();
+`);
+
+  const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
+  expect(pointerUp).toContain("autoLayoutInsertionTargetForPoint(");
+  expect(pointerUp).toContain(
+    "currentAutoLayoutTarget = finalAutoLayoutTarget;",
+  );
+});
+
+it("snapshots drag modifiers before queued target resolution", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var pendingAutoLayoutTargetPoint:");
+  const end = bridge.indexOf(
+    "// Client px per CSS px for this element.",
+    start,
+  );
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const dragScheduler = bridge.slice(start, end);
+
+  // A queued frame must answer for the pointer sample that scheduled it. A
+  // later Space/S key transition must not leak through a stale global read.
+  expect(dragScheduler).toMatch(
+    /spaceKeyPressed:\s*[\s\S]*bridgeSpaceKeyPressed/,
+  );
+  expect(dragScheduler).toMatch(
+    /ignoreAutoLayoutKeyPressed:\s*[\s\S]*bridgeIgnoreAutoLayoutKeyPressed/,
+  );
+  expect(dragScheduler).toContain("if (point.spaceKeyPressed)");
+  expect(dragScheduler).toContain("isIgnoreAutoLayoutChordForDragPoint(point)");
+  expect(dragScheduler).toContain("dragChromeSuppressed = true");
+  expect(dragScheduler).toContain("hideSnapGuides()");
+  expect(dragScheduler).toContain("hideSizeBadge()");
+  expect(dragScheduler).toContain("hideConstraintGuides()");
+  expect(dragScheduler).toContain("showSnapGuides(");
+  expect(dragScheduler).toContain("showConstraintGuides(dragEl)");
+  expect(dragScheduler).not.toContain("isIgnoreAutoLayoutChord(point)");
+
+  const moveStart = bridge.indexOf("        if (!bridgeSpaceKeyPressed) {");
+  const moveEnd = bridge.indexOf("// Snap guides only make sense", moveStart);
+  expect(moveStart).toBeGreaterThan(-1);
+  expect(moveEnd).toBeGreaterThan(moveStart);
+  expect(bridge.slice(moveStart, moveEnd)).toContain("hideInsertionGuide()");
+
+  // Pointerup remains the authoritative live resolution for the final event.
+  const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
+  expect(pointerUp).toContain("isIgnoreAutoLayoutChord(ev)");
+  expect(bridge).toContain("cancelAutoLayoutTargetResolution();");
 });
 
 it("keeps the authored inline-style key list in sync with the bridge", () => {
