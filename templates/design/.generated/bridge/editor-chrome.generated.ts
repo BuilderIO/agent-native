@@ -17944,7 +17944,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "data-agent-native-runtime-instance-id"
         );
         var reuseExistingRuntimeNode = Boolean(
-          existingBeforeRemint && incomingRuntimeInstanceId && existingRuntimeInstanceId === incomingRuntimeInstanceId
+          existingBeforeRemint && incomingRuntimeInstanceId && existingRuntimeInstanceId === incomingRuntimeInstanceId && e.data.screenId === designCanvasScreenId
         );
         if (e.data.remintCollidingNodeIds === true && !reuseExistingRuntimeNode) {
           remintCollidingRuntimeNodeIds(parsedInsertEl);
@@ -17994,8 +17994,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               insertTarget,
               reinsertOrigin
             );
-            acknowledgeInsert(existingInsertEl);
           }
+          acknowledgeInsert(existingInsertEl);
           return;
         }
         if (replaceInsertAnchor) {
