@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   pendingStructureRedoCommand,
+  pendingLiveStructureRedoSourceEdit,
   type PendingLiveStructureEdit,
 } from "../pending-edits";
 import {
@@ -117,6 +118,32 @@ describe("pending live structure batch", () => {
       html: grouped.groupedEdits[0].insertedHtml,
       remintCollidingNodeIds: true,
     });
+  });
+
+  it("reattaches grouped undo members before selecting a redo command", () => {
+    const args = state();
+    const destination = {
+      ...prepare(args, "#destination")!,
+      insertedHtml: '<div data-agent-native-node-id="moved" />',
+      remintCollidingNodeIds: true,
+    };
+    const sourceDelete = {
+      ...prepare(args, "#source")!,
+      removed: true as const,
+    };
+    const entry = {
+      kind: "structure" as const,
+      edit: sourceDelete,
+      groupedEdits: [destination, sourceDelete],
+    };
+
+    const replaySource = pendingLiveStructureRedoSourceEdit(entry);
+    expect(pendingStructureRedoCommand(replaySource)).toEqual({
+      kind: "insert",
+      html: expect.any(String),
+      remintCollidingNodeIds: true,
+    });
+    expect(replaySource.groupedEdits).toEqual(entry.groupedEdits);
   });
 
   it("does not mutate existing state when a later member rejects or throws", () => {

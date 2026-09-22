@@ -832,6 +832,18 @@ export function pendingLiveStructureEditsFromUndoEntry(
   return entry.groupedEdits ?? pendingLiveStructureEditsFromEdit(entry.edit);
 }
 
+/**
+ * Redo receives the final member as `entry.edit`, while a coalesced live move
+ * keeps the full transaction on the undo entry. Reattach those members before
+ * choosing the replay command so cross-screen insert/delete pairs stay atomic.
+ */
+export function pendingLiveStructureRedoSourceEdit(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit {
+  const edits = pendingLiveStructureEditsFromUndoEntry(entry);
+  return edits.length > 1 ? { ...entry.edit, groupedEdits: edits } : entry.edit;
+}
+
 export function pendingLiveStructureEditsFromEdit(
   edit: PendingLiveStructureEdit,
 ): PendingLiveStructureEdit[] {

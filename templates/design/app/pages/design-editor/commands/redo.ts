@@ -14,6 +14,7 @@ import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import type {
   ElementInfo,
   RuntimeStructureInsertRequest,
+  RuntimeStructureDeleteRequest,
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import type {
@@ -87,6 +88,7 @@ import {
   mergePendingLiveNonStyleEdits,
   pendingLiveNonStyleEditsFromUndoStack,
   pendingLiveStructureEditsFromUndoEntry,
+  pendingLiveStructureRedoSourceEdit,
   mergePendingVisualStyleEdits,
   pendingVisualStyleEditsFromUndoStack,
   pendingVisualStyleUndoTargets,
@@ -330,6 +332,11 @@ export interface RedoArgs {
       (RuntimeStructureInsertRequest & { screenId: string }) | null
     >
   >;
+  setRuntimeStructureDeleteRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureDeleteRequest & { screenId: string }) | null
+    >
+  >;
   setRuntimeStructureMoveRequest: Dispatch<
     SetStateAction<(RuntimeStructureMoveRequest & { screenId: string }) | null>
   >;
@@ -441,6 +448,7 @@ export function runRedo({
   setPendingVisualStyleRevertRequest,
   setOverviewSelectedScreenIds,
   setRuntimeStructureInsertRequest,
+  setRuntimeStructureDeleteRequest,
   setRuntimeStructureMoveRequest,
   setSelectedElement,
   setSelectedLayerIdsState,
@@ -517,7 +525,11 @@ export function runRedo({
       : undefined,
   );
   if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "structure") {
-    const redoCommand = pendingStructureRedoCommand(pendingNonStyleRedo.edit);
+    const replayEdits =
+      pendingLiveStructureEditsFromUndoEntry(pendingNonStyleRedo);
+    const redoSourceEdit =
+      pendingLiveStructureRedoSourceEdit(pendingNonStyleRedo);
+    const redoCommand = pendingStructureRedoCommand(redoSourceEdit);
     // A removal has no bridge echo to wait for: re-issuing the delete under
     // the same requestId is the whole replay, so move the entry back onto
     // the undo stack here instead of arming pendingStructureRedoReplayRef
@@ -556,12 +568,19 @@ export function runRedo({
     pendingStructureRedoReplayRef.current = pendingNonStyleRedo;
     if (redoCommand.kind === "insert") {
       const insertEdit =
-        pendingLiveStructureEditsFromUndoEntry(pendingNonStyleRedo).find(
-          (edit) => edit.insertedHtml,
-        ) ?? pendingNonStyleRedo.edit;
+        replayEdits.find((edit) => edit.insertedHtml) ??
+        pendingNonStyleRedo.edit;
+      const pairedDeleteEdit = replayEdits.find(
+        (edit) =>
+          edit.removed === true &&
+          edit.screenId !== insertEdit.screenId &&
+          edit.transactionId === insertEdit.transactionId,
+      );
+      const transactionId = insertEdit.transactionId;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
+        transactionId,
         screenId: insertEdit.screenId,
         html: redoCommand.html,
         replaceAnchor: redoCommand.replaceAnchor,
@@ -572,6 +591,20 @@ export function runRedo({
         },
         placement: insertEdit.placement,
       });
+      if (
+        pairedDeleteEdit &&
+        transactionId &&
+        setRuntimeStructureDeleteRequest
+      ) {
+        setRuntimeStructureDeleteRequest({
+          requestId: `${transactionId}:source`,
+          transactionId,
+          screenId: pairedDeleteEdit.screenId,
+          selector: pairedDeleteEdit.selector,
+          selectorCandidates: [pairedDeleteEdit.selector],
+          waitForInsertTransaction: true,
+        });
+      }
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
         window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
       }
@@ -587,8 +620,6 @@ export function runRedo({
       return;
     }
     runtimeStructureMoveRevisionRef.current += 1;
-    const replayEdits =
-      pendingLiveStructureEditsFromUndoEntry(pendingNonStyleRedo);
     const firstReplayEdit = replayEdits[0] ?? pendingNonStyleRedo.edit;
     setRuntimeStructureMoveRequest({
       requestId: runtimeStructureMoveRevisionRef.current,

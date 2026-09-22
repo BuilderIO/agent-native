@@ -80,6 +80,13 @@ const REORDER_FIXTURE = `<!doctype html><html><body>
   </main>
 </body></html>`;
 
+const REPEATED_RUNTIME_INSERT_FIXTURE = `<!doctype html><html><body>
+  <main data-agent-native-node-id="card">
+    <p data-agent-native-node-id="v1" data-agent-native-runtime-instance-id="instance-v1">V1</p>
+    <p data-agent-native-node-id="v2" data-agent-native-runtime-instance-id="instance-v2">V2</p>
+  </main>
+</body></html>`;
+
 interface StructureChangeMessage {
   type: string;
   requestId: string;
@@ -500,6 +507,59 @@ describe("live insert lifecycle", () => {
             }),
           ]),
         );
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "reorders an existing runtime instance before reminting a colliding id",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(REPEATED_RUNTIME_INSERT_FIXTURE);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "runtime-structure-insert",
+              requestId: 102,
+              html: '<p data-agent-native-node-id="v1" data-agent-native-runtime-instance-id="instance-v1">V1</p>',
+              anchorSelector: '[data-agent-native-node-id="v2"]',
+              anchorSourceId: "v2",
+              placement: "after",
+              remintCollidingNodeIds: true,
+            },
+            "*",
+          );
+        });
+
+        await page.waitForFunction(
+          () =>
+            JSON.stringify(
+              Array.from(
+                document.querySelectorAll("main > [data-agent-native-node-id]"),
+              ).map((node) => node.textContent),
+            ) === '["V2","V1"]',
+        );
+        expect(
+          await page.locator('[data-agent-native-node-id="v1"]').count(),
+        ).toBe(1);
+        expect(
+          await page
+            .locator(
+              '[data-agent-native-node-id="v2"] + [data-agent-native-node-id="v1"]',
+            )
+            .count(),
+        ).toBe(1);
       } finally {
         await browser.close();
       }

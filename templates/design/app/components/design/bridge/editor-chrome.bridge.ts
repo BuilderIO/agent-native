@@ -25395,18 +25395,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         rejectInsert("html");
         return;
       }
-      if (e.data.remintCollidingNodeIds === true) {
-        remintCollidingRuntimeNodeIds(parsedInsertEl);
-      }
       var insertNodeId = parsedInsertEl.getAttribute(
         "data-agent-native-node-id",
       );
+      // Repeated drags of the same runtime primitive are reorders, not new
+      // inserts. Resolve that identity before collision reminting so the
+      // remint pass cannot hide the existing live instance. A copied subtree
+      // gets a fresh runtime-instance id during clone preparation, so it
+      // still takes the insertion path even when its node id is reused.
+      var existingBeforeRemint: Element | null = null;
+      if (insertNodeId) {
+        try {
+          existingBeforeRemint = document.querySelector(
+            '[data-agent-native-node-id="' +
+              escapeAttribute(insertNodeId) +
+              '"]',
+          );
+        } catch (_err) {}
+      }
+      var incomingRuntimeInstanceId = parsedInsertEl.getAttribute(
+        "data-agent-native-runtime-instance-id",
+      );
+      var existingRuntimeInstanceId = existingBeforeRemint?.getAttribute(
+        "data-agent-native-runtime-instance-id",
+      );
+      var reuseExistingRuntimeNode = Boolean(
+        existingBeforeRemint &&
+        incomingRuntimeInstanceId &&
+        existingRuntimeInstanceId === incomingRuntimeInstanceId,
+      );
+      if (e.data.remintCollidingNodeIds === true && !reuseExistingRuntimeNode) {
+        remintCollidingRuntimeNodeIds(parsedInsertEl);
+      }
+      insertNodeId = parsedInsertEl.getAttribute("data-agent-native-node-id");
       // Repeat drops of the same board primitive must not mint a second live
       // element carrying the same node id: findUniqueRuntimeStructureTarget
       // returns null on a duplicate id, which silently breaks every later
       // move, ack, and undo for BOTH copies. Re-drag the existing node instead.
-      var existingInsertEl: Element | null = null;
-      if (insertNodeId) {
+      var existingInsertEl: Element | null = reuseExistingRuntimeNode
+        ? existingBeforeRemint
+        : null;
+      if (!existingInsertEl && insertNodeId) {
         try {
           existingInsertEl = document.querySelector(
             '[data-agent-native-node-id="' +

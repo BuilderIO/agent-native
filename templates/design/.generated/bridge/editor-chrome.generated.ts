@@ -17928,14 +17928,33 @@ export const editorChromeBridgeScript: string = `"use strict";
           rejectInsert("html");
           return;
         }
-        if (e.data.remintCollidingNodeIds === true) {
-          remintCollidingRuntimeNodeIds(parsedInsertEl);
-        }
         var insertNodeId = parsedInsertEl.getAttribute(
           "data-agent-native-node-id"
         );
-        var existingInsertEl = null;
+        var existingBeforeRemint = null;
         if (insertNodeId) {
+          try {
+            existingBeforeRemint = document.querySelector(
+              '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]'
+            );
+          } catch (_err) {
+          }
+        }
+        var incomingRuntimeInstanceId = parsedInsertEl.getAttribute(
+          "data-agent-native-runtime-instance-id"
+        );
+        var existingRuntimeInstanceId = existingBeforeRemint?.getAttribute(
+          "data-agent-native-runtime-instance-id"
+        );
+        var reuseExistingRuntimeNode = Boolean(
+          existingBeforeRemint && incomingRuntimeInstanceId && existingRuntimeInstanceId === incomingRuntimeInstanceId
+        );
+        if (e.data.remintCollidingNodeIds === true && !reuseExistingRuntimeNode) {
+          remintCollidingRuntimeNodeIds(parsedInsertEl);
+        }
+        insertNodeId = parsedInsertEl.getAttribute("data-agent-native-node-id");
+        var existingInsertEl = reuseExistingRuntimeNode ? existingBeforeRemint : null;
+        if (!existingInsertEl && insertNodeId) {
           try {
             existingInsertEl = document.querySelector(
               '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]'
