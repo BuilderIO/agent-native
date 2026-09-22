@@ -811,9 +811,11 @@ interface ChatGPTSubscriptionStatus {
 function ChatGPTSubscriptionCard({
   currentEngine,
   onConfigured,
+  grouped = false,
 }: {
   currentEngine: string;
   onConfigured: () => void;
+  grouped?: boolean;
 }) {
   const isPage = useSettingsSurface() === "page";
   const t = useT();
@@ -908,6 +910,102 @@ function ChatGPTSubscriptionCard({
 
   const connected = status?.connected === true;
   const inUse = currentEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME;
+  const title = t("agentPanel.chatgptSubscriptionTitle", {
+    defaultValue: "ChatGPT subscription",
+  });
+  const description = t("agentPanel.chatgptSubscriptionDescription", {
+    defaultValue:
+      "Experimental Codex access through your ChatGPT subscription.",
+  });
+  const statusLabel = connected ? (
+    <span className="flex shrink-0 items-center gap-1 text-primary">
+      <IconCheck size={isPage ? 14 : 11} />
+      {inUse
+        ? t("agentPanel.chatgptSubscriptionInUse", {
+            defaultValue: "In use",
+          })
+        : t("agentPanel.chatgptSubscriptionConnected", {
+            defaultValue: "Connected",
+          })}
+    </span>
+  ) : null;
+  const actions = !connected ? (
+    <Button
+      type="button"
+      intent="primary"
+      emphasis="solid"
+      onClick={connect}
+      disabled={connecting}
+      className={cn(
+        "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-70",
+        isPage ? "text-sm" : "text-[11px]",
+      )}
+    >
+      {connecting
+        ? t("agentPanel.chatgptSubscriptionConnecting", {
+            defaultValue: "Connecting…",
+          })
+        : status?.reconnectRequired
+          ? t("agentPanel.chatgptSubscriptionReconnect", {
+              defaultValue: "Reconnect",
+            })
+          : t("agentPanel.chatgptSubscriptionConnect", {
+              defaultValue: "Connect ChatGPT",
+            })}
+    </Button>
+  ) : (
+    <>
+      {!inUse ? (
+        <Button
+          type="button"
+          intent="primary"
+          emphasis="solid"
+          onClick={() => void selectSubscriptionEngine()}
+          className={cn(
+            "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90",
+            isPage ? "text-sm" : "text-[11px]",
+          )}
+        >
+          {t("agentPanel.chatgptSubscriptionUse", {
+            defaultValue: "Use in chat",
+          })}
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        intent="neutral"
+        emphasis="outline"
+        onClick={() => void disconnect()}
+        className={cn(
+          "rounded-md border border-border px-3 py-1.5 text-foreground hover:bg-accent/40",
+          isPage ? "text-sm" : "text-[11px]",
+        )}
+      >
+        {t("agentPanel.chatgptSubscriptionDisconnect", {
+          defaultValue: "Disconnect",
+        })}
+      </Button>
+    </>
+  );
+
+  if (isPage) {
+    return (
+      <SettingsRow
+        className={grouped ? undefined : "-mx-5 sm:-mx-6"}
+        label={title}
+        description={description}
+        status={statusLabel}
+        control={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {actions}
+          </div>
+        }
+      >
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      </SettingsRow>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -920,9 +1018,7 @@ function ChatGPTSubscriptionCard({
           <p
             className={cn("font-medium text-foreground", subTextClass(isPage))}
           >
-            {t("agentPanel.chatgptSubscriptionTitle", {
-              defaultValue: "ChatGPT subscription",
-            })}
+            {title}
           </p>
           <p
             className={cn(
@@ -930,84 +1026,13 @@ function ChatGPTSubscriptionCard({
               noteTextClass(isPage),
             )}
           >
-            {t("agentPanel.chatgptSubscriptionDescription", {
-              defaultValue:
-                "Experimental Codex access through your ChatGPT subscription.",
-            })}
+            {description}
           </p>
         </div>
-        {connected ? (
-          <span className="flex shrink-0 items-center gap-1 text-primary">
-            <IconCheck size={isPage ? 14 : 11} />
-            {inUse
-              ? t("agentPanel.chatgptSubscriptionInUse", {
-                  defaultValue: "In use",
-                })
-              : t("agentPanel.chatgptSubscriptionConnected", {
-                  defaultValue: "Connected",
-                })}
-          </span>
-        ) : null}
+        {statusLabel}
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-        {!connected ? (
-          <Button
-            type="button"
-            intent="primary"
-            emphasis="solid"
-            onClick={connect}
-            disabled={connecting}
-            className={cn(
-              "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-70",
-              isPage ? "text-sm" : "text-[11px]",
-            )}
-          >
-            {connecting
-              ? t("agentPanel.chatgptSubscriptionConnecting", {
-                  defaultValue: "Connecting…",
-                })
-              : status?.reconnectRequired
-                ? t("agentPanel.chatgptSubscriptionReconnect", {
-                    defaultValue: "Reconnect",
-                  })
-                : t("agentPanel.chatgptSubscriptionConnect", {
-                    defaultValue: "Connect ChatGPT",
-                  })}
-          </Button>
-        ) : (
-          <>
-            {!inUse ? (
-              <Button
-                type="button"
-                intent="primary"
-                emphasis="solid"
-                onClick={() => void selectSubscriptionEngine()}
-                className={cn(
-                  "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90",
-                  isPage ? "text-sm" : "text-[11px]",
-                )}
-              >
-                {t("agentPanel.chatgptSubscriptionUse", {
-                  defaultValue: "Use in chat",
-                })}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              intent="neutral"
-              emphasis="outline"
-              onClick={() => void disconnect()}
-              className={cn(
-                "rounded-md border border-border px-3 py-1.5 text-foreground hover:bg-accent/40",
-                isPage ? "text-sm" : "text-[11px]",
-              )}
-            >
-              {t("agentPanel.chatgptSubscriptionDisconnect", {
-                defaultValue: "Disconnect",
-              })}
-            </Button>
-          </>
-        )}
+        {actions}
       </div>
       {error ? (
         <p className={cn("mt-2 text-destructive", noteTextClass(isPage))}>
@@ -1467,6 +1492,7 @@ function LLMSectionInner({
           <ChatGPTSubscriptionCard
             currentEngine={currentEngine}
             onConfigured={notifyConfigChanged}
+            grouped={isPage && grouped}
           />
           <div
             className={cn(
