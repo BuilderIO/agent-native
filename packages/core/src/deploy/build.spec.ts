@@ -2681,6 +2681,27 @@ describe("copyInstalledExternalSsrPackages", () => {
         JSON.stringify({ name, version }),
       );
     }
+    fs.mkdirSync(
+      path.join(
+        nodeModules,
+        "@tanstack",
+        "react-query",
+        "build",
+        "query-codemods",
+      ),
+      { recursive: true },
+    );
+    fs.writeFileSync(
+      path.join(
+        nodeModules,
+        "@tanstack",
+        "react-query",
+        "build",
+        "query-codemods",
+        "root.eslint.config.js",
+      ),
+      'import "@vitest/runner";\n',
+    );
 
     const serverDir = path.join(root, "server");
     fs.mkdirSync(serverDir, { recursive: true });
@@ -2714,6 +2735,18 @@ describe("copyInstalledExternalSsrPackages", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "query-codemods",
+        ),
+      ),
+    ).toBe(false);
   });
 });
 

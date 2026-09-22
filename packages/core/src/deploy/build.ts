@@ -3406,6 +3406,17 @@ const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
   "react-router",
   "@tanstack/react-query",
 ] as const;
+const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
+  {
+    "react-router": ["dist/development", "docs", "CHANGELOG.md"],
+    "@tanstack/react-query": [
+      "build/codemods",
+      "build/legacy",
+      "build/query-codemods",
+      "src",
+    ],
+    "@tanstack/query-core": ["build/legacy", "src"],
+  };
 
 function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   const manifest = readPackageManifest(projectCwd);
@@ -3673,6 +3684,30 @@ function copyRuntimePackageTree(
   return copiedCount;
 }
 
+function pruneExternalSsrPackageArtifacts(
+  serverDir: string,
+  packageName: string,
+): void {
+  const packageDir = path.join(
+    serverDir,
+    "node_modules",
+    ...packageName.split("/"),
+  );
+  if (!fs.existsSync(packageDir)) return;
+
+  for (const relativePath of SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS[
+    packageName
+  ] ?? []) {
+    fs.rmSync(path.join(packageDir, relativePath), {
+      recursive: true,
+      force: true,
+    });
+  }
+  for (const sourceMap of fs.globSync("**/*.map", { cwd: packageDir })) {
+    fs.rmSync(path.join(packageDir, sourceMap), { force: true });
+  }
+}
+
 export function copyInstalledBrowserRuntimePackages(
   serverDir: string | undefined,
   projectCwd = cwd,
@@ -3790,6 +3825,9 @@ export function copyInstalledExternalSsrPackages(
       nodeModulesRoots,
       copiedPackages,
     );
+  }
+  for (const packageName of copiedPackages) {
+    pruneExternalSsrPackageArtifacts(serverDir, packageName);
   }
 
   if (copiedCount === 0) return 0;
