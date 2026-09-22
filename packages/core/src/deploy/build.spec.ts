@@ -2690,6 +2690,7 @@ describe("copyInstalledExternalSsrPackages", () => {
     );
     for (const fileName of [
       "react-dom-profiling.profiling.js",
+      "react-dom-server-legacy.browser.production.js",
       "react-dom-server.browser.production.js",
       "react-dom-server.edge.production.js",
       "react-dom-server.node.production.js",
@@ -2766,6 +2767,17 @@ describe("copyInstalledExternalSsrPackages", () => {
           "react-dom",
           "cjs",
           "react-dom-server.node.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server-legacy.browser.production.js",
         ),
       ),
     ).toBe(true);

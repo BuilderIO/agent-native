@@ -3417,7 +3417,6 @@ const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
       "cjs/react-dom-profiling.development.js",
       "cjs/react-dom-profiling.profiling.js",
       "cjs/react-dom-server-legacy.browser.development.js",
-      "cjs/react-dom-server-legacy.browser.production.js",
       "cjs/react-dom-server-legacy.node.development.js",
       "cjs/react-dom-server.browser.development.js",
       "cjs/react-dom-server.bun.development.js",
