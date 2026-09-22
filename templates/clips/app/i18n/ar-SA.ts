@@ -89,7 +89,7 @@ const messages = {
     },
     shared: {
       title: "استكشف التسجيلات المشتركة معك",
-      body: "شاهد تسجيلات زملائك وشارك في النقاش بالتعليقات.",
+      body: "شاهد Clips من زملائك وشارك في النقاش بالتعليقات.",
     },
     folder: {
       title: "اجمع هذا العمل في مكان واحد",
@@ -1246,7 +1246,7 @@ const messages = {
   createSpaceDialog: {
     newSpace: "مساحة جديدة",
     description:
-      "نظّم التسجيلات حسب المشروع أو الفريق ليسهل على الجميع العثور على العمل الذي يهمهم.",
+      "نظّم التسجيلات حسب المشروع أو الفريق ليتمكن الجميع من العثور على العمل المهم.",
     name: "الاسم",
     color: "اللون",
     useColor: "استخدام اللون {{color}}",
@@ -1799,9 +1799,9 @@ const messages = {
     pastRecordings: "Past recordings (مترجم)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
-    connectGoogleCalendar: "أحضر اجتماعاتك إلى Clips",
+    connectGoogleCalendar: "اجعل كل اجتماع أكثر تميزًا",
     desktopReminder:
-      "اربط تقويم Google لرؤية الاجتماعات القادمة. استخدم Clips Desktop لتدوين الملاحظات أثناء الحديث.",
+      "اربط تقويم Google لرؤية الاجتماعات القادمة وتدوين الملاحظات باستخدام Clips Desktop.",
     getDesktopApp: "Get desktop app (مترجم)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (مترجم)",

@@ -90,7 +90,7 @@ const messages = {
     },
     shared: {
       title: "공유받은 녹화를 살펴보세요",
-      body: "팀원의 녹화를 시청하고 댓글로 대화에 참여하세요.",
+      body: "팀원의 Clips를 시청하고 댓글로 대화에 참여하세요.",
     },
     folder: {
       title: "이 작업을 한곳에 모아 보세요",
@@ -1234,7 +1234,7 @@ const messages = {
   createSpaceDialog: {
     newSpace: "새 공간",
     description:
-      "프로젝트나 팀별로 녹화를 정리해 누구나 필요한 작업을 쉽게 찾을 수 있게 하세요.",
+      "프로젝트나 팀별로 녹화를 정리해 누구나 중요한 작업을 찾을 수 있게 하세요.",
     name: "이름",
     color: "색상",
     useColor: "{{color}} 색상 사용",
@@ -1797,9 +1797,9 @@ const messages = {
     pastRecordings: "Past recordings (현지화됨)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
-    connectGoogleCalendar: "회의를 Clips로 가져오세요",
+    connectGoogleCalendar: "모든 회의를 더 기억에 남게 만드세요",
     desktopReminder:
-      "Google Calendar를 연결해 예정된 회의를 확인하세요. Clips Desktop으로 대화 중에 노트를 기록할 수 있습니다.",
+      "Google Calendar를 연결해 예정된 회의를 확인하고 Clips Desktop으로 노트를 기록하세요.",
     getDesktopApp: "Get desktop app (현지화됨)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (현지화됨)",

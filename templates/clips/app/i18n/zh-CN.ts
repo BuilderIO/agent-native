@@ -88,7 +88,7 @@ const messages = {
     },
     shared: {
       title: "查看与你共享的录制",
-      body: "观看团队成员的录制，并通过评论参与讨论。",
+      body: "观看团队成员的 Clips，并通过评论参与讨论。",
     },
     folder: {
       title: "把这项工作集中起来",
@@ -1187,7 +1187,7 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "新建空间",
-    description: "按项目或团队整理录制内容，让每个人都能找到与自己相关的工作。",
+    description: "按项目或团队整理录制内容，让每个人都能找到重要的工作。",
     name: "名称",
     color: "颜色",
     useColor: "使用颜色 {{color}}",
@@ -1728,9 +1728,9 @@ const messages = {
     pastRecordings: "Past recordings (已本地化)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (已本地化)",
-    connectGoogleCalendar: "把会议带到 Clips",
+    connectGoogleCalendar: "让每次会议都更令人难忘",
     desktopReminder:
-      "连接 Google 日历以查看即将开始的会议。使用 Clips Desktop 在交谈时记录笔记。",
+      "连接 Google 日历以查看即将开始的会议，并使用 Clips Desktop 记录笔记。",
     getDesktopApp: "Get desktop app (已本地化)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (已本地化)",

@@ -90,7 +90,7 @@ const messages = {
     },
     shared: {
       title: "Explore recordings shared with you",
-      body: "Watch recordings from teammates and join the conversation with comments.",
+      body: "Watch Clips from teammates and join the conversation with comments.",
     },
     folder: {
       title: "Keep this work together",
@@ -1231,7 +1231,7 @@ const messages = {
   createSpaceDialog: {
     newSpace: "New space",
     description:
-      "Organize recordings by project or team so people can find the work that matters to them.",
+      "Organize recordings by project or team so everyone can find the work that matters.",
     name: "Name",
     color: "Color",
     useColor: "Use color {{color}}",
@@ -1783,9 +1783,9 @@ const messages = {
     pastRecordings: "Past recordings",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
-    connectGoogleCalendar: "Bring your meetings into Clips",
+    connectGoogleCalendar: "Make every meeting more memorable",
     desktopReminder:
-      "Connect Google Calendar to see upcoming meetings. Use Clips Desktop to capture notes as you talk.",
+      "Connect Google Calendar to see upcoming meetings and capture notes with Clips Desktop.",
     getDesktopApp: "Get desktop app",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription.",

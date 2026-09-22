@@ -88,7 +88,7 @@ const messages = {
     },
     shared: {
       title: "查看與您共用的錄製",
-      body: "觀看團隊成員的錄製，並透過留言參與討論。",
+      body: "觀看團隊成員的 Clips，並透過留言參與討論。",
     },
     folder: {
       title: "將這項工作集中起來",
@@ -1187,7 +1187,7 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "新建空間",
-    description: "依專案或團隊整理錄製內容，讓每個人都能找到與自己相關的工作。",
+    description: "依專案或團隊整理錄製內容，讓每個人都能找到重要的工作。",
     name: "名稱",
     color: "顏色",
     useColor: "使用顏色 {{color}}",
@@ -1713,9 +1713,9 @@ const messages = {
     pastRecordings: "過去的錄製",
     calendarNeedsReconnect:
       "需要重新連線 Google Calendar，才能繼續顯示即將到來的會議。",
-    connectGoogleCalendar: "將會議帶到 Clips",
+    connectGoogleCalendar: "讓每場會議都更令人難忘",
     desktopReminder:
-      "連結 Google 日曆以查看即將開始的會議。使用 Clips Desktop 在交談時記錄筆記。",
+      "連結 Google 日曆以查看即將開始的會議，並使用 Clips Desktop 記錄筆記。",
     getDesktopApp: "取得桌面應用程式",
     requiredForReminders: "桌面應用程式會擷取麥克風和系統音訊以轉錄會議。",
     calendarConnected: "日曆已連線",

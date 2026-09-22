@@ -90,7 +90,7 @@ const messages = {
     },
     shared: {
       title: "आपके साथ शेयर की गई रिकॉर्डिंग देखें",
-      body: "टीम के सदस्यों की रिकॉर्डिंग देखें और टिप्पणियों के ज़रिए बातचीत में शामिल हों।",
+      body: "टीम के सदस्यों के Clips देखें और टिप्पणियों के ज़रिए बातचीत में शामिल हों।",
     },
     folder: {
       title: "इस काम को एक साथ रखें",
@@ -1222,7 +1222,7 @@ const messages = {
   createSpaceDialog: {
     newSpace: "नई स्पेस",
     description:
-      "रिकॉर्डिंग को प्रोजेक्ट या टीम के अनुसार व्यवस्थित करें ताकि सभी को अपने काम की जानकारी आसानी से मिले।",
+      "रिकॉर्डिंग को प्रोजेक्ट या टीम के अनुसार व्यवस्थित करें ताकि सभी को ज़रूरी काम आसानी से मिल सके।",
     name: "नाम",
     color: "रंग",
     useColor: "रंग {{color}} उपयोग करें",
@@ -1776,9 +1776,9 @@ const messages = {
     pastRecordings: "Past recordings (स्थानीयकृत)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
-    connectGoogleCalendar: "अपनी मीटिंग्स Clips में लाएँ",
+    connectGoogleCalendar: "हर मीटिंग को यादगार बनाएँ",
     desktopReminder:
-      "आने वाली मीटिंग्स देखने के लिए Google Calendar कनेक्ट करें। बातचीत के दौरान नोट्स लेने के लिए Clips Desktop इस्तेमाल करें।",
+      "आने वाली मीटिंग्स देखने और Clips Desktop से नोट्स लेने के लिए Google Calendar कनेक्ट करें।",
     getDesktopApp: "Get desktop app (स्थानीयकृत)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (स्थानीयकृत)",
