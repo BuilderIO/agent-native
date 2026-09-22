@@ -52,9 +52,9 @@ import { runFrameworkSchemaEnsures } from "./release-schema.js";
  *
  * Scoped to `CONTEXT=production` on purpose. The beta lane deliberately builds
  * with `AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1` under a branch-deploy context
- * against the site-scoped beta database, and that work is owned by the beta
- * prebuilt workflow — so keying off that flag would fail every beta deploy
- * while never guarding the production one this exists for.
+ * against masked site secrets, and its database is migrated by the beta
+ * publish step — so keying off that flag would fail every beta deploy while
+ * never guarding the production one this exists for.
  */
 function assertReleaseMigrationTargetsRemoteDatabase(): void {
   if (getAppConfig().migration.deployContext !== "production") return;

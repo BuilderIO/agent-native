@@ -1300,15 +1300,15 @@ jobs:
           # other provider credentials remain managed by Netlify.
           node --experimental-strip-types scripts/sync-netlify-preview-database.ts
 
-      - name: Run the beta release migration against the beta database
+      - name: Run the beta release migration against the site database
         if: >-
           inputs.target == 'beta' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
           steps.beta_pre_migration_freshness.outputs.current == 'true'
         env:
-          BUILD_CONTEXT: branch-deploy
+          BUILD_CONTEXT: production
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_MIGRATION_SITE_ID: ${{ steps.target.outputs.site_id }}
+          NETLIFY_MIGRATION_SITE_ID: ${{ steps.target.outputs.migration_site_id }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
@@ -1332,7 +1332,7 @@ jobs:
             echo "::error::No beta PostgreSQL migration URL is available for $SOURCE_TEMPLATE."
             exit 1
           fi
-          export CONTEXT=branch-deploy
+          export CONTEXT=production
           export DATABASE_URL="$migration_database_url"
 
           for attempt in 1 2 3; do
@@ -1345,7 +1345,7 @@ jobs:
               sleep "$delay"
             fi
           done
-          echo "::error::Beta release migration failed after 3 attempts."
+          echo "::error::Beta site release migration failed after 3 attempts."
           exit 1
 
       - name: Verify beta source is current immediately before upload

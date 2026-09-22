@@ -611,12 +611,12 @@ describe("production Netlify site concurrency guard", () => {
     const betaMigration = reusableSteps.find(
       (step) =>
         step.name ===
-        "Run the beta release migration against the beta database",
+        "Run the beta release migration against the site database",
     );
     const betaMigrationIndex = reusableSteps.findIndex(
       (step) =>
         step.name ===
-        "Run the beta release migration against the beta database",
+        "Run the beta release migration against the site database",
     );
     const betaPreMigrationFreshnessIndex = reusableSteps.findIndex(
       (step) =>
@@ -686,15 +686,14 @@ describe("production Netlify site concurrency guard", () => {
       );
     }
     assert.match(String(previousStep?.run), /published_deploy_source_ref/);
-    assert.equal(betaMigration?.env?.BUILD_CONTEXT, "branch-deploy");
+    assert.equal(betaMigration?.env?.BUILD_CONTEXT, "production");
     assert.equal(
       betaMigration?.env?.NETLIFY_MIGRATION_SITE_ID,
-      "${{ steps.target.outputs.site_id }}",
+      "${{ steps.target.outputs.migration_site_id }}",
     );
     assert.equal(betaMigration?.env?.BETA_DATABASE_URL_SECRET, undefined);
     assert.match(String(betaMigration?.run), /netlify api getEnvVars/);
     assert.match(String(betaMigration?.run), /netlify api getSiteDatabase/);
-    assert.match(String(betaMigration?.run), /CONTEXT=branch-deploy/);
     assert.match(String(betaMigration?.run), /migrate:production/);
     const validation = (
       ((reusable.jobs as Workflow).deploy as Workflow).steps as Array<Workflow>
