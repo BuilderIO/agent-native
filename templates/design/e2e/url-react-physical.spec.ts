@@ -55,7 +55,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
   );
   fs.writeFileSync(
     path.join(rootPath, "src/App.tsx"),
-    `import { useState } from "react"; import { useLocation, useNavigate } from "react-router";\nconst initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];\nexport function App() { const [cards] = useState(initialCards); const location = useLocation(); const navigate = useNavigate(); return <html><head><title>React URL physical proof</title></head><body><main id="root" style={{ padding: 24, width: 720, position: "relative" }}><button type="button" onClick={() => navigate("/next")}>Go to next route</button><p data-route-label>{location.pathname === "/next" ? "Next route" : "Home route"}</p><div id="flow" data-source-id="flow-root" data-agent-native-node-id="flow-root" style={{ display: "flex", flexDirection: "column", gap: 16, border: "2px solid #334155", padding: 16, width: 640 }}>{cards.map((card) => <div key={card.id} id={card.id} data-source-id={card.id} data-agent-native-node-id={card.id} style={{ height: 64, border: "2px solid #0f766e", padding: 12 }}>{card.label}</div>)}</div></main><div id="freeform" data-source-id="freeform" data-agent-native-node-id="freeform" style={{ position: "absolute", left: 40, top: 420, width: 120, height: 70, border: "2px solid #be123c", background: "#fda4af", padding: 8 }}>Freeform</div></body></html>; }`,
+    `import { useState } from "react"; import { useLocation, useNavigate } from "react-router";\nconst initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];\nexport function App() { const [cards] = useState(initialCards); const location = useLocation(); const navigate = useNavigate(); const prefix = location.pathname === "/next" ? "dest-" : ""; return <html><head><title>React URL physical proof</title></head><body><main id="root" style={{ padding: 24, width: 720, position: "relative" }}><button type="button" onClick={() => navigate("/next")}>Go to next route</button><p data-route-label>{location.pathname === "/next" ? "Next route" : "Home route"}</p><div id="flow" data-source-id={prefix + "flow-root"} data-agent-native-node-id={prefix + "flow-root"} style={{ display: "flex", flexDirection: "column", gap: 16, border: "2px solid #334155", padding: 16, width: 640 }}>{cards.map((card) => <div key={card.id} id={prefix + card.id} data-source-id={prefix + card.id} data-agent-native-node-id={prefix + card.id} style={{ height: 64, border: "2px solid #0f766e", padding: 12 }}>{card.label}</div>)}</div></main><div id={prefix + "freeform"} data-source-id={prefix + "freeform"} data-agent-native-node-id={prefix + "freeform"} style={{ position: "absolute", left: 40, top: 420, width: 120, height: 70, border: "2px solid #be123c", background: "#fda4af", padding: 8 }}>Freeform</div></body></html>; }`,
   );
   const targetPort = await freePort();
   const targetUrl = `http://127.0.0.1:${targetPort}`; // e2e-harness-ignore: allocated live Vite port
@@ -140,9 +140,9 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       bridgeUrl: manifest.bridgeUrl,
       rootPath,
       routeManifest: manifest,
-      paths: ["/"],
+      paths: ["/", "/next"],
       navigate: false,
-      publicReadOnly: true,
+      publicReadOnly: false,
     });
     bridge = await startDesignConnectBridge(manifest, {
       bridgeToken: opened.bridgeToken,
@@ -176,6 +176,72 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       .first()
       .contentFrame();
     await frame.locator('[data-agent-native-node-id="flow-root"]').waitFor();
+    const liveFrames = page.locator("iframe[data-design-preview-iframe]");
+    await expect(liveFrames).toHaveCount(2);
+    const destinationFrame = liveFrames.nth(1).contentFrame();
+    await destinationFrame
+      .locator('[data-agent-native-node-id="flow-root"]')
+      .waitFor();
+    await page.keyboard.press("Shift+1");
+    let previousCanvasBoxes = "";
+    await expect
+      .poll(
+        async () => {
+          const boxes = await Promise.all(
+            [frame, destinationFrame].map(async (candidate) => {
+              const node = candidate.locator(
+                '[data-agent-native-node-id="flow-root"]',
+              );
+              const box = await node.boundingBox();
+              return box ? `${box.x},${box.y},${box.width},${box.height}` : "";
+            }),
+          );
+          const current = boxes.join("|");
+          const stable = current !== "" && current === previousCanvasBoxes;
+          previousCanvasBoxes = current;
+          return stable;
+        },
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    const crossSource = frame.locator('[data-agent-native-node-id="v2"]');
+    const crossTarget = destinationFrame.locator(
+      '[data-agent-native-node-id="dest-v3"]',
+    );
+    const crossSourceBox = await crossSource.boundingBox();
+    const crossTargetBox = await crossTarget.boundingBox();
+    if (!crossSourceBox || !crossTargetBox)
+      throw new Error("missing two-screen live drag geometry");
+    const crossModifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(crossModifier);
+    await page.mouse.click(
+      crossSourceBox.x + crossSourceBox.width / 2,
+      crossSourceBox.y + crossSourceBox.height / 2,
+    );
+    await page.keyboard.up(crossModifier);
+    await page.mouse.move(
+      crossSourceBox.x + crossSourceBox.width / 2,
+      crossSourceBox.y + crossSourceBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      crossSourceBox.x + crossSourceBox.width / 2 + 12,
+      crossSourceBox.y + crossSourceBox.height / 2,
+      { steps: 6 },
+    );
+    await page.mouse.move(
+      crossTargetBox.x + crossTargetBox.width / 2,
+      crossTargetBox.y + crossTargetBox.height / 2,
+      { steps: 24 },
+    );
+    await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+      timeout: 5_000,
+    });
+    await page.mouse.up();
+    await expect
+      .poll(() => crossSource.count(), { timeout: 5_000 })
+      .toBe(0);
+    await expect(crossTarget).toHaveCount(2, { timeout: 5_000 });
     await expect(
       frame.locator('[data-agent-native-edit-overlay="shield"]'),
     ).toBeAttached();
