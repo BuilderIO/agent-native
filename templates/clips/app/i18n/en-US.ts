@@ -265,6 +265,9 @@ const messages = {
       "Views, completion, and viewer details are visible to editors of this clip.",
   },
   sharePage: {
+    beingEdited: "Being edited",
+    beingEditedMessage:
+      "The owner is making changes to this clip. The link will start working again when they have finished.",
     agentReadableContext: "Agent-readable clip context",
     agentInstructions:
       "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
@@ -548,6 +551,9 @@ const messages = {
     copyEmbedCode: "Copy embed code",
     customizeEmbed: "Customize embed",
     more: "More",
+    redactionsPendingBody:
+      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them. Open the editor, burn them in, and sharing comes back.",
+    redactionsPendingTitle: "Finish the redactions first",
   },
   shareUi: {
     owner: "Owner: {{email}}",
@@ -1220,6 +1226,16 @@ const messages = {
     loadingRecording: "Loading recording…",
     recordingNotFound: "Recording not found",
     noVideoYet: "No video available yet.",
+    burnFailed: "Could not burn the redactions in",
+    burnProgressUnreadable:
+      "Cannot tell how the redaction is getting on. It is most likely still rendering — refresh the page to see.",
+    burnedRedactionsDone:
+      "Redacted. Those areas are now gone from the file, and the original has been deleted.",
+    burningRedactions: "Rendering the redactions into the video…",
+    burningRedactionsPercent:
+      "Rendering the redactions into the video… {{percent}}%",
+    editFailed: "Could not save that edit",
+    nothingToRedo: "Nothing to redo",
   },
   transcriptEditor: {
     transcript: "Transcript",
@@ -1369,6 +1385,79 @@ const messages = {
     defaultTitle: "Chapter {{count}}",
     seekTo: "Seek to {{time}}",
   },
+  redaction: {
+    box: "Redaction box",
+    resize: "Resize this redaction",
+    range: "Redaction from {{start}} to {{end}}",
+    waypoint: "Waypoint at {{at}}",
+    startsAt: "Redaction starts at {{at}}",
+    endsAt: "Redaction ends at {{at}}",
+    chip: "{{number}}. {{start}}\u2013{{end}}",
+    resizeTopLeft: "Resize this redaction from the top left",
+    styleBlur: "Blur",
+    styleSolid: "Solid",
+    helpTitle: "Using redaction",
+    /**
+     * First, and on its own: everything else here is about drawing boxes, and
+     * a box on its own hides nothing. Someone who reads only one line of this
+     * help should read this one.
+     */
+    helpLead:
+      "Nothing is hidden until you press Burn in. Until then the box is only drawn on top, and the video underneath still shows everything.",
+    helpDrawTerm: "Cover something",
+    helpDraw: "Drag across the picture.",
+    helpMoveTerm: "Move or resize a box",
+    helpMove: "Drag the box, or one of its corners.",
+    helpFollowTerm: "Follow something that moves",
+    helpFollow:
+      "Scrub forward, then drag the box to where the thing has got to. The box slides between the points you set. Draw it a bit bigger than the thing it covers.",
+    helpTimingTerm: "Change when a box shows",
+    helpTiming: "Drag either end of its bar, on the lane under the timeline.",
+    helpWaypointTerm: "The diamonds on that bar",
+    helpWaypoint:
+      "Each one is a point you set. Drag one to change when it happens, or press it twice to remove it.",
+    helpRemoveTerm: "Remove a box",
+    helpRemove: "Click it and press Delete. Cmd+Z puts it back.",
+    helpStylesTerm: "Blur or Solid",
+    styleBlurHint:
+      "Blur: a smear of colour generated over the area. Nothing of what was underneath is used to make it, so there is nothing in it to recover.",
+    /**
+     * "Can sometimes" is deliberate, and as far as this should go. Pixelation
+     * is a repeatable average, so guesses can be pixelated the same way and
+     * compared — public tools do it. Whether it works on a given clip depends
+     * on the text being short, the rendering reproducible, and the blocks small
+     * against the glyphs; ours are frame width / 40, coarse enough that this is
+     * hard. Nobody can tell which case they are in while drawing a box, and
+     * Solid costs nothing, so the advice is flat.
+     */
+    styleSolidHint:
+      "Solid: fills the area with one colour. As safe as Blur — neither is built from what it covers — so pick whichever reads better on the clip.",
+    /** The whole judgement, in one line, for someone who does not want it. */
+    helpWhenInDoubt: "Either style hides the area completely.",
+    goTo: "Go to this redaction",
+    remove: "Delete redaction {{number}}",
+    notYetBurned:
+      "{{count}} redaction(s) are drawn but not applied — the video still shows everything underneath them until you burn them in.",
+  },
+  timelineTrack: {
+    helpTitle: "Using the timeline",
+    helpSplitTerm: "Split the clip where you are",
+    helpSplit: "Press S. It cuts at the playhead.",
+    helpShortenTerm: "Shorten a section",
+    helpShorten:
+      "Drag the red line left. Whatever you drag past comes off the end of the section on its left.",
+    helpOtherSideTerm: "Take footage off the section on the right instead",
+    helpOtherSide: "Click that section first, then drag the red line right.",
+    helpRemoveTerm: "Remove a whole section",
+    helpRemove: "Click it and press Delete.",
+    helpRestoreTerm: "Put a removed stretch back",
+    helpRestore: "Click it and press Delete again, or use its arrow.",
+    section: "Section {{start}} to {{end}}",
+    removedSection: "Removed section, {{duration}}",
+    putBack: "Put this section back",
+    sectionEndsAt: "End of the section at {{at}} — drag to move it",
+    sectionStartsAt: "Start of the section at {{at}} — drag to move it",
+  },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl Z)",
     playPauseTooltip: "Play / Pause (Space)",
@@ -1421,6 +1510,27 @@ const messages = {
     exportedMp4: "Exported MP4",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.",
+    backToEditing: "Back to editing",
+    burnIn: "Burn in {{count}}",
+    burnInConfirm: "Burn in and delete the original",
+    burnInHint:
+      "Render the redactions into the video for good, and delete the original",
+    burnInTitle: "Burn {{count}} redaction(s) into this video?",
+    burnInWarning:
+      "The covered areas will be destroyed in a new copy of the video, and the original file will be deleted. This cannot be undone. Your cuts, chapters, comments and transcript are not affected and stay editable. The poster image and the editor filmstrip are rebuilt from the redacted video, because they are made of the frames you are redacting. Anything already downloaded or exported keeps what it has.",
+    burning: "Burning…",
+    burningPercent: "Burning… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "Burn the redactions in first",
+    exportUnredactedWarning:
+      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them — and so would this copy of it. Burn them in and this comes back.",
+    redact: "Redact",
+    redactHint:
+      "Cover something in the picture. Nothing is hidden until you burn it in.",
+    redactOn: "Redacting",
+    redoTooltip: "Redo (Cmd/Ctrl+Shift+Z)",
+    scrollBack: "Show the controls to the left",
+    scrollOn: "Show the controls to the right",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam",

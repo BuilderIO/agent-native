@@ -1,4 +1,62 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
+    helpOtherSideTerm: "اقتطاع اللقطات من المقطع الأيمن بدلًا من ذلك",
+    helpRemove: "انقر عليه واضغط Delete.",
+    helpRemoveTerm: "إزالة مقطع كامل",
+    helpRestore: "انقر عليه واضغط Delete مرة أخرى، أو استخدم سهمه.",
+    helpRestoreTerm: "إعادة جزء محذوف",
+    helpShorten:
+      "اسحب الخط الأحمر إلى اليسار. كل ما تتجاوزه يُقتطع من نهاية المقطع الذي على يساره.",
+    helpShortenTerm: "تقصير مقطع",
+    helpSplit: "اضغط S. يقُصّ عند مؤشّر التشغيل.",
+    helpSplitTerm: "تقسيم المقطع عند موضعك",
+    helpTitle: "استخدام المخطط الزمني",
+    putBack: "إعادة هذا المقطع",
+    removedSection: "مقطع محذوف، {{duration}}",
+    section: "مقطع من {{start}} إلى {{end}}",
+    sectionEndsAt: "نهاية المقطع عند {{at}} — اسحب لتحريكها",
+    sectionStartsAt: "بداية المقطع عند {{at}} — اسحب لتحريكها",
+  },
+  redaction: {
+    box: "مربّع إخفاء",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "ينتهي الإخفاء عند {{at}}",
+    goTo: "الانتقال إلى هذا الإخفاء",
+    helpDraw: "اسحب فوق الصورة.",
+    helpDrawTerm: "تغطية شيء ما",
+    helpFollow:
+      "تقدَّم في الفيديو، ثم اسحب المربّع إلى حيث وصل الشيء. ينتقل المربّع بين النقاط التي تحدّدها. ارسمه أكبر قليلًا مما يغطّيه.",
+    helpFollowTerm: "تتبّع شيء متحرّك",
+    helpLead:
+      "لا يُخفى شيء حتى تضغط «تثبيت». حتى ذلك الحين يكون المربّع مرسومًا فوق الصورة فقط، والفيديو تحته ما زال يُظهر كل شيء.",
+    helpMove: "اسحب المربّع، أو إحدى زواياه.",
+    helpMoveTerm: "تحريك مربّع أو تغيير حجمه",
+    helpRemove: "انقر عليه واضغط Delete. يعيده Cmd+Z.",
+    helpRemoveTerm: "إزالة مربّع",
+    helpStylesTerm: "ضبابي أو مصمت",
+    helpTiming: "اسحب أيًّا من طرفَي شريطه، في المسار أسفل المخطط الزمني.",
+    helpTimingTerm: "تغيير وقت ظهور المربّع",
+    helpTitle: "استخدام الإخفاء",
+    helpWaypoint:
+      "كل واحدة نقطة حدّدتها. اسحب إحداها لتغيير وقتها، أو اضغط عليها مرتين لإزالتها.",
+    helpWaypointTerm: "المعيّنات على ذلك الشريط",
+    helpWhenInDoubt: "كلا النمطين يخفي المنطقة تمامًا.",
+    notYetBurned:
+      "رُسمت {{count}} من مناطق الإخفاء لكنها لم تُطبَّق — ما زال الفيديو يُظهر كل ما تحتها حتى تثبّتها.",
+    range: "إخفاء من {{start}} إلى {{end}}",
+    remove: "حذف الإخفاء {{number}}",
+    resize: "تغيير حجم هذا الإخفاء",
+    resizeTopLeft: "تغيير حجم هذا الإخفاء من الزاوية العلوية اليسرى",
+    startsAt: "يبدأ الإخفاء عند {{at}}",
+    styleBlur: "ضبابي",
+    styleBlurHint:
+      "ضبابي: مساحة لونية تُولَّد فوق المنطقة. لا يُستخدم أي شيء مما تحتها في إنشائها، لذا لا يوجد فيها ما يمكن استرجاعه.",
+    styleSolid: "مصمت",
+    styleSolidHint:
+      "مصمت: يملأ المنطقة بلون واحد. آمن تمامًا كالضبابي — ولا يُبنى أيٌّ منهما مما يغطّيه — فاختر ما يبدو أنسب في المقطع.",
+    waypoint: "نقطة عند {{at}}",
+  },
   common: {
     cancel: "إلغاء",
     create: "إنشاء",
@@ -362,6 +420,9 @@ const messages = {
     ownerInsights: "رؤى المالك",
     ownerInsightsDescription:
       "تظهر المشاهدات ونسبة الإكمال وتفاصيل المشاهدين لمحرري هذا المقطع.",
+    beingEdited: "قيد التحرير",
+    beingEditedMessage:
+      "يقوم المالك بإجراء تغييرات على هذا المقطع. سيعود الرابط إلى العمل عند انتهائه.",
   },
   meetingDetail: {
     untitledMeeting: "لقاء بلا عنوان",
@@ -551,6 +612,9 @@ const messages = {
     customizeEmbed: "تخصيص التضمين",
     more: "المزيد",
     sharePlainTitle: "مشاركة {{title}}",
+    redactionsPendingBody:
+      "رُسمت {{count}} من مناطق الإخفاء على هذا التسجيل لكنها لم تُثبَّت في الفيديو، لذا ما زال الملف يُظهر كل ما تحتها. افتح المحرّر وثبّتها، وستعود المشاركة متاحة.",
+    redactionsPendingTitle: "أكمِل مناطق الإخفاء أولًا",
   },
   shareUi: {
     owner: "المالك: {{email}}",
@@ -1235,6 +1299,15 @@ const messages = {
     loadingRecording: "جارٍ تحميل التسجيل…",
     recordingNotFound: "لم يتم العثور على التسجيل",
     noVideoYet: "لا يوجد فيديو متاح بعد.",
+    burnFailed: "تعذّر تثبيت مناطق الإخفاء في الفيديو",
+    burnProgressUnreadable:
+      "تعذّرت معرفة تقدّم عملية الإخفاء. الأرجح أنها ما زالت قيد المعالجة — أعِد تحميل الصفحة بعد قليل.",
+    burnedRedactionsDone:
+      "تم الإخفاء. لم تعد تلك المناطق موجودة في الملف، وقد حُذف الملف الأصلي.",
+    burningRedactions: "جارٍ تثبيت مناطق الإخفاء في الفيديو…",
+    burningRedactionsPercent: "جارٍ تثبيت مناطق الإخفاء في الفيديو… {{percent}}%",
+    editFailed: "تعذّر حفظ هذا التعديل",
+    nothingToRedo: "لا يوجد ما يمكن إعادته",
   },
   transcriptEditor: {
     transcript: "النص",
@@ -1434,6 +1507,25 @@ const messages = {
     exportedMp4: "Exported MP4 (مترجم)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (مترجم)",
+    backToEditing: "العودة إلى التحرير",
+    burnIn: "تثبيت {{count}}",
+    burnInConfirm: "التثبيت وحذف الملف الأصلي",
+    burnInHint: "تثبيت مناطق الإخفاء في الفيديو نهائيًا وحذف الملف الأصلي",
+    burnInTitle: "هل تريد تثبيت {{count}} من مناطق الإخفاء في هذا الفيديو؟",
+    burnInWarning:
+      "ستُتلَف المناطق المغطّاة في نسخة جديدة من الفيديو، وسيُحذف الملف الأصلي. لا يمكن التراجع عن ذلك.",
+    burning: "جارٍ التثبيت…",
+    burningPercent: "جارٍ التثبيت… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "ثبِّت مناطق الإخفاء أولًا",
+    exportUnredactedWarning:
+      "رُسمت {{count}} من مناطق الإخفاء على هذا التسجيل لكنها لم تُثبَّت في الفيديو، لذا ما زال الملف يُظهر كل ما تحتها — وكذلك ستفعل هذه النسخة. ثبِّتها ليعود ذلك متاحًا.",
+    redact: "إخفاء",
+    redactHint: "غطِّ شيئًا في الصورة. لا يُخفى شيء فعليًا حتى تثبّته.",
+    redactOn: "وضع الإخفاء",
+    redoTooltip: "إعادة (Cmd/Ctrl+Shift+Z)",
+    scrollBack: "إظهار عناصر التحكم على اليسار",
+    scrollOn: "إظهار عناصر التحكم على اليمين",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (مترجم)",

@@ -1,4 +1,61 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide: "先点击那一段，再把红线向右拖。",
+    helpOtherSideTerm: "改为从右侧那一段裁掉素材",
+    helpRemove: "点击它并按 Delete。",
+    helpRemoveTerm: "删除整段",
+    helpRestore: "点击它并再次按 Delete，或使用它的箭头。",
+    helpRestoreTerm: "恢复已删除的片段",
+    helpShorten: "把红线往左拖。拖过的部分会从其左侧那一段的末尾被裁掉。",
+    helpShortenTerm: "缩短一段",
+    helpSplit: "按 S，将在播放头处剪开。",
+    helpSplitTerm: "在当前位置分割片子",
+    helpTitle: "使用时间轴",
+    putBack: "恢复这一段",
+    removedSection: "已删除的片段，{{duration}}",
+    section: "{{start}} 到 {{end}} 的片段",
+    sectionEndsAt: "片段结束于 {{at}} — 拖动可移动",
+    sectionStartsAt: "片段开始于 {{at}} — 拖动可移动",
+  },
+  redaction: {
+    box: "遮挡框",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "遮挡结束于 {{at}}",
+    goTo: "跳转到此处遮挡",
+    helpDraw: "在画面上拖动。",
+    helpDrawTerm: "遮住内容",
+    helpFollow:
+      "向前拖动进度，再把遮挡框拖到目标移动到的位置。遮挡框会在你设定的各点之间滑动。画得比要遮住的东西稍大一些。",
+    helpFollowTerm: "跟随移动的目标",
+    helpLead:
+      "在你按下“合成”之前，什么都没有被隐藏。在那之前遮挡框只是画在上面，下方的视频依然一览无余。",
+    helpMove: "拖动遮挡框，或拖动它的某个角。",
+    helpMoveTerm: "移动或调整遮挡框",
+    helpRemove: "点击它并按 Delete。Cmd+Z 可以撤销。",
+    helpRemoveTerm: "删除遮挡框",
+    helpStylesTerm: "模糊或纯色",
+    helpTiming: "在时间轴下方的轨道上，拖动其条带的任一端。",
+    helpTimingTerm: "更改遮挡框出现的时间",
+    helpTitle: "使用遮挡",
+    helpWaypoint:
+      "每一个都是你设定的点。拖动可更改它出现的时间，按两次即可删除。",
+    helpWaypointTerm: "该条带上的菱形",
+    helpWhenInDoubt: "两种样式都会把该区域完全遮住。",
+    notYetBurned:
+      "已画出 {{count}} 处遮挡但尚未应用——在合成之前，视频中遮挡下方的内容依然可见。",
+    range: "从 {{start}} 到 {{end}} 的遮挡",
+    remove: "删除遮挡 {{number}}",
+    resize: "调整此遮挡的大小",
+    resizeTopLeft: "从左上角调整此遮挡的大小",
+    startsAt: "遮挡开始于 {{at}}",
+    styleBlur: "模糊",
+    styleBlurHint:
+      "模糊：在该区域上方生成的一片色晕。它完全不取自下方的画面，因此其中没有任何可还原的内容。",
+    styleSolid: "纯色",
+    styleSolidHint:
+      "纯色：用单一颜色填满该区域。与模糊同样安全——两者都不是由所遮内容生成的——选择在片子里看起来更合适的即可。",
+    waypoint: "{{at}} 处的路径点",
+  },
   common: {
     cancel: "取消",
     create: "创建",
@@ -350,6 +407,8 @@ const messages = {
     ownerInsights: "所有者洞察",
     ownerInsightsDescription:
       "观看次数、完成率和观看者详情对该剪辑的编辑者可见。",
+    beingEdited: "正在编辑",
+    beingEditedMessage: "所有者正在修改这段片子。完成后链接会重新生效。",
   },
   meetingDetail: {
     untitledMeeting: "无标题会议",
@@ -527,6 +586,9 @@ const messages = {
     customizeEmbed: "自定义嵌入",
     more: "更多",
     sharePlainTitle: "分享 {{title}}",
+    redactionsPendingBody:
+      "这段录制上画了 {{count}} 处遮挡，但尚未合成进视频，因此文件里遮挡下方的内容依然可见。打开编辑器完成合成后，即可重新分享。",
+    redactionsPendingTitle: "请先完成遮挡",
   },
   shareUi: {
     owner: "所有者： {{email}}",
@@ -1177,6 +1239,14 @@ const messages = {
     loadingRecording: "正在加载录制…",
     recordingNotFound: "找不到录制",
     noVideoYet: "还没有可用视频。",
+    burnFailed: "无法将遮挡合成到视频中",
+    burnProgressUnreadable:
+      "无法获知遮挡处理的进度。多半仍在渲染中，请稍后刷新。",
+    burnedRedactionsDone: "已遮挡。这些区域已从文件中移除，原文件已删除。",
+    burningRedactions: "正在将遮挡渲染进视频…",
+    burningRedactionsPercent: "正在将遮挡渲染进视频… {{percent}}%",
+    editFailed: "无法保存该编辑",
+    nothingToRedo: "没有可重做的操作",
   },
   transcriptEditor: {
     transcript: "转录",
@@ -1372,6 +1442,25 @@ const messages = {
     exportedMp4: "Exported MP4 (已本地化)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (已本地化)",
+    backToEditing: "返回编辑",
+    burnIn: "合成 {{count}} 处",
+    burnInConfirm: "合成并删除原文件",
+    burnInHint: "将遮挡永久渲染进视频，并删除原文件",
+    burnInTitle: "要将 {{count}} 处遮挡合成到这段视频中吗？",
+    burnInWarning:
+      "被遮挡的区域将在视频的新副本中被销毁，原文件会被删除。此操作无法撤销。",
+    burning: "正在合成…",
+    burningPercent: "正在合成… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "请先合成遮挡",
+    exportUnredactedWarning:
+      "这段录制上画了 {{count}} 处遮挡，但尚未合成进视频，因此文件里遮挡下方的内容依然可见，这份副本也一样。合成之后即可再次使用。",
+    redact: "遮挡",
+    redactHint: "遮住画面中的内容。在合成之前，任何内容都不会被真正隐藏。",
+    redactOn: "遮挡中",
+    redoTooltip: "重做（Cmd/Ctrl+Shift+Z）",
+    scrollBack: "显示左侧的控件",
+    scrollOn: "显示右侧的控件",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (已本地化)",

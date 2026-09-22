@@ -1,4 +1,64 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide:
+      "先にそのセクションをクリックしてから、赤い線を右へドラッグします。",
+    helpOtherSideTerm: "代わりに右側のセクションから素材を削る",
+    helpRemove: "クリックして Delete を押します。",
+    helpRemoveTerm: "セクションごと削除する",
+    helpRestore: "クリックしてもう一度 Delete を押すか、矢印を使います。",
+    helpRestoreTerm: "削除した区間を戻す",
+    helpShorten:
+      "赤い線を左へドラッグします。通り過ぎた分が、その左側のセクションの末尾から取り除かれます。",
+    helpShortenTerm: "セクションを短くする",
+    helpSplit: "S を押します。再生位置で分割されます。",
+    helpSplitTerm: "現在位置でクリップを分割する",
+    helpTitle: "タイムラインの使い方",
+    putBack: "このセクションを戻す",
+    removedSection: "削除したセクション、{{duration}}",
+    section: "{{start}} から {{end}} までのセクション",
+    sectionEndsAt: "セクションの終了位置 {{at}} — ドラッグして移動",
+    sectionStartsAt: "セクションの開始位置 {{at}} — ドラッグして移動",
+  },
+  redaction: {
+    box: "マスク枠",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "マスクの終了位置 {{at}}",
+    goTo: "このマスクへ移動",
+    helpDraw: "画面上をドラッグします。",
+    helpDrawTerm: "何かを覆う",
+    helpFollow:
+      "少し先に進めてから、対象が移動した位置へ枠をドラッグします。枠は設定した点の間を移動します。覆う対象より少し大きめに描いてください。",
+    helpFollowTerm: "動くものを追いかける",
+    helpLead:
+      "「焼き込む」を押すまで何も隠れません。それまで枠は上に描かれているだけで、下の映像はすべて見えたままです。",
+    helpMove: "枠そのもの、または角をドラッグします。",
+    helpMoveTerm: "枠を移動またはサイズ変更する",
+    helpRemove: "枠をクリックして Delete を押します。Cmd+Z で元に戻ります。",
+    helpRemoveTerm: "枠を削除する",
+    helpStylesTerm: "ぼかし または 塗りつぶし",
+    helpTiming:
+      "タイムライン下のレーンで、バーのどちらかの端をドラッグします。",
+    helpTimingTerm: "枠が表示される時間を変える",
+    helpTitle: "マスクの使い方",
+    helpWaypoint:
+      "それぞれが設定した点です。ドラッグすると時間を変更でき、2 回押すと削除できます。",
+    helpWaypointTerm: "バー上のひし形",
+    helpWhenInDoubt: "どちらのスタイルでも領域は完全に隠れます。",
+    notYetBurned:
+      "{{count}} 件のマスクが描かれていますが、まだ適用されていません。焼き込むまで、その下の映像はすべて残ったままです。",
+    range: "{{start}} から {{end}} までのマスク",
+    remove: "マスク {{number}} を削除",
+    resize: "このマスクのサイズを変更",
+    resizeTopLeft: "このマスクを左上からサイズ変更",
+    startsAt: "マスクの開始位置 {{at}}",
+    styleBlur: "ぼかし",
+    styleBlurHint:
+      "ぼかし：その領域の上に生成される色のにじみです。下にあったものは一切使われないため、そこから復元できるものはありません。",
+    styleSolid: "塗りつぶし",
+    styleSolidHint:
+      "塗りつぶし：領域を一色で塗ります。ぼかしと同じ安全性で、どちらも覆った内容からは作られません。クリップに合う方を選んでください。",
+    waypoint: "{{at}} の中継点",
+  },
   common: {
     cancel: "キャンセル",
     create: "作成",
@@ -375,6 +435,9 @@ const messages = {
     ownerInsights: "所有者インサイト",
     ownerInsightsDescription:
       "視聴数、完了率、視聴者の詳細は、このクリップの編集者に表示されます。",
+    beingEdited: "編集中です",
+    beingEditedMessage:
+      "所有者がこのクリップを編集しています。完了するとリンクは再び使えるようになります。",
   },
   meetingDetail: {
     untitledMeeting: "無題の会議",
@@ -561,6 +624,9 @@ const messages = {
     customizeEmbed: "埋め込みをカスタマイズ",
     more: "その他",
     sharePlainTitle: "{{title}}を共有する",
+    redactionsPendingBody:
+      "この録画には {{count}} 件のマスクが描かれていますが、動画には焼き込まれていません。そのためファイルにはその下がすべて残っています。エディタを開いて焼き込むと、共有が再び利用できます。",
+    redactionsPendingTitle: "先にマスクを完了してください",
   },
   shareUi: {
     owner: "所有者: {{email}}",
@@ -1240,6 +1306,15 @@ const messages = {
     loadingRecording: "録画を読み込み中…",
     recordingNotFound: "録画が見つかりません",
     noVideoYet: "利用できる動画はまだありません。",
+    burnFailed: "マスクを焼き込めませんでした",
+    burnProgressUnreadable:
+      "マスク処理の進捗を確認できません。おそらくまだレンダリング中です。しばらくしてから再読み込みしてください。",
+    burnedRedactionsDone:
+      "マスクしました。該当部分はファイルから消え、元のファイルは削除されました。",
+    burningRedactions: "マスクを動画に焼き込んでいます…",
+    burningRedactionsPercent: "マスクを動画に焼き込んでいます… {{percent}}%",
+    editFailed: "その編集を保存できませんでした",
+    nothingToRedo: "やり直す操作がありません",
   },
   transcriptEditor: {
     transcript: "文字起こし",
@@ -1446,6 +1521,25 @@ const messages = {
     exportedMp4: "Exported MP4 (ローカライズ済み)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (ローカライズ済み)",
+    backToEditing: "編集に戻る",
+    burnIn: "{{count}} 件を焼き込む",
+    burnInConfirm: "焼き込んで元のファイルを削除",
+    burnInHint: "マスクを動画に完全に焼き込み、元のファイルを削除します",
+    burnInTitle: "この動画に {{count}} 件のマスクを焼き込みますか？",
+    burnInWarning:
+      "覆われた部分は新しい動画コピー内で破棄され、元のファイルは削除されます。取り消せません。",
+    burning: "焼き込み中…",
+    burningPercent: "焼き込み中… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "先にマスクを焼き込んでください",
+    exportUnredactedWarning:
+      "この録画には {{count}} 件のマスクが描かれていますが、動画には焼き込まれていません。そのためファイルにはその下がすべて残っており、このコピーも同じです。焼き込むと再び利用できます。",
+    redact: "マスク",
+    redactHint: "画面の一部を覆います。焼き込むまで何も隠されません。",
+    redactOn: "マスク中",
+    redoTooltip: "やり直す（Cmd/Ctrl+Shift+Z）",
+    scrollBack: "左側のコントロールを表示",
+    scrollOn: "右側のコントロールを表示",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (ローカライズ済み)",

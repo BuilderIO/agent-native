@@ -366,6 +366,10 @@ export default defineAction({
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
+        // The version of the stored bytes. A redaction burn re-uploads under
+        // the same URL, so without this the browser can keep playing the copy
+        // it already has — the one with the boxes still only drawn on.
+        mediaUpdatedAt: rec.mediaUpdatedAt ?? null,
         width: rec.width,
         height: rec.height,
         hasAudio: Boolean(rec.hasAudio),

@@ -501,6 +501,7 @@ export function LibraryGrid({
       {sharingRec && (
         <ShareRecordingDialog
           recordingId={sharingRec.id}
+          pendingRedactions={sharingRec.pendingRedactions ?? 0}
           recordingTitle={sharingRec.title}
           initialVisibility={sharingRec.visibility}
           hasPassword={sharingRec.hasPassword}

@@ -1,4 +1,65 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide:
+      "Haz clic primero en esa sección y arrastra la línea roja hacia la derecha.",
+    helpOtherSideTerm: "Quitar metraje de la sección de la derecha en su lugar",
+    helpRemove: "Haz clic en ella y pulsa Supr.",
+    helpRemoveTerm: "Quitar una sección entera",
+    helpRestore: "Haz clic en ella y pulsa Supr otra vez, o usa su flecha.",
+    helpRestoreTerm: "Recuperar un tramo eliminado",
+    helpShorten:
+      "Arrastra la línea roja hacia la izquierda. Todo lo que dejes atrás se quita del final de la sección de su izquierda.",
+    helpShortenTerm: "Acortar una sección",
+    helpSplit: "Pulsa S. Corta en el cabezal de reproducción.",
+    helpSplitTerm: "Dividir el clip donde estás",
+    helpTitle: "Usar la línea de tiempo",
+    putBack: "Recuperar esta sección",
+    removedSection: "Sección eliminada, {{duration}}",
+    section: "Sección de {{start}} a {{end}}",
+    sectionEndsAt: "Fin de la sección en {{at}}: arrastra para moverlo",
+    sectionStartsAt: "Inicio de la sección en {{at}}: arrastra para moverlo",
+  },
+  redaction: {
+    box: "Cuadro de difuminación",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "La difuminación termina en {{at}}",
+    goTo: "Ir a esta difuminación",
+    helpDraw: "Arrastra sobre la imagen.",
+    helpDrawTerm: "Cubrir algo",
+    helpFollow:
+      "Avanza en el vídeo y arrastra el cuadro hasta donde esté ahora el elemento. El cuadro se desplaza entre los puntos que marques. Dibújalo un poco más grande que lo que cubre.",
+    helpFollowTerm: "Seguir algo que se mueve",
+    helpLead:
+      "Nada queda oculto hasta que pulses Aplicar. Hasta entonces, el cuadro solo está dibujado encima y el vídeo de debajo sigue mostrándolo todo.",
+    helpMove: "Arrastra el cuadro o una de sus esquinas.",
+    helpMoveTerm: "Mover o redimensionar un cuadro",
+    helpRemove: "Haz clic en él y pulsa Supr. Cmd+Z lo devuelve.",
+    helpRemoveTerm: "Quitar un cuadro",
+    helpStylesTerm: "Desenfoque o Sólido",
+    helpTiming:
+      "Arrastra cualquiera de los extremos de su barra, en la pista bajo la línea de tiempo.",
+    helpTimingTerm: "Cambiar cuándo aparece un cuadro",
+    helpTitle: "Usar la difuminación",
+    helpWaypoint:
+      "Cada uno es un punto que has marcado. Arrastra uno para cambiar cuándo ocurre, o púlsalo dos veces para quitarlo.",
+    helpWaypointTerm: "Los rombos de esa barra",
+    helpWhenInDoubt: "Ambos estilos ocultan la zona por completo.",
+    notYetBurned:
+      "Hay {{count}} difuminación(es) dibujadas pero sin aplicar: el vídeo sigue mostrando todo lo que hay debajo hasta que las apliques.",
+    range: "Difuminación de {{start}} a {{end}}",
+    remove: "Eliminar la difuminación {{number}}",
+    resize: "Redimensionar esta difuminación",
+    resizeTopLeft:
+      "Redimensionar esta difuminación desde la esquina superior izquierda",
+    startsAt: "La difuminación empieza en {{at}}",
+    styleBlur: "Desenfoque",
+    styleBlurHint:
+      "Desenfoque: una mancha de color generada sobre la zona. No se usa nada de lo que había debajo para crearla, así que no hay nada que recuperar en ella.",
+    styleSolid: "Sólido",
+    styleSolidHint:
+      "Sólido: rellena la zona con un color. Tan seguro como el desenfoque —ninguno se construye a partir de lo que cubre—, así que elige el que quede mejor en el clip.",
+    waypoint: "Punto de referencia en {{at}}",
+  },
   common: {
     cancel: "Cancelar",
     create: "Crear",
@@ -378,6 +439,9 @@ const messages = {
     ownerInsights: "Estadísticas del propietario",
     ownerInsightsDescription:
       "Las vistas, la finalización y los detalles de espectadores son visibles para los editores de este clip.",
+    beingEdited: "En edición",
+    beingEditedMessage:
+      "El propietario está haciendo cambios en este clip. El enlace volverá a funcionar cuando termine.",
   },
   meetingDetail: {
     untitledMeeting: "Reunión sin título",
@@ -566,6 +630,9 @@ const messages = {
     customizeEmbed: "Personalizar inserción",
     more: "Más",
     sharePlainTitle: "Compartir {{title}}",
+    redactionsPendingBody:
+      "Hay {{count}} difuminación(es) dibujadas en esta grabación que no se han aplicado al vídeo, así que el archivo sigue mostrando todo lo que hay debajo. Abre el editor, aplícalas y podrás volver a compartir.",
+    redactionsPendingTitle: "Termina antes las difuminaciones",
   },
   shareUi: {
     owner: "Propietario: {{email}}",
@@ -1256,6 +1323,16 @@ const messages = {
     loadingRecording: "Cargando grabación…",
     recordingNotFound: "Grabación no encontrada",
     noVideoYet: "Aún no hay video disponible.",
+    burnFailed: "No se han podido aplicar las difuminaciones",
+    burnProgressUnreadable:
+      "No se puede saber cómo va la difuminación. Lo más probable es que siga procesándose: actualiza la página en un momento.",
+    burnedRedactionsDone:
+      "Difuminado. Esas zonas ya no están en el archivo y el original se ha eliminado.",
+    burningRedactions: "Aplicando las difuminaciones al vídeo…",
+    burningRedactionsPercent:
+      "Aplicando las difuminaciones al vídeo… {{percent}} %",
+    editFailed: "No se ha podido guardar ese cambio",
+    nothingToRedo: "Nada que rehacer",
   },
   transcriptEditor: {
     transcript: "Transcripción",
@@ -1464,6 +1541,27 @@ const messages = {
     exportedMp4: "Exported MP4",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.",
+    backToEditing: "Volver a la edición",
+    burnIn: "Aplicar {{count}}",
+    burnInConfirm: "Aplicar y eliminar el original",
+    burnInHint:
+      "Aplicar las difuminaciones al vídeo de forma permanente y eliminar el original",
+    burnInTitle: "¿Aplicar {{count}} difuminación(es) a este vídeo?",
+    burnInWarning:
+      "Las zonas cubiertas se destruirán en una copia nueva del vídeo y el archivo original se eliminará. Esto no se puede deshacer.",
+    burning: "Aplicando…",
+    burningPercent: "Aplicando… {{percent}} %",
+    deleteKey: "Supr",
+    exportUnredactedTitle: "Aplica antes las difuminaciones",
+    exportUnredactedWarning:
+      "Hay {{count}} difuminación(es) dibujadas en esta grabación que no se han aplicado al vídeo, así que el archivo sigue mostrando todo lo que hay debajo, y esta copia también lo haría. Aplícalas y esto volverá a estar disponible.",
+    redact: "Difuminar",
+    redactHint:
+      "Cubre algo de la imagen. Nada queda oculto hasta que lo apliques.",
+    redactOn: "Difuminando",
+    redoTooltip: "Rehacer (Cmd/Ctrl+Mayús+Z)",
+    scrollBack: "Mostrar los controles de la izquierda",
+    scrollOn: "Mostrar los controles de la derecha",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam",
