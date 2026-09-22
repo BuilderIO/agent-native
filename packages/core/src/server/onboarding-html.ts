@@ -2663,19 +2663,7 @@ ${marketingStyles}
       flex-direction: column;
     }
     .auth-marketing-home .auth-marketing-top-right {
-      position: sticky;
-      top: max(1rem, env(safe-area-inset-top));
-      inset-inline-start: auto;
-      inset-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));
-      align-self: flex-end;
-      margin-block: 1.5rem 2rem;
-      margin-inline-start: auto;
-      margin-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));
-      padding: 0;
-    }
-    :root[dir="rtl"] .auth-marketing-home .auth-marketing-top-right {
-      inset-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));
-      margin-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));
+      display: none;
     }
     .auth-marketing-home .auth-marketing-layout {
       flex-direction: column;
@@ -2692,7 +2680,7 @@ ${marketingStyles}
     }
     .auth-marketing-home .form-panel {
       order: -1;
-      padding: 2rem 1rem 5rem;
+      padding: 3rem 1rem 5rem;
       border-inline-start: 0;
       border-top: 1px solid var(--auth-marketing-border);
     }
