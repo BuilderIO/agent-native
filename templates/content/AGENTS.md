@@ -28,11 +28,6 @@ Read the relevant skill before deeper work:
   Browser full rewrites use `update-document`.
 - Preserve user-authored content. Prefer targeted edits over wholesale rewrites
   unless requested.
-- The editor's slash menu is a curated insertion surface. Built-in structured
-  blocks can remain registered for rendering and round-tripping without being
-  offered for new insertion. Builder formats are offered only on Pages whose
-  immediate parent is a Builder-connected Database; do not infer eligibility
-  from navigation context, another membership, an ancestor, or existing markup.
 - Document mutations signal UI refresh; use `refresh-list` only after an
   out-of-band mutation leaves the UI stale.
 - Check the auto-included `<current-screen>` before acting. Read stale context
