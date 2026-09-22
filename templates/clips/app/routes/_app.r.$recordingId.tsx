@@ -41,7 +41,10 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "@shared/loom";
-import { CLIP_SHARE_REF, REF_PARAM } from "@shared/share-attribution";
+import {
+  buildShareContinuationQuery,
+  CLIP_SHARE_REF,
+} from "@shared/share-attribution";
 import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
@@ -559,6 +562,11 @@ export default function RecordingPage() {
   );
   const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
   const panelParam = searchParams.get("panel");
+  const legacyShareQuery = buildShareContinuationQuery(
+    { ref: CLIP_SHARE_REF, via: undefined },
+    routePlaybackParam,
+    panelParam,
+  );
   const { session, isLoading: sessionLoading } = useSession();
   const videoEditingLabEnabled = useLab(CLIPS_VIDEO_EDITING.key);
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
@@ -730,15 +738,13 @@ export default function RecordingPage() {
     playerDataForbidden || (playerDataUnauthorized && !session);
   useEffect(() => {
     if (!recordingId || !shouldFallbackToShare) return;
-    const shareParams = new URLSearchParams();
-    shareParams.set(REF_PARAM, CLIP_SHARE_REF);
     void navigate(
-      `/share/${encodeURIComponent(recordingId)}?${shareParams.toString()}`,
+      `/share/${encodeURIComponent(recordingId)}?${legacyShareQuery}`,
       {
         replace: true,
       },
     );
-  }, [recordingId, shouldFallbackToShare, navigate]);
+  }, [legacyShareQuery, recordingId, shouldFallbackToShare, navigate]);
 
   const recording = playerDataQ.data?.recording;
   const {
