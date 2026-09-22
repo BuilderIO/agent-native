@@ -4775,6 +4775,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var bridgeIgnoreAutoLayoutKeyPressed = false;
     var bridgeSpaceKeyConsumedByDrag = false;
     var activeCrossScreenStyleSnapshot = void 0;
+    var activeCrossScreenSourceHtml = void 0;
     var activeCrossScreenDragIdentity = null;
     var spacingDrag = null;
     var lockedSelectors = [];
@@ -10592,6 +10593,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (phase === "cancel") {
         bridgeIgnoreAutoLayoutKeyPressed = false;
         activeCrossScreenStyleSnapshot = void 0;
+        activeCrossScreenSourceHtml = void 0;
         activeCrossScreenDragIdentity = null;
         window.parent.postMessage(
           { type: "agent-native:cross-screen-drag", phase: "cancel" },
@@ -10601,6 +10603,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (phase === "start") {
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
+        activeCrossScreenSourceHtml = el?.outerHTML;
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -10649,10 +10652,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           // The host needs the frozen outerHTML for moves as well as copies. A
           // live source has no stored HTML document to snapshot, so waiting for
           // the duplicate-only field leaves move drops with no insert payload.
-          // Only serialize on release: during a drag the bridge may temporarily
-          // add a translate() lift to the source element, and that editor-only
-          // transform must never become destination markup.
-          sourceCloneHtml: phase === "end" && el ? el.outerHTML : void 0,
+          // Use the pre-lift snapshot: during a drag the bridge may temporarily
+          // add a translate() transform to the source element, and that
+          // editor-only transform must never become destination markup.
+          sourceCloneHtml: phase === "end" ? activeCrossScreenSourceHtml : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"
@@ -10660,6 +10663,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (phase === "end") {
         bridgeIgnoreAutoLayoutKeyPressed = false;
         activeCrossScreenStyleSnapshot = void 0;
+        activeCrossScreenSourceHtml = void 0;
         activeCrossScreenDragIdentity = null;
       }
     }

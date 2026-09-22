@@ -5941,6 +5941,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var bridgeIgnoreAutoLayoutKeyPressed = false;
   var bridgeSpaceKeyConsumedByDrag = false;
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
+  var activeCrossScreenSourceHtml: string | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
     sourceId: string;
@@ -14484,6 +14485,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (phase === "cancel") {
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenSourceHtml = undefined;
       activeCrossScreenDragIdentity = null;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
@@ -14496,6 +14498,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         options?.styleSnapshot !== undefined
           ? options.styleSnapshot
           : collectPortableStyleSnapshot(el ?? null);
+      activeCrossScreenSourceHtml = el?.outerHTML;
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -14558,10 +14561,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // The host needs the frozen outerHTML for moves as well as copies. A
         // live source has no stored HTML document to snapshot, so waiting for
         // the duplicate-only field leaves move drops with no insert payload.
-        // Only serialize on release: during a drag the bridge may temporarily
-        // add a translate() lift to the source element, and that editor-only
-        // transform must never become destination markup.
-        sourceCloneHtml: phase === "end" && el ? el.outerHTML : undefined,
+        // Use the pre-lift snapshot: during a drag the bridge may temporarily
+        // add a translate() transform to the source element, and that
+        // editor-only transform must never become destination markup.
+        sourceCloneHtml:
+          phase === "end" ? activeCrossScreenSourceHtml : undefined,
         releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : undefined,
       },
       "*",
@@ -14572,6 +14576,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // missed iframe keyup cannot affect the next drag.
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenSourceHtml = undefined;
       activeCrossScreenDragIdentity = null;
     }
   }
