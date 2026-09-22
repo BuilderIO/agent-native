@@ -36,6 +36,8 @@
     "postgres": "^3.4.9",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "@tanstack/react-query": "^5.99.2",
+    "react-router": "^8.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -71,7 +73,6 @@
     "@react-router/fs-routes": "^8.1.0",
     "@swc/core": "^1.13.3",
     "@tailwindcss/vite": "catalog:",
-    "@tanstack/react-query": "^5.99.2",
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -90,7 +91,6 @@
     "react-day-picker": "^9.14.0",
     "react-hook-form": "^7.71.2",
     "react-resizable-panels": "^4.10.0",
-    "react-router": "^8.1.0",
     "recharts": "^3.8.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",

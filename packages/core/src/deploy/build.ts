@@ -3394,7 +3394,11 @@ const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
 ] as const;
 const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
   "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
-const SERVERLESS_EXTERNAL_SSR_PACKAGES = ["react"] as const;
+const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
+  "react",
+  "react-router",
+  "@tanstack/react-query",
+] as const;
 
 function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   const manifest = readPackageManifest(projectCwd);
@@ -3740,9 +3744,9 @@ export function copyInstalledBrowserRuntimePackages(
 }
 
 /**
- * Vite's production SSR graph keeps React external so every SSR entry shares
- * one hook dispatcher. Nitro preserves that external from the prebuilt route
- * chunks, so the serverless artifact must carry the package itself.
+ * Vite's production SSR graph keeps singleton packages external so every SSR
+ * entry shares the same contexts. Nitro preserves those externals from the
+ * prebuilt route chunks, so the serverless artifact must carry them itself.
  */
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,

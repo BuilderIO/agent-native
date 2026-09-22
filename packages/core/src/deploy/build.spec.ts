@@ -2608,7 +2608,7 @@ describe("copyInstalledExternalSsrPackages", () => {
     }
   });
 
-  it("ships externally required React with the generated function manifest", () => {
+  it("ships externally required SSR packages with the generated function manifest", () => {
     const root = fs.mkdtempSync(
       path.join(process.cwd(), ".tmp-external-ssr-test-"),
     );
@@ -2616,8 +2616,16 @@ describe("copyInstalledExternalSsrPackages", () => {
     const nodeModules = path.join(root, "node_modules");
     const reactDir = path.join(nodeModules, "react");
     const looseEnvifyDir = path.join(nodeModules, "loose-envify");
+    const reactRouterDir = path.join(nodeModules, "react-router");
+    const cookieEsDir = path.join(nodeModules, "cookie-es");
+    const reactQueryDir = path.join(nodeModules, "@tanstack", "react-query");
+    const queryCoreDir = path.join(nodeModules, "@tanstack", "query-core");
     fs.mkdirSync(reactDir, { recursive: true });
     fs.mkdirSync(looseEnvifyDir, { recursive: true });
+    fs.mkdirSync(reactRouterDir, { recursive: true });
+    fs.mkdirSync(cookieEsDir, { recursive: true });
+    fs.mkdirSync(reactQueryDir, { recursive: true });
+    fs.mkdirSync(queryCoreDir, { recursive: true });
     fs.writeFileSync(
       path.join(reactDir, "package.json"),
       JSON.stringify({
@@ -2629,6 +2637,30 @@ describe("copyInstalledExternalSsrPackages", () => {
     fs.writeFileSync(
       path.join(looseEnvifyDir, "package.json"),
       JSON.stringify({ name: "loose-envify", version: "1.4.0" }),
+    );
+    fs.writeFileSync(
+      path.join(reactRouterDir, "package.json"),
+      JSON.stringify({
+        name: "react-router",
+        version: "8.1.0",
+        dependencies: { "cookie-es": "3.1.1" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(cookieEsDir, "package.json"),
+      JSON.stringify({ name: "cookie-es", version: "3.1.1" }),
+    );
+    fs.writeFileSync(
+      path.join(reactQueryDir, "package.json"),
+      JSON.stringify({
+        name: "@tanstack/react-query",
+        version: "5.101.2",
+        dependencies: { "@tanstack/query-core": "5.101.2" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(queryCoreDir, "package.json"),
+      JSON.stringify({ name: "@tanstack/query-core", version: "5.101.2" }),
     );
 
     const serverDir = path.join(root, "server");
@@ -2642,12 +2674,12 @@ describe("copyInstalledExternalSsrPackages", () => {
     expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
     fs.writeFileSync(
       path.join(serverDir, "chunk.mjs"),
-      "const react = require(`react`); export { react };",
+      'const react = require(`react`); import "react-router"; import "@tanstack/react-query"; export { react };',
     );
 
     expect(
       copyInstalledExternalSsrPackages(serverDir, root),
-    ).toBeGreaterThanOrEqual(2);
+    ).toBeGreaterThanOrEqual(6);
     expect(
       fs.existsSync(
         path.join(serverDir, "node_modules", "react", "package.json"),
@@ -2659,9 +2691,45 @@ describe("copyInstalledExternalSsrPackages", () => {
       ),
     ).toBe(true);
     expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-router", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "cookie-es", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "query-core",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+    expect(
       JSON.parse(fs.readFileSync(path.join(serverDir, "package.json"), "utf8"))
         .dependencies,
-    ).toEqual({ react: "19.2.7" });
+    ).toEqual({
+      react: "19.2.7",
+      "react-router": "8.1.0",
+      "@tanstack/react-query": "5.101.2",
+    });
   });
 });
 

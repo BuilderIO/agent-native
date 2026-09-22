@@ -29,6 +29,7 @@
     "postgres": "^3.4.9",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "@tanstack/react-query": "^5.99.2",
     "react-router": "^8.1.0",
     "vite": "catalog:",
     "zod": "^4.4.3"
@@ -65,7 +66,6 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "catalog:",
-    "@tanstack/react-query": "^5.99.2",
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

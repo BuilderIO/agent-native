@@ -2095,6 +2095,14 @@ describe("agentNative Vite plugin preset", () => {
     )) as any;
 
     expect(config.ssr.external).toContain("yjs");
+    expect(config.ssr.external).toEqual(
+      expect.arrayContaining([
+        "react",
+        "react-dom",
+        "react-router",
+        "@tanstack/react-query",
+      ]),
+    );
     expect(config.ssr.external).toContain("custom-native-package");
   });
 
