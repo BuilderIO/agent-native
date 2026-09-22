@@ -4669,13 +4669,13 @@ const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["'\\\`]`;
-  const staticImport = new RegExp(
-    `(?:^|[;\\n])\\s*import(?:[^;\\n]*?from\\s*|\\s*)(${quote})${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+  const staticModuleReference = new RegExp(
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
   );
   const dynamicImport = new RegExp(
     `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
   );
-  return staticImport.test(source) || dynamicImport.test(source);
+  return staticModuleReference.test(source) || dynamicImport.test(source);
 }
 
 function hasBareRuntimeRequire(source: string, packageName: string): boolean {
