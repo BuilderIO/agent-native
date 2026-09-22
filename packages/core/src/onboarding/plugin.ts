@@ -18,12 +18,14 @@ import {
   defineEventHandler,
   getCookie,
   getMethod,
+  setCookie,
   getQuery,
   readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
 import { readBrowserSessionIdHeader } from "../server/agent-run-context.js";
@@ -38,10 +40,18 @@ import {
   FIRST_RUN_ONBOARDING_COMPLETED_KEY,
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
+  SHARED_ONBOARDING_COOKIE,
+  SHARED_ONBOARDING_COOKIE_MAX_AGE,
+  decodeSharedOnboardingCookie,
+  encodeSharedOnboardingCookie,
+  hashOnboardingEmail,
 } from "../shared/first-run-onboarding.js";
 import { classifyTrackingFailure, track } from "../tracking/index.js";
 import { onboardingRoleSchema } from "../user-profile/shared.js";
-import { updateUserOnboardingRole } from "../user-profile/store.js";
+import {
+  getUserProfile,
+  updateUserOnboardingRole,
+} from "../user-profile/store.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
@@ -360,8 +370,11 @@ export function createOnboardingPlugin(
         }
         const context = await resolveOnboardingContext(event);
         if (!context.userEmail) return { firstRun: false };
+        const userEmail = context.userEmail;
         const { cookieDomainAttrs, crossSiteCookieAttrs } =
           await import("../server/auth.js");
+        const sharedCompletionEnabled =
+          getAppConfig().onboarding.sharedCompletion.enabled;
 
         return withOnboardingRequestContext(context, async () => {
           const completed = await appStateGet(
@@ -375,6 +388,48 @@ export function createOnboardingPlugin(
               path: "/",
             });
             return { firstRun: false };
+          }
+
+          if (sharedCompletionEnabled) {
+            const decoded = decodeSharedOnboardingCookie(
+              getCookie(event, SHARED_ONBOARDING_COOKIE),
+            );
+            if (
+              decoded &&
+              decoded.emailHash === hashOnboardingEmail(userEmail)
+            ) {
+              await appStatePut(
+                context.sessionId,
+                FIRST_RUN_ONBOARDING_COMPLETED_KEY,
+                {
+                  completed: true,
+                  at: new Date().toISOString(),
+                  source: "shared-cookie",
+                },
+                { requestSource: "agent" },
+              );
+              if (decoded.role) {
+                const profile = await getUserProfile(userEmail);
+                if (!profile.onboardingRole) {
+                  await updateUserOnboardingRole(userEmail, decoded.role);
+                }
+              }
+              track(
+                "onboarding_first_run_adopted",
+                {
+                  flow: "first_run",
+                  source: "shared_cookie",
+                  role: decoded.role,
+                },
+                { userId: userEmail },
+              );
+              deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+                ...crossSiteCookieAttrs(event),
+                ...cookieDomainAttrs(),
+                path: "/",
+              });
+              return { firstRun: false };
+            }
           }
 
           // Signup alone is not enough to qualify. Resolve the real org path
@@ -477,8 +532,12 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
-        const { cookieDomainAttrs, crossSiteCookieAttrs } =
-          await import("../server/auth.js");
+        const {
+          cookieDomainAttrs,
+          crossSiteCookieAttrs,
+          isHttpsRequest,
+          sharedFirstPartyCookieDomainAttrs,
+        } = await import("../server/auth.js");
         await appStatePut(
           context.sessionId,
           FIRST_RUN_ONBOARDING_COMPLETED_KEY,
@@ -490,6 +549,23 @@ export function createOnboardingPlugin(
           ...cookieDomainAttrs(),
           path: "/",
         });
+        if (getAppConfig().onboarding.sharedCompletion.enabled) {
+          const role =
+            (await getUserProfile(context.userEmail)).onboardingRole ?? null;
+          setCookie(
+            event,
+            SHARED_ONBOARDING_COOKIE,
+            encodeSharedOnboardingCookie({ role, email: context.userEmail }),
+            {
+              ...sharedFirstPartyCookieDomainAttrs(),
+              path: "/",
+              httpOnly: true,
+              sameSite: "lax",
+              secure: isHttpsRequest(event),
+              maxAge: SHARED_ONBOARDING_COOKIE_MAX_AGE,
+            },
+          );
+        }
         return { ok: true };
       }),
     );

@@ -525,6 +525,11 @@ export function cookieDomainAttrs(): { domain?: string } {
   return domain ? { domain } : {};
 }
 
+export function sharedFirstPartyCookieDomainAttrs(): { domain?: string } {
+  const domain = AUTH_COOKIE_NAMESPACE.configuredCookieDomain;
+  return domain ? { domain } : {};
+}
+
 function getCookieValues(event: H3Event, name: string): string[] {
   const values: string[] = [];
   const raw = getHeader(event, "cookie");
@@ -4836,7 +4841,7 @@ export function redirectWithStagedCookies(
   return new Response("", { status, headers });
 }
 
-function isHttpsRequest(event: H3Event): boolean {
+export function isHttpsRequest(event: H3Event): boolean {
   try {
     const xfProto = getHeader(event, "x-forwarded-proto");
     if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
