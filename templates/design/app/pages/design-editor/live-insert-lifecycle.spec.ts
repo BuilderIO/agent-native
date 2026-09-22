@@ -80,6 +80,13 @@ const REORDER_FIXTURE = `<!doctype html><html><body>
   </main>
 </body></html>`;
 
+const REPEATED_RUNTIME_INSERT_FIXTURE = `<!doctype html><html><body>
+  <main data-agent-native-node-id="card">
+    <p data-agent-native-node-id="v1" data-agent-native-runtime-instance-id="instance-v1">V1</p>
+    <p data-agent-native-node-id="v2" data-agent-native-runtime-instance-id="instance-v2">V2</p>
+  </main>
+</body></html>`;
+
 interface StructureChangeMessage {
   type: string;
   requestId: string;
@@ -402,6 +409,159 @@ describe("live insert lifecycle", () => {
             .locator('[data-agent-native-node-id="card"] > *')
             .allTextContents(),
         ).toEqual(["V2", "V3", "V1"]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "remints colliding live insert ids without changing source provenance",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html><body>
+          <main data-agent-native-node-id="card">
+            <div id="email" data-agent-native-node-id="shared" data-source-file="src/Card.tsx" data-source-line="12">Existing</div>
+            <div id="email-options">Existing options</div>
+          </main>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "runtime-structure-insert",
+              requestId: 101,
+              html: '<form id="email" data-agent-native-node-id="shared" data-agent-native-runtime-instance-id="shared" data-source-file="src/Card.tsx" data-source-line="12"><label for="email" aria-labelledby="email" aria-label="Email field">Moved</label><input form="email" list="email-options" /><datalist id="email-options"><option value="Moved" /></datalist><span id="email">Duplicate</span></form>',
+              anchorSelector: '[data-agent-native-node-id="card"]',
+              anchorSourceId: "card",
+              placement: "inside",
+              remintCollidingNodeIds: true,
+            },
+            "*",
+          );
+        });
+
+        await page.waitForFunction(
+          () =>
+            document.querySelectorAll('[data-source-file="src/Card.tsx"]')
+              .length === 2,
+        );
+        const ids = await page
+          .locator('[data-source-file="src/Card.tsx"]')
+          .evaluateAll((nodes) =>
+            nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+          );
+        expect(ids).toHaveLength(2);
+        expect(new Set(ids).size).toBe(2);
+        expect(ids).toContain("shared");
+        expect(await page.locator("#email").count()).toBe(1);
+        const inserted = page
+          .locator('[data-source-file="src/Card.tsx"]')
+          .nth(1);
+        expect(await inserted.locator("label").textContent()).toBe("Moved");
+        const insertedId = await inserted.getAttribute("id");
+        expect(insertedId).not.toBe("email");
+        expect(await inserted.locator("label").getAttribute("for")).toBe(
+          insertedId,
+        );
+        expect(
+          await inserted.locator("label").getAttribute("aria-labelledby"),
+        ).toBe(insertedId);
+        expect(await inserted.locator("label").getAttribute("aria-label")).toBe(
+          "Email field",
+        );
+        expect(await inserted.locator("input").getAttribute("form")).toBe(
+          insertedId,
+        );
+        const optionsId = await inserted.locator("datalist").getAttribute("id");
+        expect(optionsId).not.toBe("email-options");
+        expect(await inserted.locator("input").getAttribute("list")).toBe(
+          optionsId,
+        );
+        const insertedIds = await inserted
+          .locator("[id]")
+          .evaluateAll((nodes) => nodes.map((node) => node.id));
+        expect(new Set(insertedIds).size).toBe(insertedIds.length);
+        expect(
+          await inserted.getAttribute("data-agent-native-runtime-instance-id"),
+        ).toBe(ids[1]);
+        const messages = await page.evaluate(
+          () =>
+            (window as Window & { __messages?: Record<string, unknown>[] })
+              .__messages ?? [],
+        );
+        expect(messages).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "runtime-structure-insert-applied",
+              requestId: "101",
+              sourceId: expect.not.stringMatching(/^shared$/),
+            }),
+          ]),
+        );
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "reorders an existing runtime instance before reminting a colliding id",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(REPEATED_RUNTIME_INSERT_FIXTURE);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+
+        await page.evaluate((screenId) => {
+          window.postMessage(
+            {
+              type: "runtime-structure-insert",
+              screenId,
+              sourceScreenId: screenId,
+              requestId: 102,
+              html: '<p data-agent-native-node-id="v1" data-agent-native-runtime-instance-id="instance-v1">V1</p>',
+              anchorSelector: '[data-agent-native-node-id="v2"]',
+              anchorSourceId: "v2",
+              placement: "after",
+              remintCollidingNodeIds: true,
+            },
+            "*",
+          );
+        }, SCREEN_ID);
+
+        await page.waitForFunction(
+          () =>
+            JSON.stringify(
+              Array.from(
+                document.querySelectorAll("main > [data-agent-native-node-id]"),
+              ).map((node) => node.textContent),
+            ) === '["V2","V1"]',
+        );
+        expect(
+          await page.locator('[data-agent-native-node-id="v1"]').count(),
+        ).toBe(1);
+        expect(
+          await page
+            .locator(
+              '[data-agent-native-node-id="v2"] + [data-agent-native-node-id="v1"]',
+            )
+            .count(),
+        ).toBe(1);
       } finally {
         await browser.close();
       }

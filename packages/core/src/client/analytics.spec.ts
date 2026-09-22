@@ -503,6 +503,25 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it("prefers the isolated GA channel over a host-provided gtag", async () => {
+    const { gtag } = installBrowser();
+    const isolatedGtag = vi.fn();
+    (
+      window as Window & { __AGENT_NATIVE_GA_GTAG__?: typeof isolatedGtag }
+    ).__AGENT_NATIVE_GA_GTAG__ = isolatedGtag;
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    trackEvent("custom_ga_event", { value: "isolated" });
+
+    expect(isolatedGtag).toHaveBeenCalledWith(
+      "event",
+      "custom_ga_event",
+      expect.objectContaining({ value: "isolated" }),
+    );
+    expect(gtag).not.toHaveBeenCalled();
+  });
+
   it("uses the configured native client platform for every pageview", async () => {
     installBrowser("https://mail.agent-native.com/inbox");
     const { analyticsCalls } = installFetch();

@@ -20,6 +20,7 @@ import {
   DEFAULT_CANVAS_MIN_ZOOM,
   getDraftGeometryFromPoints,
 } from "@shared/canvas-math";
+import type { InteractionState } from "@shared/interaction-states";
 import {
   appendPenNode,
   clonePenPath,
@@ -72,7 +73,10 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
-import { runtimeStyleTarget } from "@/pages/design-editor/pending-edits";
+import {
+  pendingVisualStyleRouteMatches,
+  runtimeStyleTarget,
+} from "@/pages/design-editor/pending-edits";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
@@ -555,7 +559,7 @@ type StyleReplayPatch = {
   runtimeSourceId?: string | null;
   routePath?: string;
   styles: Record<string, string>;
-  interactionState?: string;
+  interactionState?: InteractionState;
 };
 
 type BridgeRegistrationAttemptResult = boolean | "stale-preview-token" | null;
@@ -732,6 +736,7 @@ interface DesignCanvasProps {
     routePath?: string;
     selector: string;
     sourceId?: string;
+    applied?: boolean;
   }) => void;
   onRuntimeStructureDeleteApplied?: (details: {
     screenId?: string;
@@ -1713,6 +1718,11 @@ export function DesignCanvas({
   // bridge and thus never post ready) and flush in order.
   const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
+  // A trusted message can arrive from the lightweight hit-test/runtime bridge
+  // before the full editor-chrome listener has attached. Keep every one-shot
+  // editor mutation behind the explicit editor-chrome handshake; otherwise an
+  // empty board can consume a command before its listener exists.
+  const editorChromeReadyRef = useRef(false);
   const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
@@ -1725,6 +1735,10 @@ export function DesignCanvas({
     if (!win) return;
     const queued = pendingOneShotMessagesRef.current;
     if (queued.length === 0) return;
+    // Keep the queue as one ordered transaction. Partitioning only the
+    // runtime-insert messages lets a later style/delete/rename command pass
+    // the still-unready chrome and overtake the insert it depends on.
+    if (!editorChromeReadyRef.current) return;
     pendingOneShotMessagesRef.current = [];
     queued.forEach((message) => win.postMessage(message, "*"));
   }, []);
@@ -1789,7 +1803,7 @@ export function DesignCanvas({
       // iframe. Keep it queued even when the ref/contentWindow is not attached
       // yet; otherwise the effect records its request id as handled and the
       // command is lost permanently before the bridge can announce readiness.
-      if (!win || !bridgeReadyRef.current) {
+      if (!win || !bridgeReadyRef.current || !editorChromeReadyRef.current) {
         pendingOneShotMessagesRef.current.push(message);
         // The readiness recovery in the message handler below is PASSIVE: it
         // waits for the frame to say something first. A live-edit screen keeps
@@ -1820,6 +1834,7 @@ export function DesignCanvas({
     [probeBridgeReadinessUntilDrained],
   );
   useEffect(() => {
+    if (interactMode) return;
     const isInspectorTarget = (target: EventTarget | null): boolean =>
       target instanceof Element &&
       !!target.closest('[data-design-chrome-region="right-panel"]');
@@ -1986,7 +2001,13 @@ export function DesignCanvas({
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [contentKey, postOneShotBridgeMessage, registerRuntimeBridge, screenId]);
+  }, [
+    contentKey,
+    interactMode,
+    postOneShotBridgeMessage,
+    registerRuntimeBridge,
+    screenId,
+  ]);
   const [renderedDocument, setRenderedDocument] = useState(() => ({
     content,
     sourceContent: authoredSourceContent ?? content,
@@ -2209,7 +2230,7 @@ export function DesignCanvas({
         editMode,
         editorChromeScaleX: 1,
         editorChromeScaleY: 1,
-        screenId: screenId ?? contentKey ?? "",
+        screenId: screenId ?? "",
         boardSurface,
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
@@ -2219,15 +2240,15 @@ export function DesignCanvas({
         initialSourceHead: "",
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [boardSurface, contentKey, runtimeLayerSnapshotEnabled, screenId],
+    [boardSurface, runtimeLayerSnapshotEnabled, screenId],
   );
   // Keep the installed gesture script identical between overview and focused
   // mode. The live flags are posted below; baking `isEmbeddedFrame` into the
   // script changed the bridge key during responsive Interact and defeated the
   // registration handoff cache, forcing an avoidable iframe navigation.
-  // interactMode remains baked: un-baking its first-paint safety flag made the
-  // responsive iframe render blank in live verification. The live message
-  // below is additive; it does not replace the correct initial script.
+  // Interaction ownership is switched in-place after the bridge handshake;
+  // baking the mode into this script changes the live bridge key and reloads
+  // the running app.
   const embeddedGestureBridgeForCurrentState = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
@@ -2235,8 +2256,8 @@ export function DesignCanvas({
         "false",
       )
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
-        .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
-    [interactMode],
+        .replace("__EDITING_SAFETY_ENABLED__", "true"),
+    [],
   );
   // srcdoc is rebuilt per document, so unlike the keyed live-edit bundle above
   // it can carry the real first-paint value: forwarding that arrives only by
@@ -2251,7 +2272,7 @@ export function DesignCanvas({
         .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
     [interactMode, isEmbeddedFrame],
   );
-  const includeLiveEditEditorChrome = !interactMode && !readOnly;
+  const includeLiveEditEditorChrome = !readOnly;
   const liveEditBridgeScript = useMemo(
     () =>
       (includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +
@@ -2480,21 +2501,9 @@ export function DesignCanvas({
   }, [externalPreviewUrl, usesLiveEditInjectedBridge]);
   const installedBridgeKeyRef = useRef<string | null>(null);
   const sendBridgeToContainer = useCallback(() => {
-    if (!containerPreview || !includeLiveEditEditorChrome) {
-      console.log("[design:bridge] install skipped", {
-        containerPreview,
-        includeLiveEditEditorChrome,
-      });
-      return;
-    }
+    if (!containerPreview || !includeLiveEditEditorChrome) return;
     const target = iframeRef.current?.contentWindow;
-    if (!target || !externalPreviewUrl) {
-      console.log("[design:bridge] install skipped", {
-        hasTarget: Boolean(target),
-        externalPreviewUrl,
-      });
-      return;
-    }
+    if (!target || !externalPreviewUrl) return;
     if (installedBridgeKeyRef.current === liveEditBridgeKey) return;
     let origin: string;
     try {
@@ -3352,6 +3361,7 @@ export function DesignCanvas({
       // has already run and posted its own new ready message; resetting on
       // `load` would incorrectly clobber that just-arrived ready signal.
       bridgeReadyRef.current = false;
+      editorChromeReadyRef.current = false;
       bootReadyRef.current = false;
       pendingOneShotMessagesRef.current = [];
       setRenderedDocument({
@@ -3622,9 +3632,19 @@ export function DesignCanvas({
     : waitingForLiveEditBridge
       ? `live-edit-pending:${liveEditBridgeKey}`
       : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
+  // Route navigation inside a live URL updates `externalPreviewUrl`, but it
+  // must not replace the host iframe. Keeping the element stable lets the
+  // running app navigate in place while the document identity below still
+  // resets readiness and re-arms the edit shield for the new route.
+  const iframeElementIdentity = externalPreviewUrl
+    ? `external:${previewFrameId ?? screenId ?? contentKey ?? "screen"}:${
+        usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
+      }`
+    : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
+    editorChromeReadyRef.current = false;
     bootReadyRef.current = false;
   }
   // Edit mode must never let a live URL receive native app input before the
@@ -3865,6 +3885,7 @@ export function DesignCanvas({
           onRoutePathChange?.(screenId, e.data.routePath);
         }
         bridgeReadyRef.current = true;
+        editorChromeReadyRef.current = true;
         onBridgeReady?.();
         setReadyIframeDocumentIdentity(iframeDocumentIdentity);
         // A confirmed ready handshake proves this bridgeInstanceId/key pair
@@ -4073,7 +4094,22 @@ export function DesignCanvas({
           selector: typeof e.data.selector === "string" ? e.data.selector : "",
           sourceId:
             typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+          applied: e.data.applied !== false,
         });
+        // Runtime inserts have their own transaction acknowledgement. The
+        // bridge also emits an optimistic visual-structure-change so the
+        // normal drag path can retain provenance, but that echo is not the
+        // authority for an insert. Ack it only after the runtime insert has
+        // reported success so a stale/false visual callback cannot remove a
+        // node that was inserted into the target DOM successfully.
+        iframeRef.current?.contentWindow?.postMessage(
+          {
+            type: "visual-structure-ack",
+            requestId,
+            applied: e.data.applied !== false,
+          },
+          "*",
+        );
         return;
       }
       if (e.data.type === "runtime-element-deleted") {
@@ -4206,6 +4242,7 @@ export function DesignCanvas({
         const anchorSelector = String(e.data.anchorSelector || "");
         const placement = String(e.data.placement || "after");
         const replaced = e.data.replaced === true;
+        const runtimeInsert = e.data.runtimeInsert === true;
         dndHostLog("recv:structure-change", {
           selector,
           anchorSelector,
@@ -4275,94 +4312,98 @@ export function DesignCanvas({
             placement === "after" ||
             placement === "inside")
         ) {
-          const applied = onVisualStructureChange?.(
-            replaced ? anchorSelector : selector,
-            replaced ? "" : anchorSelector,
-            placement,
-            replaced && isElementInfoPayload(e.data.anchorPayload)
-              ? e.data.anchorPayload
-              : e.data.payload,
-            {
-              requestId,
-              transactionId:
-                typeof e.data.transactionId === "string"
-                  ? e.data.transactionId
-                  : undefined,
-              routePath:
-                typeof e.data.routePath === "string"
-                  ? e.data.routePath
-                  : (liveRoutePathRef.current ?? undefined),
-              sourceId: replaced ? anchorSourceId : sourceId,
-              anchorSourceId: replaced ? undefined : anchorSourceId,
-              dropMode,
-              forceFlowPositionOverride:
-                e.data.forceFlowPositionOverride === true,
-              sourceRect,
-              anchorRect,
-              gridPlacement:
-                e.data.gridPlacement &&
-                Number.isFinite(e.data.gridPlacement.column) &&
-                Number.isFinite(e.data.gridPlacement.columnEnd) &&
-                Number.isFinite(e.data.gridPlacement.row) &&
-                Number.isFinite(e.data.gridPlacement.rowEnd)
-                  ? {
-                      column: Number(e.data.gridPlacement.column),
-                      columnEnd: Number(e.data.gridPlacement.columnEnd),
-                      row: Number(e.data.gridPlacement.row),
-                      rowEnd: Number(e.data.gridPlacement.rowEnd),
-                    }
-                  : undefined,
-              gridDisplacements: Array.isArray(e.data.gridDisplacements)
-                ? e.data.gridDisplacements.map(
-                    (entry: {
-                      sourceId?: unknown;
-                      selector?: unknown;
-                      placement: {
-                        column: number;
-                        columnEnd: number;
-                        row: number;
-                        rowEnd: number;
-                      };
-                    }) => ({
-                      sourceId:
-                        typeof entry.sourceId === "string"
-                          ? entry.sourceId
-                          : undefined,
-                      selector:
-                        typeof entry.selector === "string"
-                          ? entry.selector
-                          : undefined,
-                      placement: {
-                        column: Number(entry.placement.column),
-                        columnEnd: Number(entry.placement.columnEnd),
-                        row: Number(entry.placement.row),
-                        rowEnd: Number(entry.placement.rowEnd),
-                      },
-                    }),
-                  )
-                : undefined,
-              anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
-                ? e.data.anchorPayload
-                : undefined,
-              insertedHtml:
-                typeof e.data.insertedHtml === "string"
-                  ? e.data.insertedHtml
-                  : undefined,
-              ...(replaced
-                ? {
-                    replaced: true as const,
-                    replacementSelector: selector,
-                    replacementSourceId: sourceId,
-                    replacementSnapshotHtml: replacementSnapshot?.ok
-                      ? replacementSnapshot.html
+          const applied = runtimeInsert
+            ? "pending"
+            : onVisualStructureChange?.(
+                replaced ? anchorSelector : selector,
+                replaced ? "" : anchorSelector,
+                placement,
+                replaced && isElementInfoPayload(e.data.anchorPayload)
+                  ? e.data.anchorPayload
+                  : e.data.payload,
+                {
+                  requestId,
+                  transactionId:
+                    typeof e.data.transactionId === "string"
+                      ? e.data.transactionId
                       : undefined,
-                    replacementElementInfo: isElementInfoPayload(e.data.payload)
-                      ? e.data.payload
+                  routePath:
+                    typeof e.data.routePath === "string"
+                      ? e.data.routePath
+                      : (liveRoutePathRef.current ?? undefined),
+                  sourceId: replaced ? anchorSourceId : sourceId,
+                  anchorSourceId: replaced ? undefined : anchorSourceId,
+                  dropMode,
+                  forceFlowPositionOverride:
+                    e.data.forceFlowPositionOverride === true,
+                  sourceRect,
+                  anchorRect,
+                  gridPlacement:
+                    e.data.gridPlacement &&
+                    Number.isFinite(e.data.gridPlacement.column) &&
+                    Number.isFinite(e.data.gridPlacement.columnEnd) &&
+                    Number.isFinite(e.data.gridPlacement.row) &&
+                    Number.isFinite(e.data.gridPlacement.rowEnd)
+                      ? {
+                          column: Number(e.data.gridPlacement.column),
+                          columnEnd: Number(e.data.gridPlacement.columnEnd),
+                          row: Number(e.data.gridPlacement.row),
+                          rowEnd: Number(e.data.gridPlacement.rowEnd),
+                        }
                       : undefined,
-                  }
-                : {}),
-            },
-          );
+                  gridDisplacements: Array.isArray(e.data.gridDisplacements)
+                    ? e.data.gridDisplacements.map(
+                        (entry: {
+                          sourceId?: unknown;
+                          selector?: unknown;
+                          placement: {
+                            column: number;
+                            columnEnd: number;
+                            row: number;
+                            rowEnd: number;
+                          };
+                        }) => ({
+                          sourceId:
+                            typeof entry.sourceId === "string"
+                              ? entry.sourceId
+                              : undefined,
+                          selector:
+                            typeof entry.selector === "string"
+                              ? entry.selector
+                              : undefined,
+                          placement: {
+                            column: Number(entry.placement.column),
+                            columnEnd: Number(entry.placement.columnEnd),
+                            row: Number(entry.placement.row),
+                            rowEnd: Number(entry.placement.rowEnd),
+                          },
+                        }),
+                      )
+                    : undefined,
+                  anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
+                    ? e.data.anchorPayload
+                    : undefined,
+                  insertedHtml:
+                    typeof e.data.insertedHtml === "string"
+                      ? e.data.insertedHtml
+                      : undefined,
+                  ...(replaced
+                    ? {
+                        replaced: true as const,
+                        replacementSelector: selector,
+                        replacementSourceId: sourceId,
+                        replacementSnapshotHtml: replacementSnapshot?.ok
+                          ? replacementSnapshot.html
+                          : undefined,
+                        replacementElementInfo: isElementInfoPayload(
+                          e.data.payload,
+                        )
+                          ? e.data.payload
+                          : undefined,
+                      }
+                    : {}),
+                },
+              );
           dndHostLog("persist:result", {
             applied,
             requestId,
@@ -4934,6 +4975,8 @@ export function DesignCanvas({
   // Latest replayIframeEditorState, synced during render (below) so the message
   // handler can force a corrective resync without a stale closure.
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
+  const interactModeRef = useRef(interactMode);
+  interactModeRef.current = interactMode;
   // Render-synced committed selection so the message handler reads current
   // values without re-binding the window listener on every selection.
   const selectedSelectorRef = useRef(selectedSelector);
@@ -4944,6 +4987,14 @@ export function DesignCanvas({
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+    iframe.contentWindow?.postMessage(
+      { type: "agent-native:editor-chrome-ready-probe" },
+      "*",
+    );
+    iframe.contentWindow?.postMessage(
+      { type: "set-interaction-mode", interact: interactModeRef.current },
+      "*",
+    );
     iframe.contentWindow?.postMessage(
       {
         type: "embedded-canvas-pan-mode",
@@ -5132,8 +5183,14 @@ export function DesignCanvas({
     if (!iframe) return;
     function handleLoadReadyFallback() {
       if (!shouldUseIframeLoadReadyFallback(usesLiveEditEditorBridge)) return;
-      if (bridgeReadyRef.current) return;
+      if (bridgeReadyRef.current) {
+        if (editorChromeReadyRef.current) return;
+        editorChromeReadyRef.current = true;
+        flushPendingOneShotMessages();
+        return;
+      }
       bridgeReadyRef.current = true;
+      editorChromeReadyRef.current = true;
       onBridgeReady?.();
       flushPendingOneShotMessages();
     }
@@ -5389,6 +5446,22 @@ export function DesignCanvas({
     // Only re-run when readOnly changes; iframe identity is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendInteractionMode() {
+      iframe!.contentWindow?.postMessage(
+        { type: "set-interaction-mode", interact: interactModeRef.current },
+        "*",
+      );
+    }
+    sendInteractionMode();
+    iframe.addEventListener("load", sendInteractionMode);
+    return () => iframe.removeEventListener("load", sendInteractionMode);
+    // Only re-run when interaction ownership changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interactMode]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -5744,7 +5817,13 @@ export function DesignCanvas({
       nodeId?: string | null;
       state: string;
       styles: Record<string, string>;
+      routePath?: string;
+      screenId?: string;
     }) => {
+      if (!screenId || args.screenId !== screenId) return false;
+      if (!pendingVisualStyleRouteMatches(args, liveRoutePathRef.current)) {
+        return false;
+      }
       postOneShotBridgeMessage({
         type: "interaction-state-style-preview",
         selector: args.selector,
@@ -5753,17 +5832,17 @@ export function DesignCanvas({
         state: args.state,
         styles: args.styles,
       });
+      return true;
     },
-    [postOneShotBridgeMessage],
+    [postOneShotBridgeMessage, screenId],
   );
 
   const lastStyleRevertRequestIdRef = useRef<number | null>(null);
   const replayStylePatches = useCallback(
     (patches: Array<StyleReplayPatch>) => {
       for (const patch of patches) {
-        if (patch.routePath && patch.routePath !== liveRoutePathRef.current) {
+        if (!pendingVisualStyleRouteMatches(patch, liveRoutePathRef.current))
           continue;
-        }
         const target = runtimeStyleTarget(patch);
         if (target.selectorCandidates.length === 0) continue;
         if (patch.interactionState) {
@@ -5805,7 +5884,7 @@ export function DesignCanvas({
       (pendingStylePreviewPatches ?? []).filter(
         (patch) =>
           patch.screenId === screenId &&
-          (!patch.routePath || patch.routePath === liveRoutePathRef.current),
+          pendingVisualStyleRouteMatches(patch, liveRoutePathRef.current),
       ),
     );
   }, [
@@ -5936,8 +6015,13 @@ export function DesignCanvas({
     ].forEach((html, index) => {
       postOneShotBridgeMessage({
         type: "runtime-structure-insert",
+        screenId: runtimeStructureInsertRequest.screenId,
+        sourceScreenId: runtimeStructureInsertRequest.sourceScreenId,
         requestId: runtimeStructureInsertRequest.requestId + index / 1_000,
         transactionId: runtimeStructureInsertRequest.transactionId,
+        ...(runtimeStructureInsertRequest.remintCollidingNodeIds === true
+          ? { remintCollidingNodeIds: true }
+          : {}),
         html,
         anchorSelector,
         anchorSourceId,
@@ -6303,6 +6387,7 @@ export function DesignCanvas({
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
       bridgeReadyRef.current = false;
+      editorChromeReadyRef.current = false;
       bootReadyRef.current = false;
       pendingOneShotMessagesRef.current = [];
       setRenderedDocument({
@@ -6386,10 +6471,12 @@ export function DesignCanvas({
     return registerLinkedScreenPreviewHandlers(frameId, {
       replaceContent: replacePreviewContentFromHost,
       sendStyleChange,
+      sendInteractionStatePreviewStyle,
     });
   }, [
     previewFrameId,
     replacePreviewContentFromHost,
+    sendInteractionStatePreviewStyle,
     screenId,
     sendStyleChange,
   ]);
@@ -6425,10 +6512,41 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        routePath?: string;
+        interactionState?: InteractionState;
+      },
     ) => {
       if (!screenId || targetScreenId !== screenId) return false;
-      return sendStyleChangeLinked(selector, property, value, options);
+      if (
+        !pendingVisualStyleRouteMatches(options ?? {}, liveRoutePathRef.current)
+      ) {
+        return false;
+      }
+      if (options?.interactionState) {
+        return sendInteractionStatePreviewStyle({
+          selector,
+          selectorCandidates: options.selectorCandidates,
+          nodeId: options.nodeId,
+          state: options.interactionState,
+          styles: { [property]: value },
+          routePath: options.routePath,
+          screenId,
+        });
+      }
+      return sendStyleChangeLinked(
+        selector,
+        property,
+        value,
+        options
+          ? {
+              selectorCandidates: options.selectorCandidates,
+              nodeId: options.nodeId,
+            }
+          : undefined,
+      );
     };
     const replacePreviewContentLinked = (
       nextContent: string,
@@ -6838,7 +6956,7 @@ export function DesignCanvas({
       {rawExternalPreviewUrl &&
       !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
         <iframe
-          key={iframeDocumentIdentity}
+          key={iframeElementIdentity}
           ref={iframeRef}
           src={externalPreviewUrl ?? undefined}
           srcDoc={externalPreviewUrl ? undefined : srcdoc}
@@ -6857,6 +6975,10 @@ export function DesignCanvas({
               onBootReady();
             }
             sendBridgeToContainer();
+            event.currentTarget.contentWindow?.postMessage(
+              { type: "agent-native:editor-chrome-ready-probe" },
+              "*",
+            );
             // The bridge logs into the IFRAME console and cannot read
             // import.meta.env, so dev has to switch it on from out here.
             if (!import.meta.env?.DEV) return;
@@ -6949,7 +7071,7 @@ export function DesignCanvas({
           below. Only mounts while a creation tool is active so it never
           changes existing behavior otherwise (T14: single-screen mode
           previously had no creation capability at all). */}
-      {activeCreationTool ? (
+      {activeCreationTool && !interactMode ? (
         <SingleScreenCreationOverlay
           tool={activeCreationTool}
           iframeRef={iframeRef}

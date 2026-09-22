@@ -2095,7 +2095,27 @@ describe("agentNative Vite plugin preset", () => {
     )) as any;
 
     expect(config.ssr.external).toContain("yjs");
+    expect(config.ssr.external).toEqual(
+      expect.arrayContaining([
+        "react",
+        "react-dom",
+        "react-router",
+        "@tanstack/react-query",
+      ]),
+    );
     expect(config.ssr.external).toContain("custom-native-package");
+
+    const ssrNoExternal = config.ssr.noExternal as RegExp;
+    expect(ssrNoExternal.test("react-router")).toBe(false);
+    expect(ssrNoExternal.test("react-router/dom")).toBe(false);
+    expect(
+      config.resolve.alias.some(
+        (entry: { find?: RegExp | string }) =>
+          entry.find instanceof RegExp &&
+          (entry.find.test("react-router") ||
+            entry.find.test("react-router/dom")),
+      ),
+    ).toBe(false);
   });
 
   it("keeps legacy defineConfig caller plugins before framework plugins", () => {

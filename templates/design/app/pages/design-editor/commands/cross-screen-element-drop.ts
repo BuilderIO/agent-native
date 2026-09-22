@@ -122,6 +122,7 @@ export interface CrossScreenElementDropArgs {
   boardFileId: string | undefined;
   canEditDesign: boolean;
   canEditLiveScreen?: (screenId: string) => boolean;
+  canEditLiveBoard?: boolean;
   clearPendingOverviewLayerSelectionTimer: () => void;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
@@ -149,6 +150,7 @@ export interface CrossScreenElementDropArgs {
   clearPendingHistory?: () => void;
   syncUndoRedoState?: () => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
     targetLayerId: string,
@@ -181,6 +183,7 @@ export function runCrossScreenElementDrop(
     boardFileId,
     canEditDesign,
     canEditLiveScreen,
+    canEditLiveBoard = false,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
@@ -199,6 +202,7 @@ export function runCrossScreenElementDrop(
     clearPendingHistory,
     syncUndoRedoState,
     runtimeStructureInsertRevisionRef,
+    runtimeStructurePendingTransactionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setActiveFileId,
     setCreatedOverviewLayerSelection,
@@ -384,6 +388,8 @@ export function runCrossScreenElementDrop(
     isRunningAppSourceType(
       resolveOverviewScreenSourceType(targetScreen, designSourceType),
     );
+  const targetScreenIsBoard =
+    Boolean(boardFileId) && targetScreenId === boardFileId;
   const sourceScreenIsLive =
     Boolean(sourceScreen) &&
     isRunningAppSourceType(
@@ -394,22 +400,38 @@ export function runCrossScreenElementDrop(
     targetScreenIsLive &&
     Boolean(canEditLiveScreen?.(sourceScreenId)) &&
     Boolean(canEditLiveScreen?.(targetScreenId));
-  if (!canEditDesign && !canEditLiveCrossScreen) return;
+  const canEditLiveBoardDrop =
+    sourceScreenIsLive &&
+    targetScreenIsBoard &&
+    Boolean(canEditLiveScreen?.(sourceScreenId)) &&
+    canEditLiveBoard;
+  if (!canEditDesign && !canEditLiveCrossScreen && !canEditLiveBoardDrop)
+    return;
+
+  const beginRuntimeStructureTransaction = () => {
+    if (runtimeStructurePendingTransactionRef?.current) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return null;
+    }
+    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (runtimeStructurePendingTransactionRef) {
+      runtimeStructurePendingTransactionRef.current = transactionId;
+    }
+    return transactionId;
+  };
 
   // Duplicate intent must be resolved before live/semantic move routing. A
   // fresh clone cannot resolve to a source owner, so those paths would reject
   // the copy or treat it as a move without consuming sourceCloneHtml.
-  if (canEditLiveCrossScreen && !duplicate) {
+  if ((canEditLiveCrossScreen || canEditLiveBoardDrop) && !duplicate) {
     const subjectNodeId =
       sourceNodeId ??
       (sourceProvenance as { uniqueNodeId?: string } | undefined)?.uniqueNodeId;
     const sourceOwner = sourceOwnerEntry?.[1];
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
     const validatedSourceHtmlSnapshot =
-      subjectNodeId && sourceHtmlSnapshot
-        ? validateCrossScreenSourceHtmlSnapshot(
-            sourceHtmlSnapshot,
-            subjectNodeId,
-          )
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
         : undefined;
     if (!sourceOwner || !subjectNodeId || !validatedSourceHtmlSnapshot) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
@@ -432,9 +454,12 @@ export function runCrossScreenElementDrop(
           })
         : undefined;
     const prepared = prepareClonedHtmlLayersForLiveInsert(
-      getScreenContent(targetScreenId),
+      targetScreenIsBoard
+        ? "http://agent-native-board.local/"
+        : getScreenContent(targetScreenId),
       [validatedSourceHtmlSnapshot],
       {
+        preserveIncomingNodeIds: true,
         positions: absolutePosition
           ? [
               {
@@ -464,12 +489,15 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
-    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
       transactionId,
       screenId: targetScreenId,
+      sourceScreenId,
+      remintCollidingNodeIds: true,
       html: insertedHtml,
       anchor: {
         selector: targetAnchorSelector ?? "",
@@ -500,7 +528,7 @@ export function runCrossScreenElementDrop(
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
       return;
     }
-    if (targetScreenIsLive) {
+    if (targetScreenIsLive || (targetScreenIsBoard && canEditLiveBoardDrop)) {
       const liveDestinationContent = getScreenContent(targetScreenId);
       const hasAnchor = Boolean(
         targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
@@ -517,7 +545,9 @@ export function runCrossScreenElementDrop(
             })
           : undefined;
       const prepared = prepareClonedHtmlLayersForLiveInsert(
-        liveDestinationContent,
+        targetScreenIsBoard
+          ? "http://agent-native-board.local/"
+          : liveDestinationContent,
         [sourceCloneHtml],
         {
           positions: absolutePosition
@@ -543,10 +573,15 @@ export function runCrossScreenElementDrop(
         });
         return;
       }
+      const transactionId = beginRuntimeStructureTransaction();
+      if (!transactionId) return;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
+        transactionId,
         screenId: targetScreenId,
+        sourceScreenId,
+        remintCollidingNodeIds: true,
         html: insertedHtml,
         anchor: {
           selector: targetAnchorSelector ?? "",
@@ -761,14 +796,12 @@ export function runCrossScreenElementDrop(
     );
     const subjectNodeId =
       subjectNode?.dataAttributes["data-agent-native-node-id"];
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
     const validatedSourceHtmlSnapshot =
-      subjectNodeId && sourceHtmlSnapshot
-        ? validateCrossScreenSourceHtmlSnapshot(
-            sourceHtmlSnapshot,
-            subjectNodeId,
-          )
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
         : undefined;
-    if (sourceHtmlSnapshot && !validatedSourceHtmlSnapshot) {
+    if (sourceHtml && !validatedSourceHtmlSnapshot) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
         duration: 4000,
       });
@@ -819,10 +852,15 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
+      transactionId,
       screenId: targetScreenId,
+      sourceScreenId,
+      remintCollidingNodeIds: true,
       html: insertedHtml,
       anchor: {
         selector: targetAnchorSelector ?? "",

@@ -20,11 +20,12 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export function useAutomations() {
+export function useAutomations(options?: { enabled?: boolean }) {
   return useQuery<AutomationRule[]>({
     queryKey: ["automations"],
     queryFn: () => callAction("list-automations", {}, { method: "GET" }),
     staleTime: 60_000,
+    enabled: options?.enabled ?? true,
   });
 }
 

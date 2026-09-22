@@ -275,22 +275,6 @@ export interface SessionReplayOptions {
     | (() => Record<string, unknown> | undefined);
 }
 
-export interface SessionReplayContext {
-  replayId: string;
-  sessionId: string;
-  startedAtMs: number;
-  startedAt: string;
-  linkBaseUrl: string | null;
-  active: boolean;
-}
-
-export interface SessionReplayLinkOptions {
-  /** Event time to seek to when the replay link opens. */
-  at?: Date | number | string;
-  /** Overrides the configured Analytics app origin for this link. */
-  linkBaseUrl?: string;
-}
-
 export interface SessionReplayStartResult {
   started: boolean;
   reason?:
@@ -3787,74 +3771,14 @@ export function getSessionReplayId(): string | null {
   return stored?.replayId ?? null;
 }
 
-/**
- * Return the replay identity associated with this browser tab. The context is
- * intentionally small so it can be attached to analytics events without
- * exposing replay content or credentials.
- */
-export function getSessionReplayContext(): SessionReplayContext | null {
-  const state = getState();
-  if (state.active && state.replayId && state.startedAtMs) {
-    const sessionId = getOrCreateAnalyticsSessionId();
-    if (!sessionId) return null;
-    return {
-      replayId: state.replayId,
-      sessionId,
-      startedAtMs: state.startedAtMs,
-      startedAt: new Date(state.startedAtMs).toISOString(),
-      linkBaseUrl: state.replayLinkBaseUrl,
-      active: true,
-    };
-  }
-
-  const stored = readStoredReplaySession();
-  if (!stored?.replayId || !stored.sessionId || !stored.startedAtMs) {
-    return null;
-  }
-  return {
-    replayId: stored.replayId,
-    sessionId: stored.sessionId,
-    startedAtMs: stored.startedAtMs,
-    startedAt: new Date(stored.startedAtMs).toISOString(),
-    linkBaseUrl: stored.linkBaseUrl ?? null,
-    active: false,
-  };
-}
-
-/**
- * Build a scoped Analytics replay lookup link. The Analytics server resolves
- * the client replay id to its server recording id and converts the event time
- * into the replay player's offset before redirecting to the detail page.
- */
-export function getSessionReplayUrl(
-  options: SessionReplayLinkOptions = {},
-): string | null {
-  const context = getSessionReplayContext();
-  if (!context) return null;
-  const base = normalizeReplayLinkBaseUrl(
-    options.linkBaseUrl ?? context.linkBaseUrl ?? undefined,
-  );
-  if (!base) return null;
-
-  try {
-    const url = new URL("/sessions/lookup", base);
-    url.searchParams.set("sessionId", context.sessionId);
-    url.searchParams.set("replayId", context.replayId);
-    const at = options.at === undefined ? Date.now() : options.at;
-    const timestamp =
-      typeof at === "number"
-        ? new Date(at)
-        : typeof at === "string"
-          ? new Date(at)
-          : at;
-    if (!Number.isNaN(timestamp.getTime())) {
-      url.searchParams.set("at", timestamp.toISOString());
-    }
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
+export {
+  getSessionReplayContext,
+  getSessionReplayUrl,
+} from "./session-replay-context.js";
+export type {
+  SessionReplayContext,
+  SessionReplayLinkOptions,
+} from "./session-replay-context.js";
 
 /**
  * Surface a manually captured exception on the active session replay timeline

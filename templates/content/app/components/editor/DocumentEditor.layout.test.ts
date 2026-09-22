@@ -45,6 +45,15 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("leaves room for title descenders", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("font-bold leading-normal text-foreground");
+    expect(source).not.toContain("font-bold leading-tight text-foreground");
+  });
+
   it("keeps inline comments outside the independent reading column", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -2268,7 +2277,7 @@ describe("document editor layout", () => {
       { encoding: "utf8" },
     );
 
-    expect(source).toContain("<DropdownMenu modal={false}");
+    expect(source).toMatch(/<DropdownMenu\s+modal=\{false\}/);
     expect(source).toContain('item.iconKind === "folder"');
     expect(source).toContain('menuItem.iconKind === "folder"');
   });

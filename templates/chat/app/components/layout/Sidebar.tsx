@@ -500,7 +500,21 @@ export function Sidebar({
         )}
       >
         {collapsed ? (
-          collapseButton
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/"
+                aria-label={APP_TITLE}
+                className="flex size-8 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+              >
+                <AgentNativeIcon
+                  aria-hidden="true"
+                  className="h-3.5 w-6 text-sidebar-accent-foreground"
+                />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="right">{APP_TITLE}</TooltipContent>
+          </Tooltip>
         ) : (
           <>
             <Link
@@ -515,8 +529,6 @@ export function Sidebar({
                 {APP_TITLE}
               </span>
             </Link>
-            {searchButton}
-            {collapseButton}
           </>
         )}
       </div>
@@ -529,20 +541,29 @@ export function Sidebar({
         )}
       >
         <ChatThreadsSection collapsed={collapsed} />
-        {collapsed ? searchButton : null}
       </nav>
 
-      <div className="mt-auto shrink-0 p-2">
-        <OrgSwitcher
-          reserveSpace
-          compact={collapsed}
-          currentAppId="chat"
-          className={
+      <div className="mt-auto shrink-0 border-t border-sidebar-border p-2">
+        <div
+          className={cn(
             collapsed
-              ? "size-8 bg-transparent p-0 hover:bg-sidebar-accent"
-              : "h-11 rounded-lg bg-transparent px-3 py-2 text-sm text-sidebar-accent-foreground hover:bg-sidebar-accent"
-          }
-        />
+              ? "flex flex-col items-center gap-1"
+              : "flex items-center gap-0.5",
+          )}
+        >
+          <OrgSwitcher
+            reserveSpace
+            compact={collapsed}
+            currentAppId="chat"
+            className={
+              collapsed
+                ? "size-8 bg-transparent p-0 hover:bg-sidebar-accent"
+                : "min-w-0 flex-1 h-11 rounded-lg bg-transparent px-3 py-2 text-sm text-sidebar-accent-foreground hover:bg-sidebar-accent"
+            }
+          />
+          {searchButton}
+          {collapseButton}
+        </div>
       </div>
     </aside>
   );

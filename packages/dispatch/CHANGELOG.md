@@ -1,5 +1,28 @@
 # @agent-native/dispatch
 
+## 0.38.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [e973e00]
+  - @agent-native/toolkit@0.20.6
+
+## 0.38.3
+
+### Patch Changes
+
+- a6d554d: Add the searchable app directory and mounted standalone app support to the workspace.
+- 8057255: Isolate Dispatch "All apps" workspace resources per organization so one organization's edits no longer overwrite what another organization's agents read.
+- 6c59bb1: Fix Slack integration runs so deployment bot credentials are selected safely, verified Slack identities retain their user context, local app delegation reaches sibling apps, structured Content intake cannot silently drop supplied fields, and progress streams complete without leaving threads stuck as working.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [58b0779]
+- Updated dependencies [3ecc476]
+- Updated dependencies
+- Updated dependencies [15ec2fb]
+  - @agent-native/toolkit@0.20.5
+
 ## 0.38.2
 
 ### Patch Changes
@@ -998,19 +1021,5 @@
 - cf16fae: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
 - Updated dependencies [cf16fae]
   - @agent-native/toolkit@0.13.6
-
-## 0.20.4
-
-### Patch Changes
-
-- e959709: Export `runDispatchMigrations` so a consuming app can own dispatch schema in a release-time migration step instead of at server startup.
-- e959709: Scope workspace automations to their owning app by default, keep Dispatch's all-apps view explicit, and expose failed run threads for troubleshooting.
-
-## 0.20.3
-
-### Patch Changes
-
-- Updated dependencies [a107169]
-  - @agent-native/toolkit@0.13.5
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

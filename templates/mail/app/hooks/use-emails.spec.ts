@@ -306,8 +306,22 @@ describe("useLabels", () => {
     const source = emailsHookSource();
 
     expect(source).toContain(
+      "!query.isPlaceholderData && query.data?.errors.length",
+    );
+    expect(source).toContain(
       "return { ...query, data: query.data?.labels, accountErrors };",
     );
+  });
+});
+
+describe("account errors and placeholder data", () => {
+  it("does not carry account errors across an unsettled email query", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain(
+      "if (!q.data || q.isPlaceholderData) return undefined;",
+    );
+    expect(source).toContain("}, [q.data, q.isPlaceholderData]);");
   });
 });
 

@@ -9,6 +9,7 @@ import {
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router";
 
+import { sendAhrefsEvent } from "../../lib/ahrefs-analytics";
 import { sitePathForLocale } from "../docs-locale";
 import { useSearchModal } from "../use-search-modal";
 import { Button } from "./ds/button";
@@ -80,6 +81,7 @@ function GithubStarsButton({ starCount, className }: GithubStarsButtonProps) {
           ? `GitHub — ${formatStarCount(starCount)} stars`
           : "GitHub"
       }
+      onClick={() => sendAhrefsEvent("nav_github_click")}
     >
       <IconBrandGithub size={16} stroke={1.75} />
       {starCount !== null && formatStarCount(starCount)}
@@ -149,13 +151,22 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   const navLinks = [
-    { label: t("header.docs"), href: localizedPath("/docs") },
-    { label: t("header.templates"), href: localizedPath("/apps") },
+    {
+      label: t("header.docs"),
+      href: localizedPath("/docs"),
+      analyticsEvent: "nav_docs_click",
+    },
+    {
+      label: t("header.templates"),
+      href: localizedPath("/apps"),
+      analyticsEvent: "nav_apps_click",
+    },
     {
       label: "Discord",
       href: DISCORD_URL,
       external: true,
       showArrow: true,
+      analyticsEvent: "nav_discord_click",
     },
   ];
 
@@ -188,6 +199,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
                 href={link.href}
                 external={link.external}
                 showArrow={link.showArrow}
+                onClick={() => sendAhrefsEvent(link.analyticsEvent)}
               >
                 {link.label}
               </NavLink>
@@ -233,7 +245,10 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
               href={link.href}
               external={link.external}
               showArrow={link.showArrow}
-              onClick={() => setMobileOpen(false)}
+              onClick={() => {
+                sendAhrefsEvent(link.analyticsEvent);
+                setMobileOpen(false);
+              }}
             >
               {link.label}
             </NavLink>

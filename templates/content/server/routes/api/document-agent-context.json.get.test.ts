@@ -156,6 +156,8 @@ describe("GET /api/document-agent-context.json", () => {
           "add-remote-server-authenticate-enable-and-retry",
       },
     });
+    expect(JSON.stringify(result)).not.toContain(document.title);
+    expect(JSON.stringify(result)).not.toContain(document.content);
   });
 
   it("distinguishes a rejected agent token without echoing it", async () => {

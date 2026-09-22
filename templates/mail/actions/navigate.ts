@@ -35,6 +35,10 @@ export default defineAction({
       .max(80)
       .optional()
       .describe("Pinned label tab id to open — alias for --tab"),
+    sort: z
+      .enum(["newest", "priority"])
+      .optional()
+      .describe("Inbox sort order to use"),
     threadId: z.string().optional().describe("Thread ID to open"),
     settingsSection: z
       .string()
@@ -62,10 +66,11 @@ export default defineAction({
       !args.threadId &&
       !args.queuedDraftId &&
       !args.settingsSection &&
-      !args.composeDraftId
+      !args.composeDraftId &&
+      !args.sort
     ) {
       throw new Error(
-        "At least --view, --tab, --threadId, --queuedDraftId, --composeDraftId, or --settingsSection is required.",
+        "At least --view, --tab, --sort, --threadId, --queuedDraftId, --composeDraftId, or --settingsSection is required.",
       );
     }
     const nav: Record<string, string> = {};
@@ -77,6 +82,10 @@ export default defineAction({
       if (args.filter) nav.filter = args.filter;
     }
     if (args.threadId) nav.threadId = args.threadId;
+    if (args.sort) {
+      nav.view = args.view || "inbox";
+      nav.sort = args.sort;
+    }
     if (args.settingsSection) {
       nav.view = args.view || "settings";
       nav.settingsSection = args.settingsSection;
@@ -90,6 +99,6 @@ export default defineAction({
       nav.composeDraftId = args.composeDraftId;
     }
     await writeAppStateForCurrentTab("navigate", nav);
-    return `Navigating to ${nav.view || ""}${tab ? ` tab:${tab}` : ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}${args.composeDraftId ? ` compose draft:${args.composeDraftId}` : ""}${args.settingsSection ? ` settings:${args.settingsSection}` : ""}`;
+    return `Navigating to ${nav.view || ""}${tab ? ` tab:${tab}` : ""}${args.sort ? ` sort:${args.sort}` : ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}${args.composeDraftId ? ` compose draft:${args.composeDraftId}` : ""}${args.settingsSection ? ` settings:${args.settingsSection}` : ""}`;
   },
 });

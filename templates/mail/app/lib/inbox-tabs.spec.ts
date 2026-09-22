@@ -229,6 +229,18 @@ describe("resolveDefaultMailHref", () => {
 });
 
 describe("filterInboxTabEmails", () => {
+  it("keeps AI Important mail in Important instead of Other", () => {
+    const important = message({
+      id: "ai-important",
+      labelIds: ["inbox", "agent-native-important"],
+    });
+
+    expect(
+      filterInboxTabEmails([important], "important", ["important"]),
+    ).toEqual([important]);
+    expect(filterInboxTabEmails([important], null, ["important"])).toEqual([]);
+  });
+
   it("keeps saved-filter threads out of pinned tabs and Other", () => {
     const github = message({
       id: "github",

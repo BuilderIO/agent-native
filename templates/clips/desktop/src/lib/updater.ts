@@ -1,9 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { exit, relaunch } from "@tauri-apps/plugin-process";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useState } from "react";
-
-import { isMacPlatform } from "./platform";
 
 declare const __CLIPS_DESKTOP_LOCAL_BUILD__: boolean;
 
@@ -172,27 +170,16 @@ export async function installAndRestart(): Promise<void> {
   // Perform the deferred bundle swap now, then relaunch onto the new binary.
   // Installing immediately before relaunch keeps the window where the on-disk
   // bundle no longer matches the running process as short as possible — the
-  // process is torn down by `relaunch()` right after, so capture never runs
-  // against a swapped-out bundle.
-  const restartBundlePath = await invoke<string>("restart_bundle_path").catch(
-    (err) => {
-      console.error("[clips-updater] restart target lookup failed:", err);
-      return null;
-    },
-  );
+  // process is torn down by the native restart right after, so capture never
+  // runs against a swapped-out bundle.
   if (pendingUpdate) {
     await pendingUpdate.install();
   }
-  if (isMacPlatform() && restartBundlePath) {
-    try {
-      await invoke("schedule_restart_after_exit", {
-        bundlePath: restartBundlePath,
-      });
-      await exit(0);
-      return;
-    } catch (err) {
-      console.error("[clips-updater] macOS restart handoff failed:", err);
-    }
+  try {
+    await invoke("restart_after_update");
+    return;
+  } catch (err) {
+    console.error("[clips-updater] native restart failed:", err);
   }
   await relaunch();
 }

@@ -272,14 +272,17 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
   const isMarketingHome = location.pathname === "/";
-  const isPublicPath =
-    isMarketingHome || isPublicDesignAppPath(location.pathname);
+  const isPublicPath = isMarketingHome;
+  // Public design routes still resolve their editor layout client-side; SSR
+  // would render route-state hooks before the document router is available.
+  const sessionBypass =
+    isEmbedAuthActive() || isPublicDesignAppPath(location.pathname);
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
-        sessionBypass={isEmbedAuthActive()}
+        sessionBypass={sessionBypass}
         webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
         toaster={<DesignToaster />}

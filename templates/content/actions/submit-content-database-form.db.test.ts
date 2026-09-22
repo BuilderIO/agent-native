@@ -230,6 +230,8 @@ describe("submit-content-database-form", () => {
       title: "Refresh the pricing page",
       content: "Clarify the enterprise story and update the hero.",
       visibility: "org",
+      createdBy: OWNER,
+      updatedBy: OWNER,
     });
 
     const values = await db

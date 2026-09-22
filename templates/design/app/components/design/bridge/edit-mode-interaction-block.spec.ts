@@ -115,15 +115,31 @@ describe("editor chrome edit-mode native-interaction net", () => {
         await page.addScriptTag({
           content: hydratedEditorChromeBridgeScript(true),
         });
+        await page.evaluate(() => {
+          document
+            .querySelector("#plainBtn")
+            ?.addEventListener("pointermove", (event) => {
+              (window as any).__nativePointerMoveDefaultPrevented =
+                event.defaultPrevented;
+            });
+        });
 
         // Same raced-above-the-shield target as the first test — only the
         // readOnly flag differs, isolating the net's own mode gate.
+        await page.mouse.move(12, 132);
         await page.locator("#plainBtn").click({ force: true });
         await page.waitForTimeout(25);
 
-        expect(await page.evaluate(() => (window as any).__buttonClicks)).toBe(
-          1,
-        );
+        expect(
+          await page.evaluate(() => ({
+            buttonClicks: (window as any).__buttonClicks,
+            pointerMoveDefaultPrevented: (window as any)
+              .__nativePointerMoveDefaultPrevented,
+          })),
+        ).toEqual({
+          buttonClicks: 1,
+          pointerMoveDefaultPrevented: false,
+        });
       } finally {
         await browser.close();
       }

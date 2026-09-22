@@ -516,6 +516,18 @@ test.describe.serial("public visual edit", () => {
         await expect(
           modeMarkerDirect.page.locator("[data-design-editor]"),
         ).toBeVisible({ timeout: 30_000 });
+        await expect(
+          modeMarkerDirect.page.getByText("Preparing editable preview...", {
+            exact: true,
+          }),
+        ).toHaveCount(0, { timeout: 30_000 });
+        await expect(
+          modeMarkerDirect.page
+            .locator("iframe[data-design-preview-iframe]")
+            .first()
+            .contentFrame()
+            .locator("[data-agent-native-editor-chrome-host]"),
+        ).toHaveCount(1, { timeout: 30_000 });
         await assertNoRuntimeErrors(modeMarkerDirect);
       } finally {
         await modeMarkerDirect.close();

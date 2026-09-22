@@ -173,7 +173,7 @@ export function registerFrameworkSecrets(): void {
   if (!getRequiredSecret("JEV_API_KEY")) {
     registerRequiredSecret({
       key: "JEV_API_KEY",
-      label: "System one model (Jev)",
+      label: "Decision model (Jev)",
       description:
         "Optional TypeSafe Jev key for semantic tool selection before the agent's first model request.",
       docsUrl: "https://docs.typesafe.ai/",

@@ -248,8 +248,15 @@ async function seedMentionMember(
   const membersURL = `${baseURL}/_agent-native/org/members?limit=25&offset=0&search=${memberSearch}`;
   const existingMembers = await ownerContext.request.get(membersURL);
   if (!existingMembers.ok()) {
+    const body = await existingMembers.text();
+    if (
+      existingMembers.status() === 400 &&
+      body.includes("You must belong to an organization")
+    ) {
+      return;
+    }
     throw new Error(
-      `list organization members failed: ${existingMembers.status()} ${await existingMembers.text()}`,
+      `list organization members failed: ${existingMembers.status()} ${body}`,
     );
   }
   const existingPayload = await existingMembers.json();
@@ -273,10 +280,19 @@ async function seedMentionMember(
   let invitationId: string | undefined;
   if (invitation.ok()) {
     invitationId = String((await invitation.json())?.id ?? "") || undefined;
-  } else if (invitation.status() !== 409) {
-    throw new Error(
-      `invite mention member failed: ${invitation.status()} ${await invitation.text()}`,
-    );
+  } else {
+    const body = await invitation.text();
+    if (
+      invitation.status() === 400 &&
+      body.includes("You must belong to an organization")
+    ) {
+      return;
+    }
+    if (invitation.status() !== 409) {
+      throw new Error(
+        `invite mention member failed: ${invitation.status()} ${body}`,
+      );
+    }
   }
 
   if (!invitationId) {

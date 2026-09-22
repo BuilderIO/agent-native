@@ -31,6 +31,7 @@ vi.mock("./FirstRunOnboarding.js", () => ({
   ),
 }));
 
+import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
 import { FirstRunOnboardingStartupGate } from "./first-run-startup-gate.js";
 
 function deferred<T>() {
@@ -61,6 +62,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     mocks.preview.mockReset();
     mocks.enabled.mockReturnValue(true);
     mocks.preview.mockReturnValue(false);
+    document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=1; path=/`;
     nextMountId = 0;
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -71,6 +73,27 @@ describe("FirstRunOnboardingStartupGate", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=; Max-Age=0; path=/`;
+  });
+
+  it("skips the status round trip when the server has no first-run cookie", () => {
+    document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=; Max-Age=0; path=/`;
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <div data-testid="app-content">app</div>
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+
+    expect(mocks.fetchStatus).not.toHaveBeenCalled();
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-first-run-startup-loading]"),
+    ).toBeNull();
   });
 
   it("holds the app behind a neutral screen while eligibility is unresolved", () => {
@@ -144,6 +167,43 @@ describe("FirstRunOnboardingStartupGate", () => {
       await status.promise;
     });
 
+    expect(
+      container
+        .querySelector("[data-testid='stateful-app']")
+        ?.getAttribute("data-mount-id"),
+    ).toBe(mountId);
+  });
+
+  it("does not remount the app when the server clears the cookie", async () => {
+    const status = deferred<boolean>();
+    mocks.fetchStatus.mockReturnValue(status.promise);
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <StatefulApp />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+
+    const mountId = container
+      .querySelector("[data-testid='stateful-app']")
+      ?.getAttribute("data-mount-id");
+
+    await act(async () => {
+      status.resolve(false);
+      await status.promise;
+    });
+    document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=; Max-Age=0; path=/`;
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <StatefulApp />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+
+    expect(mocks.fetchStatus).toHaveBeenCalledOnce();
     expect(
       container
         .querySelector("[data-testid='stateful-app']")

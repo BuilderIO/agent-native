@@ -253,7 +253,7 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Integration content");
   });
 
-  it("only adds labs when definitions exist and indexes each lab", async () => {
+  it("always includes the core lab and indexes app labs", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -307,7 +307,7 @@ describe("SettingsTabsPage", () => {
         </MemoryRouter>,
       );
     });
-    expect(container.querySelector("#settings-tab-labs")).toBeNull();
+    expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
   });
 
   it("places labs after app-specific tabs such as notifications", () => {
@@ -567,7 +567,13 @@ describe("SettingsTabsPage", () => {
       container.querySelectorAll('[role="tab"]'),
       (tab) => tab.textContent,
     );
-    expect(tabLabels).toEqual(["General", "Agent", "What's new", "Team"]);
+    expect(tabLabels).toEqual([
+      "General",
+      "Agent",
+      "Labs",
+      "What's new",
+      "Team",
+    ]);
   });
 
   it("visually separates app, agent, and workspace tabs", () => {
@@ -679,7 +685,13 @@ describe("SettingsTabsPage", () => {
       container.querySelectorAll('[role="tab"]'),
       (tab) => tab.textContent,
     );
-    expect(tabLabels).toEqual(["General", "Aliases", "Gmail Filters", "Slack"]);
+    expect(tabLabels).toEqual([
+      "General",
+      "Aliases",
+      "Labs",
+      "Gmail Filters",
+      "Slack",
+    ]);
   });
 
   it("keeps linked settings navigation last with an external-link marker", () => {
@@ -714,7 +726,14 @@ describe("SettingsTabsPage", () => {
       Array.from(container.querySelectorAll('[role="tab"]'), (tab) =>
         tab.textContent?.trim(),
       ),
-    ).toEqual(["General", "What's new", "Integrations", "Team", "Workspace"]);
+    ).toEqual([
+      "General",
+      "Labs",
+      "What's new",
+      "Integrations",
+      "Team",
+      "Workspace",
+    ]);
 
     const workspaceLink = container.querySelector<HTMLAnchorElement>(
       'a[href="/settings/workspace"]',
