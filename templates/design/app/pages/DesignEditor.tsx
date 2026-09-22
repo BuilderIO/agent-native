@@ -1680,6 +1680,26 @@ function DesignEditor() {
       >
     >
   >((next) => {
+    // Cross-screen moves reserve this shared request slot until their
+    // acknowledgement. Most competing commands use a direct request value,
+    // so reject those before React queues state rather than making the caller
+    // appear successful while its iframe operation is silently dropped.
+    if (typeof next !== "function" && next) {
+      const pendingTransactionId =
+        runtimeStructurePendingTransactionRef.current;
+      if (pendingTransactionId && next.transactionId !== pendingTransactionId) {
+        if (DESIGN_EDITOR_DEBUG_LOGS) {
+          console.warn("[design] runtime structure insert admission refused", {
+            pendingTransactionId,
+            requestTransactionId: next.transactionId ?? null,
+          });
+        }
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
+    }
     setRuntimeStructureInsertRequestState((current) => {
       const resolved = typeof next === "function" ? next(current) : next;
       if (resolved === current) return current;

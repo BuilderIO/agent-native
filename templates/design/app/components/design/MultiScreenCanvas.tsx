@@ -945,6 +945,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     hasAuthoredContent: hasBoardSurfaceContent(boardFileContent),
     crossScreenDragActive,
     hasPendingRuntimeInsert: Boolean(boardRuntimeStructureInsertRequest),
+    hasPendingRuntimeRollback: Boolean(boardRuntimeStructureRollbackRequest),
     runtimeContentBoardId: boardRuntimeSurfaceActive,
     boardFileId,
   })
@@ -3344,6 +3345,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       crossScreenHostCommittedRef.current = true;
       if (targetCandidate.id === boardFileId) {
+        // A successful prior handoff retains its identity until the paired
+        // source-delete/rollback settles. A new handoff must not let a late
+        // acknowledgement for that prior transaction settle this one.
+        boardCrossScreenDropTransactionRef.current = null;
         boardCrossScreenDropPendingRef.current = true;
         boardCrossScreenDropTimeoutTransactionRef.current = null;
         if (boardCrossScreenDropTimeoutRef.current !== null) {

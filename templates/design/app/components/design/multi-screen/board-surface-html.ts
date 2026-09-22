@@ -21,6 +21,7 @@ export function shouldMountBoardSurface(args: {
   hasAuthoredContent: boolean;
   crossScreenDragActive: boolean;
   hasPendingRuntimeInsert: boolean;
+  hasPendingRuntimeRollback: boolean;
   runtimeContentBoardId: string | null;
   boardFileId?: string;
 }): boolean {
@@ -28,6 +29,7 @@ export function shouldMountBoardSurface(args: {
     args.hasAuthoredContent ||
     args.crossScreenDragActive ||
     args.hasPendingRuntimeInsert ||
+    args.hasPendingRuntimeRollback ||
     args.runtimeContentBoardId === args.boardFileId
   );
 }
