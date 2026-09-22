@@ -2654,11 +2654,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var remintedDomIds = Object.create(null) as { [key: string]: string };
     nodes.forEach(function (node, index) {
       var id = node.getAttribute("id") || "";
-      if (!id || (!existingDomIds[id] && !remintedDomIds[id])) return;
+      if (!id || !existingDomIds[id]) return;
       var nextId = freshRuntimeNodeId(
         index === 0 ? "move-id" : "move-child-id",
       );
-      remintedDomIds[id] = nextId;
+      if (!remintedDomIds[id]) remintedDomIds[id] = nextId;
       node.setAttribute("id", nextId);
     });
     nodes.forEach(function (node) {

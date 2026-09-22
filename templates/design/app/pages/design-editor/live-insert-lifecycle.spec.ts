@@ -431,7 +431,7 @@ describe("live insert lifecycle", () => {
             {
               type: "runtime-structure-insert",
               requestId: 101,
-              html: '<div id="email" data-agent-native-node-id="shared" data-agent-native-runtime-instance-id="shared" data-source-file="src/Card.tsx" data-source-line="12"><label for="email">Moved</label></div>',
+              html: '<div id="email" data-agent-native-node-id="shared" data-agent-native-runtime-instance-id="shared" data-source-file="src/Card.tsx" data-source-line="12"><label for="email">Moved</label><span id="email">Duplicate</span></div>',
               anchorSelector: '[data-agent-native-node-id="card"]',
               anchorSourceId: "card",
               placement: "inside",
@@ -464,6 +464,10 @@ describe("live insert lifecycle", () => {
         expect(await inserted.locator("label").getAttribute("for")).toBe(
           insertedId,
         );
+        const insertedIds = await inserted.locator("[id]").evaluateAll((nodes) =>
+          nodes.map((node) => node.id),
+        );
+        expect(new Set(insertedIds).size).toBe(insertedIds.length);
         expect(
           await inserted.getAttribute("data-agent-native-runtime-instance-id"),
         ).toBe(ids[1]);
