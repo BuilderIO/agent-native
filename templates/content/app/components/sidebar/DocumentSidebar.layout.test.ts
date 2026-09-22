@@ -20,6 +20,17 @@ function treeNode(
 }
 
 describe("document sidebar layout", () => {
+  it("opens a Page or Collection menu before creating from the plus button", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("<DropdownMenuTrigger asChild>");
+    expect(sidebar).toContain("onCreateDatabaseInSpace(space)");
+    expect(sidebar).toContain("handleCreatePageInSpace(space)");
+    expect(sidebar).toContain("handleCreateDatabase(undefined, space.id)");
+    expect(sidebar).toContain('{t("sidebar.page")}');
+    expect(sidebar).toContain('{t("sidebar.collection")}');
+  });
+
   it("keeps deeply nested page rows within the sidebar viewport", () => {
     const layout = readSidebarSource("../layout/Layout.tsx");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
@@ -179,7 +190,7 @@ describe("document sidebar layout", () => {
       "const renderNewButton = (space = selectedSpace) =>",
     );
     expect(sidebar).toContain("const renderCollapsedNewButton = () =>");
-    expect(sidebar).toContain('t("sidebar.newPage")');
+    expect(sidebar).toContain('t("sidebar.new")');
     expect(sidebar).not.toContain(
       "onClick={() => void handleCreateDatabase(null)}",
     );
@@ -188,7 +199,7 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("onCreateChildDatabase");
     expect(treeItem).toContain('t("sidebar.addChild")');
     expect(treeItem).toContain('t("sidebar.page")');
-    expect(treeItem).toContain('t("sidebar.database")');
+    expect(treeItem).toContain('t("sidebar.collection")');
     expect(treeItem).not.toContain("onCreateChild: (parentId: string)");
 
     expect(messages).toContain('workspaces: "Workspaces"');
@@ -272,7 +283,7 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain('role="link"');
     expect(sidebar).toContain(
-      'aria-label={`${t("sidebar.newPage")} — ${space.name}`}',
+      'aria-label={`${t("sidebar.new")} — ${space.name}`}',
     );
     expect(sidebar).toContain("selected={selectedSpace?.id === space.id}");
     expect(sidebar).toContain("onOpenItem={(item: ContentDatabaseItem) =>");

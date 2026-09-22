@@ -78,9 +78,8 @@ describe("document editor layout", () => {
     expect(toolbar).toContain(
       "disabled={!canEdit || revealLocalSource.isPending}",
     );
-    expect(toolbar).toContain(
-      "disabled={!canEdit}\n                    onSelect={() => void handleCopyLocalAbsolutePath()}",
-    );
+    expect(toolbar).toContain("disabled={!canEdit}");
+    expect(toolbar).toContain("handleCopyLocalAbsolutePath()");
   });
 
   it("publishes unsaved local content to the synchronous conflict guard", () => {
@@ -254,28 +253,23 @@ describe("document editor layout", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
   });
 
-  it("offers page or database after an optimistic blank page opens", () => {
+  it("keeps the editor open and offers collection conversion while the body is empty", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
     );
 
-    expect(source).toContain("const showNewDocumentTypeChooser =");
-    expect(source).toContain("!document.database?.systemRole");
-    expect(source).toContain("isEffectivelyEmptyDocumentContent(localContent)");
-    expect(source).toContain("const handleChoosePage = useCallback");
-    expect(source).toContain(
-      "await createDatabase.mutateAsync({ documentId })",
-    );
+    expect(source).toContain("const showCreateCollectionStarter =");
+    expect(source).toContain("createCollectionStarterIsVisible({");
+    expect(source).toContain("content: localContent");
+    expect(source).toContain("const handleCreateCollection = useCallback");
+    expect(source).toContain("title: localTitleRef.current");
     expect(source).toContain("isDatabaseChoicePending(");
     expect(source).toContain("document,\n    createDatabase.isPending");
-    expect(source).toContain(
-      "disabled={!editorCanEdit || databaseChoicePending}",
-    );
-    expect(source).toContain('{t("sidebar.page")}');
-    expect(source).toContain('{t("sidebar.database")}');
-    expect(source.indexOf("if (showNewDocumentTypeChooser)")).toBeLessThan(
-      source.indexOf("const primaryEditor ="),
+    expect(source).toContain("disabled={databaseChoicePending}");
+    expect(source).toContain('{t("editor.createCollection")}');
+    expect(source.indexOf("const primaryEditor =")).toBeLessThan(
+      source.indexOf("{showCreateCollectionStarter ? ("),
     );
   });
 

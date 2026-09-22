@@ -676,7 +676,7 @@ describe("inline database slash command", () => {
     expect(chain.insertContent).not.toHaveBeenCalled();
   });
 
-  it("keeps /database wired to inline creation instead of page navigation", () => {
+  it("offers inline and full-page collection commands for /database", () => {
     const source = readSlashCommandMenuSource();
 
     expect(source).toContain("useCreateInlineContentDatabase");
@@ -686,9 +686,11 @@ describe("inline database slash command", () => {
     expect(source).toContain("insertInlineDatabaseBlock(");
     expect(source).toContain("requiredText: result.block.ownerBlockId");
     expect(source).toContain("await onDraftPersisted(content)");
-    expect(source).not.toContain("useCreateContentDatabase");
-    expect(source).not.toContain(
-      "navigate(`/page/${result.database.documentId}`",
-    );
+    expect(source).toContain("useCreateContentDatabase");
+    expect(source).toContain('searchText: "database collection inline"');
+    expect(source).toContain('searchText: "database collection full page"');
+    expect(source).toContain("parentId: documentId");
+    expect(source).toContain("insertContentAt(slashRange.from, pageReference)");
+    expect(source).toContain("navigate(`/page/${pageId}`");
   });
 });

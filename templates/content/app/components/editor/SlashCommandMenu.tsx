@@ -43,7 +43,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useCreateInlineContentDatabase } from "@/hooks/use-content-database";
+import {
+  useCreateContentDatabase,
+  useCreateInlineContentDatabase,
+} from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
@@ -615,6 +618,7 @@ export function SlashCommandMenu({
   const createInlineDatabase = useCreateInlineContentDatabase(
     documentId ?? null,
   );
+  const createFullPageDatabase = useCreateContentDatabase(null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -798,9 +802,10 @@ export function SlashCommandMenu({
     },
   };
 
-  const databaseCommand: CommandItem = {
-    title: t("editor.slash.database"),
-    description: t("editor.slash.databaseDescription"),
+  const inlineCollectionCommand: CommandItem = {
+    title: t("editor.slash.collectionInline"),
+    description: t("editor.slash.collectionInlineDescription"),
+    searchText: "database collection inline",
     icon: IconDatabase,
     preserveSlashRange: true,
     action: async (editor, { slashRange }) => {
@@ -833,6 +838,65 @@ export function SlashCommandMenu({
           await onDraftCommitted?.();
         }
         toast.success(t("editor.databaseCreated"), { id: toastId });
+      } catch (error) {
+        toast.error(t("editor.failedToCreateDatabase"), {
+          id: toastId,
+          description:
+            error instanceof Error ? error.message : t("empty.genericError"),
+        });
+      }
+    },
+  };
+
+  const fullPageCollectionCommand: CommandItem = {
+    title: t("editor.slash.collectionFullPage"),
+    description: t("editor.slash.collectionFullPageDescription"),
+    searchText: "database collection full page",
+    icon: IconDatabase,
+    preserveSlashRange: true,
+    action: async (editor, { slashRange }) => {
+      if (!documentId) {
+        toast.error(t("editor.noDocumentSelected"));
+        return;
+      }
+      const toastId = toast.loading(t("editor.creatingDatabase"));
+      try {
+        const result = await createFullPageDatabase.mutateAsync({
+          parentId: documentId,
+          title: t("editor.untitledDatabase"),
+        });
+        const pageId = result.database.documentId;
+        const pageReference = {
+          type: "notionBlockAtom",
+          attrs: {
+            tagName: "page",
+            attrsJson: JSON.stringify({ id: pageId }),
+            label: t("editor.untitledDatabase"),
+          },
+        };
+        if (slashRange) {
+          editor
+            .chain()
+            .focus()
+            .deleteRange(slashRange)
+            .insertContentAt(slashRange.from, pageReference)
+            .run();
+        } else {
+          editor.chain().focus().insertContent(pageReference).run();
+        }
+        await waitForEditorUpdateFrame();
+        const content = collapseExactRepeatedNfm(
+          docToNfm(editor.getJSON() as any),
+          { requiredText: `id="${pageId}"` },
+        );
+        if (onDraftPersisted) {
+          const persisted = await onDraftPersisted(content);
+          if (!persisted) throw new Error(t("empty.genericError"));
+        } else {
+          await onDraftCommitted?.();
+        }
+        toast.success(t("editor.databaseCreated"), { id: toastId });
+        navigate(`/page/${pageId}`, { flushSync: true });
       } catch (error) {
         toast.error(t("editor.failedToCreateDatabase"), {
           id: toastId,
@@ -954,7 +1018,9 @@ export function SlashCommandMenu({
     blockCommands,
     registryCommands,
   );
-  const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
+  const pageCommands = isTurnInto
+    ? []
+    : [pageCommand, inlineCollectionCommand, fullPageCollectionCommand];
   const mediaCommands = isTurnInto
     ? []
     : [imageCommand, videoCommand, audioCommand];
