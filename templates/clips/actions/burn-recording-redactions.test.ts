@@ -372,6 +372,15 @@ describe("burning redactions into a recording", () => {
     expect(state.deleted).toEqual([]);
   });
 
+  it("deletes nothing when the render's length cannot be read", async () => {
+    // The length check is what stops a drifted re-encode moving every comment
+    // and transcript timestamp. No answer is not a pass.
+    state.burnedDurationMs = null;
+    await expect(run()).rejects.toThrow(/could not be read/i);
+    expect(state.updated).toEqual([]);
+    expect(state.deleted).toEqual([]);
+  });
+
   it("deletes nothing when the render loses the audio", async () => {
     state.burnedHasAudio = false;
     await expect(run()).rejects.toThrow(/audio/i);

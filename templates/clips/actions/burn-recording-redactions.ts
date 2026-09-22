@@ -331,13 +331,18 @@ export async function burnRedactionsFor(args: {
   }
   // Already read from the same bytes above; probing twice is a second
   // ffmpeg run for an answer we have.
-  const sourceDuration = probed.durationMs;
+  const sourceDuration = burnDurationMs;
   const burnedDuration = await probeDurationMs(burned, "mp4");
-  if (
-    sourceDuration !== null &&
-    burnedDuration !== null &&
-    Math.abs(sourceDuration - burnedDuration) > MAX_DURATION_DRIFT_MS
-  ) {
+  // An unreadable length is not a pass. This check is the only thing standing
+  // between a drifted re-encode and every comment and transcript timestamp
+  // moving, so skipping it when the answer is missing amounts to not having
+  // it — the output would be promoted and the original deleted unverified.
+  if (burnedDuration === null) {
+    throw new Error(
+      "The length of the redacted video could not be read, so it cannot be checked against the original. It has not been saved, and nothing was deleted.",
+    );
+  }
+  if (Math.abs(sourceDuration - burnedDuration) > MAX_DURATION_DRIFT_MS) {
     throw new Error(
       `The redacted video came out ${Math.abs(sourceDuration - burnedDuration)}ms longer or shorter than the original, which would move every comment and transcript timestamp. It has not been saved, and nothing was deleted.`,
     );
