@@ -15,7 +15,6 @@ import {
   getAgentPanelShortcutHints,
   getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
-  focusAgentChat,
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelFullViewAction,
   resolveAgentPanelChatSurface,
@@ -32,6 +31,7 @@ import {
   shouldShowAgentPanelModeButtons,
   settingsRouteHashForSection,
 } from "./AgentPanel.js";
+import { focusAgentChat } from "./AgentSidebar.js";
 
 describe("resolveAgentPanelChatSurface", () => {
   it("uses the desktop surface only for explicitly marked local app previews", () => {
@@ -646,6 +646,9 @@ describe("AgentPanel header overflow actions", () => {
     const source = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
     });
+    const sidebarSource = readFileSync("src/client/AgentSidebar.tsx", {
+      encoding: "utf8",
+    });
     const headerActions = source.slice(
       source.indexOf("const renderHeaderActions"),
       source.indexOf(
@@ -675,7 +678,7 @@ describe("AgentPanel header overflow actions", () => {
     ).toBeGreaterThanOrEqual(2);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
-    expect(source).toContain("onFullViewRequest={onFullscreenRequest}");
+    expect(sidebarSource).toContain("onFullViewRequest={onFullscreenRequest}");
     expect(overflowMenu).not.toContain("fullscreenHint");
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
   });
@@ -729,7 +732,10 @@ describe("AgentPanel header overflow actions", () => {
   });
 
   it("supports a persistent two-state sidebar toggle", () => {
-    const source = readFileSync("src/client/AgentPanel.tsx", {
+    const source = readFileSync("src/client/AgentSidebar.tsx", {
+      encoding: "utf8",
+    });
+    const panelSource = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
     });
 
@@ -740,7 +746,7 @@ describe("AgentPanel header overflow actions", () => {
       "{icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}",
     );
     expect(source).not.toContain("IconLayoutSidebarRightExpand");
-    expect(source).toContain("{onCollapse && showCollapseButton && (");
+    expect(panelSource).toContain("{onCollapse && showCollapseButton && (");
     expect(source).toContain("showCollapseButton={showCollapseButton}");
   });
 
@@ -770,7 +776,7 @@ describe("AgentPanel header overflow actions", () => {
 
 describe("AgentSidebar wide drawer layout", () => {
   it("can disable the panel without unmounting the app surface", () => {
-    const source = readFileSync("src/client/AgentPanel.tsx", {
+    const source = readFileSync("src/client/AgentSidebar.tsx", {
       encoding: "utf8",
     });
 
@@ -782,7 +788,7 @@ describe("AgentSidebar wide drawer layout", () => {
   });
 
   it("does not reserve the drawer placeholder after the panel closes", () => {
-    const source = readFileSync("src/client/AgentPanel.tsx", {
+    const source = readFileSync("src/client/AgentSidebar.tsx", {
       encoding: "utf8",
     });
     const placeholderStart = source.indexOf("const drawerPlaceholder");
