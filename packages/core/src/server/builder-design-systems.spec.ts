@@ -33,6 +33,7 @@ function useLegacyBuilderAuthorizationMock() {
 useLegacyBuilderAuthorizationMock();
 
 import {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   buildBuilderDesignSystemIndexFiles,
   collectBuilderDesignSystemGitHubFiles,
   createBuilderDesignSystemProxyFields,
@@ -1074,6 +1075,43 @@ describe("Builder design-system helpers", () => {
       expect(limit.codeIndexingAllowed).toBe(true);
     });
 
+    it("fails closed on code indexing for an unknown or newly named non-Enterprise plan", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ plan: "startup", current: 1, max: 3 }),
+            { status: 200 },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const limit = await fetchBuilderDesignSystemTierLimit();
+      expect(limit.plan).toBe("startup");
+      expect(limit.codeIndexingAllowed).toBe(false);
+    });
+
+    it("fails closed on code indexing when the tier-limit response omits a plan entirely", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ current: 1, max: 3 }), {
+          status: 200,
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const limit = await fetchBuilderDesignSystemTierLimit();
+      expect(limit.plan).toBeNull();
+      expect(limit.codeIndexingAllowed).toBe(false);
+    });
+
     it("fails open on the count cap but closed on code indexing when the tier-limit endpoint is unreachable", async () => {
       process.env.BUILDER_PRIVATE_KEY = "builder-private";
       process.env.BUILDER_PUBLIC_KEY = "builder-public";
@@ -1104,6 +1142,73 @@ describe("Builder design-system helpers", () => {
           .mockResolvedValue(new Response("Internal error", { status: 500 })),
       );
       await expectUnavailable();
+    });
+  });
+
+  describe("assertBuilderDesignSystemCodeIndexingAllowed", () => {
+    it("resolves silently when the plan allows code indexing", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response(
+              JSON.stringify({ plan: "enterprise", current: 1, max: null }),
+              { status: 200 },
+            ),
+          ),
+      );
+
+      await expect(
+        assertBuilderDesignSystemCodeIndexingAllowed(),
+      ).resolves.toBeUndefined();
+    });
+
+    it("throws a structured 403 when the plan does not allow code indexing", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response(JSON.stringify({ plan: "pro", current: 1, max: 3 }), {
+              status: 200,
+            }),
+          ),
+      );
+
+      await expect(
+        assertBuilderDesignSystemCodeIndexingAllowed(),
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        errorCode: "design_system_code_indexing_forbidden",
+        statusCode: 403,
+      });
+    });
+
+    it("throws when the tier-limit endpoint is unreachable (fails closed)", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new Error("network down")),
+      );
+
+      await expect(
+        assertBuilderDesignSystemCodeIndexingAllowed(),
+      ).rejects.toMatchObject({
+        errorCode: "design_system_code_indexing_forbidden",
+        statusCode: 403,
+      });
     });
   });
 });

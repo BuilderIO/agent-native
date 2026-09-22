@@ -636,6 +636,7 @@ export {
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
 export {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   builderDesignSystemUrl,
   builderProjectBranchUrl,
   buildBuilderDesignSystemIndexFiles,

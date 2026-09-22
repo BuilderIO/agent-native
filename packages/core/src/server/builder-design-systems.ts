@@ -207,12 +207,11 @@ interface TierLimitResponseBody {
 }
 
 // Enterprise-only code indexing is confirmed product policy, mirrored here
-// as a fallback in case the endpoint ever omits `codeIndexingAllowed`.
-const DESIGN_SYSTEM_CODE_INDEXING_ENTERPRISE_ONLY_PLANS = new Set([
-  "free",
-  "pro",
-  "team",
-]);
+// as a fallback in case the endpoint ever omits `codeIndexingAllowed`. This
+// is an allowlist (not a denylist of known-non-Enterprise plans) so an
+// unknown, empty, or newly named plan defaults to denied rather than
+// silently allowed.
+const DESIGN_SYSTEM_CODE_INDEXING_ALLOWED_PLANS = new Set(["enterprise"]);
 
 function designSystemTierLimitFromBody(
   body: TierLimitResponseBody,
@@ -244,9 +243,7 @@ function designSystemTierLimitFromBody(
       ? body.codeIndexingAllowed
       : typeof body.allowCodeIndexing === "boolean"
         ? body.allowCodeIndexing
-        : !(
-            plan && DESIGN_SYSTEM_CODE_INDEXING_ENTERPRISE_ONLY_PLANS.has(plan)
-          );
+        : plan != null && DESIGN_SYSTEM_CODE_INDEXING_ALLOWED_PLANS.has(plan);
   const upgradeUrl =
     typeof body.upgradeUrl === "string" && body.upgradeUrl.trim()
       ? body.upgradeUrl.trim()
@@ -704,6 +701,27 @@ export async function fetchBuilderDesignSystemTierLimit(): Promise<BuilderDesign
       upgradeUrl: null,
     };
   }
+}
+
+/**
+ * Server-side backstop for the Enterprise-only code/GitHub entitlement.
+ * `indexBuilderDesignSystem` itself never re-checks this -- Builder's
+ * `/index` endpoint only enforces the count cap (via 402) -- so callers with
+ * a code/GitHub source (agent action payloads included) must call this
+ * before indexing, or a non-Enterprise caller could bypass the UI lock
+ * entirely.
+ */
+export async function assertBuilderDesignSystemCodeIndexingAllowed(): Promise<void> {
+  const tierLimit = await fetchBuilderDesignSystemTierLimit();
+  if (tierLimit.status === "ok" && tierLimit.codeIndexingAllowed) return;
+  fail("Code and repository indexing requires the Builder Enterprise plan.", {
+    statusCode: 403,
+    errorCode: "design_system_code_indexing_forbidden",
+    details: {
+      plan: tierLimit.plan,
+      upgradeUrl: tierLimit.upgradeUrl ?? designSystemTierUpgradeUrl(),
+    },
+  });
 }
 
 function trimTrailingSlash(value: string): string {
