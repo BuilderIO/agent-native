@@ -597,12 +597,13 @@ export function runRedo({
         setRuntimeStructureDeleteRequest
       ) {
         setRuntimeStructureDeleteRequest({
-          requestId: `${transactionId}:source`,
+          requestId: `${transactionId}:source:redo-${runtimeStructureInsertRevisionRef.current}`,
           transactionId,
           screenId: pairedDeleteEdit.screenId,
           selector: pairedDeleteEdit.selector,
           selectorCandidates: [pairedDeleteEdit.selector],
           waitForInsertTransaction: true,
+          rollbackScreenId: insertEdit.screenId,
         });
       }
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {

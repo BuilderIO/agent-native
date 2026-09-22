@@ -25418,7 +25418,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var reuseExistingRuntimeNode = Boolean(
         existingBeforeRemint &&
         incomingRuntimeInstanceId &&
-        existingRuntimeInstanceId === incomingRuntimeInstanceId,
+        existingRuntimeInstanceId === incomingRuntimeInstanceId &&
+        e.data.screenId === designCanvasScreenId,
       );
       if (e.data.remintCollidingNodeIds === true && !reuseExistingRuntimeNode) {
         remintCollidingRuntimeNodeIds(parsedInsertEl);
@@ -25482,8 +25483,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             insertTarget,
             reinsertOrigin,
           );
-          acknowledgeInsert(existingInsertEl);
         }
+        // A same-slot reorder is still an applied request. The host may be
+        // waiting to release a paired source delete or redo transaction.
+        acknowledgeInsert(existingInsertEl);
         return;
       }
       if (replaceInsertAnchor) {

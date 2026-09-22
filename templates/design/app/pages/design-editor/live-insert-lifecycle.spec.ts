@@ -527,10 +527,11 @@ describe("live insert lifecycle", () => {
         await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
         await collectBridgeMessages(page);
 
-        await page.evaluate(() => {
+        await page.evaluate((screenId) => {
           window.postMessage(
             {
               type: "runtime-structure-insert",
+              screenId,
               requestId: 102,
               html: '<p data-agent-native-node-id="v1" data-agent-native-runtime-instance-id="instance-v1">V1</p>',
               anchorSelector: '[data-agent-native-node-id="v2"]',
@@ -540,7 +541,7 @@ describe("live insert lifecycle", () => {
             },
             "*",
           );
-        });
+        }, SCREEN_ID);
 
         await page.waitForFunction(
           () =>
