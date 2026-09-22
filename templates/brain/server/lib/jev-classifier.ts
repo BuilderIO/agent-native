@@ -532,8 +532,12 @@ export async function runJevClassification(
   );
   const judgedBody = fullBody.slice(0, JEV_MAX_INPUT_CHARS);
   const truncated = judgedBody.length < fullBody.length;
+  // The workspace rule is admin-authored free text on the same egress path as
+  // the capture, so it gets the same redaction rather than being trusted.
   const workspaceRule =
-    input.settings.sensitivityCustomInstructions?.trim() || undefined;
+    sanitizeSensitiveText(
+      input.settings.sensitivityCustomInstructions?.trim() ?? "",
+    ) || undefined;
   const key = cacheKey(screenedTitle, judgedBody, workspaceRule);
 
   let scores = readCachedScores(key);

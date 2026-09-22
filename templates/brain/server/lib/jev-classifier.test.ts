@@ -282,14 +282,15 @@ describe("review fixes", () => {
       ...input,
       settings: {
         ...DEFAULT_BRAIN_SETTINGS,
-        sensitivityCustomInstructions: "Never retain unreleased pricing.",
+        sensitivityCustomInstructions:
+          "Never retain unreleased pricing. Escalate to owner@example.com.",
       },
     });
 
     const body = JSON.parse(fetchCallArgs(fetchMock).init.body as string);
-    expect(body.questions[WORKSPACE_RULE_QUESTION].criteria.true).toContain(
-      "Never retain unreleased pricing.",
-    );
+    const rule = body.questions[WORKSPACE_RULE_QUESTION].criteria.true;
+    expect(rule).toContain("Never retain unreleased pricing.");
+    expect(rule).not.toContain("owner@example.com");
     expect(outcome.decision?.disposition).toBe("quarantined");
     expect(outcome.decision?.categories).toEqual([]);
     expect(outcome.decision?.categoryScores?.[WORKSPACE_RULE_QUESTION]).toBe(
