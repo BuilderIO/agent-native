@@ -5860,6 +5860,64 @@ describe("server/auth", () => {
       expect(setCookie).not.toContain("SameSite=Lax");
     });
 
+    it("deletes both partitions of a Better Auth cookie behind a forwarded https proxy", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.APP_URL;
+      delete process.env.BETTER_AUTH_URL;
+
+      const deletingHandler = vi.fn(async () => {
+        const headers = new Headers({ "content-type": "application/json" });
+        headers.append(
+          "set-cookie",
+          "an.session_data=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax",
+        );
+        return new Response(JSON.stringify({ ok: true }), { headers });
+      });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: deletingHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      const response = (await baHandler(
+        createJsonPostEvent(
+          "/_agent-native/auth/ba/update-user",
+          {},
+          { "x-forwarded-proto": "https" },
+          "http://cloud-branch.example.com",
+        ),
+      )) as Response;
+
+      const deletes = response.headers
+        .getSetCookie()
+        .filter((cookie) => cookie.startsWith("an.session_data=;"));
+      expect(deletes).toHaveLength(2);
+      expect(deletes.some((cookie) => /Partitioned/.test(cookie))).toBe(true);
+      expect(deletes.some((cookie) => !/Partitioned/.test(cookie))).toBe(true);
+    });
+
     it("keeps Better Auth's signup Set-Cookie as SameSite=Lax on plain-HTTP localhost dev", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;

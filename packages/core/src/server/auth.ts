@@ -1017,24 +1017,46 @@ function extractSessionTokenFromAuthResponse(
 function upgradeBetterAuthCookieForRequest(
   event: H3Event,
   cookie: string,
-): string {
-  if (crossSiteCookieAttrs(event).sameSite !== "none") return cookie;
-  if (/(?:^|;)\s*SameSite=None/i.test(cookie)) return cookie;
+): string[] {
+  if (crossSiteCookieAttrs(event).sameSite !== "none") return [cookie];
+  if (/(?:^|;)\s*SameSite=None/i.test(cookie)) return [cookie];
   const [nameValue, ...attrs] = cookie.split(";").map((part) => part.trim());
   const kept = attrs.filter(
     (attr) => !/^(SameSite|Secure|Partitioned)(?:=|$)/i.test(attr),
   );
-  return [nameValue, ...kept, "Secure", "SameSite=None", "Partitioned"].join(
-    "; ",
-  );
+  const upgraded = [
+    nameValue,
+    ...kept,
+    "Secure",
+    "SameSite=None",
+    "Partitioned",
+  ].join("; ");
+  // A delete must empty both jars: a session minted before this upgrade sits
+  // unpartitioned and survives a Partitioned-only delete (see
+  // `deleteCookieFromBothPartitions`).
+  return isCookieDeletion(attrs) ? [cookie, upgraded] : [upgraded];
+}
+
+function isCookieDeletion(attrs: string[]): boolean {
+  return attrs.some((attr) => {
+    const [key, value = ""] = attr.split("=").map((part) => part.trim());
+    if (/^max-age$/i.test(key)) return Number(value) <= 0;
+    if (/^expires$/i.test(key)) return Date.parse(value) <= Date.now();
+    return false;
+  });
 }
 
 function upgradeBetterAuthSetCookies(event: H3Event, headers: Headers): void {
   const cookies = getSetCookieHeaders(headers);
-  const upgraded = cookies.map((cookie) =>
+  const upgraded = cookies.flatMap((cookie) =>
     upgradeBetterAuthCookieForRequest(event, cookie),
   );
-  if (upgraded.every((cookie, i) => cookie === cookies[i])) return;
+  if (
+    upgraded.length === cookies.length &&
+    upgraded.every((cookie, i) => cookie === cookies[i])
+  ) {
+    return;
+  }
   headers.delete("set-cookie");
   for (const cookie of upgraded) headers.append("set-cookie", cookie);
 }
@@ -1056,10 +1078,9 @@ function forwardBetterAuthSetCookies(
     ) {
       continue;
     }
-    event.res?.headers?.append(
-      "set-cookie",
-      upgradeBetterAuthCookieForRequest(event, cookie),
-    );
+    for (const upgraded of upgradeBetterAuthCookieForRequest(event, cookie)) {
+      event.res?.headers?.append("set-cookie", upgraded);
+    }
   }
 }
 

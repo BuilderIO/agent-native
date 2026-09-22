@@ -2359,13 +2359,12 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
-    // Per request: with no APP_URL/BETTER_AUTH_URL (a cloud dev container
-    // behind an https proxy) the configured list is empty, so the proxied
-    // host's own same-origin POSTs would fail Better Auth's origin check.
-    trustedOrigins: (request) => [
-      ...configuredOrigins,
-      requestForwardedOrigin(request),
-    ],
+    // With no https public URL configured (a cloud dev container behind an
+    // https proxy), the proxied host's own same-origin POSTs would fail Better
+    // Auth's origin check. Configured deployments keep the static allowlist.
+    trustedOrigins: appUrl.startsWith("https://")
+      ? configuredOrigins
+      : (request) => [...configuredOrigins, requestForwardedOrigin(request)],
     secret,
     emailAndPassword: {
       enabled: true,
