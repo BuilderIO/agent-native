@@ -42,14 +42,15 @@ export function getAppBasePathFromViteEnv(): string {
  * Strip the configured app base path prefix from a pathname.
  *
  * Returns "/" when the pathname equals the base path exactly, the suffix
- * when it starts with `${basePath}/`, or the original pathname unchanged
- * when no prefix match is found.
+ * when it starts with `${basePath}/`, `/.data` for React Router's mounted
+ * root data URL, or the original pathname unchanged when no prefix matches.
  */
 export function stripAppBasePath(
   pathname: string,
   basePath = getConfiguredAppBasePath(),
 ): string {
   if (!basePath) return pathname;
+  if (pathname === `${basePath}.data`) return "/.data";
   if (pathname === basePath) return "/";
   // Mounted deployment adapters use an extra slash to preserve the app root
   // while handing the request through a function mounted at the base path.

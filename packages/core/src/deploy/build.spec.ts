@@ -917,6 +917,11 @@ export function createRequestHandler() {
   return async (request) => {
     const url = new URL(request.url);
     if (url.pathname.endsWith(".data")) {
+      if (url.pathname === "/.data") {
+        return new Response(url.pathname, {
+          headers: { "content-type": "text/x-script" },
+        });
+      }
       if (url.pathname === "/custom.data") {
         return new Response('{"ok":true}', {
           headers: {
@@ -1396,6 +1401,19 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     );
 
     expectDefaultWorkerSsrCacheHeaders(response);
+  });
+
+  it("strips the mount from React Router's root data URL", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs.data"),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("/.data");
   });
 
   it("hard-caches .data responses for authenticated Cloudflare worker requests", async () => {
