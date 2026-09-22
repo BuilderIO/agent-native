@@ -430,6 +430,7 @@ async function callModel(
   prompt: string,
   ownerEmail: string,
   settings: AutomationModelSettings,
+  signal?: AbortSignal,
 ): Promise<string> {
   registerBuiltinEngines();
 
@@ -443,7 +444,7 @@ async function callModel(
       apiKey: anthropicKey,
     });
     const model = settings.model || engine.defaultModel;
-    const controller = new AbortController();
+    const abortSignal = signal ?? new AbortController().signal;
     let text = "";
     let assistantText = "";
     let usage:
@@ -465,7 +466,7 @@ async function callModel(
         },
       ],
       tools: [],
-      abortSignal: controller.signal,
+      abortSignal,
       maxOutputTokens: 2048,
     })) {
       if (event.type === "text-delta") {
@@ -782,6 +783,7 @@ async function evaluatePriorityWithJev(
   emails: EmailSummary[],
   instruction: string,
   ownerEmail: string,
+  signal?: AbortSignal,
 ): Promise<Map<string, PriorityScore>> {
   const apiKey = readDeployCredentialEnv("TYPESAFE_API_KEY");
   if (!apiKey) throw new Error("TypeSafe Jev is not configured.");
@@ -817,6 +819,7 @@ async function evaluatePriorityWithJev(
 
   let response: Response | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    signal?.throwIfAborted();
     response = await fetch("https://api.typesafe.ai/v1/systemone", {
       method: "POST",
       headers: {
@@ -824,7 +827,9 @@ async function evaluatePriorityWithJev(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12_000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
+        : AbortSignal.timeout(12_000),
     });
     if (response.ok) break;
     if (attempt === 0 && (response.status === 429 || response.status === 529)) {
@@ -888,10 +893,12 @@ async function evaluatePriorityWithTextModel(
   instruction: string,
   ownerEmail: string,
   modelSettings: AutomationModelSettings,
+  signal?: AbortSignal,
 ): Promise<Map<string, PriorityScore>> {
   const results = new Map<string, PriorityScore>();
   const batchSize = 25;
   for (let i = 0; i < emails.length; i += batchSize) {
+    signal?.throwIfAborted();
     const batch = emails.slice(i, i + batchSize);
     const emailsText = batch
       .map(
@@ -908,7 +915,7 @@ Respond with ONLY a JSON array in this format:
 [{"emailId":"<id>","score":0.0,"reason":"short explanation"}]
 
 Use a score from 0 to 1. Give higher scores to emails that deserve attention sooner. Do not use the age of the email alone as the reason.`;
-    const text = await callModel(prompt, ownerEmail, modelSettings);
+    const text = await callModel(prompt, ownerEmail, modelSettings, signal);
     const jsonStr = text
       .replace(/```json?\n?/g, "")
       .replace(/```/g, "")
@@ -944,6 +951,7 @@ export async function previewAutomationPriority(
   emails: AiPriorityEmail[],
   ownerEmail: string,
   instruction = AI_PRIORITY_DEFAULT_INSTRUCTION,
+  signal?: AbortSignal,
 ): Promise<{
   scores: Map<string, PriorityScore>;
   model: AutomationModelSettings;
@@ -973,15 +981,17 @@ export async function previewAutomationPriority(
 
   const scores = new Map<string, PriorityScore>();
   for (let i = 0; i < messages.length; i += 50) {
+    signal?.throwIfAborted();
     const batch = messages.slice(i, i + 50);
     const batchScores =
       model.engine === TYPESAFE_AUTOMATION_ENGINE
-        ? await evaluatePriorityWithJev(batch, instruction, ownerEmail)
+        ? await evaluatePriorityWithJev(batch, instruction, ownerEmail, signal)
         : await evaluatePriorityWithTextModel(
             batch,
             instruction,
             ownerEmail,
             model,
+            signal,
           );
     for (const [emailId, score] of batchScores) scores.set(emailId, score);
   }

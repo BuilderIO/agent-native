@@ -115,6 +115,7 @@ export default defineAction({
         pending,
         ownerEmail,
         instruction,
+        AbortSignal.timeout(25_000),
       );
       model = result.model;
       const incomplete = pending.some((email) => {

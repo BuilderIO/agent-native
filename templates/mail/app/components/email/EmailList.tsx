@@ -618,7 +618,7 @@ export function EmailList({
         .concat(
           priorityWindowEmails.map(
             (email) =>
-              `${email.id}:${email.date}:${email.from.email}:${email.subject}:${email.snippet}:${email.labelIds.join(",")}`,
+              `${email.id}:${email.date}:${email.from.email}:${JSON.stringify(email.to)}:${email.subject}:${email.snippet}:${email.labelIds.join(",")}`,
           ),
         )
         .join("\u001f"),
