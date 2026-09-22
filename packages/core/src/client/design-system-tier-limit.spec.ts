@@ -60,7 +60,7 @@ describe("isDesignSystemCodeIndexingAllowed", () => {
 describe("readDesignSystemTierLimitFailure", () => {
   it("recovers plan/current/max/upgradeUrl from a 402's error details", () => {
     const error = Object.assign(
-      new Error("You have reached your design-system limit"),
+      new Error("You have reached your design system limit"),
       {
         errorCode: DESIGN_SYSTEM_TIER_LIMIT_ERROR_CODE,
         details: {
@@ -73,7 +73,7 @@ describe("readDesignSystemTierLimitFailure", () => {
     );
 
     expect(readDesignSystemTierLimitFailure(error, "fallback")).toEqual({
-      message: "You have reached your design-system limit",
+      message: "You have reached your design system limit",
       plan: "pro",
       current: 3,
       max: 3,
