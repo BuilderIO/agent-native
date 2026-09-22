@@ -402,6 +402,58 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
+  it("keeps the live iframe and switches interaction ownership in place", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const content = "http://localhost:5173/forms";
+    const render = (interactMode: boolean) => (
+      <DesignCanvas
+        content={content}
+        contentKey="same-live-iframe"
+        screenId="screen-a"
+        sourceType="localhost"
+        bridgeUrl="http://127.0.0.1:7331"
+        zoom={100}
+        deviceFrame="none"
+        interactMode={interactMode}
+        editMode={!interactMode}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    try {
+      await act(async () => root.render(render(false)));
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe?.contentWindow).toBeTruthy();
+      const contentWindow = iframe!.contentWindow;
+      let loadCount = 0;
+      iframe!.addEventListener("load", () => {
+        loadCount += 1;
+      });
+      const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
+
+      await act(async () => root.render(render(true)));
+
+      expect(
+        container.querySelector("iframe[data-design-preview-iframe]"),
+      ).toBe(iframe);
+      expect(iframe!.contentWindow).toBe(contentWindow);
+      expect(loadCount).toBe(0);
+      expect(postMessage).toHaveBeenCalledWith(
+        { type: "set-interaction-mode", interact: true },
+        "*",
+      );
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("queues and deduplicates runtime structure move requests until the bridge is ready", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -759,6 +811,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
       // The bridge's own closing handshake must survive intact, proving its
       // <script> tag was never prematurely closed partway through.
       expect(srcdoc).toContain("agent-native:editor-chrome-ready");
+      expect(srcdoc).toContain("agent-native:editor-chrome-ready-probe");
       expect(srcdoc).toContain("data-agent-native-content-size-bridge");
     } finally {
       await act(async () => root.unmount());

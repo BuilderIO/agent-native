@@ -1225,6 +1225,11 @@ describe("Chromium reparent matrix", () => {
       expect(inserted.parent).toBe("host");
       expect(inserted.order).toEqual(["existing", "board-rect"]);
       expect(inserted.structures).toHaveLength(1);
+      // The host's runtime-insert request id must survive the bridge hop so a
+      // later Cmd+Z ack can find and remove the optimistic clone. Generating a
+      // fresh move id here leaves the pending ledger clear while the DOM copy
+      // remains in the running app.
+      expect(String(inserted.structures[0]!.requestId)).toBe("41");
       // insertedHtml is what tells the host (and then the coding agent) this is
       // new markup to add, not an existing element to relocate.
       expect(inserted.structures[0]!.insertedHtml).toContain(
@@ -1240,7 +1245,7 @@ describe("Chromium reparent matrix", () => {
             data: { type: "visual-structure-ack", requestId, applied: false },
           }),
         );
-      }, inserted.structures[0]!.requestId);
+      }, 41);
       await expect
         .poll(() =>
           page.evaluate(

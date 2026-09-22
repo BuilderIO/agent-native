@@ -262,16 +262,16 @@ function isOutOfFlowHintTarget(node: CodeLayerNode): boolean {
 }
 
 /**
- * Match measureFreeformGeometry's padding-box coordinate convention while
- * staying scoped to the active preview document. Client rects keep parent
- * transforms and scrolling in the same coordinate space as the child; the
- * border inset converts the parent's border box to its positioning origin.
+ * Measure in the coordinate space used by released absolute children. The
+ * immediate parent is not necessarily the containing block: static wrappers
+ * can sit inside an offset ancestor, so using parent-relative values here
+ * would shift children when the measured wrapper is removed.
  */
 function measureParentRelativePosition(
   element: HTMLElement,
   iframeWindow: Window,
 ): { left: number; top: number; width: number; height: number } | null {
-  const parent = element.parentElement;
+  const parent = element.offsetParent ?? element.parentElement;
   if (!parent) return null;
   const childRect = element.getBoundingClientRect();
   const parentRect = parent.getBoundingClientRect();
@@ -287,14 +287,26 @@ function measureParentRelativePosition(
   const parentStyle = iframeWindow.getComputedStyle(parent);
   const borderLeft = Number.parseFloat(parentStyle.borderLeftWidth || "0");
   const borderTop = Number.parseFloat(parentStyle.borderTopWidth || "0");
+  let scrollLeft = 0;
+  let scrollTop = 0;
+  for (
+    let ancestor = element.parentElement;
+    ancestor && ancestor !== parent;
+    ancestor = ancestor.parentElement
+  ) {
+    scrollLeft += ancestor.scrollLeft;
+    scrollTop += ancestor.scrollTop;
+  }
+  scrollLeft += parent.scrollLeft;
+  scrollTop += parent.scrollTop;
   const left =
     childRect.left +
-    parent.scrollLeft -
+    scrollLeft -
     parentRect.left -
     (Number.isFinite(borderLeft) ? borderLeft : 0);
   const top =
     childRect.top +
-    parent.scrollTop -
+    scrollTop -
     parentRect.top -
     (Number.isFinite(borderTop) ? borderTop : 0);
   return Number.isFinite(left) &&

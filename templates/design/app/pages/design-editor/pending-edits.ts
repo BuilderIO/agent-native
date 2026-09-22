@@ -422,6 +422,7 @@ export interface PendingLiveStructureEdit {
    * must insert this markup rather than relocate an existing element.
    */
   insertedHtml?: string;
+  remintCollidingNodeIds?: boolean;
   /** The inserted markup replaced `selector` instead of landing beside it. */
   replaced?: true;
   /** Runtime identity of the optimistic replacement used for verification. */
@@ -831,6 +832,18 @@ export function pendingLiveStructureEditsFromUndoEntry(
   return entry.groupedEdits ?? pendingLiveStructureEditsFromEdit(entry.edit);
 }
 
+/**
+ * Redo receives the final member as `entry.edit`, while a coalesced live move
+ * keeps the full transaction on the undo entry. Reattach those members before
+ * choosing the replay command so cross-screen insert/delete pairs stay atomic.
+ */
+export function pendingLiveStructureRedoSourceEdit(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit {
+  const edits = pendingLiveStructureEditsFromUndoEntry(entry);
+  return edits.length > 1 ? { ...entry.edit, groupedEdits: edits } : entry.edit;
+}
+
 export function pendingLiveStructureEditsFromEdit(
   edit: PendingLiveStructureEdit,
 ): PendingLiveStructureEdit[] {
@@ -879,7 +892,12 @@ export function pendingStructureEditSourcePaths(
 
 export type PendingStructureRedoCommand =
   | { kind: "delete" }
-  | { kind: "insert"; html: string; replaceAnchor?: boolean }
+  | {
+      kind: "insert";
+      html: string;
+      replaceAnchor?: boolean;
+      remintCollidingNodeIds?: boolean;
+    }
   | { kind: "move" };
 
 /**
@@ -891,12 +909,18 @@ export type PendingStructureRedoCommand =
 export function pendingStructureRedoCommand(
   edit: PendingLiveStructureEdit,
 ): PendingStructureRedoCommand {
-  if (edit.removed) return { kind: "delete" };
-  return edit.insertedHtml
+  const insertedEdit = [edit, ...(edit.groupedEdits ?? [])].find(
+    (candidate) => candidate.insertedHtml,
+  );
+  if (!insertedEdit && edit.removed) return { kind: "delete" };
+  return insertedEdit?.insertedHtml
     ? {
         kind: "insert",
-        html: edit.insertedHtml,
-        ...(edit.replaced ? { replaceAnchor: true } : {}),
+        html: insertedEdit.insertedHtml,
+        ...(insertedEdit.replaced ? { replaceAnchor: true } : {}),
+        ...(insertedEdit.remintCollidingNodeIds
+          ? { remintCollidingNodeIds: true }
+          : {}),
       }
     : { kind: "move" };
 }

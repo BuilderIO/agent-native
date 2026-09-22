@@ -66,6 +66,7 @@ export default defineAction({
           prompt,
           body: prompt,
           model: meta.model ?? null,
+          reasoningEffort: meta.reasoningEffort ?? null,
           schedule: meta.schedule || null,
           enabled: meta.enabled,
           triggerType: meta.triggerType,

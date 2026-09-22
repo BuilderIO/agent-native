@@ -38,7 +38,7 @@ export const OVERVIEW_CULLING_ENABLED = true;
  *  during an in-flight gesture are already live before the debounced
  *  ~120ms view-commit (see scheduleViewCommit) catches up and this
  *  recomputes. */
-export const OVERVIEW_CULLING_OVERSCAN_FACTOR = 1.5;
+export const OVERVIEW_CULLING_OVERSCAN_FACTOR = 2;
 
 /** Maximum number of evictable overview SCREENS kept mounted at once.
  *

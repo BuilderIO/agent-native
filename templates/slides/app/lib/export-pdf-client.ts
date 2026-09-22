@@ -244,6 +244,110 @@ function waitForExportFrame(signal?: AbortSignal): Promise<void> {
   });
 }
 
+function waitForDocumentFonts(signal?: AbortSignal): Promise<void> {
+  const ready = document.fonts?.ready;
+  if (!ready) return Promise.resolve();
+  if (!signal) return ready.then(() => undefined);
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      cleanup();
+      try {
+        throwIfExportAborted(signal);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    ready.then(
+      () => {
+        cleanup();
+        resolve();
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+    if (signal.aborted) onAbort();
+  });
+}
+
+/**
+ * modern-screenshot can only embed @font-face rules from readable stylesheets.
+ * Google Fonts links are cross-origin, so make their already-loaded CSS
+ * readable for the duration of the capture and leave the live slide untouched.
+ */
+async function exposeGoogleFontStylesheetsForPdf(
+  signal?: AbortSignal,
+): Promise<() => void> {
+  const hrefs = new Set(
+    Array.from(
+      document.querySelectorAll<HTMLLinkElement>(
+        'link[rel~="stylesheet"][href]',
+      ),
+    )
+      .map((link) => link.href)
+      .filter((href) => {
+        try {
+          return (
+            new URL(href, document.baseURI).hostname === "fonts.googleapis.com"
+          );
+        } catch {
+          // coercion-ok: malformed hrefs are not Google-hosted stylesheets.
+          return false;
+        }
+      }),
+  );
+  const styles: HTMLStyleElement[] = [];
+
+  const cleanup = () => {
+    for (const style of styles) style.remove();
+  };
+
+  try {
+    await Promise.all(
+      [...hrefs].map(async (href) => {
+        try {
+          throwIfExportAborted(signal);
+          const response = await fetch(href, {
+            credentials: "omit",
+            mode: "cors",
+            signal,
+          });
+          if (!response.ok) {
+            throw new Error(`Font stylesheet returned ${response.status}`);
+          }
+          const cssText = await response.text();
+          if (!cssText.includes("@font-face")) return;
+          throwIfExportAborted(signal);
+
+          const style = document.createElement("style");
+          style.dataset.pdfExportFontFaces = "true";
+          style.textContent = cssText;
+          document.head.appendChild(style);
+          styles.push(style);
+        } catch (error) {
+          throwIfExportAborted(signal);
+          // coercion-ok: font CSS is an enhancement; the original exporter can
+          // still complete with its existing fallback when the font CDN fails.
+          console.warn(
+            `[export-pdf] could not inline Google Font CSS for ${href}; the PDF may use fallback metrics`,
+            error,
+          );
+        }
+      }),
+    );
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+
+  return cleanup;
+}
+
 async function waitForExportStage(
   stage: HTMLElement,
   signal?: AbortSignal,
@@ -533,9 +637,7 @@ export async function exportDeckAsPdf(
   // Web fonts (Poppins) must finish loading before capture — otherwise
   // text lays out with fallback metrics and draws with the real font,
   // producing severely overlapping characters.
-  if (typeof document !== "undefined" && document.fonts?.ready) {
-    await document.fonts.ready;
-  }
+  await waitForDocumentFonts(signal);
   throwIfExportAborted(signal);
 
   // Defensive fallback: getAspectRatioDims returns undefined for unknown
@@ -556,68 +658,77 @@ export async function exportDeckAsPdf(
     "[data-pdf-export-stage]",
   );
   if (exportStage) await waitForExportStage(exportStage, signal);
-  for (let i = 0; i < slides.length; i++) {
+  const restoreFontStyles = await exposeGoogleFontStylesheetsForPdf(signal);
+  try {
+    // The injected same-origin styles let modern-screenshot fetch the exact
+    // font files instead of cloning text against the browser's fallback font.
+    await waitForDocumentFonts(signal);
     throwIfExportAborted(signal);
-    const slideId = slides[i].id;
-    const source = findSlideExportSource(
-      slideId,
-      i,
-      slides.length,
-      exportStage ?? document,
-    );
-
-    // Force CORS-enabled re-fetch on every cross-origin <img> before
-    // capture — otherwise the canvas tainting check inside modern-screenshot
-    // produces a blank rect for the image.
-    const restoreImages = await preloadImagesWithCors(
-      source,
-      signal,
-      shareToken,
-    );
-    if (exportStage) {
-      await waitForExportFrame(signal);
-      await waitForExportFrame(signal);
-    }
-
-    let dataUrl: string;
-    try {
+    for (let i = 0; i < slides.length; i++) {
       throwIfExportAborted(signal);
-      dataUrl = await domToJpeg(source, {
-        width: dims.width,
-        height: dims.height,
-        scale: 2, // 2x for crisp text
-        // guard:allow-raw-color — a PDF page has no theme to follow.
-        backgroundColor: "#000000",
-        quality: 0.92,
-        // Pair with the in-DOM CORS preload above. modern-screenshot's
-        // internal image fetcher needs no-cache so re-issued requests don't
-        // get served the original tainted (no-CORS) response from the HTTP
-        // cache, and an anonymous-CORS request mode so the response itself
-        // is usable on a clean canvas.
-        //
-        // `same-origin` rather than `omit`: images the preload rewrote to
-        // /api/image-proxy are same-origin and that route needs the session
-        // cookie, so omitting credentials would 401 exactly the images this
-        // is meant to rescue. Cross-origin requests still go out anonymously,
-        // which is what CORS mode requires.
-        fetch: {
-          requestInit: {
-            cache: "no-cache",
-            mode: "cors",
-            credentials: "same-origin",
+      const slideId = slides[i].id;
+      const source = findSlideExportSource(
+        slideId,
+        i,
+        slides.length,
+        exportStage ?? document,
+      );
+
+      // Force CORS-enabled re-fetch on every cross-origin <img> before
+      // capture — otherwise the canvas tainting check inside modern-screenshot
+      // produces a blank rect for the image.
+      const restoreImages = await preloadImagesWithCors(
+        source,
+        signal,
+        shareToken,
+      );
+      if (exportStage) {
+        await waitForExportFrame(signal);
+        await waitForExportFrame(signal);
+      }
+
+      let dataUrl: string;
+      try {
+        throwIfExportAborted(signal);
+        dataUrl = await domToJpeg(source, {
+          width: dims.width,
+          height: dims.height,
+          scale: 2, // 2x for crisp text
+          // guard:allow-raw-color — a PDF page has no theme to follow.
+          backgroundColor: "#000000",
+          quality: 0.92,
+          // Pair with the in-DOM CORS preload above. modern-screenshot's
+          // internal image fetcher needs no-cache so re-issued requests don't
+          // get served the original tainted (no-CORS) response from the HTTP
+          // cache, and an anonymous-CORS request mode so the response itself
+          // is usable on a clean canvas.
+          //
+          // `same-origin` rather than `omit`: images the preload rewrote to
+          // /api/image-proxy are same-origin and that route needs the session
+          // cookie, so omitting credentials would 401 exactly the images this
+          // is meant to rescue. Cross-origin requests still go out anonymously,
+          // which is what CORS mode requires.
+          fetch: {
+            requestInit: {
+              cache: "no-cache",
+              mode: "cors",
+              credentials: "same-origin",
+            },
           },
-        },
-      });
-      throwIfExportAborted(signal);
-    } finally {
-      restoreImages();
-    }
+        });
+        throwIfExportAborted(signal);
+      } finally {
+        restoreImages();
+      }
 
-    throwIfExportAborted(signal);
-    if (i > 0) pdf.addPage([dims.width, dims.height], orientation);
-    pdf.addImage(dataUrl, "JPEG", 0, 0, dims.width, dims.height);
-    drawSelectableTextLayer(pdf, source, dims);
-    drawLinkAnnotations(pdf, source, dims);
+      throwIfExportAborted(signal);
+      if (i > 0) pdf.addPage([dims.width, dims.height], orientation);
+      pdf.addImage(dataUrl, "JPEG", 0, 0, dims.width, dims.height);
+      drawSelectableTextLayer(pdf, source, dims);
+      drawLinkAnnotations(pdf, source, dims);
+    }
+  } finally {
+    restoreFontStyles();
   }
 
   // Carried so `import-file` can hand back the deck that was exported instead

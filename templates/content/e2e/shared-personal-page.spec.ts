@@ -415,7 +415,15 @@ test("an editor can read and edit one shared Personal page without gaining its p
     await recipientContext.close();
     for (const id of createdIds.reverse()) {
       await runAction(owner, "delete-document", { id });
-      await runAction(owner, "permanently-delete-document", { id });
+      const plan = await runAction(owner, "plan-content-trash-purge", {
+        mode: "selection",
+        documentIds: [id],
+      });
+      await runAction(owner, "permanently-delete-document", {
+        id,
+        planId: plan.planId,
+        scopeToken: plan.scopeToken,
+      });
     }
   }
 });

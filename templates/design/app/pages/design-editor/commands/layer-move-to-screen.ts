@@ -246,6 +246,7 @@ export function runLayerMoveToScreen(
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
       screenId: targetFileId,
+      sourceScreenId: draggedOwner.fileId,
       html: prepared.html,
       anchor: { selector: "body" },
       placement: "inside",

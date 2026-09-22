@@ -20,8 +20,8 @@ describe("isOnboardingPreviewQuery", () => {
   });
 
   it("accepts only known preview steps and requires onboarding preview mode", () => {
-    expect(getOnboardingPreviewStep("?onboarding=preview&step=tools")).toBe(
-      "tools",
+    expect(getOnboardingPreviewStep("?onboarding=preview&step=choice")).toBe(
+      "choice",
     );
     expect(
       getOnboardingPreviewStep("?onboarding=preview&step=references"),

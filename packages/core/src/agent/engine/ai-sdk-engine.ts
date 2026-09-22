@@ -208,8 +208,26 @@ function gemini3ThinkingLevel(effort: string): string {
 
 /** Config accepted by every `ai-sdk:*` engine. */
 export interface AISDKEngineConfig {
+  /** Override the engine name when a provider uses a specialized auth lane. */
+  name?: string;
+  /** Override the engine label shown in settings. */
+  label?: string;
   /** Override the provider's default model (also becomes the engine's defaultModel). */
   model?: string;
+  /** Override the provider model catalog for a specialized endpoint. */
+  supportedModels?: readonly string[];
+  /** Override provider capabilities for a specialized endpoint. */
+  capabilities?: EngineCapabilities;
+  /** Whether arbitrary model IDs are accepted by the specialized endpoint. */
+  acceptsCustomModels?: boolean;
+  /** Custom request transport, used for OAuth-backed provider endpoints. */
+  requestFetch?: typeof fetch;
+  /** Force the OpenAI Responses surface even when a custom base URL is set. */
+  forceResponses?: boolean;
+  /** Omit max_output_tokens when the endpoint supplies its own output limit. */
+  omitMaxOutputTokens?: boolean;
+  /** Do not record this engine's auth failures as API-key failures. */
+  skipCredentialFailureTracking?: boolean;
   /** API key — falls back to the provider-specific env var if omitted. */
   apiKey?: string;
   /** Set false in request-scoped multi-tenant runs so provider packages cannot fall back to process.env. */
@@ -227,7 +245,7 @@ class AISDKEngine implements AgentEngine {
   readonly label: string;
   readonly defaultModel: string;
   readonly supportedModels: readonly string[];
-  readonly acceptsCustomModels = true;
+  readonly acceptsCustomModels: boolean;
   readonly preserveCustomModels: boolean;
   readonly capabilities: EngineCapabilities;
 
@@ -238,18 +256,26 @@ class AISDKEngine implements AgentEngine {
   private readonly requiredEnvVars: readonly string[];
   private readonly appName?: string;
   private readonly appUrl?: string;
+  private readonly requestFetch?: typeof fetch;
+  private readonly forceResponses: boolean;
+  private readonly omitMaxOutputTokens: boolean;
+  private readonly skipCredentialFailureTracking: boolean;
 
   constructor(provider: AISDKProvider, config: AISDKEngineConfig) {
     this.provider = provider;
-    this.name = `ai-sdk:${provider}`;
-    this.label = `${capitalize(provider)} (AI SDK)`;
+    this.name = config.name ?? `ai-sdk:${provider}`;
+    this.label = config.label ?? `${capitalize(provider)} (AI SDK)`;
     this.defaultModel = config.model ?? PROVIDER_DEFAULT_MODELS[provider];
-    this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
+    this.supportedModels =
+      config.supportedModels ?? PROVIDER_SUPPORTED_MODELS[provider];
+    this.acceptsCustomModels = config.acceptsCustomModels ?? true;
     this.preserveCustomModels =
-      provider === "ollama" ||
-      provider === "openrouter" ||
-      (provider === "openai" && isCustomOpenAiBaseUrl(config.baseUrl));
-    this.capabilities = PROVIDER_CAPABILITIES[provider];
+      config.acceptsCustomModels === false
+        ? false
+        : provider === "ollama" ||
+          provider === "openrouter" ||
+          (provider === "openai" && isCustomOpenAiBaseUrl(config.baseUrl));
+    this.capabilities = config.capabilities ?? PROVIDER_CAPABILITIES[provider];
     this.apiKey =
       config.apiKey ??
       (config.allowEnvFallback === false ? "" : getProviderApiKey(provider));
@@ -257,6 +283,11 @@ class AISDKEngine implements AgentEngine {
     this.baseUrl = config.baseUrl;
     this.appName = config.appName;
     this.appUrl = config.appUrl;
+    this.requestFetch = config.requestFetch;
+    this.forceResponses = config.forceResponses === true;
+    this.omitMaxOutputTokens = config.omitMaxOutputTokens === true;
+    this.skipCredentialFailureTracking =
+      config.skipCredentialFailureTracking === true;
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
@@ -479,7 +510,9 @@ class AISDKEngine implements AgentEngine {
         system: opts.systemPrompt,
         messages,
         tools: aiSdkTools,
-        maxOutputTokens: resolvedMaxOutputTokens,
+        ...(this.omitMaxOutputTokens
+          ? {}
+          : { maxOutputTokens: resolvedMaxOutputTokens }),
         // Explicit: the agent loop already retries a failed model call with
         // backoff. Leaving the SDK on its default (2) multiplies the two retry
         // layers into ~12 HTTP requests per failed run.
@@ -517,7 +550,8 @@ class AISDKEngine implements AgentEngine {
           if (
             event.type === "stop" &&
             event.reason === "error" &&
-            event.statusCode === 401
+            event.statusCode === 401 &&
+            !this.skipCredentialFailureTracking
           ) {
             await recordProviderCredentialAuthFailure({
               key: PROVIDER_ENV_VARS[this.provider][0],
@@ -583,7 +617,11 @@ class AISDKEngine implements AgentEngine {
       // rejection. `credentialFailureRecorded` only covers the 401 path.
       const stoppedWithError =
         bufferedStop?.type === "stop" && bufferedStop.reason === "error";
-      if (!credentialFailureRecorded && !stoppedWithError) {
+      if (
+        !this.skipCredentialFailureTracking &&
+        !credentialFailureRecorded &&
+        !stoppedWithError
+      ) {
         await clearProviderCredentialAuthFailure({
           key: PROVIDER_ENV_VARS[this.provider][0],
           value: this.apiKey,
@@ -597,7 +635,10 @@ class AISDKEngine implements AgentEngine {
       // provider failure must not be classifiable only when it happens to
       // throw.
       const classification = classifyProviderError(err, timedOut);
-      if (classification.statusCode === 401) {
+      if (
+        classification.statusCode === 401 &&
+        !this.skipCredentialFailureTracking
+      ) {
         await recordProviderCredentialAuthFailure({
           key: PROVIDER_ENV_VARS[this.provider][0],
           value: this.apiKey,
@@ -638,6 +679,7 @@ class AISDKEngine implements AgentEngine {
     const config: Record<string, unknown> = {};
     if (this.apiKey !== undefined) config.apiKey = this.apiKey;
     if (this.baseUrl) config.baseURL = this.baseUrl;
+    if (this.requestFetch) config.fetch = this.requestFetch;
     // Scoped to openrouter — other providers' factories may reject unknown keys.
     if (this.provider === "openrouter") {
       if (this.appName) config.appName = this.appName;
@@ -649,7 +691,9 @@ class AISDKEngine implements AgentEngine {
     // GPT reasoning models get the API OpenAI recommends. If someone points
     // the OpenAI provider at an OpenAI-compatible gateway, keep using Chat
     // Completions because many gateway base URLs do not implement Responses.
-    return this.provider === "openai" && isCustomOpenAiBaseUrl(this.baseUrl)
+    return this.provider === "openai" &&
+      !this.forceResponses &&
+      isCustomOpenAiBaseUrl(this.baseUrl)
       ? provider.chat(model)
       : provider(model);
   }

@@ -2,12 +2,74 @@ import { describe, expect, it } from "vitest";
 
 import {
   getBoardSurfaceContentBounds,
+  getBoardSurfaceHtml,
+  hasBoardRuntimeSurfaceContent,
+  shouldMountBoardSurface,
   shouldRenderOverviewReviewCanvas,
   shouldRenderEmptyBoardReviewCanvas,
 } from "./board-surface-html";
 import { getBoardSurfaceRenderGeometry } from "./overview-layout";
 
 describe("board surface rendering", () => {
+  it("mounts an inert board document when an existing board file is empty", () => {
+    expect(getBoardSurfaceHtml("<html><body></body></html>")).toContain(
+      "<body></body>",
+    );
+    expect(getBoardSurfaceHtml(undefined)).toBeUndefined();
+    const authored = "<html><body><div>Canvas</div></body></html>";
+    expect(getBoardSurfaceHtml(authored)).toBe(authored);
+  });
+
+  it("keeps a runtime board mounted through the drop acknowledgement", () => {
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasRuntimeContent: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: true,
+        hasRuntimeContent: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasRuntimeContent: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not carry runtime board content across board identities", () => {
+    expect(
+      hasBoardRuntimeSurfaceContent({
+        boardFileId: "board-a",
+        runtimeBoardFileId: "board-a",
+        runtimeRequestKeys: ["move-a"],
+      }),
+    ).toBe(true);
+    expect(
+      hasBoardRuntimeSurfaceContent({
+        boardFileId: "board-b",
+        runtimeBoardFileId: "board-a",
+        runtimeRequestKeys: ["move-a"],
+      }),
+    ).toBe(false);
+    expect(
+      hasBoardRuntimeSurfaceContent({
+        boardFileId: "board-a",
+        runtimeBoardFileId: "board-a",
+        runtimeRequestKeys: [],
+      }),
+    ).toBe(false);
+  });
   it("uses the viewport for a normal-flow app stored as the only board file", () => {
     const appDocument = `<!doctype html><html><body data-agent-native-node-id="body">
       <div data-agent-native-node-id="app" class="app">

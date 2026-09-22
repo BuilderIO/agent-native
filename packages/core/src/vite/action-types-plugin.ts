@@ -67,6 +67,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/labs/actions/set-lab",
   },
   {
+    name: "get-chatgpt-subscription-status",
+    specifier:
+      "@agent-native/core/agent/actions/get-chatgpt-subscription-status",
+  },
+  {
+    name: "disconnect-chatgpt-subscription",
+    specifier:
+      "@agent-native/core/agent/actions/disconnect-chatgpt-subscription",
+  },
+  {
     name: "get-hosted-harness-config",
     specifier:
       "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",
@@ -182,6 +192,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "list-resource-history",
     specifier: "@agent-native/core/history/actions/list-resource-history",
+  },
+  {
+    name: "list-observability-reviews",
+    specifier:
+      "@agent-native/core/observability/actions/list-observability-reviews",
+  },
+  {
+    name: "save-observability-instruction-update",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-instruction-update",
   },
   {
     name: "list-review-comments",

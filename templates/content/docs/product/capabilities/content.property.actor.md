@@ -23,9 +23,12 @@ proof_requirements:
     "Creation sets Created by once; later committed changes update Last edited by without overwriting provenance.",
     "Denied, imported, or unavailable actor identity is represented honestly and does not collapse into a false personal attribution.",
   ]
-evidence: []
+evidence:
+  [
+    "Content Pages store nullable creator/last-editor attribution for canonical create, duplicate, title, and body mutations; Trash projects the authorized metadata with batched profile-name resolution and preserves unresolved legacy/import provenance.",
+  ]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-15"
 ---
 
 # Actor properties
@@ -61,7 +64,7 @@ Given legacy resolution fails, when the actor Property renders, then the actor f
 
 ## Current evidence
 
-`actions/create-document.ts`, `update-document.ts`, and `edit-document.ts` are donors; `server/db/schema.ts` timestamps do not prove actor fields.
+`server/db/schema.ts` stores nullable Page creator and last-editor IDs. `actions/create-document.ts`, the single and bulk duplicate actions, `update-document.ts`, and `edit-document.ts` set request actors at their canonical transaction boundaries. `actions/list-content-trash.ts` projects those fields only after access scoping and resolves profile names in one bounded batch. Focused database tests cover canonical creation, duplication, later edits, nullable legacy provenance, access isolation, filtering, and stable pagination. This is a Page/Trash substrate only: it does not yet identify typed agent, automation, and integration actors through committed Events, so the Capability remains `approved_shape`.
 
 ## Proof plan
 

@@ -22,6 +22,7 @@ import type {
   Experiment,
   ExperimentAssignment,
   ExperimentMetricResult,
+  InstructionUpdate,
 } from "./types.js";
 
 function safeJsonParse<T>(value: unknown, fallback: T): T {
@@ -43,6 +44,7 @@ const USER_SCOPED_TABLES = [
   "agent_satisfaction_scores",
   "agent_evals",
   "agent_feedback",
+  "agent_instruction_updates",
 ] as const;
 
 /**
@@ -119,6 +121,21 @@ export async function ensureObservabilityTables(): Promise<void> {
           idempotency_key TEXT,
           user_id TEXT,
           created_at BIGINT NOT NULL
+        )
+      `;
+
+      const instructionUpdatesCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_instruction_updates (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          thread_id TEXT,
+          target TEXT NOT NULL,
+          instruction TEXT NOT NULL,
+          feedback TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'draft',
+          user_id TEXT NOT NULL,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
         )
       `;
 
@@ -210,6 +227,10 @@ export async function ensureObservabilityTables(): Promise<void> {
         );
         await ensureTableExists("agent_feedback", feedbackCreateSql);
         await ensureTableExists(
+          "agent_instruction_updates",
+          instructionUpdatesCreateSql,
+        );
+        await ensureTableExists(
           "agent_satisfaction_scores",
           satisfactionScoresCreateSql,
         );
@@ -288,6 +309,10 @@ export async function ensureObservabilityTables(): Promise<void> {
         await ensureIndexExists(
           "idx_feedback_idempotency",
           `CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_idempotency ON agent_feedback (user_id, idempotency_key)`,
+        );
+        await ensureIndexExists(
+          "idx_instruction_updates_run_user",
+          `CREATE INDEX IF NOT EXISTS idx_instruction_updates_run_user ON agent_instruction_updates (run_id, user_id, updated_at)`,
         );
         await ensureIndexExists(
           "idx_satisfaction_thread",
@@ -610,6 +635,62 @@ export async function getFeedbackStats(
       categories[String(row.value)] = cnt;
   }
   return { total, thumbsUp, thumbsDown, categories };
+}
+
+export async function insertInstructionUpdate(
+  update: InstructionUpdate,
+): Promise<void> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  await client.execute({
+    sql: `INSERT INTO agent_instruction_updates
+      (id, run_id, thread_id, target, instruction, feedback, status, user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      update.id,
+      update.runId,
+      update.threadId,
+      update.target,
+      update.instruction,
+      update.feedback,
+      update.status,
+      update.userId,
+      update.createdAt,
+      update.updatedAt,
+    ],
+  });
+}
+
+export async function getInstructionUpdates(opts: {
+  runId?: string;
+  sinceMs?: number;
+  limit?: number;
+  userId?: string;
+}): Promise<InstructionUpdate[]> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const conditions: string[] = [];
+  const args: unknown[] = [];
+  if (opts.runId) {
+    conditions.push("run_id = ?");
+    args.push(opts.runId);
+  }
+  if (opts.sinceMs) {
+    conditions.push("updated_at >= ?");
+    args.push(opts.sinceMs);
+  }
+  if (opts.userId) {
+    conditions.push("user_id = ?");
+    args.push(opts.userId);
+  }
+  const where =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_instruction_updates ${where}
+      ORDER BY updated_at DESC LIMIT ?`,
+    args: [...args, opts.limit ?? 500],
+  });
+  return (rows as any[]).map(rowToInstructionUpdate);
 }
 
 // ─── Satisfaction scores CRUD ────────────────────────────────────────
@@ -1132,6 +1213,21 @@ function rowToFeedback(row: Record<string, any>): FeedbackEntry {
     idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
     userId: row.user_id ? String(row.user_id) : null,
     createdAt: Number(row.created_at),
+  };
+}
+
+function rowToInstructionUpdate(row: Record<string, any>): InstructionUpdate {
+  return {
+    id: String(row.id),
+    runId: String(row.run_id),
+    threadId: row.thread_id ? String(row.thread_id) : null,
+    target: row.target as InstructionUpdate["target"],
+    instruction: String(row.instruction),
+    feedback: String(row.feedback ?? ""),
+    status: row.status as InstructionUpdate["status"],
+    userId: String(row.user_id),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
   };
 }
 

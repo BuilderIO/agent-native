@@ -54,6 +54,8 @@ export interface ParsedScreenPrimitive {
   /** data-agent-native-node-id of the nearest ancestor primitive, if any. */
   parentNodeId?: string;
   parentProjectionNodeId?: string;
+  /** Projection ancestry, including structural wrappers without primitives. */
+  projectionAncestorNodeIds?: string[];
   localLeft: number;
   localTop: number;
   localWidth: number;
@@ -72,6 +74,10 @@ export interface ParsedScreenPrimitive {
   autoLayoutWrapped?: boolean;
   /** Grid containers choose anchors by two-dimensional cell distance. */
   autoLayoutGrid?: boolean;
+  /** Authored stacking level used before DOM-order tie breaking. */
+  zIndex?: number;
+  stackingContextZIndices?: number[];
+  stackingContextOrders?: number[];
 }
 
 function primitiveMatchesNodeId(
@@ -82,6 +88,121 @@ function primitiveMatchesNodeId(
     primitive.nodeId === nodeId ||
     primitive.projectionIdentity?.nodeId === nodeId
   );
+}
+
+function isPrimitiveAncestor(
+  ancestor: ParsedScreenPrimitive,
+  descendant: ParsedScreenPrimitive,
+  primitives: ParsedScreenPrimitive[],
+): boolean {
+  if (descendant.projectionAncestorNodeIds) {
+    return ancestor.projectionIdentity
+      ? descendant.projectionAncestorNodeIds.includes(
+          ancestor.projectionIdentity.nodeId,
+        )
+      : false;
+  }
+  // Projection ids are unique even when authored data-agent-native-node-id
+  // values are duplicated. Prefer that identity for ancestry; authored ids
+  // are only followed when they resolve to exactly one primitive.
+  let parentId = descendant.parentProjectionNodeId ?? descendant.parentNodeId;
+  const seen = new Set<string>();
+  while (parentId && !seen.has(parentId)) {
+    const currentParentId = parentId;
+    seen.add(currentParentId);
+    if (primitiveMatchesNodeId(ancestor, currentParentId)) return true;
+    const parents = primitives.filter((primitive) =>
+      primitiveMatchesNodeId(primitive, currentParentId),
+    );
+    if (parents.length !== 1) return false;
+    const parent = parents[0];
+    parentId = parent.parentProjectionNodeId ?? parent.parentNodeId;
+  }
+  return false;
+}
+
+function createsAuthoredStackingContext(
+  style: CSSStyleDeclaration,
+  parentDisplay: string,
+): boolean {
+  const value = (property: string) =>
+    style.getPropertyValue(property).trim().toLowerCase();
+  const position = value("position") || "static";
+  const zIndex = Number.parseInt(value("z-index"), 10);
+  const zIndexApplies =
+    position !== "static" ||
+    /^(?:flex|inline-flex|grid|inline-grid)$/.test(parentDisplay);
+
+  if (
+    position === "fixed" ||
+    position === "sticky" ||
+    (Number.isFinite(zIndex) && zIndexApplies)
+  ) {
+    return true;
+  }
+  const opacity = Number.parseFloat(value("opacity"));
+  if (Number.isFinite(opacity) && opacity < 1) return true;
+  if (
+    [
+      "transform",
+      "scale",
+      "rotate",
+      "translate",
+      "filter",
+      "backdrop-filter",
+      "perspective",
+      "clip-path",
+      "mask",
+      "mask-image",
+    ].some((property) => {
+      const propertyValue = value(property);
+      return propertyValue !== "" && propertyValue !== "none";
+    })
+  ) {
+    return true;
+  }
+  if (value("mix-blend-mode") && value("mix-blend-mode") !== "normal") {
+    return true;
+  }
+  if (value("isolation") === "isolate") return true;
+  if (/\b(?:layout|paint|strict|content)\b/.test(value("contain"))) {
+    return true;
+  }
+  if (/^(?:size|inline-size)$/.test(value("container-type"))) return true;
+  return /\b(?:opacity|transform|filter|perspective|clip-path|mask)\b/.test(
+    value("will-change"),
+  );
+}
+
+function compareStackingContexts(
+  left: ParsedScreenPrimitive,
+  right: ParsedScreenPrimitive,
+): number {
+  const leftContexts = left.stackingContextZIndices ?? [];
+  const rightContexts = right.stackingContextZIndices ?? [];
+  const leftOrders = left.stackingContextOrders ?? [];
+  const rightOrders = right.stackingContextOrders ?? [];
+  for (
+    let index = 0;
+    index < Math.min(leftContexts.length, rightContexts.length);
+    index += 1
+  ) {
+    if (
+      leftOrders[index] !== undefined &&
+      rightOrders[index] !== undefined &&
+      leftOrders[index] !== rightOrders[index]
+    ) {
+      // Equal-z sibling contexts are painted in DOM order as a unit. A
+      // descendant's local z-index cannot promote an earlier context above a
+      // later sibling context with the same z-index.
+      if (leftContexts[index] === rightContexts[index]) return 0;
+      return (leftContexts[index] ?? 0) - (rightContexts[index] ?? 0);
+    }
+    if (leftContexts[index] !== rightContexts[index]) {
+      return (leftContexts[index] ?? 0) - (rightContexts[index] ?? 0);
+    }
+  }
+  return (left.zIndex ?? 0) - (right.zIndex ?? 0);
 }
 
 /**
@@ -110,6 +231,7 @@ function computeAutoLayoutAxis(style: {
     ) {
       return undefined;
     }
+    if (/^column(?:-dense)?\b/i.test(style.gridAutoFlow)) return "y";
     const columns = gridTrackCount(style.gridTemplateColumns);
     return columns > 1 ? "x" : "y";
   }
@@ -1156,12 +1278,19 @@ export function parsePrimitivesFromScreen(
     const doc = new DOMParser().parseFromString(screen.content, "text/html");
     const sizeCache: AuthoredSizeCache = new Map();
     const projection = buildCodeLayerProjection(screen.content, { source });
+    const projectionParentIdByNodeId = new Map(
+      projection.nodes.map((node) => [node.id, node.parentId]),
+    );
     const projectionIdentityByElement = new Map<
       Element,
       ScreenProjectionNodeIdentity
     >();
     const projectionParentIdByElement = new Map<Element, string>();
     const ambiguousIdentityElements = new Set<Element>();
+    const domOrderByElement = new Map<Element, number>();
+    Array.from(doc.querySelectorAll("*")).forEach((element, index) => {
+      domOrderByElement.set(element, index);
+    });
     for (const node of projection.nodes) {
       const matches = Array.from(doc.querySelectorAll(node.path));
       if (matches.length !== 1 || !matches[0]) continue;
@@ -1219,6 +1348,46 @@ export function parsePrimitivesFromScreen(
         (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
       const autoLayoutGrid =
         style.display === "grid" || style.display === "inline-grid";
+      const projectionIdentity = projectionIdentityByElement.get(element);
+      const projectionAncestorNodeIds: string[] = [];
+      const seenProjectionIds = new Set<string>();
+      let projectionAncestorId = projectionParentIdByElement.get(element);
+      while (
+        projectionAncestorId &&
+        !seenProjectionIds.has(projectionAncestorId)
+      ) {
+        seenProjectionIds.add(projectionAncestorId);
+        projectionAncestorNodeIds.push(projectionAncestorId);
+        projectionAncestorId =
+          projectionParentIdByNodeId.get(projectionAncestorId);
+      }
+      const parsedZIndex = Number.parseInt(style.zIndex, 10);
+      const stackingContextZIndices: number[] = [];
+      const stackingContextOrders: number[] = [];
+      let contextElement: Element | null = element;
+      while (contextElement) {
+        const contextStyle = (contextElement as HTMLElement).style;
+        const parentDisplay = contextElement.parentElement
+          ? (contextElement.parentElement as HTMLElement).style.display
+          : "";
+        const contextZIndex = Number.parseInt(contextStyle.zIndex, 10);
+        if (createsAuthoredStackingContext(contextStyle, parentDisplay)) {
+          stackingContextZIndices.unshift(
+            Number.isFinite(contextZIndex) ? contextZIndex : 0,
+          );
+          stackingContextOrders.unshift(
+            domOrderByElement.get(contextElement) ?? 0,
+          );
+        }
+        contextElement = contextElement.parentElement;
+      }
+      const zIndexApplies =
+        (style.position || "static") !== "static" ||
+        /^(?:flex|inline-flex|grid|inline-grid)$/.test(
+          element.parentElement
+            ? (element.parentElement as HTMLElement).style.display
+            : "",
+        );
 
       // Nearest ancestor primitive id, used to resolve direct children of a
       // container for auto-layout before/after anchor resolution — see
@@ -1237,9 +1406,12 @@ export function parsePrimitivesFromScreen(
       result.push({
         nodeId,
         screenId: screen.id,
-        projectionIdentity: projectionIdentityByElement.get(element),
+        projectionIdentity,
         parentProjectionNodeId: projectionParentIdByElement.get(element),
         parentNodeId,
+        ...(projectionAncestorNodeIds.length
+          ? { projectionAncestorNodeIds }
+          : {}),
         localLeft: position.x,
         localTop: position.y,
         localWidth: width,
@@ -1248,6 +1420,11 @@ export function parsePrimitivesFromScreen(
         autoLayoutAxis,
         ...(autoLayoutWrapped ? { autoLayoutWrapped: true } : {}),
         ...(autoLayoutGrid ? { autoLayoutGrid: true } : {}),
+        ...(Number.isFinite(parsedZIndex) && zIndexApplies
+          ? { zIndex: parsedZIndex }
+          : {}),
+        ...(stackingContextZIndices.length ? { stackingContextZIndices } : {}),
+        ...(stackingContextOrders.length ? { stackingContextOrders } : {}),
       });
     });
   } catch {
@@ -1368,6 +1545,7 @@ export function getPrimitiveDropTargetForPoint(
   const metadata = getMetadata(topScreen.screen);
   const primitives = parsePrimitivesFromScreen(topScreen.screen);
   let best: PrimitiveDropTarget | null = null;
+  let bestPrimitive: ParsedScreenPrimitive | null = null;
   for (const primitive of primitives) {
     if (!primitive.isContainer) continue;
     if (draggedNodeId && primitiveMatchesNodeId(primitive, draggedNodeId)) {
@@ -1392,12 +1570,39 @@ export function getPrimitiveDropTargetForPoint(
       continue;
     }
     if (geometryContainsPoint(boardRect, point)) {
+      // Prefer the deepest eligible container.  DOM order is not paint order:
+      // overwriting `best` made a later ancestor steal nested flow drops and
+      // left the held insertion guide anchored to the wrong layout owner.
+      if (
+        bestPrimitive &&
+        !isPrimitiveAncestor(bestPrimitive, primitive, primitives) &&
+        !isPrimitiveAncestor(primitive, bestPrimitive, primitives)
+      ) {
+        if (compareStackingContexts(primitive, bestPrimitive) < 0) continue;
+        // Parsed order follows DOM paint order, so the later overlapping
+        // sibling is the visible target. Nested targets are handled above.
+        best = {
+          nodeId: primitive.nodeId,
+          screenId: topScreen.screen.id,
+          boardRect,
+          targetIdentity: primitive.projectionIdentity,
+        };
+        bestPrimitive = primitive;
+        continue;
+      }
+      if (
+        bestPrimitive &&
+        !isPrimitiveAncestor(bestPrimitive, primitive, primitives)
+      ) {
+        continue;
+      }
       best = {
         nodeId: primitive.nodeId,
         screenId: topScreen.screen.id,
         boardRect,
         targetIdentity: primitive.projectionIdentity,
       };
+      bestPrimitive = primitive;
     }
   }
 

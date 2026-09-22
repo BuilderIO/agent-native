@@ -67,5 +67,6 @@
     "vite": "catalog:",
     "vitest": "^4.1.10"
   },
+  "packageManager": "pnpm@10.29.1",
   "productName": "Agent-Native"
 }

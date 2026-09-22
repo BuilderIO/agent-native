@@ -9,6 +9,40 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
+const EMPTY_BOARD_SURFACE_HTML =
+  "<!DOCTYPE html><html><head></head><body></body></html>";
+
+export function getBoardSurfaceHtml(html: string | undefined) {
+  if (html === undefined) return undefined;
+  return hasBoardSurfaceContent(html) ? html : EMPTY_BOARD_SURFACE_HTML;
+}
+
+export function shouldMountBoardSurface(args: {
+  hasAuthoredContent: boolean;
+  crossScreenDragActive: boolean;
+  hasPendingRuntimeInsert: boolean;
+  hasRuntimeContent: boolean;
+}): boolean {
+  return (
+    args.hasAuthoredContent ||
+    args.crossScreenDragActive ||
+    args.hasPendingRuntimeInsert ||
+    args.hasRuntimeContent
+  );
+}
+
+export function hasBoardRuntimeSurfaceContent(args: {
+  boardFileId?: string;
+  runtimeBoardFileId: string | null;
+  runtimeRequestKeys: readonly string[];
+}): boolean {
+  return (
+    args.boardFileId !== undefined &&
+    args.runtimeBoardFileId === args.boardFileId &&
+    args.runtimeRequestKeys.length > 0
+  );
+}
+
 export function shouldRenderEmptyBoardReviewCanvas(args: {
   hasSurfaceContent: boolean;
   reviewPinMode: boolean;
