@@ -117,6 +117,7 @@ export function FirstRunOnboarding({
   );
   const [extensionIndex, setExtensionIndex] = useState(0);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [customRole, setCustomRole] = useState("");
   const [savingRole, setSavingRole] = useState(false);
   const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
@@ -326,18 +327,20 @@ export function FirstRunOnboarding({
   };
 
   const handleRoleContinue = async () => {
-    if (!selectedRole || savingRole) return;
+    const roleToSave =
+      selectedRole === "other" ? customRole.trim() : selectedRole;
+    if (!roleToSave || savingRole) return;
     setSavingRole(true);
     setRoleSaveError(null);
     if (!previewMode) {
       trackOnboardingEvent("onboarding_role_save_started", {
         flow: "first_run",
         step_id: "role",
-        role: selectedRole,
+        role: selectedRole === "other" ? "other" : selectedRole,
       });
     }
     try {
-      if (!previewMode) await saveFirstRunOnboardingRole(selectedRole);
+      if (!previewMode) await saveFirstRunOnboardingRole(roleToSave);
       trackFirstRunStepCompleted("role");
       setScreen("choice");
     } catch (error) {
@@ -634,6 +637,26 @@ export function FirstRunOnboarding({
               </label>
             ))}
           </fieldset>
+          {selectedRole === "other" && (
+            <div className="mt-4 flex flex-col gap-2">
+              <label
+                htmlFor="first-run-role-other"
+                className="text-sm font-medium text-foreground"
+              >
+                {t("agentChat.onboarding.roleOtherInputLabel")}
+              </label>
+              <input
+                id="first-run-role-other"
+                data-testid="first-run-role-other-input"
+                type="text"
+                value={customRole}
+                maxLength={120}
+                disabled={savingRole}
+                onChange={(event) => setCustomRole(event.target.value)}
+                className="min-h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          )}
           {roleSaveError && (
             <p className="mt-4 text-xs leading-5 text-destructive" role="alert">
               {roleSaveError}
@@ -656,7 +679,11 @@ export function FirstRunOnboarding({
               type="button"
               className={primaryButtonClass}
               onClick={() => void handleRoleContinue()}
-              disabled={!selectedRole || savingRole}
+              disabled={
+                !selectedRole ||
+                (selectedRole === "other" && !customRole.trim()) ||
+                savingRole
+              }
             >
               {savingRole
                 ? t("agentChat.common.saving")

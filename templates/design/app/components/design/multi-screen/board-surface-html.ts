@@ -21,16 +21,31 @@ export function shouldMountBoardSurface(args: {
   hasAuthoredContent: boolean;
   crossScreenDragActive: boolean;
   hasPendingRuntimeInsert: boolean;
-  hasPendingRuntimeRollback: boolean;
-  runtimeContentBoardId: string | null;
+  hasPendingRuntimeRollback?: boolean;
+  hasRuntimeContent?: boolean;
+  runtimeContentBoardId?: string | null;
   boardFileId?: string;
 }): boolean {
   return (
     args.hasAuthoredContent ||
     args.crossScreenDragActive ||
     args.hasPendingRuntimeInsert ||
-    args.hasPendingRuntimeRollback ||
-    args.runtimeContentBoardId === args.boardFileId
+    Boolean(args.hasPendingRuntimeRollback) ||
+    Boolean(args.hasRuntimeContent) ||
+    (args.runtimeContentBoardId != null &&
+      args.runtimeContentBoardId === args.boardFileId)
+  );
+}
+
+export function hasBoardRuntimeSurfaceContent(args: {
+  boardFileId?: string;
+  runtimeBoardFileId: string | null;
+  runtimeRequestKeys: readonly string[];
+}): boolean {
+  return (
+    args.boardFileId !== undefined &&
+    args.runtimeBoardFileId === args.boardFileId &&
+    args.runtimeRequestKeys.length > 0
   );
 }
 

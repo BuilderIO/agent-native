@@ -681,6 +681,60 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("saves a custom role when Other is selected", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-other'] input")
+        ?.click();
+    });
+
+    const continueButton = document.body.querySelector(
+      "[data-onboarding-screen='role'] button.bg-primary",
+    ) as HTMLButtonElement;
+    expect(continueButton.disabled).toBe(true);
+
+    const input = document.body.querySelector(
+      "[data-testid='first-run-role-other-input']",
+    ) as HTMLInputElement;
+    act(() => {
+      const setNativeValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setNativeValue?.call(input, "  Content strategist  ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(continueButton.disabled).toBe(false);
+    await act(async () => {
+      continueButton.click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/_agent-native/onboarding/first-run/role"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ role: "Content strategist" }),
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_role_save_started",
+      { flow: "first_run", step_id: "role", role: "other" },
+    );
+  });
+
   // Regression: Skip used to fire-and-forget completeFirstRun() with `void`,
   // so a failed completion never surfaced — the click looked like it did
   // nothing, and a rejecting mock here would fail the test via an unhandled

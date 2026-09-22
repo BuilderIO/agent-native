@@ -43,6 +43,7 @@ const messages = {
   "onboarding.roleOps": "Ops",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Other",
+  "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderActivateCredits": "Activate Builder.io free credits",

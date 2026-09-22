@@ -3,6 +3,13 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-22
+
+### Fixed
+
+- Live resize handles keep working at overview zoom
+- Live visual edits can now move layers onto an empty canvas and keep them editable.
+
 ## 2026-09-21
 
 ### Added
@@ -11,6 +18,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Large Figma imports keep the Design editor responsive while unchanged screens are prepared
 - Keep guided design choices readable in narrow panels
 - Live visual-edit screens stay selectable and editable while running
 - Live visual-edit screens support direct hover, selection, movement, resizing, and safe undo/redo.

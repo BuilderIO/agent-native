@@ -47,6 +47,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOps": "オペレーション",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "その他",
+  "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderActivateCredits": "Builder.io 無料クレジットを有効化",

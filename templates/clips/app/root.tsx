@@ -45,7 +45,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { buildClipsExtensionBaseUrl } from "@/lib/extension-auth";
-import { isStandalonePublicPath } from "@/lib/public-ssr-paths";
+import {
+  isLegacyRecordingPath,
+  isStandalonePublicPath,
+} from "@/lib/public-ssr-paths";
 
 import { i18nCatalog, loadI18nMessages } from "./i18n";
 
@@ -371,12 +374,14 @@ export default function Root() {
   const isMarketingHome = location.pathname === "/";
   const isPublicPath =
     isMarketingHome || isStandalonePublicPath(location.pathname);
+  const legacyRecordingPath = isLegacyRecordingPath(location.pathname);
   const publicSharePath = location.pathname.startsWith("/share/");
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
+        sessionBypass={legacyRecordingPath}
         showEnvironmentBadge={isPublicPath && !publicSharePath}
         toaster={
           <Toaster

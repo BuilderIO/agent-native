@@ -428,9 +428,9 @@ function EmailErrorState({
   );
 }
 
-// One or more connected accounts failed to list this fetch — the rest of the
-// accounts still rendered, so this is a quiet inline row, not a red banner
-// (that treatment is reserved for a fetch that failed outright).
+// No visible rows are available while one or more connected accounts failed.
+// Keep this out of populated cached lists so a transient refresh failure does
+// not turn usable cached mail into a warning banner.
 function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
   const t = useT();
   return (
@@ -2160,6 +2160,9 @@ export function EmailList({
   if (threads.length === 0 && hasNextPage) {
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
+        {!!accountErrors?.length && (
+          <AccountErrorsNotice errors={accountErrors} />
+        )}
         <div className="flex flex-1 items-center justify-center" />
         <div
           ref={sentinelRef}
@@ -2194,6 +2197,9 @@ export function EmailList({
     if (searchQuery) {
       return (
         <div className="flex h-full flex-col" ref={containerRef}>
+          {!!accountErrors?.length && (
+            <AccountErrorsNotice errors={accountErrors} />
+          )}
           <div className="flex flex-1 flex-col items-center justify-center">
             <div className="text-center px-8">
               <div className="mb-4">
@@ -2266,9 +2272,6 @@ export function EmailList({
 
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
-      {!!accountErrors?.length && (
-        <AccountErrorsNotice errors={accountErrors} />
-      )}
       <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
         <AiFilterDialog
           open={!!aiFilterDialog}

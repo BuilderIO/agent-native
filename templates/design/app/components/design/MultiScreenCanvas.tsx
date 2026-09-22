@@ -294,6 +294,7 @@ import {
   getBoardSurfaceHtml,
   getBoardSurfaceRenderContent,
   getBoardSurfaceStaticPreviewContent,
+  hasBoardRuntimeSurfaceContent,
   hasBoardSurfaceContent,
   shouldMountBoardSurface,
   shouldRenderEmptyBoardReviewCanvas,
@@ -772,6 +773,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     },
     [],
   );
+  const [boardRuntimeSurfaceState, setBoardRuntimeSurfaceState] = useState<{
+    boardFileId: string | null;
+    requestKeys: string[];
+  }>({ boardFileId: null, requestKeys: [] });
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
   const renderedScreenIdsRef = useRef<Set<string>>(new Set());
@@ -941,6 +946,53 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // Keep the empty board unmounted during normal editing so the text/shape
   // creation path can still own its first mount. Mount it for a cross-screen
   // drag and keep it through the runtime insert acknowledgement.
+  const handleBoardRuntimeStructureInsertApplied = useCallback(
+    (details: {
+      requestId: string;
+      transactionId?: string;
+      routePath?: string;
+      selector: string;
+      sourceId?: string;
+      applied?: boolean;
+    }) => {
+      if (details.applied !== false && details.selector && boardFileId) {
+        const requestKey = details.transactionId ?? details.requestId;
+        setBoardRuntimeSurfaceState((current) => {
+          const base =
+            current.boardFileId === boardFileId
+              ? current
+              : { boardFileId, requestKeys: [] };
+          return base.requestKeys.includes(requestKey)
+            ? base
+            : { ...base, requestKeys: [...base.requestKeys, requestKey] };
+        });
+      }
+      onBoardRuntimeStructureInsertApplied?.(details);
+    },
+    [boardFileId, onBoardRuntimeStructureInsertApplied],
+  );
+  const handleBoardRuntimeStructureRollbackResult = useCallback(
+    (details: {
+      requestId: string;
+      transactionId?: string;
+      applied: boolean;
+      reason?: string;
+    }) => {
+      if (details.applied && details.transactionId && boardFileId) {
+        setBoardRuntimeSurfaceState((current) => {
+          if (current.boardFileId !== boardFileId) return current;
+          const requestKeys = current.requestKeys.filter(
+            (key) => key !== details.transactionId,
+          );
+          return requestKeys.length > 0
+            ? { ...current, requestKeys }
+            : { boardFileId: null, requestKeys: [] };
+        });
+      }
+      onBoardRuntimeStructureRollbackResult?.(details);
+    },
+    [boardFileId, onBoardRuntimeStructureRollbackResult],
+  );
   const boardSurfaceHtml = shouldMountBoardSurface({
     hasAuthoredContent: hasBoardSurfaceContent(boardFileContent),
     crossScreenDragActive,
@@ -948,6 +1000,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     hasPendingRuntimeRollback: Boolean(boardRuntimeStructureRollbackRequest),
     runtimeContentBoardId: boardRuntimeSurfaceActive,
     boardFileId,
+    hasRuntimeContent: hasBoardRuntimeSurfaceContent({
+      boardFileId,
+      runtimeBoardFileId: boardRuntimeSurfaceState.boardFileId,
+      runtimeRequestKeys: boardRuntimeSurfaceState.requestKeys,
+    }),
   })
     ? getBoardSurfaceHtml(boardFileContent)
     : undefined;
@@ -10891,13 +10948,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       !details.transactionId ||
                       expectedTransactionId !== details.transactionId
                     ) {
-                      onBoardRuntimeStructureInsertApplied?.(details);
+                      handleBoardRuntimeStructureInsertApplied(details);
                       return;
                     }
                     if (details.applied !== false) {
                       setBoardRuntimeSurfaceActive(boardFileId ?? null);
                     }
-                    onBoardRuntimeStructureInsertApplied?.(details);
+                    handleBoardRuntimeStructureInsertApplied(details);
                     finishBoardCrossScreenDrop({ preserveTransaction: true });
                   }}
                   onRuntimeStructureRollbackResult={(details) => {
@@ -10908,11 +10965,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       !details.transactionId ||
                       expectedTransactionId !== details.transactionId
                     ) {
-                      onBoardRuntimeStructureRollbackResult?.(details);
+                      handleBoardRuntimeStructureRollbackResult(details);
                       return;
                     }
                     if (details.applied) setBoardRuntimeSurfaceActive(null);
-                    onBoardRuntimeStructureRollbackResult?.(details);
+                    handleBoardRuntimeStructureRollbackResult(details);
                     finishBoardCrossScreenDrop({ force: true });
                   }}
                   clearSelectionRequest={boardClearSelectionRequest}

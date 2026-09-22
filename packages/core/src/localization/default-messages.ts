@@ -47,6 +47,7 @@ const messages = {
     roleOps: "Ops",
     roleIndividual: "Individual",
     roleOther: "Other",
+    roleOtherInputLabel: "Describe your role",
     skipForNow: "Skip for now",
     saveRoleError: "Could not save your role.",
     builderReadyWithCodeChanges:
