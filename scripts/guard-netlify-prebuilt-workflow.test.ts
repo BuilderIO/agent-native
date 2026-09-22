@@ -1130,11 +1130,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 15);
+    assert.equal(nodeHeredocs.length, 16);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      15,
+      16,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
@@ -1534,6 +1534,20 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(appSmoke.run), /SOURCE_TEMPLATE/);
     assert.match(String(appSmoke.run), /--asset-path \/overview/);
     assert.match(String(appSmoke.run), /--canonical-host/);
+    assert.equal(appSmoke.id, "beta_smoke");
+    const betaSmokeRollback = steps.find(
+      (step) =>
+        step.name === "Roll back beta deploy after smoke verification failure",
+    );
+    assert(betaSmokeRollback);
+    assert.equal(betaSmokeRollback?.id, "beta_smoke_rollback");
+    assert.match(String(betaSmokeRollback?.if), /always\(\)/);
+    assert.match(
+      String(betaSmokeRollback?.if),
+      /steps\.beta_smoke\.outcome == 'failure'/,
+    );
+    assert.match(String(betaSmokeRollback?.run), /PREVIOUS_DEPLOY_ID/);
+    assert.match(String(betaSmokeRollback?.run), /\/restore/);
 
     assert(previewSmoke);
     assert.equal(

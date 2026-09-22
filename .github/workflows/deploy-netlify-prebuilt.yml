@@ -2220,6 +2220,7 @@ jobs:
           exit 1
 
       - name: Smoke-test the uploaded deploy
+        id: beta_smoke
         if: >-
           inputs.target != 'preview' && inputs.deploy &&
           steps.beta_freshness.outputs.current != 'false' &&
@@ -2252,6 +2253,85 @@ jobs:
             node --experimental-strip-types scripts/smoke-check-health.ts \
               --url "$url" "${smoke_args[@]}"
           fi
+
+      - name: Roll back beta deploy after smoke verification failure
+        id: beta_smoke_rollback
+        if: >-
+          always() && inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.beta_smoke.outcome == 'failure' &&
+          steps.previous.outputs.published_deploy_id != '' &&
+          steps.deploy.outputs.deploy_id != '' &&
+          steps.deploy.outputs.deploy_id != steps.previous.outputs.published_deploy_id
+        env:
+          NEW_DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id) }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const api = "https://api.netlify.com/api/v1";
+            const headers = { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` };
+            const request = (url, options = {}) => requestNetlifyApi(url, {
+              ...options,
+              headers: { ...headers, ...(options.headers || {}) },
+            });
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            async function readJson(response, label) {
+              const text = await response.text();
+              const body = text ? JSON.parse(text) : null;
+              if (!response.ok) throw new Error(`${label} failed with HTTP ${response.status}.`);
+              return body;
+            }
+            const siteId = process.env.NETLIFY_SITE_ID;
+            const newId = process.env.NEW_DEPLOY_ID;
+            const previousId = process.env.PREVIOUS_DEPLOY_ID;
+            const site = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify beta smoke rollback site lookup",
+            );
+            if (site.published_deploy?.id !== newId) {
+              throw new Error(
+                `Refusing beta smoke rollback because Netlify now serves ${site.published_deploy?.id || "an unknown deploy"}, expected ${newId}.`,
+              );
+            }
+            const restored = await readJson(
+              await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, {
+                method: "POST",
+              }),
+              `Netlify beta smoke rollback to ${previousId}`,
+            );
+            const restoredDeployId = restored?.id;
+            if (!restoredDeployId) {
+              throw new Error(
+                `Netlify beta smoke rollback to ${previousId} did not return a deploy id.`,
+              );
+            }
+            const deadline = Date.now() + 5 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const current = await readJson(
+                await request(`${api}/sites/${siteId}`),
+                "Netlify beta smoke rollback verification",
+              );
+              if (current.published_deploy?.id === restoredDeployId) {
+                console.log(
+                  `Restored previous beta deploy ${previousId} as ${restoredDeployId} after smoke failure.`,
+                );
+                return;
+              }
+              await sleep(10_000);
+            }
+            throw new Error(
+              `Netlify did not publish beta smoke rollback ${restoredDeployId} within five minutes.`,
+            );
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
 
       - name: Smoke-test the uploaded PR preview
         if: >-

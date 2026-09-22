@@ -1296,6 +1296,17 @@ const betaMigrationStep = reusableSteps.find(
     step?.name === "Run the beta release migration against the site database",
 );
 const betaMigrationIndex = reusableSteps.indexOf(betaMigrationStep ?? null);
+const betaSmokeStep = reusableSteps.find(
+  (step) => step?.name === "Smoke-test the uploaded deploy",
+);
+const betaSmokeRollbackStep = reusableSteps.find(
+  (step) =>
+    step?.name === "Roll back beta deploy after smoke verification failure",
+);
+const betaSmokeIndex = reusableSteps.indexOf(betaSmokeStep ?? null);
+const betaSmokeRollbackIndex = reusableSteps.indexOf(
+  betaSmokeRollbackStep ?? null,
+);
 const buildIndex = parsedStepIndex(
   "Build with the Netlify project configuration",
 );
@@ -1368,6 +1379,26 @@ if (
 ) {
   issues.push(
     `${reusablePath} must resolve each beta site's database or use the documented shared fallback after artifact validation and before publishing it`,
+  );
+}
+
+const betaSmokeRollbackIf = String(betaSmokeRollbackStep?.if ?? "");
+const betaSmokeRollbackRun = String(betaSmokeRollbackStep?.run ?? "");
+if (
+  betaSmokeIndex < 0 ||
+  betaSmokeRollbackIndex <= betaSmokeIndex ||
+  betaSmokeStep?.id !== "beta_smoke" ||
+  betaSmokeRollbackStep?.id !== "beta_smoke_rollback" ||
+  !betaSmokeRollbackIf.includes("always()") ||
+  !betaSmokeRollbackIf.includes("steps.beta_smoke.outcome == 'failure'") ||
+  !betaSmokeRollbackIf.includes(
+    "steps.previous.outputs.published_deploy_id != ''",
+  ) ||
+  !betaSmokeRollbackRun.includes("PREVIOUS_DEPLOY_ID") ||
+  !betaSmokeRollbackRun.includes("/restore")
+) {
+  issues.push(
+    `${reusablePath} must restore the previous beta deploy when a published smoke check fails`,
   );
 }
 
