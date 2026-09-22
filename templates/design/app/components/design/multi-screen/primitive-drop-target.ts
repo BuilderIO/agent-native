@@ -96,7 +96,8 @@ function isPrimitiveAncestor(
   // Projection ids are unique even when authored data-agent-native-node-id
   // values are duplicated. Prefer that identity for ancestry; the authored
   // id is only a legacy fallback when no projection identity exists.
-  let parentId = descendant.parentProjectionNodeId ?? descendant.parentNodeId;
+  let current = descendant;
+  let parentId = current.parentProjectionNodeId ?? current.parentNodeId;
   const seen = new Set<string>();
   while (parentId && !seen.has(parentId)) {
     const currentParentId = parentId;
@@ -105,7 +106,18 @@ function isPrimitiveAncestor(
     const parent = primitives.find((primitive) =>
       primitiveMatchesNodeId(primitive, currentParentId),
     );
-    parentId = parent?.parentProjectionNodeId ?? parent?.parentNodeId;
+    if (parent) {
+      current = parent;
+      parentId = current.parentProjectionNodeId ?? current.parentNodeId;
+      continue;
+    }
+    // Projection ancestry can include structural wrappers that are not
+    // discoverable primitives. Resume from the authored ancestor so those
+    // wrappers do not sever an otherwise valid containment chain.
+    parentId =
+      current.parentNodeId !== currentParentId
+        ? current.parentNodeId
+        : undefined;
   }
   return false;
 }

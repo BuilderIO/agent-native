@@ -128,6 +128,28 @@ describe("primitive drop target authored layout fallback", () => {
     ).toMatchObject({ nodeId: "target" });
   });
 
+  it("falls back to authored ancestry across an unannotated projection wrapper", () => {
+    const screen = {
+      id: "unannotated-wrapper-screen",
+      filename: "unannotated-wrapper-screen.html",
+      content: `<div data-agent-native-node-id="container" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px">
+        <div style="position:absolute;left:0;top:0;width:240px;height:240px">
+          <div data-agent-native-node-id="target" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px"></div>
+        </div>
+      </div>`,
+    };
+
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 80, y: 80 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 240, height: 240 } },
+        () => ({ width: 240, height: 240 }),
+      ),
+    ).toMatchObject({ nodeId: "target" });
+  });
+
   it("treats semantic section containers as nested drop targets", () => {
     const screen = {
       id: "semantic-nested-screen",
