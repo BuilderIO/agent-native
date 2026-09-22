@@ -730,8 +730,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // before the first layout measurement.
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [crossScreenDragActive, setCrossScreenDragActive] = useState(false);
-  const [boardRuntimeSurfaceActive, setBoardRuntimeSurfaceActive] =
-    useState(false);
+  const [boardRuntimeSurfaceActive, setBoardRuntimeSurfaceActive] = useState<
+    string | null
+  >(null);
   const boardCrossScreenDropPendingRef = useRef(false);
   const boardCrossScreenDropTimeoutRef = useRef<number | null>(null);
   const finishBoardCrossScreenDrop = useCallback(() => {
@@ -924,7 +925,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     hasAuthoredContent: hasBoardSurfaceContent(boardFileContent),
     crossScreenDragActive,
     hasPendingRuntimeInsert: Boolean(boardRuntimeStructureInsertRequest),
-    hasRuntimeContent: boardRuntimeSurfaceActive,
+    hasRuntimeContent: boardRuntimeSurfaceActive === boardFileId,
   })
     ? getBoardSurfaceHtml(boardFileContent)
     : undefined;
@@ -10819,19 +10820,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       reason,
                       transactionId,
                     );
-                    setBoardRuntimeSurfaceActive(false);
+                    setBoardRuntimeSurfaceActive(null);
                     finishBoardCrossScreenDrop();
                   }}
                   onRuntimeStructureInsertApplied={(details) => {
                     if (details.applied !== false) {
-                      setBoardRuntimeSurfaceActive(true);
+                      setBoardRuntimeSurfaceActive(boardFileId ?? null);
                     }
                     onBoardRuntimeStructureInsertApplied?.(details);
                     finishBoardCrossScreenDrop();
                   }}
-                  onRuntimeStructureRollbackResult={
-                    onBoardRuntimeStructureRollbackResult
-                  }
+                  onRuntimeStructureRollbackResult={(details) => {
+                    if (details.applied) setBoardRuntimeSurfaceActive(null);
+                    onBoardRuntimeStructureRollbackResult?.(details);
+                  }}
                   clearSelectionRequest={boardClearSelectionRequest}
                   selectedSelector={boardSelectedSelector ?? null}
                   selectedSelectorCandidates={
