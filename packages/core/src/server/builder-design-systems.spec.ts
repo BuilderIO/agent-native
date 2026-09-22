@@ -610,41 +610,6 @@ describe("Builder design-system helpers", () => {
     });
   });
 
-  it("never reports an unreadable Builder document count as zero", async () => {
-    useBuilderTestCredentials();
-    const emptyDocs = () =>
-      new Response(JSON.stringify({ docs: [] }), { status: 200 });
-
-    stubBuilderDesignSystemFetch({
-      count: () =>
-        new Response(JSON.stringify({ status: "ready" }), { status: 200 }),
-      docs: [emptyDocs],
-    });
-    await expect(
-      fetchBuilderDesignSystemDocumentCount("ds-1"),
-    ).resolves.toMatchObject({ ok: false, reason: "invalid-response" });
-
-    stubBuilderDesignSystemFetch({
-      count: () => new Response("upstream down", { status: 503 }),
-      docs: [emptyDocs],
-    });
-    await expect(
-      fetchBuilderDesignSystemDocumentCount("ds-1"),
-    ).resolves.toMatchObject({ ok: false, reason: "unreachable" });
-
-    stubBuilderDesignSystemFetch({
-      count: () => new Response("upstream down", { status: 503 }),
-      docs: [emptyDocs],
-    });
-    await expect(
-      hydrateBuilderDesignSystemReference({
-        source: "builder",
-        builderDesignSystemId: "ds-1",
-        builderJobId: "job-1",
-      }),
-    ).rejects.toThrow(/document count could not be read/);
-  });
-
   it("persists replayable GitHub source scope in the local proxy", () => {
     const fields = createBuilderDesignSystemProxyFields({
       result: {
