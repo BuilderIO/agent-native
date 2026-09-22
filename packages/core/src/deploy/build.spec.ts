@@ -2620,12 +2620,18 @@ describe("copyInstalledExternalSsrPackages", () => {
     const cookieEsDir = path.join(nodeModules, "cookie-es");
     const reactQueryDir = path.join(nodeModules, "@tanstack", "react-query");
     const queryCoreDir = path.join(nodeModules, "@tanstack", "query-core");
+    const queryCodemodsDir = path.join(
+      reactQueryDir,
+      "build",
+      "query-codemods",
+    );
     fs.mkdirSync(reactDir, { recursive: true });
     fs.mkdirSync(looseEnvifyDir, { recursive: true });
     fs.mkdirSync(reactRouterDir, { recursive: true });
     fs.mkdirSync(cookieEsDir, { recursive: true });
     fs.mkdirSync(reactQueryDir, { recursive: true });
     fs.mkdirSync(queryCoreDir, { recursive: true });
+    fs.mkdirSync(queryCodemodsDir, { recursive: true });
     fs.writeFileSync(
       path.join(reactDir, "package.json"),
       JSON.stringify({
@@ -2661,6 +2667,10 @@ describe("copyInstalledExternalSsrPackages", () => {
     fs.writeFileSync(
       path.join(queryCoreDir, "package.json"),
       JSON.stringify({ name: "@tanstack/query-core", version: "5.101.2" }),
+    );
+    fs.writeFileSync(
+      path.join(queryCodemodsDir, "root.eslint.config.js"),
+      'import "@vitest/runner";\n',
     );
 
     const serverDir = path.join(root, "server");
@@ -2711,6 +2721,18 @@ describe("copyInstalledExternalSsrPackages", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "query-codemods",
+        ),
+      ),
+    ).toBe(false);
     expect(
       fs.existsSync(
         path.join(

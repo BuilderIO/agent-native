@@ -3783,6 +3783,21 @@ export function copyInstalledExternalSsrPackages(
       nodeModulesRoots,
       copiedPackages,
     );
+    if (packageName === "@tanstack/react-query") {
+      // The published package includes codemod build tooling with Vitest
+      // imports, but the SSR runtime only needs the package entrypoints.
+      fs.rmSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "query-codemods",
+        ),
+        { recursive: true, force: true },
+      );
+    }
   }
 
   if (copiedCount === 0) return 0;

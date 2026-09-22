@@ -28,6 +28,7 @@
     "@mediapipe/tasks-vision": "0.10.35",
     "@neondatabase/serverless": "^1.1.0",
     "@tabler/icons-react": "catalog:",
+    "@tanstack/react-query": "^5.99.2",
     "drizzle-orm": "^0.45.2",
     "ffmpeg-static": "^5.3.0",
     "h3": "catalog:",
@@ -35,7 +36,6 @@
     "postgres": "^3.4.9",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "@tanstack/react-query": "^5.99.2",
     "react-router": "^8.1.0",
     "yjs": "catalog:",
     "zod": "^4.3.6"

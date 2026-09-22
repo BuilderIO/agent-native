@@ -23,6 +23,7 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@resvg/resvg-js": "^2.6.2",
     "@tabler/icons-react": "catalog:",
+    "@tanstack/react-query": "^5.99.2",
     "chrono-node": "2.9.1",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.45.2",
@@ -31,7 +32,6 @@
     "nanoid": "^5.1.9",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "@tanstack/react-query": "^5.99.2",
     "react-router": "^8.1.0",
     "vgpu": "0.3.1",
     "zod": "^4.3.6"
