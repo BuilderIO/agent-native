@@ -207,6 +207,7 @@ import {
   useCallback,
   useRef,
   useMemo,
+  type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
@@ -1667,11 +1668,44 @@ function DesignEditor() {
   const [runtimeStructureMoveRequest, setRuntimeStructureMoveRequest] =
     useState<(RuntimeStructureMoveRequest & { screenId: string }) | null>(null);
   const runtimeStructureMoveRevisionRef = useRef(0);
-  const [runtimeStructureInsertRequest, setRuntimeStructureInsertRequest] =
+  const [runtimeStructureInsertRequest, setRuntimeStructureInsertRequestState] =
     useState<(RuntimeStructureInsertRequest & { screenId: string }) | null>(
       null,
     );
   const runtimeStructurePendingTransactionRef = useRef<string | null>(null);
+  const setRuntimeStructureInsertRequest = useCallback<
+    Dispatch<
+      SetStateAction<
+        (RuntimeStructureInsertRequest & { screenId: string }) | null
+      >
+    >
+  >(
+    (next) => {
+      const current = runtimeStructureInsertRequest;
+      const resolved = typeof next === "function" ? next(current) : next;
+      if (resolved === current) return;
+      const pendingTransactionId =
+        runtimeStructurePendingTransactionRef.current;
+      if (
+        resolved &&
+        pendingTransactionId &&
+        resolved.transactionId !== pendingTransactionId
+      ) {
+        if (DESIGN_EDITOR_DEBUG_LOGS) {
+          console.warn("[design] runtime structure insert admission refused", {
+            pendingTransactionId,
+            requestTransactionId: resolved.transactionId ?? null,
+          });
+        }
+        return;
+      }
+      if (resolved?.transactionId) {
+        runtimeStructurePendingTransactionRef.current = resolved.transactionId;
+      }
+      setRuntimeStructureInsertRequestState(resolved);
+    },
+    [runtimeStructureInsertRequest],
+  );
   const [runtimeStructureDeleteRequest, setRuntimeStructureDeleteRequest] =
     useState<(RuntimeStructureDeleteRequest & { screenId: string }) | null>(
       null,
@@ -16311,8 +16345,34 @@ function DesignEditor() {
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
+      const isBoardTimeout = reason === "board-drop-timeout";
+      if (
+        isBoardTimeout &&
+        transactionId &&
+        runtimeStructureInsertRequest?.transactionId === transactionId
+      ) {
+        const insertedNodeId = runtimeStructureInsertRequest.html.match(
+          /\bdata-agent-native-node-id\s*=\s*["']([^"']+)["']/i,
+        )?.[1];
+        if (insertedNodeId) {
+          runtimeStructureRollbackRevisionRef.current += 1;
+          setRuntimeStructureRollbackRequest({
+            screenId: runtimeStructureInsertRequest.screenId,
+            requestId: `${transactionId}:timeout-rollback:${runtimeStructureRollbackRevisionRef.current}`,
+            transactionId,
+            selector: "",
+            sourceId: insertedNodeId,
+          });
+        }
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+      }
       if (transactionId) {
-        if (runtimeStructurePendingTransactionRef.current === transactionId) {
+        if (
+          !isBoardTimeout &&
+          runtimeStructurePendingTransactionRef.current === transactionId
+        ) {
           runtimeStructurePendingTransactionRef.current = null;
         }
         setRuntimeStructureInsertRequest((current) =>
@@ -16327,6 +16387,8 @@ function DesignEditor() {
     [
       cancelPendingStructureVerification,
       runtimeStructurePendingTransactionRef,
+      runtimeStructureInsertRequest,
+      setRuntimeStructureRollbackRequest,
       t,
     ],
   );
@@ -16557,6 +16619,13 @@ function DesignEditor() {
           runtimeStructureRollbackRequest.transactionId,
         );
       }
+      if (
+        runtimeStructureRollbackRequest?.transactionId &&
+        runtimeStructurePendingTransactionRef.current ===
+          runtimeStructureRollbackRequest.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
       setRuntimeStructureRollbackRequest(null);
       if (!details.applied) {
         toast.error(t("designEditor.toasts.layerMoveFailed"), {
@@ -16567,6 +16636,7 @@ function DesignEditor() {
     [
       discardPendingLiveStructureTransaction,
       runtimeStructureRollbackRequest,
+      runtimeStructurePendingTransactionRef,
       t,
     ],
   );
@@ -27413,6 +27483,9 @@ function DesignEditor() {
                           boardFileId
                             ? runtimeStructureRollbackRequest
                             : null
+                        }
+                        runtimeStructurePendingTransactionRef={
+                          runtimeStructurePendingTransactionRef
                         }
                         onBoardRuntimeStructureInsertRejected={
                           handleRuntimeStructureInsertRejected
