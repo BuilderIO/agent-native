@@ -158,5 +158,16 @@ describe("parseOutputPreview", () => {
       kind: "text",
       text: '{"type":"image","src":"https://192.168.0.2/image"}',
     });
+    expect(
+      parseOutputPreview(
+        JSON.stringify({
+          type: "image",
+          src: "https://127.0.0.1.nip.io/image",
+        }),
+      ),
+    ).toEqual({
+      kind: "text",
+      text: '{"type":"image","src":"https://127.0.0.1.nip.io/image"}',
+    });
   });
 });

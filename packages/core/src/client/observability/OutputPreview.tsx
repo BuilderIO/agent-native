@@ -22,6 +22,14 @@ const MAX_ANSWER_LENGTH = 20_000;
 const MAX_COLUMNS = 8;
 const MAX_ROWS = 24;
 const MAX_MARKDOWN_LINES = MAX_ROWS * 2 + 2;
+const REBINDING_DNS_SUFFIXES = [
+  "nip.io",
+  "sslip.io",
+  "xip.io",
+  "localtest.me",
+  "lvh.me",
+  "vcap.me",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -42,21 +50,8 @@ function tableCell(value: unknown): string {
   return "";
 }
 
-function isPrivateHost(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/\.$/, "");
-  if (
-    normalized === "localhost" ||
-    normalized.endsWith(".localhost") ||
-    normalized === "localhost.localdomain" ||
-    normalized.endsWith(".local") ||
-    normalized.endsWith(".internal") ||
-    normalized.endsWith(".lan") ||
-    normalized.includes(":")
-  ) {
-    return true;
-  }
-
-  const octets = normalized.split(".").map(Number);
+function isPrivateIpv4(hostname: string): boolean {
+  const octets = hostname.split(".").map(Number);
   if (
     octets.length !== 4 ||
     octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
@@ -72,6 +67,34 @@ function isPrivateHost(hostname: string): boolean {
     (first === 169 && second === 254) ||
     (first === 172 && second >= 16 && second <= 31) ||
     (first === 192 && second === 168)
+  );
+}
+
+function isPrivateHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/\.$/, "");
+  if (
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized === "localhost.localdomain" ||
+    normalized.endsWith(".local") ||
+    normalized.endsWith(".internal") ||
+    normalized.endsWith(".lan") ||
+    normalized.includes(":")
+  ) {
+    return true;
+  }
+
+  if (
+    REBINDING_DNS_SUFFIXES.some(
+      (suffix) => normalized === suffix || normalized.endsWith(`.${suffix}`),
+    )
+  ) {
+    return true;
+  }
+
+  const labels = normalized.split(".");
+  return labels.some((_, index) =>
+    isPrivateIpv4(labels.slice(index, index + 4).join(".")),
   );
 }
 
