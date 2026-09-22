@@ -707,12 +707,19 @@ export function shouldHideAuthSubtitle(
   return view === "signup" && localDevAvailable;
 }
 
-export function shouldStartWithLocalDev(search: string): boolean {
+export function shouldStartWithLocalDev(
+  pathname: string,
+  search: string,
+): boolean {
   const params = new URLSearchParams(search);
+  const path = pathname.replace(/\/+$/, "") || "/";
   return (
     !params.has("tab") &&
+    !params.has("c") &&
     !params.has("verified") &&
-    !isVerificationLinkInvalid(params.get("error"))
+    !isVerificationLinkInvalid(params.get("error")) &&
+    !path.endsWith("/login") &&
+    !path.endsWith("/signup")
   );
 }
 
@@ -1189,7 +1196,7 @@ export function AuthPage(props: AuthPageProps) {
     if (
       !localDevAllowed ||
       verificationStepStartedRef.current ||
-      !shouldStartWithLocalDev(window.location.search)
+      !shouldStartWithLocalDev(window.location.pathname, window.location.search)
     ) {
       return;
     }
@@ -1222,9 +1229,10 @@ export function AuthPage(props: AuthPageProps) {
           return;
         }
         const startWithLocalDev = shouldStartWithLocalDev(
+          window.location.pathname,
           window.location.search,
         );
-        setFullAuthOptionsVisible(!startWithLocalDev);
+        setFullAuthOptionsVisible((visible) => visible || !startWithLocalDev);
       } catch {
         if (active) {
           setLocalDevAvailable(false);
