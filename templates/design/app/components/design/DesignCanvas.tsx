@@ -1718,6 +1718,11 @@ export function DesignCanvas({
   // bridge and thus never post ready) and flush in order.
   const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
+  // A trusted message can arrive from the lightweight hit-test/runtime bridge
+  // before the full editor-chrome listener has attached. Keep runtime DOM
+  // mutations behind the explicit editor-chrome handshake; otherwise an
+  // empty board can consume a one-shot insert before its listener exists.
+  const editorChromeReadyRef = useRef(false);
   const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
@@ -1730,8 +1735,24 @@ export function DesignCanvas({
     if (!win) return;
     const queued = pendingOneShotMessagesRef.current;
     if (queued.length === 0) return;
-    pendingOneShotMessagesRef.current = [];
-    queued.forEach((message) => win.postMessage(message, "*"));
+    const flushable: unknown[] = [];
+    const stillWaiting: unknown[] = [];
+    queued.forEach((message) => {
+      const type =
+        message && typeof message === "object" && "type" in message
+          ? (message as { type?: unknown }).type
+          : undefined;
+      if (
+        type === "runtime-structure-insert" &&
+        !editorChromeReadyRef.current
+      ) {
+        stillWaiting.push(message);
+      } else {
+        flushable.push(message);
+      }
+    });
+    pendingOneShotMessagesRef.current = stillWaiting;
+    flushable.forEach((message) => win.postMessage(message, "*"));
   }, []);
   const bridgeReadinessProbeTimerRef = useRef<number | undefined>(undefined);
   const probeBridgeReadinessUntilDrained = useCallback(() => {
@@ -1790,11 +1811,20 @@ export function DesignCanvas({
     (message: unknown) => {
       const iframe = iframeRef.current;
       const win = iframe?.contentWindow;
+      const type =
+        message && typeof message === "object" && "type" in message
+          ? (message as { type?: unknown }).type
+          : undefined;
+      const requiresEditorChromeReady = type === "runtime-structure-insert";
       // A one-shot prop can arrive in the same render that first creates the
       // iframe. Keep it queued even when the ref/contentWindow is not attached
       // yet; otherwise the effect records its request id as handled and the
       // command is lost permanently before the bridge can announce readiness.
-      if (!win || !bridgeReadyRef.current) {
+      if (
+        !win ||
+        !bridgeReadyRef.current ||
+        (requiresEditorChromeReady && !editorChromeReadyRef.current)
+      ) {
         pendingOneShotMessagesRef.current.push(message);
         // The readiness recovery in the message handler below is PASSIVE: it
         // waits for the frame to say something first. A live-edit screen keeps
@@ -3352,6 +3382,7 @@ export function DesignCanvas({
       // has already run and posted its own new ready message; resetting on
       // `load` would incorrectly clobber that just-arrived ready signal.
       bridgeReadyRef.current = false;
+      editorChromeReadyRef.current = false;
       bootReadyRef.current = false;
       pendingOneShotMessagesRef.current = [];
       setRenderedDocument({
@@ -3634,6 +3665,7 @@ export function DesignCanvas({
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
+    editorChromeReadyRef.current = false;
     bootReadyRef.current = false;
   }
   // Edit mode must never let a live URL receive native app input before the
@@ -3874,6 +3906,7 @@ export function DesignCanvas({
           onRoutePathChange?.(screenId, e.data.routePath);
         }
         bridgeReadyRef.current = true;
+        editorChromeReadyRef.current = true;
         onBridgeReady?.();
         setReadyIframeDocumentIdentity(iframeDocumentIdentity);
         // A confirmed ready handshake proves this bridgeInstanceId/key pair
@@ -5152,8 +5185,14 @@ export function DesignCanvas({
     if (!iframe) return;
     function handleLoadReadyFallback() {
       if (!shouldUseIframeLoadReadyFallback(usesLiveEditEditorBridge)) return;
-      if (bridgeReadyRef.current) return;
+      if (bridgeReadyRef.current) {
+        if (editorChromeReadyRef.current) return;
+        editorChromeReadyRef.current = true;
+        flushPendingOneShotMessages();
+        return;
+      }
       bridgeReadyRef.current = true;
+      editorChromeReadyRef.current = true;
       onBridgeReady?.();
       flushPendingOneShotMessages();
     }
@@ -6350,6 +6389,7 @@ export function DesignCanvas({
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
       bridgeReadyRef.current = false;
+      editorChromeReadyRef.current = false;
       bootReadyRef.current = false;
       pendingOneShotMessagesRef.current = [];
       setRenderedDocument({

@@ -43,13 +43,12 @@ afterEach(async () => {
 describe("DesignCanvas one-shot bridge queue", () => {
   /**
    * A live-edit screen keeps its already-loaded iframe when the canvas
-   * remounts, so the replacement instance never sees the one-time
-   * `editor-chrome-ready` handshake. Before readiness was re-derived from any
-   * trusted frame message, every one-shot command (the board→live drop, text
-   * edits, deletes) sat in the pending queue forever with nothing to flush it:
-   * the gesture reported success and changed nothing.
+   * remounts, so the replacement instance can see ordinary bridge traffic
+   * before the editor-chrome listener has attached. Runtime inserts must not
+   * flush on that traffic: the board→live drop would otherwise be posted into
+   * an empty document and disappear before the explicit ready handshake.
    */
-  it("flushes a queued command when the bridge talks without a fresh ready handshake", async () => {
+  it("holds runtime inserts until the explicit editor-chrome handshake", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end("<!doctype html><html><body>Runtime</body></html>");
@@ -140,13 +139,35 @@ describe("DesignCanvas one-shot bridge queue", () => {
       ),
     ).toHaveLength(0);
 
-    // The bridge proves it is live in this document by posting anything else.
+    // Ordinary bridge traffic proves the document is reachable, but not that
+    // the editor-chrome message listener is attached yet.
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
           data: {
             type: "agent-native:runtime-layer-snapshot",
             payload: { html: "<body></body>", nodeCount: 1 },
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "runtime-structure-insert",
+      ),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/",
           },
           origin: bridgeUrl,
           source: iframeWindow,
