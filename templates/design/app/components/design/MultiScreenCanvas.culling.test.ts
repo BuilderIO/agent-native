@@ -288,6 +288,20 @@ describe("MultiScreenCanvas viewport culling", () => {
       expect(second.tierByScreenId.get("new-b")).toBe("placeholder");
     });
 
+    it("admits a screen in the overscan band before it reaches the raw viewport", () => {
+      const result = compute(
+        [{ id: "prewarm", geometry: geom(150, 100, 20, 20), iframeCount: 1 }],
+        {
+          viewport: { left: 0, top: 0, right: 200, bottom: 200 },
+          visibleViewport: { left: 0, top: 0, right: 100, bottom: 200 },
+          screenBudget: 1,
+        },
+      );
+
+      expect(result.liveScreenIds).toEqual(new Set(["prewarm"]));
+      expect(result.tierByScreenId.get("prewarm")).toBe("visible");
+    });
+
     it("lets raw-visible screens replace prior overscan-only screens", () => {
       const candidates = [
         candidate("old-a", 0),
