@@ -2793,6 +2793,242 @@ describe("copyInstalledExternalSsrPackages", () => {
       "@tanstack/react-query": "5.101.2",
     });
   });
+
+  it("also ships react-router and react-query so the SSR provider and consumer share one instance", () => {
+    const root = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-external-ssr-test-"),
+    );
+    dirs.push(root);
+    const nodeModules = path.join(root, "node_modules");
+    for (const [name, version] of [
+      ["react-dom", "19.2.7"],
+      ["react-router", "8.1.0"],
+      ["@tanstack/react-query", "5.101.2"],
+    ] as const) {
+      const dir = path.join(nodeModules, ...name.split("/"));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name, version }),
+      );
+    }
+    const reactDomCjsDir = path.join(nodeModules, "react-dom", "cjs");
+    fs.mkdirSync(reactDomCjsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(nodeModules, "react-dom", "server.browser.js"),
+      "module.exports = {};\n",
+    );
+    for (const fileName of [
+      "react-dom-profiling.profiling.js",
+      "react-dom-server-legacy.browser.production.js",
+      "react-dom-server.browser.production.js",
+      "react-dom-server.edge.production.js",
+      "react-dom-server.node.production.js",
+    ]) {
+      fs.writeFileSync(
+        path.join(reactDomCjsDir, fileName),
+        "module.exports = {};\n",
+      );
+    }
+    const reactQueryModernDir = path.join(
+      nodeModules,
+      "@tanstack",
+      "react-query",
+      "build",
+      "modern",
+    );
+    fs.mkdirSync(reactQueryModernDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.cjs"),
+      "module.exports = {};\n",
+    );
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.d.cts"),
+      "export {};\n",
+    );
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.js"),
+      "export {};\n",
+    );
+    const reactQueryLegacyDir = path.join(
+      nodeModules,
+      "@tanstack",
+      "react-query",
+      "build",
+      "legacy",
+    );
+    fs.mkdirSync(reactQueryLegacyDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactQueryLegacyDir, "index.cjs"),
+      "module.exports = {};\n",
+    );
+    fs.mkdirSync(
+      path.join(
+        nodeModules,
+        "@tanstack",
+        "react-query",
+        "build",
+        "query-codemods",
+      ),
+      { recursive: true },
+    );
+    fs.writeFileSync(
+      path.join(
+        nodeModules,
+        "@tanstack",
+        "react-query",
+        "build",
+        "query-codemods",
+        "root.eslint.config.js",
+      ),
+      'import "@vitest/runner";\n',
+    );
+
+    const serverDir = path.join(root, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "package.json"),
+      JSON.stringify({ name: "traced-node-modules", dependencies: {} }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      [
+        'import { useLocation } from "react-router";',
+        'import "react-dom/server";',
+        'import { useQuery } from "@tanstack/react-query";',
+        "export { useLocation, useQuery };",
+      ].join("\n"),
+    );
+
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(3);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.node.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server-legacy.browser.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-dom", "server.browser.js"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.browser.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.edge.production.js",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "legacy",
+          "index.cjs",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-profiling.profiling.js",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-router", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "query-codemods",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.cjs",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.js",
+        ),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("pruneServerlessFunctionDeadWeight", () => {

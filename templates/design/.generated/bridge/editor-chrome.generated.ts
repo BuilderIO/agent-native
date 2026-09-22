@@ -2570,6 +2570,134 @@ export const editorChromeBridgeScript: string = `"use strict";
         random = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       return "an-" + String(prefix || "copy") + "-" + random;
     }
+    var spaceSeparatedDomIdrefAttributes = [
+      "aria-controls",
+      "aria-describedby",
+      "aria-details",
+      "aria-errormessage",
+      "aria-flowto",
+      "aria-labelledby",
+      "aria-owns",
+      "headers"
+    ];
+    var singleDomIdrefAttributes = [
+      "aria-activedescendant",
+      "for",
+      "form",
+      "list"
+    ];
+    var fragmentDomReferenceAttributes = ["href", "xlink:href"];
+    function rewriteDomUrlIdReferences(value, idMap) {
+      return value.replace(
+        /url\\(\\s*(["']?)#([^\\s)'";]+)\\1\\s*\\)/g,
+        function(match, quote, id) {
+          var replacement = idMap[id];
+          return replacement ? "url(" + quote + "#" + replacement + quote + ")" : match;
+        }
+      );
+    }
+    function remintCollidingRuntimeNodeIds(root) {
+      var seen = /* @__PURE__ */ Object.create(null);
+      var reminted = /* @__PURE__ */ Object.create(null);
+      var existing = /* @__PURE__ */ Object.create(null);
+      var existingDomIds = /* @__PURE__ */ Object.create(null);
+      Array.prototype.forEach.call(
+        document.querySelectorAll("[data-agent-native-node-id]"),
+        function(node) {
+          var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+          if (nodeId) existing[nodeId] = true;
+        }
+      );
+      Array.prototype.forEach.call(
+        document.querySelectorAll("[id]"),
+        function(node) {
+          var id = node.getAttribute("id") || "";
+          if (id) existingDomIds[id] = true;
+        }
+      );
+      var nodes = [root].concat(
+        Array.prototype.slice.call(root.querySelectorAll("*"))
+      );
+      nodes.forEach(function(node, index) {
+        var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+        if (!nodeId) return;
+        var collision = Boolean(seen[nodeId] || existing[nodeId]);
+        if (collision) {
+          var nextNodeId = freshRuntimeNodeId(
+            index === 0 ? "move" : "move-child"
+          );
+          reminted[nodeId] = nextNodeId;
+          nodeId = nextNodeId;
+          node.setAttribute("data-agent-native-node-id", nodeId);
+        }
+        seen[nodeId] = true;
+      });
+      var remintedDomIds = /* @__PURE__ */ Object.create(null);
+      var seenDomIds = /* @__PURE__ */ Object.create(null);
+      nodes.forEach(function(node, index) {
+        var id = node.getAttribute("id") || "";
+        if (!id) return;
+        var collision = Boolean(existingDomIds[id] || seenDomIds[id]);
+        if (!collision) {
+          seenDomIds[id] = true;
+          return;
+        }
+        var nextId = freshRuntimeNodeId(
+          index === 0 ? "move-id" : "move-child-id"
+        );
+        if (existingDomIds[id] && !remintedDomIds[id]) {
+          remintedDomIds[id] = nextId;
+        }
+        node.setAttribute("id", nextId);
+        seenDomIds[nextId] = true;
+      });
+      nodes.forEach(function(node) {
+        Array.prototype.forEach.call(node.attributes, function(attribute) {
+          var value = attribute.value;
+          if (spaceSeparatedDomIdrefAttributes.includes(attribute.name)) {
+            value = value.split(/\\s+/).map(function(token) {
+              return remintedDomIds[token] || token;
+            }).join(" ");
+          } else if (singleDomIdrefAttributes.includes(attribute.name)) {
+            value = remintedDomIds[value] || value;
+          } else if (fragmentDomReferenceAttributes.includes(attribute.name)) {
+            if (value.charAt(0) === "#") {
+              var fragmentId = value.slice(1);
+              if (remintedDomIds[fragmentId]) {
+                value = "#" + remintedDomIds[fragmentId];
+              }
+            }
+          } else if (value.indexOf("url(") >= 0) {
+            value = rewriteDomUrlIdReferences(value, remintedDomIds);
+          }
+          if (value !== attribute.value) node.setAttribute(attribute.name, value);
+        });
+        ["begin", "end"].forEach(function(attributeName) {
+          var value = node.getAttribute(attributeName);
+          if (!value) return;
+          var rewritten = value.split(";").map(function(part) {
+            var trimmed = part.trim();
+            var separator = trimmed.indexOf(".");
+            if (separator <= 0) return trimmed;
+            var replacement = remintedDomIds[trimmed.slice(0, separator)];
+            return replacement ? replacement + trimmed.slice(separator) : trimmed;
+          }).join("; ");
+          if (rewritten !== value) node.setAttribute(attributeName, rewritten);
+        });
+      });
+      nodes.forEach(function(node) {
+        var runtimeInstanceId = node.getAttribute(
+          "data-agent-native-runtime-instance-id"
+        );
+        var nextInstanceId = runtimeInstanceId && reminted[runtimeInstanceId];
+        if (nextInstanceId) {
+          node.setAttribute(
+            "data-agent-native-runtime-instance-id",
+            nextInstanceId
+          );
+        }
+      });
+    }
     function resetRuntimeStableIds(root) {
       if (!root || !root.querySelectorAll) return [];
       var sourceNodeIdMap = [];
@@ -4781,6 +4909,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       hostIgnoreAutoLayoutAtPointerDown = false;
     }
     var activeCrossScreenStyleSnapshot = void 0;
+    var activeCrossScreenSourceHtml = void 0;
     var activeCrossScreenDragIdentity = null;
     var spacingDrag = null;
     var lockedSelectors = [];
@@ -10609,6 +10738,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
         activeCrossScreenStyleSnapshot = void 0;
+        activeCrossScreenSourceHtml = void 0;
         activeCrossScreenDragIdentity = null;
         window.parent.postMessage(
           { type: "agent-native:cross-screen-drag", phase: "cancel" },
@@ -10618,6 +10748,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (phase === "start") {
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
+        activeCrossScreenSourceHtml = el?.outerHTML;
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -10663,7 +10794,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
           modifiers: options?.modifiers,
           duplicate: options?.duplicate === true ? true : void 0,
-          sourceCloneHtml: options?.duplicate && el ? el.outerHTML : void 0,
+          // The host needs the frozen outerHTML for moves as well as copies. A
+          // live source has no stored HTML document to snapshot, so waiting for
+          // the duplicate-only field leaves move drops with no insert payload.
+          // Use the pre-lift snapshot: during a drag the bridge may temporarily
+          // add a translate() transform to the source element, and that
+          // editor-only transform must never become destination markup.
+          sourceCloneHtml: phase === "end" ? activeCrossScreenSourceHtml : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"
@@ -10671,6 +10808,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (phase === "end") {
         bridgeIgnoreAutoLayoutKeyPressed = false;
         activeCrossScreenStyleSnapshot = void 0;
+        activeCrossScreenSourceHtml = void 0;
         activeCrossScreenDragIdentity = null;
       }
     }
@@ -17904,12 +18042,13 @@ export const editorChromeBridgeScript: string = `"use strict";
             "*"
           );
         };
-        var acknowledgeInsert = function(element) {
+        var acknowledgeInsert = function(element, applied = true) {
           window.parent.postMessage(
             {
               type: "runtime-structure-insert-applied",
               screenId: designCanvasScreenId,
               requestId: String(insertRequestId),
+              applied,
               transactionId: typeof e.data.transactionId === "string" ? e.data.transactionId : void 0,
               routePath: window.location.pathname + window.location.search,
               selector: getSelector(element),
@@ -17952,15 +18091,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         var insertNodeId = parsedInsertEl.getAttribute(
           "data-agent-native-node-id"
         );
-        var existingInsertEl = null;
+        var existingBeforeRemint = null;
         if (insertNodeId) {
-          try {
-            existingInsertEl = document.querySelector(
-              '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]'
-            );
-          } catch (_err) {
-          }
+          existingBeforeRemint = document.querySelector(
+            '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]'
+          );
         }
+        var incomingRuntimeInstanceId = parsedInsertEl.getAttribute(
+          "data-agent-native-runtime-instance-id"
+        );
+        var existingRuntimeInstanceId = existingBeforeRemint?.getAttribute(
+          "data-agent-native-runtime-instance-id"
+        );
+        var reuseExistingRuntimeNode = Boolean(
+          existingBeforeRemint && incomingRuntimeInstanceId && existingRuntimeInstanceId === incomingRuntimeInstanceId && e.data.screenId === designCanvasScreenId && e.data.sourceScreenId === designCanvasScreenId
+        );
+        if (e.data.remintCollidingNodeIds === true && !reuseExistingRuntimeNode) {
+          remintCollidingRuntimeNodeIds(parsedInsertEl);
+        }
+        insertNodeId = parsedInsertEl.getAttribute("data-agent-native-node-id");
+        var existingInsertEl = reuseExistingRuntimeNode ? existingBeforeRemint : null;
         if (existingInsertEl === insertAnchor) {
           rejectInsert("anchor-is-subject");
           return;
@@ -17996,8 +18146,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               insertTarget,
               reinsertOrigin
             );
-            acknowledgeInsert(existingInsertEl);
           }
+          acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
           return;
         }
         if (replaceInsertAnchor) {

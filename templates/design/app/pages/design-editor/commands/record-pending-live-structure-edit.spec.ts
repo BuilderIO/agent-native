@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  pendingStructureRedoCommand,
+  pendingLiveStructureRedoSourceEdit,
+  type PendingLiveStructureEdit,
+} from "../pending-edits";
+import {
   commitPendingLiveStructureEdits,
   preparePendingLiveStructureEdit,
   runRecordPendingLiveStructureEdit,
@@ -57,6 +62,90 @@ function prepare(args: RecordPendingLiveStructureEditArgs, selector: string) {
 }
 
 describe("pending live structure batch", () => {
+  it("keeps collision remint intent in the pending edit used by redo", () => {
+    const args = state();
+
+    runRecordPendingLiveStructureEdit(
+      args,
+      "screen",
+      "[data-node=inserted]",
+      "#anchor",
+      "inside",
+      undefined,
+      {
+        insertedHtml: '<div data-agent-native-node-id="shared">Moved</div>',
+        remintCollidingNodeIds: true,
+      },
+    );
+
+    const undoEntry = args.pendingLiveNonStyleUndoStackRef.current[0];
+    if (!undoEntry || undoEntry.kind !== "structure") {
+      throw new Error("expected a structure undo entry");
+    }
+    const edit: PendingLiveStructureEdit = undoEntry.edit;
+    expect(edit).toMatchObject({
+      insertedHtml: expect.any(String),
+      remintCollidingNodeIds: true,
+    });
+    expect(pendingStructureRedoCommand(edit!)).toEqual({
+      kind: "insert",
+      html: edit!.insertedHtml,
+      remintCollidingNodeIds: true,
+    });
+  });
+
+  it("replays the inserted member of a grouped move when delete is primary", () => {
+    const args = state();
+    const destination = prepare(args, "#destination")!;
+    const sourceDelete = {
+      ...prepare(args, "#source")!,
+      removed: true as const,
+    };
+    const grouped = {
+      ...sourceDelete,
+      groupedEdits: [
+        {
+          ...destination,
+          insertedHtml: '<div data-agent-native-node-id="moved" />',
+          remintCollidingNodeIds: true,
+        },
+        sourceDelete,
+      ],
+    };
+
+    expect(pendingStructureRedoCommand(grouped)).toEqual({
+      kind: "insert",
+      html: grouped.groupedEdits[0].insertedHtml,
+      remintCollidingNodeIds: true,
+    });
+  });
+
+  it("reattaches grouped undo members before selecting a redo command", () => {
+    const args = state();
+    const destination = {
+      ...prepare(args, "#destination")!,
+      insertedHtml: '<div data-agent-native-node-id="moved" />',
+      remintCollidingNodeIds: true,
+    };
+    const sourceDelete = {
+      ...prepare(args, "#source")!,
+      removed: true as const,
+    };
+    const entry = {
+      kind: "structure" as const,
+      edit: sourceDelete,
+      groupedEdits: [destination, sourceDelete],
+    };
+
+    const replaySource = pendingLiveStructureRedoSourceEdit(entry);
+    expect(pendingStructureRedoCommand(replaySource)).toEqual({
+      kind: "insert",
+      html: expect.any(String),
+      remintCollidingNodeIds: true,
+    });
+    expect(replaySource.groupedEdits).toEqual(entry.groupedEdits);
+  });
+
   it("does not mutate existing state when a later member rejects or throws", () => {
     const args = state();
     const prior = prepare(args, "#prior")!;

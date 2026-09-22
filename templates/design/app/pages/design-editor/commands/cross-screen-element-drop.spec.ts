@@ -2056,6 +2056,102 @@ describe("runCrossScreenElementDrop source provenance", () => {
 });
 
 describe("runCrossScreenElementDrop runtime-only routing", () => {
+  it("uses the live source outerHTML for an atomic live-to-live move", () => {
+    const sourceMarkup =
+      '<div data-agent-native-node-id="runtime-source">Source</div>';
+    const sourceNode = buildCodeLayerProjection(sourceMarkup).nodes[0]!;
+    const sourceTree = buildCodeLayerTree(
+      buildCodeLayerProjection(sourceMarkup),
+    );
+    let insertRequest: unknown = null;
+    let deleteRequest: unknown = null;
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate: () => {
+          throw new Error("live-to-live moves must not write stored content");
+        },
+        boardFileId: undefined,
+        canEditDesign: true,
+        canEditLiveScreen: () => true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: {
+          current: new Map([
+            [
+              sourceNode.id,
+              {
+                fileId: "source",
+                node: sourceNode,
+                tree: sourceTree,
+                runtimeOnly: true,
+              },
+            ],
+          ]),
+        },
+        designSourceType: "localhost",
+        getScreenContent: () => "http://localhost:5173/",
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "source",
+            filename: "source.html",
+            content: "http://localhost:5173/",
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "localhost",
+          },
+          {
+            id: "target",
+            filename: "target.html",
+            content: "http://localhost:5173/?screen=target",
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "localhost",
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry: vi.fn(),
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        sendRuntimeLayerMoveSemanticHandoff: vi.fn(),
+        setActiveFileId: vi.fn(),
+        setCreatedOverviewLayerSelection: vi.fn(),
+        setOverviewSelectedScreenIds: vi.fn(),
+        setRuntimeStructureDeleteRequest: (value) => {
+          deleteRequest = typeof value === "function" ? value(null) : value;
+        },
+        setRuntimeStructureInsertRequest: (value) => {
+          insertRequest = typeof value === "function" ? value(null) : value;
+        },
+        setSelectedElement: vi.fn(),
+        setSelectedLayerIdsState: vi.fn(),
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: '[data-agent-native-node-id="runtime-source"]',
+        sourceNodeId: "runtime-source",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorSelector: "body",
+        targetAnchorPlacement: "inside",
+        sourceCloneHtml: sourceMarkup,
+      },
+    );
+
+    expect(insertRequest).toMatchObject({
+      screenId: "target",
+      remintCollidingNodeIds: true,
+      anchor: { selector: "body" },
+    });
+    expect((insertRequest as { html: string }).html).toContain(">Source</div>");
+    expect(deleteRequest).toMatchObject({
+      screenId: "source",
+      selector: '[data-agent-native-node-id="runtime-source"]',
+      waitForInsertTransaction: true,
+    });
+  });
+
   it("routes a runtime-only id absent from source HTML through the runtime handoff", () => {
     const sourceContent =
       '<html><body><div id="subject">Subject</div></body></html>';

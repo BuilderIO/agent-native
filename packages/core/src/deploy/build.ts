@@ -3394,13 +3394,49 @@ const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
 ] as const;
 const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
   "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
+// Must track every package createAgentNativeConfig's ssr.external adds beyond
+// @agent-native/core and yjs (which have their own dedicated copy paths
+// below) — anything left off this list keeps its build-machine-only copy,
+// so the deployed function and the prebuilt route chunks resolve two
+// different module instances of the "same" package (e.g. a Router provider
+// from one react-router copy and useLocation() from another).
 const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
   "react",
+  "react-dom",
   "react-router",
   "@tanstack/react-query",
 ] as const;
 const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
   {
+    "react-dom": [
+      // Netlify's Node runtime resolves react-dom/server to server.node, while
+      // the shared streaming entrypoint imports react-dom/server.browser.
+      // Keep that browser wrapper and its production implementation; the
+      // other browser, edge, bun, and profiling renderers cannot be reached.
+      "cjs/react-dom-client.development.js",
+      "cjs/react-dom-profiling.development.js",
+      "cjs/react-dom-profiling.profiling.js",
+      "cjs/react-dom-server-legacy.browser.development.js",
+      "cjs/react-dom-server-legacy.node.development.js",
+      "cjs/react-dom-server.browser.development.js",
+      "cjs/react-dom-server.bun.development.js",
+      "cjs/react-dom-server.bun.production.js",
+      "cjs/react-dom-server.edge.development.js",
+      "cjs/react-dom-server.edge.production.js",
+      "cjs/react-dom-server.node.development.js",
+      "cjs/react-dom-test-utils.development.js",
+      "cjs/react-dom-test-utils.production.js",
+      "cjs/react-dom.development.js",
+      "cjs/react-dom.react-server.development.js",
+      "profiling.js",
+      "server.bun.js",
+      "server.edge.js",
+      "server.react-server.js",
+      "static.browser.js",
+      "static.edge.js",
+      "static.react-server.js",
+      "test-utils.js",
+    ],
     "react-router": ["dist/development", "docs", "CHANGELOG.md"],
     "@tanstack/react-query": [
       "build/codemods",
@@ -3699,6 +3735,15 @@ function pruneExternalSsrPackageArtifacts(
   for (const sourceMap of fs.globSync("**/*.map", { cwd: packageDir })) {
     fs.rmSync(path.join(packageDir, sourceMap), { force: true });
   }
+  if (packageName.startsWith("@tanstack/")) {
+    for (const cjsFile of fs.globSync("**/*.cjs", { cwd: packageDir })) {
+      if (cjsFile.startsWith("build/modern/")) continue;
+      fs.rmSync(path.join(packageDir, cjsFile), { force: true });
+    }
+    for (const declaration of fs.globSync("**/*.d.cts", { cwd: packageDir })) {
+      fs.rmSync(path.join(packageDir, declaration), { force: true });
+    }
+  }
 }
 
 export function copyInstalledBrowserRuntimePackages(
@@ -3779,9 +3824,9 @@ export function copyInstalledBrowserRuntimePackages(
 }
 
 /**
- * Vite's production SSR graph keeps singleton packages external so every SSR
- * entry shares the same contexts. Nitro preserves those externals from the
- * prebuilt route chunks, so the serverless artifact must carry them itself.
+ * Vite's production SSR graph keeps React external so every SSR entry shares
+ * one hook dispatcher. Nitro preserves that external from the prebuilt route
+ * chunks, so the serverless artifact must carry the package itself.
  */
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,
@@ -4668,12 +4713,12 @@ const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const quote = `["'\\\`]`;
+  const quote = `["\'\\\`]`;
   const staticModuleReference = new RegExp(
-    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
   );
   const dynamicImport = new RegExp(
-    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
   );
   return staticModuleReference.test(source) || dynamicImport.test(source);
 }

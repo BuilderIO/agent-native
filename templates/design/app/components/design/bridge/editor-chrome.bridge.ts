@@ -2613,6 +2613,150 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "an-" + String(prefix || "copy") + "-" + random;
   }
 
+  var spaceSeparatedDomIdrefAttributes = [
+    "aria-controls",
+    "aria-describedby",
+    "aria-details",
+    "aria-errormessage",
+    "aria-flowto",
+    "aria-labelledby",
+    "aria-owns",
+    "headers",
+  ];
+  var singleDomIdrefAttributes = [
+    "aria-activedescendant",
+    "for",
+    "form",
+    "list",
+  ];
+  var fragmentDomReferenceAttributes = ["href", "xlink:href"];
+
+  function rewriteDomUrlIdReferences(
+    value: string,
+    idMap: { [key: string]: string },
+  ): string {
+    return value.replace(
+      /url\(\s*(["']?)#([^\s)'";]+)\1\s*\)/g,
+      function (match, quote: string, id: string) {
+        var replacement = idMap[id];
+        return replacement
+          ? "url(" + quote + "#" + replacement + quote + ")"
+          : match;
+      },
+    );
+  }
+
+  function remintCollidingRuntimeNodeIds(root: Element): void {
+    var seen = Object.create(null) as { [key: string]: boolean };
+    var reminted = Object.create(null) as { [key: string]: string };
+    var existing = Object.create(null) as { [key: string]: boolean };
+    var existingDomIds = Object.create(null) as { [key: string]: boolean };
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[data-agent-native-node-id]"),
+      function (node: Element) {
+        var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+        if (nodeId) existing[nodeId] = true;
+      },
+    );
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[id]"),
+      function (node: Element) {
+        var id = node.getAttribute("id") || "";
+        if (id) existingDomIds[id] = true;
+      },
+    );
+    var nodes = [root].concat(
+      Array.prototype.slice.call(root.querySelectorAll("*")),
+    ) as Element[];
+    nodes.forEach(function (node, index) {
+      var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+      if (!nodeId) return;
+      var collision = Boolean(seen[nodeId] || existing[nodeId]);
+      if (collision) {
+        var nextNodeId = freshRuntimeNodeId(
+          index === 0 ? "move" : "move-child",
+        );
+        reminted[nodeId] = nextNodeId;
+        nodeId = nextNodeId;
+        node.setAttribute("data-agent-native-node-id", nodeId);
+      }
+      seen[nodeId] = true;
+    });
+    var remintedDomIds = Object.create(null) as { [key: string]: string };
+    var seenDomIds = Object.create(null) as { [key: string]: boolean };
+    nodes.forEach(function (node, index) {
+      var id = node.getAttribute("id") || "";
+      if (!id) return;
+      var collision = Boolean(existingDomIds[id] || seenDomIds[id]);
+      if (!collision) {
+        seenDomIds[id] = true;
+        return;
+      }
+      var nextId = freshRuntimeNodeId(
+        index === 0 ? "move-id" : "move-child-id",
+      );
+      if (existingDomIds[id] && !remintedDomIds[id]) {
+        remintedDomIds[id] = nextId;
+      }
+      node.setAttribute("id", nextId);
+      seenDomIds[nextId] = true;
+    });
+    nodes.forEach(function (node) {
+      Array.prototype.forEach.call(node.attributes, function (attribute: Attr) {
+        var value = attribute.value;
+        if (spaceSeparatedDomIdrefAttributes.includes(attribute.name)) {
+          value = value
+            .split(/\s+/)
+            .map(function (token) {
+              return remintedDomIds[token] || token;
+            })
+            .join(" ");
+        } else if (singleDomIdrefAttributes.includes(attribute.name)) {
+          value = remintedDomIds[value] || value;
+        } else if (fragmentDomReferenceAttributes.includes(attribute.name)) {
+          if (value.charAt(0) === "#") {
+            var fragmentId = value.slice(1);
+            if (remintedDomIds[fragmentId]) {
+              value = "#" + remintedDomIds[fragmentId];
+            }
+          }
+        } else if (value.indexOf("url(") >= 0) {
+          value = rewriteDomUrlIdReferences(value, remintedDomIds);
+        }
+        if (value !== attribute.value) node.setAttribute(attribute.name, value);
+      });
+      ["begin", "end"].forEach(function (attributeName) {
+        var value = node.getAttribute(attributeName);
+        if (!value) return;
+        var rewritten = value
+          .split(";")
+          .map(function (part) {
+            var trimmed = part.trim();
+            var separator = trimmed.indexOf(".");
+            if (separator <= 0) return trimmed;
+            var replacement = remintedDomIds[trimmed.slice(0, separator)];
+            return replacement
+              ? replacement + trimmed.slice(separator)
+              : trimmed;
+          })
+          .join("; ");
+        if (rewritten !== value) node.setAttribute(attributeName, rewritten);
+      });
+    });
+    nodes.forEach(function (node) {
+      var runtimeInstanceId = node.getAttribute(
+        "data-agent-native-runtime-instance-id",
+      );
+      var nextInstanceId = runtimeInstanceId && reminted[runtimeInstanceId];
+      if (nextInstanceId) {
+        node.setAttribute(
+          "data-agent-native-runtime-instance-id",
+          nextInstanceId,
+        );
+      }
+    });
+  }
+
   function resetRuntimeStableIds(
     root: Element | null,
   ): Array<[string, string]> {
@@ -5951,6 +6095,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hostIgnoreAutoLayoutAtPointerDown = false;
   }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
+  var activeCrossScreenSourceHtml: string | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
     sourceId: string;
@@ -14511,6 +14656,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Keep that source-side state until the matching keyup so the next drag
       // does not silently lose Ignore Auto Layout.
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenSourceHtml = undefined;
       activeCrossScreenDragIdentity = null;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
@@ -14523,6 +14669,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         options?.styleSnapshot !== undefined
           ? options.styleSnapshot
           : collectPortableStyleSnapshot(el ?? null);
+      activeCrossScreenSourceHtml = el?.outerHTML;
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -14582,7 +14729,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         modifiers: options?.modifiers,
         duplicate: options?.duplicate === true ? true : undefined,
-        sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
+        // The host needs the frozen outerHTML for moves as well as copies. A
+        // live source has no stored HTML document to snapshot, so waiting for
+        // the duplicate-only field leaves move drops with no insert payload.
+        // Use the pre-lift snapshot: during a drag the bridge may temporarily
+        // add a translate() transform to the source element, and that
+        // editor-only transform must never become destination markup.
+        sourceCloneHtml:
+          phase === "end" ? activeCrossScreenSourceHtml : undefined,
         releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : undefined,
       },
       "*",
@@ -14593,6 +14747,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // missed iframe keyup cannot affect the next drag.
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenSourceHtml = undefined;
       activeCrossScreenDragIdentity = null;
     }
   }
@@ -25413,12 +25568,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "*",
         );
       };
-      var acknowledgeInsert = function (element: Element): void {
+      var acknowledgeInsert = function (
+        element: Element,
+        applied: boolean = true,
+      ): void {
         (window.parent as Window).postMessage(
           {
             type: "runtime-structure-insert-applied",
             screenId: designCanvasScreenId,
             requestId: String(insertRequestId),
+            applied,
             transactionId:
               typeof e.data.transactionId === "string"
                 ? e.data.transactionId
@@ -25478,20 +25637,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var insertNodeId = parsedInsertEl.getAttribute(
         "data-agent-native-node-id",
       );
-      // Repeat drops of the same board primitive must not mint a second live
-      // element carrying the same node id: findUniqueRuntimeStructureTarget
-      // returns null on a duplicate id, which silently breaks every later
-      // move, ack, and undo for BOTH copies. Re-drag the existing node instead.
-      var existingInsertEl: Element | null = null;
+      // A same-screen repeat drag explicitly identifies the source screen, so
+      // it is a reorder rather than a new insert. Resolve that identity before
+      // collision reminting; a cross-screen copy must never reuse a coincident
+      // node/runtime id from this destination document.
+      var existingBeforeRemint: Element | null = null;
       if (insertNodeId) {
-        try {
-          existingInsertEl = document.querySelector(
-            '[data-agent-native-node-id="' +
-              escapeAttribute(insertNodeId) +
-              '"]',
-          );
-        } catch (_err) {}
+        existingBeforeRemint = document.querySelector(
+          '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]',
+        );
       }
+      var incomingRuntimeInstanceId = parsedInsertEl.getAttribute(
+        "data-agent-native-runtime-instance-id",
+      );
+      var existingRuntimeInstanceId = existingBeforeRemint?.getAttribute(
+        "data-agent-native-runtime-instance-id",
+      );
+      var reuseExistingRuntimeNode = Boolean(
+        existingBeforeRemint &&
+        incomingRuntimeInstanceId &&
+        existingRuntimeInstanceId === incomingRuntimeInstanceId &&
+        e.data.screenId === designCanvasScreenId &&
+        e.data.sourceScreenId === designCanvasScreenId,
+      );
+      if (e.data.remintCollidingNodeIds === true && !reuseExistingRuntimeNode) {
+        remintCollidingRuntimeNodeIds(parsedInsertEl);
+      }
+      insertNodeId = parsedInsertEl.getAttribute("data-agent-native-node-id");
+      // Only the explicit same-screen identity path may reuse an existing
+      // runtime node. All other inserts keep the parsed node as a new element,
+      // with collision reminting above when requested.
+      var existingInsertEl: Element | null = reuseExistingRuntimeNode
+        ? existingBeforeRemint
+        : null;
       if (existingInsertEl === insertAnchor) {
         rejectInsert("anchor-is-subject");
         return;
@@ -25534,8 +25712,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             insertTarget,
             reinsertOrigin,
           );
-          acknowledgeInsert(existingInsertEl);
         }
+        // A same-slot reorder changes no DOM. Report that explicitly so the
+        // host does not record an inserted pending edit whose undo would
+        // delete this pre-existing element.
+        acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
         return;
       }
       if (replaceInsertAnchor) {

@@ -8822,6 +8822,7 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        remintCollidingNodeIds?: boolean;
         /** The inserted markup replaced this subject as one live gesture. */
         replaced?: true;
         replacementSelector?: string;
@@ -16317,6 +16318,7 @@ function DesignEditor() {
       routePath?: string;
       selector: string;
       sourceId?: string;
+      applied?: boolean;
     }) => {
       const request = runtimeStructureInsertRequest;
       if (!request || !details.selector) return;
@@ -16325,6 +16327,21 @@ function DesignEditor() {
         : Number.isFinite(Number(details.requestId)) &&
           Math.floor(Number(details.requestId)) === request.requestId;
       if (!requestMatches) return;
+      if (details.applied === false) {
+        // A same-slot runtime reorder changed no DOM. Do not turn its
+        // acknowledgement into an inserted pending edit whose undo would
+        // delete the pre-existing element.
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === request.transactionId ? null : current,
+        );
+        setRuntimeStructureInsertRequest((current) =>
+          current?.transactionId === request.transactionId &&
+          current?.requestId === request.requestId
+            ? null
+            : current,
+        );
+        return;
+      }
       recordPendingLiveStructureEdit(
         request.screenId,
         details.selector,
@@ -16336,6 +16353,7 @@ function DesignEditor() {
           anchorSourceId: request.anchor.sourceId ?? undefined,
           routePath: details.routePath,
           insertedHtml: request.html,
+          remintCollidingNodeIds: request.remintCollidingNodeIds,
           requestId: details.requestId,
           transactionId: request.transactionId,
         },
@@ -17384,6 +17402,7 @@ function DesignEditor() {
         setPendingVisualStyleEdits,
         setPendingVisualStyleBaselineResetRequest,
         setPendingVisualStyleRevertRequest,
+        setRuntimeStructureDeleteRequest,
         setRuntimeStructureInsertRequest,
         setRuntimeStructureMoveRequest,
         setOverviewSelectedScreenIds,
