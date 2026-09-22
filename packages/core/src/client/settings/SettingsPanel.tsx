@@ -991,7 +991,7 @@ function ChatGPTSubscriptionCard({
   if (isPage) {
     return (
       <SettingsRow
-        className={grouped ? undefined : "-mx-5 sm:-mx-6"}
+        className={cn(grouped ? "border-b border-border/60" : "-mx-5 sm:-mx-6")}
         label={title}
         description={description}
         status={statusLabel}

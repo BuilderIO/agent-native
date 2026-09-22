@@ -938,7 +938,7 @@ function SettingsTabsPageContent({
         role="tabpanel"
         aria-labelledby={`settings-tab-${selectedTab?.id ?? "general"}`}
         className={cn(
-          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:border-s sm:border-border/60 sm:px-6 sm:py-6 lg:px-8 lg:py-8",
+          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:pt-4 sm:pb-6 lg:px-8 lg:pt-4 lg:pb-8",
           contentClassName,
         )}
       >
