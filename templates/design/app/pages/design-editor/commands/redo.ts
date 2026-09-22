@@ -561,6 +561,7 @@ export function runRedo({
         screenId: pendingNonStyleRedo.edit.screenId,
         html: redoCommand.html,
         replaceAnchor: redoCommand.replaceAnchor,
+        remintCollidingNodeIds: redoCommand.remintCollidingNodeIds,
         anchor: {
           selector: pendingNonStyleRedo.edit.anchorSelector,
           sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,

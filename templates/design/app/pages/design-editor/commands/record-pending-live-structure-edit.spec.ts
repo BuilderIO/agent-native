@@ -6,6 +6,7 @@ import {
   runRecordPendingLiveStructureEdit,
   type RecordPendingLiveStructureEditArgs,
 } from "./record-pending-live-structure-edit";
+import { pendingStructureRedoCommand } from "../pending-edits";
 
 function state(): RecordPendingLiveStructureEditArgs {
   return {
@@ -57,6 +58,34 @@ function prepare(args: RecordPendingLiveStructureEditArgs, selector: string) {
 }
 
 describe("pending live structure batch", () => {
+  it("keeps collision remint intent in the pending edit used by redo", () => {
+    const args = state();
+
+    runRecordPendingLiveStructureEdit(
+      args,
+      "screen",
+      "[data-node=inserted]",
+      "#anchor",
+      "inside",
+      undefined,
+      {
+        insertedHtml: '<div data-agent-native-node-id="shared">Moved</div>',
+        remintCollidingNodeIds: true,
+      },
+    );
+
+    const edit = args.pendingLiveNonStyleUndoStackRef.current[0]?.edit;
+    expect(edit).toMatchObject({
+      insertedHtml: expect.any(String),
+      remintCollidingNodeIds: true,
+    });
+    expect(pendingStructureRedoCommand(edit!)).toEqual({
+      kind: "insert",
+      html: edit!.insertedHtml,
+      remintCollidingNodeIds: true,
+    });
+  });
+
   it("does not mutate existing state when a later member rejects or throws", () => {
     const args = state();
     const prior = prepare(args, "#prior")!;

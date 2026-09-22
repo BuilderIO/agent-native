@@ -422,6 +422,7 @@ export interface PendingLiveStructureEdit {
    * must insert this markup rather than relocate an existing element.
    */
   insertedHtml?: string;
+  remintCollidingNodeIds?: boolean;
   /** The inserted markup replaced `selector` instead of landing beside it. */
   replaced?: true;
   /** Runtime identity of the optimistic replacement used for verification. */
@@ -879,7 +880,12 @@ export function pendingStructureEditSourcePaths(
 
 export type PendingStructureRedoCommand =
   | { kind: "delete" }
-  | { kind: "insert"; html: string; replaceAnchor?: boolean }
+  | {
+      kind: "insert";
+      html: string;
+      replaceAnchor?: boolean;
+      remintCollidingNodeIds?: boolean;
+    }
   | { kind: "move" };
 
 /**
@@ -897,6 +903,9 @@ export function pendingStructureRedoCommand(
         kind: "insert",
         html: edit.insertedHtml,
         ...(edit.replaced ? { replaceAnchor: true } : {}),
+        ...(edit.remintCollidingNodeIds
+          ? { remintCollidingNodeIds: true }
+          : {}),
       }
     : { kind: "move" };
 }

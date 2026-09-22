@@ -46,7 +46,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
   );
   const fixtureNodeModules = path.join(rootPath, "node_modules");
   fs.mkdirSync(fixtureNodeModules);
-  for (const packageName of ["react", "react-dom", "react-router"]) {
+  for (const packageName of ["react", "react-dom", "react-router", "vite"]) {
     fs.symlinkSync(
       path.resolve(process.cwd(), "node_modules", packageName),
       path.join(fixtureNodeModules, packageName),

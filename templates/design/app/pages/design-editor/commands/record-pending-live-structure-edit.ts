@@ -122,6 +122,7 @@ export function preparePendingLiveStructureEdit(
       };
     }>;
     insertedHtml?: string;
+    remintCollidingNodeIds?: boolean;
     replaced?: true;
     replacementSelector?: string;
     replacementSourceId?: string;
@@ -186,6 +187,7 @@ export function preparePendingLiveStructureEdit(
     gridPlacement: details?.gridPlacement,
     gridDisplacements: details?.gridDisplacements,
     insertedHtml: details?.insertedHtml,
+    remintCollidingNodeIds: details?.remintCollidingNodeIds,
     ...(details?.replaced
       ? {
           replaced: true as const,
