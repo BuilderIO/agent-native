@@ -1361,6 +1361,61 @@ describe("private preview document drafts", () => {
     ).toBeNull();
   });
 
+  it("fences a delayed same-generation draft after keep-mine recovery", async () => {
+    const documentId = await createDocument();
+    const editorSessionId = "keep-mine-tab";
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Recovered local body"),
+          deferredReason: "conflict",
+          editorSessionId,
+          editGeneration: 4,
+        },
+      }),
+    );
+
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Recovered local body",
+          expectedDocumentUpdatedAt: before.updatedAt,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
+
+    await expect(
+      asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: {
+            ...payload("Delayed recovery"),
+            editorSessionId,
+            editGeneration: 4,
+          },
+        }),
+      ),
+    ).resolves.toEqual({ status: "superseded", draft: null });
+    const [saved] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(saved.content).toBe("Recovered local body");
+  });
+
   it("keeps another tab's newer recovery draft when one tab saves", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>

@@ -282,12 +282,39 @@ describe("Page draft recovery", () => {
         title: "Draft",
         content: "Draft body",
         baseUpdatedAt: "v1",
+        editorSessionId: "tab:page",
+        editorEditGeneration: 4,
+        editorSnapshotTitle: "Draft",
+        editorSnapshotContent: "Draft body",
       }),
     );
-    expect(state.remove).toHaveBeenCalledWith(
-      expect.objectContaining({ operation: "delete", documentId: "page" }),
-    );
+    expect(state.remove).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("editor.previewDraftRecovery");
+  });
+  it("settles an identified draft already represented by the saved Page", async () => {
+    state.draft = {
+      ...state.draft!,
+      title: page.title,
+      content: page.content,
+      id: "draft-id",
+      editorSessionId: "tab:page",
+      editGeneration: 5,
+      baseDocumentUpdatedAt: "v1",
+    };
+    state.update.mockResolvedValue(page);
+
+    await act(async () => render());
+
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "page",
+        editorSessionId: "tab:page",
+        editorEditGeneration: 5,
+        editorSnapshotTitle: page.title,
+        editorSnapshotContent: page.content,
+      }),
+    );
+    expect(state.remove).not.toHaveBeenCalled();
   });
   it("automatically keeps a newer saved Page and preserves the displaced draft in history", async () => {
     state.draft = {

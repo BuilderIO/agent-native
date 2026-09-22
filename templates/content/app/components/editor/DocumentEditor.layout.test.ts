@@ -30,6 +30,8 @@ import {
   suggestionAmendmentTargetIsResolved,
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
+  retainThenAdoptDisplacedWinner,
+  shouldSubmitDocumentContent,
   shouldShowNewDocumentTypeChooser,
   subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
@@ -45,6 +47,54 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("does not adopt a displaced winner after newer typing takes ownership", async () => {
+    let releaseRetention!: () => void;
+    let currentVersion = 1;
+    const retain = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseRetention = resolve;
+        }),
+    );
+    const adopt = vi.fn();
+    const result = retainThenAdoptDisplacedWinner({
+      ownerVersion: 1,
+      currentVersion: () => currentVersion,
+      retain,
+      adopt,
+    });
+
+    currentVersion = 2;
+    releaseRetention();
+
+    await expect(result).resolves.toBe(false);
+    expect(retain).toHaveBeenCalledOnce();
+    expect(adopt).not.toHaveBeenCalled();
+  });
+
+  it("lets remote stale saves reach the guarded rebase path", () => {
+    expect(
+      shouldSubmitDocumentContent({
+        changed: true,
+        stale: true,
+        canRebase: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSubmitDocumentContent({
+        changed: true,
+        stale: true,
+        canRebase: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldSubmitDocumentContent({
+        changed: false,
+        stale: false,
+        canRebase: true,
+      }),
+    ).toBe(false);
+  });
   it("leaves room for title descenders", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -1753,6 +1803,36 @@ describe("document editor layout", () => {
     );
     expect(teardown).toContain("{ loadedContentWasEmpty }");
     expect(teardown).toContain("{ loadedUpdatedAt }");
+  });
+
+  it("preserves unobserved overlapping edits before adopting the winner", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const displaced = source.slice(
+      source.indexOf('if (result.status === "displaced")'),
+      source.indexOf(
+        "} else {",
+        source.indexOf('if (result.status === "displaced")'),
+      ),
+    );
+
+    expect(displaced).toContain("await retainThenAdoptDisplacedWinner");
+    expect(displaced).toContain("if (!adopted)");
+    const save = source.slice(
+      source.indexOf("result = await saveDocumentWithRebase"),
+      source.indexOf(
+        "if (result.status",
+        source.indexOf("result = await saveDocumentWithRebase"),
+      ),
+    );
+    expect(save).toContain(
+      "options.contentAuthoredAfterRevision === winner.revision",
+    );
+    expect(save).not.toContain(
+      "documentRevisionRef.current === winner.revision",
+    );
   });
 
   it("keeps the canonical body read-only after collaborative initialization fails", () => {

@@ -66,20 +66,34 @@ export function PageDraftRecovery({
     setBusy(true);
     setFailure(null);
     try {
-      if (
-        restore &&
-        (draft.title !== document.title || draft.content !== document.content)
-      ) {
-        if (!draft.baseDocumentUpdatedAt) {
+      const identifiedDraft = Boolean(
+        draft.editorSessionId && typeof draft.editGeneration === "number",
+      );
+      const draftDiffers =
+        draft.title !== document.title || draft.content !== document.content;
+      if (restore && (identifiedDraft || draftDiffers)) {
+        if (draftDiffers && !draft.baseDocumentUpdatedAt) {
           throw new Error("The draft has no original document version.");
         }
         const saved = await update.mutateAsync({
           id: document.id,
           title: draft.title,
           content: draft.content,
-          baseUpdatedAt: draft.baseDocumentUpdatedAt,
-          loadedUpdatedAt: draft.baseDocumentUpdatedAt,
+          ...(draft.baseDocumentUpdatedAt
+            ? {
+                baseUpdatedAt: draft.baseDocumentUpdatedAt,
+                loadedUpdatedAt: draft.baseDocumentUpdatedAt,
+              }
+            : {}),
           loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
+          ...(identifiedDraft
+            ? {
+                editorSessionId: draft.editorSessionId!,
+                editorEditGeneration: draft.editGeneration!,
+                editorSnapshotTitle: draft.title,
+                editorSnapshotContent: draft.content,
+              }
+            : {}),
         });
         if (isDocumentUpdateConflict(saved)) {
           setFailure("conflict");
@@ -88,6 +102,11 @@ export function PageDraftRecovery({
         }
         if (saved.content !== draft.content || saved.title !== draft.title) {
           throw new Error("Draft restoration was not confirmed.");
+        }
+        if (identifiedDraft) {
+          await queryClient.refetchQueries(documentQueryFilter(document.id));
+          await drafts.refetch();
+          return;
         }
       }
       const result = await updateDraft.mutateAsync({

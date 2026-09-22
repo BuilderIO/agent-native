@@ -703,6 +703,8 @@ export default defineAction({
             historySessionId: `draft-recovery:${draft.id}`,
             editorSessionId: draft.editorSessionId ?? undefined,
             editorEditGeneration: draft.editGeneration ?? undefined,
+            editorSnapshotTitle: draft.title,
+            editorSnapshotContent: draft.content,
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
