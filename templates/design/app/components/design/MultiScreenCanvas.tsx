@@ -729,6 +729,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // before the first layout measurement.
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [crossScreenDragActive, setCrossScreenDragActive] = useState(false);
+  const boardCrossScreenDropPendingRef = useRef(false);
+  const boardCrossScreenDropTimeoutRef = useRef<number | null>(null);
+  const finishBoardCrossScreenDrop = useCallback(() => {
+    if (!boardCrossScreenDropPendingRef.current) return;
+    boardCrossScreenDropPendingRef.current = false;
+    if (boardCrossScreenDropTimeoutRef.current !== null) {
+      window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+      boardCrossScreenDropTimeoutRef.current = null;
+    }
+    setCrossScreenDragActive(false);
+  }, []);
+  useEffect(() => () => {
+    if (boardCrossScreenDropTimeoutRef.current !== null) {
+      window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+    }
+  });
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
   const renderedScreenIdsRef = useRef<Set<string>>(new Set());
@@ -2713,7 +2729,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
     };
 
-    const clearCrossScreenDrag = () => {
+    const clearCrossScreenDrag = (options?: { keepBoardMounted?: boolean }) => {
       crossScreenPreviewGenerationRef.current += 1;
       stopParentCrossScreenDrag();
       // The parent key listeners can be removed before a held Control keyup
@@ -2734,7 +2750,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       clearCrossScreenDropGuide();
       crossScreenTargetRef.current = null;
       crossScreenDragMsgRef.current = null;
-      setCrossScreenDragActive(false);
+      if (!options?.keepBoardMounted) {
+        finishBoardCrossScreenDrop();
+        setCrossScreenDragActive(false);
+      }
       // A cancelled/blurred drag must not donate its last board coordinate to
       // the next gesture. In particular, a second drag can emit start -> end
       // without an out-of-iframe move; retaining the previous point would make
@@ -3232,14 +3251,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ignoreAutoLayout: ignoreAutoLayoutAtRelease,
       };
       crossScreenEndSeenRef.current = true;
-      clearCrossScreenDrag();
       const dropSeq = crossScreenDropSeqRef.current;
       const isCurrentDrop = () =>
         canvasMountedRef.current && crossScreenDropSeqRef.current === dropSeq;
       crossScreenLastBoardPointRef.current = null;
       const hasIdentifier = !!(payload.selector || payload.sourceId);
-      if (!hasIdentifier || !sourceScreenId) return;
-      if (!lastBoardPoint) return;
+      if (!hasIdentifier || !sourceScreenId) {
+        clearCrossScreenDrag();
+        return;
+      }
+      if (!lastBoardPoint) {
+        clearCrossScreenDrag();
+        return;
+      }
       // No candidate means the pointer never left the source screen, so the
       // bridge already handled it as an in-place reorder. Falling back to the
       // board here re-persists the move against a file that does not contain
@@ -3252,7 +3276,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastBoardPoint.x <= sourceFrameGeometry.x + sourceFrameGeometry.width &&
         lastBoardPoint.y >= sourceFrameGeometry.y &&
         lastBoardPoint.y <= sourceFrameGeometry.y + sourceFrameGeometry.height;
-      if (droppedInsideSourceScreen) return;
+      if (droppedInsideSourceScreen) {
+        clearCrossScreenDrag();
+        return;
+      }
       trace("drop", "finalize", {
         candidate: candidate?.id ?? null,
         sourceScreen: sourceScreenId,
@@ -3280,9 +3307,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceScreen: sourceScreenId,
           lastBoardPoint,
         });
+        clearCrossScreenDrag();
         return;
       }
       crossScreenHostCommittedRef.current = true;
+      if (targetCandidate.id === boardFileId) {
+        boardCrossScreenDropPendingRef.current = true;
+        if (boardCrossScreenDropTimeoutRef.current !== null) {
+          window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+        }
+        boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
+          finishBoardCrossScreenDrop();
+        }, HIT_TEST_COMMIT_TIMEOUT_MS + 1000);
+      }
+      clearCrossScreenDrag({
+        keepBoardMounted: targetCandidate.id === boardFileId,
+      });
 
       if (targetCandidate.id === boardFileId) {
         void runHitTest(targetCandidate, lastBoardPoint, {
@@ -3538,6 +3578,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
       }
       if (msg.phase === "start") {
+        finishBoardCrossScreenDrop();
         setCrossScreenDragActive(true);
         // A new gesture invalidates any commit hit-test still in flight from
         // the previous one. Only a start does — the bridge posts "cancel"
@@ -4004,6 +4045,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     boardFileId,
     boardFrameGeometry,
     boardSurfaceRenderGeometry,
+    finishBoardCrossScreenDrop,
     getFrameEntryAtPoint,
     getFrameViewportSize,
     getCanvasPoint,
@@ -10735,12 +10777,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   runtimeStructureRollbackRequest={
                     boardRuntimeStructureRollbackRequest
                   }
-                  onRuntimeStructureInsertRejected={
-                    onBoardRuntimeStructureInsertRejected
-                  }
-                  onRuntimeStructureInsertApplied={
-                    onBoardRuntimeStructureInsertApplied
-                  }
+                  onRuntimeStructureInsertRejected={(reason, transactionId) => {
+                    onBoardRuntimeStructureInsertRejected?.(
+                      reason,
+                      transactionId,
+                    );
+                    finishBoardCrossScreenDrop();
+                  }}
+                  onRuntimeStructureInsertApplied={(details) => {
+                    onBoardRuntimeStructureInsertApplied?.(details);
+                    finishBoardCrossScreenDrop();
+                  }}
                   onRuntimeStructureRollbackResult={
                     onBoardRuntimeStructureRollbackResult
                   }

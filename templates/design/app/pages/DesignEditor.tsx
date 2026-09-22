@@ -1671,6 +1671,7 @@ function DesignEditor() {
     useState<(RuntimeStructureInsertRequest & { screenId: string }) | null>(
       null,
     );
+  const runtimeStructurePendingTransactionRef = useRef<string | null>(null);
   const [runtimeStructureDeleteRequest, setRuntimeStructureDeleteRequest] =
     useState<(RuntimeStructureDeleteRequest & { screenId: string }) | null>(
       null,
@@ -16256,6 +16257,7 @@ function DesignEditor() {
           recordContentHistoryEntry,
           syncUndoRedoState,
           runtimeStructureInsertRevisionRef,
+          runtimeStructurePendingTransactionRef,
           sendRuntimeLayerMoveSemanticHandoff,
           setActiveFileId,
           setCreatedOverviewLayerSelection,
@@ -16293,6 +16295,12 @@ function DesignEditor() {
   const handleRuntimeStructureInsertRejected = useCallback(
     (reason: string, transactionId?: string) => {
       if (reason.startsWith("verification-")) {
+        if (
+          transactionId &&
+          runtimeStructurePendingTransactionRef.current === transactionId
+        ) {
+          runtimeStructurePendingTransactionRef.current = null;
+        }
         cancelPendingStructureVerification("conflict");
         toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
         return;
@@ -16304,6 +16312,9 @@ function DesignEditor() {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
       if (transactionId) {
+        if (runtimeStructurePendingTransactionRef.current === transactionId) {
+          runtimeStructurePendingTransactionRef.current = null;
+        }
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
@@ -16313,7 +16324,11 @@ function DesignEditor() {
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
-    [cancelPendingStructureVerification, t],
+    [
+      cancelPendingStructureVerification,
+      runtimeStructurePendingTransactionRef,
+      t,
+    ],
   );
 
   const handleRuntimeStructureInsertApplied = useCallback(
@@ -16345,6 +16360,13 @@ function DesignEditor() {
             ? null
             : current,
         );
+        if (
+          request.transactionId &&
+          runtimeStructurePendingTransactionRef.current ===
+            request.transactionId
+        ) {
+          runtimeStructurePendingTransactionRef.current = null;
+        }
         return;
       }
       recordPendingLiveStructureEdit(
@@ -16381,8 +16403,21 @@ function DesignEditor() {
           ? null
           : current,
       );
+      if (
+        request.transactionId &&
+        runtimeStructureDeleteRequest?.transactionId !==
+          request.transactionId &&
+        runtimeStructurePendingTransactionRef.current === request.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
     },
-    [recordPendingLiveStructureEdit, runtimeStructureInsertRequest],
+    [
+      recordPendingLiveStructureEdit,
+      runtimeStructureDeleteRequest,
+      runtimeStructureInsertRequest,
+      runtimeStructurePendingTransactionRef,
+    ],
   );
 
   const handleRuntimeStructureDeleteApplied = useCallback(
@@ -16418,9 +16453,19 @@ function DesignEditor() {
           removed: true,
         },
       );
+      if (
+        request.transactionId &&
+        runtimeStructurePendingTransactionRef.current === request.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
       setRuntimeStructureDeleteRequest(null);
     },
-    [recordPendingLiveStructureEdit, runtimeStructureDeleteRequest],
+    [
+      recordPendingLiveStructureEdit,
+      runtimeStructureDeleteRequest,
+      runtimeStructurePendingTransactionRef,
+    ],
   );
   const handleRuntimeStructureDeleteRejected = useCallback(
     (details: {
@@ -16452,13 +16497,19 @@ function DesignEditor() {
           sourceId: request.rollbackSourceId,
         });
       }
+      if (
+        request.transactionId &&
+        runtimeStructurePendingTransactionRef.current === request.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
       setRuntimeStructureDeleteRequest(null);
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure delete rejected", details);
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
-    [runtimeStructureDeleteRequest, t],
+    [runtimeStructureDeleteRequest, runtimeStructurePendingTransactionRef, t],
   );
   const discardPendingLiveStructureTransaction = useCallback(
     (transactionId: string) => {
