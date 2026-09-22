@@ -70,9 +70,8 @@ export type DesignSystemIndexingStatus = "ready" | "indexing" | "unavailable";
  * indexed" agent stall this guards against (ENG-13035).
  *
  * Rather than rely on builderStatus (which can get stuck), check for actual work:
- * if colors/typography are present, indexing completed regardless of status.
- * A locally authored design system has no `builderStatus` at all and is always
- * immediately usable.
+ * Proof of completion: docCount > 0, tokenValues exist, or persisted colors/typography.
+ * A locally authored design system has no `builderStatus` at all and is always ready.
  */
 export function getDesignSystemIndexingStatus(
   data: unknown,
@@ -81,13 +80,19 @@ export function getDesignSystemIndexingStatus(
     data && typeof data === "object" ? (data as Record<string, unknown>) : null;
   if (!record || record.source !== "builder") return "ready";
 
-  // Proof of work: if any indexed content exists, indexing is done
-  if (record.colors || record.typography) return "ready";
+  const hasColors = record.colors && typeof record.colors === "object";
+  const hasTypography =
+    record.typography && typeof record.typography === "object";
+  const docCount =
+    typeof record.docCount === "number" ? record.docCount : 0;
+  const hasTokens =
+    record.tokenValues &&
+    typeof record.tokenValues === "object" &&
+    Object.keys(record.tokenValues as Record<string, unknown>).length > 0;
 
-  // Check for explicit warning (error message)
+  if (hasColors || hasTypography || docCount > 0 || hasTokens)
+    return "ready";
   if (record.warning) return "unavailable";
-
-  // Default: still indexing or uninitialized
   return "indexing";
 }
 

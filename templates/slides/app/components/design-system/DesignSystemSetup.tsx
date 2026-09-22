@@ -80,9 +80,9 @@ interface BuilderSourceDetails {
   builderUrl?: string;
   builderStatus?: string;
   sourceKind?: BuilderSourceKind;
-  docs?: Array<unknown>;
   tokenValues?: Record<string, string>;
-  docCount?: number;
+  /** null when Builder could not be read at all; 0 means still indexing. */
+  docCount?: number | null;
   warning?: string;
   githubSources?: Array<{
     repoUrl: string;
@@ -259,10 +259,11 @@ export function DesignSystemSetup({
     editingId ? { id: editingId } : undefined,
     {
       enabled: !!editingId && open,
+      // Builder's status string lags the real index state; a zero document
+      // count is the only reliable "still indexing" signal. A null count
+      // means Builder could not be read, so stop rather than spin.
       refetchInterval: (query) =>
-        query.state.data?.builder?.builderStatus === "in-progress"
-          ? 5_000
-          : false,
+        query.state.data?.builder?.docCount === 0 ? 5_000 : false,
     },
   );
 
@@ -1433,9 +1434,12 @@ function BuilderSourceStatus({
   syncing?: boolean;
 }) {
   const t = useT();
-  const docs = builder.docCount ?? builder.docs?.length ?? 0;
+  // Builder's status string drifts out of sync with the real index state, so
+  // the reported document count decides: absent means Builder could not be
+  // read at all, zero means indexing, positive means ready.
+  const docCount = builder.docCount;
+  const docs = docCount ?? 0;
   const tokens = Object.keys(builder.tokenValues ?? {}).length;
-
   const hasIndexedResults = docs > 0 || tokens > 0;
   const state = hasIndexedResults
     ? "indexed"

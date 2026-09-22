@@ -32,7 +32,8 @@ interface BuilderGenerationContext {
     tokenValues?: Record<string, string>;
   }>;
   tokenValues: Record<string, string>;
-  docCount: number;
+  /** null when Builder could not be read at all; 0 means still indexing. */
+  docCount: number | null;
   warning?: string;
 }
 
@@ -282,7 +283,7 @@ export default defineAction({
             ...builderReference,
             docs: [],
             tokenValues: {},
-            docCount: 0,
+            docCount: null,
             warning:
               error instanceof Error
                 ? error.message

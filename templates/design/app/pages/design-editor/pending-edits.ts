@@ -1053,6 +1053,7 @@ export type PendingVisualStyleRuntimePatch = {
   runtimeSelector?: string | null;
   runtimeSourceId?: string | null;
   styles: Record<string, string>;
+  interactionState?: InteractionState;
 };
 
 function nodeIdSelector(nodeId: string): string {
@@ -1102,6 +1103,7 @@ export type SendPendingVisualStyleRuntimeProperty = (
     selectorCandidates: string[];
     nodeId?: string | null;
     routePath?: string;
+    interactionState?: InteractionState;
   },
 ) => boolean;
 
@@ -1135,6 +1137,9 @@ export function replayPendingVisualStyleRuntimePatch(
       selectorCandidates: target.selectorCandidates,
       nodeId: target.nodeId,
       ...(patch.routePath ? { routePath: patch.routePath } : {}),
+      ...(patch.interactionState
+        ? { interactionState: patch.interactionState }
+        : {}),
     }),
   );
 }

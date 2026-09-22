@@ -26,6 +26,12 @@ the next task.
   overwrite, rebase, or force-push it.
 - /ship authorizes the merge once the gates below pass, unless the user says
   not to merge.
+- For a linked GitHub issue, a verified source fix in the merged shipping
+  snapshot is enough to close it. Thank the reporter, link the fix, and close
+  immediately; do not leave it open waiting for publication, beta, or live
+  proof, and never say "leaving open until published." Keep it open only while
+  accepted scope is still unfixed, the source fix is not merged, or reporter
+  information is required.
 - Use the current worktree and branch. A detached worktree may create one
   unused shipping branch during this flow; never attach or move another
   worktree.
@@ -168,6 +174,13 @@ the exact disposition vocabulary; follow babysit-pr for review comments and
 merge blocking. Do not send Slack replies or reactions as a routine ship step
 unless that workflow was explicitly requested or already owns the action.
 
+Close linked GitHub issues as soon as their accepted fix is verified in the
+merged snapshot. The publication and runtime follow-ups belong in the ship
+ledger; they do not delay issue closure. If an issue was already fixed in the
+merged snapshot and the issue comments document that fix, close it during the
+same ledger pass and thank the reporter. If more information is needed, ask
+one targeted question and leave the issue open.
+
 Leave bot-authored PRs, including Dependabot, untouched when reviewing a queue.
 
 ## 5. Merge gate
@@ -215,5 +228,7 @@ or manual-production proof.
 ## Final report
 
 Include the ready PR URL, merged commit, fresh branch, focused/local checks,
-required CI state, feedback dispositions, and any deployment result. Say
-explicitly when deployment was not part of this run.
+required CI state, and any deployment result. In the feedback dispositions,
+name each linked issue that was thanked and closed and each issue left open
+with its precise blocker. Say explicitly when deployment was not part of this
+run.

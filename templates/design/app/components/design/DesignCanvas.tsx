@@ -20,6 +20,7 @@ import {
   DEFAULT_CANVAS_MIN_ZOOM,
   getDraftGeometryFromPoints,
 } from "@shared/canvas-math";
+import type { InteractionState } from "@shared/interaction-states";
 import {
   appendPenNode,
   clonePenPath,
@@ -558,7 +559,7 @@ type StyleReplayPatch = {
   runtimeSourceId?: string | null;
   routePath?: string;
   styles: Record<string, string>;
-  interactionState?: string;
+  interactionState?: InteractionState;
 };
 
 type BridgeRegistrationAttemptResult = boolean | "stale-preview-token" | null;
@@ -6428,6 +6429,7 @@ export function DesignCanvas({
         selectorCandidates?: string[];
         nodeId?: string | null;
         routePath?: string;
+        interactionState?: InteractionState;
       },
     ) => {
       if (!screenId || targetScreenId !== screenId) return false;
@@ -6435,6 +6437,17 @@ export function DesignCanvas({
         !pendingVisualStyleRouteMatches(options ?? {}, liveRoutePathRef.current)
       ) {
         return false;
+      }
+      if (options?.interactionState) {
+        return sendInteractionStatePreviewStyle({
+          selector,
+          selectorCandidates: options.selectorCandidates,
+          nodeId: options.nodeId,
+          state: options.interactionState,
+          styles: { [property]: value },
+          routePath: options.routePath,
+          screenId,
+        });
       }
       return sendStyleChangeLinked(
         selector,

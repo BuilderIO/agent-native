@@ -8,6 +8,7 @@ vi.mock("@agent-native/core/server", () => ({
   hydrateBuilderDesignSystemReference: (
     ...args: Parameters<typeof mockHydrateBuilderDesignSystemReference>
   ) => mockHydrateBuilderDesignSystemReference(...args),
+  isBuilderDesignSystemReadyByCount: (docCount: number) => docCount > 0,
   parseBuilderDesignSystemProxyReference: (
     ...args: Parameters<typeof mockParseBuilderDesignSystemProxyReference>
   ) => mockParseBuilderDesignSystemProxyReference(...args),
