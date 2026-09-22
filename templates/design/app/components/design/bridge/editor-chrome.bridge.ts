@@ -2625,12 +2625,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (nodeId) existing[nodeId] = true;
       },
     );
-    Array.prototype.forEach.call(document.querySelectorAll("[id]"), function (
-      node: Element,
-    ) {
-      var id = node.getAttribute("id") || "";
-      if (id) existingDomIds[id] = true;
-    });
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[id]"),
+      function (node: Element) {
+        var id = node.getAttribute("id") || "";
+        if (id) existingDomIds[id] = true;
+      },
+    );
     var nodes = [root].concat(
       Array.prototype.slice.call(
         root.querySelectorAll("[data-agent-native-node-id]"),
@@ -2665,10 +2666,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var value = attribute.value;
         Object.keys(remintedDomIds).forEach(function (from) {
           var to = remintedDomIds[from];
-          if (attribute.name === "for" || attribute.name.indexOf("aria-") === 0) {
+          if (
+            attribute.name === "for" ||
+            attribute.name.indexOf("aria-") === 0
+          ) {
             value = value
               .split(/\s+/)
-              .map(function (token) { return token === from ? to : token; })
+              .map(function (token) {
+                return token === from ? to : token;
+              })
               .join(" ");
           } else if (
             attribute.name === "href" ||

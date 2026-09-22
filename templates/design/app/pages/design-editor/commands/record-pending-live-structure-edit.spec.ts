@@ -96,11 +96,18 @@ describe("pending live structure batch", () => {
   it("replays the inserted member of a grouped move when delete is primary", () => {
     const args = state();
     const destination = prepare(args, "#destination")!;
-    const sourceDelete = { ...prepare(args, "#source")!, removed: true as const };
+    const sourceDelete = {
+      ...prepare(args, "#source")!,
+      removed: true as const,
+    };
     const grouped = {
       ...sourceDelete,
       groupedEdits: [
-        { ...destination, insertedHtml: "<div data-agent-native-node-id=\"moved\" />", remintCollidingNodeIds: true },
+        {
+          ...destination,
+          insertedHtml: '<div data-agent-native-node-id="moved" />',
+          remintCollidingNodeIds: true,
+        },
         sourceDelete,
       ],
     };

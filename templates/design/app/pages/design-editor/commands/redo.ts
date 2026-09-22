@@ -555,9 +555,10 @@ export function runRedo({
     if (pendingStructureRedoReplayRef.current) return;
     pendingStructureRedoReplayRef.current = pendingNonStyleRedo;
     if (redoCommand.kind === "insert") {
-      const insertEdit = pendingLiveStructureEditsFromUndoEntry(
-        pendingNonStyleRedo,
-      ).find((edit) => edit.insertedHtml) ?? pendingNonStyleRedo.edit;
+      const insertEdit =
+        pendingLiveStructureEditsFromUndoEntry(pendingNonStyleRedo).find(
+          (edit) => edit.insertedHtml,
+        ) ?? pendingNonStyleRedo.edit;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
