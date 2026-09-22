@@ -2613,6 +2613,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "an-" + String(prefix || "copy") + "-" + random;
   }
 
+  var spaceSeparatedDomIdrefAttributes = [
+    "aria-controls",
+    "aria-describedby",
+    "aria-details",
+    "aria-errormessage",
+    "aria-flowto",
+    "aria-labelledby",
+    "aria-owns",
+    "headers",
+  ];
+  var singleDomIdrefAttributes = [
+    "aria-activedescendant",
+    "for",
+    "form",
+    "list",
+  ];
+  var fragmentDomReferenceAttributes = ["href", "xlink:href"];
+
+  function rewriteDomUrlIdReferences(
+    value: string,
+    idMap: { [key: string]: string },
+  ): string {
+    return value.replace(
+      /url\(\s*(["']?)#([^\s)'";]+)\1\s*\)/g,
+      function (match, quote: string, id: string) {
+        var replacement = idMap[id];
+        return replacement
+          ? "url(" + quote + "#" + replacement + quote + ")"
+          : match;
+      },
+    );
+  }
+
   function remintCollidingRuntimeNodeIds(root: Element): void {
     var seen = Object.create(null) as { [key: string]: boolean };
     var reminted = Object.create(null) as { [key: string]: string };
@@ -2650,38 +2683,64 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       seen[nodeId] = true;
     });
     var remintedDomIds = Object.create(null) as { [key: string]: string };
+    var seenDomIds = Object.create(null) as { [key: string]: boolean };
     nodes.forEach(function (node, index) {
       var id = node.getAttribute("id") || "";
-      if (!id || !existingDomIds[id]) return;
+      if (!id) return;
+      var collision = Boolean(existingDomIds[id] || seenDomIds[id]);
+      if (!collision) {
+        seenDomIds[id] = true;
+        return;
+      }
       var nextId = freshRuntimeNodeId(
         index === 0 ? "move-id" : "move-child-id",
       );
-      if (!remintedDomIds[id]) remintedDomIds[id] = nextId;
+      if (existingDomIds[id] && !remintedDomIds[id]) {
+        remintedDomIds[id] = nextId;
+      }
       node.setAttribute("id", nextId);
+      seenDomIds[nextId] = true;
     });
     nodes.forEach(function (node) {
       Array.prototype.forEach.call(node.attributes, function (attribute: Attr) {
         var value = attribute.value;
-        Object.keys(remintedDomIds).forEach(function (from) {
-          var to = remintedDomIds[from];
-          if (
-            attribute.name === "for" ||
-            attribute.name.indexOf("aria-") === 0
-          ) {
-            value = value
-              .split(/\s+/)
-              .map(function (token) {
-                return token === from ? to : token;
-              })
-              .join(" ");
-          } else if (
-            attribute.name === "href" ||
-            attribute.name === "xlink:href"
-          ) {
-            if (value === "#" + from) value = "#" + to;
+        if (spaceSeparatedDomIdrefAttributes.includes(attribute.name)) {
+          value = value
+            .split(/\s+/)
+            .map(function (token) {
+              return remintedDomIds[token] || token;
+            })
+            .join(" ");
+        } else if (singleDomIdrefAttributes.includes(attribute.name)) {
+          value = remintedDomIds[value] || value;
+        } else if (fragmentDomReferenceAttributes.includes(attribute.name)) {
+          if (value.charAt(0) === "#") {
+            var fragmentId = value.slice(1);
+            if (remintedDomIds[fragmentId]) {
+              value = "#" + remintedDomIds[fragmentId];
+            }
           }
-        });
+        } else if (value.indexOf("url(") >= 0) {
+          value = rewriteDomUrlIdReferences(value, remintedDomIds);
+        }
         if (value !== attribute.value) node.setAttribute(attribute.name, value);
+      });
+      ["begin", "end"].forEach(function (attributeName) {
+        var value = node.getAttribute(attributeName);
+        if (!value) return;
+        var rewritten = value
+          .split(";")
+          .map(function (part) {
+            var trimmed = part.trim();
+            var separator = trimmed.indexOf(".");
+            if (separator <= 0) return trimmed;
+            var replacement = remintedDomIds[trimmed.slice(0, separator)];
+            return replacement
+              ? replacement + trimmed.slice(separator)
+              : trimmed;
+          })
+          .join("; ");
+        if (rewritten !== value) node.setAttribute(attributeName, rewritten);
       });
     });
     nodes.forEach(function (node) {

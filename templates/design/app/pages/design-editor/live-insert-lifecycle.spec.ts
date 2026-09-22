@@ -418,6 +418,7 @@ describe("live insert lifecycle", () => {
         await page.setContent(`<!doctype html><html><body>
           <main data-agent-native-node-id="card">
             <div id="email" data-agent-native-node-id="shared" data-source-file="src/Card.tsx" data-source-line="12">Existing</div>
+            <div id="email-options">Existing options</div>
           </main>
         </body></html>`);
         await page.addScriptTag({
@@ -431,7 +432,7 @@ describe("live insert lifecycle", () => {
             {
               type: "runtime-structure-insert",
               requestId: 101,
-              html: '<div id="email" data-agent-native-node-id="shared" data-agent-native-runtime-instance-id="shared" data-source-file="src/Card.tsx" data-source-line="12"><label for="email">Moved</label><span id="email">Duplicate</span></div>',
+              html: '<form id="email" data-agent-native-node-id="shared" data-agent-native-runtime-instance-id="shared" data-source-file="src/Card.tsx" data-source-line="12"><label for="email" aria-labelledby="email" aria-label="Email field">Moved</label><input form="email" list="email-options" /><datalist id="email-options"><option value="Moved" /></datalist><span id="email">Duplicate</span></form>',
               anchorSelector: '[data-agent-native-node-id="card"]',
               anchorSourceId: "card",
               placement: "inside",
@@ -463,6 +464,20 @@ describe("live insert lifecycle", () => {
         expect(insertedId).not.toBe("email");
         expect(await inserted.locator("label").getAttribute("for")).toBe(
           insertedId,
+        );
+        expect(
+          await inserted.locator("label").getAttribute("aria-labelledby"),
+        ).toBe(insertedId);
+        expect(await inserted.locator("label").getAttribute("aria-label")).toBe(
+          "Email field",
+        );
+        expect(await inserted.locator("input").getAttribute("form")).toBe(
+          insertedId,
+        );
+        const optionsId = await inserted.locator("datalist").getAttribute("id");
+        expect(optionsId).not.toBe("email-options");
+        expect(await inserted.locator("input").getAttribute("list")).toBe(
+          optionsId,
         );
         const insertedIds = await inserted
           .locator("[id]")
