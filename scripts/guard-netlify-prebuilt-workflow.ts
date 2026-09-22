@@ -1395,6 +1395,8 @@ if (
     "steps.previous.outputs.published_deploy_id != ''",
   ) ||
   !betaSmokeRollbackRun.includes("PREVIOUS_DEPLOY_ID") ||
+  !betaSmokeRollbackRun.includes("const beforeRestore =") ||
+  !betaSmokeRollbackRun.includes("Netlify beta smoke rollback precondition") ||
   !betaSmokeRollbackRun.includes("/restore")
 ) {
   issues.push(

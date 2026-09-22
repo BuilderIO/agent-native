@@ -2298,6 +2298,15 @@ jobs:
                 `Refusing beta smoke rollback because Netlify now serves ${site.published_deploy?.id || "an unknown deploy"}, expected ${newId}.`,
               );
             }
+            const beforeRestore = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify beta smoke rollback precondition",
+            );
+            if (beforeRestore.published_deploy?.id !== newId) {
+              throw new Error(
+                `Refusing beta smoke rollback because Netlify changed to ${beforeRestore.published_deploy?.id || "an unknown deploy"} before restore, expected ${newId}.`,
+              );
+            }
             const restored = await readJson(
               await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, {
                 method: "POST",

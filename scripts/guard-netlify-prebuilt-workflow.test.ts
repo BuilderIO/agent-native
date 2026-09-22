@@ -1547,6 +1547,11 @@ describe("production Netlify site concurrency guard", () => {
       /steps\.beta_smoke\.outcome == 'failure'/,
     );
     assert.match(String(betaSmokeRollback?.run), /PREVIOUS_DEPLOY_ID/);
+    assert.match(String(betaSmokeRollback?.run), /const beforeRestore =/);
+    assert.match(
+      String(betaSmokeRollback?.run),
+      /Netlify beta smoke rollback precondition/,
+    );
     assert.match(String(betaSmokeRollback?.run), /\/restore/);
 
     assert(previewSmoke);
