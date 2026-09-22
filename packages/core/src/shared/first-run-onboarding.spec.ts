@@ -74,12 +74,12 @@ describe("shared onboarding cookie codec", () => {
     });
   });
 
-  it("keeps the completion when a newer app writes an unrecognised role", () => {
+  it("keeps a custom role when a newer app writes one", () => {
     const emailHash = hashOnboardingEmail("alice@example.com");
     const raw = encodePayload({ r: "founder", e: emailHash });
 
     expect(decodeSharedOnboardingCookie(raw)).toEqual({
-      role: null,
+      role: "founder",
       emailHash,
     });
   });

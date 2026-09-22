@@ -24,9 +24,8 @@ const sharedOnboardingPayloadSchema = z.object({
 });
 
 /**
- * An unrecognised role drops to `null` instead of rejecting the cookie. A
- * newer app may add a role this build has never heard of, and losing the role
- * is a far better outcome than discarding a valid completion.
+ * An invalid role drops to `null` instead of rejecting the cookie. Preserving
+ * the completion while omitting an unreadable role avoids re-onboarding.
  */
 function readRole(value: unknown): OnboardingRole | null {
   const parsed = onboardingRoleSchema.safeParse(value);
