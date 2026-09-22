@@ -80,6 +80,12 @@ export interface GridGroupStructureMove {
 export interface RuntimeStructureInsertRequest {
   requestId: number;
   transactionId?: string;
+  /** Owning screen for host-side routing of the live insert. */
+  screenId?: string;
+  /** Source screen identity used to distinguish a same-screen reorder from a cross-screen insert. */
+  sourceScreenId?: string;
+  /** Remint only ids already used by the destination live document. */
+  remintCollidingNodeIds?: boolean;
   html: string;
   /** Additional clipboard roots inserted by the same paste gesture. */
   additionalHtml?: string[];

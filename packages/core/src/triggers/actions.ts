@@ -29,6 +29,10 @@ import {
   getIntegrationRequestContext,
   getRequestOrgId,
 } from "../server/request-context.js";
+import {
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
 
 /* ------------------------------------------------------------------ */
@@ -121,6 +125,7 @@ async function handleList(
       createdBy: meta.createdBy ?? null,
       runAs: meta.runAs ?? null,
       model: meta.model ?? null,
+      reasoningEffort: meta.reasoningEffort ?? null,
       executionHostId: meta.executionHostId ?? null,
       executionEngine: meta.executionEngine ?? null,
       executionCwd: meta.executionCwd ?? null,
@@ -187,6 +192,13 @@ async function handleDefine(
             ? args.delegated_policy_id
             : undefined,
         model: typeof args.model === "string" ? args.model : undefined,
+        // Passed through rather than validated here: `defineAutomation`
+        // rejects an unrecognized value with a clear error, instead of this
+        // layer silently downgrading a typo to "use the model default".
+        reasoningEffort:
+          typeof args.reasoning_effort === "string"
+            ? (args.reasoning_effort as ReasoningEffort)
+            : undefined,
         executionHostId:
           typeof args.execution_host_id === "string"
             ? args.execution_host_id
@@ -233,6 +245,7 @@ async function handleDefine(
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
       model: definition.meta.model ?? null,
+      reasoningEffort: definition.meta.reasoningEffort ?? null,
       executionHostId: definition.meta.executionHostId ?? null,
       executionEngine: definition.meta.executionEngine ?? null,
       executionCwd: definition.meta.executionCwd ?? null,
@@ -284,6 +297,15 @@ async function handleUpdate(
             : typeof args.model === "string"
               ? args.model
               : null,
+        // Passed through rather than validated here: `updateAutomation`
+        // rejects an unrecognized value with a clear error, instead of this
+        // layer silently downgrading a typo to "clear the effort".
+        reasoningEffort:
+          args.reasoning_effort === undefined
+            ? undefined
+            : typeof args.reasoning_effort === "string"
+              ? (args.reasoning_effort as ReasoningEffort)
+              : null,
         executionHostId:
           args.execution_host_id === undefined
             ? undefined
@@ -319,6 +341,7 @@ async function handleUpdate(
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
       model: definition.meta.model ?? null,
+      reasoningEffort: definition.meta.reasoningEffort ?? null,
       executionHostId: definition.meta.executionHostId ?? null,
       executionEngine: definition.meta.executionEngine ?? null,
       executionCwd: definition.meta.executionCwd ?? null,
@@ -428,9 +451,9 @@ export function createAutomationToolEntries(
 
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
 - **list-hosts**: List paired execution hosts and their non-secret capabilities. Call this before assigning execution_host_id.
-- **list**: List all automations (triggers). Shows trigger, status, model, execution host, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
-- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, execution_host_id, execution_engine, execution_cwd, mcpTools. A scheduled automation with no schedule defaults to once per hour; use an event or webhook trigger when it should run only when something changes. Webhook definitions return a URL path with a secret token; never log or expose that token beyond the intended webhook provider. Host-targeted automations queue code-agent work on that host and do not silently fall back to this server.
-- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, execution host, MCP allowlist). Required param: name. Use the same scope it was created in.
+- **list**: List all automations (triggers). Shows trigger, status, model, reasoning effort, execution host, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
+- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, reasoning_effort, execution_host_id, execution_engine, execution_cwd, mcpTools. A scheduled automation with no schedule defaults to once per hour; use an event or webhook trigger when it should run only when something changes. Webhook definitions return a URL path with a secret token; never log or expose that token beyond the intended webhook provider. Host-targeted automations queue code-agent work on that host and do not silently fall back to this server.
+- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, reasoning effort, execution host, MCP allowlist). Required param: name. Use the same scope it was created in.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
 - **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).
 - **run-now**: Run one automation immediately using its real actions and side effects. This is an explicit user-authorized run and returns a durable run id; it does not change the automation's next scheduled run. Required params: name or path (not both); optional scope. Use path for automations nested under jobs/ (for example jobs/factories/<id>/factory-slack-feedback.md); those names contain a slash and cannot round-trip through name.`,
@@ -500,6 +523,12 @@ export function createAutomationToolEntries(
               type: "string",
               description:
                 "Optional model id for this automation. The default model is used when omitted.",
+            },
+            reasoning_effort: {
+              type: "string",
+              description:
+                "Optional reasoning effort for this automation's model. The model's default is used when omitted.",
+              enum: [...REASONING_EFFORTS],
             },
             execution_host_id: {
               type: "string",

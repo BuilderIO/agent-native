@@ -832,6 +832,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Content स्पेस",
     addChild: "चाइल्ड जोड़ें",
     addChildTo: "{{title}} में चाइल्ड जोड़ें",
     database: "संग्रह",
@@ -869,6 +870,9 @@ const landing = {
   requestedPageUnavailable:
     "वह पेज आपके खाते के लिए उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
   saveFailed: "आपकी जगह सेव नहीं की जा सकी",
+  workspaceWelcomeUnavailableTitle: "यहाँ अभी कुछ भी खुला नहीं है",
+  workspaceWelcomeUnavailableDescription:
+    "आप यह वर्कस्पेस देख सकते हैं, लेकिन इसका स्वागत पेज बनाने की अनुमति आपके पास नहीं है।",
 };
 
 const comments = {
@@ -937,6 +941,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "हाल ही में देखे गए",
+  customizeSidebar: "साइडबार अनुकूलित करें",
+  noRecentVisits: "हाल ही में कोई पेज नहीं देखा",
+  noPinnedItems: "कोई पिन किया गया आइटम नहीं",
+  showMore: "और दिखाएँ",
+  showLess: "कम दिखाएँ",
+  seeAll: "सभी देखें…",
+  seeAllFiles: "सभी फ़ाइलें देखें",
   pinned: "पिन किए गए",
   loadingPinned: "पिन किए गए आइटम लोड हो रहे हैं…",
   dragToReorder: "{{label}} को फिर से क्रमबद्ध करने के लिए खींचें",

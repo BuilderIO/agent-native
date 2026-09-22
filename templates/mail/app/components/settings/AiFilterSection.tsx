@@ -8,6 +8,7 @@ import type {
   AiFilterTarget,
 } from "@shared/ai-filter";
 import { AI_FILTER_LABEL, AI_FILTER_RULE_NAME } from "@shared/ai-filter";
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 import type { AutomationRule, EmailMessage } from "@shared/types";
 import { IconLoader2, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
@@ -52,7 +53,7 @@ import { useEmails } from "@/hooks/use-emails";
 import { cn } from "@/lib/utils";
 
 const THRESHOLD_OPTIONS = [0.85, 0.92, 0.97];
-type RuleMode = "tag" | "spam";
+type RuleMode = "tag" | "spam" | "important";
 
 type PreviewResult = {
   model: { engine: string; model: string } | null;
@@ -78,8 +79,14 @@ function formatDecisionDate(timestamp: number): string {
 }
 
 function ruleMode(rule: Pick<AutomationRule, "actions">): RuleMode {
-  return rule.actions.some((action) => action.type === "archive")
-    ? "spam"
+  if (rule.actions.some((action) => action.type === "archive")) {
+    return "spam";
+  }
+  return rule.actions.some(
+    (action) =>
+      action.type === "label" && action.labelName === AI_IMPORTANT_LABEL,
+  )
+    ? "important"
     : "tag";
 }
 
@@ -138,12 +145,17 @@ function InstructionRow({
           <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
             {mode === "spam"
               ? t("mail.aiFilter.spamMode")
-              : t("mail.aiFilter.tagMode")}
+              : mode === "important"
+                ? t("mail.aiFilter.importantMode")
+                : t("mail.aiFilter.tagMode")}
           </span>
         </div>
-        {mode === "tag" && (
+        {mode !== "spam" && (
           <p className="mt-1 truncate text-[11px] text-muted-foreground">
-            {rule.actions.find((action) => action.type === "label")?.labelName}
+            {mode === "important"
+              ? t("mail.aiFilter.importantLabel")
+              : rule.actions.find((action) => action.type === "label")
+                  ?.labelName}
           </p>
         )}
       </button>
@@ -420,7 +432,12 @@ export function AiFilterSection() {
             { type: "label" as const, labelName: AI_FILTER_LABEL },
             { type: "archive" as const },
           ]
-        : [{ type: "label" as const, labelName }];
+        : [
+            {
+              type: "label" as const,
+              labelName: mode === "important" ? AI_IMPORTANT_LABEL : labelName,
+            },
+          ];
     createRule.mutate(
       {
         name: `AI ${mode}: ${condition.slice(0, 72)}`,
@@ -509,6 +526,9 @@ export function AiFilterSection() {
   }
 
   const decisions = latestAiFilterDecisions(state).slice(0, 8);
+  const hasImportantRule = instructions.some(
+    (rule) => ruleMode(rule) === "important",
+  );
 
   return (
     <>
@@ -736,6 +756,19 @@ export function AiFilterSection() {
                 {t("mail.aiFilter.reviewLabel")}
               </Link>
             </div>
+            {hasImportantRule && (
+              <div className="flex items-center justify-between gap-3 border-t border-border/40 px-3 py-3">
+                <span className="text-[12px] text-muted-foreground">
+                  {t("mail.aiFilter.importantLabel")}
+                </span>
+                <Link
+                  to="/inbox?tab=important"
+                  className="shrink-0 text-xs font-medium text-primary hover:underline"
+                >
+                  {t("mail.aiFilter.reviewImportant")}
+                </Link>
+              </div>
+            )}
           </div>
         </details>
 
@@ -790,6 +823,9 @@ export function AiFilterSection() {
                 <SelectItem value="spam">
                   {t("mail.aiFilter.spamMode")}
                 </SelectItem>
+                <SelectItem value="important">
+                  {t("mail.aiFilter.importantMode")}
+                </SelectItem>
               </SelectContent>
             </Select>
             {mode === "tag" && (
@@ -814,7 +850,9 @@ export function AiFilterSection() {
               placeholder={
                 mode === "spam"
                   ? t("mail.aiFilter.spamPlaceholder")
-                  : t("mail.aiFilter.tagPlaceholder")
+                  : mode === "important"
+                    ? t("mail.aiFilter.importantPlaceholder")
+                    : t("mail.aiFilter.tagPlaceholder")
               }
               aria-label={t("mail.aiFilter.instructionsTitle")}
               className="min-h-28 resize-none text-sm"

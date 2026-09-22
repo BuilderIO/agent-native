@@ -1,5 +1,6 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useSemanticNavigationState } from "@agent-native/core/client/navigation";
+import type { MailSortMode } from "@shared/ai-priority";
 import { useCallback, useState } from "react";
 
 export interface NavigationState {
@@ -14,6 +15,7 @@ export interface NavigationState {
   /** Inbox tab id from a `navigate({ tab })` agent command; see actions/navigate.ts. */
   tab?: string;
   activeAccounts?: string[];
+  sort?: MailSortMode;
   queuedDraftId?: string;
   queueScope?: string;
   settingsSection?: string;

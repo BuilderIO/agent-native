@@ -50,6 +50,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 (function () {
   var readOnly = __READ_ONLY__;
   var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
+  var interactionMode = false;
   var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
   var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
   var designCanvasContentOffsetX =
@@ -2610,6 +2611,150 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!random)
       random = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     return "an-" + String(prefix || "copy") + "-" + random;
+  }
+
+  var spaceSeparatedDomIdrefAttributes = [
+    "aria-controls",
+    "aria-describedby",
+    "aria-details",
+    "aria-errormessage",
+    "aria-flowto",
+    "aria-labelledby",
+    "aria-owns",
+    "headers",
+  ];
+  var singleDomIdrefAttributes = [
+    "aria-activedescendant",
+    "for",
+    "form",
+    "list",
+  ];
+  var fragmentDomReferenceAttributes = ["href", "xlink:href"];
+
+  function rewriteDomUrlIdReferences(
+    value: string,
+    idMap: { [key: string]: string },
+  ): string {
+    return value.replace(
+      /url\(\s*(["']?)#([^\s)'";]+)\1\s*\)/g,
+      function (match, quote: string, id: string) {
+        var replacement = idMap[id];
+        return replacement
+          ? "url(" + quote + "#" + replacement + quote + ")"
+          : match;
+      },
+    );
+  }
+
+  function remintCollidingRuntimeNodeIds(root: Element): void {
+    var seen = Object.create(null) as { [key: string]: boolean };
+    var reminted = Object.create(null) as { [key: string]: string };
+    var existing = Object.create(null) as { [key: string]: boolean };
+    var existingDomIds = Object.create(null) as { [key: string]: boolean };
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[data-agent-native-node-id]"),
+      function (node: Element) {
+        var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+        if (nodeId) existing[nodeId] = true;
+      },
+    );
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[id]"),
+      function (node: Element) {
+        var id = node.getAttribute("id") || "";
+        if (id) existingDomIds[id] = true;
+      },
+    );
+    var nodes = [root].concat(
+      Array.prototype.slice.call(root.querySelectorAll("*")),
+    ) as Element[];
+    nodes.forEach(function (node, index) {
+      var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+      if (!nodeId) return;
+      var collision = Boolean(seen[nodeId] || existing[nodeId]);
+      if (collision) {
+        var nextNodeId = freshRuntimeNodeId(
+          index === 0 ? "move" : "move-child",
+        );
+        reminted[nodeId] = nextNodeId;
+        nodeId = nextNodeId;
+        node.setAttribute("data-agent-native-node-id", nodeId);
+      }
+      seen[nodeId] = true;
+    });
+    var remintedDomIds = Object.create(null) as { [key: string]: string };
+    var seenDomIds = Object.create(null) as { [key: string]: boolean };
+    nodes.forEach(function (node, index) {
+      var id = node.getAttribute("id") || "";
+      if (!id) return;
+      var collision = Boolean(existingDomIds[id] || seenDomIds[id]);
+      if (!collision) {
+        seenDomIds[id] = true;
+        return;
+      }
+      var nextId = freshRuntimeNodeId(
+        index === 0 ? "move-id" : "move-child-id",
+      );
+      if (existingDomIds[id] && !remintedDomIds[id]) {
+        remintedDomIds[id] = nextId;
+      }
+      node.setAttribute("id", nextId);
+      seenDomIds[nextId] = true;
+    });
+    nodes.forEach(function (node) {
+      Array.prototype.forEach.call(node.attributes, function (attribute: Attr) {
+        var value = attribute.value;
+        if (spaceSeparatedDomIdrefAttributes.includes(attribute.name)) {
+          value = value
+            .split(/\s+/)
+            .map(function (token) {
+              return remintedDomIds[token] || token;
+            })
+            .join(" ");
+        } else if (singleDomIdrefAttributes.includes(attribute.name)) {
+          value = remintedDomIds[value] || value;
+        } else if (fragmentDomReferenceAttributes.includes(attribute.name)) {
+          if (value.charAt(0) === "#") {
+            var fragmentId = value.slice(1);
+            if (remintedDomIds[fragmentId]) {
+              value = "#" + remintedDomIds[fragmentId];
+            }
+          }
+        } else if (value.indexOf("url(") >= 0) {
+          value = rewriteDomUrlIdReferences(value, remintedDomIds);
+        }
+        if (value !== attribute.value) node.setAttribute(attribute.name, value);
+      });
+      ["begin", "end"].forEach(function (attributeName) {
+        var value = node.getAttribute(attributeName);
+        if (!value) return;
+        var rewritten = value
+          .split(";")
+          .map(function (part) {
+            var trimmed = part.trim();
+            var separator = trimmed.indexOf(".");
+            if (separator <= 0) return trimmed;
+            var replacement = remintedDomIds[trimmed.slice(0, separator)];
+            return replacement
+              ? replacement + trimmed.slice(separator)
+              : trimmed;
+          })
+          .join("; ");
+        if (rewritten !== value) node.setAttribute(attributeName, rewritten);
+      });
+    });
+    nodes.forEach(function (node) {
+      var runtimeInstanceId = node.getAttribute(
+        "data-agent-native-runtime-instance-id",
+      );
+      var nextInstanceId = runtimeInstanceId && reminted[runtimeInstanceId];
+      if (nextInstanceId) {
+        node.setAttribute(
+          "data-agent-native-runtime-instance-id",
+          nextInstanceId,
+        );
+      }
+    });
   }
 
   function resetRuntimeStableIds(
@@ -5938,8 +6083,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var activeEditorDragId = "";
   var bridgeSpaceKeyPressed = false;
   var bridgeIgnoreAutoLayoutKeyPressed = false;
+  var hostIgnoreAutoLayoutAtPointerDown = false;
   var bridgeSpaceKeyConsumedByDrag = false;
+
+  function resetBridgeDragModifierStateOnCancel(): void {
+    bridgeSpaceKeyPressed = false;
+    bridgeSpaceKeyConsumedByDrag = false;
+    // Keep a physically held non-Apple S modifier live until its keyup. The
+    // cancel path can run before that keyup and must not make the next move
+    // disagree with the host's active-key tracking.
+    hostIgnoreAutoLayoutAtPointerDown = false;
+  }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
+  var activeCrossScreenSourceHtml: string | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
     sourceId: string;
@@ -9765,7 +9921,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function frameLabelText(frame: Element): string {
     var name =
       layerNameForElement(frame) || frame.getAttribute("aria-label") || "";
-    return name.trim() || "Frame" /* i18n-ignore canvas frame label */;
+    return name.trim() || "Frame"; /* i18n-ignore canvas frame label */
   }
 
   function selectFrameFromLabel(frame: Element, e: MouseEvent): void {
@@ -9928,11 +10084,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // Alpine x-show toggling several siblings in one microtask). Collapse any
   // number of triggers within a frame into a single refreshOverlays() call.
   var refreshOverlaysScheduled = false;
+  var refreshOverlaysGeneration = 0;
   function scheduleRefreshOverlays(): void {
     if (refreshOverlaysScheduled) return;
     refreshOverlaysScheduled = true;
+    var generation = refreshOverlaysGeneration;
     window.requestAnimationFrame(function () {
       refreshOverlaysScheduled = false;
+      if (generation !== refreshOverlaysGeneration) return;
       refreshOverlays();
     });
   }
@@ -10336,6 +10495,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function stopNativeInteraction(e: Event): void {
+    if (interactionMode) return;
     // A fling's wheel events are not cancelable; cancelling one logs a browser
     // Intervention per event and scrolls anyway.
     if (e.cancelable) e.preventDefault();
@@ -10539,6 +10699,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? Boolean(e.ctrlKey && !e.metaKey)
       : bridgeIgnoreAutoLayoutKeyPressed ||
           String(e && e.key).toLowerCase() === "s";
+  }
+
+  function isIgnoreAutoLayoutChordForDragPoint(e): boolean {
+    if (isApplePlatformBridge()) {
+      return Boolean(e.ctrlKey && !e.metaKey);
+    }
+    if (typeof e.ignoreAutoLayoutKeyPressed === "boolean") {
+      return (
+        e.ignoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s"
+      );
+    }
+    return isIgnoreAutoLayoutChord(e);
   }
 
   function isShowShortcutsChord(e) {
@@ -14480,8 +14652,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): void {
     dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
     if (phase === "cancel") {
-      bridgeIgnoreAutoLayoutKeyPressed = false;
+      // Escape/cancel can arrive while the physical S key is still held.
+      // Keep that source-side state until the matching keyup so the next drag
+      // does not silently lose Ignore Auto Layout.
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenSourceHtml = undefined;
       activeCrossScreenDragIdentity = null;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
@@ -14494,6 +14669,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         options?.styleSnapshot !== undefined
           ? options.styleSnapshot
           : collectPortableStyleSnapshot(el ?? null);
+      activeCrossScreenSourceHtml = el?.outerHTML;
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -14553,7 +14729,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         modifiers: options?.modifiers,
         duplicate: options?.duplicate === true ? true : undefined,
-        sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
+        // The host needs the frozen outerHTML for moves as well as copies. A
+        // live source has no stored HTML document to snapshot, so waiting for
+        // the duplicate-only field leaves move drops with no insert payload.
+        // Use the pre-lift snapshot: during a drag the bridge may temporarily
+        // add a translate() transform to the source element, and that
+        // editor-only transform must never become destination markup.
+        sourceCloneHtml:
+          phase === "end" ? activeCrossScreenSourceHtml : undefined,
         releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : undefined,
       },
       "*",
@@ -14564,6 +14747,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // missed iframe keyup cannot affect the next drag.
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenSourceHtml = undefined;
       activeCrossScreenDragIdentity = null;
     }
   }
@@ -14724,6 +14908,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return "y";
     }
     if (cs.display === "grid" || cs.display === "inline-grid") {
+      if ((cs.gridAutoFlow || "row").split(/\s+/)[0] === "column") {
+        return "y";
+      }
       var cols = (cs.gridTemplateColumns || "")
         .split(" ")
         .filter(Boolean).length;
@@ -14963,20 +15150,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container,
       );
     }
-    var placementCandidates = children.concat(excluded || []);
-    var hasExplicitPlacement = placementCandidates.some(function (child) {
-      var childStyles = window.getComputedStyle(child);
-      return (
-        childStyles.gridColumnStart !== "auto" ||
-        childStyles.gridColumnEnd !== "auto" ||
-        childStyles.gridRowStart !== "auto" ||
-        childStyles.gridRowEnd !== "auto" ||
-        childStyles.order !== "0"
-      );
-    });
-    // Preserve a single-cell authored slot only for a single source already
-    // owned by this grid. Cross-grid and grouped drops must resolve the
-    // destination cell normally.
+    // Preserve authored placement for any dragged source. Cross-grid and
+    // grouped drops still need the destination cell for every authored item.
     var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
     var singleSourceStyles = singleSource
       ? window.getComputedStyle(singleSource)
@@ -14989,6 +15164,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       singleSource && trackLayout
         ? gridItemAxisPlacement(singleSource, trackLayout, "row")
         : null;
+    var sourceHasAuthoredPlacement = Boolean(
+      excluded?.some(function (source) {
+        var columnPlacement = trackLayout
+          ? gridItemAxisPlacement(source, trackLayout, "column")
+          : null;
+        var rowPlacement = trackLayout
+          ? gridItemAxisPlacement(source, trackLayout, "row")
+          : null;
+        return Boolean(
+          columnPlacement?.hasAuthoredPlacement ||
+          rowPlacement?.hasAuthoredPlacement,
+        );
+      }),
+    );
     var hasAuthoredSingleCellSourcePlacement = Boolean(
       singleSource &&
       singleSource.parentElement === container &&
@@ -15008,11 +15197,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Resolve the pointer against rendered tracks and carry the cell through
     // the drop so the source and its persisted markup move together. The
     // occupied cell is also retained as the source-order insertion anchor.
-    if (
-      trackLayout &&
-      hasExplicitPlacement &&
-      !hasAuthoredSingleCellSourcePlacement
-    ) {
+    if (trackLayout && !hasAuthoredSingleCellSourcePlacement) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
       });
@@ -15088,7 +15273,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           guideMode: displaced ? "grid-line" : "grid-cell",
           guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
-          gridCell: { column, row },
+          // Column auto-flow derives placement from source order. Persisting
+          // measured coordinates here would freeze responsive auto-flow into
+          // explicit gridColumn/gridRow styles.
+          ...(autoFlow[0] === "column" && !sourceHasAuthoredPlacement
+            ? {}
+            : { gridCell: { column, row } }),
           gridDisplacement: displaced,
         };
       }
@@ -16569,6 +16759,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var authoredSpan =
       endValue.trim().match(/^span\s+(\d+)$/) ||
       startValue.trim().match(/^span\s+(\d+)$/);
+    var hasAuthoredPlacement =
+      authoredSpan !== null ||
+      (startValue.trim() !== "auto" && startValue.trim() !== "") ||
+      (endValue.trim() !== "auto" && endValue.trim() !== "") ||
+      styles.order !== "0";
     var geometricRange = layout
       ? gridTrackRangeForRect(
           el.getBoundingClientRect(),
@@ -16587,6 +16782,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (start === null && end !== null && authoredSpan) start = end - span;
     return {
       authoredStart: start,
+      hasAuthoredPlacement: hasAuthoredPlacement,
       start: start ?? (geometricRange ? geometricRange.start + 1 : null),
       span,
     };
@@ -17047,6 +17243,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       var sourceColumn = gridItemAxisPlacement(el, sourceGridLayout, "column");
       var sourceRow = gridItemAxisPlacement(el, sourceGridLayout, "row");
+      var sourceHasAuthoredPlacement =
+        sourceColumn.hasAuthoredPlacement || sourceRow.hasAuthoredPlacement;
       var columnStart = sourceColumn.start ?? NaN;
       var columnSpan = sourceColumn.span;
       var columnEnd = columnStart + columnSpan;
@@ -17183,6 +17381,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           });
         };
         targetDisplacements.forEach(function (displaced) {
+          var displacedColumnPlacement = gridItemAxisPlacement(
+            displaced,
+            targetGridLayout,
+            "column",
+          );
+          var displacedRowPlacement = gridItemAxisPlacement(
+            displaced,
+            targetGridLayout,
+            "row",
+          );
+          var displacedHasAuthoredPlacement =
+            displacedColumnPlacement.hasAuthoredPlacement ||
+            displacedRowPlacement.hasAuthoredPlacement;
+          if (!displacedHasAuthoredPlacement) return;
           var displacedRange = gridTrackRangeForRect(
             displaced.getBoundingClientRect(),
             targetGridLayout!.columnBounds,
@@ -17275,14 +17487,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           displaced.style.gridRow = `${displacementPlacement.row} / ${displacementPlacement.rowEnd}`;
         });
       }
-      el.style.gridColumn = `${target.gridCell.column + 1} / ${target.gridCell.column + 1 + columnSpan}`;
-      el.style.gridRow = `${target.gridCell.row + 1} / ${target.gridCell.row + 1 + rowSpan}`;
-      target.gridPlacement = {
-        column: target.gridCell.column + 1,
-        columnEnd: target.gridCell.column + 1 + columnSpan,
-        row: target.gridCell.row + 1,
-        rowEnd: target.gridCell.row + 1 + rowSpan,
-      };
+      if (sourceHasAuthoredPlacement) {
+        el.style.gridColumn = `${target.gridCell.column + 1} / ${target.gridCell.column + 1 + columnSpan}`;
+        el.style.gridRow = `${target.gridCell.row + 1} / ${target.gridCell.row + 1 + rowSpan}`;
+        target.gridPlacement = {
+          column: target.gridCell.column + 1,
+          columnEnd: target.gridCell.column + 1 + columnSpan,
+          row: target.gridCell.row + 1,
+          rowEnd: target.gridCell.row + 1 + rowSpan,
+        };
+      }
     }
     // Must run BEFORE the DOM move below: the delta math reads the member's
     // CURRENT containing block via offsetParent. Called here (the single
@@ -17325,6 +17539,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     replacementSnapshotHtml?: string,
     collectMessages?: any[],
     transactionId?: string,
+    requestIdOverride?: string,
   ) {
     if (!el || !target || !target.anchor) return;
     // Batched grid messages keep the grid container as their runtime anchor;
@@ -17344,6 +17559,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       dropMode: target.dropMode || "flow-insert",
     });
     var requestId =
+      requestIdOverride ||
       "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
     pendingStructureMoves[requestId] = {
       requestId: requestId,
@@ -18658,7 +18874,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function startMove(
     e,
     gestureElParam?: Element,
-    pointerStartParam?: { clientX: number; clientY: number },
+    pointerStartParam?: {
+      clientX: number;
+      clientY: number;
+      ignoreAutoLayout?: boolean;
+    },
   ) {
     if (readOnly) return;
     var gestureEl = gestureElParam || selectedEl;
@@ -18781,6 +19001,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         shieldOverlay.style.cursor = "default";
       }
       function onRejectedEscape() {
+        resetBridgeDragModifierStateOnCancel();
         cleanupRejectedDrag();
         hideTransformBadge();
         suppressNextShieldClickBriefly();
@@ -19821,6 +20042,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (document.visibilityState === "hidden") onReorderEscape();
       }
       function onReorderEscape() {
+        resetBridgeDragModifierStateOnCancel();
         cleanupReorderDrag();
         hideTransformBadge();
         hideInsertionGuide();
@@ -20223,6 +20445,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       needsAutoLayoutConversion?: boolean;
       conversionTarget?: Element;
     } | null = null;
+    // Preserve the modifier captured at pointerdown. Playwright and real
+    // browsers can deliver the first move/up without the held key flags.
+    var dragIgnoreAutoLayout =
+      hostIgnoreAutoLayoutAtPointerDown ||
+      pointerStartParam?.ignoreAutoLayout === true ||
+      isIgnoreAutoLayoutChord(e);
+    hostIgnoreAutoLayoutAtPointerDown = false;
+    function ignoreAutoLayoutHeld(ev): boolean {
+      return dragIgnoreAutoLayout || isIgnoreAutoLayoutChordForDragPoint(ev);
+    }
+    var autoLayoutTargetFrame = 0;
+    var pendingAutoLayoutTargetPoint: {
+      clientX: number;
+      clientY: number;
+      metaKey: boolean;
+      ctrlKey: boolean;
+      altKey: boolean;
+      shiftKey: boolean;
+      spaceKeyPressed: boolean;
+      ignoreAutoLayoutKeyPressed: boolean;
+      snapResult: {
+        guides: unknown[];
+        spacingGuides: unknown[];
+        measurements: unknown[];
+      };
+    } | null = null;
     // Snap candidates (siblings + parent content box) are computed once at
     // drag start — a single getBoundingClientRect pass per candidate — not
     // recomputed on every move event. Other group members are excluded: they
@@ -20244,7 +20492,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return target;
       }
-      if (ev && (isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev))) {
+      if (ev && (ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev))) {
         return target;
       }
       var container = dropContainerForTarget(target);
@@ -20284,6 +20532,95 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         dropMode: "flow-insert",
       };
     }
+    function cancelAutoLayoutTargetResolution(): void {
+      pendingAutoLayoutTargetPoint = null;
+      if (autoLayoutTargetFrame) {
+        window.cancelAnimationFrame(autoLayoutTargetFrame);
+        autoLayoutTargetFrame = 0;
+      }
+    }
+
+    function scheduleAutoLayoutTargetResolution(ev, snapResult): void {
+      pendingAutoLayoutTargetPoint = {
+        clientX: ev.clientX,
+        clientY: ev.clientY,
+        metaKey: !!ev.metaKey,
+        ctrlKey: !!ev.ctrlKey,
+        altKey: !!ev.altKey,
+        shiftKey: !!ev.shiftKey,
+        // Capture the modifier state carried by this move. The RAF can run
+        // after the host's keyboard state has changed, so reading only the
+        // bridge globals there can resolve a different gesture than the one
+        // that scheduled the move.
+        spaceKeyPressed: Boolean(ev.spaceKeyPressed) || bridgeSpaceKeyPressed,
+        ignoreAutoLayoutKeyPressed:
+          Boolean(ev.ignoreAutoLayoutKeyPressed) ||
+          bridgeIgnoreAutoLayoutKeyPressed ||
+          (!isApplePlatformBridge() && String(ev.key).toLowerCase() === "s"),
+        snapResult: {
+          guides: snapResult.guides,
+          spacingGuides: snapResult.spacingGuides,
+          measurements: snapResult.measurements,
+        },
+      };
+      if (autoLayoutTargetFrame) return;
+      autoLayoutTargetFrame = window.requestAnimationFrame(function () {
+        autoLayoutTargetFrame = 0;
+        var point = pendingAutoLayoutTargetPoint;
+        pendingAutoLayoutTargetPoint = null;
+        if (!point || !dragEl || !document.documentElement.contains(dragEl)) {
+          return;
+        }
+        if (point.spaceKeyPressed) {
+          currentAutoLayoutTarget = null;
+          hideInsertionGuide();
+          return;
+        }
+        var target = autoLayoutInsertionTargetForPoint(
+          dragEl,
+          point.clientX,
+          point.clientY,
+          groupOthers,
+          isPlatformPrimaryChord(point),
+        );
+        if (target && isIgnoreAutoLayoutChordForDragPoint(point)) {
+          target = ignoreAutoLayoutForDropTarget(target);
+        }
+        currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
+        if (currentAutoLayoutTarget) {
+          showInsertionGuideFor(currentAutoLayoutTarget);
+          if (currentAutoLayoutTarget.dropMode !== "absolute-container") {
+            hideSnapGuides();
+            // hideSnapGuides clears the suppression flag as part of its normal
+            // cleanup. Set it after that call so the queued overlay refresh
+            // cannot restore free-placement chrome during a flow insert.
+            dragChromeSuppressed = true;
+            hideSizeBadge();
+            hideConstraintGuides();
+          } else {
+            // A deferred result may move from a flow target to a free-drop
+            // container. Restore the chrome state for that transition.
+            dragChromeSuppressed = false;
+            showSnapGuides(
+              point.snapResult.guides,
+              point.snapResult.spacingGuides,
+              point.snapResult.measurements,
+            );
+            showConstraintGuides(dragEl);
+          }
+        } else {
+          hideInsertionGuide();
+          dragChromeSuppressed = false;
+          showSnapGuides(
+            point.snapResult.guides,
+            point.snapResult.spacingGuides,
+            point.snapResult.measurements,
+          );
+          showConstraintGuides(dragEl);
+        }
+      });
+    }
+
     // Client px per CSS px for this element. 1 unless an ancestor between it
     // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
     // Client px per CSS px contributed by ANCESTORS. Measured on the offset
@@ -20313,7 +20650,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         modifiers: {
           metaKey: !!e.metaKey,
           ctrlKey: !!e.ctrlKey,
-          ignoreAutoLayout: isIgnoreAutoLayoutChord(e),
+          ignoreAutoLayout: dragIgnoreAutoLayout,
           forceNestedAutoLayout: isPlatformPrimaryChord(e),
         },
       });
@@ -20357,7 +20694,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         clientY: ev.clientY,
         metaKey: !!ev.metaKey,
         ctrlKey: !!ev.ctrlKey,
-        ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+        ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
         forceNestedAutoLayout: isPlatformPrimaryChord(ev),
       };
       if (crossScreenDragMoveScheduled) return;
@@ -20468,8 +20805,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // (Figma behavior) and while an auto-layout flow-insert is about to
       // happen instead of a free absolute placement (handled below once
       // currentAutoLayoutTarget is known for this tick).
-      var snapBypass =
-        isIgnoreAutoLayoutChord(ev) || isPlatformPrimaryChord(ev);
+      var snapBypass = ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev);
       var snapResult =
         !snapBypass && !duplicatedForDrag
           ? computeMoveSnapOffset(
@@ -20529,6 +20865,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         scheduleCrossScreenDragMove(ev);
       }
       if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        cancelAutoLayoutTargetResolution();
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
       } else {
@@ -20543,27 +20880,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // host only resends a claim message on a claimed-value CHANGE, so
         // once clobbered it stayed false for the rest of the drag with no
         // further message ever arriving to correct it.
-        currentAutoLayoutTarget = !bridgeSpaceKeyPressed
-          ? autoLayoutInsertionTargetForPoint(
-              dragEl,
-              ev.clientX,
-              ev.clientY,
-              groupOthers,
-              isPlatformPrimaryChord(ev),
-            )
-          : null;
-        if (currentAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
-          currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
-            currentAutoLayoutTarget,
-          );
-        }
-        currentAutoLayoutTarget = applyFreeDropSizeGuard(
-          currentAutoLayoutTarget,
-          ev,
-        );
-        if (currentAutoLayoutTarget) {
-          showInsertionGuideFor(currentAutoLayoutTarget);
+        if (!bridgeSpaceKeyPressed) {
+          scheduleAutoLayoutTargetResolution(ev, snapResult);
         } else {
+          cancelAutoLayoutTargetResolution();
+          currentAutoLayoutTarget = null;
           hideInsertionGuide();
         }
       }
@@ -20603,7 +20924,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (duplicatedForDrag) {
         showTransformBadge("Duplicate layer", ev.clientX, ev.clientY);
       }
-      refreshOverlays();
+      scheduleRefreshOverlays();
     }
     function restoreSourceDragPosition(): void {
       memberStates.forEach(function (state) {
@@ -20615,6 +20936,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       positionOverlay(selectionOverlay, selectedEl);
     }
     function cleanupMoveDrag() {
+      cancelAutoLayoutTargetResolution();
+      refreshOverlaysGeneration += 1;
+      refreshOverlaysScheduled = false;
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onMoveKeyDown, true);
@@ -20636,6 +20960,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       suppressNextShieldClickBriefly();
     }
     function cancelMoveDrag() {
+      resetBridgeDragModifierStateOnCancel();
       bridgeMoveController.cancel();
       cleanupMoveDrag();
       hideTransformBadge();
@@ -20691,6 +21016,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       cleanupMoveDrag();
+      // cleanupMoveDrag invalidates any queued move repaint. Re-arm one for
+      // the successful release so pointerup cannot leave selection chrome at
+      // the pre-release geometry when it arrives before that frame runs.
+      scheduleRefreshOverlays();
       hideTransformBadge();
       hideInsertionGuide();
       hideSnapGuides();
@@ -20710,7 +21039,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           modifiers: {
             metaKey: !!ev.metaKey,
             ctrlKey: !!ev.ctrlKey,
-            ignoreAutoLayout: isIgnoreAutoLayoutChord(ev),
+            ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
             forceNestedAutoLayout: isPlatformPrimaryChord(ev),
           },
         });
@@ -20737,7 +21066,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           groupOthers,
           isPlatformPrimaryChord(ev),
         );
-        if (finalAutoLayoutTarget && isIgnoreAutoLayoutChord(ev)) {
+        if (finalAutoLayoutTarget && ignoreAutoLayoutHeld(ev)) {
           finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             finalAutoLayoutTarget,
           );
@@ -20746,9 +21075,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           finalAutoLayoutTarget,
           ev,
         );
-        if (finalAutoLayoutTarget) {
-          currentAutoLayoutTarget = finalAutoLayoutTarget;
-        }
+        currentAutoLayoutTarget = finalAutoLayoutTarget;
       } else if (bridgeSpaceKeyPressed) {
         // Space is Figma's retain-parent modifier. Absolute/freeform drags
         // already move in their current containing-block coordinates, so
@@ -22413,6 +22740,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
     stopNativeInteraction(e);
     clearGridProjectionCaches();
+    // Consume any host handoff at pointerdown; the synthetic event carries
+    // the same value so async postMessage delivery cannot win the race.
+    hostIgnoreAutoLayoutAtPointerDown = false;
     // A new interaction starting is unambiguous proof the previous gesture is
     // over — a stale post-commit revert from it must never fire against
     // whatever this new one turns out to be.
@@ -22553,12 +22883,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         startMove(ev, groupGestureMember, {
           clientX: startX,
           clientY: startY,
+          ignoreAutoLayout:
+            Boolean(
+              (
+                e as MouseEvent & {
+                  __agentNativeIgnoreAutoLayout?: boolean;
+                }
+              ).__agentNativeIgnoreAutoLayout,
+            ) || isIgnoreAutoLayoutChord(ev),
         });
         return;
       }
       selectTarget(dragTarget, ev);
       suppressNextShieldClickBriefly();
-      startMove(ev, undefined, { clientX: startX, clientY: startY });
+      startMove(ev, undefined, {
+        clientX: startX,
+        clientY: startY,
+        ignoreAutoLayout:
+          Boolean(
+            (
+              e as MouseEvent & {
+                __agentNativeIgnoreAutoLayout?: boolean;
+              }
+            ).__agentNativeIgnoreAutoLayout,
+          ) || isIgnoreAutoLayoutChord(ev),
+      });
     }
     function onUp(ev) {
       clearPendingShieldDrag();
@@ -22609,6 +22958,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(events.up, onUp, true);
   }
 
+  // Resize and rotation handles are the only editable chrome that sits inside
+  // the selection overlay. At overview zoom their rendered hit box can be
+  // smaller than a screen pixel, so the first move often leaves the iframe.
+  // Capture the pointer before the existing mouse handler starts the gesture;
+  // otherwise the document-level move/up listeners stop receiving the drag.
+  selectionOverlay.addEventListener(
+    "pointerdown",
+    function (e) {
+      if (readOnly || e.button !== 0) return;
+      if (e.pointerId !== undefined && selectionOverlay.setPointerCapture) {
+        selectionOverlay.setPointerCapture(e.pointerId);
+      }
+    },
+    true,
+  );
+
   selectionOverlay.addEventListener(
     "mousedown",
     function (e) {
@@ -22658,6 +23023,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "pointerdown",
     function (e) {
+      if (interactionMode) return;
       if (isOverlayElement(e.target)) return;
       if (e.button === 0) beginPotentialShieldDrag(e);
     },
@@ -22666,6 +23032,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "mousedown",
     function (e) {
+      if (interactionMode) return;
       if (isOverlayElement(e.target)) return;
       if (e.button === 0) beginPotentialShieldDrag(e);
     },
@@ -22683,6 +23050,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
 
   function stopBlockedLayerInteraction(e) {
+    if (interactionMode) return;
     if (isOverlayElement(e.target)) return;
     var target = e.target && e.target.nodeType === 1 ? e.target : null;
     if (!target || !isLayerInteractionBlocked(target)) return;
@@ -22710,6 +23078,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "contextmenu",
     function (e) {
+      if (interactionMode) return;
       if (isOverlayElement(e.target)) return;
       openContextMenuAtEvent(e);
     },
@@ -22743,6 +23112,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "keydown",
     function (e) {
+      if (interactionMode) return;
       if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
         bridgeIgnoreAutoLayoutKeyPressed = true;
       }
@@ -22909,6 +23279,58 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
     true,
   );
+  // The preview iframe may not own focus when a drag begins. Mirror the
+  // host document's S modifier so a pre-pointerdown shortcut reaches the
+  // same drag state as an iframe-focused keydown.
+  try {
+    var parentDocument = window.parent.document as Document & {
+      __agentNativeDesignModifierListeners?: WeakMap<
+        Window,
+        { cleanup: () => void }
+      >;
+    };
+    var modifierListenerWindows =
+      parentDocument.__agentNativeDesignModifierListeners ||
+      new WeakMap<Window, { cleanup: () => void }>();
+    parentDocument.__agentNativeDesignModifierListeners =
+      modifierListenerWindows;
+    modifierListenerWindows.get(window)?.cleanup();
+    var onParentModifierKeyDown = function (e) {
+      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        bridgeIgnoreAutoLayoutKeyPressed = true;
+      }
+    };
+    var onParentModifierKeyUp = function (e) {
+      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        bridgeIgnoreAutoLayoutKeyPressed = false;
+      }
+    };
+    var cleanupParentModifierListeners = function () {
+      parentDocument.removeEventListener(
+        "keydown",
+        onParentModifierKeyDown,
+        true,
+      );
+      parentDocument.removeEventListener("keyup", onParentModifierKeyUp, true);
+      if (
+        modifierListenerWindows.get(window)?.cleanup ===
+        cleanupParentModifierListeners
+      ) {
+        modifierListenerWindows.delete(window);
+      }
+    };
+    parentDocument.addEventListener("keydown", onParentModifierKeyDown, true);
+    parentDocument.addEventListener("keyup", onParentModifierKeyUp, true);
+    modifierListenerWindows.set(window, {
+      cleanup: cleanupParentModifierListeners,
+    });
+    window.addEventListener("unload", cleanupParentModifierListeners, {
+      once: true,
+    });
+  } catch (_err) {
+    // coercion-ok: cross-origin previews intentionally cannot inspect the host document.
+    void _err;
+  }
 
   // Space-pan release: keydown forwarding above arms the parent's temporary
   // hand tool (see postDesignHotkey/"design-hotkey"), but the parent also
@@ -22947,6 +23369,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     window.setTimeout(function () {
       if (!activeDragCancel) {
         bridgeIgnoreAutoLayoutKeyPressed = false;
+        hostIgnoreAutoLayoutAtPointerDown = false;
       }
     }, 0);
   });
@@ -23911,6 +24334,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "dblclick",
     function (e) {
+      if (interactionMode) return;
       if (isOverlayElement(e.target)) return;
       beginTextEditingFromEvent(e);
     },
@@ -23965,7 +24389,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     true,
   );
   function handleShieldPointerMove(e) {
-    if (readOnly) return;
+    if (readOnly || interactionMode) return;
     stopNativeInteraction(e);
     lastHoverClientPoint = { x: e.clientX, y: e.clientY };
     hoveredEl = resolveHoverTarget(
@@ -24148,6 +24572,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   window.addEventListener("message", function (e) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
+    // The child can finish booting before the parent installs its one-shot
+    // ready listener. Let the parent ask again after the iframe load event;
+    // this is idempotent and also survives a document remount.
+    if (e.data.type === "agent-native:editor-chrome-ready-probe") {
+      sendEditorChromeReady();
+      return;
+    }
     // NOTE: no message type in this handler is sourced from a `payload`
     // sub-object — every host sender (DesignCanvas.tsx) puts its fields
     // directly on the top-level message. A previous blanket
@@ -24194,6 +24625,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activateProgrammaticTextEdit(resumeTarget, false, resumeBookmark);
       return;
     }
+    if (e.data.type === "design-hotkey") {
+      if (
+        !isApplePlatformBridge() &&
+        String(e.data.key).toLowerCase() === "s"
+      ) {
+        bridgeIgnoreAutoLayoutKeyPressed = true;
+      }
+      return;
+    }
+    if (e.data.type === "agent-native:drag-modifiers") {
+      hostIgnoreAutoLayoutAtPointerDown = e.data.ignoreAutoLayout === true;
+      return;
+    }
+    if (e.data.type === "design-hotkey-up") {
+      if (
+        !isApplePlatformBridge() &&
+        String(e.data.key).toLowerCase() === "s"
+      ) {
+        bridgeIgnoreAutoLayoutKeyPressed = false;
+      }
+      return;
+    }
     if (e.data.type === "text-edit-inspector-focus") {
       if (typeof e.data.focused !== "boolean") return;
       textEditInspectorFocused = e.data.focused;
@@ -24236,6 +24689,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       } else {
         setSelectionOverlayResizeChromeVisible(true);
         shieldOverlay.style.pointerEvents = "auto";
+      }
+      return;
+    }
+    // Interact changes pointer ownership in-place. The editor chrome stays
+    // installed so returning to Edit can restore selection without a reload.
+    if (e.data.type === "set-interaction-mode") {
+      var nextInteractionMode = e.data.interact === true;
+      if (interactionMode === nextInteractionMode) return;
+      interactionMode = nextInteractionMode;
+      if (interactionMode) {
+        clearPendingShieldDrag();
+        cancelActiveBridgeDrag();
+        if (activeTextEditEl) activeTextEditEl.blur();
+        setSelectionOverlayResizeChromeVisible(false);
+        highlightOverlay.style.display = "none";
+        marqueeSelectionOverlay.style.display = "none";
+        shieldOverlay.style.pointerEvents = "none";
+      } else {
+        setSelectionOverlayResizeChromeVisible(!readOnly);
+        shieldOverlay.style.pointerEvents = "auto";
+        scheduleRuntimeLayerSnapshot();
       }
       return;
     }
@@ -25112,12 +25586,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "*",
         );
       };
-      var acknowledgeInsert = function (element: Element): void {
+      var acknowledgeInsert = function (
+        element: Element,
+        applied: boolean = true,
+      ): void {
         (window.parent as Window).postMessage(
           {
             type: "runtime-structure-insert-applied",
             screenId: designCanvasScreenId,
             requestId: String(insertRequestId),
+            applied,
             transactionId:
               typeof e.data.transactionId === "string"
                 ? e.data.transactionId
@@ -25177,20 +25655,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var insertNodeId = parsedInsertEl.getAttribute(
         "data-agent-native-node-id",
       );
-      // Repeat drops of the same board primitive must not mint a second live
-      // element carrying the same node id: findUniqueRuntimeStructureTarget
-      // returns null on a duplicate id, which silently breaks every later
-      // move, ack, and undo for BOTH copies. Re-drag the existing node instead.
-      var existingInsertEl: Element | null = null;
+      // A same-screen repeat drag explicitly identifies the source screen, so
+      // it is a reorder rather than a new insert. Resolve that identity before
+      // collision reminting; a cross-screen copy must never reuse a coincident
+      // node/runtime id from this destination document.
+      var existingBeforeRemint: Element | null = null;
       if (insertNodeId) {
-        try {
-          existingInsertEl = document.querySelector(
-            '[data-agent-native-node-id="' +
-              escapeAttribute(insertNodeId) +
-              '"]',
-          );
-        } catch (_err) {}
+        existingBeforeRemint = document.querySelector(
+          '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]',
+        );
       }
+      var incomingRuntimeInstanceId = parsedInsertEl.getAttribute(
+        "data-agent-native-runtime-instance-id",
+      );
+      var existingRuntimeInstanceId = existingBeforeRemint?.getAttribute(
+        "data-agent-native-runtime-instance-id",
+      );
+      var reuseExistingRuntimeNode = Boolean(
+        existingBeforeRemint &&
+        incomingRuntimeInstanceId &&
+        existingRuntimeInstanceId === incomingRuntimeInstanceId &&
+        e.data.screenId === designCanvasScreenId &&
+        e.data.sourceScreenId === designCanvasScreenId,
+      );
+      if (e.data.remintCollidingNodeIds === true && !reuseExistingRuntimeNode) {
+        remintCollidingRuntimeNodeIds(parsedInsertEl);
+      }
+      insertNodeId = parsedInsertEl.getAttribute("data-agent-native-node-id");
+      // Only the explicit same-screen identity path may reuse an existing
+      // runtime node. All other inserts keep the parsed node as a new element,
+      // with collision reminting above when requested.
+      var existingInsertEl: Element | null = reuseExistingRuntimeNode
+        ? existingBeforeRemint
+        : null;
       if (existingInsertEl === insertAnchor) {
         rejectInsert("anchor-is-subject");
         return;
@@ -25233,8 +25730,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             insertTarget,
             reinsertOrigin,
           );
-          acknowledgeInsert(existingInsertEl);
         }
+        // A same-slot reorder changes no DOM. Report that explicitly so the
+        // host does not record an inserted pending edit whose undo would
+        // delete this pre-existing element.
+        acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
         return;
       }
       if (replaceInsertAnchor) {
@@ -25301,6 +25801,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof e.data.transactionId === "string"
           ? e.data.transactionId
           : undefined,
+        String(insertRequestId),
       );
       acknowledgeInsert(parsedInsertEl);
       return;
@@ -25747,7 +26248,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function interceptNativeInteractionNet(e: Event): void {
-    if (readOnly) return;
+    if (readOnly || interactionMode) return;
     var target =
       e.target && (e.target as Element).nodeType === 1
         ? (e.target as Element)

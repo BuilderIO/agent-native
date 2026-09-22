@@ -58,6 +58,7 @@ export interface AutomationActionItem {
   nextRun: string | null;
   createdBy: string | null;
   model: string | null;
+  reasoningEffort: string | null;
   executionHostId: string | null;
   executionEngine: string | null;
   executionCwd: string | null;
@@ -113,6 +114,7 @@ export default defineAction({
         nextRun: nextRun(meta),
         createdBy: meta.createdBy ?? null,
         model: meta.model ?? null,
+        reasoningEffort: meta.reasoningEffort ?? null,
         executionHostId: meta.executionHostId ?? null,
         executionEngine: meta.executionEngine ?? null,
         executionCwd: meta.executionCwd ?? null,

@@ -46,6 +46,52 @@ it.each([
   },
 );
 
+it("reuses canonical preparation for unchanged screen content", () => {
+  const content =
+    '<main data-agent-native-node-id="screen"><button data-agent-native-node-id="cta">Continue</button></main>';
+
+  const first = prepareCanonicalSourceContent(content, {
+    fileId: "unchanged-screen-cache",
+    fileType: "html",
+  });
+  const second = prepareCanonicalSourceContent(content, {
+    fileId: "unchanged-screen-cache",
+    fileType: "html",
+  });
+
+  expect(second).toBe(first);
+});
+
+it("does not retain an oversized screen in the canonical cache", () => {
+  const content = `<main data-agent-native-node-id="screen">${" ".repeat(256 * 1024)}<button data-agent-native-node-id="cta">Continue</button></main>`;
+
+  const first = prepareCanonicalSourceContent(content, {
+    fileId: "oversized-screen-cache",
+    fileType: "html",
+  });
+  const second = prepareCanonicalSourceContent(content, {
+    fileId: "oversized-screen-cache",
+    fileType: "html",
+  });
+
+  expect(second).not.toBe(first);
+});
+
+it("bounds canonical cache retention by UTF-8 bytes", () => {
+  const content = `<main data-agent-native-node-id="screen">${"😀".repeat(60_000)}</main>`;
+
+  const first = prepareCanonicalSourceContent(content, {
+    fileId: "unicode-screen-cache",
+    fileType: "html",
+  });
+  const second = prepareCanonicalSourceContent(content, {
+    fileId: "unicode-screen-cache",
+    fileType: "html",
+  });
+
+  expect(second).not.toBe(first);
+});
+
 it("keeps an identity migration's raw bytes as the CAS base for a follow-up edit", () => {
   const raw = "<main><button>Listen now</button></main>";
   const canonical = prepareCanonicalSourceContent(raw, {

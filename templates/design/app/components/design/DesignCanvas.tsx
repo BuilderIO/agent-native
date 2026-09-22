@@ -736,6 +736,7 @@ interface DesignCanvasProps {
     routePath?: string;
     selector: string;
     sourceId?: string;
+    applied?: boolean;
   }) => void;
   onRuntimeStructureDeleteApplied?: (details: {
     screenId?: string;
@@ -1824,6 +1825,7 @@ export function DesignCanvas({
     [probeBridgeReadinessUntilDrained],
   );
   useEffect(() => {
+    if (interactMode) return;
     const isInspectorTarget = (target: EventTarget | null): boolean =>
       target instanceof Element &&
       !!target.closest('[data-design-chrome-region="right-panel"]');
@@ -1990,7 +1992,13 @@ export function DesignCanvas({
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [contentKey, postOneShotBridgeMessage, registerRuntimeBridge, screenId]);
+  }, [
+    contentKey,
+    interactMode,
+    postOneShotBridgeMessage,
+    registerRuntimeBridge,
+    screenId,
+  ]);
   const [renderedDocument, setRenderedDocument] = useState(() => ({
     content,
     sourceContent: authoredSourceContent ?? content,
@@ -2213,7 +2221,7 @@ export function DesignCanvas({
         editMode,
         editorChromeScaleX: 1,
         editorChromeScaleY: 1,
-        screenId: screenId ?? contentKey ?? "",
+        screenId: screenId ?? "",
         boardSurface,
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
@@ -2223,15 +2231,15 @@ export function DesignCanvas({
         initialSourceHead: "",
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [boardSurface, contentKey, runtimeLayerSnapshotEnabled, screenId],
+    [boardSurface, runtimeLayerSnapshotEnabled, screenId],
   );
   // Keep the installed gesture script identical between overview and focused
   // mode. The live flags are posted below; baking `isEmbeddedFrame` into the
   // script changed the bridge key during responsive Interact and defeated the
   // registration handoff cache, forcing an avoidable iframe navigation.
-  // interactMode remains baked: un-baking its first-paint safety flag made the
-  // responsive iframe render blank in live verification. The live message
-  // below is additive; it does not replace the correct initial script.
+  // Interaction ownership is switched in-place after the bridge handshake;
+  // baking the mode into this script changes the live bridge key and reloads
+  // the running app.
   const embeddedGestureBridgeForCurrentState = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
@@ -2239,8 +2247,8 @@ export function DesignCanvas({
         "false",
       )
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
-        .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
-    [interactMode],
+        .replace("__EDITING_SAFETY_ENABLED__", "true"),
+    [],
   );
   // srcdoc is rebuilt per document, so unlike the keyed live-edit bundle above
   // it can carry the real first-paint value: forwarding that arrives only by
@@ -2255,7 +2263,7 @@ export function DesignCanvas({
         .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
     [interactMode, isEmbeddedFrame],
   );
-  const includeLiveEditEditorChrome = !interactMode && !readOnly;
+  const includeLiveEditEditorChrome = !readOnly;
   const liveEditBridgeScript = useMemo(
     () =>
       (includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +
@@ -3614,6 +3622,15 @@ export function DesignCanvas({
     : waitingForLiveEditBridge
       ? `live-edit-pending:${liveEditBridgeKey}`
       : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
+  // Route navigation inside a live URL updates `externalPreviewUrl`, but it
+  // must not replace the host iframe. Keeping the element stable lets the
+  // running app navigate in place while the document identity below still
+  // resets readiness and re-arms the edit shield for the new route.
+  const iframeElementIdentity = externalPreviewUrl
+    ? `external:${previewFrameId ?? screenId ?? contentKey ?? "screen"}:${
+        usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
+      }`
+    : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
@@ -4065,6 +4082,7 @@ export function DesignCanvas({
           selector: typeof e.data.selector === "string" ? e.data.selector : "",
           sourceId:
             typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+          applied: e.data.applied !== false,
         });
         return;
       }
@@ -4926,6 +4944,8 @@ export function DesignCanvas({
   // Latest replayIframeEditorState, synced during render (below) so the message
   // handler can force a corrective resync without a stale closure.
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
+  const interactModeRef = useRef(interactMode);
+  interactModeRef.current = interactMode;
   // Render-synced committed selection so the message handler reads current
   // values without re-binding the window listener on every selection.
   const selectedSelectorRef = useRef(selectedSelector);
@@ -4936,6 +4956,14 @@ export function DesignCanvas({
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+    iframe.contentWindow?.postMessage(
+      { type: "agent-native:editor-chrome-ready-probe" },
+      "*",
+    );
+    iframe.contentWindow?.postMessage(
+      { type: "set-interaction-mode", interact: interactModeRef.current },
+      "*",
+    );
     iframe.contentWindow?.postMessage(
       {
         type: "embedded-canvas-pan-mode",
@@ -5381,6 +5409,22 @@ export function DesignCanvas({
     // Only re-run when readOnly changes; iframe identity is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendInteractionMode() {
+      iframe!.contentWindow?.postMessage(
+        { type: "set-interaction-mode", interact: interactModeRef.current },
+        "*",
+      );
+    }
+    sendInteractionMode();
+    iframe.addEventListener("load", sendInteractionMode);
+    return () => iframe.removeEventListener("load", sendInteractionMode);
+    // Only re-run when interaction ownership changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interactMode]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -5934,8 +5978,13 @@ export function DesignCanvas({
     ].forEach((html, index) => {
       postOneShotBridgeMessage({
         type: "runtime-structure-insert",
+        screenId: runtimeStructureInsertRequest.screenId,
+        sourceScreenId: runtimeStructureInsertRequest.sourceScreenId,
         requestId: runtimeStructureInsertRequest.requestId + index / 1_000,
         transactionId: runtimeStructureInsertRequest.transactionId,
+        ...(runtimeStructureInsertRequest.remintCollidingNodeIds === true
+          ? { remintCollidingNodeIds: true }
+          : {}),
         html,
         anchorSelector,
         anchorSourceId,
@@ -6869,7 +6918,7 @@ export function DesignCanvas({
       {rawExternalPreviewUrl &&
       !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
         <iframe
-          key={iframeDocumentIdentity}
+          key={iframeElementIdentity}
           ref={iframeRef}
           src={externalPreviewUrl ?? undefined}
           srcDoc={externalPreviewUrl ? undefined : srcdoc}
@@ -6888,6 +6937,10 @@ export function DesignCanvas({
               onBootReady();
             }
             sendBridgeToContainer();
+            event.currentTarget.contentWindow?.postMessage(
+              { type: "agent-native:editor-chrome-ready-probe" },
+              "*",
+            );
             // The bridge logs into the IFRAME console and cannot read
             // import.meta.env, so dev has to switch it on from out here.
             if (!import.meta.env?.DEV) return;
@@ -6980,7 +7033,7 @@ export function DesignCanvas({
           below. Only mounts while a creation tool is active so it never
           changes existing behavior otherwise (T14: single-screen mode
           previously had no creation capability at all). */}
-      {activeCreationTool ? (
+      {activeCreationTool && !interactMode ? (
         <SingleScreenCreationOverlay
           tool={activeCreationTool}
           iframeRef={iframeRef}
