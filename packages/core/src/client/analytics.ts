@@ -63,14 +63,16 @@ export type {
   SessionReplayNetworkOptions,
   SessionReplayOptions,
   SessionReplayStartResult,
-  SessionReplayContext,
-  SessionReplayLinkOptions,
   SessionReplayUrlMatcher,
 } from "./session-replay.js";
 export {
   getSessionReplayContext,
   getSessionReplayUrl,
-} from "./session-replay.js";
+} from "./session-replay-context.js";
+export type {
+  SessionReplayContext,
+  SessionReplayLinkOptions,
+} from "./session-replay-context.js";
 
 declare global {
   interface Window {

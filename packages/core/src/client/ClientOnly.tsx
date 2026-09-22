@@ -7,7 +7,7 @@ const useBrowserLayoutEffect =
  * Renders children only on the client (after hydration).
  *
  * Used in root.tsx to wrap all app content so the server only renders
- * the HTML shell (meta tags, styles, scripts) + a fallback spinner.
+ * the HTML shell (meta tags, styles, scripts) + an app-shell skeleton.
  * This prevents hydration mismatches from browser-only APIs like
  * window, localStorage, new Date(), next-themes, etc.
  */

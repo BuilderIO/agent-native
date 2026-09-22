@@ -63,7 +63,7 @@ Read the relevant skill before deeper work:
 | `navigate` | Move the UI to a document, comments, media, or settings |
 | `refresh-list` | Repaint the sidebar after an out-of-band mutation |
 | `list-documents` | Document metadata tree, without bodies |
-| `search-documents` | Title and content search with snippets |
+| `search-documents` | Title-first search with snippets |
 | `get-document` | One document with full content |
 | `pull-document` | Flush live collab state, then read (external edits) |
 | `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |

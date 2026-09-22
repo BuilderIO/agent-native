@@ -2539,6 +2539,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return containerScopeAncestor(resolved, scope);
     }
+    function plainClickSelectionTarget(hit) {
+      if (!designCanvasBoardSurface) {
+        selectionContainerScope = null;
+        return selectionTargetForHit(hit);
+      }
+      return containerFirstSelectionTarget(hit);
+    }
     function clickThroughSelectionTarget(hit, ev) {
       if (ev.detail > 1) return null;
       if (!selectedEl || !document.documentElement.contains(selectedEl)) {
@@ -8247,7 +8254,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       hoveredSpacingHandleKey = "";
-      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
+      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : plainClickSelectionTarget(target);
       var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
       if (toggled !== void 0) {
         postToggledSelection(toggled);
@@ -12448,7 +12455,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return runtimeMutationApplied;
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId, requestIdOverride) {
       if (!el || !target || !target.anchor) return;
       var messageAnchor = collectMessages ? target.anchor : target.persistenceAnchor || target.anchor;
       var messagePlacement = collectMessages ? target.placement : target.persistencePlacement || target.placement;
@@ -12460,7 +12467,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         persistencePlacement: messagePlacement,
         dropMode: target.dropMode || "flow-insert"
       });
-      var requestId = "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      var requestId = requestIdOverride || "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
       pendingStructureMoves[requestId] = {
         requestId,
         el,
@@ -16258,7 +16265,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : !designCanvasBoardSurface ? plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
         if (cycledEl) {
           selectTarget(cycledEl, ev, true);
         } else {
@@ -16277,6 +16284,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
     }
+    selectionOverlay.addEventListener(
+      "pointerdown",
+      function(e) {
+        if (readOnly || e.button !== 0) return;
+        if (e.pointerId !== void 0 && selectionOverlay.setPointerCapture) {
+          selectionOverlay.setPointerCapture(e.pointerId);
+        }
+      },
+      true
+    );
     selectionOverlay.addEventListener(
       "mousedown",
       function(e) {
@@ -17195,7 +17212,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastHoverClientPoint = null;
     function resolveHoverTarget(clientX, clientY, deepSelect) {
       var rawHit = elementFromEditorPoint(clientX, clientY);
-      return deepSelect ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
+      return deepSelect || !designCanvasBoardSurface ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
     }
     function reresolveHoverAtLastPoint(deepSelect) {
       if (!lastHoverClientPoint) return;
@@ -18204,7 +18221,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           void 0,
           void 0,
           void 0,
-          typeof e.data.transactionId === "string" ? e.data.transactionId : void 0
+          typeof e.data.transactionId === "string" ? e.data.transactionId : void 0,
+          String(insertRequestId)
         );
         acknowledgeInsert(parsedInsertEl);
         return;

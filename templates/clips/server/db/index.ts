@@ -8,6 +8,7 @@ import {
   CLIPS_MEETING_AGENT_CONTEXT_ENDPOINT,
   CLIPS_MEETING_AGENT_RESOURCE_KIND,
 } from "../../shared/meeting-agent-access.js";
+import { recordingSharePath } from "../../shared/recording-link.js";
 import {
   absoluteUrl,
   recordingShareEmailExtras,
@@ -56,7 +57,7 @@ registerShareableResource({
   sharesTable: schema.recordingShares,
   displayName: "Recording",
   titleColumn: "title",
-  getResourcePath: (recording) => `/r/${recording.id}`,
+  getResourcePath: (recording) => recordingSharePath(recording.id),
   getLogoUrl: (recording) => orgBrandLogoUrl(recording.organizationId),
   getBrandName: (recording) => orgBrandName(recording.organizationId),
   // Replies reach the person who shared the clip; the sending address stays

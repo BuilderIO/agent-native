@@ -2566,6 +2566,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return containerScopeAncestor(resolved, scope);
   }
 
+  /*
+   * HUMAN-DIRECTED UX EXCEPTION - DO NOT REVERT TO FIGMA:
+   * Screen contents intentionally select the deepest block under a plain
+   * single click. This is a rare, 100% intentional deviation from Figma UX,
+   * requested by user feedback because people expect to click directly into
+   * blocks while working inside a screen. The infinite-canvas board keeps the
+   * Figma container-first behavior above. Do not remove or “fix” this branch
+   * unless a human explicitly asks for this behavior to change.
+   * Feedback: https://builder-internal.slack.com/archives/C0ATH3CCZT4/p1790099891790049?thread_ts=1790099192.113439&cid=C0ATH3CCZT4
+   */
+  function plainClickSelectionTarget(hit: Element | null): Element | null {
+    if (!designCanvasBoardSurface) {
+      // A direct screen click also exits any board-style drill scope left by a
+      // prior interaction before resolving the block under the pointer.
+      selectionContainerScope = null;
+      return selectionTargetForHit(hit);
+    }
+    return containerFirstSelectionTarget(hit);
+  }
+
   // Figma "click through": with a container selected, a plain click on one
   // of its descendants selects the container's child under the pointer, one
   // level per click, and the scope follows so later clicks stay inside it.
@@ -5751,12 +5771,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
-  // Figma parity: a plain click resolves to the outermost child of this
-  // container (the screen root, i.e. null, by default) rather than the raw
-  // deepest hit. Double-click drilling (beginTextEditingFromEvent's descend
-  // fallback) sets this to the container just drilled into; a plain click
-  // that lands outside it exits drill mode by clearing it back to null. See
-  // containerFirstSelectionTarget.
+  // Figma parity on the infinite-canvas board: a plain click resolves to the
+  // outermost child of this container (the screen root, i.e. null, by default)
+  // rather than the raw deepest hit. Double-click drilling
+  // (beginTextEditingFromEvent's descend fallback) sets this to the container
+  // just drilled into; a plain click that lands outside it exits drill mode by
+  // clearing it back to null. See containerFirstSelectionTarget. Screen
+  // contents intentionally use plainClickSelectionTarget instead.
   var selectionContainerScope: Element | null = null;
   var selectionGeneration = 0;
   // When true, selection chrome stays hidden through async reflows so a
@@ -11107,7 +11128,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var resolvedClickTarget =
       e.metaKey || e.ctrlKey
         ? selectionTargetForHit(target)
-        : containerFirstSelectionTarget(target);
+        : plainClickSelectionTarget(target);
     var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
     if (toggled !== undefined) {
       postToggledSelection(toggled);
@@ -22931,9 +22952,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
           ? selectionTargetForHit(hit)
-          : (!readOnly && !e.shiftKey
-              ? clickThroughSelectionTarget(hit, ev)
-              : null) || containerFirstSelectionTarget(hit);
+          : !designCanvasBoardSurface
+            ? plainClickSelectionTarget(hit)
+            : (!readOnly && !e.shiftKey
+                ? clickThroughSelectionTarget(hit, ev)
+                : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
         // Real event (not undefined): selectionIntentFromEvent now reports
         // Cmd/Ctrl-alone as non-additive, so the intent this carries already
@@ -22957,6 +22980,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
   }
+
+  // Resize and rotation handles are the only editable chrome that sits inside
+  // the selection overlay. At overview zoom their rendered hit box can be
+  // smaller than a screen pixel, so the first move often leaves the iframe.
+  // Capture the pointer before the existing mouse handler starts the gesture;
+  // otherwise the document-level move/up listeners stop receiving the drag.
+  selectionOverlay.addEventListener(
+    "pointerdown",
+    function (e) {
+      if (readOnly || e.button !== 0) return;
+      if (e.pointerId !== undefined && selectionOverlay.setPointerCapture) {
+        selectionOverlay.setPointerCapture(e.pointerId);
+      }
+    },
+    true,
+  );
 
   selectionOverlay.addEventListener(
     "mousedown",
@@ -24337,7 +24376,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     deepSelect: boolean,
   ): Element | null {
     var rawHit = elementFromEditorPoint(clientX, clientY);
-    return deepSelect
+    return deepSelect || !designCanvasBoardSurface
       ? selectionTargetForHit(rawHit)
       : containerFirstSelectionTarget(rawHit);
   }

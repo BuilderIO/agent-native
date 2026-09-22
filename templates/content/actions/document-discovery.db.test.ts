@@ -87,6 +87,107 @@ afterAll(async () => {
 });
 
 describe("bounded document discovery", () => {
+  it("ranks an older partial title above newer incidental body matches", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-rank-intended",
+          ownerEmail: OWNER,
+          title: "Task Priorities",
+          content: "A durable working projection.",
+          updatedAt: "2026-09-16T12:00:00.000Z",
+        },
+        {
+          id: "search-rank-incidental",
+          ownerEmail: OWNER,
+          title: "Internet is not Ready for the Agentic Wave",
+          content: `${"task material ".repeat(50)}Every prior wave had the same reception.`,
+          updatedAt: "2026-09-17T12:00:00.000Z",
+        },
+      ]);
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "task prio", limit: 20, offset: 0 }),
+    );
+
+    expect(result.documents.map((document) => document.id)).toEqual([
+      "search-rank-intended",
+      "search-rank-incidental",
+    ]);
+  });
+
+  it("keeps exact, contiguous-prefix, and title-word matches in stable tiers", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-rank-tier-exact",
+          ownerEmail: OWNER,
+          title: "Stellar Road",
+          updatedAt: "2000-01-01T00:00:00.000Z",
+        },
+        {
+          id: "search-rank-tier-prefix",
+          ownerEmail: OWNER,
+          title: "Stellar Roadmap",
+          updatedAt: "2026-01-04T00:00:00.000Z",
+        },
+        {
+          id: "search-rank-tier-words",
+          ownerEmail: OWNER,
+          title: "Notes on a stellar roadmap",
+          updatedAt: "2026-01-03T00:00:00.000Z",
+        },
+        {
+          id: "search-rank-tier-description",
+          ownerEmail: OWNER,
+          title: "Field notes",
+          description: "The stellar road ahead.",
+          updatedAt: "2026-01-02T00:00:00.000Z",
+        },
+        {
+          id: "search-rank-tier-body",
+          ownerEmail: OWNER,
+          title: "Imported essay",
+          content: "The stellar road appears in this paragraph.",
+          updatedAt: "2026-01-05T00:00:00.000Z",
+        },
+      ]);
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "stellar road", limit: 20, offset: 0 }),
+    );
+
+    expect(result.documents.map((document) => document.id)).toEqual([
+      "search-rank-tier-exact",
+      "search-rank-tier-prefix",
+      "search-rank-tier-words",
+      "search-rank-tier-description",
+      "search-rank-tier-body",
+    ]);
+  });
+
+  it("ranks across the full authorized result set before pagination", async () => {
+    await getDb().insert(schema.documents).values({
+      id: "search-rank-old-title",
+      ownerEmail: OWNER,
+      title: "Needle Payload Handbook",
+      content: "",
+      updatedAt: "2000-01-01T00:00:00.000Z",
+    });
+
+    const firstPage = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "needle payload", limit: 20, offset: 0 }),
+    );
+
+    expect(firstPage.documents[0]?.id).toBe("search-rank-old-title");
+    expect(firstPage.pagination.totalItems).toBe(206);
+    await getDb()
+      .delete(schema.documents)
+      .where(sql`${schema.documents.id} = 'search-rank-old-title'`);
+  });
+
   it("matches case-insensitively while treating wildcard input literally", async () => {
     await getDb().insert(schema.documents).values({
       id: "search-literal",
@@ -212,7 +313,45 @@ describe("bounded document discovery", () => {
     }
   });
 
-  it("maps a non-null snippet needle for title and body matches with a null body", async () => {
+  it("prefers snippet context containing more positive terms", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-best-window",
+        ownerEmail: OWNER,
+        title: "Best window",
+        content: `EARLY-QUASAR quasar ${"filler ".repeat(60)}EARLY-NEBULA nebula ${"filler ".repeat(60)}LATE quasar nebula together`,
+      });
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "quasar nebula", limit: 10, offset: 0 }),
+    );
+
+    expect(result.documents[0]?.snippet).toContain("quasar nebula");
+    expect(result.documents[0]?.snippet).toContain("LATE");
+    expect(result.documents[0]?.snippet).not.toContain("EARLY-QUASAR");
+    expect(result.documents[0]?.snippet).not.toContain("EARLY-NEBULA");
+  });
+
+  it("preserves a long matching phrase in its anchored snippet", async () => {
+    const phrase = `start-${"long-phrase-".repeat(14)}end`;
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-long-snippet-phrase",
+        ownerEmail: OWNER,
+        title: "Long phrase body match",
+        content: `${"leading context ".repeat(30)}${phrase}${" trailing context".repeat(30)}`,
+      });
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({ query: `"${phrase}"`, limit: 10, offset: 0 }),
+    );
+
+    expect(result.documents[0]?.snippet).toContain(phrase);
+  });
+
+  it("handles title and body matches with a null body", async () => {
     await getDb().execute(
       sql`alter table ${schema.documents} alter column content drop not null`,
     );
@@ -620,6 +759,14 @@ describe("bounded document discovery", () => {
         offset: 0,
       }),
     );
+    const pastLastPage = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "needle payload",
+        parentId: PARENT_ID,
+        limit: 20,
+        offset: 300,
+      }),
+    );
 
     expect(ownerPage.pagination).toMatchObject({
       totalItems: 205,
@@ -631,6 +778,15 @@ describe("bounded document discovery", () => {
       documents: [],
       pagination: {
         totalItems: 0,
+        returnedItems: 0,
+        hasMore: false,
+        nextOffset: null,
+      },
+    });
+    expect(pastLastPage).toMatchObject({
+      documents: [],
+      pagination: {
+        totalItems: 205,
         returnedItems: 0,
         hasMore: false,
         nextOffset: null,

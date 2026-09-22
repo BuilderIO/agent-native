@@ -207,6 +207,7 @@ import {
   useCallback,
   useRef,
   useMemo,
+  type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
@@ -1667,10 +1668,62 @@ function DesignEditor() {
   const [runtimeStructureMoveRequest, setRuntimeStructureMoveRequest] =
     useState<(RuntimeStructureMoveRequest & { screenId: string }) | null>(null);
   const runtimeStructureMoveRevisionRef = useRef(0);
-  const [runtimeStructureInsertRequest, setRuntimeStructureInsertRequest] =
+  const [runtimeStructureInsertRequest, setRuntimeStructureInsertRequestState] =
     useState<(RuntimeStructureInsertRequest & { screenId: string }) | null>(
       null,
     );
+  const runtimeStructurePendingTransactionRef = useRef<string | null>(null);
+  const setRuntimeStructureInsertRequest = useCallback<
+    Dispatch<
+      SetStateAction<
+        (RuntimeStructureInsertRequest & { screenId: string }) | null
+      >
+    >
+  >((next) => {
+    // Cross-screen moves reserve this shared request slot until their
+    // acknowledgement. Most competing commands use a direct request value,
+    // so reject those before React queues state rather than making the caller
+    // appear successful while its iframe operation is silently dropped.
+    if (typeof next !== "function" && next) {
+      const pendingTransactionId =
+        runtimeStructurePendingTransactionRef.current;
+      if (pendingTransactionId && next.transactionId !== pendingTransactionId) {
+        if (DESIGN_EDITOR_DEBUG_LOGS) {
+          console.warn("[design] runtime structure insert admission refused", {
+            pendingTransactionId,
+            requestTransactionId: next.transactionId ?? null,
+          });
+        }
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
+    }
+    setRuntimeStructureInsertRequestState((current) => {
+      const resolved = typeof next === "function" ? next(current) : next;
+      if (resolved === current) return current;
+      const pendingTransactionId =
+        runtimeStructurePendingTransactionRef.current;
+      if (
+        resolved &&
+        pendingTransactionId &&
+        resolved.transactionId !== pendingTransactionId
+      ) {
+        if (DESIGN_EDITOR_DEBUG_LOGS) {
+          console.warn("[design] runtime structure insert admission refused", {
+            pendingTransactionId,
+            requestTransactionId: resolved.transactionId ?? null,
+          });
+        }
+        return current;
+      }
+      if (resolved?.transactionId) {
+        runtimeStructurePendingTransactionRef.current = resolved.transactionId;
+      }
+      return resolved;
+    });
+  }, []);
   const [runtimeStructureDeleteRequest, setRuntimeStructureDeleteRequest] =
     useState<(RuntimeStructureDeleteRequest & { screenId: string }) | null>(
       null,
@@ -9245,7 +9298,10 @@ function DesignEditor() {
     [designSourceType, overviewScreens],
   );
   canEditLiveScreenIdsRef.current = canEditLiveScreens
-    ? liveScreenIds
+    ? new Set([
+        ...liveScreenIds,
+        ...(publicVisualEdit && boardFileId ? [boardFileId] : []),
+      ])
     : new Set();
   const canEditLiveScreen = useCallback(
     (screenId: string | null | undefined) =>
@@ -16185,6 +16241,7 @@ function DesignEditor() {
           boardFileId,
           canEditDesign,
           canEditLiveScreen,
+          canEditLiveBoard: canEditDesign || publicVisualEdit,
           clearPendingOverviewLayerSelectionTimer,
           codeLayerOwnerByNodeIdRef,
           clearPendingHistory: clearPendingHistoryDirections,
@@ -16252,6 +16309,7 @@ function DesignEditor() {
           recordContentHistoryEntry,
           syncUndoRedoState,
           runtimeStructureInsertRevisionRef,
+          runtimeStructurePendingTransactionRef,
           sendRuntimeLayerMoveSemanticHandoff,
           setActiveFileId,
           setCreatedOverviewLayerSelection,
@@ -16271,6 +16329,7 @@ function DesignEditor() {
       boardFileId,
       canEditDesign,
       canEditLiveScreen,
+      publicVisualEdit,
       clearPendingHistoryDirections,
       clearPendingOverviewLayerSelectionTimer,
       getScreenContent,
@@ -16288,9 +16347,15 @@ function DesignEditor() {
   const handleRuntimeStructureInsertRejected = useCallback(
     (reason: string, transactionId?: string) => {
       if (reason.startsWith("verification-")) {
+        if (
+          transactionId &&
+          runtimeStructurePendingTransactionRef.current === transactionId
+        ) {
+          runtimeStructurePendingTransactionRef.current = null;
+        }
         cancelPendingStructureVerification("conflict");
         toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
-        return;
+        return false;
       }
       // Never swallow this: a rejected insert leaves nothing on screen and
       // nothing in the pending list, so a silent return is indistinguishable
@@ -16298,7 +16363,44 @@ function DesignEditor() {
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
+      const isBoardTimeout = reason === "board-drop-timeout";
+      let rollbackScheduled = false;
+      if (
+        isBoardTimeout &&
+        transactionId &&
+        runtimeStructureInsertRequest?.transactionId === transactionId
+      ) {
+        const insertedNodeId = runtimeStructureInsertRequest.html.match(
+          /\bdata-agent-native-node-id\s*=\s*["']([^"']+)["']/i,
+        )?.[1];
+        if (insertedNodeId) {
+          runtimeStructureRollbackRevisionRef.current += 1;
+          setRuntimeStructureRollbackRequest({
+            screenId: runtimeStructureInsertRequest.screenId,
+            requestId: `${transactionId}:timeout-rollback:${runtimeStructureRollbackRevisionRef.current}`,
+            transactionId,
+            selector: "",
+            sourceId: insertedNodeId,
+          });
+          rollbackScheduled = true;
+        } else if (
+          runtimeStructurePendingTransactionRef.current === transactionId
+        ) {
+          // There is no stable target to reconcile. Release the admission
+          // lock so a later runtime edit cannot be blocked forever.
+          runtimeStructurePendingTransactionRef.current = null;
+        }
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+      }
       if (transactionId) {
+        if (
+          !isBoardTimeout &&
+          runtimeStructurePendingTransactionRef.current === transactionId
+        ) {
+          runtimeStructurePendingTransactionRef.current = null;
+        }
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
@@ -16307,8 +16409,15 @@ function DesignEditor() {
         );
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return rollbackScheduled;
     },
-    [cancelPendingStructureVerification, t],
+    [
+      cancelPendingStructureVerification,
+      runtimeStructurePendingTransactionRef,
+      runtimeStructureInsertRequest,
+      setRuntimeStructureRollbackRequest,
+      t,
+    ],
   );
 
   const handleRuntimeStructureInsertApplied = useCallback(
@@ -16340,6 +16449,13 @@ function DesignEditor() {
             ? null
             : current,
         );
+        if (
+          request.transactionId &&
+          runtimeStructurePendingTransactionRef.current ===
+            request.transactionId
+        ) {
+          runtimeStructurePendingTransactionRef.current = null;
+        }
         return;
       }
       recordPendingLiveStructureEdit(
@@ -16376,8 +16492,21 @@ function DesignEditor() {
           ? null
           : current,
       );
+      if (
+        request.transactionId &&
+        runtimeStructureDeleteRequest?.transactionId !==
+          request.transactionId &&
+        runtimeStructurePendingTransactionRef.current === request.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
     },
-    [recordPendingLiveStructureEdit, runtimeStructureInsertRequest],
+    [
+      recordPendingLiveStructureEdit,
+      runtimeStructureDeleteRequest,
+      runtimeStructureInsertRequest,
+      runtimeStructurePendingTransactionRef,
+    ],
   );
 
   const handleRuntimeStructureDeleteApplied = useCallback(
@@ -16413,9 +16542,19 @@ function DesignEditor() {
           removed: true,
         },
       );
+      if (
+        request.transactionId &&
+        runtimeStructurePendingTransactionRef.current === request.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
       setRuntimeStructureDeleteRequest(null);
     },
-    [recordPendingLiveStructureEdit, runtimeStructureDeleteRequest],
+    [
+      recordPendingLiveStructureEdit,
+      runtimeStructureDeleteRequest,
+      runtimeStructurePendingTransactionRef,
+    ],
   );
   const handleRuntimeStructureDeleteRejected = useCallback(
     (details: {
@@ -16447,13 +16586,19 @@ function DesignEditor() {
           sourceId: request.rollbackSourceId,
         });
       }
+      if (
+        request.transactionId &&
+        runtimeStructurePendingTransactionRef.current === request.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
       setRuntimeStructureDeleteRequest(null);
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure delete rejected", details);
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
-    [runtimeStructureDeleteRequest, t],
+    [runtimeStructureDeleteRequest, runtimeStructurePendingTransactionRef, t],
   );
   const discardPendingLiveStructureTransaction = useCallback(
     (transactionId: string) => {
@@ -16501,6 +16646,13 @@ function DesignEditor() {
           runtimeStructureRollbackRequest.transactionId,
         );
       }
+      if (
+        runtimeStructureRollbackRequest?.transactionId &&
+        runtimeStructurePendingTransactionRef.current ===
+          runtimeStructureRollbackRequest.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
       setRuntimeStructureRollbackRequest(null);
       if (!details.applied) {
         toast.error(t("designEditor.toasts.layerMoveFailed"), {
@@ -16511,6 +16663,7 @@ function DesignEditor() {
     [
       discardPendingLiveStructureTransaction,
       runtimeStructureRollbackRequest,
+      runtimeStructurePendingTransactionRef,
       t,
     ],
   );
@@ -27346,6 +27499,30 @@ function DesignEditor() {
                         boardIsActive={activeFileId === boardFileId}
                         boardFileContent={boardFileContent}
                         boardFrameGeometry={boardFrameGeometry}
+                        boardRuntimeStructureInsertRequest={
+                          runtimeStructureInsertRequest?.screenId ===
+                          boardFileId
+                            ? runtimeStructureInsertRequest
+                            : null
+                        }
+                        boardRuntimeStructureRollbackRequest={
+                          runtimeStructureRollbackRequest?.screenId ===
+                          boardFileId
+                            ? runtimeStructureRollbackRequest
+                            : null
+                        }
+                        runtimeStructurePendingTransactionRef={
+                          runtimeStructurePendingTransactionRef
+                        }
+                        onBoardRuntimeStructureInsertRejected={
+                          handleRuntimeStructureInsertRejected
+                        }
+                        onBoardRuntimeStructureInsertApplied={
+                          handleRuntimeStructureInsertApplied
+                        }
+                        onBoardRuntimeStructureRollbackResult={
+                          handleRuntimeStructureRollbackResult
+                        }
                         boardClearSelectionRequest={
                           overviewClearSelectionRequest
                         }
@@ -27385,7 +27562,7 @@ function DesignEditor() {
                         onBoardDrawPrimitive={
                           canEditDesign ? handleBoardDrawPrimitive : undefined
                         }
-                        boardEditMode={canEditDesign}
+                        boardEditMode={canEditDesign || publicVisualEdit}
                         onBoardElementSelect={
                           boardFileId ? handleBoardElementSelect : undefined
                         }

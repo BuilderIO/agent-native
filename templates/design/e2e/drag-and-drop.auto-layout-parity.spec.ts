@@ -80,7 +80,7 @@ const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
 
 function preview(page: Page): Locator {
   return page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .contentFrame()
     .locator("body");
@@ -108,6 +108,67 @@ async function insertionGuideKind(
       ? "inside"
       : "line";
   });
+}
+
+async function heldNestedDropState(
+  page: Page,
+  sourceId: string,
+  targetId: string,
+) {
+  const source = node(page, sourceId);
+  const target = node(page, targetId);
+  const [sourceState, targetState, guide] = await Promise.all([
+    source.evaluate((element) => {
+      return {
+        id: element.getAttribute("data-agent-native-node-id"),
+        parentId:
+          element.parentElement?.getAttribute("data-agent-native-node-id") ??
+          (element.parentElement?.tagName === "BODY" ? "BODY" : null),
+      };
+    }),
+    target.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        id: element.getAttribute("data-agent-native-node-id"),
+        rect: {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        },
+      };
+    }),
+    preview(page).evaluate(() => {
+      const guide = Array.from(
+        document.documentElement.querySelectorAll<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        ),
+      ).find((candidate) => {
+        const style = getComputedStyle(candidate);
+        const rect = candidate.getBoundingClientRect();
+        return style.display !== "none" && rect.width > 0 && rect.height > 0;
+      });
+      if (!guide) return null;
+      const rect = guide.getBoundingClientRect();
+      const style = getComputedStyle(guide);
+      return {
+        display: style.display,
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        kind:
+          parseFloat(style.borderTopWidth) > 0 ? ("inside" as const) : "line",
+      };
+    }),
+  ]);
+  return {
+    sourceId: sourceState.id,
+    sourceParentId: sourceState.parentId,
+    targetId: targetState.id,
+    targetRect: targetState.rect,
+    guide,
+  };
 }
 
 async function selectCanvasNode(page: Page, rawNodeId: string): Promise<void> {
@@ -427,7 +488,29 @@ test("physical drop into a nested frame in a regular flex row still nests", asyn
       frame.y + frame.height / 2,
       { steps: 20 },
     );
-    expect(await insertionGuideKind(page)).toBe("inside");
+    await expect
+      .poll(() => heldNestedDropState(page, "nest-source", "nested-frame"), {
+        timeout: 5_000,
+        message: "nested drop guide did not settle",
+      })
+      .toMatchObject({
+        sourceId: "nest-source",
+        targetId: "nested-frame",
+        guide: { display: "block", kind: "inside" },
+      });
+    const held = await heldNestedDropState(page, "nest-source", "nested-frame");
+    expect(held.sourceParentId).not.toBe("nested-frame");
+    expect(held.targetRect.width).toBeGreaterThan(0);
+    expect(held.targetRect.height).toBeGreaterThan(0);
+    if (!held.guide) throw new Error("nested drop guide disappeared");
+    expect(held.guide.left).toBeLessThanOrEqual(held.targetRect.left + 2);
+    expect(held.guide.top).toBeLessThanOrEqual(held.targetRect.top + 2);
+    expect(held.guide.left + held.guide.width).toBeGreaterThanOrEqual(
+      held.targetRect.left + held.targetRect.width - 2,
+    );
+    expect(held.guide.top + held.guide.height).toBeGreaterThanOrEqual(
+      held.targetRect.top + held.targetRect.height - 2,
+    );
     await page.mouse.up();
     await expect
       .poll(

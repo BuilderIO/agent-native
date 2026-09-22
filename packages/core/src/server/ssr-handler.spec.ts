@@ -911,6 +911,16 @@ describe("createH3SSRHandler", () => {
     expect(html).toContain('src="/docs/app.js"');
   });
 
+  it("strips the mount from React Router's root data URL", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/docs.data"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("GET /.data");
+  });
+
   it("uses APP_BASE_PATH in React Router's mounted hydration context", async () => {
     process.env.APP_BASE_PATH = "/analytics";
     mocks.requestHandler.mockResolvedValueOnce(

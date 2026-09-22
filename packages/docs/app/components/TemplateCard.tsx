@@ -2,6 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
+import { sendAhrefsEvent } from "../lib/ahrefs-analytics";
 import { BuilderImage } from "./builder-image";
 import { sitePathForLocale } from "./docs-locale";
 import { APP_ART } from "./website-redesign/app-art";
@@ -175,12 +176,13 @@ export function TemplateCard({ template }: { template: Template }) {
         data-an-prefetch="viewport"
         to={templatePath}
         className="flex flex-auto flex-col no-underline"
-        onClick={() =>
+        onClick={() => {
           trackEvent("click template", {
             template: template.slug,
             location: "card",
-          })
-        }
+          });
+          sendAhrefsEvent("apps_card_click", { app: template.slug });
+        }}
       >
         <div className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)]">
           {art ? (
