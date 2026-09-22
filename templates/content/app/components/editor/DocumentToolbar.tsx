@@ -647,11 +647,17 @@ export function DocumentToolbar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pageActionsPreservationFrameRef = useRef<number | null>(null);
+  const pageActionsRestoreFrameRef = useRef<number | null>(null);
+  const pageActionsTriggerClosingRef = useRef(false);
+  const pageActionsOpenRef = useRef(false);
 
   useEffect(
     () => () => {
       if (pageActionsPreservationFrameRef.current != null) {
         cancelAnimationFrame(pageActionsPreservationFrameRef.current);
+      }
+      if (pageActionsRestoreFrameRef.current != null) {
+        cancelAnimationFrame(pageActionsRestoreFrameRef.current);
       }
     },
     [],
@@ -980,6 +986,13 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
+  const flushPendingPageActionsRestore = () => {
+    if (pageActionsRestoreFrameRef.current == null) return;
+    cancelAnimationFrame(pageActionsRestoreFrameRef.current);
+    pageActionsRestoreFrameRef.current = null;
+    onRestoreEditorSelection?.();
+  };
+
   return (
     <>
       <div
@@ -1168,7 +1181,9 @@ export function DocumentToolbar({
           <DropdownMenu
             modal={false}
             onOpenChange={(nextOpen) => {
+              pageActionsOpenRef.current = nextOpen;
               if (nextOpen) {
+                flushPendingPageActionsRestore();
                 pageActionsPreservationFrameRef.current = requestAnimationFrame(
                   () => {
                     pageActionsPreservationFrameRef.current = null;
@@ -1180,6 +1195,16 @@ export function DocumentToolbar({
               if (pageActionsPreservationFrameRef.current != null) {
                 cancelAnimationFrame(pageActionsPreservationFrameRef.current);
                 pageActionsPreservationFrameRef.current = null;
+              }
+              if (pageActionsTriggerClosingRef.current) {
+                pageActionsTriggerClosingRef.current = false;
+                pageActionsRestoreFrameRef.current = requestAnimationFrame(
+                  () => {
+                    pageActionsRestoreFrameRef.current = null;
+                    onRestoreEditorSelection?.();
+                  },
+                );
+                return;
               }
               onRestoreEditorSelection?.();
             }}
@@ -1195,14 +1220,21 @@ export function DocumentToolbar({
                     )}
                     aria-label={t("editor.toolbar.morePageActions")}
                     onPointerDownCapture={() => {
+                      if (pageActionsOpenRef.current) {
+                        pageActionsTriggerClosingRef.current = true;
+                        return;
+                      }
+                      flushPendingPageActionsRestore();
                       onCaptureEditorSelection?.(false);
                     }}
                     onKeyDownCapture={(event) => {
+                      if (pageActionsOpenRef.current) return;
                       if (
                         event.key === "Enter" ||
                         event.key === " " ||
                         event.key === "ArrowDown"
                       ) {
+                        flushPendingPageActionsRestore();
                         onCaptureEditorSelection?.(true);
                       }
                     }}

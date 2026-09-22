@@ -221,6 +221,71 @@ describe("DocumentToolbar clipboard behavior", () => {
     expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
   });
 
+  it("retains the captured selection when the trigger closes page actions", async () => {
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.morePageActions"]',
+    )!;
+    const pointerDown = () =>
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+
+    await act(async () => pointerDown());
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+    expect(mocks.captureSelection).toHaveBeenCalledTimes(1);
+
+    await act(async () => pointerDown());
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(mocks.captureSelection).toHaveBeenCalledTimes(1);
+    expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores before recapturing when the trigger rapidly reopens", async () => {
+    const pendingFrames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrame += 1;
+      pendingFrames.set(nextFrame, callback);
+      return nextFrame;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((frame) => {
+      pendingFrames.delete(frame);
+    });
+    const runPendingFrames = () => {
+      const callbacks = [...pendingFrames.values()];
+      pendingFrames.clear();
+      for (const callback of callbacks) callback(performance.now());
+    };
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.morePageActions"]',
+    )!;
+    const pointerDown = () =>
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+
+    await act(async () => pointerDown());
+    runPendingFrames();
+    await act(async () => pointerDown());
+    await act(async () => pointerDown());
+
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+    expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+    expect(mocks.captureSelection).toHaveBeenCalledTimes(2);
+  });
+
   it("cancels deferred selection preservation when page actions closes immediately", async () => {
     const pendingFrames = new Map<number, FrameRequestCallback>();
     let nextFrame = 0;
