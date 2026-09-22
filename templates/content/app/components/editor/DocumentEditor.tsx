@@ -36,7 +36,6 @@ import {
   IconDatabase,
   IconEye,
   IconEyeOff,
-  IconFileText,
   IconLoader2,
   IconX,
 } from "@tabler/icons-react";
