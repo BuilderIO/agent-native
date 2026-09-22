@@ -5672,9 +5672,20 @@ export function createCloudflareModuleStubPlugin() {
 }
 
 /**
- * Dependencies Nitro itself must bundle outside the controlled Yjs output pass.
- * Node and controlled serverless presets keep Yjs external through Nitro;
- * `bundleYjsRuntimeForServerlessOutput` then creates their one portable copy.
+ * React Router's intermediate SSR build externalizes these singleton packages.
+ * Bundle them in the final Node/serverless graph so prebuilt Netlify functions
+ * do not depend on a post-upload install step for SSR.
+ */
+export const NITRO_SSR_RUNTIME_BUNDLED_DEPS = [
+  "react",
+  "react-dom",
+  "react-router",
+  "@tanstack/react-query",
+] as const;
+
+/**
+ * Nitro keeps Yjs external on Node/serverless presets so the controlled
+ * post-build pass can emit one portable runtime module.
  */
 export const NITRO_SERVER_RUNTIME_BUNDLED_DEPS = ["yjs"] as const;
 
@@ -5710,7 +5721,7 @@ export function nitroNoExternalsForPreset(
         isAwsLambdaPreset(targetPreset) ||
         targetPreset === "node" ||
         targetPreset === "node-server"
-      ? []
+      ? NITRO_SSR_RUNTIME_BUNDLED_DEPS
       : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
 }
 
