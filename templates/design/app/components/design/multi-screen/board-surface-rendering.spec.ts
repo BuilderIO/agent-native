@@ -2,12 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import {
   getBoardSurfaceContentBounds,
+  getBoardSurfaceHtml,
   shouldRenderOverviewReviewCanvas,
   shouldRenderEmptyBoardReviewCanvas,
 } from "./board-surface-html";
 import { getBoardSurfaceRenderGeometry } from "./overview-layout";
 
 describe("board surface rendering", () => {
+  it("mounts an inert board document when an existing board file is empty", () => {
+    expect(getBoardSurfaceHtml("<html><body></body></html>")).toContain(
+      "<body></body>",
+    );
+    expect(getBoardSurfaceHtml(undefined)).toBeUndefined();
+    const authored = "<html><body><div>Canvas</div></body></html>";
+    expect(getBoardSurfaceHtml(authored)).toBe(authored);
+  });
+
   it("uses the viewport for a normal-flow app stored as the only board file", () => {
     const appDocument = `<!doctype html><html><body data-agent-native-node-id="body">
       <div data-agent-native-node-id="app" class="app">

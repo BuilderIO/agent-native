@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 
+import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+
 import {
   detectMetricValueColumn,
+  formatSqlChartTooltipLabel,
   formatMetricValue,
   safeDashboardLinkHref,
   sessionReplayHref,
@@ -230,5 +233,21 @@ describe("partial-day time-series helpers", () => {
     expect(result.series).toEqual([
       { key: "signups", solidKey: "signups", partialKey: null },
     ]);
+  });
+});
+
+describe("chart tooltip date labels", () => {
+  const panel = { source: "first-party" } as SqlPanel;
+
+  it("includes the weekday for daily chart keys", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "date")).toBe(
+      "Monday, Jun 22",
+    );
+  });
+
+  it("leaves non-daily chart keys in the compact date format", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "week")).toBe(
+      "Jun 22",
+    );
   });
 });

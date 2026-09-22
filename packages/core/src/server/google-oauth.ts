@@ -32,7 +32,7 @@ import {
 } from "./better-auth-instance.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
-import { getPublicFrameworkPathname } from "./framework-request-handler.js";
+import { getPublicFrameworkPathname } from "./framework-request-context.js";
 import {
   canonicalFrameworkPathname,
   isRetiredInternalFrameworkPath,

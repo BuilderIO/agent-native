@@ -1,8 +1,10 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 
+import { sendAhrefsEvent } from "../../lib/ahrefs-analytics";
 import { copyText } from "./ds/clipboard";
 import { useSnackbar } from "./ds/snackbar";
+import type { StartCtaLocation } from "./start-ctas";
 
 const INSTALL_COMMAND = "npx @agent-native/core@latest create my-app";
 
@@ -28,7 +30,7 @@ const CLASSES = [
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
 ].join(" ");
 
-export function InstallCommand() {
+export function InstallCommand({ location }: { location: StartCtaLocation }) {
   const showSnackbar = useSnackbar();
   const t = useT();
 
@@ -37,6 +39,9 @@ export function InstallCommand() {
     // falsely claiming it worked.
     if (!(await copyText(INSTALL_COMMAND))) return;
     trackEvent("copy install command", { command: INSTALL_COMMAND });
+    sendAhrefsEvent(
+      location === "hero" ? "hero_npx_copy_click" : "footer_npx_copy_click",
+    );
     showSnackbar(t("common.copied"));
   }
 

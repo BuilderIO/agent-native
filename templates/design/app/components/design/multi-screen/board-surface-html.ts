@@ -9,6 +9,14 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
+const EMPTY_BOARD_SURFACE_HTML =
+  "<!DOCTYPE html><html><head></head><body></body></html>";
+
+export function getBoardSurfaceHtml(html: string | undefined) {
+  if (html === undefined) return undefined;
+  return hasBoardSurfaceContent(html) ? html : EMPTY_BOARD_SURFACE_HTML;
+}
+
 export function shouldRenderEmptyBoardReviewCanvas(args: {
   hasSurfaceContent: boolean;
   reviewPinMode: boolean;
