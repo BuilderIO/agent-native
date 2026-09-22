@@ -105,7 +105,7 @@ function isPrimitiveAncestor(
     const parent = primitives.find((primitive) =>
       primitiveMatchesNodeId(primitive, currentParentId),
     );
-    parentId = parent?.parentNodeId ?? parent?.parentProjectionNodeId;
+    parentId = parent?.parentProjectionNodeId ?? parent?.parentNodeId;
   }
   return false;
 }
