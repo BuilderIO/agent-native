@@ -19,6 +19,7 @@ import {
   enqueueDocumentSave,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
+  lifecycleKeepaliveDisposition,
   metadataUpdatesWithPendingTitle,
   pendingCommentTargetMatches,
   pageEditorSessionKey,
@@ -47,9 +48,45 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
-  it("does not adopt a displaced winner after newer typing takes ownership", async () => {
+  it("falls back when keepalive stale guards omit changed work", () => {
+    expect(
+      lifecycleKeepaliveDisposition({
+        titleChanged: false,
+        contentChanged: true,
+        sendsTitle: false,
+        sendsContent: false,
+      }),
+    ).toBe("fallback");
+    expect(
+      lifecycleKeepaliveDisposition({
+        titleChanged: false,
+        contentChanged: false,
+        sendsTitle: false,
+        sendsContent: false,
+      }),
+    ).toBe("skip");
+    expect(
+      lifecycleKeepaliveDisposition({
+        titleChanged: true,
+        contentChanged: true,
+        sendsTitle: true,
+        sendsContent: false,
+      }),
+    ).toBe("fallback");
+    expect(
+      lifecycleKeepaliveDisposition({
+        titleChanged: true,
+        contentChanged: true,
+        sendsTitle: true,
+        sendsContent: true,
+      }),
+    ).toBe("send");
+  });
+
+  it("does not adopt a displaced winner after a newer editor generation takes ownership", async () => {
     let releaseRetention!: () => void;
-    let currentVersion = 1;
+    const currentVersion = 1;
+    let currentGeneration = 1;
     const retain = vi.fn(
       () =>
         new Promise<void>((resolve) => {
@@ -60,11 +97,13 @@ describe("document editor layout", () => {
     const result = retainThenAdoptDisplacedWinner({
       ownerVersion: 1,
       currentVersion: () => currentVersion,
+      ownerGeneration: 1,
+      currentGeneration: () => currentGeneration,
       retain,
       adopt,
     });
 
-    currentVersion = 2;
+    currentGeneration = 2;
     releaseRetention();
 
     await expect(result).resolves.toBe(false);
@@ -1786,7 +1825,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const teardown = source.slice(
-      source.indexOf("const flushForTeardown"),
+      source.indexOf("const sendKeepaliveSave"),
       source.indexOf("const onVisibilityChange"),
     );
 
@@ -1803,6 +1842,26 @@ describe("document editor layout", () => {
     );
     expect(teardown).toContain("{ loadedContentWasEmpty }");
     expect(teardown).toContain("{ loadedUpdatedAt }");
+    expect(teardown).toContain("const attempt = tryCallActionKeepalive(");
+    expect(teardown).toContain('"update-document"');
+  });
+
+  it("starts an unload-safe copy before processing a hidden-tab save", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const hidden = source.slice(
+      source.indexOf("const onVisibilityChange"),
+      source.indexOf(
+        'window.addEventListener("pagehide"',
+        source.indexOf("const onVisibilityChange"),
+      ),
+    );
+
+    expect(hidden.indexOf("sendKeepaliveSave(pending)")).toBeLessThan(
+      hidden.indexOf("flushPendingDocumentSave(pending)"),
+    );
   });
 
   it("preserves unobserved overlapping edits before adopting the winner", () => {

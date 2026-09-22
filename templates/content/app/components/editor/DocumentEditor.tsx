@@ -12,6 +12,7 @@ import {
   actionErrorMessage,
   callAction,
   setClientAppState,
+  tryCallActionKeepalive,
   useAvatarUrl,
   useDbSync,
   useSession,
@@ -1130,14 +1131,35 @@ export function shouldSubmitDocumentContent(input: {
   return input.changed && (!input.stale || input.canRebase);
 }
 
+export function lifecycleKeepaliveDisposition(input: {
+  titleChanged: boolean;
+  contentChanged: boolean;
+  sendsTitle: boolean;
+  sendsContent: boolean;
+}): "skip" | "send" | "fallback" {
+  if (
+    (input.titleChanged && !input.sendsTitle) ||
+    (input.contentChanged && !input.sendsContent)
+  )
+    return "fallback";
+  if (input.sendsTitle || input.sendsContent) return "send";
+  return "skip";
+}
+
 export async function retainThenAdoptDisplacedWinner(input: {
   ownerVersion: number;
   currentVersion: () => number;
+  ownerGeneration: number;
+  currentGeneration: () => number;
   retain: () => Promise<void>;
   adopt: () => void;
 }) {
   await input.retain();
-  if (input.currentVersion() !== input.ownerVersion) return false;
+  if (
+    input.currentVersion() !== input.ownerVersion ||
+    input.currentGeneration() !== input.ownerGeneration
+  )
+    return false;
   input.adopt();
   return true;
 }
@@ -2758,6 +2780,8 @@ function PageEditorSessionBody({
       };
       const contentEditVersion =
         options.contentEditVersion ?? contentEditVersionRef.current;
+      const editorEditGeneration =
+        options.editGeneration ?? editorEditGenerationRef.current;
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
         serverContent: documentContentRef.current,
         serverUpdatedAt: documentUpdatedAtRef.current,
@@ -2866,6 +2890,8 @@ function PageEditorSessionBody({
           const adopted = await retainThenAdoptDisplacedWinner({
             ownerVersion: contentEditVersion,
             currentVersion: () => contentEditVersionRef.current,
+            ownerGeneration: editorEditGeneration,
+            currentGeneration: () => editorEditGenerationRef.current,
             retain: () =>
               reconcileRetainRef.current({
                 localTitle: title,
@@ -3310,14 +3336,12 @@ function PageEditorSessionBody({
   useEffect(() => {
     if (!canEdit) return;
 
-    const flushForTeardown = () => {
-      const pending = pendingDocumentSaveRef.current;
-      if (!pending || !pending.canEditWhenQueued) return;
+    const sendKeepaliveSave = (pending: PendingDocumentSave) => {
+      if (!pending.canEditWhenQueued) return false;
 
       // Local-file docs can't be flushed via keepalive fetch; best-effort only.
       if (isLocalFileDocument || isLinkedLocalSourceDocument) {
-        flushPendingDocumentSave(pending);
-        return;
+        return false;
       }
 
       // Mirror saveDocumentImmediately's per-field stale guard + diff so we only
@@ -3332,24 +3356,25 @@ function PageEditorSessionBody({
         !!lastSavedContentRef.current.revision &&
         documentRevisionRef.current !== lastSavedContentRef.current.revision;
 
+      const titleChanged = pending.title !== lastSavedTitleRef.current.title;
+      const contentChanged =
+        pending.content !== lastSavedContentRef.current.content;
       const updates: Record<string, string> = {};
-      if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {
+      if (titleChanged && !titleIsStale) {
         updates.title = pending.title;
       }
-      if (
-        pending.content !== lastSavedContentRef.current.content &&
-        !contentIsStale
-      ) {
+      if (contentChanged && !contentIsStale) {
         updates.content = pending.content;
       }
-      if (Object.keys(updates).length === 0) return;
-
-      clearTimeout(pending.timeout);
-      saveTimeoutRef.current = null;
-      pendingDocumentSaveRef.current = null;
+      const disposition = lifecycleKeepaliveDisposition({
+        titleChanged,
+        contentChanged,
+        sendsTitle: updates.title !== undefined,
+        sendsContent: updates.content !== undefined,
+      });
+      if (disposition !== "send") return disposition === "skip";
 
       try {
-        const url = agentNativePath("/_agent-native/actions/update-document");
         // Include the same CAS guard as the normal save path: if content is
         // going out, tag it with the last content snapshot this editor
         // reconciled so a teardown flush can't clobber a concurrent write
@@ -3374,43 +3399,52 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (lastSavedContentRef.current.updatedAt ?? undefined)
             : undefined;
-        const body = JSON.stringify({
-          id: documentId,
-          historySessionId: pending.historySessionId,
-          editorSessionId: pending.editorSessionId,
-          editorEditGeneration: pending.editGeneration,
-          editorSnapshotTitle: pending.title,
-          editorSnapshotContent: pending.content,
-          ...updates,
-          ...(loadedContentWasEmpty !== undefined
-            ? { loadedContentWasEmpty }
-            : {}),
-          ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
-          ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
-          ...(baseRevision !== undefined ? { baseRevision } : {}),
-          ...(updates.title !== undefined
-            ? { baseTitle: lastSavedTitleRef.current.title }
-            : {}),
-        });
-        const ok = fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            // Tag as a browser-originated call (ctx.caller = "frontend") so this
-            // never lights the AI-editing flag.
-            "X-Agent-Native-Frontend": "1",
+        const attempt = tryCallActionKeepalive(
+          "update-document",
+          {
+            id: documentId,
+            historySessionId: pending.historySessionId,
+            editorSessionId: pending.editorSessionId,
+            editorEditGeneration: pending.editGeneration,
+            editorSnapshotTitle: pending.title,
+            editorSnapshotContent: pending.content,
+            ...updates,
+            ...(loadedContentWasEmpty !== undefined
+              ? { loadedContentWasEmpty }
+              : {}),
+            ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
+            ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+            ...(baseRevision !== undefined ? { baseRevision } : {}),
+            ...(updates.title !== undefined
+              ? { baseTitle: lastSavedTitleRef.current.title }
+              : {}),
           },
-          body,
-          keepalive: true,
-          cache: "no-store",
-        });
-        void Promise.resolve(ok).catch(() => {
+          {
+            headers: {
+              // Tag as a browser-originated call (ctx.caller = "frontend") so this
+              // never lights the AI-editing flag.
+              "X-Agent-Native-Frontend": "1",
+            },
+          },
+        );
+        if (!attempt.accepted) return false;
+        void attempt.completion.catch(() => {
           /* Page is going away; nothing more we can do. */
         });
+        return true;
       } catch {
-        // Fall back to the async flush if the keepalive fetch couldn't start.
-        flushPendingDocumentSave(pending);
+        // coercion-ok: false explicitly triggers the ordinary guarded fallback.
+        return false;
       }
+    };
+
+    const flushForTeardown = () => {
+      const pending = pendingDocumentSaveRef.current;
+      if (!pending || !pending.canEditWhenQueued) return;
+      clearTimeout(pending.timeout);
+      saveTimeoutRef.current = null;
+      pendingDocumentSaveRef.current = null;
+      if (!sendKeepaliveSave(pending)) flushPendingDocumentSave(pending);
     };
 
     const onVisibilityChange = () => {
@@ -3419,6 +3453,11 @@ function PageEditorSessionBody({
       if (!pending) return;
       clearTimeout(pending.timeout);
       saveTimeoutRef.current = null;
+      pendingDocumentSaveRef.current = null;
+      // A keepalive copy survives an immediate browser freeze. The ordinary
+      // queued save still processes the acknowledgement while the tab remains
+      // alive; both carry the same editor identity and generation.
+      sendKeepaliveSave(pending);
       void flushPendingDocumentSave(pending).finally(() => {
         if (pendingDocumentSaveRef.current === pending) {
           pendingDocumentSaveRef.current = null;
