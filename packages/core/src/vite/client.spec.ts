@@ -2081,7 +2081,7 @@ describe("agentNative Vite plugin preset", () => {
     }
   });
 
-  it("externalizes singleton and native deps for production SSR builds", async () => {
+  it("keeps the production SSR graph unified apart from native deps", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
 
@@ -2095,7 +2095,7 @@ describe("agentNative Vite plugin preset", () => {
     )) as any;
 
     expect(config.ssr.external).toContain("yjs");
-    expect(config.ssr.external).toEqual(
+    expect(config.ssr.external).not.toEqual(
       expect.arrayContaining([
         "react",
         "react-dom",
