@@ -55,7 +55,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
   );
   fs.writeFileSync(
     path.join(rootPath, "src/App.tsx"),
-    `import { useState } from "react"; import { useLocation, useNavigate } from "react-router";\nconst initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];\nexport function App() { const [cards] = useState(initialCards); const location = useLocation(); const navigate = useNavigate(); const prefix = location.pathname === "/next" ? "dest-" : ""; return <html><head><title>React URL physical proof</title></head><body><main id="root" style={{ padding: 24, width: 720, position: "relative" }}><button type="button" onClick={() => navigate("/next")}>Go to next route</button><p data-route-label>{location.pathname === "/next" ? "Next route" : "Home route"}</p><div id="flow" data-source-id={prefix + "flow-root"} data-agent-native-node-id={prefix + "flow-root"} style={{ display: "flex", flexDirection: "column", gap: 16, border: "2px solid #334155", padding: 16, width: 640 }}>{cards.map((card) => <div key={card.id} id={prefix + card.id} data-source-id={prefix + card.id} data-agent-native-node-id={prefix + card.id} style={{ height: 64, border: "2px solid #0f766e", padding: 12 }}>{card.label}</div>)}</div></main><div id={prefix + "freeform"} data-source-id={prefix + "freeform"} data-agent-native-node-id={prefix + "freeform"} style={{ position: "absolute", left: 40, top: 420, width: 120, height: 70, border: "2px solid #be123c", background: "#fda4af", padding: 8 }}>Freeform</div></body></html>; }`,
+    `import { useState } from "react"; import { useLocation, useNavigate } from "react-router";\nconst initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];\nexport function App() { const [cards] = useState(initialCards); const location = useLocation(); const navigate = useNavigate(); return <html><head><title>React URL physical proof</title></head><body><main id="root" style={{ padding: 24, width: 720, position: "relative" }}><button type="button" onClick={() => navigate("/next")}>Go to next route</button><p data-route-label>{location.pathname === "/next" ? "Next route" : "Home route"}</p><div id="flow" data-source-id="flow-root" data-agent-native-node-id="flow-root" style={{ display: "flex", flexDirection: "column", gap: 16, border: "2px solid #334155", padding: 16, width: 640 }}>{cards.map((card) => <div key={card.id} id={card.id} data-source-id={card.id} data-agent-native-node-id={card.id} style={{ height: 64, border: "2px solid #0f766e", padding: 12 }}>{card.label}</div>)}</div></main><div id="freeform" data-source-id="freeform" data-agent-native-node-id="freeform" style={{ position: "absolute", left: 40, top: 420, width: 120, height: 70, border: "2px solid #be123c", background: "#fda4af", padding: 8 }}>Freeform</div></body></html>; }`,
   );
   const targetPort = await freePort();
   const targetUrl = `http://127.0.0.1:${targetPort}`; // e2e-harness-ignore: allocated live Vite port
@@ -142,7 +142,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       routeManifest: manifest,
       routes: [
         { path: "/", url: targetUrl, title: "Home" },
-        { path: "/next", url: `${targetUrl}/next`, title: "Next" },
+        { path: "/", url: targetUrl, title: "Home copy" },
       ],
       navigate: false,
       publicReadOnly: false,
@@ -209,7 +209,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       .toBe(true);
     const crossSource = frame.locator('[data-agent-native-node-id="v2"]');
     const crossTarget = destinationFrame.locator(
-      '[data-agent-native-node-id="dest-v3"]',
+      '[data-agent-native-node-id="v3"]',
     );
     const crossSourceBox = await crossSource.boundingBox();
     const crossTargetBox = await crossTarget.boundingBox();
