@@ -1270,6 +1270,7 @@ function normalizeBuilderDesignSystemStatus(
  * consumer shares this one definition rather than re-deriving the comparison.
  */
 export function isBuilderDesignSystemReadyByCount(docCount: number): boolean {
+  debugger;
   return docCount > 0;
 }
 

@@ -10,7 +10,7 @@ import {
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
+import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -130,7 +131,7 @@ export function NewDeckReferenceStep({
   const t = useT();
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
-  >(defaultDesignSystemId);
+  >(resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId));
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
@@ -148,21 +149,49 @@ export function NewDeckReferenceStep({
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
+  // True while the picker still reflects an auto-applied default rather than
+  // an explicit user choice, so a default that resolves after this step is
+  // already open can still land - see the hydration effects below.
+  const designSystemAutoRef = useRef(true);
+  const referenceDeckAutoRef = useRef(true);
+
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
   const sortedDecks = sortDecksByRecency(decks);
   const selectedReferenceDeck = selectedReferenceDeckId
     ? deckById.get(selectedReferenceDeckId)
     : undefined;
+  const hasSelection = Boolean(
+    selectedDesignSystemId ||
+    selectedReferenceDeckId ||
+    selectedSource?.value.trim(),
+  );
 
   useEffect(() => {
     if (!open) return;
-    setSelectedDesignSystemId(defaultDesignSystemId);
+    designSystemAutoRef.current = true;
+    referenceDeckAutoRef.current = true;
+    setSelectedDesignSystemId(
+      resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
+    );
     setSelectedReferenceDeckId(defaultReferenceDeckId);
     setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !designSystemAutoRef.current) return;
+    setSelectedDesignSystemId(
+      resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
+    );
+  }, [open, designSystems, defaultDesignSystemId]);
+
+  useEffect(() => {
+    if (!open || !referenceDeckAutoRef.current) return;
+    setSelectedReferenceDeckId(defaultReferenceDeckId);
+    setReferenceDeckTouched(defaultReferenceDeckId !== null);
+  }, [open, decks, defaultReferenceDeckId]);
 
   useEffect(() => {
     if (open) setContinuing(false);
@@ -195,7 +224,7 @@ export function NewDeckReferenceStep({
   };
 
   const handleContinue = async () => {
-    if (busy) return;
+    if (busy || !hasSelection) return;
     const trimmedSource =
       selectedSource && selectedSource.value.trim()
         ? { ...selectedSource, value: selectedSource.value.trim() }
@@ -577,7 +606,11 @@ export function NewDeckReferenceStep({
           type="button"
           onClick={() => void handleContinue()}
           aria-busy={busy}
-          disabled={busy || Boolean(selectedSource && !selectedSource.value.trim())}
+          disabled={
+            busy ||
+            !hasSelection ||
+            Boolean(selectedSource && !selectedSource.value.trim())
+          }
         >
           {importing || continuing
             ? importingLabel
