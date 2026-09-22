@@ -1719,9 +1719,9 @@ export function DesignCanvas({
   const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
   // A trusted message can arrive from the lightweight hit-test/runtime bridge
-  // before the full editor-chrome listener has attached. Keep runtime DOM
-  // mutations behind the explicit editor-chrome handshake; otherwise an
-  // empty board can consume a one-shot insert before its listener exists.
+  // before the full editor-chrome listener has attached. Keep every one-shot
+  // editor mutation behind the explicit editor-chrome handshake; otherwise an
+  // empty board can consume a command before its listener exists.
   const editorChromeReadyRef = useRef(false);
   const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
@@ -1735,24 +1735,12 @@ export function DesignCanvas({
     if (!win) return;
     const queued = pendingOneShotMessagesRef.current;
     if (queued.length === 0) return;
-    const flushable: unknown[] = [];
-    const stillWaiting: unknown[] = [];
-    queued.forEach((message) => {
-      const type =
-        message && typeof message === "object" && "type" in message
-          ? (message as { type?: unknown }).type
-          : undefined;
-      if (
-        type === "runtime-structure-insert" &&
-        !editorChromeReadyRef.current
-      ) {
-        stillWaiting.push(message);
-      } else {
-        flushable.push(message);
-      }
-    });
-    pendingOneShotMessagesRef.current = stillWaiting;
-    flushable.forEach((message) => win.postMessage(message, "*"));
+    // Keep the queue as one ordered transaction. Partitioning only the
+    // runtime-insert messages lets a later style/delete/rename command pass
+    // the still-unready chrome and overtake the insert it depends on.
+    if (!editorChromeReadyRef.current) return;
+    pendingOneShotMessagesRef.current = [];
+    queued.forEach((message) => win.postMessage(message, "*"));
   }, []);
   const bridgeReadinessProbeTimerRef = useRef<number | undefined>(undefined);
   const probeBridgeReadinessUntilDrained = useCallback(() => {
@@ -1811,20 +1799,11 @@ export function DesignCanvas({
     (message: unknown) => {
       const iframe = iframeRef.current;
       const win = iframe?.contentWindow;
-      const type =
-        message && typeof message === "object" && "type" in message
-          ? (message as { type?: unknown }).type
-          : undefined;
-      const requiresEditorChromeReady = type === "runtime-structure-insert";
       // A one-shot prop can arrive in the same render that first creates the
       // iframe. Keep it queued even when the ref/contentWindow is not attached
       // yet; otherwise the effect records its request id as handled and the
       // command is lost permanently before the bridge can announce readiness.
-      if (
-        !win ||
-        !bridgeReadyRef.current ||
-        (requiresEditorChromeReady && !editorChromeReadyRef.current)
-      ) {
+      if (!win || !bridgeReadyRef.current || !editorChromeReadyRef.current) {
         pendingOneShotMessagesRef.current.push(message);
         // The readiness recovery in the message handler below is PASSIVE: it
         // waits for the frame to say something first. A live-edit screen keeps

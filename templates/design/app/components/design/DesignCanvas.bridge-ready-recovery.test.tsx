@@ -139,6 +139,36 @@ describe("DesignCanvas one-shot bridge queue", () => {
       ),
     ).toHaveLength(0);
 
+    const sendStyleChangeForScreen = (
+      window as unknown as {
+        __designCanvasSendStyleForScreen?: (
+          screenId: string,
+          selector: string,
+          property: string,
+          value: string,
+        ) => boolean;
+      }
+    ).__designCanvasSendStyleForScreen;
+    await vi.waitFor(() =>
+      expect(sendStyleChangeForScreen).toBeTypeOf("function"),
+    );
+    await act(async () => {
+      expect(
+        sendStyleChangeForScreen!(
+          "screen-live",
+          "#anchor",
+          "borderRadius",
+          "12px",
+        ),
+      ).toBe(true);
+    });
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type === "style-change",
+      ),
+    ).toHaveLength(0);
+
     // Ordinary bridge traffic proves the document is reachable, but not that
     // the editor-chrome message listener is attached yet.
     await act(async () => {
@@ -191,6 +221,17 @@ describe("DesignCanvas one-shot bridge queue", () => {
       placement: "after",
       anchorSourceId: "drop-1",
     });
+    const relevantTypes = posted
+      .map((message) => (message as { type?: string } | null)?.type)
+      .filter(
+        (type) =>
+          type === "runtime-structure-insert" || type === "style-change",
+      );
+    expect(relevantTypes).toEqual([
+      "runtime-structure-insert",
+      "runtime-structure-insert",
+      "style-change",
+    ]);
   });
 
   /**
@@ -339,6 +380,15 @@ describe("DesignCanvas one-shot bridge queue", () => {
         }),
       );
     });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
 
     expect(typesOf("style-change")).toEqual([
       {
@@ -380,6 +430,15 @@ describe("DesignCanvas one-shot bridge queue", () => {
         }),
       );
     });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
     expect(typesOf("style-change")).toContainEqual({
       type: "style-change",
       selector: "#card",
@@ -399,6 +458,15 @@ describe("DesignCanvas one-shot bridge queue", () => {
             correlationId: "",
             status: false,
           },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
           origin: bridgeUrl,
           source: iframeWindow,
         }),
@@ -518,6 +586,15 @@ describe("DesignCanvas one-shot bridge queue", () => {
             correlationId: "",
             status: false,
           },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
           origin: bridgeUrl,
           source: iframeWindow,
         }),
