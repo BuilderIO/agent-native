@@ -464,9 +464,9 @@ describe("live insert lifecycle", () => {
         expect(await inserted.locator("label").getAttribute("for")).toBe(
           insertedId,
         );
-        const insertedIds = await inserted.locator("[id]").evaluateAll((nodes) =>
-          nodes.map((node) => node.id),
-        );
+        const insertedIds = await inserted
+          .locator("[id]")
+          .evaluateAll((nodes) => nodes.map((node) => node.id));
         expect(new Set(insertedIds).size).toBe(insertedIds.length);
         expect(
           await inserted.getAttribute("data-agent-native-runtime-instance-id"),
