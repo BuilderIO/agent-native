@@ -740,11 +740,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     setCrossScreenDragActive(false);
   }, []);
-  useEffect(() => () => {
-    if (boardCrossScreenDropTimeoutRef.current !== null) {
-      window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
-    }
-  });
+  useEffect(
+    () => () => {
+      if (boardCrossScreenDropTimeoutRef.current !== null) {
+        window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+      }
+    },
+    [],
+  );
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
   const renderedScreenIdsRef = useRef<Set<string>>(new Set());
