@@ -1175,13 +1175,11 @@ describe("Builder design-system helpers", () => {
         "https://builder.example.test/design-systems/v1";
       vi.stubGlobal(
         "fetch",
-        vi
-          .fn()
-          .mockResolvedValue(
-            new Response(JSON.stringify({ plan: "pro", current: 1, max: 3 }), {
-              status: 200,
-            }),
-          ),
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ plan: "pro", current: 1, max: 3 }), {
+            status: 200,
+          }),
+        ),
       );
 
       await expect(
