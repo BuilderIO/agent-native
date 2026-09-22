@@ -2720,6 +2720,18 @@ describe("copyInstalledExternalSsrPackages", () => {
       path.join(reactQueryModernDir, "index.js"),
       "export {};\n",
     );
+    const reactQueryLegacyDir = path.join(
+      nodeModules,
+      "@tanstack",
+      "react-query",
+      "build",
+      "legacy",
+    );
+    fs.mkdirSync(reactQueryLegacyDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactQueryLegacyDir, "index.cjs"),
+      "module.exports = {};\n",
+    );
     fs.mkdirSync(
       path.join(
         nodeModules,
@@ -2813,6 +2825,19 @@ describe("copyInstalledExternalSsrPackages", () => {
         path.join(
           serverDir,
           "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "legacy",
+          "index.cjs",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
           "react-dom",
           "cjs",
           "react-dom-profiling.profiling.js",
@@ -2859,7 +2884,7 @@ describe("copyInstalledExternalSsrPackages", () => {
           "index.cjs",
         ),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       fs.existsSync(
         path.join(

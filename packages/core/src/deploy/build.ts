@@ -3737,6 +3737,7 @@ function pruneExternalSsrPackageArtifacts(
   }
   if (packageName.startsWith("@tanstack/")) {
     for (const cjsFile of fs.globSync("**/*.cjs", { cwd: packageDir })) {
+      if (cjsFile.startsWith("build/modern/")) continue;
       fs.rmSync(path.join(packageDir, cjsFile), { force: true });
     }
     for (const declaration of fs.globSync("**/*.d.cts", { cwd: packageDir })) {
