@@ -7,6 +7,7 @@ import {
   clearCodeLayerProjectionCache,
   ensureCodeLayerNodeIdsInHtml,
   findEnclosingTemplateClose,
+  hasCanonicalCodeLayerNodeIds,
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   stripEditorOnlyAttributes,
@@ -51,12 +52,24 @@ describe("code-layer projection cache", () => {
     expect(otherFile.source.fileId).toBe("file-2");
   });
 
-  it("evicts the least recently used document past the cache bound", () => {
+  it("holds every screen of a large design", () => {
+    clearCodeLayerProjectionCache();
+    const screens = Array.from(
+      { length: 300 },
+      (_, i) => `<main><p>screen-${i}</p></main>`,
+    );
+    const first = screens.map((html) => buildCodeLayerProjection(html));
+    screens.forEach((html, i) =>
+      expect(buildCodeLayerProjection(html)).toBe(first[i]),
+    );
+  });
+
+  it("evicts the least recently used document past the size bound", () => {
     clearCodeLayerProjectionCache();
     const first = buildCodeLayerProjection("<main><p>doc-0</p></main>");
-    for (let i = 1; i <= 24; i += 1) {
-      buildCodeLayerProjection(`<main><p>doc-${i}</p></main>`);
-    }
+    const large = `<main><p>${"x".repeat(16_000_000)}</p></main>`;
+    const kept = buildCodeLayerProjection(large);
+    expect(buildCodeLayerProjection(large)).toBe(kept);
     expect(buildCodeLayerProjection("<main><p>doc-0</p></main>")).not.toBe(
       first,
     );
@@ -71,6 +84,27 @@ describe("code-layer projection cache", () => {
       // cold ones streaming past it.
       expect(buildCodeLayerProjection("<main><p>keep</p></main>")).toBe(kept);
     }
+  });
+
+  // Every distinct source of the same (here empty) document is its own entry;
+  // charging only document chars would let them grow without bound.
+  it("evicts entries of one document by source", () => {
+    clearCodeLayerProjectionCache();
+    const project = (revision: number) =>
+      buildCodeLayerProjection("", {
+        source: {
+          kind: "remote-url",
+          url: "http://localhost:3000/",
+          revision: `r${revision}`,
+        },
+      });
+    const first = project(0);
+    const kept = project(1);
+    for (let i = 2; i <= 10_000; i += 1) {
+      project(i);
+      if (i % 1_000 === 0) expect(project(1)).toBe(kept);
+    }
+    expect(project(0)).not.toBe(first);
   });
 });
 
@@ -1455,6 +1489,36 @@ describe("applyVisualEdit", () => {
     expect(patch.content).toContain(
       `Build <span style="color: red">faster</span>`,
     );
+  });
+
+  it("detects canonical node ids exactly when stamping would change nothing", () => {
+    const id = (value: string) => ` data-agent-native-node-id="${value}"`;
+    const cases = [
+      "",
+      "<main><p>No ids</p></main>",
+      `<main${id("a")}><p${id("b")}>Ids</p></main>`,
+      `<main${id("a")}><p>One missing</p></main>`,
+      `<main${id("a")}><p${id("a")}>Duplicate</p></main>`,
+      `<main${id("a")}><p${id("b")}${id("c")}>Two attributes</p></main>`,
+      `<main${id("a")}><p${id(" ")}>Blank</p></main>`,
+      `<main${id("a")}><p data-agent-native-node-id>Boolean</p></main>`,
+      `<main${id("a")}><p title="x data-agent-native-node-id=q"${id("b")}>In a value</p></main>`,
+      `<main${id("a")}><svg${id("s")}><path d="M0 0"/></svg></main>`,
+      `<main${id("a")}><template${id("t")}><i>Child</i></template></main>`,
+      `<main${id("a")}><template><i${id("i")}>Child</i></template></main>`,
+      `<html><head><title>T</title><style>p{}</style></head><body${id("b")}><script>if (a<b) x()</script><p${id("p")}>x</p></body></html>`,
+      `<main${id("a")}><textarea${id("t")}><p>raw</p></textarea></main>`,
+      `<ul${id("u")}><li${id("1")}>One<li${id("2")}>Two</ul>`,
+      `<main${id("a")}><div${id("b")} data-x="a > b">Quoted</div></main>`,
+      `<main${id("a")}><img${id("b")}/><br></main>`,
+    ];
+    for (const html of cases) {
+      const stamped = ensureCodeLayerNodeIdsInHtml(html);
+      expect(hasCanonicalCodeLayerNodeIds(html), html).toBe(!stamped.changed);
+      expect(hasCanonicalCodeLayerNodeIds(stamped.content), html).toBe(
+        !ensureCodeLayerNodeIdsInHtml(stamped.content).changed,
+      );
+    }
   });
 
   it("stamps stable node ids and removes nodes by source span", () => {

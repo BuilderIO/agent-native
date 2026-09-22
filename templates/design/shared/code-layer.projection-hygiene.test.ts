@@ -32,6 +32,59 @@ describe("layer names never leak source code", () => {
 
     expect(heading?.textSnippet).toBe("Hello there friend");
   });
+
+  // Ancestors reuse each child's read instead of re-reading its bytes, so
+  // these pin that the reused text matches reading the whole content.
+  it.each([
+    [
+      `<section><h2> Hello&nbsp;<b>big</b>&amp;<i> small </i></h2><p>tail &#x26;lt; end</p></section>`,
+      [
+        ["section", "Hello big & small tail < end"],
+        ["h2", "Hello big & small"],
+        ["b", "big"],
+        ["i", "small"],
+        ["p", "tail < end"],
+      ],
+    ],
+    [
+      `<div><span title="a > b" x-show="n > 0">kept</span> after</div>`,
+      [
+        ["div", "kept after"],
+        ["span", "kept"],
+      ],
+    ],
+    [
+      `<ul><li>one<li>two</ul>`,
+      [
+        ["ul", "one two"],
+        ["li", "one"],
+        ["li", "two"],
+      ],
+    ],
+    // The span's `<'` never closes inside it, so its read stops at its own
+    // end; the section must read past that instead of reusing it.
+    [
+      `<section><span>a <'</span>b'> c</section>`,
+      [
+        ["section", "a c"],
+        ["span", "a"],
+      ],
+    ],
+  ])("reads nested text for %s", (html, expected) => {
+    expect(project(html).map((node) => [node.tag, node.textSnippet])).toEqual(
+      expected,
+    );
+  });
+
+  it("truncates text gathered across children", () => {
+    const long = "word ".repeat(40).trim();
+    const [article, first] = project(
+      `<article><p>${long}</p><p>more</p></article>`,
+    );
+
+    expect(article?.textSnippet).toBe(`${long.slice(0, 157)}...`);
+    expect(first?.textSnippet).toBe(`${long.slice(0, 157)}...`);
+  });
 });
 
 describe("boxless void metadata is not a layer", () => {
