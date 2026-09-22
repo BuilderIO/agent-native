@@ -17,7 +17,7 @@ const SYSTEM_ONE_CAPABILITY: OnboardingCapability = {
   required: false,
   suggested: true,
   builderIncluded: true,
-  keySummary: "Optional direct JEV_API_KEY; Builder-managed Jev when available",
+  keySummary: "Jev decision model key",
   why: "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request. Use Builder-managed access when available, or add a direct JEV_API_KEY.",
 };
 
@@ -100,10 +100,10 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Image generation",
         required: true,
         builderIncluded: true,
-        keySummary: "Builder credits or an image provider key",
+        keySummary: "Image generation",
         labelKey: "agentChat.onboarding.capability.assetsImageGeneration.label",
         keySummaryKey:
-          "agentChat.onboarding.capability.assetsImageGeneration.keySummary",
+          "agentChat.onboarding.capability.assetsImageGeneration.label",
         whyKey: "agentChat.onboarding.capability.assetsImageGeneration.why",
         why: "Image generation is the core workflow for creating on-brand assets.",
       },
@@ -126,7 +126,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         required: false,
         suggested: true,
         builderIncluded: true,
-        keySummary: "S3-compatible endpoint, bucket, access key, and secret",
+        keySummary: "Media storage",
         why: "Generated files need a durable place to live before they can be shared.",
       },
     ],
@@ -185,10 +185,10 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Object storage",
         required: true,
         builderIncluded: true,
-        keySummary: "Builder storage or an S3-compatible bucket",
+        keySummary: "Object storage",
         labelKey: "agentChat.onboarding.capability.clipsObjectStorage.label",
         keySummaryKey:
-          "agentChat.onboarding.capability.clipsObjectStorage.keySummary",
+          "agentChat.onboarding.capability.clipsObjectStorage.label",
         whyKey: "agentChat.onboarding.capability.clipsObjectStorage.why",
         why: "Recorded videos need durable object storage before they can be played back or shared.",
       },
@@ -254,10 +254,10 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         required: false,
         suggested: true,
         builderIncluded: true,
-        keySummary: "Builder credits or an image provider key",
+        keySummary: "Image generation",
         labelKey: "agentChat.onboarding.capability.assetsImageGeneration.label",
         keySummaryKey:
-          "agentChat.onboarding.capability.assetsImageGeneration.keySummary",
+          "agentChat.onboarding.capability.assetsImageGeneration.label",
         whyKey: "agentChat.onboarding.capability.assetsImageGeneration.why",
         why: "Image generation is the core workflow for creating on-brand assets.",
       },
@@ -312,8 +312,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Builder executor",
         required: true,
         builderIncluded: true,
-        keySummary:
-          "Connect Builder for managed agent runs (free tier available)",
+        keySummary: "Connect Builder for managed agent runs",
         why: "The executor runs approved code and review workflows for Factory items.",
       },
       {
@@ -399,7 +398,10 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         required: false,
         suggested: true,
         builderIncluded: true,
-        keySummary: "Gemini or OpenAI key",
+        keySummary: "Image generation",
+        labelKey: "agentChat.onboarding.capability.assetsImageGeneration.label",
+        keySummaryKey:
+          "agentChat.onboarding.capability.assetsImageGeneration.label",
         why: "Only needed when slides generate images instead of using uploaded assets.",
       },
       {

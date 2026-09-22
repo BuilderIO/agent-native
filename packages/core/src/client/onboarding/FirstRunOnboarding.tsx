@@ -281,7 +281,8 @@ export function FirstRunOnboarding({
   }
 
   const builderCapabilities = profile.capabilities.filter(
-    (capability) => capability.builderIncluded,
+    (capability) =>
+      capability.builderIncluded && isHeadlineCapability(capability),
   );
 
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
@@ -908,14 +909,15 @@ function CapabilityList({
 }) {
   const t = useT();
   const visibleCapabilities = useMemo(() => {
-    const required = capabilities.filter((capability) => capability.required);
-    const suggested = capabilities.filter(
+    const headline = capabilities.filter(isHeadlineCapability);
+    const required = headline.filter((capability) => capability.required);
+    const suggested = headline.filter(
       (capability) => !capability.required && capability.suggested,
     );
-    const optional = capabilities.filter(
+    const noManualPath = headline.filter(
       (capability) => !capability.required && !capability.suggested,
     );
-    return [...required, ...suggested, ...optional];
+    return [...required, ...suggested, ...noManualPath];
   }, [capabilities]);
 
   return (
@@ -940,6 +942,19 @@ function CapabilityList({
 // instead of mislabeling it "Optional".
 const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
 
+/** The setup cards are a scannable comparison, not a capability inventory:
+ *  they carry what the app needs (required), what we recommend (suggested),
+ *  and the Builder-only rows that make the manual column honest. Per-app
+ *  extras like an optional Figma token belong in Settings, where the user is
+ *  actually choosing them. */
+function isHeadlineCapability(capability: OnboardingCapability): boolean {
+  return (
+    capability.required ||
+    !!capability.suggested ||
+    NO_MANUAL_PATH_CAPABILITY_IDS.has(capability.id)
+  );
+}
+
 function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
   if (NO_MANUAL_PATH_CAPABILITY_IDS.has(copy.id)) {
     return (
@@ -952,13 +967,14 @@ function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
   return (
     <div className="flex items-center gap-2 rounded-md px-2 py-1">
       <IconKey className="shrink-0 text-muted-foreground" size={14} />
-      <span className="flex-1 text-xs text-foreground">{copy.keySummary}</span>
+      <span
+        className="min-w-0 flex-1 truncate text-xs text-foreground"
+        title={copy.keySummary}
+      >
+        {copy.keySummary}
+      </span>
       <span className="shrink-0 text-xs text-muted-foreground">
-        {copy.required
-          ? "Required"
-          : copy.suggested
-            ? "Recommended"
-            : "Optional"}
+        {copy.required ? "Required" : "Recommended"}
       </span>
     </div>
   );
