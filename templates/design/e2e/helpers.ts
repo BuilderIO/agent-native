@@ -197,13 +197,16 @@ async function selectableNodeByText(
     const { candidateText, priority } = await candidate.evaluate((node) => ({
       candidateText: (node.textContent ?? "").replace(/\s+/g, " ").trim(),
       // Ancestors repeat the same text as their text-bearing descendants.
-      // Prefer an explicit text root, then a leaf, so a click targets the
-      // element the editor's hit-test will select rather than its container.
-      priority: node.hasAttribute("data-an-text")
+      // Prefer a layer root when one is stamped, then an explicit text root,
+      // then a leaf, so the physical click lands inside the selectable area
+      // instead of a generated text span that may sit under canvas chrome.
+      priority: node.hasAttribute("data-agent-native-layer-name")
         ? 0
-        : node.children.length === 0
+        : node.hasAttribute("data-an-text")
           ? 1
-          : 2,
+          : node.children.length === 0
+            ? 2
+            : 3,
     }));
     if (candidateText !== normalizedText) continue;
     const box = await candidate.boundingBox().catch(() => null);
@@ -455,9 +458,8 @@ export async function enterInteractView(
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
-  // The overview screen shells are the boundary that actually unmounts; the
-  // toolbar's own Interact button stays mounted and merely becomes pressed.
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+  // Interact is a responsive view of the same editor. Rails and the screen
+  // shell stay mounted; assert the view's own device preview below instead.
   await expect
     .poll(
       async () =>
@@ -469,7 +471,10 @@ export async function enterInteractView(
         )?.width ?? 0,
       { timeout: 10_000 },
     )
-    .toBeGreaterThan(600);
+    // The responsive preview is intentionally narrower than the overview
+    // canvas once the inspector rails are mounted; assert it is usable rather
+    // than baking in a desktop-only width.
+    .toBeGreaterThan(400);
 }
 
 /** Start capturing bridge postMessages on the parent window. */
