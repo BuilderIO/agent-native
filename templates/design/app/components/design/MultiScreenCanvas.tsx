@@ -736,6 +736,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const boardCrossScreenDropPendingRef = useRef(false);
   const boardCrossScreenDropTransactionRef = useRef<string | null>(null);
   const boardCrossScreenDropTimeoutRef = useRef<number | null>(null);
+  const onBoardRuntimeStructureInsertRejectedRef = useRef(
+    onBoardRuntimeStructureInsertRejected,
+  );
+  onBoardRuntimeStructureInsertRejectedRef.current =
+    onBoardRuntimeStructureInsertRejected;
   const finishBoardCrossScreenDrop = useCallback(() => {
     if (!boardCrossScreenDropPendingRef.current) return;
     boardCrossScreenDropPendingRef.current = false;
@@ -3345,6 +3350,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           // host has cancelled this handoff. Once a runtime request exists,
           // its iframe ack/reject path owns settlement and clears this timer.
           crossScreenDropSeqRef.current += 1;
+          const transactionId = boardCrossScreenDropTransactionRef.current;
+          if (transactionId) {
+            onBoardRuntimeStructureInsertRejectedRef.current?.(
+              "board-drop-timeout",
+              transactionId,
+            );
+          }
           finishBoardCrossScreenDrop();
         };
         boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
@@ -10817,8 +10829,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     const expectedTransactionId =
                       boardCrossScreenDropTransactionRef.current;
                     if (
-                      expectedTransactionId &&
-                      transactionId &&
+                      !expectedTransactionId ||
+                      !transactionId ||
                       expectedTransactionId !== transactionId
                     ) {
                       return;
@@ -10830,8 +10842,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     const expectedTransactionId =
                       boardCrossScreenDropTransactionRef.current;
                     if (
-                      expectedTransactionId &&
-                      details.transactionId &&
+                      !expectedTransactionId ||
+                      !details.transactionId ||
                       expectedTransactionId !== details.transactionId
                     ) {
                       onBoardRuntimeStructureInsertApplied?.(details);
@@ -10844,6 +10856,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     finishBoardCrossScreenDrop();
                   }}
                   onRuntimeStructureRollbackResult={(details) => {
+                    const expectedTransactionId =
+                      boardCrossScreenDropTransactionRef.current;
+                    if (
+                      !expectedTransactionId ||
+                      !details.transactionId ||
+                      expectedTransactionId !== details.transactionId
+                    ) {
+                      onBoardRuntimeStructureRollbackResult?.(details);
+                      return;
+                    }
                     if (details.applied) setBoardRuntimeSurfaceActive(null);
                     onBoardRuntimeStructureRollbackResult?.(details);
                   }}
