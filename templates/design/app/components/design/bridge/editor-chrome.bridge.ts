@@ -17561,6 +17561,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     collectMessages?: any[],
     transactionId?: string,
     requestIdOverride?: string,
+    runtimeInsert?: boolean,
   ) {
     if (!el || !target || !target.anchor) return;
     // Batched grid messages keep the grid container as their runtime anchor;
@@ -17621,6 +17622,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // the change. The host must NOT tell the coding agent to relocate an
       // element the source file has never contained.
       insertedHtml: typeof insertedHtml === "string" ? insertedHtml : undefined,
+      // A runtime insert has a separate applied acknowledgement. Its
+      // optimistic visual-structure echo is informational and must not be
+      // rejected independently, or the target bridge removes a successful
+      // cross-screen/canvas insert before the host records it.
+      runtimeInsert: runtimeInsert === true ? true : undefined,
       replaced: replaced === true ? true : undefined,
       replacementSnapshotHtml: replacementSnapshotHtml,
       sourceRect: rectInfoForElement(el),
@@ -25791,6 +25797,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           parsedInsertEl.outerHTML,
           true,
           replacementSnapshot.html,
+          undefined,
+          typeof e.data.transactionId === "string"
+            ? e.data.transactionId
+            : undefined,
+          String(insertRequestId),
+          true,
         );
         replaceParent.removeChild(insertAnchor);
         refreshOverlays();
@@ -25825,6 +25837,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ? e.data.transactionId
           : undefined,
         String(insertRequestId),
+        true,
       );
       acknowledgeInsert(parsedInsertEl);
       return;
