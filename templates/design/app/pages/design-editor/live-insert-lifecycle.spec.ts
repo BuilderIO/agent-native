@@ -532,6 +532,7 @@ describe("live insert lifecycle", () => {
             {
               type: "runtime-structure-insert",
               screenId,
+              sourceScreenId: screenId,
               requestId: 102,
               html: '<p data-agent-native-node-id="v1" data-agent-native-runtime-instance-id="instance-v1">V1</p>',
               anchorSelector: '[data-agent-native-node-id="v2"]',

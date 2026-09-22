@@ -17883,12 +17883,13 @@ export const editorChromeBridgeScript: string = `"use strict";
             "*"
           );
         };
-        var acknowledgeInsert = function(element) {
+        var acknowledgeInsert = function(element, applied = true) {
           window.parent.postMessage(
             {
               type: "runtime-structure-insert-applied",
               screenId: designCanvasScreenId,
               requestId: String(insertRequestId),
+              applied,
               transactionId: typeof e.data.transactionId === "string" ? e.data.transactionId : void 0,
               routePath: window.location.pathname + window.location.search,
               selector: getSelector(element),
@@ -17944,21 +17945,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           "data-agent-native-runtime-instance-id"
         );
         var reuseExistingRuntimeNode = Boolean(
-          existingBeforeRemint && incomingRuntimeInstanceId && existingRuntimeInstanceId === incomingRuntimeInstanceId && e.data.screenId === designCanvasScreenId
+          existingBeforeRemint && incomingRuntimeInstanceId && existingRuntimeInstanceId === incomingRuntimeInstanceId && e.data.screenId === designCanvasScreenId && e.data.sourceScreenId === designCanvasScreenId
         );
         if (e.data.remintCollidingNodeIds === true && !reuseExistingRuntimeNode) {
           remintCollidingRuntimeNodeIds(parsedInsertEl);
         }
         insertNodeId = parsedInsertEl.getAttribute("data-agent-native-node-id");
         var existingInsertEl = reuseExistingRuntimeNode ? existingBeforeRemint : null;
-        if (!existingInsertEl && insertNodeId) {
-          try {
-            existingInsertEl = document.querySelector(
-              '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]'
-            );
-          } catch (_err) {
-          }
-        }
         if (existingInsertEl === insertAnchor) {
           rejectInsert("anchor-is-subject");
           return;
@@ -17995,7 +17988,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               reinsertOrigin
             );
           }
-          acknowledgeInsert(existingInsertEl);
+          acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
           return;
         }
         if (replaceInsertAnchor) {

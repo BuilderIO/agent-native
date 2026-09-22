@@ -582,6 +582,7 @@ export function runRedo({
         requestId: runtimeStructureInsertRevisionRef.current,
         transactionId,
         screenId: insertEdit.screenId,
+        sourceScreenId: pairedDeleteEdit?.screenId,
         html: redoCommand.html,
         replaceAnchor: redoCommand.replaceAnchor,
         remintCollidingNodeIds: redoCommand.remintCollidingNodeIds,

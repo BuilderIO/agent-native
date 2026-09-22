@@ -736,6 +736,7 @@ interface DesignCanvasProps {
     routePath?: string;
     selector: string;
     sourceId?: string;
+    applied?: boolean;
   }) => void;
   onRuntimeStructureDeleteApplied?: (details: {
     screenId?: string;
@@ -4072,6 +4073,7 @@ export function DesignCanvas({
           selector: typeof e.data.selector === "string" ? e.data.selector : "",
           sourceId:
             typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
+          applied: e.data.applied !== false,
         });
         return;
       }
@@ -5968,6 +5970,7 @@ export function DesignCanvas({
       postOneShotBridgeMessage({
         type: "runtime-structure-insert",
         screenId: runtimeStructureInsertRequest.screenId,
+        sourceScreenId: runtimeStructureInsertRequest.sourceScreenId,
         requestId: runtimeStructureInsertRequest.requestId + index / 1_000,
         transactionId: runtimeStructureInsertRequest.transactionId,
         ...(runtimeStructureInsertRequest.remintCollidingNodeIds === true

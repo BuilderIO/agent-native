@@ -16318,6 +16318,7 @@ function DesignEditor() {
       routePath?: string;
       selector: string;
       sourceId?: string;
+      applied?: boolean;
     }) => {
       const request = runtimeStructureInsertRequest;
       if (!request || !details.selector) return;
@@ -16326,6 +16327,21 @@ function DesignEditor() {
         : Number.isFinite(Number(details.requestId)) &&
           Math.floor(Number(details.requestId)) === request.requestId;
       if (!requestMatches) return;
+      if (details.applied === false) {
+        // A same-slot runtime reorder changed no DOM. Do not turn its
+        // acknowledgement into an inserted pending edit whose undo would
+        // delete the pre-existing element.
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === request.transactionId ? null : current,
+        );
+        setRuntimeStructureInsertRequest((current) =>
+          current?.transactionId === request.transactionId &&
+          current?.requestId === request.requestId
+            ? null
+            : current,
+        );
+        return;
+      }
       recordPendingLiveStructureEdit(
         request.screenId,
         details.selector,

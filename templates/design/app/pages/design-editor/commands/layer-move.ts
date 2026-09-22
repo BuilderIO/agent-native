@@ -570,6 +570,7 @@ export function runLayerMove(
       requestId: insertRevisionRef.current,
       transactionId,
       screenId: targetOwner.fileId,
+      sourceScreenId: runtimeDraggedOwner.fileId,
       html: insertedHtml,
       anchor: {
         selector: targetOwner.node.selector,

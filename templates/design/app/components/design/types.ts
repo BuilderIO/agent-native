@@ -82,6 +82,8 @@ export interface RuntimeStructureInsertRequest {
   transactionId?: string;
   /** Owning screen for host-side routing of the live insert. */
   screenId?: string;
+  /** Source screen identity used to distinguish a same-screen reorder from a cross-screen insert. */
+  sourceScreenId?: string;
   /** Remint only ids already used by the destination live document. */
   remintCollidingNodeIds?: boolean;
   html: string;

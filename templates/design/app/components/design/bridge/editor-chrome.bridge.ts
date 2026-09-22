@@ -25333,12 +25333,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "*",
         );
       };
-      var acknowledgeInsert = function (element: Element): void {
+      var acknowledgeInsert = function (
+        element: Element,
+        applied: boolean = true,
+      ): void {
         (window.parent as Window).postMessage(
           {
             type: "runtime-structure-insert-applied",
             screenId: designCanvasScreenId,
             requestId: String(insertRequestId),
+            applied,
             transactionId:
               typeof e.data.transactionId === "string"
                 ? e.data.transactionId
@@ -25419,7 +25423,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         existingBeforeRemint &&
         incomingRuntimeInstanceId &&
         existingRuntimeInstanceId === incomingRuntimeInstanceId &&
-        e.data.screenId === designCanvasScreenId,
+        e.data.screenId === designCanvasScreenId &&
+        e.data.sourceScreenId === designCanvasScreenId,
       );
       if (e.data.remintCollidingNodeIds === true && !reuseExistingRuntimeNode) {
         remintCollidingRuntimeNodeIds(parsedInsertEl);
@@ -25432,15 +25437,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var existingInsertEl: Element | null = reuseExistingRuntimeNode
         ? existingBeforeRemint
         : null;
-      if (!existingInsertEl && insertNodeId) {
-        try {
-          existingInsertEl = document.querySelector(
-            '[data-agent-native-node-id="' +
-              escapeAttribute(insertNodeId) +
-              '"]',
-          );
-        } catch (_err) {}
-      }
       if (existingInsertEl === insertAnchor) {
         rejectInsert("anchor-is-subject");
         return;
@@ -25484,9 +25480,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             reinsertOrigin,
           );
         }
-        // A same-slot reorder is still an applied request. The host may be
-        // waiting to release a paired source delete or redo transaction.
-        acknowledgeInsert(existingInsertEl);
+        // A same-slot reorder changes no DOM. Report that explicitly so the
+        // host does not record an inserted pending edit whose undo would
+        // delete this pre-existing element.
+        acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
         return;
       }
       if (replaceInsertAnchor) {
