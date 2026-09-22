@@ -18,6 +18,7 @@ type CacheEntry = {
 
 const RESULT_TTL_MS = 500;
 const REQUEST_TIMEOUT_MS = 15_000;
+const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 const cache = new Map<string, CacheEntry>();
 const requests = new Map<string, Promise<ClientStatusResult<unknown>>>();
 const requestControllers = new Map<string, AbortController>();
@@ -85,7 +86,7 @@ async function fetchClientStatus<T>(
     }, REQUEST_TIMEOUT_MS);
   });
   const bootstrappedSession =
-    path === "/_agent-native/auth/session" && typeof window !== "undefined"
+    path === SESSION_STATUS_PATH && typeof window !== "undefined"
       ? window.__agentNativeSessionBootstrap
       : undefined;
   if (bootstrappedSession) delete window.__agentNativeSessionBootstrap;
@@ -136,6 +137,9 @@ async function fetchClientStatus<T>(
 
 export function invalidateClientStatusRequest(path: string): void {
   const url = agentNativePath(path);
+  if (path === SESSION_STATUS_PATH && typeof window !== "undefined") {
+    delete window.__agentNativeSessionBootstrap;
+  }
   requestGenerations.set(url, (requestGenerations.get(url) ?? 0) + 1);
   cache.delete(url);
   requestControllers.get(url)?.abort();
@@ -145,6 +149,9 @@ export function invalidateClientStatusRequest(path: string): void {
 
 export function invalidateClientStatusRequests(): void {
   generation += 1;
+  if (typeof window !== "undefined") {
+    delete window.__agentNativeSessionBootstrap;
+  }
   cache.clear();
   for (const controller of requestControllers.values()) {
     controller.abort();
@@ -174,5 +181,5 @@ export function fetchBuilderStatus<T = unknown>(): Promise<
 export function fetchAuthSessionStatus<T = unknown>(): Promise<
   ClientStatusResult<T>
 > {
-  return fetchClientStatus<T>("/_agent-native/auth/session");
+  return fetchClientStatus<T>(SESSION_STATUS_PATH);
 }

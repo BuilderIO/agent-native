@@ -64,7 +64,7 @@ const LANGUAGE_PICKER_COPY: Record<
   "pt-BR": {
     label: "Idioma",
     system: "Sistema",
-    systemDescription: "Usar el idioma del navegador",
+    systemDescription: "Usar o idioma do navegador",
   },
   "hi-IN": {
     label: "भाषा",

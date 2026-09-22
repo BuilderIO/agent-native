@@ -65,6 +65,25 @@ describe("client status requests", () => {
     expect(window.__agentNativeSessionBootstrap).toBeUndefined();
   });
 
+  it("discards an unconsumed session bootstrap when session status is invalidated", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse({ userId: "current-user", email: "current@example.com" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "stale-user", email: "stale@example.com" },
+    });
+
+    invalidateClientStatusRequest("/_agent-native/auth/session");
+
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "current-user", email: "current@example.com" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("starts fresh after invalidation and ignores a late stale result", async () => {
     let resolveStale!: (response: Response) => void;
     const fetch = vi
