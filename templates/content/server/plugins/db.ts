@@ -1197,6 +1197,14 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS documents_trash_updated_at_idx ON documents (updated_at, id) WHERE trashed_at IS NOT NULL;
         CREATE INDEX IF NOT EXISTS content_databases_trash_deleted_at_idx ON content_databases (deleted_at, document_id, id) WHERE deleted_at IS NOT NULL`,
     },
+    {
+      version: 100,
+      name: "content-files-navigation-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS documents_parent_title_id_idx ON documents (parent_id, title, id);
+        CREATE INDEX IF NOT EXISTS documents_parent_created_id_idx ON documents (parent_id, created_at, id);
+        CREATE INDEX IF NOT EXISTS documents_parent_updated_id_idx ON documents (parent_id, updated_at, id);
+        CREATE INDEX IF NOT EXISTS content_database_items_database_position_id_idx ON content_database_items (database_id, position, id)`,
+    },
   ],
   { table: "content_migrations" },
 );

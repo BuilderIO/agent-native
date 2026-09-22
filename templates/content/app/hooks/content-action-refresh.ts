@@ -232,6 +232,19 @@ function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
   );
 }
 
+function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
+  if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
+    return false;
+  if (
+    query.queryKey[1] === "get-content-recent" ||
+    query.queryKey[1] === "get-content-navigation-context"
+  )
+    return true;
+  if (query.queryKey[1] !== "query-content-database-items") return false;
+  const args = query.queryKey[2];
+  return !!args && typeof args === "object" && "navigation" in args;
+}
+
 function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
   return (
     query.queryKey[0] === "action" &&
@@ -266,6 +279,14 @@ export function contentActionInvalidatePredicate(
 ): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
   return (query, events) => {
+    if (
+      queryTargetsActiveNavigationOrRecent(query) &&
+      events.some(
+        (event) => event.source === "action" && event.key === "update-document",
+      )
+    ) {
+      return true;
+    }
     const args = query.queryKey[2];
     const targetId =
       args && typeof args === "object"

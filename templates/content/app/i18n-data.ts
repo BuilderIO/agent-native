@@ -1047,6 +1047,9 @@ const enUS = {
     requestedPageUnavailable:
       "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
+    workspaceWelcomeUnavailableTitle: "Nothing is open here yet",
+    workspaceWelcomeUnavailableDescription:
+      "You can browse this space, but you do not have permission to create its welcome page.",
   },
   team: {
     metaTitle: "Workspace access - Content",
@@ -1414,8 +1417,17 @@ const enUS = {
   database: databaseMessages,
   localFiles: localFilesMessages,
   sidebar: {
+    contentSpace: "Content space",
     cannotReorderPages: "Cannot reorder pages",
     pinned: "Pinned",
+    recent: "Recent",
+    customizeSidebar: "Customize sidebar",
+    noRecentVisits: "No recent visits",
+    noPinnedItems: "No pinned items",
+    showMore: "Show more",
+    showLess: "Show less",
+    seeAll: "See all…",
+    seeAllFiles: "See all files",
     loadingPinned: "Loading pinned items…",
     dragToReorder: "Drag to reorder {{label}}",
     moveUp: "Move up",

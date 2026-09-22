@@ -45,6 +45,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "@shared/api";
+import { contentRecentHref } from "@shared/content-personal-navigation";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
 import { applyContentDatabaseTableQuery } from "@shared/database-query";
 import {
@@ -204,6 +205,8 @@ import {
   type ContentDatabaseViewSaveResponse,
   writeBuilderAttachPreviewToCache,
 } from "@/hooks/use-content-database";
+import { useUpdateContentPersonalNavigation } from "@/hooks/use-content-personal-navigation";
+import { useRecordContentVisit } from "@/hooks/use-content-recent";
 import {
   useContentSpaces,
   useDeleteContentSpace,
@@ -315,6 +318,7 @@ export interface DatabaseViewProps {
   canEdit?: boolean;
   isActive?: boolean;
   viewId?: string | null;
+  foreground?: boolean;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }
 
@@ -827,6 +831,7 @@ export function DatabaseView({
   canEdit = true,
   isActive,
   viewId,
+  foreground = false,
   onExportContextChange,
 }: DatabaseViewProps) {
   const { data: document } = useDocument(databaseDocumentId);
@@ -844,6 +849,7 @@ export function DatabaseView({
       canEdit={effectiveCanEdit}
       isActive={isActive ?? renderMode === "page"}
       viewId={viewId}
+      foreground={foreground}
       onExportContextChange={onExportContextChange}
     />
   );
@@ -857,7 +863,8 @@ function DatabaseTable({
   renderMode,
   canEdit,
   isActive,
-  viewId,
+  viewId: exactRequestedViewId,
+  foreground,
   onExportContextChange,
 }: {
   document: Document;
@@ -868,6 +875,7 @@ function DatabaseTable({
   canEdit: boolean;
   isActive: boolean;
   viewId?: string | null;
+  foreground: boolean;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }) {
   const t = useT();
@@ -880,6 +888,9 @@ function DatabaseTable({
     null,
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [hydratedDatabaseId, setHydratedDatabaseId] = useState<string | null>(
+    null,
+  );
   const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
     defaultDatabaseViewConfig(),
   );
@@ -915,7 +926,12 @@ function DatabaseTable({
     document.id,
     databaseRequestItemLimit,
     tableQuery,
-    { systemRole: document.database?.systemRole },
+    {
+      systemRole: document.database?.systemRole,
+      ...(foreground && renderMode === "page" && isActive
+        ? { refetchOnMount: "always" as const }
+        : {}),
+    },
   );
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
@@ -965,7 +981,7 @@ function DatabaseTable({
   );
   const serializedSearchParams = searchParams.toString();
   const requestedViewId = requestedDatabaseViewId(
-    viewId,
+    exactRequestedViewId,
     searchParams.get(viewSelectionSearchParam),
   );
   const personalViewDatabaseId = data?.database.id ?? null;
@@ -1885,7 +1901,8 @@ function DatabaseTable({
               { requestSource: "content-workspaces-database" },
             ),
           persistSelection: setStoredSpaceId,
-          openFiles: (documentId) => navigate(`/page/${documentId}`),
+          openSpace: (spaceId) =>
+            navigate(`/home?spaceId=${encodeURIComponent(spaceId)}`),
         });
       })
       .catch((error) => {
@@ -2084,7 +2101,7 @@ function DatabaseTable({
       (current) =>
         databaseSearchParamsWithSelectedView(
           current,
-          viewSelectionSearchParam,
+          exactRequestedViewId ? "viewId" : viewSelectionSearchParam,
           normalized.activeViewId,
         ),
       { replace: true },
@@ -2734,13 +2751,18 @@ function DatabaseTable({
     const nextSavedViewConfig = normalizeClientDatabaseViewConfig(
       data.database.viewConfig,
     );
-    const nextViewConfig = applyPersonalDatabaseViewOverrides(
+    const personalViewConfig = applyPersonalDatabaseViewOverrides(
       nextSavedViewConfig,
       normalizePersonalDatabaseViewOverrides(personalView.data?.overrides),
     );
+    if (
+      exactRequestedViewId &&
+      !resolveRequestedDatabaseView(personalViewConfig, exactRequestedViewId)
+    )
+      return;
     const reconciled = reconcileDatabaseViewSelection({
       savedViewConfig: nextSavedViewConfig,
-      viewConfig: nextViewConfig,
+      viewConfig: personalViewConfig,
       requestedViewId,
     });
     if (!reconciled.requestedViewExists) {
@@ -2758,6 +2780,7 @@ function DatabaseTable({
       data.database.id,
       reconciled.viewConfig,
     );
+    setHydratedDatabaseId(data.database.id);
     const mutationContract = data.mutationContract;
     if (mutationContract && data.configurationRevision) {
       const { authorityScope: _authorityScope, ...target } =
@@ -2793,6 +2816,7 @@ function DatabaseTable({
     personalView.data?.overrides,
     personalView.isLoading,
     requestedViewId,
+    exactRequestedViewId,
     renderMode,
     serializedSearchParams,
     setSearchParams,
@@ -2878,6 +2902,63 @@ function DatabaseTable({
     viewConfig,
   ]);
 
+  const exactViewUnavailable =
+    !!exactRequestedViewId &&
+    (database.isError ||
+      isContentDatabaseUnavailable(database.data) ||
+      (!!data &&
+        !resolveRequestedDatabaseView(
+          normalizeClientDatabaseViewConfig(data.database.viewConfig),
+          exactRequestedViewId,
+        )));
+  useRecordContentVisit(
+    { documentId: document.id, databaseId, viewId: activeView.id },
+    foreground &&
+      renderMode === "page" &&
+      isActive &&
+      database.isSuccess &&
+      database.isFetchedAfterMount &&
+      !attachPreviewActive &&
+      !personalView.isLoading &&
+      !personalView.isError &&
+      !!data &&
+      hydratedDatabaseId === databaseId &&
+      !exactViewUnavailable &&
+      (!requestedViewId || activeView.id === requestedViewId) &&
+      normalizeClientDatabaseViewConfig(data.database.viewConfig).views.some(
+        (view) => view.id === activeView.id,
+      ),
+  );
+
+  const updatePersonalNavigation =
+    useUpdateContentPersonalNavigation(databaseId);
+  function selectPersonalView(viewId: string) {
+    const next = selectDatabaseView(viewConfig, viewId);
+    setPersonalQueryDirty(
+      databaseViewHasPersonalQueryChanges(next, savedViewConfig),
+    );
+    setViewConfig(next);
+    updatePersonalNavigation.mutate(
+      { databaseId, navigation: { activeViewId: viewId } },
+      { onError: () => toast.error(dbText("failedToSaveView")) },
+    );
+    if (foreground && renderMode === "page" && isActive) {
+      navigate(
+        contentRecentHref({ documentId: document.id, databaseId, viewId }),
+      );
+    } else {
+      setSearchParams(
+        (current) =>
+          databaseSearchParamsWithSelectedView(
+            current,
+            viewSelectionSearchParam,
+            viewId,
+          ),
+        { replace: true },
+      );
+    }
+  }
+
   function resizeColumn(
     key: ColumnKey,
     defaultWidth: number,
@@ -2911,6 +2992,14 @@ function DatabaseTable({
     globalThis.document.addEventListener("pointerup", handlePointerUp);
   }
 
+  if (exactViewUnavailable) {
+    return (
+      <div className="py-8 text-muted-foreground">
+        {t("empty.documentUnavailable")}
+      </div>
+    );
+  }
+
   return (
     <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
@@ -2918,6 +3007,7 @@ function DatabaseTable({
           viewConfig={viewConfig}
           canEdit={effectiveCanEdit}
           onViewConfigChange={handleViewConfigChange}
+          onViewSelect={selectPersonalView}
         />
         <ContentTableToolbar>
           <ContentTableSearch
@@ -13523,6 +13613,15 @@ export function reconcileDatabaseViewSelection({
   };
 }
 
+export function resolveRequestedDatabaseView(
+  config: ContentDatabaseViewConfig,
+  requestedViewId?: string | null,
+): ContentDatabaseViewConfig | null {
+  if (!requestedViewId) return config;
+  if (!config.views.some((view) => view.id === requestedViewId)) return null;
+  return selectDatabaseView(config, requestedViewId);
+}
+
 export function addDatabaseView(
   config: ContentDatabaseViewConfig,
   name: string,
@@ -15009,10 +15108,12 @@ function DatabaseViewTabs({
   viewConfig,
   canEdit,
   onViewConfigChange,
+  onViewSelect,
 }: {
   viewConfig: ContentDatabaseViewConfig;
   canEdit: boolean;
   onViewConfigChange: (viewConfig: ContentDatabaseViewConfig) => void;
+  onViewSelect: (viewId: string) => void;
 }) {
   const normalized = normalizeClientDatabaseViewConfig(viewConfig);
   const [newViewName, setNewViewName] = useState("");
@@ -15207,7 +15308,7 @@ function DatabaseViewTabs({
                 return;
               }
               if (!active) {
-                onViewConfigChange(selectDatabaseView(normalized, view.id));
+                onViewSelect(view.id);
               }
             }}
             onContextMenu={(event) => {

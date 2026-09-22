@@ -2,6 +2,58 @@ import type { ParityRow } from "./matrix.types";
 
 export const parityMatrix: ParityRow[] = [
   {
+    id: "sidebar.personal-recent-visits",
+    surface: "sidebar",
+    label: "Read personal Recent entries and record foreground visits",
+    uiEntrypoints: [
+      "app/components/sidebar/PersonalSidebarSections.tsx",
+      "app/hooks/use-content-recent.ts",
+    ],
+    durableEffect:
+      "Per-user Recent stores bounded Page destinations and one destination per Database with its latest visited View, then resolves current labels under current access.",
+    uiImplementation:
+      "Recent reads use the shared Action; successful foreground navigation records a visit through the UI-only Action.",
+    status: "action-backed",
+    actions: ["get-content-recent", "record-content-visit"],
+    exception:
+      "record-content-visit is hidden with agentTool: false so agent reads and edits cannot manufacture human visit history.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-recent.test.ts",
+      "shared/content-personal-navigation.test.ts",
+    ],
+  },
+  {
+    id: "sidebar.bounded-workspace-navigation",
+    surface: "sidebar",
+    label:
+      "Page through database-backed workspace roots and children and reveal the active path",
+    uiEntrypoints: [
+      "app/components/sidebar/DocumentSidebar.tsx",
+      "app/components/editor/database/sidebar.tsx",
+      "app/hooks/use-content-database.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "Database-backed Files navigation requests at most 20 immediate children per page and uses a bounded active-item context read; local-file mode still uses the document inventory.",
+    status: "action-backed",
+    actions: ["get-content-navigation-context", "query-content-database-items"],
+    exception:
+      "Both reads are hidden with agentTool: false because they are lean UI projections, not agent capability limits; agents use list-documents, get-document, search-documents, and navigate.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: "Bound local-file sidebar inventory",
+    coverageRefs: [
+      "actions/content-navigation-bounds.test.ts",
+      "actions/query-content-database-items.navigation.db.test.ts",
+      "app/hooks/use-content-database.test.ts",
+    ],
+  },
+  {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
     label: "Create, delete, move, favorite, list, search, and open pages",
@@ -382,18 +434,18 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "database.table-query-page",
     surface: "database",
-    label: "Query one constrained page while retaining database metadata",
+    label: "Query one constrained table page while retaining database metadata",
     uiEntrypoints: [
       "app/components/editor/database/DatabaseView.tsx",
       "app/hooks/use-content-database.ts",
     ],
     durableEffect: null,
     uiImplementation:
-      "The table view loads changed search, filter, and sort results through a page-only action while the base database response remains visible.",
+      "The table view loads changed search, filter, and sort results through a page-only action while the base database response remains visible; the sidebar uses the same action's separate bounded navigation projection.",
     status: "action-backed",
     actions: ["query-content-database-items"],
     exception:
-      "This UI-only bounded projection is intentionally hidden with agentTool: false; agents use get-content-database for the complete database contract.",
+      "This UI-only bounded projection is intentionally hidden with agentTool: false; agents use get-content-database for database reads and list-documents, get-document, search-documents, and navigate for workspace navigation.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",

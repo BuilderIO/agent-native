@@ -17,11 +17,13 @@ import {
   contentDatabaseCreationRequest,
   contentDatabaseResponseCanSeedQuery,
   contentDatabaseItemsPageQueryKey,
+  contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
   fetchCompleteContentDatabaseList,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
+  invalidateContentDatabaseNavigationQueries,
   isContentDatabaseByIdQueryEnabled,
   moveOptimisticContentDatabaseItem,
   preserveScopedDatabasePlaceholder,
@@ -206,6 +208,50 @@ describe("contentDatabaseConstrainedQueryFilter", () => {
 
     expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+  });
+});
+
+describe("Content database navigation query invalidation", () => {
+  it("matches navigation rows safely and invalidates only the affected database", () => {
+    const queryClient = new QueryClient();
+    const matchingKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", navigation: { parentId: null } },
+    ] as const;
+    const otherKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "other", navigation: { parentId: null } },
+    ] as const;
+    const tableKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", tableQuery: {} },
+    ] as const;
+    queryClient.setQueryData(matchingKey, {
+      items: [{ documentId: "page" }],
+    });
+    queryClient.setQueryData(otherKey, { items: [] });
+    queryClient.setQueryData(tableKey, {
+      items: [{ document: { id: "page" } }],
+    });
+
+    expect(() =>
+      queryClient.invalidateQueries(
+        contentDatabaseItemsContainingDocumentFilter("page"),
+      ),
+    ).not.toThrow();
+    expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(tableKey)?.isInvalidated).toBe(true);
+
+    queryClient.resetQueries();
+    invalidateContentDatabaseNavigationQueries(queryClient, {
+      databaseId: "files",
+    });
+    expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(tableKey)?.isInvalidated).toBe(false);
   });
 });
 

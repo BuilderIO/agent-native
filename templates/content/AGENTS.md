@@ -51,16 +51,14 @@ Read the relevant skill before deeper work:
   and respect `contextMode: "off"` without silently restoring a pack.
 - `content-last-location-v1` — the last successfully loaded Page. The UI and
   landing resolver own this state; do not write it from agent workflows.
-- `content-trash` — bounded Trash filters, up to 100 selected Page IDs, the
-  preview Page ID, and the current purge operation ID. Treat selection and
-  filters as UI context, not deletion authority; plan the exact scope before
-  permanent deletion.
+- `content-trash` — Trash filters, selected/preview Page IDs, and purge operation
+  ID. This is UI context, not deletion authority.
 - Use actions for full document content and comment context.
 
 ## Actions
 
 | Action | Purpose |
-| --- | --- |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `view-screen` | Re-read the current screen when `<current-screen>` is stale |
 | `navigate` | Move the UI to a document, comments, media, or settings |
 | `refresh-list` | Repaint the sidebar after an out-of-band mutation |
@@ -70,7 +68,8 @@ Read the relevant skill before deeper work:
 | `pull-document` | Flush live collab state, then read (external edits) |
 | `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
-| `resolve-content-landing` | Restore the caller's last authorized page |
+| `resolve-content-landing` | Restore the caller's last authorized page in a requested Content space |
+| `get-content-recent` | List personal recent destinations with current access, optionally scoped to a Content space's Files membership |
 | `edit-document` | Revisioned find/replace, or initialize an empty body |
 | `update-document` | Metadata or browser-owned full rewrite |
 | `delete-document` | Move a page and its children to Trash |
@@ -88,12 +87,12 @@ Every action carries its schema. Use `tool-search` for comments, sharing,
 Collections, Notion, local sources such as `remove-local-file-source`, and the
 rest of the registered surface.
 
-For permanent deletion, always plan before executing and report blockers or
-conflicts rather than claiming Trash is empty. Scope mode means all manageable
-Trash in the chosen space scope and intentionally ignores text, kind, actor,
-and location filters. A selected or matching Page includes only itself and its
-currently trashed descendants, never its Trash root or siblings. New or changed
-Trash after planning is not silently added.
+Permanent deletion requires a frozen plan. Read `document-editing` and report
+blockers or conflicts instead of claiming Trash is empty.
+
+Sidebar order and active Views use the personal view `navigation` patch, never
+parentage. Recent means foreground visits; paging, active-path lookup, and visit
+recording are UI-owned.
 
 ## Source Changes
 
