@@ -518,6 +518,30 @@ describe("primitive drop target authored layout fallback", () => {
       )?.nodeId,
     ).toBe("high");
   });
+
+  it("keeps DOM order for equal-z sibling stacking contexts", () => {
+    const screen = {
+      id: "equal-context-z",
+      filename: "equal-context-z.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="early-context" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:100px;height:100px">
+          <div data-agent-native-node-id="early-child" data-an-primitive="frame" style="position:absolute;z-index:999;left:0;top:0;width:100px;height:100px"></div>
+        </div>
+        <div data-agent-native-node-id="late-context" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:100px;height:100px">
+          <div data-agent-native-node-id="late-child" data-an-primitive="frame" style="position:absolute;z-index:0;left:0;top:0;width:100px;height:100px"></div>
+        </div>
+      </body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 10, y: 10 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 100, height: 100 } },
+        () => ({ width: 100, height: 100 }),
+      )?.nodeId,
+    ).toBe("late-child");
+  });
 });
 
 describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {

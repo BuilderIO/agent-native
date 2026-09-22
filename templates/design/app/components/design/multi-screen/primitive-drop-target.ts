@@ -75,6 +75,7 @@ export interface ParsedScreenPrimitive {
   /** Authored stacking level used before DOM-order tie breaking. */
   zIndex?: number;
   stackingContextZIndices?: number[];
+  stackingContextOrders?: number[];
 }
 
 function primitiveMatchesNodeId(
@@ -115,11 +116,24 @@ function compareStackingContexts(
 ): number {
   const leftContexts = left.stackingContextZIndices ?? [];
   const rightContexts = right.stackingContextZIndices ?? [];
+  const leftOrders = left.stackingContextOrders ?? [];
+  const rightOrders = right.stackingContextOrders ?? [];
   for (
     let index = 0;
     index < Math.min(leftContexts.length, rightContexts.length);
     index += 1
   ) {
+    if (
+      leftOrders[index] !== undefined &&
+      rightOrders[index] !== undefined &&
+      leftOrders[index] !== rightOrders[index]
+    ) {
+      // Equal-z sibling contexts are painted in DOM order as a unit. A
+      // descendant's local z-index cannot promote an earlier context above a
+      // later sibling context with the same z-index.
+      if (leftContexts[index] === rightContexts[index]) return 0;
+      return (leftContexts[index] ?? 0) - (rightContexts[index] ?? 0);
+    }
     if (leftContexts[index] !== rightContexts[index]) {
       return (leftContexts[index] ?? 0) - (rightContexts[index] ?? 0);
     }
@@ -1205,6 +1219,10 @@ export function parsePrimitivesFromScreen(
     >();
     const projectionParentIdByElement = new Map<Element, string>();
     const ambiguousIdentityElements = new Set<Element>();
+    const domOrderByElement = new Map<Element, number>();
+    Array.from(doc.querySelectorAll("*")).forEach((element, index) => {
+      domOrderByElement.set(element, index);
+    });
     for (const node of projection.nodes) {
       const matches = Array.from(doc.querySelectorAll(node.path));
       if (matches.length !== 1 || !matches[0]) continue;
@@ -1264,6 +1282,7 @@ export function parsePrimitivesFromScreen(
         style.display === "grid" || style.display === "inline-grid";
       const parsedZIndex = Number.parseInt(style.zIndex, 10);
       const stackingContextZIndices: number[] = [];
+      const stackingContextOrders: number[] = [];
       let contextElement: Element | null = element;
       while (contextElement) {
         const contextStyle = (contextElement as HTMLElement).style;
@@ -1277,6 +1296,9 @@ export function parsePrimitivesFromScreen(
             /^(?:flex|inline-flex|grid|inline-grid)$/.test(parentDisplay))
         ) {
           stackingContextZIndices.unshift(contextZIndex);
+          stackingContextOrders.unshift(
+            domOrderByElement.get(contextElement) ?? 0,
+          );
         }
         contextElement = contextElement.parentElement;
       }
@@ -1320,6 +1342,7 @@ export function parsePrimitivesFromScreen(
           ? { zIndex: parsedZIndex }
           : {}),
         ...(stackingContextZIndices.length ? { stackingContextZIndices } : {}),
+        ...(stackingContextOrders.length ? { stackingContextOrders } : {}),
       });
     });
   } catch {
