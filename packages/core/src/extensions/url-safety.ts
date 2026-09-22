@@ -14,10 +14,10 @@ const DNS_REBIND_SUFFIXES = [
 // RFC 2544 benchmark-device interconnect space. Not RFC 1918, not a cloud
 // metadata address — but Clash / mihomo's `fake-ip` mode defaults its whole
 // pool to this range, so a machine running that proxy resolves ordinary
-// public hostnames here. Treating a DNS answer in this range as "private" on
-// such a machine blocks every public hostname, not just attacker-chosen
-// ones. Block it only when a caller writes the address literally; a resolved
-// answer here is inconclusive, not evidence of an internal target.
+// public hostnames here. A lookup cannot tell that alias from a real target
+// in the same range. Callers that open a socket to the resolved address must
+// keep treating it as private. Only a caller that stores the hostname and
+// does not pin the answer may opt out.
 function isBenchmarkingIpv4(a: number, b: number): boolean {
   return a === 198 && (b === 18 || b === 19);
 }
@@ -57,10 +57,9 @@ function isPrivateIpv4MappedHex(
 }
 
 /**
- * `treatBenchmarkingAsPrivate` defaults to true (literal-hostname callers,
- * e.g. `isBlockedExtensionUrl`). Callers judging a resolved DNS/connect
- * answer (`isBlockedExtensionUrlWithDns`, the connect-time dispatcher) pass
- * `false` — see `isBenchmarkingIpv4` for why.
+ * `treatBenchmarkingAsPrivate` defaults to true. The connect-time dispatcher
+ * relies on that default: it authorizes the address it is about to dial.
+ * See `isBenchmarkingIpv4`.
  */
 function isPrivateHost(
   hostname: string,
@@ -160,6 +159,7 @@ function isIpLiteralHost(hostname: string): boolean {
  */
 export async function isBlockedExtensionUrlWithDns(
   url: string,
+  options: { treatBenchmarkingAsPrivate?: boolean } = {},
 ): Promise<boolean> {
   if (isBlockedExtensionUrl(url)) return true;
 
@@ -171,11 +171,16 @@ export async function isBlockedExtensionUrlWithDns(
   }
   if (!hostname || isIpLiteralHost(hostname)) return false;
 
+  // Default stays closed. Opting out is only for a caller that will not
+  // connect to the resolved address. The TCP dispatcher must not pass this.
+  const treatBenchmarkingAsPrivate =
+    options.treatBenchmarkingAsPrivate ?? true;
+
   try {
     const { lookup } = await import("node:dns/promises");
     const records = await lookup(hostname, { all: true, verbatim: true });
     return records.some((record) =>
-      isPrivateHost(record.address, { treatBenchmarkingAsPrivate: false }),
+      isPrivateHost(record.address, { treatBenchmarkingAsPrivate }),
     );
   } catch {
     // Some edge runtimes do not expose DNS lookup. Keep the deterministic
@@ -333,10 +338,7 @@ async function createSsrfSafeDispatcherUncached(
               const allowedOrigin = allowedPrivateOriginKeys.has(
                 `${normalizeLookupHostname(hostname)}:${destinationPort}`,
               );
-              const isBlockedAddress = isPrivateHost(record.address, {
-                treatBenchmarkingAsPrivate: false,
-              });
-              if (isBlockedAddress && !allowedOrigin) {
+              if (isPrivateHost(record.address) && !allowedOrigin) {
                 const e = new Error(
                   `Connect blocked: ${hostname} resolved to private address ${record.address}`,
                 ) as NodeJS.ErrnoException;

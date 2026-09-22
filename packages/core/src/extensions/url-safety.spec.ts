@@ -167,10 +167,9 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
     vi.resetModules();
   });
 
-  it("allows a public hostname whose DNS answer lands in the fake-ip benchmarking range (198.18.0.0/15)", async () => {
-    // Clash / mihomo's `fake-ip` DNS mode defaults its whole pool to this
-    // RFC 2544 benchmark range, so a machine running that proxy resolves
-    // every public hostname here — this must not read as "private".
+  it("blocks a DNS answer in the fake-ip benchmarking range by default", async () => {
+    // Connecting to 198.18.0.0/15 cannot tell Clash/mihomo fake-ip from a
+    // real host in that reserved range, so the shared guard stays closed.
     vi.doMock("node:dns/promises", () => ({
       lookup: async () => [{ address: "198.18.0.224", family: 4 }],
     }));
@@ -178,6 +177,11 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
     const mod = await import("./url-safety.js");
     expect(
       await mod.isBlockedExtensionUrlWithDns("https://api.openai.com/v1"),
+    ).toBe(true);
+    expect(
+      await mod.isBlockedExtensionUrlWithDns("https://api.openai.com/v1", {
+        treatBenchmarkingAsPrivate: false,
+      }),
     ).toBe(false);
     vi.doUnmock("node:dns/promises");
     vi.resetModules();
@@ -195,8 +199,48 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
     expect(
       await mod.isBlockedExtensionUrlWithDns("https://attacker.example.com/"),
     ).toBe(true);
+    expect(
+      await mod.isBlockedExtensionUrlWithDns("https://attacker.example.com/", {
+        treatBenchmarkingAsPrivate: false,
+      }),
+    ).toBe(true);
     vi.doUnmock("node:dns/promises");
     vi.resetModules();
+  });
+
+  it("blocks a connect-time benchmark-range answer after a public preflight", async () => {
+    vi.doMock("node:dns/promises", () => ({
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+    }));
+    vi.doMock("node:dns", () => ({
+      lookup: (
+        _hostname: string,
+        _options: unknown,
+        callback: (
+          err: NodeJS.ErrnoException | null,
+          addresses: { address: string; family: number }[],
+        ) => void,
+      ) => {
+        callback(null, [{ address: "198.18.0.5", family: 4 }]);
+      },
+    }));
+    vi.resetModules();
+    try {
+      const mod = await import("./url-safety.js");
+      const failure = await mod
+        .ssrfSafeFetch("https://example.com/")
+        .then(() => null)
+        .catch((error: unknown) => error);
+      const cause = failure instanceof Error ? failure.cause : undefined;
+      expect(cause).toMatchObject({
+        message: "Connect blocked: example.com resolved to private address 198.18.0.5",
+        code: "EAI_BLOCKED",
+      });
+    } finally {
+      vi.doUnmock("node:dns");
+      vi.doUnmock("node:dns/promises");
+      vi.resetModules();
+    }
   });
 });
 
