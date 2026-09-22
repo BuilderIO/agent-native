@@ -1311,7 +1311,6 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_MIGRATION_SITE_ID: ${{ steps.target.outputs.migration_site_id }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
-          SMOKE: ${{ inputs.smoke }}
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
@@ -1334,7 +1333,7 @@ jobs:
             migration_database_url="$BETA_DATABASE_URL_SECRET"
           fi
           if [[ "$migration_database_url" != postgres://* && "$migration_database_url" != postgresql://* ]]; then
-            if [[ "$SMOKE" != "true" ]]; then
+            if [[ "${{ inputs.smoke }}" != "true" ]]; then
               echo "::error::A strict post-publish smoke check is required when no beta migration URL is exportable for $SOURCE_TEMPLATE."
               exit 1
             fi

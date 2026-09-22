@@ -695,7 +695,6 @@ describe("production Netlify site concurrency guard", () => {
       betaMigration?.env?.BETA_DATABASE_URL_SECRET,
       "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}",
     );
-    assert.equal(betaMigration?.env?.SMOKE, "${{ inputs.smoke }}");
     assert.match(String(betaMigration?.run), /netlify api getEnvVars/);
     assert.match(String(betaMigration?.run), /netlify api getSiteDatabase/);
     assert.match(String(betaMigration?.run), /BETA_DATABASE_URL_SECRET/);

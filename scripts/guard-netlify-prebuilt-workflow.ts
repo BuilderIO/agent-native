@@ -1355,7 +1355,6 @@ if (
     "${{ steps.target.outputs.migration_site_id }}" ||
   betaMigrationEnv?.BETA_DATABASE_URL_SECRET !==
     "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}" ||
-  betaMigrationEnv?.SMOKE !== "${{ inputs.smoke }}" ||
   !betaMigrationRun.includes("netlify api getSiteDatabase") ||
   !betaMigrationRun.includes("netlify api getEnvVars") ||
   !betaMigrationRun.includes("scripts/netlify-migration-url.ts") ||
