@@ -10649,7 +10649,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           // The host needs the frozen outerHTML for moves as well as copies. A
           // live source has no stored HTML document to snapshot, so waiting for
           // the duplicate-only field leaves move drops with no insert payload.
-          sourceCloneHtml: el ? el.outerHTML : void 0,
+          // Only serialize on release: during a drag the bridge may temporarily
+          // add a translate() lift to the source element, and that editor-only
+          // transform must never become destination markup.
+          sourceCloneHtml: phase === "end" && el ? el.outerHTML : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"

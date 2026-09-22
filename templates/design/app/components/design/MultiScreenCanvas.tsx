@@ -3879,6 +3879,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const payload = cachedPayload
           ? {
               ...cachedPayload,
+              sourceCloneHtml:
+                typeof msg.sourceCloneHtml === "string"
+                  ? msg.sourceCloneHtml
+                  : cachedPayload.sourceCloneHtml,
               modifiers: mergeCrossScreenReleaseModifiers(
                 cachedPayload.modifiers,
                 sourceModifiers,
