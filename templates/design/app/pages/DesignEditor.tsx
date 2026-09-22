@@ -1679,11 +1679,10 @@ function DesignEditor() {
         (RuntimeStructureInsertRequest & { screenId: string }) | null
       >
     >
-  >(
-    (next) => {
-      const current = runtimeStructureInsertRequest;
+  >((next) => {
+    setRuntimeStructureInsertRequestState((current) => {
       const resolved = typeof next === "function" ? next(current) : next;
-      if (resolved === current) return;
+      if (resolved === current) return current;
       const pendingTransactionId =
         runtimeStructurePendingTransactionRef.current;
       if (
@@ -1697,15 +1696,14 @@ function DesignEditor() {
             requestTransactionId: resolved.transactionId ?? null,
           });
         }
-        return;
+        return current;
       }
       if (resolved?.transactionId) {
         runtimeStructurePendingTransactionRef.current = resolved.transactionId;
       }
-      setRuntimeStructureInsertRequestState(resolved);
-    },
-    [runtimeStructureInsertRequest],
-  );
+      return resolved;
+    });
+  }, []);
   const [runtimeStructureDeleteRequest, setRuntimeStructureDeleteRequest] =
     useState<(RuntimeStructureDeleteRequest & { screenId: string }) | null>(
       null,
@@ -16337,7 +16335,7 @@ function DesignEditor() {
         }
         cancelPendingStructureVerification("conflict");
         toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
-        return;
+        return false;
       }
       // Never swallow this: a rejected insert leaves nothing on screen and
       // nothing in the pending list, so a silent return is indistinguishable
@@ -16346,6 +16344,7 @@ function DesignEditor() {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
       const isBoardTimeout = reason === "board-drop-timeout";
+      let rollbackScheduled = false;
       if (
         isBoardTimeout &&
         transactionId &&
@@ -16363,6 +16362,13 @@ function DesignEditor() {
             selector: "",
             sourceId: insertedNodeId,
           });
+          rollbackScheduled = true;
+        } else if (
+          runtimeStructurePendingTransactionRef.current === transactionId
+        ) {
+          // There is no stable target to reconcile. Release the admission
+          // lock so a later runtime edit cannot be blocked forever.
+          runtimeStructurePendingTransactionRef.current = null;
         }
         setRuntimeStructureDeleteRequest((current) =>
           current?.transactionId === transactionId ? null : current,
@@ -16383,6 +16389,7 @@ function DesignEditor() {
         );
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return rollbackScheduled;
     },
     [
       cancelPendingStructureVerification,

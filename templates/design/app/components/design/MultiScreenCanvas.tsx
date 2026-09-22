@@ -10850,10 +10850,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     boardRuntimeStructureRollbackRequest
                   }
                   onRuntimeStructureInsertRejected={(reason, transactionId) => {
-                    onBoardRuntimeStructureInsertRejected?.(
-                      reason,
-                      transactionId,
-                    );
+                    const rollbackScheduled =
+                      onBoardRuntimeStructureInsertRejected?.(
+                        reason,
+                        transactionId,
+                      ) === true;
                     const expectedTransactionId =
                       boardCrossScreenDropTransactionRef.current;
                     if (
@@ -10867,6 +10868,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       // Keep the board iframe mounted until the host's
                       // rollback request settles. The insert acknowledgement
                       // may have been lost after the bridge mutated the DOM.
+                      if (!rollbackScheduled) {
+                        setBoardRuntimeSurfaceActive(null);
+                        finishBoardCrossScreenDrop();
+                      }
                       return;
                     }
                     setBoardRuntimeSurfaceActive(null);

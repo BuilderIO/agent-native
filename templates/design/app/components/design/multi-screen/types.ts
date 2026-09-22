@@ -513,7 +513,7 @@ export interface MultiScreenCanvasProps {
   onBoardRuntimeStructureInsertRejected?: (
     reason: string,
     transactionId?: string,
-  ) => void;
+  ) => boolean | void;
   onBoardRuntimeStructureInsertApplied?: (details: {
     requestId: string;
     transactionId?: string;
