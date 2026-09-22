@@ -150,6 +150,29 @@ describe("primitive drop target authored layout fallback", () => {
     ).toMatchObject({ nodeId: "target" });
   });
 
+  it("does not treat a duplicate-id sibling as an ancestor after a wrapper", () => {
+    const screen = {
+      id: "duplicate-sibling-screen",
+      filename: "duplicate-sibling-screen.html",
+      content: `<div data-agent-native-node-id="same" data-an-primitive="frame" style="position:absolute;z-index:10;left:0;top:0;width:240px;height:240px"></div>
+        <div data-agent-native-node-id="same" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:240px;height:240px">
+          <div style="position:absolute;left:0;top:0;width:240px;height:240px">
+            <div data-agent-native-node-id="target" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px"></div>
+          </div>
+        </div>`,
+    };
+
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 80, y: 80 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 240, height: 240 } },
+        () => ({ width: 240, height: 240 }),
+      ),
+    ).toMatchObject({ nodeId: "same" });
+  });
+
   it("treats semantic section containers as nested drop targets", () => {
     const screen = {
       id: "semantic-nested-screen",
