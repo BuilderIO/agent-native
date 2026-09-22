@@ -9,7 +9,7 @@ export type InboxPillData = {
   hintKey?: string;
 };
 
-type PillTone =
+export type PillTone =
   | "muted"
   | "success"
   | "warning"
@@ -79,7 +79,13 @@ function statusTone(status?: string | null): PillTone {
   }
 }
 
-function Pill({ value, tone }: { value?: string | null; tone: PillTone }) {
+export function Pill({
+  value,
+  tone,
+}: {
+  value?: string | null;
+  tone: PillTone;
+}) {
   return (
     <span
       className={cn(

@@ -79,6 +79,20 @@ describe("Factory route factory switching", () => {
     );
   });
 
+  it("remembers the last selected automation per factory instead of the URL, and forgets it when opening create", () => {
+    const source = readSource();
+    expect(source).toContain(
+      "function lastAutomationStorageKey(factoryId: string): string {",
+    );
+    expect(source).toContain(
+      "const persistedId = selectedId ? null : persistedLastAutomationId(factoryId);",
+    );
+    expect(source).toContain("persistLastAutomationId(factoryId, id);");
+    expect(source).toContain(
+      "if (open) clearPersistedLastAutomationId(factoryId);",
+    );
+  });
+
   it("resyncs the editor after a save and refuses to run a stale config", () => {
     const source = readSource();
     // Save normalizes the row, so the draft must stop counting as unsaved or it
