@@ -1079,39 +1079,31 @@ describe("Builder design-system helpers", () => {
       process.env.BUILDER_PUBLIC_KEY = "builder-public";
       process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
         "https://builder.example.test/design-systems/v1";
-      const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
-      vi.stubGlobal("fetch", fetchMock);
 
-      await expect(fetchBuilderDesignSystemTierLimit()).resolves.toEqual({
-        status: "unavailable",
-        plan: null,
-        current: null,
-        max: null,
-        atMax: false,
-        codeIndexingAllowed: false,
-        upgradeUrl: null,
-      });
-    });
+      const expectUnavailable = () =>
+        expect(fetchBuilderDesignSystemTierLimit()).resolves.toEqual({
+          status: "unavailable",
+          plan: null,
+          current: null,
+          max: null,
+          atMax: false,
+          codeIndexingAllowed: false,
+          upgradeUrl: null,
+        });
 
-    it("fails open on the count cap but closed on code indexing when the tier-limit endpoint responds with an error status", async () => {
-      process.env.BUILDER_PRIVATE_KEY = "builder-private";
-      process.env.BUILDER_PUBLIC_KEY = "builder-public";
-      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
-        "https://builder.example.test/design-systems/v1";
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(new Response("Internal error", { status: 500 }));
-      vi.stubGlobal("fetch", fetchMock);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new Error("network down")),
+      );
+      await expectUnavailable();
 
-      await expect(fetchBuilderDesignSystemTierLimit()).resolves.toEqual({
-        status: "unavailable",
-        plan: null,
-        current: null,
-        max: null,
-        atMax: false,
-        codeIndexingAllowed: false,
-        upgradeUrl: null,
-      });
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(new Response("Internal error", { status: 500 })),
+      );
+      await expectUnavailable();
     });
   });
 });

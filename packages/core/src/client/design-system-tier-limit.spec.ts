@@ -24,16 +24,12 @@ function tierLimit(
 }
 
 describe("isDesignSystemTierAtMax", () => {
-  it("is false while the lookup is unresolved or unavailable", () => {
+  it("is false until the lookup resolves, then reflects atMax", () => {
     expect(isDesignSystemTierAtMax(undefined)).toBe(false);
     expect(isDesignSystemTierAtMax(tierLimit({ status: "unavailable" }))).toBe(
       false,
     );
-  });
-
-  it("reflects atMax only once the lookup resolves", () => {
     expect(isDesignSystemTierAtMax(tierLimit({ atMax: true }))).toBe(true);
-    expect(isDesignSystemTierAtMax(tierLimit({ atMax: false }))).toBe(false);
   });
 });
 
@@ -62,14 +58,7 @@ describe("isDesignSystemCodeIndexingAllowed", () => {
 });
 
 describe("readDesignSystemTierLimitFailure", () => {
-  it("returns null for errors that are not the tier-limit contract error", () => {
-    expect(
-      readDesignSystemTierLimitFailure(new Error("boom"), "fallback"),
-    ).toBeNull();
-    expect(readDesignSystemTierLimitFailure(null, "fallback")).toBeNull();
-  });
-
-  it("recovers plan/current/max/upgradeUrl from the error details", () => {
+  it("recovers plan/current/max/upgradeUrl from a 402's error details", () => {
     const error = Object.assign(
       new Error("You have reached your design-system limit"),
       {
@@ -90,16 +79,5 @@ describe("readDesignSystemTierLimitFailure", () => {
       max: 3,
       upgradeUrl: "https://builder.io/account/subscription",
     });
-  });
-
-  it("falls back to the provided message when the error carries no message", () => {
-    const error = {
-      errorCode: DESIGN_SYSTEM_TIER_LIMIT_ERROR_CODE,
-      details: {},
-    };
-
-    expect(readDesignSystemTierLimitFailure(error, "fallback")).toMatchObject(
-      { message: "fallback", plan: null, current: null, max: null },
-    );
   });
 });

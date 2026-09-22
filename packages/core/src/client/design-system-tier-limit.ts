@@ -1,11 +1,6 @@
 /**
- * DSI tier-restriction contract shared by every design-system creation
- * surface (Design, Slides). Both the proactive `get-design-system-tier-limit`
- * action read and the reactive 402 from `index-design-system-with-builder` /
- * `create-design-system` carry the same shape -- see
- * `fetchBuilderDesignSystemTierLimit` and `assertBuilderDesignSystemIndexOk`
- * in `@agent-native/core/server`. Kept in one place so a UI never has to
- * re-derive "which plans allow code indexing" from a plan string.
+ * Kept in one place so no UI has to re-derive "which plans allow code
+ * indexing" from a plan string.
  */
 
 import { actionErrorMessage } from "./use-action.js";
@@ -13,7 +8,6 @@ import { actionErrorMessage } from "./use-action.js";
 export const DESIGN_SYSTEM_TIER_LIMIT_ERROR_CODE =
   "design_system_tier_limit_exceeded";
 
-/** Response shape of the `get-design-system-tier-limit` action. */
 export interface DesignSystemTierLimit {
   status: "ok" | "unavailable";
   plan: string | null;
@@ -33,10 +27,8 @@ export interface DesignSystemTierLimitFailure {
 }
 
 /**
- * Read a 402 design-system tier-limit failure off a thrown action error, or
- * `null` when the error is something else. `errorCode`/`details` are the only
- * fields the action transport preserves from `fail()` -- see
- * `readFigmaImportFailure` for the same pattern applied to Figma import.
+ * `errorCode`/`details` are the only fields the action transport preserves
+ * from `fail()` -- mirrors `readFigmaImportFailure`'s pattern.
  */
 export function readDesignSystemTierLimitFailure(
   error: unknown,
@@ -64,7 +56,6 @@ export function readDesignSystemTierLimitFailure(
   };
 }
 
-/** True once `current` has reached `max` (unlimited plans never report true). */
 export function isDesignSystemTierAtMax(
   limit: Pick<DesignSystemTierLimit, "status" | "atMax"> | null | undefined,
 ): boolean {

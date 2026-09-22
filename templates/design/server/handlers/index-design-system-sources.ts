@@ -72,10 +72,8 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
       };
     }
-    // `indexBuilderDesignSystem` raises tier-limit and other caller-facing
-    // refusals through `fail()`; forward its status/code/details instead of
-    // collapsing every failure to a generic 502 so the client can recover the
-    // upgrade link the same way the GitHub/design.md paths do.
+    // Forward structured failures (e.g. tier-limit 402s) instead of a
+    // generic 502, so the client can recover the upgrade link.
     if (isActionContractError(err)) {
       setResponseStatus(event, err.statusCode);
       return {

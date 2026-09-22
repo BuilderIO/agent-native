@@ -206,11 +206,8 @@ interface TierLimitResponseBody {
   upgradeUrl?: unknown;
 }
 
-// Confirmed product policy (same across Design and Slides, and the
-// builder-internal DSI UI this mirrors): only Enterprise may index
-// code/source-repo sources. The endpoint's own `codeIndexingAllowed` field
-// wins when present; this is the fallback so the client-side gate still
-// matches policy even if that field is ever omitted.
+// Enterprise-only code indexing is confirmed product policy, mirrored here
+// as a fallback in case the endpoint ever omits `codeIndexingAllowed`.
 const DESIGN_SYSTEM_CODE_INDEXING_ENTERPRISE_ONLY_PLANS = new Set([
   "free",
   "pro",

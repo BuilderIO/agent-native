@@ -295,8 +295,6 @@ export default function DesignSystemSetup() {
           t("designSystemSetup.errors.parseFig"),
           t("designSystemSetup.errors.nameConflict"),
         );
-        // If it's a tier-limit error, show it in the validationError box (where upgrade link is)
-        // Otherwise show it in the builder index error alert
         if (failure.upgradeUrl) {
           setValidationError(failure.message);
           setTierLimitUpgradeUrl(failure.upgradeUrl);

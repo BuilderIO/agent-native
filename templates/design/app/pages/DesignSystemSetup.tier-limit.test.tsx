@@ -196,10 +196,8 @@ describe("DesignSystemSetup tier-limit gating", () => {
       root.render(<DesignSystemSetup />);
     });
 
-    // Click Figma source button to show the upload input
     const figmaButton = Array.from(container.querySelectorAll("button")).find(
-      (b) =>
-        b.textContent?.includes("designSystemSetup.sections.figma.title"),
+      (b) => b.textContent?.includes("designSystemSetup.sections.figma.title"),
     ) as HTMLButtonElement;
     await act(async () => {
       figmaButton?.click();
