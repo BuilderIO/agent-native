@@ -1093,6 +1093,12 @@ function AutomationsView({
       setDraft((current) => (current === null ? current : null));
       return;
     }
+    // Covers the deep-link case too: a URL-provided automationId that
+    // resolves here never goes through selectAutomation's click handler, so
+    // without this it's never remembered -- leaving the tab and coming back
+    // (which drops automationId from the URL) falls back to a stale
+    // persisted id or row 0 instead of the one the link pointed to.
+    persistLastAutomationId(factoryId, selected.id);
     if (!selectedId) {
       selectAutomation(selected.id);
       return;
@@ -1105,7 +1111,7 @@ function AutomationsView({
     syncedConfigKeyRef.current = merged.syncedKey;
     draftRef.current = merged.draft;
     setDraft(merged.draft);
-  }, [automationMissing, selectAutomation, selected, selectedId]);
+  }, [automationMissing, factoryId, selectAutomation, selected, selectedId]);
 
   useEffect(() => {
     if (Object.keys(queuedRuns).length === 0 || !response) return;
