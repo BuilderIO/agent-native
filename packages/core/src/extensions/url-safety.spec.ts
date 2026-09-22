@@ -223,7 +223,8 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
         .catch((error: unknown) => error);
       const cause = failure instanceof Error ? failure.cause : undefined;
       expect(cause).toMatchObject({
-        message: "Connect blocked: example.com resolved to private address 198.18.0.5",
+        message:
+          "Connect blocked: example.com resolved to private address 198.18.0.5",
         code: "EAI_BLOCKED",
       });
     } finally {
