@@ -30,8 +30,26 @@ import {
   shouldShowAgentPanelCliTabBar,
   shouldShowAgentPanelModeButtons,
   settingsRouteHashForSection,
+  AgentSidebar as LegacyAgentSidebar,
+  AgentToggleButton as LegacyAgentToggleButton,
+  focusAgentChat as legacyFocusAgentChat,
+  preloadAgentChatSurface as legacyPreloadAgentChatSurface,
 } from "./AgentPanel.js";
-import { focusAgentChat } from "./AgentSidebar.js";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  focusAgentChat,
+  preloadAgentChatSurface,
+} from "./AgentSidebar.js";
+
+describe("AgentPanel compatibility exports", () => {
+  it("preserves the legacy sidebar entry point", () => {
+    expect(LegacyAgentSidebar).toBe(AgentSidebar);
+    expect(LegacyAgentToggleButton).toBe(AgentToggleButton);
+    expect(legacyFocusAgentChat).toBe(focusAgentChat);
+    expect(legacyPreloadAgentChatSurface).toBe(preloadAgentChatSurface);
+  });
+});
 
 describe("resolveAgentPanelChatSurface", () => {
   it("uses the desktop surface only for explicitly marked local app previews", () => {

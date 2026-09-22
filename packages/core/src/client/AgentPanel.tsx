@@ -86,6 +86,13 @@ export {
   shouldHandleAgentPanelChatShortcut,
   shouldHandleAgentSidebarToggle,
 } from "./agent-sidebar-events.js";
+export {
+  AgentSidebar,
+  AgentToggleButton,
+  focusAgentChat,
+  preloadAgentChatSurface,
+} from "./AgentSidebar.js";
+export type { AgentSidebarProps } from "./AgentSidebar.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import { URLSync } from "./agent-sidebar-url-sync.js";
 import { trackEvent } from "./analytics.js";

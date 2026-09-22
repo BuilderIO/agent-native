@@ -15,7 +15,7 @@ vi.mock("./agent-sidebar-url-sync.js", () => ({
   ScreenRefreshBoundary: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
-  URLSync: () => null,
+  URLSync: () => <div data-testid="agent-sidebar-url-sync" />,
 }));
 vi.mock("./app-chat-sidebar.js", () => ({
   APP_CHAT_SIDEBAR_STATE_EVENT: "app-chat-sidebar-state",
@@ -101,6 +101,14 @@ beforeEach(() => {
 });
 
 describe("AgentSidebar lazy panel boundary", () => {
+  it("keeps URL synchronization mounted while the panel is closed", () => {
+    renderSidebar(false);
+
+    expect(
+      container?.querySelector("[data-testid='agent-sidebar-url-sync']"),
+    ).toBeTruthy();
+  });
+
   it("shows the panel skeleton before the lazy body resolves for open-by-default users", async () => {
     localStorage.setItem("agent-native-sidebar-open", "true");
     renderSidebar(true);
