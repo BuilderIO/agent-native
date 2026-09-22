@@ -11559,6 +11559,33 @@ it(
       // Still exactly one "move" (the pending tick from right before mouseup
       // was cancelled, never posted after release).
       expect(postReleaseCounts.move).toBe(1);
+
+      // The same move/up burst also cancels the overlay frame scheduled by the
+      // final move. A successful pointerup must schedule its replacement so
+      // selection chrome follows the committed element instead of freezing at
+      // the last pre-release frame.
+      const overlayAlignment = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target");
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        if (!target || !overlay) return null;
+        const targetRect = target.getBoundingClientRect();
+        const overlayRect = overlay.getBoundingClientRect();
+        return {
+          targetLeft: targetRect.left,
+          targetTop: targetRect.top,
+          overlayLeft: overlayRect.left,
+          overlayTop: overlayRect.top,
+        };
+      });
+      expect(overlayAlignment).not.toBeNull();
+      expect(
+        Math.abs(overlayAlignment!.overlayLeft - overlayAlignment!.targetLeft),
+      ).toBeLessThan(1);
+      expect(
+        Math.abs(overlayAlignment!.overlayTop - overlayAlignment!.targetTop),
+      ).toBeLessThan(1);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

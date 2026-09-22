@@ -20797,6 +20797,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       cleanupMoveDrag();
+      // cleanupMoveDrag invalidates any queued move repaint. Re-arm one for
+      // the successful release so pointerup cannot leave selection chrome at
+      // the pre-release geometry when it arrives before that frame runs.
+      scheduleRefreshOverlays();
       hideTransformBadge();
       hideInsertionGuide();
       hideSnapGuides();

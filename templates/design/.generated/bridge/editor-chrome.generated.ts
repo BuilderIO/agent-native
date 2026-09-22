@@ -14631,6 +14631,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         cleanupMoveDrag();
+        scheduleRefreshOverlays();
         hideTransformBadge();
         hideInsertionGuide();
         hideSnapGuides();
