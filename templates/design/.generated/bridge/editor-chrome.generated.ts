@@ -16282,10 +16282,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       function(e) {
         if (readOnly || e.button !== 0) return;
         if (e.pointerId !== void 0 && selectionOverlay.setPointerCapture) {
-          try {
-            selectionOverlay.setPointerCapture(e.pointerId);
-          } catch (_err) {
-          }
+          selectionOverlay.setPointerCapture(e.pointerId);
         }
       },
       true

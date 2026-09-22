@@ -22968,9 +22968,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function (e) {
       if (readOnly || e.button !== 0) return;
       if (e.pointerId !== undefined && selectionOverlay.setPointerCapture) {
-        try {
-          selectionOverlay.setPointerCapture(e.pointerId);
-        } catch (_err) {}
+        selectionOverlay.setPointerCapture(e.pointerId);
       }
     },
     true,
