@@ -1,5 +1,8 @@
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 
 import { readBrainSettings } from "./lib/brain.js";
 import { probeJevCredential } from "./lib/jev-classifier.js";
@@ -26,7 +29,10 @@ registerOnboardingStep({
       const settings = await readBrainSettings();
       return brainPrivacyReadiness(
         settings,
-        await probeJevCredential({ ownerEmail: getRequestUserEmail() ?? "" }),
+        await probeJevCredential({
+          ownerEmail: getRequestUserEmail() ?? "",
+          orgId: getRequestOrgId(),
+        }),
       ).configured;
     } catch {
       return false;

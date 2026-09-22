@@ -31,24 +31,42 @@ export const classifierDecisionSchema = z
  * to an external classifier -- must pass through here.
  */
 export function sanitizeSensitiveText(value: string): string {
-  return value
-    .replace(/<mailto:[^>|]+(?:\|[^>]+)?>/gi, "[redacted]")
-    .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, "[redacted]")
-    .replace(/\bU[A-Z0-9]{8,}\b/g, "[redacted]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
-    .replace(/(?:\+?\d|\(\d{2,4}\))[\d\s().-]{6,}\d/g, (candidate) =>
-      /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : "[redacted]",
-    )
-    .replace(
-      /\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)_[A-Za-z0-9_=-]{16,}\b/g,
-      "[redacted]",
-    )
-    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_=-]{16,}\b/g, "[redacted]")
-    .replace(
-      /\b(password|passcode|secret|token|api key)\s*[:=]\s*\S+/gi,
-      "$1: [redacted]",
-    )
-    .replace(/https?:\/\/\S+/gi, "[link]");
+  return (
+    value
+      // Credentials run first. The phone-number rule below matches the digit
+      // runs inside tokens like `xoxb-000000000000-...`, and once it rewrites
+      // the middle the credential patterns no longer match, leaving the tail
+      // of a live secret in the output.
+      .replace(
+        /\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)_[A-Za-z0-9_=-]{16,}\b/g,
+        "[redacted]",
+      )
+      .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_=-]{16,}\b/g, "[redacted]")
+      // Unlabelled provider credentials: Slack tokens, AWS access key ids,
+      // Google API keys, and JWTs carry no `token:` prefix to match on.
+      .replace(/\bxox[abposr]-[A-Za-z0-9-]{10,}/gi, "[redacted]")
+      .replace(
+        /\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b/g,
+        "[redacted]",
+      )
+      .replace(/\bAIza[A-Za-z0-9_-]{35}\b/g, "[redacted]")
+      .replace(
+        /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+        "[redacted]",
+      )
+      .replace(
+        /\b(password|passcode|secret|token|api key)\s*[:=]\s*\S+/gi,
+        "$1: [redacted]",
+      )
+      .replace(/<mailto:[^>|]+(?:\|[^>]+)?>/gi, "[redacted]")
+      .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, "[redacted]")
+      .replace(/\bU[A-Z0-9]{8,}\b/g, "[redacted]")
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
+      .replace(/(?:\+?\d|\(\d{2,4}\))[\d\s().-]{6,}\d/g, (candidate) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : "[redacted]",
+      )
+      .replace(/https?:\/\/\S+/gi, "[link]")
+  );
 }
 
 const HARD_CATEGORY_PATTERNS: ReadonlyArray<

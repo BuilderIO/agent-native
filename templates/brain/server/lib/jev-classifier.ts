@@ -280,7 +280,14 @@ export async function resolveJevAuth(identity: {
   });
   if (apiKey?.trim()) return { source: "stored-key", apiKey: apiKey.trim() };
 
-  const auth = await core.resolveBuilderGatewayAuth();
+  // resolveBuilderGatewayAuth() reads the ambient request user/org, so bind it
+  // to the same identity as the stored-key lookup. Without this a shared-source
+  // editor or a queue worker would spend their own Builder OAuth grant on the
+  // capture owner's content.
+  const auth = await core.runWithRequestContext(
+    { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
+    () => core.resolveBuilderGatewayAuth(),
+  );
   if (!auth) return null;
   return {
     source: "builder-gateway",

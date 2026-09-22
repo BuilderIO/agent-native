@@ -20,12 +20,16 @@ const resolveSourceCredential = vi.hoisted(() => vi.fn());
 const resolveBuilderGatewayAuth = vi.hoisted(() => vi.fn());
 const getCredentialContext = vi.hoisted(() => vi.fn());
 const getBuilderProxyOrigin = vi.hoisted(() => vi.fn());
+const runWithRequestContext = vi.hoisted(() =>
+  vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
+);
 
 vi.mock("./source-credentials.js", () => ({ resolveSourceCredential }));
 vi.mock("@agent-native/core/server", () => ({
   getCredentialContext,
   resolveBuilderGatewayAuth,
   getBuilderProxyOrigin,
+  runWithRequestContext,
 }));
 
 const CAPTURED_AT = "2026-05-20T15:00:00.000Z";
@@ -65,6 +69,9 @@ beforeEach(() => {
   resolveBuilderGatewayAuth.mockReset();
   getCredentialContext.mockReset().mockReturnValue(null);
   getBuilderProxyOrigin.mockReset().mockReturnValue("https://proxy.test/");
+  runWithRequestContext
+    .mockReset()
+    .mockImplementation((_ctx: unknown, fn: () => unknown) => fn());
 });
 
 afterEach(() => {
@@ -241,6 +248,29 @@ describe("review fixes", () => {
     expect(body).toContain("ship the retrieval API");
   });
 
+  it("redacts unlabelled provider credentials before sending", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    const fetchMock = vi.fn(async () => jevResponse(scoresWith()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runJevClassification({
+      ...input,
+      content: [
+        CLEAN_BODY,
+        "rotate xoxb-000000000000-000000000000-EXAMPLEEXAMPLEEX",
+        // guard:allow-secret-literal — shape-only fixture proving redaction
+        "and AKIAEXAMPLEEXAMPLE99",
+        // guard:allow-secret-literal — shape-only fixture proving redaction
+        "and AIzaEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPL0",
+      ].join("\n"),
+    });
+
+    const body = fetchCallArgs(fetchMock).init.body as string;
+    expect(body).not.toMatch(/xoxb-0/);
+    expect(body).not.toMatch(/AKIAEXAMPLE/);
+    expect(body).not.toMatch(/AIzaEXAMPLE/);
+  });
+
   it("asks Jev the workspace's own restriction and quarantines when it trips", async () => {
     resolveSourceCredential.mockResolvedValue("not-a-real-key");
     const fetchMock = vi.fn(async () =>
@@ -380,6 +410,26 @@ describe("credential ladder", () => {
       spaceId: "space-1",
       userId: null,
     });
+  });
+
+  it("binds the gateway lookup to the capture owner, not the ambient user", async () => {
+    getCredentialContext.mockReturnValue({
+      userEmail: "editor@example.com",
+      orgId: "org-2",
+    });
+    resolveSourceCredential.mockResolvedValue(undefined);
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer gateway-token",
+      spaceId: null,
+      userId: null,
+    });
+
+    await resolveJevAuth(identity);
+
+    expect(runWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.any(Function),
+    );
   });
 
   it("reports no auth when neither path is available", async () => {

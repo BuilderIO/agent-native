@@ -1,4 +1,7 @@
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { getSetting, putSetting } from "@agent-native/core/settings";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
@@ -582,7 +585,10 @@ export async function readBrainHealth() {
   const privacySettings = await readBrainSettings();
   const privacyClassifier = brainPrivacyReadiness(
     privacySettings,
-    await probeJevCredential({ ownerEmail: getRequestUserEmail() ?? "" }),
+    await probeJevCredential({
+      ownerEmail: getRequestUserEmail() ?? "",
+      orgId: getRequestOrgId(),
+    }),
   );
   const lastEval = await readBrainEvalSnapshot();
 
