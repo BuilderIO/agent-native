@@ -134,6 +134,7 @@ export interface DuplicateSelectionArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
+  canEditLiveScreen?: boolean;
   files: DesignFile[];
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
@@ -177,6 +178,7 @@ export function runDuplicateSelection({
   applyFileContentUpdate,
   applyLocalContentUpdate,
   canEditDesign,
+  canEditLiveScreen = false,
   files,
   getFreshActiveContent,
   getScreenContent,
@@ -199,7 +201,7 @@ export function runDuplicateSelection({
   viewModeRef,
 }: DuplicateSelectionArgs) {
   trace("structure", "duplicate-selection", {
-    canEdit: canEditDesign,
+    canEdit: canEditDesign || canEditLiveScreen,
     selectedLayers: selectedLayerIdsState.length,
   });
   let structureUnsupported = false;
@@ -209,13 +211,22 @@ export function runDuplicateSelection({
       t("designEditor.componentInstances.linkedStructureUnsupported"),
     );
   };
-  if (!canEditDesign) return;
+  const snapshots = getSelectedLayerSnapshots();
+  const liveScreenSelection =
+    canEditLiveScreen &&
+    Boolean(
+      activeFile &&
+      isStandaloneHttpUrl(activeFile.content ?? "") &&
+      snapshots.length > 0 &&
+      snapshots.every((snapshot) => snapshot.sourceFileId === activeFile.id),
+    );
+  if (!canEditDesign && !liveScreenSelection) return;
   // U19: duplicate is a discrete one-shot action — see the matching note
   // in handlePasteSelection.
   undoManagerRef.current?.stopCapturing();
   // A repeat's rows are data: duplicating the markup adds a second authored
   // row next to the template rather than another item.
-  if (activeFile && selectedElement?.repeat) {
+  if (canEditDesign && activeFile && selectedElement?.repeat) {
     const edit = runRepeatItemEdit({
       content: getFreshActiveContent(),
       target: selectedElement.repeat,
@@ -242,21 +253,7 @@ export function runDuplicateSelection({
       return;
     }
   }
-  const snapshots = getSelectedLayerSnapshots();
   if (snapshots.length > 0) {
-    const componentDocuments = files.map((file) => ({
-      source: {
-        kind: "design-file" as const,
-        designId,
-        fileId: file.id,
-        filename: file.filename,
-      },
-      content: getScreenContent(file.id),
-    }));
-    const selectedIds: string[] = [];
-    const selectedScreenIds: string[] = [];
-    let lastActiveNode: CodeLayerNode | null = null;
-
     // U7: replay the last recorded move delta when duplicating the exact
     // same selection again (e.g. dup, drag it, dup again repeats the same
     // offset — matching Figma). Otherwise an absolutely-positioned source
@@ -282,16 +279,12 @@ export function runDuplicateSelection({
     // into a no-op. Prepare the runtime snapshots for the same one-shot bridge
     // insert lifecycle used by paste so the clone gets a fresh identity and
     // participates in pending-edit undo/redo.
-    if (
-      activeFile &&
-      isStandaloneHttpUrl(activeFile.content ?? "") &&
-      snapshots.every((snapshot) => snapshot.sourceFileId === activeFile.id)
-    ) {
+    if (liveScreenSelection) {
       const sourcePositions = snapshots.map((snapshot) =>
         extractLayerPosition(snapshot.html),
       );
       const prepared = prepareClonedHtmlLayersForLiveInsert(
-        activeFile.content ?? "",
+        activeFile!.content ?? "",
         snapshots.map((snapshot) => snapshot.html),
         {
           stripRootPosition: true,
@@ -316,12 +309,16 @@ export function runDuplicateSelection({
           selectedCanvasSelector ??
           selectedElement?.selector;
         const anchorSourceId =
-          selectedElement?.runtimeSourceId ?? selectedElement?.sourceId;
+          selectedElement?.runtimeSourceId ??
+          selectedElement?.sourceId ??
+          (snapshots.length === 1
+            ? (snapshots[0]!.rootNodeId ?? snapshots[0]!.node.id)
+            : undefined);
         const hasAnchor = Boolean(anchorSelector);
         runtimeStructureInsertRevisionRef.current += 1;
         setRuntimeStructureInsertRequest({
           requestId: runtimeStructureInsertRevisionRef.current,
-          screenId: activeFile.id,
+          screenId: activeFile!.id,
           html: prepared.htmlFragments[0]!,
           additionalHtml: prepared.htmlFragments.slice(1),
           anchor: hasAnchor
@@ -337,6 +334,23 @@ export function runDuplicateSelection({
         return;
       }
     }
+
+    const componentDocuments = files.map((file) => ({
+      source: {
+        kind: "design-file" as const,
+        designId,
+        fileId: file.id,
+        filename: file.filename,
+      },
+      content: getScreenContent(file.id),
+    }));
+    const selectedIds: string[] = [];
+    const selectedScreenIds: string[] = [];
+    let lastActiveNode: CodeLayerNode | null = null;
+
+    // Only the runtime branch above is safe for a public localhost screen.
+    // The remaining paths publish persisted design/source content.
+    if (!canEditDesign) return;
 
     const sortedSnapshotsByFile = new Map(
       files.map((file) => [

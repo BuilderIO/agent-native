@@ -125,7 +125,10 @@ import {
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
-import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
+import {
+  DESKTOP_DEEP_LINK_PROTOCOL,
+  DESKTOP_RELEASE_CHANNEL,
+} from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -419,7 +422,11 @@ function isDesktopSsoEnabled(): boolean {
 const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
   ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
   : "";
-app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}`;
+const desktopReleaseChannelMarker =
+  DESKTOP_RELEASE_CHANNEL === "nightly"
+    ? ` AgentNativeDesktopNightly/${app.getVersion()}`
+    : "";
+app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}${desktopReleaseChannelMarker}`;
 // ---------- Deep link protocol (agentnative:// or agentnative-nightly://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 

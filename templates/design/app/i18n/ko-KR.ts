@@ -4,6 +4,20 @@ const messages = {
   ...messagesByLocale["ko-KR"],
   designEditor: {
     ...messagesByLocale["ko-KR"].designEditor,
+    designNotFoundDescription: "이 디자인은 존재하지 않거나 삭제되었습니다.",
+    requestAccessTitle: "이 디자인에 대한 액세스 요청",
+    requestAccessDescription:
+      "이 디자인은 비공개입니다. 소유자에게 액세스를 요청하세요.",
+    requestAccess: "액세스 요청",
+    accessRequested: "액세스 요청됨",
+    accessRequestSentDescription:
+      "요청이 기록되었습니다. 액세스가 승인되면 이 디자인을 열 수 있습니다.",
+    signInToRequestAccessTitle: "로그인하여 액세스 요청",
+    signInToRequestAccessDescription:
+      "로그인하거나 계정을 만들어 소유자에게 액세스를 요청하세요.",
+    signInOrSignUp: "로그인 또는 가입",
+    accessCheckFailed: "이 디자인에 대한 액세스를 확인할 수 없습니다.",
+    retryAccessCheck: "다시 시도",
     import: {
       ...messagesByLocale["ko-KR"].designEditor.import,
       figUploadDescriptionShort:

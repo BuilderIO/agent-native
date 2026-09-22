@@ -9,25 +9,25 @@
 // ---------------------------------------------------------------------------
 // Per-model context window table (input token limit)
 //
-// Sources (June 2026):
-//  Anthropic  https://platform.claude.com/docs/en/about-claude/models/overview
-//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.6
+// Sources (September 2026):
+//  Anthropic  https://platform.claude.com/docs/en/models/opus-5-5/overview
+//  OpenAI     https://developers.openai.com/api/docs/models/gpt-6-sol
 //  Google     https://ai.google.dev/gemini-api/docs/models
 //  OpenRouter https://openrouter.ai/api/v1/models
 //
 // Family defaults (used when a model id isn't listed explicitly):
 //  claude-*        → 200_000  (Haiku 4.5 and earlier models)
-//  gpt-5*          → 1_050_000 (GPT-5.6 Sol/Terra flagship context)
+//  gpt-5*/gpt-6*   → 1_050_000 (GPT-5.6/GPT-6 context)
 //  gemini-2* / gemini-3* → 1_048_576
 //  everything else → 128_000  (safe conservative floor)
 //
-// Note: Fable 5, Sonnet 5, Sonnet 4.6, and Opus 4.6/4.7/4.8 support 1M via the API
-// at standard prices.
+// Note: Fable 5, Sonnet 5, Sonnet 4.6, and Opus 4.6+ support 1M via the API.
 // ---------------------------------------------------------------------------
 
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  // ── Anthropic / Claude (via Builder gateway or Anthropic direct) ──────────
+  // ── Anthropic / Claude model IDs ──────────────────────────────────────────
   "claude-fable-5": 1_000_000,
+  "claude-opus-5-5": 1_000_000,
   "claude-opus-4-8": 1_000_000,
   "claude-opus-4-7": 1_000_000,
   "claude-sonnet-5": 1_000_000,
@@ -47,6 +47,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
 
   // ── OpenRouter model IDs ──────────────────────────────────────────────────
   "anthropic/claude-fable-5": 1_000_000,
+  "anthropic/claude-opus-5.5": 1_000_000,
   "anthropic/claude-opus-4.8": 1_000_000,
   "anthropic/claude-opus-4.7": 1_000_000,
   "anthropic/claude-sonnet-5": 1_000_000,
@@ -54,10 +55,14 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "openai/gpt-5.6-sol": 1_050_000,
   "openai/gpt-5.6-terra": 1_050_000,
   "openai/gpt-5.6-luna": 1_050_000,
+  "openai/gpt-6-sol": 1_050_000,
+  "openai/gpt-6-luna": 1_050_000,
   "google/gemini-2.5-flash": 1_048_576,
   "z-ai/glm-5.2": 1_048_576,
 
   // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
+  "gpt-6-sol": 1_050_000,
+  "gpt-6-luna": 1_050_000,
   "gpt-5.6-sol": 1_050_000,
   "gpt-5.6-terra": 1_050_000,
   "gpt-5.6-luna": 400_000,
@@ -88,11 +93,12 @@ export function getContextWindowForModel(modelId: string): number {
   // Family heuristics for unlisted model IDs
   const id = modelId.toLowerCase();
 
-  // Anthropic Fable 5, Opus 4.x, Sonnet 5, and Sonnet 4.6 = 1M
+  // Anthropic Fable 5, Opus 4.6+, Sonnet 5, and Sonnet 4.6 = 1M
   if (
     id === "claude-fable-5" ||
     id.includes("claude-fable-5") ||
     id.startsWith("claude-opus-4") ||
+    id.startsWith("claude-opus-5") ||
     id.includes("claude-sonnet-5") ||
     id.includes("claude-sonnet-4-6") ||
     id.includes("claude-sonnet-4.6")
@@ -102,8 +108,8 @@ export function getContextWindowForModel(modelId: string): number {
   // All other Claude models — default 200K
   if (id.startsWith("claude-")) return 200_000;
 
-  // GPT-5.x family — 1.05M
-  if (id.startsWith("gpt-5") || id.startsWith("openai/gpt-5")) return 1_050_000;
+  // GPT-5.x and GPT-6 families — 1.05M
+  if (/^(?:openai\/)?gpt-[56]/.test(id)) return 1_050_000;
 
   // Gemini 2.x / 3.x — 1M
   if (
@@ -123,24 +129,25 @@ export function getContextWindowForModel(modelId: string): number {
 // ---------------------------------------------------------------------------
 // Per-model max output token table (documented output-token ceilings)
 //
-// Sources (July 2026):
-//  Anthropic  https://platform.claude.com/docs/en/docs/about-claude/models/overview
-//             (Fable 5 / Opus 4.8 / Opus 4.7 / Sonnet 5 / Sonnet 4.6 = 128K;
+// Sources (September 2026):
+//  Anthropic  https://platform.claude.com/docs/en/models/opus-5-5/overview
+//             (Fable 5 / Opus 5.5 / Opus 4.8 / Opus 4.7 / Sonnet 5 / Sonnet 4.6 = 128K;
 //              Haiku 4.5 / Sonnet 4.5 / Opus 4.5 = 64K)
-//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.6
-//             (GPT-5.6 Sol / Terra / Luna = 40K)
+//  OpenAI     https://developers.openai.com/api/docs/models/gpt-6-sol
+//             (GPT-6 Sol / Luna = 128K; GPT-5.6 Sol / Terra / Luna = 40K)
 //
 // Family defaults (used when a model id isn't listed explicitly):
 //  claude flagship (fable-5 / opus-4.6+ / sonnet-5 / sonnet-4.6) → 128_000
 //  claude-* (Haiku 4.5, older/unknown Claude ids)                → 64_000
-//  gpt-5*                                                        → 128_000 (safe fallback)
+//  gpt-5*/gpt-6*                                                 → 128_000 (safe fallback)
 //  everything else                                               → 64_000
 //    (safe conservative ceiling that matches the previous global clamp)
 // ---------------------------------------------------------------------------
 
 const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
-  // ── Anthropic / Claude (via Builder gateway or Anthropic direct) ──────────
+  // ── Anthropic / Claude model IDs ──────────────────────────────────────────
   "claude-fable-5": 128_000,
+  "claude-opus-5-5": 128_000,
   "claude-opus-4-8": 128_000,
   "claude-opus-4-7": 128_000,
   "claude-sonnet-5": 128_000,
@@ -155,6 +162,7 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
 
   // ── OpenRouter model IDs ──────────────────────────────────────────────────
   "anthropic/claude-fable-5": 128_000,
+  "anthropic/claude-opus-5.5": 128_000,
   "anthropic/claude-opus-4.8": 128_000,
   "anthropic/claude-opus-4.7": 128_000,
   "anthropic/claude-sonnet-5": 128_000,
@@ -162,8 +170,12 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "openai/gpt-5.6-sol": 40_000,
   "openai/gpt-5.6-terra": 40_000,
   "openai/gpt-5.6-luna": 128_000,
+  "openai/gpt-6-sol": 128_000,
+  "openai/gpt-6-luna": 128_000,
 
   // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
+  "gpt-6-sol": 128_000,
+  "gpt-6-luna": 128_000,
   "gpt-5.6-sol": 40_000,
   "gpt-5.6-terra": 40_000,
   "gpt-5.6-luna": 40_000,
@@ -213,8 +225,8 @@ export function getMaxOutputTokensForModel(
     return DEFAULT_MAX_OUTPUT_TOKENS_CEILING;
   }
 
-  // GPT-5.x family — 128K output
-  if (id.startsWith("gpt-5") || id.startsWith("openai/gpt-5")) return 128_000;
+  // GPT-5.x and GPT-6 families — 128K output
+  if (/^(?:openai\/)?gpt-[56]/.test(id)) return 128_000;
 
   return DEFAULT_MAX_OUTPUT_TOKENS_CEILING;
 }
@@ -276,6 +288,7 @@ export const AGENT_MODEL_CONFIG = {
     supportedModels: [
       "claude-haiku-4-5-20251001",
       CLAUDE_SONNET_MODEL_ID,
+      "claude-opus-5-5",
       "claude-opus-4-8",
       "claude-fable-5",
     ],
@@ -286,25 +299,35 @@ export const AGENT_MODEL_CONFIG = {
       supportedModels: [
         "claude-haiku-4-5-20251001",
         CLAUDE_SONNET_MODEL_ID,
+        "claude-opus-5-5",
         "claude-opus-4-8",
         "claude-fable-5",
       ],
     },
     openai: {
       defaultModel: FRAMEWORK_DEFAULT_OPENAI_MODEL,
-      supportedModels: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+      supportedModels: [
+        "gpt-5.6-luna",
+        "gpt-6-luna",
+        "gpt-5.6-terra",
+        "gpt-5.6-sol",
+        "gpt-6-sol",
+      ],
     },
     openrouter: {
       defaultModel: FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
       supportedModels: [
         "openai/gpt-5.6-luna",
+        "openai/gpt-6-luna",
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-sol",
+        "openai/gpt-6-sol",
         // Keep this shortlist to popular tool-capable text models; OpenRouter
         // users can still enter any model ID.
         "openai/gpt-6-astra",
         "openai/gpt-6-astra-pro",
         OPENROUTER_CLAUDE_SONNET_MODEL_ID,
+        "anthropic/claude-opus-5.5",
         "anthropic/claude-opus-4.8",
         "anthropic/claude-fable-5",
         "anthropic/claude-fable-5.1",

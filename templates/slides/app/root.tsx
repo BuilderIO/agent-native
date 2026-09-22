@@ -17,10 +17,6 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import {
-  registerFirstRunOnboardingExtension,
-  type FirstRunOnboardingExtensionProps,
-} from "@agent-native/core/client/onboarding";
-import {
   getThemeInitScript,
   RequireSession,
 } from "@agent-native/core/client/ui";
@@ -44,7 +40,6 @@ import {
   type EditorCommandGroup,
 } from "@/components/editor/editor-command-model";
 import { Layout as AppLayout } from "@/components/layout/Layout";
-import { FirstDeckOnboardingFlow } from "@/components/onboarding/FirstDeckOnboardingFlow";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -54,19 +49,6 @@ import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
-
-function FirstDeckOnboardingExtension(props: FirstRunOnboardingExtensionProps) {
-  return (
-    <DeckProvider>
-      <FirstDeckOnboardingFlow {...props} />
-    </DeckProvider>
-  );
-}
-
-registerFirstRunOnboardingExtension({
-  id: "slides-first-deck",
-  component: FirstDeckOnboardingExtension,
-});
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({

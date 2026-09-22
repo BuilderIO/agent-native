@@ -8,6 +8,7 @@ const requestContextMock = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => requestContextMock.orgId,
 }));
@@ -302,24 +303,20 @@ describe("connect-localhost", () => {
     expect(result.previewToken).toBe(derivePreviewToken("our_token"));
   });
 
-  it("stores an explicit read-only preview token separately", async () => {
-    rereadRow = {
-      bridgeToken: "example-write-token",
-      previewToken: "example-preview-token",
-    };
+  it("rejects a preview token that is not derived from the bridge token", async () => {
+    await expect(
+      action.run({
+        id: "conn_preview",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "example-write-token",
+        previewToken: "example-preview-token",
+      }),
+    ).rejects.toThrow(
+      "previewToken must match the deterministic token derived from bridgeToken",
+    );
 
-    const result = await action.run({
-      id: "conn_preview",
-      devServerUrl: "http://localhost:5173",
-      rootPath: "/tmp/app",
-      bridgeToken: "example-write-token",
-      previewToken: "example-preview-token",
-    });
-
-    expect(insertedValues?.bridgeToken).toBe("example-write-token");
-    expect(insertedValues?.previewToken).toBe("example-preview-token");
-    expect(result.previewToken).toBe("example-preview-token");
-    expect(result.previewToken).not.toBe(result.bridgeToken);
+    expect(insertedValues).toBeNull();
   });
 
   it("writes through a single upsert guarded by ownerEmail (no check-then-insert race)", async () => {

@@ -925,7 +925,7 @@ describe("pending React source anchors", () => {
     expect(prompt).toContain('"relPath": "app/components/Card.tsx"');
     expect(prompt).toContain('"relPath": "app/components/Hero.tsx"');
     expect(prompt).not.toContain("/Users/example/project");
-    expect(prompt.match(/"runtimeMultiplicity": 1/g)).toHaveLength(6);
+    expect(prompt.match(/"runtimeMultiplicity": 1/g)).toHaveLength(10);
     expect(prompt).toContain('"semanticHandoff"');
     expect(prompt).toContain('"executionMode": "coding-agent"');
     expect(prompt).toContain('"operation": "reparent"');

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { isStandalonePublicPath } from "./public-ssr-paths";
+import {
+  isLegacyRecordingPath,
+  isStandalonePublicPath,
+} from "./public-ssr-paths";
 
 describe("isStandalonePublicPath", () => {
   it("matches the /download page", () => {
@@ -33,7 +36,20 @@ describe("isStandalonePublicPath", () => {
     expect(isStandalonePublicPath("/spaces/abc")).toBe(false);
   });
 
-  it("does NOT match /r/:recordingId which is the private owner dashboard", () => {
+  it("does not treat /r/:recordingId as a standalone SSR page", () => {
     expect(isStandalonePublicPath("/r/abc123")).toBe(false);
+  });
+});
+
+describe("isLegacyRecordingPath", () => {
+  it("matches legacy recording links before the session gate", () => {
+    expect(isLegacyRecordingPath("/r/abc123")).toBe(true);
+    expect(isLegacyRecordingPath("/r/abc123/")).toBe(true);
+  });
+
+  it("does not match other authenticated paths", () => {
+    expect(isLegacyRecordingPath("/r")).toBe(false);
+    expect(isLegacyRecordingPath("/library")).toBe(false);
+    expect(isLegacyRecordingPath("/share/abc123")).toBe(false);
   });
 });

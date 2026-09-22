@@ -160,6 +160,10 @@ const messages = {
     aiRequestFailed: "فشل طلب الذكاء الاصطناعي",
     titleUpdated: "تم تحديث العنوان",
     descriptionUpdated: "تم تحديث الوصف",
+    tags: "الوسوم",
+    addTag: "إضافة وسم…",
+    tagsUpdateFailed: "تعذّر تحديث الوسوم",
+    tagTooLong: "يجب ألا يتجاوز الوسم {{max}} حرفًا",
     chaptersGenerated: "تم إنشاء الفصول",
     fillerCompleted: "اكتملت إزالة الكلمات الحشوية",
     workflowReady: "سير العمل جاهز",
@@ -1241,7 +1245,7 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "مساحة جديدة",
-    description: "أنشئ مساحة في المؤسسة الحالية.",
+    description: "المساحات أماكن مشتركة لتنظيم تسجيلات مؤسستك.",
     name: "الاسم",
     color: "اللون",
     useColor: "استخدام اللون {{color}}",
@@ -1439,7 +1443,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app (مترجم)",
     surfaceBrowser: "Browser tab (مترجم)",
     surfaceBrowserDescription: "Choose an open tab (مترجم)",
-    surfaceScreen: "Screen (مترجم)",
+    surfaceScreen: "ملء الشاشة",
     surfaceScreenDescription: "Capture everything (مترجم)",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection. (مترجم)",
@@ -1559,7 +1563,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app (مترجم)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (مترجم)",
+    recordOnDesktop: "التسجيل على سطح المكتب",
     downloadDesktopApp: "Download desktop app (مترجم)",
+    getChromeExtension: "الحصول على إضافة Chrome",
     technicalDetails: "Technical details (مترجم)",
     whatToCheck: "What to check (مترجم)",
     downloadRecording: "Download (مترجم)",

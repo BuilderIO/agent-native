@@ -11,6 +11,13 @@
  *   - internal/relative links (or an explicit `data-screen`): asked to switch
  *     to the matching screen in a multi-screen design; otherwise a no-op so the
  *     prototype never blows itself away.
+ *   - Cmd/Ctrl/Shift-click and middle-click on a real `<a href>`: left
+ *     completely alone so the browser's own new-tab/new-window gesture runs
+ *     (see the modifier-click guard below). A screen switch is a same-tab
+ *     mutation of the live editor's mode/selection state; forcing it on a
+ *     click whose entire point was "don't disturb my current tab" corrupts
+ *     that state instead of opening a new one, which is what produced the
+ *     Interact-mode crash this guard fixes.
  *
  * Protocol (iframe → parent):
  *
@@ -47,6 +54,15 @@
       if (!t || !t.closest) return;
       var a = t.closest("a[href], [data-screen]") as HTMLElement | null;
       if (!a) return;
+      // Cmd/Ctrl-click (new tab), Shift-click (new window), and middle-click
+      // are the browser's own "open this somewhere else, leave my tab alone"
+      // gestures. Forcing our same-tab screen-switch/postMessage path on top
+      // of one of these ignores that intent and mutates the live editor's
+      // mode/selection state on a click the user never meant to touch the
+      // current tab with. Step aside entirely and let the browser (or, for a
+      // `data-screen`-only element with no real destination, simply nothing)
+      // handle it instead.
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
       var ds = a.getAttribute && a.getAttribute("data-screen");
       // In-page anchors ('#...') and empty hrefs must be handled in-document.
       // A srcdoc document resolves '#'/'' against the PARENT app URL, so the

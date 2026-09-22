@@ -192,6 +192,7 @@ import {
   resourceListAccessible,
   resourceGet,
   ensurePersonalDefaults,
+  isWorkspaceResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "../resources/store.js";
@@ -239,6 +240,7 @@ import {
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
 import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
@@ -582,6 +584,14 @@ export async function resolveA2ARecoverableArtifactSecret(
     }
   }
   return globalSecret || undefined;
+}
+
+async function resolveResourceOrgId(
+  event: H3Event,
+  resolveOrgId: AgentChatPluginOptions["resolveOrgId"] | undefined,
+): Promise<string | null | undefined> {
+  const resolved = resolveOrgId ? await resolveOrgId(event) : undefined;
+  return resolved === undefined ? getRequestOrgId() : resolved;
 }
 
 export function buildLeanRunPolicyPrompt(
@@ -2571,7 +2581,9 @@ export function createAgentChatPlugin(
               callId: approval.toolCallId ?? crypto.randomUUID(),
             });
             const baseUrl = resolveArtifactBaseUrl(context.event);
-            const approvalPath = `/_agent-native/a2a/approvals/${encodeURIComponent(pending.id)}`;
+            const approvalPath = publicFrameworkPath(
+              `/_agent-native/a2a/approvals/${encodeURIComponent(pending.id)}`,
+            );
             const approvalUrl = baseUrl
               ? `${baseUrl}${approvalPath}`
               : approvalPath;
@@ -5026,11 +5038,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // Query resources
+          // Query resources. The organization decides which workspace defaults
+          // are visible, so failing to resolve it is not "no resources".
+          const filesOrgId = await resolveResourceOrgId(
+            event,
+            options?.resolveOrgId,
+          );
           try {
             const resources = [
-              ...(await resourceList(SHARED_OWNER)),
-              ...(await resourceList(WORKSPACE_OWNER)),
+              ...(await resourceList(SHARED_OWNER, undefined, {
+                orgId: filesOrgId,
+              })),
+              ...(await resourceList(WORKSPACE_OWNER, undefined, {
+                orgId: filesOrgId,
+              })),
             ];
             for (const r of resources) {
               if (!seen.has(r.path)) {
@@ -5177,27 +5198,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // Query accessible resources with skills/ prefix. Personal skills
           // need to show alongside shared skills so slash/menu invocation can
           // find both `learn` and `learn-shared`.
+          const skillsOwner = await getOwnerFromEvent(event).catch(
+            () => undefined,
+          );
+          const skillsOrgId = await resolveResourceOrgId(
+            event,
+            options?.resolveOrgId,
+          );
           try {
-            const skillsOwner = await getOwnerFromEvent(event).catch(
-              () => undefined,
-            );
-            let skillsOrgId: string | undefined;
-            if (options?.resolveOrgId) {
-              try {
-                skillsOrgId = (await options.resolveOrgId(event)) ?? undefined;
-              } catch {
-                skillsOrgId = undefined;
-              }
-            }
             if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
             const resourceSkills = skillsOwner
               ? await resourceListAccessible(skillsOwner, "skills/", {
                   userEmail: skillsOwner,
-                  orgId: skillsOrgId ?? null,
+                  orgId: skillsOrgId,
                 })
               : [
-                  ...(await resourceList(SHARED_OWNER, "skills/")),
-                  ...(await resourceList(WORKSPACE_OWNER, "skills/")),
+                  ...(await resourceList(SHARED_OWNER, "skills/", {
+                    orgId: skillsOrgId,
+                  })),
+                  ...(await resourceList(WORKSPACE_OWNER, "skills/", {
+                    orgId: skillsOrgId,
+                  })),
                 ];
             resourceSkills.sort((a, b) => {
               const ownerOrder =
@@ -5205,14 +5226,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ? 0
                   : a.owner === SHARED_OWNER
                     ? 1
-                    : a.owner === WORKSPACE_OWNER
+                    : isWorkspaceResourceOwner(a.owner)
                       ? 2
                       : 3) -
                 (b.owner === skillsOwner
                   ? 0
                   : b.owner === SHARED_OWNER
                     ? 1
-                    : b.owner === WORKSPACE_OWNER
+                    : isWorkspaceResourceOwner(b.owner)
                       ? 2
                       : 3);
               if (ownerOrder !== 0) return ownerOrder;
@@ -5228,12 +5249,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               let description: string | undefined;
               let userInvocable: boolean | undefined;
               try {
-                const full = await resourceGet(
-                  r.id,
-                  skillsOwner
-                    ? { userEmail: skillsOwner, orgId: skillsOrgId ?? null }
-                    : undefined,
-                );
+                const full = await resourceGet(r.id, {
+                  userEmail: skillsOwner,
+                  orgId: skillsOrgId,
+                });
                 if (full) {
                   const fm = parseSkillFrontmatter(full.content);
                   if (!isRuntimeVisibleScope(fm.scope)) continue;
@@ -5289,15 +5308,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const mentionsOwner = await getOwnerFromEvent(event).catch(
             () => undefined,
           );
-          let mentionsOrgId: string | undefined;
-          if (options?.resolveOrgId) {
-            try {
-              const resolved = await options.resolveOrgId(event);
-              mentionsOrgId = resolved ?? undefined;
-            } catch {
-              mentionsOrgId = undefined;
-            }
-          }
+          const mentionsOrgId = await resolveResourceOrgId(
+            event,
+            options?.resolveOrgId,
+          );
 
           const query = getQuery(event);
           const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
@@ -5338,10 +5352,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           const stream = new ReadableStream({
             start(controller) {
+              const inheritedPersonalScope =
+                mentionsOrgId === undefined &&
+                getRequestContext()?.orgScope === "personal";
               return runWithRequestContext(
                 {
                   userEmail: mentionsOwner,
-                  orgId: mentionsOrgId,
+                  orgId: mentionsOrgId ?? undefined,
+                  ...((mentionsOrgId === null || inheritedPersonalScope) && {
+                    orgScope: "personal" as const,
+                  }),
                 },
                 () => mentionsStreamWork(controller),
               );
@@ -5392,10 +5412,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               (async () => {
                 try {
                   const resources = mentionsOwner
-                    ? await resourceListAccessible(mentionsOwner)
+                    ? await resourceListAccessible(mentionsOwner, undefined, {
+                        userEmail: mentionsOwner,
+                        orgId: mentionsOrgId,
+                      })
                     : [
-                        ...(await resourceList(WORKSPACE_OWNER)),
-                        ...(await resourceList(SHARED_OWNER)),
+                        ...(await resourceList(WORKSPACE_OWNER, undefined, {
+                          orgId: mentionsOrgId,
+                        })),
+                        ...(await resourceList(SHARED_OWNER, undefined, {
+                          orgId: mentionsOrgId,
+                        })),
                       ];
                   flush(
                     resources.map((r) => {

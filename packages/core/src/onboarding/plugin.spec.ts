@@ -513,7 +513,41 @@ describe("onboarding plugin routes", () => {
     );
   });
 
-  it("rejects invalid onboarding roles before writing or tracking", async () => {
+  it("saves custom onboarding roles while categorizing telemetry as other", async () => {
+    updateUserOnboardingRoleMock.mockResolvedValueOnce("Content strategist");
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      {
+        "content-type": "application/json",
+        "x-agent-native-session-id": "session-custom-role",
+      },
+      { role: "Content strategist" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: true, role: "Content strategist" });
+    expect(updateUserOnboardingRoleMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "Content strategist",
+    );
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding.role_selected",
+      {
+        flow: "first_run",
+        step_id: "role",
+        role: "other",
+        outcome: "success",
+      },
+      { userId: "alice@example.com", sessionId: "session-custom-role" },
+    );
+  });
+
+  it("rejects empty onboarding roles before writing or tracking", async () => {
     const nitroApp = createNitroApp();
     await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
 
@@ -522,7 +556,7 @@ describe("onboarding plugin routes", () => {
       "/_agent-native/onboarding/first-run/role",
       "POST",
       { "content-type": "application/json" },
-      { role: "pirate" },
+      { role: "" },
     );
 
     expect(result.status).toBe(400);

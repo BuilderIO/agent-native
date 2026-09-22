@@ -202,7 +202,7 @@ export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
 
   const attendees = (event.attendees ?? []).filter((a) => !a.self);
   const attendeeCount = attendees.length;
-  if (attendeeCount === 0) return null;
+  if (attendees.length === 0) return null;
 
   const handleResearch = () => {
     if (!connected) {

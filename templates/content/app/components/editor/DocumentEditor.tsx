@@ -55,7 +55,7 @@ import {
   useState,
 } from "react";
 import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -83,6 +83,7 @@ import {
   useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
+import { useRecordContentVisit } from "@/hooks/use-content-recent";
 import {
   useContentSpaces,
   type ContentSpaceSummary,
@@ -195,7 +196,6 @@ import {
   suggestionSessionVisuals,
   type DraftSuggestion,
   type SuggestionDraftSession,
-  type SuggestionDraftCaret,
   unpersistedDraftSuggestions,
 } from "./suggestions/draft-session";
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
@@ -216,9 +216,26 @@ import type {
   VisualEditorHistoryController,
   VisualEditorHistoryState,
   VisualEditorPersistenceController,
+  VisualEditorSelectionController,
+  VisualEditorSelectionSnapshot,
 } from "./VisualEditor";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
+
+export function shouldResumeSelectedSuggestionFromPageActions(
+  capturedSelection: VisualEditorSelectionSnapshot | null,
+) {
+  return capturedSelection == null;
+}
+
+export function restoreCapturedEditorSelection(
+  controller: VisualEditorSelectionController | null,
+  snapshot: VisualEditorSelectionSnapshot | null,
+) {
+  controller?.releaseSelectionPreservation();
+  if (!controller || !snapshot) return false;
+  return controller.restoreSelection(snapshot);
+}
 
 export function documentEditorCommentThreads(
   threads: CommentThread[] | null | undefined,
@@ -259,6 +276,7 @@ interface DocumentEditorProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   viewId?: string | null;
+  foreground?: boolean;
 }
 
 export interface PageEditorSession {
@@ -543,6 +561,7 @@ export function DocumentEditor({
   databaseId,
   databaseDocumentId,
   viewId,
+  foreground = false,
 }: DocumentEditorProps) {
   return (
     <PageEditorSurface
@@ -550,6 +569,7 @@ export function DocumentEditor({
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
       viewId={viewId}
+      foreground={foreground}
       host="page"
     />
   );
@@ -571,6 +591,7 @@ export function PageEditorSurface({
   databaseId,
   databaseDocumentId,
   viewId,
+  foreground = false,
   host,
   onSessionChange,
   onDelete,
@@ -641,6 +662,18 @@ export function PageEditorSurface({
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
+  useRecordContentVisit(
+    { documentId },
+    foreground &&
+      host === "page" &&
+      !viewId &&
+      !!document &&
+      !document.database &&
+      !isError &&
+      isFetchedAfterMount &&
+      loadState.view === "editor",
+  );
+
   async function retryDocumentQuery() {
     setManualRetryDocumentId(documentId);
     try {
@@ -699,6 +732,18 @@ export function PageEditorSurface({
     );
   }
 
+  if (
+    viewId &&
+    document &&
+    (!document.database || document.database.id !== databaseId)
+  ) {
+    return host === "page" ? (
+      <Navigate to="/home" replace />
+    ) : (
+      <DocumentUnavailable />
+    );
+  }
+
   // If we have a doc (real or optimistic from create) render the editor —
   // an `isError` blip during a just-fired create shouldn't flash "not found".
   // A database/list snapshot can optimistically seed the document cache with a
@@ -721,6 +766,9 @@ export function PageEditorSurface({
         })}
         documentId={documentId}
         document={document}
+        foreground={
+          foreground && host === "page" && !isError && isFetchedAfterMount
+        }
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
         viewId={viewId}
@@ -1031,6 +1079,7 @@ interface DocumentEditorBodyProps {
   onDelete?: () => Promise<void>;
   focusTitle: boolean;
   onTitleFocused?: () => void;
+  foreground?: boolean;
 }
 
 type PendingDocumentSave = {
@@ -1471,6 +1520,7 @@ function PageEditorSessionBody({
   onDelete,
   focusTitle,
   onTitleFocused,
+  foreground = false,
 }: DocumentEditorBodyProps) {
   const acknowledgedDocumentRef = useRef<Document | null>(null);
   const resolvedDocument = resolveAcknowledgedDocumentSnapshot({
@@ -1489,17 +1539,32 @@ function PageEditorSessionBody({
     databaseDocumentId,
   });
   useEffect(() => {
-    if (host !== "page") return;
+    if (host !== "page" || document.database?.systemRole) return;
     void rememberContentLandingDocument(
-      documentId,
-      currentDocumentRef.current?.title,
+      {
+        documentId,
+        ...(currentDocumentRef.current?.title?.trim()
+          ? { title: currentDocumentRef.current.title }
+          : {}),
+        ...(databaseId ? { databaseId } : {}),
+        ...(viewId ? { viewId } : {}),
+      },
+      document.spaceId ?? undefined,
     ).catch((error) => {
       toast.error(t("landing.saveFailed"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     });
-  }, [documentId, host, t]);
+  }, [
+    databaseId,
+    document.database?.systemRole,
+    document.spaceId,
+    documentId,
+    host,
+    viewId,
+    t,
+  ]);
   const updateDocument = useUpdateDocument();
   const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
@@ -1590,8 +1655,11 @@ function PageEditorSessionBody({
   const [editingSuggestionId, setEditingSuggestionId] = useState<string | null>(
     null,
   );
-  const [suggestionInitialSelection, setSuggestionInitialSelection] =
-    useState<SuggestionDraftCaret | null>(null);
+  const [suggestionInitialSelection, setSuggestionInitialSelection] = useState<
+    | { from: number; prefix: string; suffix: string }
+    | VisualEditorSelectionSnapshot
+    | null
+  >(null);
   const suggestionBaseRef = useRef<SuggestionDraftSession | null>(null);
   const createdSuggestionOperationsRef = useRef(new Map());
   const suggestionAmendmentKeysRef = useRef(new Map<string, string>());
@@ -1735,6 +1803,11 @@ function PageEditorSessionBody({
     useState(false);
   const editorHistoryControllerRef =
     useRef<VisualEditorHistoryController | null>(null);
+  const editorSelectionControllerRef =
+    useRef<VisualEditorSelectionController | null>(null);
+  const pageActionsSelectionRef = useRef<VisualEditorSelectionSnapshot | null>(
+    null,
+  );
   const editorEscapeTargetRef = useRef<HTMLButtonElement>(null);
   const editorPersistenceControllerRef =
     useRef<VisualEditorPersistenceController | null>(null);
@@ -3615,7 +3688,10 @@ function PageEditorSessionBody({
   ]);
 
   const startSuggestionDraft = useCallback(
-    (suggestion?: ResourceSuggestion) => {
+    (
+      suggestion?: ResourceSuggestion,
+      initialSelection?: VisualEditorSelectionSnapshot | null,
+    ) => {
       if (!canSuggest || isSuggesting) return false;
       try {
         suggestionMarkedSourceRanges(document.content);
@@ -3648,7 +3724,9 @@ function PageEditorSessionBody({
           startedAt: new Date().toISOString(),
         });
       setSuggestionDraft(existing?.content ?? document.content);
-      setSuggestionInitialSelection(existing?.caret ?? null);
+      setSuggestionInitialSelection(
+        existing?.caret ?? initialSelection ?? null,
+      );
       setEditingSuggestionId(existing?.session.existingSuggestion?.id ?? null);
       if (existing) setSelectedSuggestionId(null);
       setIsSuggesting(true);
@@ -3668,6 +3746,23 @@ function PageEditorSessionBody({
   const handleSuggestionModeChange = useCallback(
     async (next: boolean) => {
       if (next) {
+        const initialSelection = pageActionsSelectionRef.current;
+        pageActionsSelectionRef.current = null;
+        // The captured range belongs to canonical content; an existing
+        // suggestion draft can have a different document and is edited through
+        // its own activation path.
+        if (!shouldResumeSelectedSuggestionFromPageActions(initialSelection)) {
+          const started = startSuggestionDraft(undefined, initialSelection);
+          pageActionsSelectionRef.current = null;
+          if (!started && initialSelection) {
+            restoreCapturedEditorSelection(
+              editorSelectionControllerRef.current,
+              initialSelection,
+            );
+          }
+          return;
+        }
+        pageActionsSelectionRef.current = null;
         const selected = savedSuggestions.find(
           (suggestion) => suggestion.id === selectedSuggestionId,
         );
@@ -3685,6 +3780,38 @@ function PageEditorSessionBody({
       startSuggestionDraft,
     ],
   );
+
+  const capturePageActionsSelection = useCallback(
+    (includeRemembered = false) => {
+      pageActionsSelectionRef.current =
+        editorSelectionControllerRef.current?.captureSelection({
+          includeRemembered,
+        }) ?? null;
+    },
+    [],
+  );
+
+  const handleSelectionControllerChange = useCallback(
+    (controller: VisualEditorSelectionController | null) => {
+      editorSelectionControllerRef.current = controller;
+    },
+    [],
+  );
+
+  const preservePageActionsSelection = useCallback(() => {
+    const snapshot = pageActionsSelectionRef.current;
+    if (snapshot) {
+      editorSelectionControllerRef.current?.preserveSelection(snapshot);
+    }
+  }, []);
+
+  const restorePageActionsSelection = useCallback(() => {
+    const snapshot = pageActionsSelectionRef.current;
+    restoreCapturedEditorSelection(
+      editorSelectionControllerRef.current,
+      snapshot,
+    );
+  }, []);
 
   const handleSuggestionReplacementIntent = useCallback(
     (intent: {
@@ -4755,7 +4882,7 @@ function PageEditorSessionBody({
                 { requestSource: "content-breadcrumb" },
               ),
             persistSelection: setStoredSpaceId,
-            openFiles: () => navigate(`/page/${targetId}`, { flushSync: true }),
+            openSpace: () => navigate(`/page/${targetId}`, { flushSync: true }),
           }),
         )
         .catch((error) => {
@@ -5096,6 +5223,9 @@ function PageEditorSessionBody({
             canSuggest={canSuggest}
             suggesting={isSuggesting}
             editorEscapeTargetRef={editorEscapeTargetRef}
+            onCaptureEditorSelection={capturePageActionsSelection}
+            onPreserveEditorSelection={preservePageActionsSelection}
+            onRestoreEditorSelection={restorePageActionsSelection}
             onSuggestingChange={(next) => {
               void handleSuggestionModeChange(next);
             }}
@@ -5343,7 +5473,7 @@ function PageEditorSessionBody({
                     readOnly={!editorCanEdit || isSuggesting}
                     style={{ fieldSizing: "content" } as any}
                     className={cn(
-                      "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
+                      "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-normal text-foreground outline-none placeholder:text-muted-foreground/40",
                       host === "preview" || isDatabasePage
                         ? "text-3xl"
                         : "text-3xl md:text-4xl",
@@ -5375,6 +5505,7 @@ function PageEditorSessionBody({
                   <div className={documentEditorDatabaseRegionClassName()}>
                     <DocumentDatabase
                       document={document}
+                      foreground={foreground}
                       canEdit={canEdit}
                       viewId={viewId}
                       onExportContextChange={handleDatabaseExportContextChange}
@@ -5608,6 +5739,9 @@ function PageEditorSessionBody({
                               handleHistoryControllerChange
                             }
                             onHistoryStateChange={handleHistoryStateChange}
+                            onSelectionControllerChange={
+                              handleSelectionControllerChange
+                            }
                             onPersistenceControllerChange={
                               handlePersistenceControllerChange
                             }

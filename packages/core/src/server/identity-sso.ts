@@ -30,18 +30,22 @@ import {
   getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
-import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
+import {
+  normalizeAppPath,
+  SIGN_IN_ENTRY_PATH,
+} from "../shared/sign-in-journey.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   addSignupAttributionHeader,
   signupAttributionContextFromCookieHeader,
 } from "./attribution.js";
-import { getSession, isExpectedAuthFailure, safeReturnPath } from "./auth.js";
 import {
   getBetterAuth,
   getBetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { createOAuthSession, getAppUrl, getOrigin } from "./google-oauth.js";
 import { hasIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
@@ -90,6 +94,15 @@ const MAX_ASSERTION_AGE_SECONDS = 5 * 60;
 const MAX_BOOTSTRAP_NAME_LENGTH = 200;
 const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+function safeReturnPath(raw: string | null | undefined): string {
+  return normalizeAppPath(raw) ?? "/";
+}
+
+async function getSessionForEvent(event: H3Event) {
+  const { getSession } = await import("./auth.js");
+  return getSession(event);
+}
 
 function html(body: string, status = 200): Response {
   return new Response(body, {
@@ -193,6 +206,10 @@ function createPkceChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
+function publicIdentitySsoPath(path: string): string {
+  return publicFrameworkPath(`${getConfiguredAppBasePath()}${path}`);
+}
+
 function requestUrl(event: H3Event): string {
   return (event as any).node?.req?.url ?? event.path ?? "/";
 }
@@ -206,7 +223,7 @@ function setPkceVerifierCookie(
   setCookie(event, verifierCookieName(state), verifier, {
     httpOnly: true,
     maxAge: Math.floor(SSO_STATE_TTL_MS / 1_000),
-    path: IDENTITY_SSO_CALLBACK_PATH,
+    path: publicIdentitySsoPath(IDENTITY_SSO_CALLBACK_PATH),
     sameSite: "lax",
     secure,
   });
@@ -353,7 +370,7 @@ function addBridgeParams(url: string, sourceOrigin: string): string {
 
 function clearPkceVerifierCookie(event: H3Event, state: string): void {
   deleteCookie(event, verifierCookieName(state), {
-    path: IDENTITY_SSO_CALLBACK_PATH,
+    path: publicIdentitySsoPath(IDENTITY_SSO_CALLBACK_PATH),
   });
 }
 
@@ -384,7 +401,7 @@ function resolveClientBinding(
 ): SsoClientBinding | null {
   const appId = resolveIdentitySsoAppId(event);
   const clientId = resolveClientId(appId);
-  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
+  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${publicIdentitySsoPath(IDENTITY_SSO_CALLBACK_PATH)}`;
   const authority = normalizeAuthority(hub);
   if (!authority || !appId || !clientId || !redirectUri) return null;
   return { appId, clientId, redirectUri, authority };
@@ -615,6 +632,7 @@ export async function ensureIdentityUser(
         ...(signupHeaders ? { headers: signupHeaders } : {}),
       });
     } catch (error) {
+      const { isExpectedAuthFailure } = await import("./auth.js");
       if (!isExpectedAuthFailure(error)) throw error;
     }
     existing = await adapter.findUserByEmail(email, {
@@ -727,7 +745,7 @@ async function startIdentityBootstrap(
   hub: string,
   returnPath: string,
 ): Promise<Response> {
-  const current = await getSession(event).catch((error) => {
+  const current = await getSessionForEvent(event).catch((error) => {
     void error;
     return null;
   });
@@ -869,7 +887,7 @@ export async function handleIdentitySso(
     if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
       return new Response("Invalid completion request", { status: 400 });
     }
-    const current = await getSession(event).catch((error) => {
+    const current = await getSessionForEvent(event).catch((error) => {
       void error;
       return null;
     });
@@ -899,7 +917,7 @@ export async function handleIdentitySso(
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
-    const current = await getSession(event).catch((error) => {
+    const current = await getSessionForEvent(event).catch((error) => {
       void error;
       return null;
     });
@@ -928,7 +946,7 @@ export async function handleIdentitySso(
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
-    const existing = await getSession(event).catch((error) => {
+    const existing = await getSessionForEvent(event).catch((error) => {
       void error;
       return null;
     });

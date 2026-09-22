@@ -68,6 +68,32 @@ export interface FeedbackEntry {
   createdAt: number;
 }
 
+export type InstructionUpdateStatus = "draft" | "approved" | "applied";
+
+export interface InstructionUpdate {
+  id: string;
+  runId: string;
+  threadId: string | null;
+  target: "agent" | "developer" | "skill";
+  instruction: string;
+  feedback: string;
+  status: InstructionUpdateStatus;
+  userId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OutputReviewRow {
+  runId: string;
+  threadId: string | null;
+  ask: string;
+  answer: string;
+  model: string;
+  createdAt: number;
+  feedback: FeedbackEntry[];
+  instructionUpdate: InstructionUpdate | null;
+}
+
 export interface SatisfactionScore {
   id: string;
   threadId: string;

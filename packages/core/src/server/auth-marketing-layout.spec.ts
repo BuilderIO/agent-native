@@ -1,5 +1,5 @@
 // Contract: the marketing panel's "New to <app>? Learn more" link, its
-// bottom-right placement, and the branded auth background treatment
+// top-right placement, and the shared two-panel auth treatment
 // were deleted as dead code twice in one day. This spec renders the real
 // onboarding HTML for every entry in BUILT_IN_AUTH_MARKETING and asserts the
 // structural contract directly, so a future deletion fails a test instead of
@@ -38,16 +38,21 @@ describe("built-in auth marketing layout contract", () => {
       });
       const props = readAuthPageData(html);
 
-      // (a) the marketing panel root element is present
+      // (a) the shared two-panel marketing shell is present
       expect(props.marketing?.appName).toBe(marketing.appName);
       expect(html).toContain('data-agent-native-marketing-home="true"');
       expect(html).toContain('class="marketing-panel"');
+      expect(html).toContain('class="auth-marketing-visual"');
+      expect(html).toContain('data-agent-native-starfield="true"');
       expect(html).not.toMatch(/<img[^>]*class="auth-marketing-screenshot"/);
 
       // (e) the layout background/wrapper classes the config depends on
       expect(html).toContain('<body class="has-marketing">');
       expect(html).toContain('class="split');
       expect(html).toContain('class="form-panel');
+      expect(html.indexOf('class="form-panel')).toBeLessThan(
+        html.indexOf('class="marketing-panel"'),
+      );
 
       // (b) the learn-more link renders with a non-empty href and text
       const linkMatch = html.match(
@@ -65,13 +70,38 @@ describe("built-in auth marketing layout contract", () => {
       requestHost: "slides.agent-native.com",
     });
 
-    // bottom-right placement of the learn-more link
+    // Desktop placement of the learn-more link
     expect(html).toMatch(
-      /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*bottom:/,
+      /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*top:/,
     );
     expect(html).toMatch(
-      /\.auth-marketing-home\.has-product-screenshot \.form-panel\s*{[^}]*align-items:\s*center;/,
+      /\.auth-marketing-home \.form-panel\s*{[^}]*flex:\s*1 1 50%;[^}]*max-width:\s*none;/,
     );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*1;/,
+    );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*2;/,
+    );
+    const mobileStart = html.lastIndexOf("@media (max-width: 900px) {");
+    const mobileEnd = html.indexOf("\n  }\n</style>", mobileStart);
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    expect(mobileEnd).toBeGreaterThan(mobileStart);
+    const mobileCss = html.slice(mobileStart, mobileEnd);
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.auth-marketing-top-right\s*{[^}]*display:\s*none;/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*flex-direction:\s*column;/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*1;[^}]*padding:\s*3rem 1rem 5rem;/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*2;/,
+    );
+    expect(html).toContain("overflow-x: clip;");
+    expect(html).toContain("overflow: clip;");
     expect(html).toContain("--b-hero-ocean-opacity: 0.32;");
     expect(html).toContain("--b-hero-shader-opacity: 0.15;");
     expect(html).toContain("--b-hero-ocean-opacity: 0.3;");
@@ -80,14 +110,10 @@ describe("built-in auth marketing layout contract", () => {
       /\[data-agent-native-starfield\]\s*{[^}]*opacity:\s*var\(--b-hero-shader-opacity,\s*0\.15\);/,
     );
     expect(html).toMatch(
-      /@media \(prefers-reduced-motion: reduce\)\s*{\s*\[data-agent-native-starfield\]\s*{\s*opacity:\s*var\(--b-hero-shader-opacity,\s*0\.15\);/,
+      /\.auth-marketing-home \.auth-marketing-screenshot-wrap\s*{[^}]*position:\s*fixed;[^}]*inset:\s*0;/,
     );
-    // Let the ocean or fallback background's own opacity token control contrast.
     expect(html).toMatch(
-      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*none;/,
-    );
-    expect(html).not.toMatch(
-      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*opacity\s*:/,
+      /@media \(prefers-reduced-motion: reduce\)\s*{\s*\[data-agent-native-starfield\]\s*{\s*opacity:\s*var\(--b-hero-shader-opacity,\s*0\.15\);/,
     );
   });
 

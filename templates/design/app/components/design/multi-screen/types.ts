@@ -9,7 +9,8 @@ import type { CodeLayerProjection, CodeLayerSource } from "@shared/code-layer";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
-import type { ReactNode } from "react";
+import type { VectorEndpointStyle } from "@shared/vector-endpoints";
+import type { ReactNode, RefObject } from "react";
 
 import type {
   IframeContextMenuPayload,
@@ -22,6 +23,8 @@ import type {
   ElementInfo,
   ElementSelectionIntent,
   PortableStyleSnapshot,
+  RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
 } from "../types";
 import type { ScreenHeightMode } from "./screen-height";
 
@@ -110,6 +113,8 @@ export interface CanvasToolProps {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   text?: string;
 }
 
@@ -123,6 +128,8 @@ export interface CanvasPrimitiveInsert {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
@@ -196,8 +203,13 @@ export interface MultiScreenCanvasProps {
   /** Lets every live frame receive native pointer interaction while the
    * overview camera and frame chrome remain available. */
   interactMode?: boolean;
+  /** One overview screen may temporarily pass pointer input through its
+   * mounted live editor without remounting or changing the global view. */
+  interactScreenId?: string | null;
   /** Viewer mode keeps selection/inspection available without edit chrome. */
   readOnly?: boolean;
+  /** Live localhost screens whose DOM editor may receive pointer input. */
+  editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;
@@ -481,9 +493,41 @@ export interface MultiScreenCanvasProps {
   // ── Board edit callbacks (active-target model) ───────────────────────────
   /**
    * When true the board <DesignCanvas> is in edit mode.
-   * Pass `canEditDesign` from DesignEditor. Defaults to false.
+   * Pass the persisted-design or public visual-edit capability from
+   * DesignEditor. Defaults to false.
    */
   boardEditMode?: boolean;
+  /** Runtime-only requests targeted at the board iframe. */
+  boardRuntimeStructureInsertRequest?:
+    | (RuntimeStructureInsertRequest & {
+        screenId: string;
+      })
+    | null;
+  boardRuntimeStructureRollbackRequest?:
+    | (RuntimeStructureRollbackRequest & {
+        screenId: string;
+      })
+    | null;
+  /** Shared admission lock used to associate a board timeout with its transaction. */
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
+  onBoardRuntimeStructureInsertRejected?: (
+    reason: string,
+    transactionId?: string,
+  ) => boolean | void;
+  onBoardRuntimeStructureInsertApplied?: (details: {
+    requestId: string;
+    transactionId?: string;
+    routePath?: string;
+    selector: string;
+    sourceId?: string;
+    applied?: boolean;
+  }) => void;
+  onBoardRuntimeStructureRollbackResult?: (details: {
+    requestId: string;
+    transactionId?: string;
+    applied: boolean;
+    reason?: string;
+  }) => void;
   /**
    * When true the board is the active surface (activeFileId === boardFileId),
    * so the board <DesignCanvas> owns the global window runtime bridge
@@ -848,6 +892,8 @@ export interface DraftPrimitive {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
@@ -882,6 +928,7 @@ export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 export interface KScaleStyleChange {
   selector: string;
   sourceId?: string;
+  elementInfo?: ElementInfo;
   styles: Record<string, string>;
   originalStyles?: Record<string, string>;
   preserveSelection?: boolean;
@@ -1173,6 +1220,8 @@ export type {
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
   IframeImagePastePayload,
+  RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
 };
 
 export interface ResolvedScreenMetadata {

@@ -247,12 +247,18 @@ type AutomationSeed = {
   legacySchedules?: string[];
   timezone?: string;
   model: string;
+  reasoningEffort: string;
   maxIterations: number;
   maxRunInputTokens: number;
   body: string;
 };
 
 const FACTORY_DEFAULT_MODEL = "gpt-5.6-luna";
+// Not yet honored end to end for GPT + tools on the Builder gateway — see
+// packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md. Seeded
+// here so it takes effect immediately for non-GPT models, and for GPT once
+// that gateway lane ships, without a follow-up migration of every seed.
+const FACTORY_DEFAULT_REASONING_EFFORT = "high";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
 const AUTOMATION_SEEDS: AutomationSeed[] = [
@@ -261,6 +267,7 @@ const AUTOMATION_SEEDS: AutomationSeed[] = [
     schedule: "*/5 * * * *",
     legacySchedules: ["* * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -274,11 +281,17 @@ A clear bug is a concrete broken behavior, reproducible failure, error,
 regression, stuck run, incorrect result, or a specific failing path with
 enough evidence to investigate — including visual/UI defects such as a
 duplicate control or broken layout. Feature requests, vague questions, and
-incomplete threads are not.
+incomplete threads are not. A clear bug still only reaches Builder when its
+risk and confidence both clear the bar below — most clear bugs will not.
 
 ${SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS}
 Cluster only items listed in this run: one dispatch with relatedItemIds. Do
 not dispatch needs_manual items or items that already started.
+
+Across a run, expect roughly 1 in 10 items to qualify for dispatch. If most
+of what you are seeing lands at risk low and confidence high, you are
+under-weighting uncertainty — re-check the evidence bar before passing those
+values.
 
 Preserve action errors. Do not claim a Builder reply, PR, merge, or fix
 unless an action returned that state.
@@ -289,6 +302,7 @@ unless an action returned that state.
     schedule: "0 9 * * *",
     timezone: "America/Los_Angeles",
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 24,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -302,14 +316,38 @@ full queue or use the action's default page size.
 
 Only classify a concrete unresolved error as a clear bug when the Sentry
 evidence is sufficient to investigate. Do not dispatch on noise, expected
-errors, product ideas, or incomplete provider responses. Clips, Design, and
-Content errors are owner-managed and must remain needs_manual.
+errors, product ideas, or incomplete provider responses.
 
-For each eligible clear bug, call dispatch-factory-item with clearBug true,
-an evidence-grounded reason, and clearErrorReport containing only the bounded
-Sentry evidence. That action opens or reuses a GitHub issue in the factory
-repository and tags @builderio-bot. Do not claim a PR exists until GitHub
-evidence confirms it.
+Classify risk and confidence on every item, including ones you skip — this
+data is read later even when Builder is never tagged. Risk is how bad it is
+if this item is mishandled, not how likely it is to be real: negligible
+(cosmetic noise, barely a bug), low (a clear, narrowly scoped defect you
+would be comfortable seeing fixed with no further review), medium (ambiguous
+scope, or touches shared or critical code), high (serious functional or data
+breakage), or critical (security, auth, tenant isolation, payments, or data
+loss). When in doubt, pick the higher tier.
+
+Confidence is how sure you are this can be correctly diagnosed and fixed as
+a code or test change from the evidence already gathered, without
+reproducing it in a browser: high (the stack trace, culprit, and event
+evidence pin down a specific failing path, and correctness does not depend
+on rendering or manually interacting with the UI), medium (a plausible cause
+but real uncertainty — a thin event count, no clear culprit, or more than
+one reasonable fix), or low (needs visual or browser reproduction to
+confirm, or the root cause is genuinely unclear from the Sentry evidence
+alone).
+
+For each item, call dispatch-factory-item with clearBug true or false, risk,
+confidence, an evidence-grounded reason, and clearErrorReport containing
+only the bounded Sentry evidence when clearBug is true. The action only
+opens or reuses a GitHub issue and tags @builderio-bot when clearBug is
+true, risk is low, and confidence is high — everything else is recorded as
+a skip. Do not claim a PR exists until GitHub evidence confirms it.
+
+Across your decisions over time, expect roughly 1 in 10 items to qualify for
+dispatch. If most of what you are seeing lands at risk low and confidence
+high, you are under-weighting uncertainty — re-check the evidence bar before
+passing those values.
 `,
   },
   {
@@ -317,6 +355,7 @@ evidence confirms it.
     schedule: "0 * * * *",
     legacySchedules: ["* * * * *", "*/5 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -330,12 +369,39 @@ page size.
 Treat an issue as a clear bug only when it has a concrete error report,
 reproduction, incorrect behavior, regression, or specific failing path. Do
 not dispatch feature requests, vague questions, or issues without enough
-evidence. Clips, Design, and Content remain owner-managed.
+evidence.
 
-For each eligible item call dispatch-factory-item with clearBug true,
-evidence-grounded reason, and the bounded issue body as clearErrorReport.
-That action comments @builderio-bot on the GitHub issue. Preserve failures
-and never report a successful Builder run without its action confirmation.
+Classify risk and confidence on every item, including ones you skip — this
+data is read later even when Builder is never tagged. Risk is how bad it is
+if this item is mishandled, not how likely it is to be real: negligible
+(cosmetic noise, barely a bug), low (a clear, narrowly scoped defect you
+would be comfortable seeing fixed with no further review), medium (ambiguous
+scope, or touches shared or critical code), high (serious functional or data
+breakage), or critical (security, auth, tenant isolation, payments, or data
+loss). When in doubt, pick the higher tier.
+
+Confidence is how sure you are this can be correctly diagnosed and fixed as
+a code or test change from the evidence already gathered, without
+reproducing it in a browser: high (the issue body pins down a specific
+failing path — an error message, stack trace, log line, or a concrete
+reproducible input and output — and correctness does not depend on
+rendering or manually interacting with the UI), medium (a plausible cause
+but real uncertainty: a thin report, no stack trace, or more than one
+reasonable fix), or low (needs visual or browser reproduction to confirm, or
+the root cause is genuinely unclear).
+
+For each item call dispatch-factory-item with clearBug true or false, risk,
+confidence, an evidence-grounded reason, and the bounded issue body as
+clearErrorReport when clearBug is true. The action only comments
+@builderio-bot on the GitHub issue when clearBug is true, risk is low, and
+confidence is high — everything else is recorded as a skip. Preserve
+failures and never report a successful Builder run without its action
+confirmation.
+
+Across your decisions over time, expect roughly 1 in 10 items to qualify for
+dispatch. If most of what you are seeing lands at risk low and confidence
+high, you are under-weighting uncertainty — re-check the evidence bar before
+passing those values.
 `,
   },
   {
@@ -343,6 +409,7 @@ and never report a successful Builder run without its action confirmation.
     schedule: "*/10 * * * *",
     legacySchedules: ["*/5 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 40,
     maxRunInputTokens: 2_000_000,
     body: `
@@ -404,6 +471,7 @@ confirms it.
     schedule: "*/5 * * * *",
     legacySchedules: ["*/2 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 12,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -491,6 +559,7 @@ factoryId: ${factoryId}
 createdBy: ${ownerEmail}
 runAs: creator
 model: ${seed.model}
+reasoningEffort: ${seed.reasoningEffort}
 maxIterations: ${seed.maxIterations}
 maxRunInputTokens: ${seed.maxRunInputTokens}
 alignmentRevision: ${FACTORY_ALIGNMENT_REVISION}
@@ -836,6 +905,7 @@ function blankAutomationSeed(
     name: leafName,
     schedule: "*/5 * * * *",
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `# Factory ${source} automation\n`,

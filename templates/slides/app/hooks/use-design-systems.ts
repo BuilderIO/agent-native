@@ -24,8 +24,7 @@ export function useDesignSystems() {
   }>("list-design-systems");
 
   const designSystems: DesignSystemSummary[] = data?.designSystems ?? [];
-  const defaultSystem =
-    designSystems.find((ds) => ds.isDefault) ?? designSystems[0];
+  const defaultSystem = designSystems.find((ds) => ds.isDefault);
 
   // `list-design-systems` only reads the status persisted at index/sync time,
   // which never advances past "indexing" on its own once Builder actually

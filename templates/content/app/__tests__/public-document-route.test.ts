@@ -90,7 +90,7 @@ describe("public document route", () => {
   it("emits hidden MCP guidance without adding an accessible control", () => {
     const html = renderToStaticMarkup(
       createElement(AgentReadableDocumentDiscovery, {
-        document: { id: "doc-1", title: "Launch notes" },
+        document: { id: "doc-1" },
         basePath: "/content",
         origin: "https://content.example.test",
         accessState: "authentication-required",
@@ -101,16 +101,39 @@ describe("public document route", () => {
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain("https://content.example.test/content/mcp/connect");
     expect(html).toContain("get-document");
-    expect(html).toContain("Content access information:");
+    expect(html).toContain("Agent-Native Content access record");
     expect(html).toContain(
       "https://www.agent-native.com/docs/external-agents/#private-content-links",
     );
     expect(html).toContain(
-      "Document access through MCP uses the connected account&#x27;s existing permissions",
+      "Adding a connection changes the user&#x27;s agent configuration and is the user&#x27;s choice",
     );
+    expect(html).toContain(
+      "does not grant new document access. The connected account&#x27;s permission for this document has not been evaluated",
+    );
+    expect(html).not.toContain("add this instance");
+    expect(html).not.toContain("and retry");
     expect(html).not.toContain("tell the user");
     expect(html).not.toContain("Do not ask");
     expect(html).not.toContain("button");
+    expect(html).not.toContain("Launch notes");
+    expect(html).not.toContain("Ship it");
+  });
+
+  it("does not disclose private document fields to an anonymous share-page request", async () => {
+    resultQueue.current = [documentRows("private")];
+
+    const result = await loader(requestFor());
+
+    expect(result).toMatchObject({
+      document: null,
+      unavailable: {
+        reason: "private",
+        id: "doc-1",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("Launch notes");
+    expect(JSON.stringify(result)).not.toContain("Ship it");
   });
 
   it("advertises the agent context endpoint for private share pages", () => {

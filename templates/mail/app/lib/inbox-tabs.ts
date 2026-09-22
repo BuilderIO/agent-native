@@ -1,3 +1,4 @@
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 import {
   isInboxScopedAppLabel,
   mailLabelsInclude,
@@ -168,9 +169,16 @@ export function qualifiesForInboxTab(
   triageLabels: readonly string[],
 ): boolean {
   if (tab === null) {
-    return !mailLabelsIncludeAny(latestLabelIds, triageLabels);
+    return (
+      !mailLabelsIncludeAny(latestLabelIds, triageLabels) &&
+      !mailLabelsInclude(latestLabelIds, AI_IMPORTANT_LABEL)
+    );
   }
-  if (!mailLabelsInclude(latestLabelIds, tab)) return false;
+  const isImportant =
+    mailLabelsInclude(latestLabelIds, tab) ||
+    (tab === "important" &&
+      mailLabelsInclude(latestLabelIds, AI_IMPORTANT_LABEL));
+  if (!isImportant) return false;
   if (tab === "important") {
     const others = triageLabels.filter((l) => l !== "important");
     if (mailLabelsIncludeAny(latestLabelIds, others)) return false;
@@ -228,8 +236,10 @@ export function filterInboxTabEmails(
   const qualified = new Set<string>();
   for (const [key, latestMsg] of latest) {
     if (
-      !savedFilterThreads.has(key) &&
-      qualifiesForInboxTab(latestMsg.labelIds, tab, triage)
+      (!savedFilterThreads.has(key) &&
+        qualifiesForInboxTab(latestMsg.labelIds, tab, triage)) ||
+      (tab === "important" &&
+        mailLabelsInclude(latestMsg.labelIds, AI_IMPORTANT_LABEL))
     ) {
       qualified.add(key);
     }

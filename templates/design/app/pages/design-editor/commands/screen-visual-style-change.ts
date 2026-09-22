@@ -1,6 +1,5 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
-import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { RefObject } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -12,7 +11,10 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
-import { applyScopedVisualStyleEdit } from "@/pages/design-editor/pending-edits";
+import {
+  applyScopedVisualStyleEdit,
+  resolveOverviewScreenSourceType,
+} from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface ScreenVisualStyleChangeArgs {
@@ -33,6 +35,7 @@ export interface ScreenVisualStyleChangeArgs {
     },
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
   designSourceType: "inline" | "localhost" | "fusion";
   getScreenContent: (screenId: string) => string;
   handleVisualStyleChange: (
@@ -42,6 +45,7 @@ export interface ScreenVisualStyleChangeArgs {
     metadata?: {
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
+      routePath?: string;
     },
   ) => void;
   overviewScreens: OverviewScreen[];
@@ -54,6 +58,7 @@ export interface ScreenVisualStyleChangeArgs {
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
       interactionState?: InteractionState;
+      routePath?: string;
     },
   ) => void;
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
@@ -67,6 +72,7 @@ export function runScreenVisualStyleChange(
     activeFile,
     applyFileContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     designSourceType,
     getScreenContent,
     handleVisualStyleChange,
@@ -83,9 +89,21 @@ export function runScreenVisualStyleChange(
     phase?: "preview" | "commit";
     originalStyles?: Record<string, string>;
     preserveSelection?: boolean;
+    routePath?: string;
   },
 ) {
+  const overviewScreen = overviewScreens.find(
+    (screen) => screen.id === screenId,
+  );
+  const screenSourceType = resolveOverviewScreenSourceType(
+    overviewScreen,
+    designSourceType,
+  );
+  const canEditScreen =
+    canEditDesign ||
+    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
   if (screenId === activeFile?.id) {
+    if (!canEditScreen) return;
     handleVisualStyleChange(selector, styles, elementInfo, metadata);
     return;
   }
@@ -99,12 +117,8 @@ export function runScreenVisualStyleChange(
   // gesture commit immediately (breakpoint-aware, single history step),
   // matching commitStylesToSelectedLayers's established per-file write
   // pattern below.
-  const overviewScreen = overviewScreens.find(
-    (screen) => screen.id === screenId,
-  );
-  const screenSourceType =
-    normalizeDesignSourceType(overviewScreen?.sourceType) ?? designSourceType;
   if (screenSourceType === "localhost") {
+    if (!canEditScreen) return;
     recordPendingVisualStyleEdit(
       screenId,
       selector,

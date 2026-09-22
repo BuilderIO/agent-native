@@ -16,6 +16,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "../server/lib/canonical-document-body-mutation.js";
+import {
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -24,6 +28,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
+import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
@@ -32,7 +37,12 @@ import {
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
 import {
+  migratePersonalDatabaseViewOverrides,
+  personalDatabaseViewSettingKey,
+} from "./_content-database-personal-view.js";
+import {
   favoriteDocumentIds,
+  favoritesSystemIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
@@ -46,6 +56,7 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
 // shared/api.ts, which another workstream owns concurrently. Structural
@@ -188,6 +199,51 @@ function canCommentRole(role: string) {
     role === "admin" ||
     role === "editor" ||
     role === "commenter"
+  );
+}
+
+async function setFavoriteAndOrder(args: {
+  db: ReturnType<typeof getDb>;
+  userEmail: string;
+  documentId: string;
+  favorite: boolean;
+  now: string;
+}) {
+  const favoritesDatabaseId = favoritesSystemIds(args.userEmail).databaseId;
+  const settingName = personalDatabaseViewSettingKey(favoritesDatabaseId);
+  return mutateContentUserSettingTransaction(
+    (callback) => args.db.transaction(callback),
+    args.userEmail,
+    settingName,
+    async (tx, current) => {
+      const migrated = migratePersonalDatabaseViewOverrides(
+        current,
+        favoritesDatabaseId,
+        "favorites",
+      );
+      const activeViewId = migrated?.activeViewId ?? "default";
+      const membership = await setFavoriteMembership({
+        db: tx as unknown as ReturnType<typeof getDb>,
+        userEmail: args.userEmail,
+        documentId: args.documentId,
+        favorite: args.favorite,
+        now: args.now,
+      });
+      return {
+        value: applyContentPersonalNavigationPatch(
+          migrated,
+          {
+            sidebarOrder: {
+              operation: args.favorite ? "prepend" : "remove",
+              viewId: activeViewId,
+              itemId: membership.membershipId,
+            },
+          },
+          [{ id: activeViewId, sorts: [], filters: [], filterMode: "and" }],
+        ) as unknown as Record<string, unknown>,
+        result: membership,
+      };
+    },
   );
 }
 
@@ -410,6 +466,15 @@ export default defineAction({
   ): Promise<DocumentUpdateResponse | DocumentUpdateConflictResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    if (args.isFavorite !== undefined && !isFavoriteOnlyUpdate(args)) {
+      throw new ActionContractError(
+        "Favorite changes must be submitted separately from document field changes.",
+        {
+          errorCode: "FAVORITE_UPDATE_MUST_BE_SEPARATE",
+          statusCode: 400,
+        },
+      );
+    }
     if (
       args.title !== undefined &&
       args.content !== undefined &&
@@ -453,6 +518,7 @@ export default defineAction({
 
     const db = getDb();
     const requestUserEmail = getRequestUserEmail();
+    const actor = requireDocumentRequestActor(ctx);
     if (args.isFavorite !== undefined && !requestUserEmail) {
       throw new Error("no authenticated user");
     }
@@ -545,7 +611,8 @@ export default defineAction({
       contentChanged ||
       iconChanged ||
       favoriteChanged ||
-      descriptionChanged;
+      descriptionChanged ||
+      args.isFavorite === false;
 
     let softDeletedDatabaseIds: string[] = [];
     let creativeContext:
@@ -570,7 +637,7 @@ export default defineAction({
       let contentCasConflict = false;
       let committedContentChanged = false;
       let committedContentBefore = existing.content;
-      await db.transaction(async (tx) => {
+      const mutate = async (tx: any) => {
         await tx
           .select({ id: schema.documents.id })
           .from(schema.documents)
@@ -641,6 +708,9 @@ export default defineAction({
           updates.bodyRevision = historyBefore.bodyRevision + 1;
         }
         if (lockedIconChanged) updates.icon = args.icon;
+        if (lockedTitleChanged || lockedContentChanged) {
+          Object.assign(updates, documentEditAttribution(actor));
+        }
         const primaryBlocksFields = lockedContentChanged
           ? await lockPrimaryBlocksFields(
               tx as unknown as ReturnType<typeof getDb>,
@@ -708,16 +778,6 @@ export default defineAction({
         committedContentChanged = lockedContentChanged;
         committedContentBefore = historyBefore.content;
 
-        if (favoriteChanged) {
-          await setFavoriteMembership({
-            db: tx,
-            userEmail: requestUserEmail as string,
-            documentId: id,
-            favorite: args.isFavorite as boolean,
-            now: updatedAt,
-          });
-        }
-
         if (lockedTitleChanged && args.title !== undefined) {
           await propagateDocumentTitle({
             db: tx as unknown as ReturnType<typeof getDb>,
@@ -749,7 +809,18 @@ export default defineAction({
             now: updatedAt,
           });
         }
-      });
+      };
+      if (favoriteChanged || args.isFavorite === false) {
+        await setFavoriteAndOrder({
+          db,
+          userEmail: requestUserEmail as string,
+          documentId: id,
+          favorite: args.isFavorite as boolean,
+          now: nextDocumentUpdatedAt(existing.updatedAt),
+        });
+      } else {
+        await db.transaction(mutate);
+      }
 
       if (contentCasConflict) {
         // Someone else's write landed after the caller's snapshot. Don't

@@ -71,6 +71,8 @@ type FactoryAuditItem = {
   dispatchError: string | null;
   clearBug: boolean | null;
   productUx: boolean | null;
+  risk: string | null;
+  confidence: string | null;
   ownerArea: string | null;
   guards: string | null;
   events: FactoryAuditEvent[];
@@ -732,6 +734,8 @@ function hasAuditFacts(item: FactoryAuditItem): boolean {
   return (
     item.clearBug !== null ||
     item.productUx !== null ||
+    Boolean(item.risk) ||
+    Boolean(item.confidence) ||
     Boolean(item.ownerArea) ||
     Boolean(item.guards) ||
     hasBabysitFacts(item)
@@ -826,6 +830,8 @@ function AuditDecisionFacts({ item }: { item: FactoryAuditItem }) {
   if (
     item.clearBug === null &&
     item.productUx === null &&
+    !item.risk &&
+    !item.confidence &&
     !item.ownerArea &&
     !item.guards
   ) {
@@ -844,6 +850,18 @@ function AuditDecisionFacts({ item }: { item: FactoryAuditItem }) {
         <AuditFact
           label={t("factoryRoute.auditUxImpact")}
           value={yesNo(item.productUx)}
+        />
+      )}
+      {item.risk && (
+        <AuditFact
+          label={t("factoryRoute.auditRisk")}
+          value={t(`triage.riskValues.${item.risk}`)}
+        />
+      )}
+      {item.confidence && (
+        <AuditFact
+          label={t("factoryRoute.auditConfidence")}
+          value={t(`triage.confidenceValues.${item.confidence}`)}
         />
       )}
       {item.ownerArea && (

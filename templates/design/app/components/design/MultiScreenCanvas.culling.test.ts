@@ -36,8 +36,8 @@ describe("MultiScreenCanvas viewport culling", () => {
     expect(OVERVIEW_CULLING_ENABLED).toBe(true);
   });
 
-  it("uses a generous (>=1.5x) overscan factor by default", () => {
-    expect(OVERVIEW_CULLING_OVERSCAN_FACTOR).toBeGreaterThanOrEqual(1.5);
+  it("uses enough overscan to absorb a settled pan", () => {
+    expect(OVERVIEW_CULLING_OVERSCAN_FACTOR).toBeGreaterThanOrEqual(2);
   });
 
   describe("live boot admission", () => {
@@ -181,6 +181,7 @@ describe("MultiScreenCanvas viewport culling", () => {
       candidates: ScreenCullCandidate[],
       options: {
         viewport?: OverscannedViewportBounds | null;
+        visibleViewport?: OverscannedViewportBounds | null;
         protectedIds?: ReadonlySet<string>;
         previous?: ReturnType<typeof computeBoundedScreenCullState>;
         epoch?: number;
@@ -191,6 +192,12 @@ describe("MultiScreenCanvas viewport culling", () => {
       return computeBoundedScreenCullState({
         candidates,
         viewport: options.viewport === undefined ? viewport : options.viewport,
+        visibleViewport:
+          options.visibleViewport === undefined
+            ? options.viewport === undefined
+              ? viewport
+              : options.viewport
+            : options.visibleViewport,
         protectedScreenIds: options.protectedIds ?? new Set(),
         previousLiveScreenIds:
           options.previous?.liveScreenIds ?? new Set<string>(),
@@ -247,6 +254,90 @@ describe("MultiScreenCanvas viewport culling", () => {
       const second = compute(candidates, { previous: first, epoch: 2 });
       expect(second.liveScreenIds).toEqual(first.liveScreenIds);
       expect([...second.tierByScreenId.values()]).not.toContain("evicted");
+    });
+
+    it("preserves mounted screens across an overlapping camera move", () => {
+      const candidates = [
+        candidate("old-a", 0),
+        candidate("old-b", 100),
+        candidate("new-a", 4_000),
+        candidate("new-b", 4_100),
+      ];
+      const firstViewport = { left: 0, top: 0, right: 100, bottom: 1_000 };
+      const overlappingViewport = {
+        left: 0,
+        top: 0,
+        right: 5_000,
+        bottom: 1_000,
+      };
+      const first = compute(candidates, {
+        viewport: firstViewport,
+        budget: 2,
+        epoch: 1,
+      });
+      expect(first.liveScreenIds).toEqual(new Set(["old-a", "old-b"]));
+
+      const second = compute(candidates, {
+        viewport: overlappingViewport,
+        budget: 2,
+        epoch: 2,
+        previous: first,
+      });
+      expect(second.liveScreenIds).toEqual(new Set(["old-a", "old-b"]));
+      expect(second.tierByScreenId.get("new-a")).toBe("placeholder");
+      expect(second.tierByScreenId.get("new-b")).toBe("placeholder");
+    });
+
+    it("admits a screen in the overscan band before it reaches the raw viewport", () => {
+      const result = compute(
+        [{ id: "prewarm", geometry: geom(150, 100, 20, 20), iframeCount: 1 }],
+        {
+          viewport: { left: 0, top: 0, right: 200, bottom: 200 },
+          visibleViewport: { left: 0, top: 0, right: 100, bottom: 200 },
+          screenBudget: 1,
+        },
+      );
+
+      expect(result.liveScreenIds).toEqual(new Set(["prewarm"]));
+      expect(result.tierByScreenId.get("prewarm")).toBe("visible");
+    });
+
+    it("lets raw-visible screens replace prior overscan-only screens", () => {
+      const candidates = [
+        candidate("old-a", 0),
+        candidate("old-b", 100),
+        candidate("new-a", 4_000),
+        candidate("new-b", 4_100),
+      ];
+      const firstViewport = { left: 0, top: 0, right: 100, bottom: 1_000 };
+      const wideOverscanViewport = {
+        left: 0,
+        top: 0,
+        right: 5_000,
+        bottom: 1_000,
+      };
+      const rawNewViewport = {
+        left: 3_900,
+        top: 0,
+        right: 4_500,
+        bottom: 1_000,
+      };
+      const first = compute(candidates, {
+        viewport: firstViewport,
+        visibleViewport: firstViewport,
+        budget: 2,
+        epoch: 1,
+      });
+      const second = compute(candidates, {
+        viewport: wideOverscanViewport,
+        visibleViewport: rawNewViewport,
+        budget: 2,
+        epoch: 2,
+        previous: first,
+      });
+      expect(second.liveScreenIds).toEqual(new Set(["new-a", "new-b"]));
+      expect(second.tierByScreenId.get("old-a")).toBe("evicted");
+      expect(second.tierByScreenId.get("old-b")).toBe("evicted");
     });
 
     it("still bounds a huge breakpoint-bearing board by the iframe ceiling", () => {

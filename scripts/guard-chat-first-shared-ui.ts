@@ -74,8 +74,9 @@ const chatRailViolations = [
   chatSidebar.includes('href: "/settings"')
     ? "Chat rail Settings belongs in the workspace switcher, not a standalone nav row"
     : null,
-  !chatSidebar.includes("{searchButton}\n            {collapseButton}")
-    ? "Expanded Chat rail must keep search and collapse together in the top utility area"
+  !chatSidebar.includes("border-t border-sidebar-border p-2") ||
+  !chatSidebar.includes("{searchButton}\n          {collapseButton}")
+    ? "Chat rail must keep search and collapse together in the bottom utility area"
     : null,
   !chatSidebar.includes("compact={collapsed}") ||
   !chatSidebar.includes('currentAppId="chat"')

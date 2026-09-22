@@ -6,14 +6,14 @@ const LLM_CAPABILITY: OnboardingCapability = {
   label: "AI model",
   required: true,
   builderIncluded: true,
-  keySummary: "Connect an AI provider or local model",
+  keySummary: "Connect your own AI model",
   keySummaryKey: "agentChat.onboarding.capability.llm.keySummary",
   why: "The agent uses a language model to understand requests and produce answers.",
 };
 
 const SYSTEM_ONE_CAPABILITY: OnboardingCapability = {
   id: "system-one",
-  label: "System one model (Jev)",
+  label: "Decision model (Jev)",
   required: false,
   suggested: true,
   builderIncluded: true,
@@ -36,7 +36,7 @@ const FILE_UPLOAD_STORAGE_CAPABILITY: OnboardingCapability = {
   required: false,
   suggested: true,
   builderIncluded: true,
-  keySummary: "Builder storage or an S3-compatible bucket",
+  keySummary: "File uploads and storage",
   keySummaryKey: "agentChat.onboarding.capability.fileStorage.keySummary",
   why: "Uploaded images and files need durable object storage so the agent can reuse them throughout a thread.",
 };
@@ -47,7 +47,7 @@ const VOICE_INPUT_CAPABILITY: OnboardingCapability = {
   required: false,
   suggested: true,
   builderIncluded: true,
-  keySummary: "Browser speech recognition or speech-to-text",
+  keySummary: "Voice input",
   labelKey: "agentChat.onboarding.capability.voiceInput.label",
   keySummaryKey: "agentChat.onboarding.capability.voiceInput.keySummary",
   whyKey: "agentChat.onboarding.capability.voiceInput.why",
@@ -60,7 +60,7 @@ const EMBEDDINGS_CAPABILITY: OnboardingCapability = {
   required: false,
   suggested: true,
   builderIncluded: true,
-  keySummary: "Gemini, Cohere, or Voyage key",
+  keySummary: "Embeddings",
   labelKey: "agentChat.onboarding.capability.embeddings.label",
   keySummaryKey: "agentChat.onboarding.capability.embeddings.keySummary",
   whyKey: "agentChat.onboarding.capability.embeddings.why",

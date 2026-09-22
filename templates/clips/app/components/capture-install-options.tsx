@@ -3,6 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandApple,
   IconBrandChrome,
+  IconBrandUbuntu,
   IconBrandWindows,
   IconChevronDown,
   IconDeviceDesktop,
@@ -14,6 +15,12 @@ import {
 } from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -69,6 +76,7 @@ function desktopOsIcon(): typeof IconDeviceDesktop {
   const ua = navigator.userAgent;
   if (/Windows/i.test(ua)) return IconBrandWindows;
   if (/Mac|iPhone|iPad/i.test(ua)) return IconBrandApple;
+  if (/Linux/i.test(ua)) return IconBrandUbuntu;
   return IconDeviceDesktop;
 }
 
@@ -187,6 +195,85 @@ export function CaptureInstallButton({
         <InstallOptionsContent desktopHref={desktopHref} />
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * Compact recorder CTA for the web capture surface. Keep the trigger as plain
+ * text so the action reads like a source choice; install destinations belong
+ * in the menu rather than in a platform-specific icon treatment.
+ */
+export function CaptureInstallMenu({
+  children,
+  className,
+  desktopHref = "/download",
+  size = "sm",
+  variant = "ghost",
+  ...buttonProps
+}: Omit<CaptureInstallButtonProps, "downloadedChildren">) {
+  const t = useT();
+  const downloaded = useHasDownloadedDesktopApp();
+  const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
+
+  if (downloaded) {
+    const { onClick, ...restButtonProps } = buttonProps;
+    return (
+      <Button
+        className={className}
+        size={size}
+        variant={variant}
+        {...restButtonProps}
+        onClick={(event) => {
+          onClick?.(event);
+          if (event.defaultPrevented) return;
+          attemptOpenDesktopApp(desktopHref);
+        }}
+      >
+        {children}
+      </Button>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          className={className}
+          size={size}
+          variant={variant}
+          {...buttonProps}
+        >
+          {children}
+          <IconChevronDown className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="center" className="w-52">
+        <DropdownMenuItem asChild>
+          <a href={appPath(desktopHref)} className="gap-2">
+            <DesktopPlatformIcon aria-hidden="true" className="size-4" />
+            {t("recordRoute.downloadDesktopApp")}
+          </a>
+        </DropdownMenuItem>
+        {chromeExtensionEnabled && clipsChromeExtensionUrl ? (
+          <DropdownMenuItem asChild>
+            <a
+              href={clipsChromeExtensionUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="gap-2"
+            >
+              <IconBrandChrome aria-hidden="true" className="size-4" />
+              {t("recordRoute.getChromeExtension")}
+            </a>
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem disabled className="gap-2">
+            <IconBrandChrome aria-hidden="true" className="size-4" />
+            {t("recordRoute.getChromeExtension")}
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

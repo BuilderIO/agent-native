@@ -27,11 +27,6 @@ import {
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
 import { readBrowserSessionIdHeader } from "../server/agent-run-context.js";
-import {
-  cookieDomainAttrs,
-  crossSiteCookieAttrs,
-  getSession,
-} from "../server/auth.js";
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
@@ -45,7 +40,10 @@ import {
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
 } from "../shared/first-run-onboarding.js";
 import { classifyTrackingFailure, track } from "../tracking/index.js";
-import { onboardingRoleSchema } from "../user-profile/shared.js";
+import {
+  getOnboardingRoleCategory,
+  onboardingRoleSchema,
+} from "../user-profile/shared.js";
 import { updateUserOnboardingRole } from "../user-profile/store.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
@@ -72,6 +70,7 @@ export interface OnboardingPluginOptions {
 async function resolveOnboardingContext(
   event: H3Event,
 ): Promise<OnboardingResolveContext> {
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
   if (!session) return { sessionId: "local" };
   return {
@@ -364,6 +363,8 @@ export function createOnboardingPlugin(
         }
         const context = await resolveOnboardingContext(event);
         if (!context.userEmail) return { firstRun: false };
+        const { cookieDomainAttrs, crossSiteCookieAttrs } =
+          await import("../server/auth.js");
 
         return withOnboardingRequestContext(context, async () => {
           const completed = await appStateGet(
@@ -417,13 +418,13 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
-
         const body = (await readBody(event)) as { role?: unknown } | null;
         const parsed = onboardingRoleSchema.safeParse(body?.role);
         if (!parsed.success) {
           setResponseStatus(event, 400);
           return { error: "Invalid onboarding role" };
         }
+        const roleCategory = getOnboardingRoleCategory(parsed.data);
 
         return withOnboardingRequestContext(context, async () => {
           const sessionId = readBrowserSessionIdHeader(event);
@@ -444,7 +445,7 @@ export function createOnboardingPlugin(
               {
                 flow: "first_run",
                 step_id: "role",
-                role: parsed.data,
+                role: roleCategory,
                 outcome: "success",
               },
               trackingSource,
@@ -456,7 +457,7 @@ export function createOnboardingPlugin(
               {
                 flow: "first_run",
                 step_id: "role",
-                role: parsed.data,
+                role: roleCategory,
                 failure_type: classifyTrackingFailure(error),
               },
               trackingSource,
@@ -480,6 +481,8 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
+        const { cookieDomainAttrs, crossSiteCookieAttrs } =
+          await import("../server/auth.js");
         await appStatePut(
           context.sessionId,
           FIRST_RUN_ONBOARDING_COMPLETED_KEY,

@@ -13,7 +13,11 @@ import {
   IconLayoutDistributeHorizontal,
   IconLayoutDistributeVertical,
 } from "@tabler/icons-react";
-import { type ReactNode, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -596,9 +600,22 @@ export function AutoLayoutMatrix({
             layout="label-action-pair"
           >
             <InspectorGridCell span={28}>
-              <ControlLabel>
-                {"Resizing" /* i18n-ignore design inspector label */}
-              </ControlLabel>
+              <div className="flex items-center justify-between gap-2">
+                <ControlLabel>
+                  {"Resizing" /* i18n-ignore design inspector label */}
+                </ControlLabel>
+                <span
+                  aria-hidden="true"
+                  className="flex items-center gap-0.5 text-[9px] text-muted-foreground/70"
+                >
+                  <kbd className="rounded border border-border/60 px-1 font-mono">
+                    F
+                  </kbd>
+                  <kbd className="rounded border border-border/60 px-1 font-mono">
+                    H
+                  </kbd>
+                </span>
+              </div>
             </InspectorGridCell>
             <InspectorGridCell span={11}>
               <SizingField
@@ -723,7 +740,15 @@ export function AutoLayoutMatrix({
 
             <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
-                <ControlLabel>{copy.gap}</ControlLabel>
+                <div className="flex items-center justify-between gap-2">
+                  <ControlLabel>{copy.gap}</ControlLabel>
+                  <kbd
+                    aria-hidden="true"
+                    className="rounded border border-border/60 px-1 font-mono text-[9px] text-muted-foreground/70"
+                  >
+                    A
+                  </kbd>
+                </div>
                 <GapField
                   value={value.gap}
                   mixed={value.gapMixed}
@@ -1692,8 +1717,32 @@ function GapField({
   gapMode?: "fixed" | "auto";
   gapModeMixed?: boolean;
 }) {
+  const handleShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      disabled ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey ||
+      event.key.toLowerCase() !== "a"
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (onGapModeChange) {
+      onGapModeChange("auto", direction);
+    } else {
+      onDistribute?.(direction);
+    }
+  };
+
   return (
-    <InspectorGrid className="items-center" layout="field-action">
+    <InspectorGrid
+      className="items-center"
+      layout="field-action"
+      onKeyDown={handleShortcut}
+    >
       <InspectorGridCell span={24}>
         {/* [gap-icon] value [▾] in one control surface */}
         <div
@@ -2001,6 +2050,25 @@ export function SizingField({
   // Whether we're in editable fixed mode (ScrubInput shown for size).
   const isEditableFixed = value === "fixed" && onSizeChange != null;
 
+  const handleShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      disabled ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+    const key = event.key.toLowerCase();
+    const next =
+      key === "f" && canFill ? "fill" : key === "h" && canHug ? "hug" : null;
+    if (!next) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onChange(next);
+  };
+
   const openEditor = (kind: "min" | "max") => {
     // Commit immediately so the shown row always reflects real state and
     // persists across selection changes, remounts, and parent re-renders.
@@ -2085,7 +2153,7 @@ export function SizingField({
   );
 
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1" onKeyDown={handleShortcut}>
       {isEditableFixed ? (
         /*
          * Editable fixed mode: split the trigger into two zones —

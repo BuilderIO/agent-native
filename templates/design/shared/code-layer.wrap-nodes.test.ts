@@ -15,6 +15,46 @@ const THREE_SIBLINGS = `<body>
 </body>`;
 
 describe("applyWrapNodes (Cmd+G group)", () => {
+  it("ungroup rebases measured in-flow children back to world coordinates", () => {
+    const content = `<body style="display:flex;flex-direction:column;gap:20px">
+  <div data-agent-native-node-id="first" style="width:100px;height:40px">First</div>
+  <div data-agent-native-node-id="second" style="width:100px;height:40px">Second</div>
+</body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["first", "second"],
+      sizeHints: {
+        first: { width: 100, height: 40, left: 12, top: 80 },
+        second: { width: 100, height: 40, left: 12, top: 140 },
+      },
+    });
+
+    expect(grouped.result.status).toBe("applied");
+    const ungrouped = applyVisualEdit(grouped.content, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+    expect(ungrouped.result.status).toBe("applied");
+    expect(ungrouped.content).toContain("left: 12px");
+    expect(ungrouped.content).toContain("top: 80px");
+    expect(ungrouped.content).toContain("top: 140px");
+  });
+
+  it("ungroup rebases absolute children from the group origin", () => {
+    const content = `<body><div data-agent-native-node-id="red" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div><div data-agent-native-node-id="green" style="position:absolute;left:60px;top:60px;width:100px;height:80px"></div></body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["red", "green"],
+    });
+    const ungrouped = applyVisualEdit(grouped.content, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+    expect(ungrouped.content).toContain("left: 20px");
+    expect(ungrouped.content).toContain("top: 20px");
+    expect(ungrouped.content).toContain("left: 60px");
+  });
+
   it("places the group at the TOPMOST selected child's z-position, not the bottommost, for a non-adjacent selection", () => {
     // Select red (bottom) + blue (top), skipping green (middle). Figma
     // places the resulting group at blue's stacking position, so green
@@ -417,6 +457,33 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
     expect(wrapperOpenTag).toContain("top: 40px");
     expect(wrapperOpenTag).toContain("width: 35px");
     expect(wrapperOpenTag).toContain("height: 19px");
+  });
+
+  it("persists the measured origin for an in-flow Frame Selection wrapper", () => {
+    const content = `<body><div data-agent-native-node-id="label">Save</div></body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["label"],
+      wrapperKind: "frame",
+      sizeHints: {
+        label: { width: 35, height: 19, left: 24, top: 48 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperId = (patch.result as { wrapperNodeId?: string })
+      .wrapperNodeId;
+    const wrapperStart = patch.content.indexOf(
+      `data-agent-native-node-id="${wrapperId}"`,
+    );
+    const wrapperOpenTagEnd = patch.content.indexOf(">", wrapperStart);
+    const wrapperOpenTag = patch.content.slice(wrapperStart, wrapperOpenTagEnd);
+    expect(wrapperOpenTag).toContain(
+      'data-agent-native-group-origin-left="24px"',
+    );
+    expect(wrapperOpenTag).toContain(
+      'data-agent-native-group-origin-top="48px"',
+    );
   });
 
   it("never overrides an explicit width/height with a hint", () => {

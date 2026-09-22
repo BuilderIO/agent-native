@@ -44,14 +44,19 @@ import {
   IconFilter,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+} from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import {
-  ComposeModal,
-  type ComposePaletteCommands,
-} from "@/components/email/ComposeModal";
+import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -120,6 +125,12 @@ import { CommandPalette } from "./CommandPalette";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
 import { useCommandPaletteFocus } from "./use-command-palette-focus";
+
+const ComposeModal = lazy(() =>
+  import("@/components/email/ComposeModal").then(({ ComposeModal }) => ({
+    default: ComposeModal,
+  })),
+);
 
 const BARE_ROUTES = new Set(["/email"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
@@ -1170,6 +1181,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     },
     {
       key: "Escape",
+      shouldHandle: () => Boolean(activeSearchQuery || searchFocused),
       handler: () => {
         setSearchQuery("");
         setSearchFocused(false);
@@ -2067,138 +2079,140 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         const popoutActiveDraft =
           popoutDrafts.find((d) => d.id === popoutActiveId) ?? null;
         return (
-          <ComposeModal
-            drafts={popoutDrafts}
-            activeId={popoutActiveId}
-            activeDraft={popoutActiveDraft}
-            initialExpanded={composeInitialExpanded}
-            onSetActiveId={compose.setActiveId}
-            onUpdate={compose.update}
-            onClose={(id) => {
-              const draft = popoutDrafts.find((d) => d.id === id);
-              const hasContent = !!(
-                draft?.to?.trim() ||
-                draft?.cc?.trim() ||
-                draft?.bcc?.trim() ||
-                draft?.subject?.trim() ||
-                draft?.body?.trim()
-              );
-              const snapshot = draft ? { ...draft } : null;
-              const savePromise = compose.close(id);
-              if (hasContent && snapshot) {
-                toast(t("mail.toasts.draftClosed"), {
-                  action: {
-                    label: t("mail.compose.reopenDraft"),
-                    onClick: async () => {
-                      const savedSnapshot = applyDraftSaveResult(
-                        snapshot,
-                        await savePromise,
-                      );
-                      const { id: _id, ...reopenData } = savedSnapshot;
-                      compose.open(reopenData);
-                    },
-                  },
-                  cancel: {
-                    label: t("mail.compose.deleteDraft"),
-                    onClick: async () => {
-                      const savedSnapshot = applyDraftSaveResult(
-                        snapshot,
-                        await savePromise,
-                      );
-                      if (savedSnapshot.savedDraftId) {
-                        await compose.deleteSavedDraft(savedSnapshot);
-                      }
-                    },
-                  },
-                });
-              }
-            }}
-            onCloseAll={() => {
-              const draftsWithContent = popoutDrafts.filter(
-                (d) =>
-                  !!(
-                    d.to?.trim() ||
-                    d.cc?.trim() ||
-                    d.bcc?.trim() ||
-                    d.subject?.trim() ||
-                    d.body?.trim()
-                  ),
-              );
-              const snapshots = draftsWithContent.map((d) => ({ ...d }));
-              const savePromises = compose.closeAll(
-                popoutDrafts.map((draft) => draft.id),
-              );
-              if (snapshots.length > 0) {
-                toast(
-                  t("mail.toasts.draftsClosed", { count: snapshots.length }),
-                  {
+          <Suspense fallback={null}>
+            <ComposeModal
+              drafts={popoutDrafts}
+              activeId={popoutActiveId}
+              activeDraft={popoutActiveDraft}
+              initialExpanded={composeInitialExpanded}
+              onSetActiveId={compose.setActiveId}
+              onUpdate={compose.update}
+              onClose={(id) => {
+                const draft = popoutDrafts.find((d) => d.id === id);
+                const hasContent = !!(
+                  draft?.to?.trim() ||
+                  draft?.cc?.trim() ||
+                  draft?.bcc?.trim() ||
+                  draft?.subject?.trim() ||
+                  draft?.body?.trim()
+                );
+                const snapshot = draft ? { ...draft } : null;
+                const savePromise = compose.close(id);
+                if (hasContent && snapshot) {
+                  toast(t("mail.toasts.draftClosed"), {
                     action: {
                       label: t("mail.compose.reopenDraft"),
                       onClick: async () => {
-                        const saveResults = await Promise.all(
-                          snapshots.map(async (snapshot) => ({
-                            snapshot,
-                            result: await savePromises.get(snapshot.id),
-                          })),
+                        const savedSnapshot = applyDraftSaveResult(
+                          snapshot,
+                          await savePromise,
                         );
-                        for (const { snapshot, result } of saveResults) {
-                          if (
-                            result?.status === "failed" ||
-                            result?.status === "unavailable" ||
-                            result?.status === "cancelled"
-                          ) {
-                            compose.setActiveId(snapshot.id);
-                            continue;
-                          }
-                          const savedSnapshot = applyDraftSaveResult(
-                            snapshot,
-                            result,
-                          );
-                          const { id: _id, ...reopenData } = savedSnapshot;
-                          compose.open(reopenData);
-                        }
+                        const { id: _id, ...reopenData } = savedSnapshot;
+                        compose.open(reopenData);
                       },
                     },
                     cancel: {
-                      label: t("mail.compose.deleteDrafts"),
+                      label: t("mail.compose.deleteDraft"),
                       onClick: async () => {
-                        const saveResults = await Promise.all(
-                          snapshots.map(async (snapshot) => ({
-                            snapshot,
-                            result: await savePromises.get(snapshot.id),
-                          })),
+                        const savedSnapshot = applyDraftSaveResult(
+                          snapshot,
+                          await savePromise,
                         );
-                        for (const { snapshot, result } of saveResults) {
-                          if (
-                            result?.status === "failed" ||
-                            result?.status === "unavailable" ||
-                            result?.status === "cancelled"
-                          ) {
-                            compose.discard(snapshot.id);
-                            continue;
-                          }
-                          const savedSnapshot = applyDraftSaveResult(
-                            snapshot,
-                            result,
-                          );
-                          if (savedSnapshot.savedDraftId) {
-                            await compose.deleteSavedDraft(savedSnapshot);
-                          }
+                        if (savedSnapshot.savedDraftId) {
+                          await compose.deleteSavedDraft(savedSnapshot);
                         }
                       },
                     },
-                  },
+                  });
+                }
+              }}
+              onCloseAll={() => {
+                const draftsWithContent = popoutDrafts.filter(
+                  (d) =>
+                    !!(
+                      d.to?.trim() ||
+                      d.cc?.trim() ||
+                      d.bcc?.trim() ||
+                      d.subject?.trim() ||
+                      d.body?.trim()
+                    ),
                 );
-              }
-            }}
-            onDiscard={compose.discard}
-            onStageForSend={compose.stageForSend}
-            onRestoreAfterSend={compose.restoreAfterSend}
-            onNewDraft={handleCompose}
-            onFlush={compose.flush}
-            onInitialExpandedConsumed={clearComposeInitialExpanded}
-            onRegisterComposeCommands={registerComposePaletteCommands}
-          />
+                const snapshots = draftsWithContent.map((d) => ({ ...d }));
+                const savePromises = compose.closeAll(
+                  popoutDrafts.map((draft) => draft.id),
+                );
+                if (snapshots.length > 0) {
+                  toast(
+                    t("mail.toasts.draftsClosed", { count: snapshots.length }),
+                    {
+                      action: {
+                        label: t("mail.compose.reopenDraft"),
+                        onClick: async () => {
+                          const saveResults = await Promise.all(
+                            snapshots.map(async (snapshot) => ({
+                              snapshot,
+                              result: await savePromises.get(snapshot.id),
+                            })),
+                          );
+                          for (const { snapshot, result } of saveResults) {
+                            if (
+                              result?.status === "failed" ||
+                              result?.status === "unavailable" ||
+                              result?.status === "cancelled"
+                            ) {
+                              compose.setActiveId(snapshot.id);
+                              continue;
+                            }
+                            const savedSnapshot = applyDraftSaveResult(
+                              snapshot,
+                              result,
+                            );
+                            const { id: _id, ...reopenData } = savedSnapshot;
+                            compose.open(reopenData);
+                          }
+                        },
+                      },
+                      cancel: {
+                        label: t("mail.compose.deleteDrafts"),
+                        onClick: async () => {
+                          const saveResults = await Promise.all(
+                            snapshots.map(async (snapshot) => ({
+                              snapshot,
+                              result: await savePromises.get(snapshot.id),
+                            })),
+                          );
+                          for (const { snapshot, result } of saveResults) {
+                            if (
+                              result?.status === "failed" ||
+                              result?.status === "unavailable" ||
+                              result?.status === "cancelled"
+                            ) {
+                              compose.discard(snapshot.id);
+                              continue;
+                            }
+                            const savedSnapshot = applyDraftSaveResult(
+                              snapshot,
+                              result,
+                            );
+                            if (savedSnapshot.savedDraftId) {
+                              await compose.deleteSavedDraft(savedSnapshot);
+                            }
+                          }
+                        },
+                      },
+                    },
+                  );
+                }
+              }}
+              onDiscard={compose.discard}
+              onStageForSend={compose.stageForSend}
+              onRestoreAfterSend={compose.restoreAfterSend}
+              onNewDraft={handleCompose}
+              onFlush={compose.flush}
+              onInitialExpandedConsumed={clearComposeInitialExpanded}
+              onRegisterComposeCommands={registerComposePaletteCommands}
+            />
+          </Suspense>
         );
       })()}
       <CommandPalette

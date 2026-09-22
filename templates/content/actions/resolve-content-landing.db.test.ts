@@ -4,13 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { writeAppState } from "@agent-native/core/application-state";
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   CONTENT_LAST_LOCATION_STATE_KEY,
   CONTENT_WELCOME_PAGE_STATE_KEY,
+  contentSpaceLastLocationStateKey,
 } from "../shared/content-landing.js";
 
 const TEST_DB_PATH = join(
@@ -34,6 +36,8 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
+let createContentSpaceAction: typeof import("./create-content-space.js").default;
+let createDocumentAction: typeof import("./create-document.js").default;
 let resolveContentLandingAction: typeof import("./resolve-content-landing.js").default;
 
 beforeAll(async () => {
@@ -42,10 +46,21 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   ({ provisionContentSpaces } = await import("./_content-spaces.js"));
+  createContentSpaceAction = (await import("./create-content-space.js"))
+    .default;
+  createDocumentAction = (await import("./create-document.js")).default;
   resolveContentLandingAction = (await import("./resolve-content-landing.js"))
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
+  )`);
 }, 60_000);
 
 afterAll(() => {
@@ -73,6 +88,187 @@ async function createPersonalDocument(userEmail: string, id: string) {
 }
 
 describe("resolve-content-landing", () => {
+  it("creates and reuses a real welcome page in a user workspace", async () => {
+    const userEmail = "workspace-welcome@example.com";
+    const result = await runWithRequestContext({ userEmail }, async () => {
+      const workspace = await createContentSpaceAction.run({
+        name: "Workspace welcome",
+        requestId: "workspace-welcome",
+      });
+      const concurrent = await Promise.all([
+        resolveContentLandingAction.run({ spaceId: workspace.spaceId }),
+        resolveContentLandingAction.run({ spaceId: workspace.spaceId }),
+        resolveContentLandingAction.run({ spaceId: workspace.spaceId }),
+      ]);
+      const second = await resolveContentLandingAction.run({
+        spaceId: workspace.spaceId,
+      });
+      return { workspace, concurrent, second };
+    });
+
+    expect(result.concurrent.map(({ resolution }) => resolution)).toContain(
+      "welcome-created",
+    );
+    expect(
+      new Set(result.concurrent.map(({ target }) => target?.documentId)).size,
+    ).toBe(1);
+    const [first] = result.concurrent;
+    expect(first.target).toEqual({ documentId: expect.any(String) });
+    expect(result.second).toEqual({
+      resolution: "welcome-reused",
+      target: first.target,
+    });
+    const welcomeDocumentId = first.target?.documentId;
+    const [welcome] = await getDb()
+      .select({
+        spaceId: schema.documents.spaceId,
+        visibility: schema.documents.visibility,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, welcomeDocumentId!));
+    const [membership] = await getDb()
+      .select({ documentId: schema.contentDatabaseItems.documentId })
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseItems.databaseId,
+            result.workspace.filesDatabaseId,
+          ),
+          eq(schema.contentDatabaseItems.documentId, welcomeDocumentId!),
+        ),
+      );
+    expect(welcome).toMatchObject({
+      spaceId: result.workspace.spaceId,
+      visibility: "private",
+    });
+    expect(membership).toEqual({ documentId: welcomeDocumentId });
+  });
+
+  it("reuses an organization workspace welcome for another member", async () => {
+    const ownerEmail = "workspace-welcome-owner@example.com";
+    const memberEmail = "workspace-welcome-member@example.com";
+    const orgId = "workspace-welcome-org";
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: [orgId, "Workspace Welcome Org", ownerEmail, Date.now()],
+    });
+    for (const [id, email, role] of [
+      ["workspace-welcome-owner", ownerEmail, "owner"],
+      ["workspace-welcome-member", memberEmail, "member"],
+    ]) {
+      await getDbExec().execute({
+        sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+        args: [id, orgId, email, role, Date.now()],
+      });
+    }
+
+    const provisioned = await runWithRequestContext(
+      { userEmail: ownerEmail },
+      () => provisionContentSpaces(getDb(), ownerEmail),
+    );
+    const spaceId = provisioned.spaceIds.find(
+      (candidate) => candidate !== provisioned.personalSpaceId,
+    )!;
+    const created = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+      resolveContentLandingAction.run({ spaceId }),
+    );
+    const reused = await runWithRequestContext({ userEmail: memberEmail }, () =>
+      resolveContentLandingAction.run({ spaceId }),
+    );
+
+    expect(created.resolution).toBe("welcome-created");
+    expect(reused).toEqual({
+      resolution: "welcome-reused",
+      target: created.target,
+    });
+    const [welcome] = await getDb()
+      .select({
+        orgId: schema.documents.orgId,
+        visibility: schema.documents.visibility,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.target!.documentId));
+    expect(welcome).toEqual({ orgId, visibility: "org" });
+  });
+
+  it("restores each workspace's exact saved page independently", async () => {
+    const userEmail = "workspace-restore@example.com";
+    const result = await runWithRequestContext({ userEmail }, async () => {
+      const firstWorkspace = await createContentSpaceAction.run({
+        name: "First workspace",
+        requestId: "workspace-restore-first",
+      });
+      const secondWorkspace = await createContentSpaceAction.run({
+        name: "Second workspace",
+        requestId: "workspace-restore-second",
+      });
+      const firstPage = await createDocumentAction.run({
+        title: "First saved page",
+        spaceId: firstWorkspace.spaceId,
+      });
+      const secondPage = await createDocumentAction.run({
+        title: "Second saved page",
+        spaceId: secondWorkspace.spaceId,
+      });
+      await writeAppState(
+        contentSpaceLastLocationStateKey(firstWorkspace.spaceId),
+        { documentId: firstPage.id },
+      );
+      await writeAppState(
+        contentSpaceLastLocationStateKey(secondWorkspace.spaceId),
+        { documentId: secondPage.id },
+      );
+      const landings = await Promise.all([
+        resolveContentLandingAction.run({ spaceId: firstWorkspace.spaceId }),
+        resolveContentLandingAction.run({ spaceId: secondWorkspace.spaceId }),
+      ]);
+      return { firstPage, secondPage, landings };
+    });
+
+    expect(result.landings).toEqual([
+      {
+        target: { documentId: result.firstPage.id },
+        resolution: "restored",
+      },
+      {
+        target: { documentId: result.secondPage.id },
+        resolution: "restored",
+      },
+    ]);
+  });
+
+  it("falls back when a saved database identity is no longer available", async () => {
+    const userEmail = "workspace-missing-database@example.com";
+    const result = await runWithRequestContext({ userEmail }, async () => {
+      const workspace = await createContentSpaceAction.run({
+        name: "Missing database workspace",
+        requestId: "workspace-missing-database",
+      });
+      const page = await createDocumentAction.run({
+        title: "Page with stale database destination",
+        spaceId: workspace.spaceId,
+      });
+      await writeAppState(contentSpaceLastLocationStateKey(workspace.spaceId), {
+        documentId: page.id,
+        databaseId: "missing-database",
+      });
+      return {
+        page,
+        landing: await resolveContentLandingAction.run({
+          spaceId: workspace.spaceId,
+        }),
+      };
+    });
+
+    expect(result.landing).toMatchObject({
+      resolution: "fallback",
+      fallbackReason: "saved-document-unavailable",
+      target: { documentId: expect.any(String) },
+    });
+    expect(result.landing.target?.documentId).not.toBe(result.page.id);
+  });
+
   it("restores only a currently authorized saved document", async () => {
     const userEmail = "landing-restored@example.com";
     const documentId = "landing-restored-document";
@@ -284,9 +480,8 @@ describe("resolve-content-landing", () => {
       "welcome-created",
     );
 
-    const [welcome] = await getDb()
+    const welcomes = await getDb()
       .select({
-        count: sql<number>`count(*)`,
         visibility: schema.documents.visibility,
         parentId: schema.documents.parentId,
       })
@@ -297,7 +492,10 @@ describe("resolve-content-landing", () => {
           eq(schema.documents.title, WELCOME_TITLE),
         ),
       );
-    expect(Number(welcome.count)).toBe(1);
-    expect(welcome).toMatchObject({ visibility: "private", parentId: null });
+    expect(welcomes).toHaveLength(1);
+    expect(welcomes[0]).toMatchObject({
+      visibility: "private",
+      parentId: null,
+    });
   });
 });

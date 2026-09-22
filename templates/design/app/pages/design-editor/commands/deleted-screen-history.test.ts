@@ -17,6 +17,7 @@ import { runRedo } from "@/pages/design-editor/commands/redo";
 import type { RedoArgs } from "@/pages/design-editor/commands/redo";
 import { runUndo } from "@/pages/design-editor/commands/undo";
 import type { UndoArgs } from "@/pages/design-editor/commands/undo";
+import type { UndoRedoOrderKind } from "@/pages/design-editor/editor-state";
 import type { GeometryHistoryEntry } from "@/pages/design-editor/history";
 import type {
   ContentHistoryChange,
@@ -574,7 +575,21 @@ describe("screen deletion history identity", () => {
         contentUndoSelectionStackRef,
         contentUndoStackRef,
         deleteFileMutation: {
-          mutateAsync: vi.fn(async () => ({ deleted: true })),
+          mutateAsync: vi.fn(async () => ({
+            deleted: true,
+            id: sourceFile.id,
+            deletedFiles: [
+              {
+                ...sourceFile,
+                geometry: (
+                  designDataJsonRef.current.canvasFrames as Record<
+                    string,
+                    unknown
+                  >
+                )[sourceFile.id],
+              },
+            ],
+          })),
         } as any,
         fileCreationRedoStackRef,
         fileCreationUndoStackRef,
@@ -641,7 +656,20 @@ describe("screen deletion history identity", () => {
           }),
         } as any,
         deleteFileMutation: {
-          mutateAsync: vi.fn(async () => ({ deleted: true })),
+          mutateAsync: vi.fn(async () => ({
+            deleted: true,
+            deletedFiles: [
+              {
+                ...activeFile,
+                geometry: (
+                  designDataJsonRef.current.canvasFrames as Record<
+                    string,
+                    unknown
+                  >
+                )[activeFile.id],
+              },
+            ],
+          })),
         } as any,
         designDataJsonRef,
         fileDeletionRedoStackRef,
@@ -970,7 +998,14 @@ describe("screen deletion history identity", () => {
         [failedScreen.id]: { title: "failed" },
       },
     });
+    const initialCanvasFrames = {
+      ...(designDataJsonRef.current.canvasFrames as Record<string, unknown>),
+    };
+    const originalDesignQuery = {
+      files: [deletedScreen, failedScreen, remainingScreen],
+    };
     const queryClient = {
+      getQueryData: vi.fn(() => originalDesignQuery),
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;
@@ -999,8 +1034,28 @@ describe("screen deletion history identity", () => {
         contentUndoSelectionStackRef,
         contentUndoStackRef,
         deleteFileMutation: {
-          mutateAsync: vi.fn(async ({ id }: { id: string }) =>
-            id === deletedScreen.id ? { deleted: true } : { deleted: false },
+          mutateAsync: vi.fn(
+            async ({ id }: { id: string; fileIds?: string[] }) =>
+              id === deletedScreen.id
+                ? {
+                    deleted: true,
+                    deletedIds: [deletedScreen.id],
+                    deletedFiles: [
+                      {
+                        ...deletedScreen,
+                        geometry: (
+                          designDataJsonRef.current.canvasFrames as Record<
+                            string,
+                            unknown
+                          >
+                        )[deletedScreen.id],
+                        screenMetadata: {
+                          title: "success",
+                        },
+                      },
+                    ],
+                  }
+                : { deleted: false, deletedIds: [] },
           ),
         } as any,
         fileCreationRedoStackRef: ref([]),
@@ -1040,6 +1095,11 @@ describe("screen deletion history identity", () => {
     expect(result.deleted.map((file) => file.id)).toEqual([deletedScreen.id]);
     expect(result.failed.map((file) => file.id)).toEqual([failedScreen.id]);
     expect(fileHistoryMutationPendingRef.current).toBe(false);
+    expect(designDataJsonRef.current.canvasFrames).toEqual(initialCanvasFrames);
+    expect(queryClient.setQueryData).toHaveBeenLastCalledWith(
+      ["action", "get-design", { id: "design" }],
+      originalDesignQuery,
+    );
     expect(fileDeletionUndoStackRef.current).toHaveLength(1);
     expect(
       fileDeletionUndoStackRef.current[0]?.files.map((file) => file.id),
@@ -1073,5 +1133,289 @@ describe("screen deletion history identity", () => {
       pendingFailedScreenContent,
     );
     expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores every local history stack when a non-history delete fails", async () => {
+    const file: DesignFile = {
+      id: "screen-non-history-failure",
+      filename: "non-history-failure.html",
+      content: "<main><p>Failure</p></main>",
+      fileType: "html",
+      createdAt: "2026-09-13T00:00:00.000Z",
+      updatedAt: "2026-09-13T00:00:00.000Z",
+    };
+    const contentChange = {
+      fileId: file.id,
+      before: "<main><p>Before</p></main>",
+      after: file.content,
+    } as ContentHistoryChange;
+    const selection = {
+      activeFileId: file.id,
+      overviewSelectedScreenIds: [file.id],
+      selectedLayerIds: [],
+    } as GeometryHistorySelection;
+    const geometryEntry = {
+      before: { [file.id]: { x: 1, y: 2, width: 300, height: 600, z: 0 } },
+      after: { [file.id]: { x: 3, y: 4, width: 300, height: 600, z: 0 } },
+      selectionBefore: selection,
+      selectionAfter: selection,
+    } as GeometryHistoryEntry;
+    const contentUndoStackRef = ref<ContentHistoryEntry[]>([contentChange]);
+    const contentRedoStackRef = ref<ContentHistoryEntry[]>([contentChange]);
+    const contentUndoSelectionStackRef = ref([selection]);
+    const contentRedoSelectionStackRef = ref([selection]);
+    const geometryUndoStackRef = ref([geometryEntry]);
+    const geometryRedoStackRef = ref([geometryEntry]);
+    const localContentUndoStackRef = ref([contentChange]);
+    const localContentRedoStackRef = ref([contentChange]);
+    const fileCreationEntry = {
+      filename: file.filename,
+      content: file.content,
+      fileType: file.fileType,
+    };
+    const fileCreationUndoStackRef = ref([fileCreationEntry]);
+    const fileCreationRedoStackRef = ref([fileCreationEntry]);
+    const fileDeletionEntry = { files: [] } as FileDeletionHistoryEntry;
+    const fileDeletionUndoStackRef = ref([fileDeletionEntry]);
+    const fileDeletionRedoStackRef = ref([fileDeletionEntry]);
+    const historyOrderRef = ref<UndoRedoOrderKind[]>([
+      "geometry",
+      "file-content",
+      "file-created",
+    ]);
+    const redoOrderRef = ref<UndoRedoOrderKind[]>([
+      "geometry",
+      "file-content",
+      "file-created",
+    ]);
+    const queryClient = {
+      getQueryData: vi.fn(() => ({ files: [file] })),
+      invalidateQueries: vi.fn(),
+      setQueryData: vi.fn(),
+    } as unknown as QueryClient;
+    const designDataJsonRef = ref<Record<string, unknown>>({
+      canvasFrames: {
+        [file.id]: { x: 10, y: 20, width: 300, height: 600, z: 0 },
+      },
+    });
+    const initialStacks = {
+      contentRedo: contentRedoStackRef.current,
+      contentRedoSelection: contentRedoSelectionStackRef.current,
+      contentUndo: contentUndoStackRef.current,
+      contentUndoSelection: contentUndoSelectionStackRef.current,
+      fileCreationRedo: fileCreationRedoStackRef.current,
+      fileCreationUndo: fileCreationUndoStackRef.current,
+      fileDeletionRedo: fileDeletionRedoStackRef.current,
+      fileDeletionUndo: fileDeletionUndoStackRef.current,
+      geometryRedo: geometryRedoStackRef.current,
+      geometryUndo: geometryUndoStackRef.current,
+      historyOrder: historyOrderRef.current,
+      localContentRedo: localContentRedoStackRef.current,
+      localContentUndo: localContentUndoStackRef.current,
+      redoOrder: redoOrderRef.current,
+    };
+
+    await runDeleteFiles(
+      {
+        activeFile: file,
+        canvasFrameGeometryById: designDataJsonRef.current
+          .canvasFrames as Record<string, any>,
+        clearRedoStacks: vi.fn(),
+        designDataJsonRef,
+        clipboardPasteRedoStackRef: ref([]),
+        clipboardPasteUndoStackRef: ref([]),
+        contentRedoSelectionStackRef,
+        contentRedoStackRef,
+        contentUndoSelectionStackRef,
+        contentUndoStackRef,
+        deleteFileMutation: {
+          mutateAsync: vi
+            .fn()
+            .mockRejectedValue(new Error("temporary failure")),
+        } as any,
+        fileCreationRedoStackRef,
+        fileCreationUndoStackRef,
+        fileDeletionUndoStackRef,
+        fileHistoryMutationPendingRef: ref(false),
+        files: [file],
+        geometryRedoStackRef,
+        geometryUndoStackRef,
+        historyOrderRef,
+        id: "design",
+        latestClipboardMutationContentRef: ref(new Map()),
+        localContentRedoStackRef,
+        localContentUndoStackRef,
+        queryClient,
+        redoOrderRef,
+        setActiveFileId: vi.fn(),
+        setSelectedElement: vi.fn(),
+        setSelectedLayerIdsState: vi.fn(),
+        syncUndoRedoState: vi.fn(),
+        t: (key: string) => key,
+        writeFrameGeometrySnapshot: vi.fn(),
+      },
+      [file],
+    );
+
+    expect(contentUndoStackRef.current).toBe(initialStacks.contentUndo);
+    expect(contentRedoStackRef.current).toBe(initialStacks.contentRedo);
+    expect(contentUndoSelectionStackRef.current).toBe(
+      initialStacks.contentUndoSelection,
+    );
+    expect(contentRedoSelectionStackRef.current).toBe(
+      initialStacks.contentRedoSelection,
+    );
+    expect(geometryUndoStackRef.current).toBe(initialStacks.geometryUndo);
+    expect(geometryRedoStackRef.current).toBe(initialStacks.geometryRedo);
+    expect(localContentUndoStackRef.current).toBe(
+      initialStacks.localContentUndo,
+    );
+    expect(localContentRedoStackRef.current).toBe(
+      initialStacks.localContentRedo,
+    );
+    expect(fileCreationUndoStackRef.current).toBe(
+      initialStacks.fileCreationUndo,
+    );
+    expect(fileCreationRedoStackRef.current).toBe(
+      initialStacks.fileCreationRedo,
+    );
+    expect(fileDeletionUndoStackRef.current).toBe(
+      initialStacks.fileDeletionUndo,
+    );
+    expect(fileDeletionRedoStackRef.current).toBe(
+      initialStacks.fileDeletionRedo,
+    );
+    expect(historyOrderRef.current).toBe(initialStacks.historyOrder);
+    expect(redoOrderRef.current).toBe(initialStacks.redoOrder);
+  });
+
+  it("preserves unrelated redo history when screen deletion is rejected", async () => {
+    const file: DesignFile = {
+      id: "screen-delete-rejected",
+      filename: "rejected.html",
+      content: "<main><p>Rejected</p></main>",
+      fileType: "html",
+      createdAt: "2026-09-13T00:00:00.000Z",
+      updatedAt: "2026-09-13T00:00:00.000Z",
+    };
+    const contentRedoEntries = [
+      {
+        fileId: file.id,
+        before: "<main><p>Before redo</p></main>",
+        after: file.content,
+      },
+    ] as ContentHistoryChange[];
+    const contentRedoSelections = [
+      { activeFileId: file.id },
+    ] as GeometryHistorySelection[];
+    const geometryRedoEntries = [
+      {
+        before: { [file.id]: { x: 1, y: 2, width: 300, height: 600, z: 0 } },
+        after: { [file.id]: { x: 3, y: 4, width: 300, height: 600, z: 0 } },
+      },
+    ] as GeometryHistoryEntry[];
+    const localContentRedoEntries = contentRedoEntries.map((entry) => ({
+      ...entry,
+    }));
+    const redoOrder = ["file-content", "geometry"] as Array<any>;
+    const contentRedoStackRef = ref<ContentHistoryEntry[]>(contentRedoEntries);
+    const contentRedoSelectionStackRef = ref(contentRedoSelections);
+    const geometryRedoStackRef = ref(geometryRedoEntries);
+    const localContentRedoStackRef = ref(localContentRedoEntries);
+    const fileCreationRedoStackRef = ref([]);
+    const clipboardPasteRedoStackRef = ref<ContentHistoryChange[]>([]);
+    const redoOrderRef = ref(redoOrder);
+    const clearRedoStacks = vi.fn(() => {
+      contentRedoStackRef.current = [];
+      contentRedoSelectionStackRef.current = [];
+      geometryRedoStackRef.current = [];
+      fileCreationRedoStackRef.current = [];
+      clipboardPasteRedoStackRef.current = [];
+      redoOrderRef.current = [];
+    });
+    const fileHistoryMutationPendingRef = ref(false);
+    const previousSelectedElement = {
+      selector: "#rejected-screen",
+      sourceId: "rejected-screen-layer",
+    } as ElementInfo;
+    const selectedElementRef = ref<ElementInfo | null>(previousSelectedElement);
+    const selectedLayerIdsRef = ref(["rejected-screen-layer"]);
+    const overviewSelectedScreenIdsRef = ref([file.id]);
+    const designDataJsonRef = ref<Record<string, unknown>>({
+      canvasFrames: {
+        [file.id]: { x: 10, y: 20, width: 300, height: 600, z: 0 },
+      },
+    });
+    const originalDesignQuery = { files: [file] };
+    const queryClient = {
+      getQueryData: vi.fn(() => originalDesignQuery),
+      invalidateQueries: vi.fn(),
+      setQueryData: vi.fn(),
+    } as unknown as QueryClient;
+
+    await runDeleteFiles(
+      {
+        activeFile: file,
+        canvasFrameGeometryById: designDataJsonRef.current
+          .canvasFrames as Record<string, any>,
+        clearRedoStacks,
+        designDataJsonRef,
+        clipboardPasteRedoStackRef,
+        clipboardPasteUndoStackRef: ref([]),
+        contentRedoSelectionStackRef,
+        contentRedoStackRef,
+        contentUndoSelectionStackRef: ref([]),
+        contentUndoStackRef: ref([]),
+        deleteFileMutation: {
+          mutateAsync: vi.fn(async () => ({
+            deleted: false,
+            deletedIds: [],
+          })),
+        } as any,
+        fileCreationRedoStackRef,
+        fileCreationUndoStackRef: ref([]),
+        fileDeletionUndoStackRef: ref([]),
+        fileHistoryMutationPendingRef,
+        files: [file],
+        geometryRedoStackRef,
+        geometryUndoStackRef: ref([]),
+        historyOrderRef: ref(["file-content"]),
+        id: "design",
+        latestClipboardMutationContentRef: ref(new Map()),
+        localContentRedoStackRef,
+        localContentUndoStackRef: ref([]),
+        queryClient,
+        redoOrderRef,
+        overviewSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+        selectedElement: selectedElementRef.current,
+        selectedLayerIdsState: selectedLayerIdsRef.current,
+        setActiveFileId: vi.fn(),
+        setOverviewSelectedScreenIds: (value) =>
+          applySetter(overviewSelectedScreenIdsRef, value),
+        setSelectedElement: (value) => applySetter(selectedElementRef, value),
+        setSelectedLayerIdsState: (value) =>
+          applySetter(selectedLayerIdsRef, value),
+        syncUndoRedoState: vi.fn(),
+        t: (key: string) => key,
+        writeFrameGeometrySnapshot: vi.fn(),
+      },
+      [file],
+      { recordDeletionHistory: true },
+    );
+
+    expect(clearRedoStacks).not.toHaveBeenCalled();
+    expect(contentRedoStackRef.current).toBe(contentRedoEntries);
+    expect(contentRedoSelectionStackRef.current).toBe(contentRedoSelections);
+    expect(geometryRedoStackRef.current).toBe(geometryRedoEntries);
+    expect(localContentRedoStackRef.current).toBe(localContentRedoEntries);
+    expect(redoOrderRef.current).toBe(redoOrder);
+    expect(fileHistoryMutationPendingRef.current).toBe(false);
+    expect(selectedElementRef.current).toBe(previousSelectedElement);
+    expect(selectedLayerIdsRef.current).toEqual(["rejected-screen-layer"]);
+    expect(overviewSelectedScreenIdsRef.current).toEqual([file.id]);
+    expect(queryClient.setQueryData).toHaveBeenLastCalledWith(
+      ["action", "get-design", { id: "design" }],
+      originalDesignQuery,
+    );
   });
 });

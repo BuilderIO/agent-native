@@ -11,6 +11,12 @@ import {
 } from "./registry.js";
 import type { TrackingEvent } from "./types.js";
 
+const mockQueueTrackingEvent = vi.hoisted(() => vi.fn());
+
+vi.mock("../observability/tracing.js", () => ({
+  queueTrackingEvent: mockQueueTrackingEvent,
+}));
+
 function captureEvents(): TrackingEvent[] {
   const events: TrackingEvent[] = [];
   registerTrackingProvider({
@@ -28,6 +34,7 @@ describe("tracking registry", () => {
     unregisterTrackingProvider("qa-rejecting-flush");
     unregisterTrackingProvider("qa-capture");
     unregisterTrackingProvider("qa-identify");
+    mockQueueTrackingEvent.mockClear();
     vi.restoreAllMocks();
   });
 
@@ -116,13 +123,38 @@ describe("tracking registry", () => {
 
     track("generate deck", { app: "agent-native-docs" });
 
-    expect(events).toHaveLength(2);
+    expect(events).toHaveLength(3);
     expect(events[0]?.name).toBe("generate deck");
     expect(events[1]).toMatchObject({
+      name: "generate_deck",
+      properties: {
+        canonical_event_name: "generate_deck",
+        legacy_event_name: "generate deck",
+      },
+    });
+    expect(events[2]).toMatchObject({
       name: "cta_clicked",
       properties: {
         app_name: "docs",
         cta_name: "generate_deck",
+      },
+    });
+  });
+
+  it("emits a canonical alias with provenance for legacy event names", () => {
+    const events = captureEvents();
+    const legacyName = "session status";
+
+    track(legacyName, { signed_in: true });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.name).toBe(legacyName);
+    expect(events[1]).toMatchObject({
+      name: "session_status",
+      properties: {
+        signed_in: true,
+        canonical_event_name: "session_status",
+        legacy_event_name: legacyName,
       },
     });
   });
@@ -195,6 +227,34 @@ describe("tracking registry", () => {
 
     expect(events[0]?.userId).toBe("cron@example.com");
     expect(events[0]?.sessionId).toBeUndefined();
+  });
+
+  it("mirrors timing server events to the OTel bridge", () => {
+    captureEvents();
+
+    track("http.response", { duration_ms: 12, status_code: 200 });
+
+    expect(mockQueueTrackingEvent).toHaveBeenCalledWith(
+      "http.response",
+      expect.objectContaining({ duration_ms: 12, status_code: 200 }),
+      "server",
+    );
+  });
+
+  it("marks browser-forwarded events as client-originated", () => {
+    captureEvents();
+
+    track(
+      "action.response",
+      { duration_ms: 12, success: true },
+      { telemetryOrigin: "client" },
+    );
+
+    expect(mockQueueTrackingEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ duration_ms: 12, success: true }),
+      "client",
+    );
   });
 
   it("lets an explicit session override the ambient request", async () => {

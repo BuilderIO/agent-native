@@ -19,6 +19,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Trash now uses table-native metadata filters to find nested Pages, preview their content, and empty reviewed scopes with progress that survives navigation.
 - Search is now available from the Content sidebar, with clearer date filters and keyboard-friendly calendar navigation.
 
 ### Fixed
