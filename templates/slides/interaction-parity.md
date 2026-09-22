@@ -832,6 +832,42 @@ specific select-all regression row, not the entire interaction matrix. Native
 paste and all other rows explicitly left open above remain unverified, and the
 unrelated Content docs working-tree edit remains untouched.
 
+## Generated layouts: shapes, text boxes, and containers — 2026-09-22 (ENG-13998)
+
+Reports: dragging a bordered "section" only grabbed its text, boxes and text
+boxes were indistinguishable, resize handles on generated text did nothing,
+text dragged out of a dark-on-dark container stayed tied to it, and
+AI-generated bullets lost their markers.
+
+Google Slides contract observed on `Slides Comment Parity QA`: a click selects
+an object with handles; pressing inside a text box's text and dragging selects
+text, while its border moves it; shapes move from anywhere, text included; the
+object under the pointer gets a hover outline.
+
+Generated HTML has no shape type, so `findSlideShapeOwner` maps it: the nearest
+block that paints its own box (fill, border, outline, shadow — not a
+slide-sized backdrop) is the shape. Bare text keeps text-box rules.
+
+- Press on text inside a shape drags the whole shape; the first click selects
+  it, a click on the selected shape (or a double-click) edits the text under
+  the pointer. Once inside, the shape is drawn dashed as the container.
+- Hover outlines the object a click would take, with a move cursor over shapes.
+- Move, resize, and rotate handles commit an active text edit first; the hidden
+  source node under the floating editor previously broke the editor instead.
+- An explicit size overrides generated `max-width`/`min-*` caps on that axis.
+- An object dropped outside its box is re-homed to the innermost ancestor that
+  contains its center, and the box stops reserving its slot. Inside the box it
+  stays a child, and positioning the box keeps freed descendants in place.
+- Escape from the floating rich-text editor ends the edit.
+- AI bullet rows keep real marker rows after Enter, Tab/Shift+Tab, exit, and
+  undo instead of persisting editor-only `--slide-legacy-marker-*` markup.
+
+Browser proof: a Playwright replay against a generated-style fixture deck (real
+mouse input, 1440×900) passed 20/20 checks including reload persistence and no
+console errors. Open: Shift-selection across styled AI bullet rows still stops
+at a row boundary, because each styled row is its own rich-text layer while its
+column carries layout styles the editor cannot round-trip.
+
 ## Disposition rules
 
 - `Implemented, verify` means the implementation and focused unit coverage

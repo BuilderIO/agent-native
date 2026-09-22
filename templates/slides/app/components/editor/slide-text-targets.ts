@@ -349,6 +349,87 @@ function findSlideRichTextOwner(
   return owner;
 }
 
+function isTransparentPaint(color: string): boolean {
+  return (
+    !color ||
+    color === "transparent" ||
+    /^rgba\(.*,\s*0(?:\.0+)?\)$/.test(color.replace(/\s+/g, " "))
+  );
+}
+
+function paintsOwnBox(element: HTMLElement): boolean {
+  const style = window.getComputedStyle(element);
+  if (!isTransparentPaint(style.backgroundColor)) return true;
+  if (style.backgroundImage && style.backgroundImage !== "none") return true;
+  if (style.boxShadow && style.boxShadow !== "none") return true;
+  if (
+    style.outlineStyle &&
+    style.outlineStyle !== "none" &&
+    Number.parseFloat(style.outlineWidth || "0") > 0
+  ) {
+    return true;
+  }
+  return (["Top", "Right", "Bottom", "Left"] as const).some(
+    (side) =>
+      style[`border${side}Style`] !== "none" &&
+      Number.parseFloat(style[`border${side}Width`] || "0") > 0 &&
+      !isTransparentPaint(style[`border${side}Color`]),
+  );
+}
+
+/** A painted box this large is the slide's backdrop, not an object on it. */
+const SLIDE_BACKDROP_AREA_RATIO = 0.9;
+
+/**
+ * Google Slides drags a shape from anywhere, its text included, while a bare
+ * text box keeps its interior for the caret. Generated HTML has no shape type,
+ * so the nearest block that paints its own box (fill, border, shadow) plays
+ * the shape: a press on text inside it grabs the box, and a second click edits.
+ * Images, tables, manual text boxes, and groups keep their own contracts.
+ */
+export function findSlideShapeOwner(
+  target: HTMLElement | null,
+  root: HTMLElement,
+): HTMLElement | null {
+  const rootRect = root.getBoundingClientRect();
+  const rootArea = rootRect.width * rootRect.height;
+  let element = target;
+  while (element && element !== root && root.contains(element)) {
+    if (
+      isSlideCanvasShell(element) ||
+      RICH_TEXT_TABLE_TAGS.has(element.tagName) ||
+      element.tagName === "IMG" ||
+      element.classList.contains("fmd-img-placeholder") ||
+      element.classList.contains("fmd-layout-spacer") ||
+      element.classList.contains("fmd-slide-group") ||
+      element.classList.contains("fmd-text-box")
+    ) {
+      return null;
+    }
+    if (!isInlineTextElement(element) && paintsOwnBox(element)) {
+      const rect = element.getBoundingClientRect();
+      const isBackdrop =
+        rootArea > 0 &&
+        rect.width * rect.height >= rootArea * SLIDE_BACKDROP_AREA_RATIO;
+      if (!isBackdrop) return element;
+    }
+    element = element.parentElement;
+  }
+  return null;
+}
+
+/** The shape a press grabs, unless the selection has already gone inside it. */
+export function findGrabbedSlideShape(
+  target: HTMLElement,
+  root: HTMLElement,
+  selected: HTMLElement | null,
+): HTMLElement | null {
+  const owner = findSlideShapeOwner(target, root);
+  return owner && !(selected && selected !== owner && owner.contains(selected))
+    ? owner
+    : null;
+}
+
 /** Resolve a click inside inline markup to the containing editable text block. */
 export function findSmartBlock(
   target: HTMLElement,

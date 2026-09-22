@@ -1550,6 +1550,10 @@ button[title="Open agent sidebar"] {
   box-shadow: 0 0 0 1px rgba(96, 159, 248, 0.12);
 }
 
+[data-slide-container-outline="true"] {
+  border: 1px dashed rgba(96, 159, 248, 0.7);
+}
+
 [data-layer-row-content]:hover {
   outline: 1px solid rgba(96, 159, 248, 0.55);
   outline-offset: -1px;
