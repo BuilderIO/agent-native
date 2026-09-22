@@ -34,8 +34,8 @@
     "marked": "^18.0.0",
     "nanoid": "^5.1.9",
     "react": "catalog:",
-    "react-dom": "catalog:",
     "react-day-picker": "^9.14.0",
+    "react-dom": "catalog:",
     "recharts": "^3.8.1",
     "zod": "^4.3.6"
   },
