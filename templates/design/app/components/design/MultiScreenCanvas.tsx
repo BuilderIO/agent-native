@@ -291,6 +291,7 @@ import {
   getBoardContentKey,
   getBoardContentLayerSignature,
   getBoardSurfaceContentBounds,
+  getBoardSurfaceHtml,
   getBoardSurfaceRenderContent,
   getBoardSurfaceStaticPreviewContent,
   hasBoardSurfaceContent,
@@ -660,6 +661,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onBoardDrawPrimitive,
   boardEditMode = false,
   boardIsActive = false,
+  boardRuntimeStructureInsertRequest,
+  boardRuntimeStructureRollbackRequest,
+  onBoardRuntimeStructureInsertRejected,
+  onBoardRuntimeStructureInsertApplied,
+  onBoardRuntimeStructureRollbackResult,
   onBoardElementSelect,
   onBoardSelectionWorldBoundsChange,
   onBoardElementMarqueeSelect,
@@ -722,6 +728,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // viewport rect each render. Starts at {0,0} (unknown) so nothing is culled
   // before the first layout measurement.
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
+  const [crossScreenDragActive, setCrossScreenDragActive] = useState(false);
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
   const renderedScreenIdsRef = useRef<Set<string>>(new Set());
@@ -888,11 +895,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const boardStaticPreviewRef = useRef<HTMLIFrameElement>(null);
   const boardFrameGeometryRef = useRef(boardFrameGeometry);
   boardFrameGeometryRef.current = boardFrameGeometry;
-  // Both board layers must ask this one question: an empty <body> is a truthy
-  // string, and the replica is opaque, so a string-only gate slabs the board.
-  const boardSurfaceHtml = hasBoardSurfaceContent(boardFileContent)
-    ? boardFileContent
-    : undefined;
+  // Keep the empty board unmounted during normal editing so the text/shape
+  // creation path can still own its first mount. Mount it for the duration of
+  // a cross-screen drag so the drop has a real DOM target before release.
+  const boardSurfaceHtml =
+    crossScreenDragActive || hasBoardSurfaceContent(boardFileContent)
+      ? getBoardSurfaceHtml(boardFileContent)
+      : undefined;
   const boardHasSurfaceContent = boardSurfaceHtml !== undefined;
   const boardReviewGeometry = boardSurfaceRenderGeometry ?? {
     x: 0,
@@ -2725,6 +2734,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       clearCrossScreenDropGuide();
       crossScreenTargetRef.current = null;
       crossScreenDragMsgRef.current = null;
+      setCrossScreenDragActive(false);
       // A cancelled/blurred drag must not donate its last board coordinate to
       // the next gesture. In particular, a second drag can emit start -> end
       // without an out-of-iframe move; retaining the previous point would make
@@ -3528,6 +3538,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
       }
       if (msg.phase === "start") {
+        setCrossScreenDragActive(true);
         // A new gesture invalidates any commit hit-test still in flight from
         // the previous one. Only a start does — the bridge posts "cancel"
         // immediately after "end", so clearing must not count.
@@ -10717,7 +10728,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   scaleMode={
                     !readOnly && boardIsActive && effectiveTool === "scale"
                   }
-                  readOnly={readOnly}
+                  readOnly={readOnly && !boardEditMode}
+                  runtimeStructureInsertRequest={
+                    boardRuntimeStructureInsertRequest
+                  }
+                  runtimeStructureRollbackRequest={
+                    boardRuntimeStructureRollbackRequest
+                  }
+                  onRuntimeStructureInsertRejected={
+                    onBoardRuntimeStructureInsertRejected
+                  }
+                  onRuntimeStructureInsertApplied={
+                    onBoardRuntimeStructureInsertApplied
+                  }
+                  onRuntimeStructureRollbackResult={
+                    onBoardRuntimeStructureRollbackResult
+                  }
                   clearSelectionRequest={boardClearSelectionRequest}
                   selectedSelector={boardSelectedSelector ?? null}
                   selectedSelectorCandidates={
