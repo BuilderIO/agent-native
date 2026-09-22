@@ -322,7 +322,11 @@ describe("burning redactions into a recording", () => {
 
   it("keeps the cuts, and takes the burned boxes off the timeline", async () => {
     await run();
-    const edits = JSON.parse(String(state.updated[0].editsJson));
+    // The boxes come off in a second write, after the originals are deleted:
+    // clearing them is what lifts the hold, and until those files are gone the
+    // clip has to stay held.
+    const release = state.updated.find((u) => u.editsJson !== undefined);
+    const edits = JSON.parse(String(release?.editsJson));
     expect(edits.trims).toEqual([
       { id: "cut-1", startMs: 1_000, endMs: 2_000, excluded: true },
     ]);
@@ -333,6 +337,18 @@ describe("burning redactions into a recording", () => {
       startMs: 2_000,
       endMs: 5_000,
     });
+  });
+
+  it("keeps the clip held when the original cannot be deleted", async () => {
+    // The whole point of the two writes. If the unredacted file is still in
+    // storage, the boxes must stay on the row — every media path reads them,
+    // and clearing them would publish a clip whose original is still there.
+    state.deleteFails = new Set([recording.videoUrl]);
+
+    await expect(run()).rejects.toThrow(/could not be deleted/i);
+
+    const cleared = state.updated.find((u) => u.editsJson !== undefined);
+    expect(cleared).toBeUndefined();
   });
 
   it("clears the local dev blob, which storage cleanup cannot see", async () => {

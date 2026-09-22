@@ -1065,8 +1065,11 @@ export default function ShareRoute() {
    * any — the file still shows everything under them, so passing the link on
    * passes on the unredacted clip.
    */
+  // `recording` comes from a client-side query and is undefined while the
+  // server renders, so this has to tolerate its absence: reading through it
+  // unguarded here returned a 500 for every share page, redactions or not.
   const pendingRedactions = parseRedactions(
-    parseEdits(recording.editsJson).overlays,
+    parseEdits(recording?.editsJson).overlays,
   ).length;
 
   async function downloadRecording() {

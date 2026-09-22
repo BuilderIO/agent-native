@@ -334,13 +334,20 @@ export function TimelineTrack({
     [durationMs, onPreview, toMs],
   );
 
+  /**
+   * `commit` is false for a cancelled pointer. Cancellation is the browser
+   * taking the gesture away — a scroll starting, the pointer being captured
+   * elsewhere — not a release, so the preview is dropped and the cut is left
+   * where it was.
+   */
   const endDrag = useCallback(
-    (e: React.PointerEvent) => {
+    (e: React.PointerEvent, commit: boolean) => {
       const drag = dragRef.current;
       if (!drag || drag.pointerId !== e.pointerId) return;
       dragRef.current = null;
       setDragging(false);
       onPreview(null);
+      if (!commit) return;
       if (!drag.moved) {
         // A press on a red line that never moved is a click on the line
         // itself: selecting it is how an accidental cut gets deleted.
@@ -381,8 +388,8 @@ export function TimelineTrack({
       className={cn("relative select-none", className)}
       style={{ width, height }}
       onPointerMove={handleMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      onPointerUp={(e) => endDrag(e, true)}
+      onPointerCancel={(e) => endDrag(e, false)}
     >
       {pieces.map((piece, index) => {
         const left = Math.max(0, Math.min(width, toX(piece.startMs)));

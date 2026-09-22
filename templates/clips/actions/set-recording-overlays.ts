@@ -81,6 +81,14 @@ export default defineAction({
 
     const db = getDb();
 
+    // What the overlay list looked like on the first read. A retry is only
+    // safe while this has not moved: the caller sends a whole list, so it is
+    // saying "these are the boxes" against the state it last saw. If someone
+    // else has added or moved one in the meantime, writing this list again
+    // would delete their box — and deleting a box lifts the hold on pixels
+    // that are still in the file.
+    let baseOverlays: string | null = null;
+
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const [existing] = await db
         .select()
@@ -92,6 +100,19 @@ export default defineAction({
       assertNativeRecordingMedia(existing);
 
       const previousEditsJson = existing.editsJson;
+      const previousOverlays = JSON.stringify(
+        parseEdits(previousEditsJson).overlays ?? [],
+      );
+      if (baseOverlays === null) {
+        baseOverlays = previousOverlays;
+      } else if (previousOverlays !== baseOverlays) {
+        // A conflict caused by a trim being saved at the same moment is
+        // harmless and retried above. This one is not: refuse, and let the
+        // editor reload rather than quietly undo someone's redaction.
+        throw new Error(
+          "The redactions on this recording changed while this was saving. Reload the editor and make the change again.",
+        );
+      }
       const next = { ...parseEdits(previousEditsJson), overlays };
 
       const result = await db

@@ -224,18 +224,23 @@ export async function burnRedactionsFor(args: {
   //   size against letters three times the size, i.e. plausibly still
   //   readable.
   const probed = await probeMediaInfo(source.bytes, sourceExtension);
-  const burnDurationMs = probed.durationMs ?? existing.durationMs;
+  // No fallback to `recordings.durationMs`: it is client-reported at finalize
+  // and unreliable for MediaRecorder webm. A short value clips every redaction
+  // range while the whole file is re-encoded, and the boxes are cleared
+  // afterwards regardless — publishing a partly-redacted clip as a redacted
+  // one. If the file will not say how long it is, the burn stops.
+  const burnDurationMs = probed.durationMs;
   const burnWidth = probed.width ?? (existing.width > 0 ? existing.width : 0);
   const burnHeight =
     probed.height ?? (existing.height > 0 ? existing.height : 0);
-  if (!burnWidth || !burnHeight) {
+  if (!burnWidth || !burnHeight || !burnDurationMs) {
     // Both, not just the width. The fill is scaled to a size computed from
     // these, so an under-estimate leaves the rest of the box showing the
     // original — an unguarded height did that on everything that was not 720
     // tall. Guessing here is what a checker exists to stop: refusing costs a
     // burn, guessing costs the redaction.
     throw new Error(
-      "The frame size of this recording could not be read, so the redaction cannot be sized. Nothing was changed.",
+      "The frame size or length of this recording could not be read, so the redaction cannot be sized or timed. Nothing was changed.",
     );
   }
 
@@ -345,7 +350,11 @@ export async function burnRedactionsFor(args: {
     filename: `${args.recordingId}.mp4`,
     mimeType: "video/mp4",
     ownerEmail,
-    stableUrl: true,
+    // Deliberately NOT a stable URL. Writing the burned bytes over the object
+    // the row still points at replaces the live file before the compare-and-
+    // swap below has decided whether this burn is the one that wins — so a
+    // losing burn would still have mutated what everyone is watching. A fresh
+    // object is promoted only by the row update, and orphaned if that fails.
     recordAsset: false,
   }).catch((err) => {
     console.warn("[burn-recording-redactions] upload failed", {
@@ -381,14 +390,26 @@ export async function burnRedactionsFor(args: {
   const rawOverlays: unknown[] = Array.isArray(freshEdits.overlays)
     ? freshEdits.overlays
     : [];
-  // An overlay with no id cannot be matched against what was burned, so it is
-  // kept. Keeping one too many leaves the clip held; dropping one too many
-  // publishes it.
+  // Matched on what was burned, not merely on its id. An overlay edited while
+  // the encode was running keeps its id but has geometry or timing that was
+  // never rendered, so removing it by id alone would clear a box whose pixels
+  // are still there — and lift the hold with it. An overlay with no id cannot
+  // be matched at all, so it is kept. Keeping one too many leaves the clip
+  // held; dropping one too many publishes it.
+  const burnedById = new Map(
+    parseRedactions(edits.overlays).map((r) => [r.id, JSON.stringify(r)]),
+  );
   const survivingRedactions = rawOverlays.filter((item) => {
     if (!item || typeof item !== "object") return false;
     const overlay = item as Record<string, unknown>;
     if (overlay.kind !== "redact") return false;
-    return typeof overlay.id !== "string" || !burnedIds.has(overlay.id);
+    if (typeof overlay.id !== "string" || !burnedIds.has(overlay.id)) {
+      return true;
+    }
+    const asBurned = burnedById.get(overlay.id);
+    const [parsed] = parseRedactions([item]);
+    // Same id, different box: it was changed since the encode read it.
+    return !parsed || JSON.stringify(parsed) !== asBurned;
   });
   const history: unknown[] = freshEdits.burnedRedactions ?? [];
   const nextEdits = {
@@ -413,7 +434,10 @@ export async function burnRedactionsFor(args: {
       videoUrl: upload.url,
       videoFormat: "mp4",
       videoSizeBytes: burned.byteLength,
-      editsJson: serializeEdits(nextEdits),
+      // `editsJson` is deliberately NOT written here. Clearing the overlays is
+      // what lifts the hold, and the originals have not been deleted yet — if
+      // that fails below, the clip has to stay held while its unredacted files
+      // are still reachable. The second write does it, once they are gone.
       // The derived images are all made of unredacted frames. Clearing them
       // here, before anything is deleted, means a failure further down
       // leaves a recording with no thumbnail rather than a leaking one.
@@ -444,8 +468,8 @@ export async function burnRedactionsFor(args: {
     .returning({ id: schema.recordings.id });
 
   if (!updated.length) {
-    // The recording moved under us. The upload is an orphan unless it
-    // overwrote the file we were burning from, which `stableUrl` can do.
+    // The recording moved under us. The upload is its own object, so it is
+    // simply an orphan — the file everyone is watching was never touched.
     if (upload.url !== previousVideoUrl) {
       try {
         await deleteStoredMediaUrl(upload.url);
@@ -540,8 +564,38 @@ export async function burnRedactionsFor(args: {
   );
 
   if (failedDeletes.length) {
+    // The overlays are still on the row, so every media path stays shut and
+    // the clip cannot be shared. That is the right state: the unredacted
+    // original is still sitting in storage.
     throw new Error(
-      "The video was redacted and saved, but the original file could not be deleted from storage. Treat what you redacted as still exposed, and delete the recording.",
+      "The video was redacted and saved, but the original file could not be deleted from storage. The clip is being held back from viewers until it is. Treat what you redacted as still exposed, and delete the recording.",
+    );
+  }
+
+  // Only now: the originals are gone, so clearing the overlays — which is what
+  // lifts the hold — can no longer publish a clip whose unredacted files are
+  // still reachable. Pinned to the same value the first write was, so an edit
+  // made in between keeps its box rather than losing it to this write.
+  const released = await db
+    .update(schema.recordings)
+    .set({ editsJson: serializeEdits(nextEdits), updatedAt: burnedAt })
+    .where(
+      and(
+        eq(schema.recordings.id, args.recordingId),
+        freshEditsJson == null
+          ? isNull(schema.recordings.editsJson)
+          : eq(schema.recordings.editsJson, freshEditsJson),
+      ),
+    )
+    .returning({ id: schema.recordings.id });
+
+  if (!released.length) {
+    // Someone drew or moved a box while this was running. The pixels are
+    // burned and the originals are deleted, so nothing is exposed — but the
+    // editor still shows boxes that no longer have anything under them, and
+    // saying so is better than silently clearing their work.
+    console.warn(
+      `[burn-recording-redactions] redactions burned for ${args.recordingId}, but the edits changed while it ran, so the boxes were left on the timeline`,
     );
   }
 

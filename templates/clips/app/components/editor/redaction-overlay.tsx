@@ -198,11 +198,17 @@ export function RedactionOverlay({
     });
   };
 
-  const endGesture = () => {
+  /**
+   * `commit` is false for a cancelled pointer. A cancel is the browser taking
+   * the gesture away, not a release, so the half-drawn box is thrown away
+   * rather than saved as a redaction nobody finished placing.
+   */
+  const endGesture = (commit: boolean) => {
     const gesture = gestureRef.current;
     const shape = preview;
     gestureRef.current = null;
     setPreview(null);
+    if (!commit) return;
     if (!gesture || !shape) return;
     if (
       shape.rect.w < MIN_REDACTION_SIZE ||
@@ -263,8 +269,8 @@ export function RedactionOverlay({
         begin(e, { kind: "draw", fromX: at.x, fromY: at.y });
       }}
       onPointerMove={handleMove}
-      onPointerUp={endGesture}
-      onPointerCancel={endGesture}
+      onPointerUp={() => endGesture(true)}
+      onPointerCancel={() => endGesture(false)}
     >
       <div
         className="absolute"

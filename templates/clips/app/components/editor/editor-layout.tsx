@@ -1186,9 +1186,13 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           overlays: overlays as Record<string, unknown>[],
         });
         await playerDataQuery.refetch();
+        return true;
       } catch (err: any) {
         if (record) dropNewestHistory();
         toast.error(err?.message ?? t("editorLayout.editFailed"));
+        // Reported like the trim write, so a caller stepping through history
+        // can tell whether the step actually landed.
+        return false;
       } finally {
         setPendingOverlays(null);
       }
@@ -1207,7 +1211,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   /** Save the redaction boxes, as one step of history. */
   const commitRedactions = useCallback(
     async (next: VideoRedaction[], options?: { record?: boolean }) => {
-      await writeOverlays(
+      return await writeOverlays(
         [
           ...next.map((r) => clampRedactionToDuration(r, durationMs)),
           ...otherOverlays(savedEdits.overlays),
@@ -1354,6 +1358,29 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       const target = from[from.length - 1];
       const rest = from.slice(0, -1);
       const current = snapshotOf(savedEdits);
+
+      // The writes come first, and the stacks only move if they land. These
+      // counts are what the toolbar's undo and redo buttons are drawn from,
+      // so moving them on a write that failed leaves the editor offering a
+      // history position the recording is not actually at.
+      //
+      // Only what actually differs is written: a step that only moved a
+      // redaction should not rewrite the trim list, and vice versa.
+      let saved = true;
+      if (!sameList(target.trims, current.trims)) {
+        saved = await commitEdits(
+          { ...savedEdits, trims: target.trims },
+          { record: false },
+        );
+      }
+      if (saved && !sameList(target.overlays, current.overlays)) {
+        saved = await writeOverlays(target.overlays, false);
+      }
+      // The error is already on screen. The step stays where it was, so the
+      // same key press tries again — and the half that did land is skipped
+      // the second time round, because it no longer differs.
+      if (!saved) return;
+
       if (direction === "undo") {
         undoStackRef.current = rest;
         redoStackRef.current = [...redoStackRef.current, current];
@@ -1365,18 +1392,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         undo: undoStackRef.current.length,
         redo: redoStackRef.current.length,
       });
-
-      // Only what actually differs is written: a step that only moved a
-      // redaction should not rewrite the trim list, and vice versa.
-      if (!sameList(target.trims, current.trims)) {
-        await commitEdits(
-          { ...savedEdits, trims: target.trims },
-          { record: false },
-        );
-      }
-      if (!sameList(target.overlays, current.overlays)) {
-        await writeOverlays(target.overlays, false);
-      }
     },
     [commitEdits, savedEdits, t, writeOverlays],
   );

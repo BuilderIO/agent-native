@@ -192,13 +192,18 @@ export function RedactionLane({
     onPreview(applied(drag, at));
   };
 
-  const endDrag = (e: React.PointerEvent) => {
+  /**
+   * `commit` is false for a cancelled pointer. A cancel is the browser taking
+   * the gesture away rather than the user letting go, so the timing goes back
+   * to what it was instead of being saved half-dragged.
+   */
+  const endDrag = (e: React.PointerEvent, commit: boolean) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
     dragRef.current = null;
     setDragging(false);
     onPreview(null);
-    if (drag.moved) onCommit(applied(drag, toMs(e.clientX)));
+    if (commit && drag.moved) onCommit(applied(drag, toMs(e.clientX)));
   };
 
   const beginDrag = (e: React.PointerEvent, id: string, target: LaneTarget) => {
@@ -225,8 +230,8 @@ export function RedactionLane({
       className={cn("relative", className)}
       style={{ width, height: redactionLaneHeight(rows) }}
       onPointerMove={handleMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      onPointerUp={(e) => endDrag(e, true)}
+      onPointerCancel={(e) => endDrag(e, false)}
     >
       {/* The same two markers the track has, so the lanes line up. */}
       <div
