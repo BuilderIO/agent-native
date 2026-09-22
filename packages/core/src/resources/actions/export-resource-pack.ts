@@ -45,12 +45,8 @@ function resolveAppId(ctx?: ActionRunContext): string | undefined {
   if (typeof ctx?.appId === "string" && ctx.appId.trim().length > 0) {
     return ctx.appId.trim();
   }
-  try {
-    const id = getAppConfig().app.id;
-    return typeof id === "string" && id.length > 0 ? id : undefined;
-  } catch {
-    return undefined;
-  }
+  const id = getAppConfig().app.id;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
 async function listMetasForScope(

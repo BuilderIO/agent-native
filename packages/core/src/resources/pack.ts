@@ -229,6 +229,17 @@ function redactLabeledCredentials(value: string): {
   return { content, redacted };
 }
 
+function parseJsonContent(
+  content: string,
+): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(content) };
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return { ok: false };
+  }
+}
+
 function redactCredentialStrings(value: string): {
   content: string;
   redacted: boolean;
@@ -250,15 +261,14 @@ export function redactResourceContent(
   let next = content;
   let redacted = false;
   if (isMcpResourcePath(path)) {
-    try {
-      const parsed: unknown = JSON.parse(content);
-      const stripped = dropMcpSecretFields(parsed);
+    const parsed = parseJsonContent(content);
+    // Non-JSON MCP rows still go through the string redaction below.
+    if (parsed.ok) {
+      const stripped = dropMcpSecretFields(parsed.value);
       if (stripped.redacted) {
         next = `${JSON.stringify(stripped.value, null, 2)}\n`;
         redacted = true;
       }
-    } catch {
-      // Non-JSON MCP rows still go through the string redaction below.
     }
   }
   const strings = redactCredentialStrings(next);
