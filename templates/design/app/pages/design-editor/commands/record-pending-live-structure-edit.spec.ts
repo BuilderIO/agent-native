@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { pendingStructureRedoCommand } from "../pending-edits";
+import {
+  pendingStructureRedoCommand,
+  type PendingLiveStructureEdit,
+} from "../pending-edits";
 import {
   commitPendingLiveStructureEdits,
   preparePendingLiveStructureEdit,
@@ -74,7 +77,11 @@ describe("pending live structure batch", () => {
       },
     );
 
-    const edit = args.pendingLiveNonStyleUndoStackRef.current[0]?.edit;
+    const undoEntry = args.pendingLiveNonStyleUndoStackRef.current[0];
+    if (!undoEntry || undoEntry.kind !== "structure") {
+      throw new Error("expected a structure undo entry");
+    }
+    const edit: PendingLiveStructureEdit = undoEntry.edit;
     expect(edit).toMatchObject({
       insertedHtml: expect.any(String),
       remintCollidingNodeIds: true,
