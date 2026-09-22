@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { pendingStructureRedoCommand } from "../pending-edits";
 import {
   commitPendingLiveStructureEdits,
   preparePendingLiveStructureEdit,
   runRecordPendingLiveStructureEdit,
   type RecordPendingLiveStructureEditArgs,
 } from "./record-pending-live-structure-edit";
-import { pendingStructureRedoCommand } from "../pending-edits";
 
 function state(): RecordPendingLiveStructureEditArgs {
   return {
