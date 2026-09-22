@@ -159,18 +159,25 @@ describe("primitive drop target authored layout fallback", () => {
           <div style="position:absolute;left:0;top:0;width:240px;height:240px">
             <div data-agent-native-node-id="target" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px"></div>
           </div>
-        </div>`,
+      </div>`,
     };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const foregroundSibling = primitives.find(
+      (primitive) => primitive.nodeId === "same",
+    );
+    expect(foregroundSibling?.projectionIdentity).toBeDefined();
 
-    expect(
-      getPrimitiveDropTargetForPoint(
-        { x: 80, y: 80 },
-        null,
-        [screen],
-        { [screen.id]: { x: 0, y: 0, width: 240, height: 240 } },
-        () => ({ width: 240, height: 240 }),
-      ),
-    ).toMatchObject({ nodeId: "same" });
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 80, y: 80 },
+      null,
+      [screen],
+      { [screen.id]: { x: 0, y: 0, width: 240, height: 240 } },
+      () => ({ width: 240, height: 240 }),
+    );
+    expect(result).toMatchObject({
+      nodeId: "same",
+      targetIdentity: { nodeId: foregroundSibling!.projectionIdentity!.nodeId },
+    });
   });
 
   it("treats semantic section containers as nested drop targets", () => {
