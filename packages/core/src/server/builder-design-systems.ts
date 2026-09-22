@@ -1320,36 +1320,8 @@ export async function fetchBuilderDesignSystemDocumentCount(
         body,
     };
   }
-  let json: unknown;
-  try {
-    json = await response.json();
-  } catch {
-    return {
-      ok: false,
-      reason: "invalid-response",
-      detail:
-        "Builder design-system document count response was not valid JSON.",
-    };
-  }
-  const docCount =
-    json && typeof json === "object" && !Array.isArray(json)
-      ? (json as Record<string, unknown>).docCount
-      : undefined;
-  if (
-    typeof docCount !== "number" ||
-    !Number.isFinite(docCount) ||
-    docCount < 0
-  ) {
-    return {
-      ok: false,
-      reason: "invalid-response",
-      detail:
-        "Builder design-system detail response carried no usable docCount (received " +
-        JSON.stringify(docCount) +
-        ").",
-    };
-  }
-  return { ok: true, docCount };
+  const json = await response.json();
+  return { ok: true, docCount: json.docCount ?? 0 };
 }
 
 interface BuilderDesignSystemDocsResponse {
