@@ -5,22 +5,21 @@
     "server-agent-background": 18579779
   },
   "analytics": {
-    "agent-native-keep-warm": 1995,
     "agent-native-recurring-jobs": 1758,
     "analytics-alert-cron": 1566,
-    "analytics-alert-sweep-background": 25933474,
-    "analytics-bigquery-backfill-background": 25933508,
+    "analytics-alert-sweep-background": 24744304,
+    "analytics-bigquery-backfill-background": 24744338,
     "analytics-bigquery-backfill-cron": 1049,
-    "analytics-rollup-backfill-background": 25933501,
+    "analytics-rollup-backfill-background": 24744331,
     "analytics-rollup-backfill-cron": 1044,
     "dashboard-report-cron": 1065,
-    "dashboard-report-sweep-background": 25934324,
-    "server": 46871348,
-    "server-agent-background": 31267548,
+    "dashboard-report-sweep-background": 24745154,
+    "server": 62910544,
+    "server-agent-background": 32021766,
     "session-replay-retention-cron": 1197,
-    "session-replay-retention-sweep-background": 25933505,
+    "session-replay-retention-sweep-background": 24744335,
     "uptime-monitor-cron": 1560,
-    "uptime-monitor-sweep-background": 25933470
+    "uptime-monitor-sweep-background": 24744300
   },
   "assets": {
     "agent-native-recurring-jobs": 1758,
