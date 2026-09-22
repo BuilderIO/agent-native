@@ -125,6 +125,15 @@ export function MarketingHome({
       ) : null}
     </>
   );
+  const authPanel = auth ? (
+    <aside
+      className={cn(
+        isAuthVariant ? "form-panel w-full max-w-md justify-self-end" : "",
+      )}
+    >
+      {auth}
+    </aside>
+  ) : null;
 
   return (
     <main
@@ -160,22 +169,13 @@ export function MarketingHome({
             isAuthVariant && topRight ? "auth-marketing-layout" : "",
           )}
         >
+          {isAuthVariant ? authPanel : null}
           <section
             className={isAuthVariant && auth ? "marketing-panel" : undefined}
           >
             {content}
           </section>
-          {auth ? (
-            <aside
-              className={cn(
-                isAuthVariant
-                  ? "form-panel w-full max-w-md justify-self-end"
-                  : "",
-              )}
-            >
-              {auth}
-            </aside>
-          ) : null}
+          {!isAuthVariant ? authPanel : null}
         </div>
       </div>
     </main>

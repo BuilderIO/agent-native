@@ -2367,6 +2367,7 @@ ${marketingStyles}
   }
   .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
   .auth-marketing-home .marketing-panel {
+    order: 1;
     flex: 1 1 50%;
     max-width: none;
     min-width: 0;
@@ -2402,6 +2403,7 @@ ${marketingStyles}
   }
   .auth-marketing-visual .marketing-copy { margin-top: auto; }
   .auth-marketing-home .form-panel {
+    order: 2;
     flex: 1 1 50%;
     width: auto;
     max-width: none;
@@ -2679,11 +2681,12 @@ ${marketingStyles}
       font-size: 2.25rem;
     }
     .auth-marketing-home .form-panel {
-      order: -1;
+      order: 1;
       padding: 3rem 1rem 5rem;
       border-inline-start: 0;
       border-top: 1px solid var(--auth-marketing-border);
     }
+    .auth-marketing-home .marketing-panel { order: 2; }
   }
 `;
   const authClientScriptPath = authClientAssetPath(appBasePath);

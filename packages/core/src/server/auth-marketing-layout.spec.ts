@@ -50,6 +50,9 @@ describe("built-in auth marketing layout contract", () => {
       expect(html).toContain('<body class="has-marketing">');
       expect(html).toContain('class="split');
       expect(html).toContain('class="form-panel');
+      expect(html.indexOf('class="form-panel')).toBeLessThan(
+        html.indexOf('class="marketing-panel"'),
+      );
 
       // (b) the learn-more link renders with a non-empty href and text
       const linkMatch = html.match(
@@ -74,6 +77,12 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-home \.form-panel\s*{[^}]*flex:\s*1 1 50%;[^}]*max-width:\s*none;/,
     );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*1;/,
+    );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*2;/,
+    );
     const mobileStart = html.lastIndexOf("@media (max-width: 900px) {");
     const mobileEnd = html.indexOf("\n  }\n</style>", mobileStart);
     expect(mobileStart).toBeGreaterThanOrEqual(0);
@@ -86,7 +95,10 @@ describe("built-in auth marketing layout contract", () => {
       /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*flex-direction:\s*column;/,
     );
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*-1;[^}]*padding:\s*3rem 1rem 5rem;/,
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*1;[^}]*padding:\s*3rem 1rem 5rem;/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*2;/,
     );
     expect(html).toContain("overflow-x: clip;");
     expect(html).toContain("overflow: clip;");
