@@ -168,7 +168,13 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     );
     for (let attempt = 0; attempt < 2; attempt++) {
       if (await page.locator("[data-design-editor]").count()) break;
-      await page.waitForTimeout(2_000);
+      try {
+        await page
+          .locator("[data-design-editor]")
+          .waitFor({ state: "attached", timeout: 2_000 });
+      } catch {
+        // The local editor can still be completing its first client mount.
+      }
       if (await page.locator("[data-design-editor]").count()) break;
       await page.reload({ waitUntil: "domcontentloaded" });
     }
