@@ -2663,6 +2663,58 @@ describe("copyInstalledExternalSsrPackages", () => {
         .dependencies,
     ).toEqual({ react: "19.2.7" });
   });
+
+  it("also ships react-router and react-query so the SSR provider and consumer share one instance", () => {
+    const root = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-external-ssr-test-"),
+    );
+    dirs.push(root);
+    const nodeModules = path.join(root, "node_modules");
+    for (const [name, version] of [
+      ["react-router", "8.1.0"],
+      ["@tanstack/react-query", "5.101.2"],
+    ] as const) {
+      const dir = path.join(nodeModules, ...name.split("/"));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name, version }),
+      );
+    }
+
+    const serverDir = path.join(root, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "package.json"),
+      JSON.stringify({ name: "traced-node-modules", dependencies: {} }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      [
+        'import { useLocation } from "react-router";',
+        'import { useQuery } from "@tanstack/react-query";',
+        "export { useLocation, useQuery };",
+      ].join("\n"),
+    );
+
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(2);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-router", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("pruneServerlessFunctionDeadWeight", () => {

@@ -3394,7 +3394,18 @@ const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
 ] as const;
 const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
   "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
-const SERVERLESS_EXTERNAL_SSR_PACKAGES = ["react"] as const;
+// Must track every package createAgentNativeConfig's ssr.external adds beyond
+// @agent-native/core and yjs (which have their own dedicated copy paths
+// below) — anything left off this list keeps its build-machine-only copy,
+// so the deployed function and the prebuilt route chunks resolve two
+// different module instances of the "same" package (e.g. a Router provider
+// from one react-router copy and useLocation() from another).
+const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
+  "react",
+  "react-dom",
+  "react-router",
+  "@tanstack/react-query",
+] as const;
 
 function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   const manifest = readPackageManifest(projectCwd);
