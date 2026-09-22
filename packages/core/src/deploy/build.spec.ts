@@ -2694,6 +2694,26 @@ describe("copyInstalledExternalSsrPackages", () => {
         "module.exports = {};\n",
       );
     }
+    const reactQueryModernDir = path.join(
+      nodeModules,
+      "@tanstack",
+      "react-query",
+      "build",
+      "modern",
+    );
+    fs.mkdirSync(reactQueryModernDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.cjs"),
+      "module.exports = {};\n",
+    );
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.d.cts"),
+      "export {};\n",
+    );
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.js"),
+      "export {};\n",
+    );
     fs.mkdirSync(
       path.join(
         nodeModules,
@@ -2794,6 +2814,32 @@ describe("copyInstalledExternalSsrPackages", () => {
         ),
       ),
     ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.cjs",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.js",
+        ),
+      ),
+    ).toBe(true);
   });
 });
 

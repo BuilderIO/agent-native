@@ -3411,18 +3411,23 @@ const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
     "react-dom": [
       // Netlify's Node runtime resolves react-dom/server to server.node. The
       // browser, edge, bun, and profiling renderers cannot be reached there.
+      "cjs/react-dom-client.development.js",
       "cjs/react-dom-profiling.development.js",
       "cjs/react-dom-profiling.profiling.js",
       "cjs/react-dom-server-legacy.browser.development.js",
       "cjs/react-dom-server-legacy.browser.production.js",
+      "cjs/react-dom-server-legacy.node.development.js",
       "cjs/react-dom-server.browser.development.js",
       "cjs/react-dom-server.browser.production.js",
       "cjs/react-dom-server.bun.development.js",
       "cjs/react-dom-server.bun.production.js",
       "cjs/react-dom-server.edge.development.js",
       "cjs/react-dom-server.edge.production.js",
+      "cjs/react-dom-server.node.development.js",
       "cjs/react-dom-test-utils.development.js",
       "cjs/react-dom-test-utils.production.js",
+      "cjs/react-dom.development.js",
+      "cjs/react-dom.react-server.development.js",
       "profiling.js",
       "server.browser.js",
       "server.bun.js",
@@ -3730,6 +3735,14 @@ function pruneExternalSsrPackageArtifacts(
   }
   for (const sourceMap of fs.globSync("**/*.map", { cwd: packageDir })) {
     fs.rmSync(path.join(packageDir, sourceMap), { force: true });
+  }
+  if (packageName.startsWith("@tanstack/")) {
+    for (const cjsFile of fs.globSync("**/*.cjs", { cwd: packageDir })) {
+      fs.rmSync(path.join(packageDir, cjsFile), { force: true });
+    }
+    for (const declaration of fs.globSync("**/*.d.cts", { cwd: packageDir })) {
+      fs.rmSync(path.join(packageDir, declaration), { force: true });
+    }
   }
 }
 
