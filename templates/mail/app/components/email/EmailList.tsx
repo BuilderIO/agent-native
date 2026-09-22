@@ -428,9 +428,9 @@ function EmailErrorState({
   );
 }
 
-// No cached rows are available while one or more connected accounts failed.
-// Keep this only for the empty state so a failed initial load is not reported
-// as a trustworthy empty mailbox.
+// No visible rows are available while one or more connected accounts failed.
+// Keep this out of populated cached lists so a transient refresh failure does
+// not turn usable cached mail into a warning banner.
 function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
   const t = useT();
   return (
@@ -2160,6 +2160,9 @@ export function EmailList({
   if (threads.length === 0 && hasNextPage) {
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
+        {!!accountErrors?.length && (
+          <AccountErrorsNotice errors={accountErrors} />
+        )}
         <div className="flex flex-1 items-center justify-center" />
         <div
           ref={sentinelRef}
@@ -2194,6 +2197,9 @@ export function EmailList({
     if (searchQuery) {
       return (
         <div className="flex h-full flex-col" ref={containerRef}>
+          {!!accountErrors?.length && (
+            <AccountErrorsNotice errors={accountErrors} />
+          )}
           <div className="flex flex-1 flex-col items-center justify-center">
             <div className="text-center px-8">
               <div className="mb-4">
