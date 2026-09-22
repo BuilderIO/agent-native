@@ -17539,6 +17539,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     replacementSnapshotHtml?: string,
     collectMessages?: any[],
     transactionId?: string,
+    requestIdOverride?: string,
   ) {
     if (!el || !target || !target.anchor) return;
     // Batched grid messages keep the grid container as their runtime anchor;
@@ -17558,6 +17559,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       dropMode: target.dropMode || "flow-insert",
     });
     var requestId =
+      requestIdOverride ||
       "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
     pendingStructureMoves[requestId] = {
       requestId: requestId,
@@ -25783,6 +25785,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof e.data.transactionId === "string"
           ? e.data.transactionId
           : undefined,
+        String(insertRequestId),
       );
       acknowledgeInsert(parsedInsertEl);
       return;
