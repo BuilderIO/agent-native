@@ -555,18 +555,21 @@ export function runRedo({
     if (pendingStructureRedoReplayRef.current) return;
     pendingStructureRedoReplayRef.current = pendingNonStyleRedo;
     if (redoCommand.kind === "insert") {
+      const insertEdit = pendingLiveStructureEditsFromUndoEntry(
+        pendingNonStyleRedo,
+      ).find((edit) => edit.insertedHtml) ?? pendingNonStyleRedo.edit;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
-        screenId: pendingNonStyleRedo.edit.screenId,
+        screenId: insertEdit.screenId,
         html: redoCommand.html,
         replaceAnchor: redoCommand.replaceAnchor,
         remintCollidingNodeIds: redoCommand.remintCollidingNodeIds,
         anchor: {
-          selector: pendingNonStyleRedo.edit.anchorSelector,
-          sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
+          selector: insertEdit.anchorSelector,
+          sourceId: insertEdit.anchorSourceId ?? undefined,
         },
-        placement: pendingNonStyleRedo.edit.placement,
+        placement: insertEdit.placement,
       });
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
         window.clearTimeout(pendingStructureRedoReplayTimerRef.current);

@@ -417,7 +417,7 @@ describe("live insert lifecycle", () => {
         const page = await browser.newPage();
         await page.setContent(`<!doctype html><html><body>
           <main data-agent-native-node-id="card">
-            <div data-agent-native-node-id="shared" data-source-file="src/Card.tsx" data-source-line="12">Existing</div>
+            <div id="email" data-agent-native-node-id="shared" data-source-file="src/Card.tsx" data-source-line="12">Existing</div>
           </main>
         </body></html>`);
         await page.addScriptTag({
@@ -431,7 +431,7 @@ describe("live insert lifecycle", () => {
             {
               type: "runtime-structure-insert",
               requestId: 101,
-              html: '<div data-agent-native-node-id="shared" data-agent-native-runtime-instance-id="shared" data-source-file="src/Card.tsx" data-source-line="12">Moved</div>',
+              html: '<div id="email" data-agent-native-node-id="shared" data-agent-native-runtime-instance-id="shared" data-source-file="src/Card.tsx" data-source-line="12"><label for="email">Moved</label></div>',
               anchorSelector: '[data-agent-native-node-id="card"]',
               anchorSourceId: "card",
               placement: "inside",
@@ -454,10 +454,16 @@ describe("live insert lifecycle", () => {
         expect(ids).toHaveLength(2);
         expect(new Set(ids).size).toBe(2);
         expect(ids).toContain("shared");
+        expect(await page.locator("#email").count()).toBe(1);
         const inserted = page
           .locator('[data-source-file="src/Card.tsx"]')
           .nth(1);
         expect(await inserted.textContent()).toBe("Moved");
+        const insertedId = await inserted.getAttribute("id");
+        expect(insertedId).not.toBe("email");
+        expect(await inserted.locator("label").getAttribute("for")).toBe(
+          insertedId,
+        );
         expect(
           await inserted.getAttribute("data-agent-native-runtime-instance-id"),
         ).toBe(ids[1]);

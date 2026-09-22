@@ -2574,6 +2574,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var seen = /* @__PURE__ */ Object.create(null);
       var reminted = /* @__PURE__ */ Object.create(null);
       var existing = /* @__PURE__ */ Object.create(null);
+      var existingDomIds = /* @__PURE__ */ Object.create(null);
       Array.prototype.forEach.call(
         document.querySelectorAll("[data-agent-native-node-id]"),
         function(node) {
@@ -2581,6 +2582,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (nodeId) existing[nodeId] = true;
         }
       );
+      Array.prototype.forEach.call(document.querySelectorAll("[id]"), function(node) {
+        var id = node.getAttribute("id") || "";
+        if (id) existingDomIds[id] = true;
+      });
       var nodes = [root].concat(
         Array.prototype.slice.call(
           root.querySelectorAll("[data-agent-native-node-id]")
@@ -2599,6 +2604,28 @@ export const editorChromeBridgeScript: string = `"use strict";
           node.setAttribute("data-agent-native-node-id", nodeId);
         }
         seen[nodeId] = true;
+      });
+      var remintedDomIds = /* @__PURE__ */ Object.create(null);
+      nodes.forEach(function(node, index) {
+        var id = node.getAttribute("id") || "";
+        if (!id || !existingDomIds[id]) return;
+        var nextId = freshRuntimeNodeId(index === 0 ? "move-id" : "move-child-id");
+        remintedDomIds[id] = nextId;
+        node.setAttribute("id", nextId);
+      });
+      nodes.forEach(function(node) {
+        Array.prototype.forEach.call(node.attributes, function(attribute) {
+          var value = attribute.value;
+          Object.keys(remintedDomIds).forEach(function(from) {
+            var to = remintedDomIds[from];
+            if (attribute.name === "for" || attribute.name.indexOf("aria-") === 0) {
+              value = value.split(/\s+/).map(function(token) { return token === from ? to : token; }).join(" ");
+            } else if ((attribute.name === "href" || attribute.name === "xlink:href") && value === "#" + from) {
+              value = "#" + to;
+            }
+          });
+          if (value !== attribute.value) node.setAttribute(attribute.name, value);
+        });
       });
       nodes.forEach(function(node) {
         var runtimeInstanceId = node.getAttribute(

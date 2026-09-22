@@ -93,6 +93,25 @@ describe("pending live structure batch", () => {
     });
   });
 
+  it("replays the inserted member of a grouped move when delete is primary", () => {
+    const args = state();
+    const destination = prepare(args, "#destination")!;
+    const sourceDelete = { ...prepare(args, "#source")!, removed: true as const };
+    const grouped = {
+      ...sourceDelete,
+      groupedEdits: [
+        { ...destination, insertedHtml: "<div data-agent-native-node-id=\"moved\" />", remintCollidingNodeIds: true },
+        sourceDelete,
+      ],
+    };
+
+    expect(pendingStructureRedoCommand(grouped)).toEqual({
+      kind: "insert",
+      html: grouped.groupedEdits[0].insertedHtml,
+      remintCollidingNodeIds: true,
+    });
+  });
+
   it("does not mutate existing state when a later member rejects or throws", () => {
     const args = state();
     const prior = prepare(args, "#prior")!;

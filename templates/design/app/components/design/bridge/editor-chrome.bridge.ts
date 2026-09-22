@@ -2617,6 +2617,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var seen = Object.create(null) as { [key: string]: boolean };
     var reminted = Object.create(null) as { [key: string]: string };
     var existing = Object.create(null) as { [key: string]: boolean };
+    var existingDomIds = Object.create(null) as { [key: string]: boolean };
     Array.prototype.forEach.call(
       document.querySelectorAll("[data-agent-native-node-id]"),
       function (node: Element) {
@@ -2624,6 +2625,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (nodeId) existing[nodeId] = true;
       },
     );
+    Array.prototype.forEach.call(document.querySelectorAll("[id]"), function (
+      node: Element,
+    ) {
+      var id = node.getAttribute("id") || "";
+      if (id) existingDomIds[id] = true;
+    });
     var nodes = [root].concat(
       Array.prototype.slice.call(
         root.querySelectorAll("[data-agent-native-node-id]"),
@@ -2642,6 +2649,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         node.setAttribute("data-agent-native-node-id", nodeId);
       }
       seen[nodeId] = true;
+    });
+    var remintedDomIds = Object.create(null) as { [key: string]: string };
+    nodes.forEach(function (node, index) {
+      var id = node.getAttribute("id") || "";
+      if (!id || (!existingDomIds[id] && !remintedDomIds[id])) return;
+      var nextId = freshRuntimeNodeId(
+        index === 0 ? "move-id" : "move-child-id",
+      );
+      remintedDomIds[id] = nextId;
+      node.setAttribute("id", nextId);
+    });
+    nodes.forEach(function (node) {
+      Array.prototype.forEach.call(node.attributes, function (attribute: Attr) {
+        var value = attribute.value;
+        Object.keys(remintedDomIds).forEach(function (from) {
+          var to = remintedDomIds[from];
+          if (attribute.name === "for" || attribute.name.indexOf("aria-") === 0) {
+            value = value
+              .split(/\s+/)
+              .map(function (token) { return token === from ? to : token; })
+              .join(" ");
+          } else if (
+            attribute.name === "href" ||
+            attribute.name === "xlink:href"
+          ) {
+            if (value === "#" + from) value = "#" + to;
+          }
+        });
+        if (value !== attribute.value) node.setAttribute(attribute.name, value);
+      });
     });
     nodes.forEach(function (node) {
       var runtimeInstanceId = node.getAttribute(

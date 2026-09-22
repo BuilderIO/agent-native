@@ -897,13 +897,16 @@ export type PendingStructureRedoCommand =
 export function pendingStructureRedoCommand(
   edit: PendingLiveStructureEdit,
 ): PendingStructureRedoCommand {
-  if (edit.removed) return { kind: "delete" };
-  return edit.insertedHtml
+  const insertedEdit = [edit, ...(edit.groupedEdits ?? [])].find(
+    (candidate) => candidate.insertedHtml,
+  );
+  if (!insertedEdit && edit.removed) return { kind: "delete" };
+  return insertedEdit?.insertedHtml
     ? {
         kind: "insert",
-        html: edit.insertedHtml,
-        ...(edit.replaced ? { replaceAnchor: true } : {}),
-        ...(edit.remintCollidingNodeIds
+        html: insertedEdit.insertedHtml,
+        ...(insertedEdit.replaced ? { replaceAnchor: true } : {}),
+        ...(insertedEdit.remintCollidingNodeIds
           ? { remintCollidingNodeIds: true }
           : {}),
       }
