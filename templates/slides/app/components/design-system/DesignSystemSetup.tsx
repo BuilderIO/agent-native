@@ -31,6 +31,16 @@ import {
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -782,59 +792,69 @@ export function DesignSystemSetup({
     existingDs,
   ]);
 
-  return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] p-0 bg-card border-border">
-        <DialogHeader
-          className={!editingId && atMax ? "sr-only" : "px-6 pt-6 pb-0"}
-        >
-          <DialogTitle className="text-foreground">
-            {!editingId && atMax
-              ? t("designSystems.tierLimitTitle")
-              : editingId
-                ? t("designSystemSetup.editTitle")
-                : t("designSystemSetup.newTitle")}
-          </DialogTitle>
-          <DialogDescription className="text-muted-foreground">
-            {!editingId && atMax
-              ? tierLimit?.current != null &&
-                tierLimit?.max != null &&
-                tierLimit?.plan
+  if (!editingId && atMax) {
+    return (
+      <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("designSystems.tierLimitTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {tierLimit?.current != null &&
+              tierLimit?.max != null &&
+              tierLimit?.plan
                 ? t("designSystems.tierLimitDescriptionWithCount", {
                     current: tierLimit.current,
                     max: tierLimit.max,
                     plan: tierLimit.plan,
                   })
-                : t("designSystems.tierLimitDescription")
-              : editingId
-                ? t("designSystemSetup.editDescription")
-                : t("designSystemSetup.newDescription")}
+                : t("designSystems.tierLimitDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("designSystemSetup.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <a
+                href={
+                  tierLimit?.upgradeUrl ??
+                  "https://builder.io/account/subscription"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer"
+              >
+                <IconExternalLink className="w-3.5 h-3.5" />
+                {t("designSystems.tierLimitUpgrade")}
+              </a>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] p-0 bg-card border-border">
+        <DialogHeader className="px-6 pt-6 pb-0">
+          <DialogTitle className="text-foreground">
+            {editingId
+              ? t("designSystemSetup.editTitle")
+              : t("designSystemSetup.newTitle")}
+          </DialogTitle>
+          <DialogDescription className="text-muted-foreground">
+            {editingId
+              ? t("designSystemSetup.editDescription")
+              : t("designSystemSetup.newDescription")}
           </DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[calc(85vh-160px)] px-6">
-          {!editingId && atMax ? (
-            <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-                <IconLock className="w-7 h-7 text-primary" />
-              </div>
-              <h2 className="text-xl font-semibold text-foreground mb-2">
-                {t("designSystems.tierLimitTitle")}
-              </h2>
-              <p className="text-sm text-muted-foreground max-w-sm leading-relaxed">
-                {tierLimit?.current != null &&
-                tierLimit?.max != null &&
-                tierLimit?.plan
-                  ? t("designSystems.tierLimitDescriptionWithCount", {
-                      current: tierLimit.current,
-                      max: tierLimit.max,
-                      plan: tierLimit.plan,
-                    })
-                  : t("designSystems.tierLimitDescription")}
-              </p>
-            </div>
-          ) : editingId &&
-            (existingDsLoading || (!existingDs && !existingDsError)) ? (
+          {editingId &&
+          (existingDsLoading || (!existingDs && !existingDsError)) ? (
             <DesignSystemEditSkeleton />
           ) : editingId && existingDsError ? (
             <DesignSystemEditError />
@@ -1397,42 +1417,26 @@ export function DesignSystemSetup({
           >
             {t("designSystemSetup.cancel")}
           </Button>
-          {!editingId && atMax ? (
-            <Button asChild className="cursor-pointer">
-              <a
-                href={
-                  tierLimit?.upgradeUrl ??
-                  "https://builder.io/account/subscription"
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <IconExternalLink className="w-4 h-4" />
-                {t("designSystems.tierLimitUpgrade")}
-              </a>
-            </Button>
-          ) : (
-            <Button
-              onClick={handleGenerate}
-              disabled={
-                editingId
-                  ? generating || !existingDs || existingDsLoading
-                  : !hasAnySources
-              }
-              className="cursor-pointer"
-            >
-              {generating ? (
-                <>
-                  <IconLoader2 className="w-4 h-4 animate-spin" />
-                  {t("designSystemSetup.saving")}
-                </>
-              ) : editingId ? (
-                t("designSystemSetup.saveChanges")
-              ) : (
-                t("designSystemSetup.continueToGeneration")
-              )}
-            </Button>
-          )}
+          <Button
+            onClick={handleGenerate}
+            disabled={
+              editingId
+                ? generating || !existingDs || existingDsLoading
+                : !hasAnySources
+            }
+            className="cursor-pointer"
+          >
+            {generating ? (
+              <>
+                <IconLoader2 className="w-4 h-4 animate-spin" />
+                {t("designSystemSetup.saving")}
+              </>
+            ) : editingId ? (
+              t("designSystemSetup.saveChanges")
+            ) : (
+              t("designSystemSetup.continueToGeneration")
+            )}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -225,7 +225,7 @@ describe("DesignSystemSetup tier-limit gating", () => {
       upgradeUrl: "https://builder.io/account/subscription",
     };
     mocks.uploadAndIndexFigmaFiles.mockRejectedValue(
-      Object.assign(new Error("You have reached your design-system limit"), {
+      Object.assign(new Error("You have reached your design system limit"), {
         errorCode: "design_system_tier_limit_exceeded",
         details: {
           plan: "free",
@@ -264,7 +264,7 @@ describe("DesignSystemSetup tier-limit gating", () => {
 
     expect(
       container.textContent?.includes(
-        "You have reached your design-system limit",
+        "You have reached your design system limit",
       ),
     ).toBe(true);
     expect(
