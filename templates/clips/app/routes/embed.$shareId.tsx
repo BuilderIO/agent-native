@@ -1,19 +1,22 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
-import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
+import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 
 import { isLoomEmbedBackedRecording } from "../../shared/loom";
+import { clipsSharePageTitle } from "../../shared/share-meta";
 
 export function meta() {
   return [{ title: "Clip" }];
@@ -22,40 +25,6 @@ export function meta() {
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
-
-/**
- * Parse `t` URL param into ms (supports plain seconds or `1m20s` / `1h2m3s`).
- *   "80"      → 80_000
- *   "1m20s"   → 80_000
- *   "1h2m3s"  → 3_723_000
- *   "1:20"    → 80_000  (MM:SS)
- */
-function parseTimeParam(raw: string | null): number {
-  if (!raw) return 0;
-  const v = raw.trim();
-  if (!v) return 0;
-
-  // Plain seconds
-  if (/^\d+(\.\d+)?$/.test(v)) return Math.floor(parseFloat(v) * 1000);
-
-  // MM:SS or HH:MM:SS
-  if (/^\d+:\d+(:\d+)?$/.test(v)) {
-    const parts = v.split(":").map((n) => parseInt(n, 10));
-    if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
-    if (parts.length === 3)
-      return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
-  }
-
-  // 1h2m3s style
-  const m = v.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i);
-  if (m) {
-    const h = parseInt(m[1] ?? "0", 10);
-    const mm = parseInt(m[2] ?? "0", 10);
-    const s = parseInt(m[3] ?? "0", 10);
-    return (h * 3600 + mm * 60 + s) * 1000;
-  }
-  return 0;
-}
 
 export default function EmbedRoute() {
   const t = useT();
@@ -71,14 +40,24 @@ export default function EmbedRoute() {
     [searchParams],
   );
 
-  const [password, setPassword] = useState<string | null>(() => {
-    if (typeof window === "undefined" || !shareId) return null;
+  // Same hydration trap the share route had: reading sessionStorage in the
+  // initializer makes the first client render disagree with the server's,
+  // which has no storage and always renders the locked state. React discards
+  // the hydrated tree and re-renders from scratch, so an embedded player goes
+  // blank for a returning viewer. Start where the server started and adopt the
+  // stored password after mount.
+  const [password, setPassword] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shareId) return;
     try {
-      return sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
-    } catch {
-      return null;
-    }
-  });
+      const stored = sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
+      if (stored) setPassword(stored);
+      // Unreadable storage and no stored password are the same state here:
+      // both leave `password` null, which renders the password prompt.
+      // coercion-ok: the fallback is visible to the viewer, not swallowed.
+    } catch {}
+  }, [shareId]);
   const [pwError, setPwError] = useState<string | null>(null);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
 
@@ -158,6 +137,17 @@ export default function EmbedRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+
+  useEffect(() => {
+    if (!recording) return;
+    const nextTitle = clipsSharePageTitle(recording.title);
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [recording?.title]);
+
   const comments = dataQ.data?.data?.comments ?? [];
   const transcriptSegments = dataQ.data?.data?.transcript?.segments ?? [];
   const chapters = dataQ.data?.data?.chapters ?? [];
@@ -199,8 +189,9 @@ export default function EmbedRoute() {
 
   if (dataQ.isLoading) {
     return (
-      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black">
-        <Spinner className="h-8 w-8 text-white/70" />
+      // guard:allow-raw-color — standalone embeds must match the black player backdrop
+      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black text-background/70 dark:text-foreground/70">
+        <DefaultSpinner height="100%" />
       </div>
     );
   }
@@ -225,6 +216,16 @@ export default function EmbedRoute() {
 
   return (
     <div className="fixed inset-0 h-dvh w-dvw overflow-hidden bg-black">
+      <ClipAgentWebMcp
+        recordingId={recording.id}
+        agentContextUrl={
+          typeof dataQ.data?.data?.agentContextUrl === "string"
+            ? dataQ.data.data.agentContextUrl
+            : null
+        }
+        recordingStatus={recording.status}
+        frameAvailable={!isLoomEmbedBacked}
+      />
       <VideoPlayer
         ref={playerRef}
         onVideoElementChange={setTrackedVideoEl}
@@ -241,7 +242,7 @@ export default function EmbedRoute() {
         thumbnailUrl={recording.thumbnailUrl}
         defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
         autoPlay={autoplay}
-        startMs={startMs}
+        startMs={resolveStartMs(startMs, recording.durationMs)}
         comments={comments}
         chapters={chapters}
         transcriptSegments={transcriptSegments}

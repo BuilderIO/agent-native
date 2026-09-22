@@ -14,10 +14,6 @@ describe("assertNoSchemaQualifiedTables", () => {
       "UPDATE public.notes SET body = 'x'",
       "DELETE FROM public.notes",
       "INSERT INTO public.notes (id) VALUES ('x')",
-      // SQLite desktop: base tables live in `main`.
-      "SELECT * FROM main.notes",
-      "UPDATE main.notes SET body = 'x'",
-      "DELETE FROM main.notes",
       // Variations that must not slip through.
       "select * from PUBLIC.notes",
       "SELECT * FROM ONLY public.notes",

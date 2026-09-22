@@ -1,5 +1,13 @@
 // @vitest-environment happy-dom
 
+import {
+  AssistantRuntimeProvider,
+  ThreadPrimitive,
+  useLocalRuntime,
+  type AssistantRuntime,
+  type ChatModelAdapter,
+} from "@assistant-ui/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,11 +41,151 @@ import {
   assistantMessageRunId,
   assistantMessageTurnId,
   assistantMessageWasUserStopped,
+  assistantMessageHasCompletedSideEffect,
   ChatImageAttachmentPreview,
   MISSING_FINAL_RESPONSE_SETTLE_MS,
   resolveAssistantRequestId,
+  findMatchingAssistantChatHistoryVersion,
+  AssistantMessage,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
+import { ChatRunningContext } from "./tool-call-display.js";
+
+const idleChatAdapter: ChatModelAdapter = {
+  async *run() {
+    return;
+  },
+};
+
+function runningStatusRepo() {
+  return {
+    messages: [
+      {
+        parentId: null,
+        message: {
+          id: "user-1",
+          role: "user" as const,
+          createdAt: new Date(0),
+          content: [{ type: "text", text: "make the change" }],
+          status: { type: "complete", reason: "stop" },
+          metadata: { custom: {} },
+        },
+      },
+      {
+        parentId: "user-1",
+        message: {
+          id: "assistant-history",
+          role: "assistant" as const,
+          createdAt: new Date(1),
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "history-tool",
+              toolName: "read-file",
+              argsText: "{}",
+              args: {},
+              result: "done",
+            },
+          ],
+          status: { type: "complete", reason: "stop" },
+          metadata: { custom: { runId: "run-history", turnId: "turn-1" } },
+        },
+      },
+      {
+        parentId: "assistant-history",
+        message: {
+          id: "assistant-live",
+          role: "assistant" as const,
+          createdAt: new Date(2),
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "live-tool",
+              toolName: "write-file",
+              argsText: "{}",
+              args: {},
+              status: { type: "running" },
+            },
+          ],
+          status: { type: "running" },
+          metadata: { custom: { runId: "run-live", turnId: "turn-2" } },
+        },
+      },
+    ],
+    headId: "assistant-live",
+  };
+}
+
+function RunningStatusHarness({
+  runtimeRef,
+}: {
+  runtimeRef: { current: AssistantRuntime | null };
+}) {
+  const runtime = useLocalRuntime(idleChatAdapter);
+  const queryClient = React.useMemo(() => new QueryClient(), []);
+  runtimeRef.current = runtime;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <ChatRunningContext.Provider value={true}>
+          <ThreadPrimitive.Root>
+            <ThreadPrimitive.Messages
+              components={{
+                UserMessage: () => null,
+                AssistantMessage,
+              }}
+            />
+          </ThreadPrimitive.Root>
+        </ChatRunningContext.Provider>
+      </AssistantRuntimeProvider>
+    </QueryClientProvider>
+  );
+}
+
+describe("assistant work status rendering", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("marks only the latest of two assistant tool lists as Working", async () => {
+    const runtimeRef: { current: AssistantRuntime | null } = { current: null };
+
+    await act(async () => {
+      root.render(<RunningStatusHarness runtimeRef={runtimeRef} />);
+    });
+    await act(async () => {
+      (
+        runtimeRef.current as unknown as {
+          thread: { import: (data: unknown) => void };
+        }
+      ).thread.import(runningStatusRepo());
+    });
+
+    expect(container.querySelectorAll(".agent-activity-trace")).toHaveLength(2);
+    expect(
+      container.querySelectorAll('[data-agent-activity-running="true"]'),
+    ).toHaveLength(1);
+    expect(container.querySelectorAll('[aria-label="Working"]')).toHaveLength(
+      1,
+    );
+  });
+});
 
 describe("assistant request ID resolution", () => {
   it("prefers the server run ID attached to the message", () => {
@@ -86,6 +234,157 @@ describe("assistant request ID resolution", () => {
       }),
     ).toBe(true);
     expect(assistantMessageWasUserStopped({})).toBe(false);
+  });
+});
+
+describe("assistant chat history matching", () => {
+  it("requires a completed side effect and picks the earliest version in the turn", () => {
+    const versions = [
+      {
+        id: "later",
+        createdAt: "2026-08-29T10:01:00.000Z",
+        chatContext: { runId: "run-1" },
+      },
+      {
+        id: "first",
+        createdAt: "2026-08-29T10:00:00.000Z",
+        chatContext: { runId: "run-1" },
+      },
+    ];
+    const message = {
+      id: "assistant-1",
+      createdAt: "2026-08-29T10:02:00.000Z",
+      turnStartedAt: "2026-08-29T09:59:00.000Z",
+      turnEndedAt: "2026-08-29T10:03:00.000Z",
+      runId: "run-1",
+      hasCompletedSideEffect: true,
+    };
+
+    expect(findMatchingAssistantChatHistoryVersion(versions, message)?.id).toBe(
+      "first",
+    );
+    expect(
+      findMatchingAssistantChatHistoryVersion(versions, {
+        ...message,
+        hasCompletedSideEffect: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("honors host editability and custom matching", () => {
+    const versions = [
+      {
+        id: "locked",
+        createdAt: "2026-08-29T10:00:00.000Z",
+        editable: false,
+      },
+      {
+        id: "selected",
+        createdAt: "2026-08-29T10:01:00.000Z",
+        chatContext: { turnId: "turn-1" },
+      },
+    ];
+
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        versions,
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          turnId: "turn-1",
+          hasCompletedSideEffect: true,
+        },
+        {
+          matchVersion: (version) => version.id === "selected",
+        },
+      )?.id,
+    ).toBe("selected");
+  });
+
+  it("rejects a checkpoint from a different scoped resource", () => {
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [{ id: "checkpoint", createdAt: "2026-08-29T10:00:00.000Z" }],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          hasCompletedSideEffect: true,
+          scope: { type: "deck", id: "other-deck" },
+        },
+        { scope: { type: "deck", id: "current-deck" } },
+      ),
+    ).toBeNull();
+  });
+
+  it("does not match a timestamp-only checkpoint or a different chat turn", () => {
+    const version = {
+      id: "checkpoint",
+      createdAt: "2026-08-29T10:00:00.000Z",
+      chatContext: { runId: "other-run" },
+    };
+    expect(
+      findMatchingAssistantChatHistoryVersion([version], {
+        id: "assistant-1",
+        createdAt: "2026-08-29T10:02:00.000Z",
+        turnStartedAt: "2026-08-29T09:59:00.000Z",
+        turnEndedAt: "2026-08-29T10:03:00.000Z",
+        hasCompletedSideEffect: true,
+      }),
+    ).toBeNull();
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [version],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          runId: "run-1",
+          hasCompletedSideEffect: true,
+        },
+        { matchVersion: () => true },
+      ),
+    ).toBeNull();
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [
+          {
+            ...version,
+            chatContext: { runId: "run-1", turnId: "other-turn" },
+          },
+        ],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          runId: "run-1",
+          turnId: "turn-1",
+          hasCompletedSideEffect: true,
+        },
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("assistantMessageHasCompletedSideEffect", () => {
+  it("only recognizes completed side-effect tool results", () => {
+    expect(
+      assistantMessageHasCompletedSideEffect({
+        content: [
+          { type: "tool-call", completedSideEffect: false },
+          { type: "tool-call", completedSideEffect: true },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCompletedSideEffect({
+        content: [{ type: "tool-call", completedSideEffect: false }],
+      }),
+    ).toBe(false);
+    expect(
+      assistantMessageHasCompletedSideEffect({
+        content: [
+          { type: "tool-call", completedSideEffect: true, isError: true },
+        ],
+      }),
+    ).toBe(false);
   });
 });
 
@@ -353,6 +652,34 @@ describe("shouldShowAssistantMessageFooter", () => {
         hasActiveTool: true,
       }),
     ).toBe(false);
+  });
+
+  it("shows controls for a response explicitly stopped with pending tool state", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: false,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("shows stopped controls while the active response is still settling", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: true,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
   });
 
   it("keeps unrelated historical assistant controls while chat work runs", () => {
@@ -778,7 +1105,7 @@ describe("shouldShowAssistantWorkSummary", () => {
     ).toBe(true);
   });
 
-  it("does not group the currently running assistant response", () => {
+  it("groups the currently running assistant response", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: true,
@@ -787,10 +1114,10 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasUnresolvedTool: false,
         chatRunning: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("does not group the running turn whose tool is still in flight", () => {
+  it("groups the running turn whose tool is still in flight", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: true,
@@ -799,7 +1126,7 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasUnresolvedTool: true,
         chatRunning: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("still shows the duration summary for a stalled turn that is not running", () => {
@@ -814,7 +1141,7 @@ describe("shouldShowAssistantWorkSummary", () => {
     ).toBe(true);
   });
 
-  it("does not collapse active delegated work into a duration summary", () => {
+  it("collapses active delegated work into a duration summary", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: true,
@@ -824,7 +1151,7 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasActiveTool: true,
         chatRunning: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("groups historical work with a dangling tool", () => {
@@ -891,6 +1218,15 @@ describe("shouldShowInlineRunError", () => {
   it("shows nothing when the turn carries no run error", () => {
     expect(
       shouldShowInlineRunError({ runError: null, bannerRunErrorKey: null }),
+    ).toBe(false);
+  });
+
+  it("does not show an error icon for a credit limit", () => {
+    expect(
+      shouldShowInlineRunError({
+        runError: { ...runError, errorCode: "credits-limit-daily" },
+        bannerRunErrorKey: null,
+      }),
     ).toBe(false);
   });
 });
@@ -1009,6 +1345,22 @@ describe("isCollapsibleAssistantWorkPart", () => {
       }),
     ).toBe(true);
     expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
+  });
+
+  it("stops counting reasoning as work once thinking is hidden", () => {
+    // Otherwise a reasoning-only turn renders an empty "Worked for…" wrapper.
+    expect(
+      isCollapsibleAssistantWorkPart({ type: "reasoning" }, "hidden"),
+    ).toBe(false);
+    expect(
+      isCollapsibleAssistantWorkPart({ type: "reasoning" }, "expanded"),
+    ).toBe(true);
+    expect(
+      isCollapsibleAssistantWorkPart(
+        { type: "tool-call", toolName: "read-file" },
+        "hidden",
+      ),
+    ).toBe(true);
   });
 
   it("keeps custom UI outside collapsed work", () => {
@@ -1130,6 +1482,41 @@ describe("groupAssistantWorkParts", () => {
 
     expect(groupAssistantWorkParts(parts[0], 0, parts)).toBeNull();
     expect(groupAssistantWorkParts(parts[1], 1, parts)).toEqual(["group-work"]);
+  });
+
+  it("leaves hidden reasoning out of the work group", () => {
+    const parts = [
+      { type: "reasoning" },
+      { type: "tool-call", toolCallId: "tc_1", toolName: "read-file" },
+    ] as const;
+
+    expect(groupAssistantWorkParts(parts[0], 0, parts, "hidden")).toBeNull();
+    expect(groupAssistantWorkParts(parts[0], 0, parts, "collapsed")).toEqual([
+      "group-work",
+    ]);
+    expect(groupAssistantWorkParts(parts[1], 1, parts, "hidden")).toEqual([
+      "group-work",
+    ]);
+  });
+
+  it("collapses older tool calls while keeping the newest three visible", () => {
+    const parts = [
+      { type: "tool-call", toolName: "docs-search" },
+      { type: "tool-call", toolName: "framework-search" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+    ] as const;
+
+    expect(
+      parts.map((part, index) => groupAssistantWorkParts(part, index, parts)),
+    ).toEqual([
+      ["group-work", "group-ran-tools"],
+      ["group-work", "group-ran-tools"],
+      ["group-work"],
+      ["group-work"],
+      ["group-work"],
+    ]);
   });
 });
 

@@ -5,7 +5,7 @@ import {
   normalizeThreadRepository,
   normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
@@ -22,7 +22,6 @@ import {
   chatThreads,
   chatThreadShares,
   CHAT_THREAD_SHARES_CREATE_SQL,
-  CHAT_THREAD_SHARES_CREATE_SQL_PG,
   CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
 } from "./schema.js";
 
@@ -70,7 +69,6 @@ export function withThreadDataLock<T>(
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS chat_threads (
           id TEXT PRIMARY KEY,
@@ -78,14 +76,14 @@ async function ensureTable(): Promise<void> {
           title TEXT NOT NULL DEFAULT '',
           preview TEXT NOT NULL DEFAULT '',
           thread_data TEXT NOT NULL DEFAULT '{}',
-          message_count ${intType()} NOT NULL DEFAULT 0,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
+          message_count BIGINT NOT NULL DEFAULT 0,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
           scope_type TEXT,
           scope_id TEXT,
           scope_label TEXT,
-          pinned_at ${intType()},
-          archived_at ${intType()},
+          pinned_at BIGINT,
+          archived_at BIGINT,
           share_token_hash TEXT,
           source_platform TEXT,
           source_app_id TEXT,
@@ -95,7 +93,7 @@ async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
+      {
         // Hot path: the `chat_threads` table and its indexes are virtually
         // always already present in production. Issuing `CREATE TABLE`/
         // `CREATE INDEX` still takes a lock that, in a fresh background-worker
@@ -115,8 +113,8 @@ async function ensureTable(): Promise<void> {
           ["scope_type", "TEXT"],
           ["scope_id", "TEXT"],
           ["scope_label", "TEXT"],
-          ["pinned_at", intType()],
-          ["archived_at", intType()],
+          ["pinned_at", "BIGINT"],
+          ["archived_at", "BIGINT"],
           ["share_token_hash", "TEXT"],
           ["source_platform", "TEXT"],
           ["source_app_id", "TEXT"],
@@ -132,7 +130,7 @@ async function ensureTable(): Promise<void> {
         }
         await ensureTableExists(
           "chat_thread_shares",
-          CHAT_THREAD_SHARES_CREATE_SQL_PG,
+          CHAT_THREAD_SHARES_CREATE_SQL,
         );
         // Widen millisecond-timestamp columns that older deployments created as
         // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
@@ -150,6 +148,26 @@ async function ensureTable(): Promise<void> {
         await ensureIndexExists(
           "chat_threads_owner_updated_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
+        );
+        // `owner_email` is stored as the user typed it, so access scoping
+        // compares `LOWER(owner_email)`. A plain btree on the raw column cannot
+        // serve that predicate — without the expression index the list falls
+        // back to scanning every row in the (shared, multi-tenant) table.
+        //
+        // NOT built CONCURRENTLY, despite the SHARE lock. This ensure path runs
+        // at release over the pooled Neon endpoint, and a transaction-pooled
+        // connection cannot carry `CREATE INDEX CONCURRENTLY` to completion:
+        // the statement returned without creating anything and the verifying
+        // probe failed the whole release, so no docs production deploy could
+        // publish. Release already runs locking DDL; a plain build here is the
+        // form that actually lands.
+        await ensureIndexExists(
+          "chat_threads_owner_lower_updated_idx",
+          `CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
+        );
+        await ensureIndexExists(
+          "chat_thread_shares_principal_lower_idx",
+          `CREATE INDEX IF NOT EXISTS chat_thread_shares_principal_lower_idx ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))`,
         );
         await ensureIndexExists(
           "chat_threads_scope_updated_idx",
@@ -170,67 +188,6 @@ async function ensureTable(): Promise<void> {
           CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
         );
         return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Additive migration for existing tables. Both SQLite and Postgres
-      // accept `ALTER TABLE ADD COLUMN` and will raise when the column
-      // already exists; the try/catch makes the call idempotent across
-      // both dialects without requiring an information_schema probe.
-      for (const [col, type] of [
-        ["scope_type", "TEXT"],
-        ["scope_id", "TEXT"],
-        ["scope_label", "TEXT"],
-        ["pinned_at", intType()],
-        ["archived_at", intType()],
-        ["share_token_hash", "TEXT"],
-        ["source_platform", "TEXT"],
-        ["source_app_id", "TEXT"],
-        ["source_url", "TEXT"],
-        ["org_id", "TEXT"],
-        ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
-      ] as const) {
-        try {
-          await client.execute(
-            `ALTER TABLE chat_threads ADD COLUMN ${col} ${type}`,
-          );
-        } catch {
-          // Column already exists.
-        }
-      }
-      try {
-        await client.execute(CHAT_THREAD_SHARES_CREATE_SQL);
-      } catch {
-        // Table already exists.
-      }
-      // Widen millisecond-timestamp columns that older deployments created as
-      // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
-      // overflows int4. No-op once widened / on fresh BIGINT databases.
-      await widenIntColumnsToBigInt("chat_threads", [
-        "created_at",
-        "updated_at",
-        "pinned_at",
-        "archived_at",
-      ]);
-      // Indexes for the hot read paths. Both the sidebar list and the
-      // scoped/per-resource list filter on owner_email (and optionally
-      // scope) and sort by updated_at. Keep these dialect-agnostic (no
-      // DESC, partial, or PG-only syntax) so they apply identically on
-      // SQLite and the configured Postgres. `IF NOT EXISTS` makes them
-      // idempotent across restarts.
-      for (const ddl of [
-        `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_source_updated_idx ON chat_threads (owner_email, source_app_id, updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
-        CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
-      ]) {
-        try {
-          await client.execute(ddl);
-        } catch {
-          // Index already exists or the dialect rejected a duplicate.
-        }
       }
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
@@ -602,6 +559,30 @@ export async function resolveThreadAccess(
   return await getThread(threadId);
 }
 
+export async function resolveThreadsAccess(
+  userEmail: string | null | undefined,
+  threadIds: readonly string[],
+  ctx: Pick<AccessContext, "orgId"> = {},
+): Promise<Map<string, ChatThread>> {
+  const ids = [...new Set(threadIds.filter(Boolean))];
+  const threads = new Map<string, ChatThread>();
+  if (!userEmail || ids.length === 0) return threads;
+
+  await ensureTable();
+  const access = chatThreadAccessSql(userEmail, ctx.orgId);
+  const client = getDbExec();
+  const placeholders = ids.map(() => "?").join(", ");
+  const { rows } = await client.execute({
+    sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE id IN (${placeholders}) AND ${access.sql}`,
+    args: [...ids, ...access.args],
+  });
+  for (const row of rows) {
+    const thread = rowToThread(row);
+    threads.set(thread.id, thread);
+  }
+  return threads;
+}
+
 export async function getThread(id: string): Promise<ChatThread | null> {
   await ensureTable();
   const client = getDbExec();
@@ -811,8 +792,11 @@ export async function listThreads(
   const offset = opts.offset ?? 0;
   const client = getDbExec();
   // `message_count > 0` is the authoritative "has messages" signal maintained
-  // on every write. The local-only view adds a narrowly scoped legacy marker
-  // check below because older integration rows predate persisted source fields.
+  // on every write. `source_platform` is the authoritative external-source
+  // signal: schema migration 3 backfilled the integration rows that predate the
+  // column, so nothing here may filter on `thread_data`. Matching that blob
+  // detoasts the whole message history for every scanned row — before LIMIT
+  // applies — which is what made this list cost seconds instead of milliseconds.
   const access = chatThreadAccessSql(
     ownerEmail,
     opts.orgId ?? getRequestOrgId(),
@@ -824,9 +808,6 @@ export async function listThreads(
   }
   if (opts.includeExternal === false) {
     filters.push(`source_platform IS NULL`);
-    filters.push(
-      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
-    );
     if (opts.sourceAppId) {
       filters.push(`(source_app_id IS NULL OR source_app_id = ?)`);
       args.push(opts.sourceAppId);
@@ -888,9 +869,6 @@ export async function searchThreads(
   }
   if (options.includeExternal === false) {
     filters.push(`source_platform IS NULL`);
-    filters.push(
-      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
-    );
     if (options.sourceAppId) {
       filters.push(`(source_app_id IS NULL OR source_app_id = ?)`);
       args.push(options.sourceAppId);
@@ -1115,11 +1093,15 @@ export async function updateThreadData(
       }
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
+      // Completion persistence can race the separate generated-title save.
+      // Keep a title already committed by that save when this caller only has
+      // its stale empty snapshot.
+      const nextTitle = title || current.title;
       const result = await client.execute({
         sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
         args: [
           nextThreadData,
-          title,
+          nextTitle,
           preview,
           nextMessageCount,
           nextUpdatedAt,
@@ -1156,9 +1138,12 @@ export async function updateThreadData(
 
   if (lastConflict) {
     if (options.ignoreConflicts) return;
-    throw new Error(
+    const error = new Error(
       `Failed to update chat thread ${id} after concurrent write conflicts.`,
-    );
+    ) as Error & { statusCode?: number; statusMessage?: string };
+    error.statusCode = 409;
+    error.statusMessage = error.message;
+    throw error;
   }
 }
 

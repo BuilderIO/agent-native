@@ -123,16 +123,12 @@ export async function runStartRetryGeneration(
     engine: promptState.engine,
     effort: promptState.effort,
   };
-  const runTabId = agentSubmit(
-    `Generate design for "${design.title}": ${promptState.prompt}`,
-    context,
-    {
-      model: promptState.model,
-      engine: promptState.engine,
-      effort: promptState.effort,
-      images,
-    },
-  );
+  const runTabId = agentSubmit(promptState.prompt, context, {
+    model: promptState.model,
+    engine: promptState.engine,
+    effort: promptState.effort,
+    images,
+  });
   setGenerationChatTabId(runTabId);
   patchPendingGeneration(id, {
     prompt: promptState.prompt,

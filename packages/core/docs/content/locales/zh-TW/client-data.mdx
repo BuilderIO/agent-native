@@ -21,9 +21,9 @@ description: "app/ 用來讀取、寫入，並與代理所呼叫的相同 action
 
 ## 取得與修改資料 {#fetching-mutating}
 
-典型的應用程式會建置自己的 API 層並透過手寫的 `fetch` 請求呼叫它。Agent-native 應用程式省去了那一層：`app/` 呼叫代理已經擁有的相同 actions，透過下方的掛鉤進行。
+典型的應用程式會建置自己的 API 層並透過手寫的 `fetch` 請求呼叫它。Agent-Native 應用程式省去了那一層：`app/` 呼叫代理已經擁有的相同 actions，透過下方的掛鉤進行。
 
-<Diagram id="doc-block-client-data-fm-1" title="典型的 fetch vs. action 掛鉤" summary="典型元件呼叫一個只有自己能存取的路由。Agent-native 元件呼叫代理也能呼叫的 action。">
+<Diagram id="doc-block-client-data-fm-1" title="典型的 fetch vs. action 掛鉤" summary="典型元件呼叫一個只有自己能存取的路由。Agent-Native 元件呼叫代理也能呼叫的 action。">
 
 ```html
 <div class="diagram-fmcmp">
@@ -42,7 +42,7 @@ description: "app/ 用來讀取、寫入，並與代理所呼叫的相同 action
   </div>
   <div class="fmcmp-vs diagram-muted">vs</div>
   <div class="fmcmp-col">
-    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="fmcmp-label diagram-muted">Agent-Native</div>
     <div class="diagram-node">元件</div>
     <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
     <div class="diagram-node">useActionQuery("get-lead")</div>

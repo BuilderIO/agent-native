@@ -41,7 +41,7 @@
  * The caller should offer `connect-builder-app` to surface the CTA first.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -189,6 +189,17 @@ export default defineAction({
     // are mutations: require editor access. A read-only (viewer) share must not
     // be able to trigger them.
     await assertAccess("design", designId, "editor");
+
+    // Make Real migration is Builder-staff only for now. The dialog waitlists
+    // everyone else; enforce the same entitlement on the trusted request
+    // identity so the action cannot be invoked directly to bypass the UI.
+    const requesterEmail = getRequestUserEmail()?.toLowerCase() ?? "";
+    if (!requesterEmail.endsWith("@builder.io")) {
+      throw new Error(
+        "Make this a real app is currently limited to @builder.io accounts. " +
+          "Join the waitlist from the Design editor dialog.",
+      );
+    }
 
     // ── 2. Builder status check ────────────────────────────────────────────
     const builderStatus = await resolveBuilderStatus();

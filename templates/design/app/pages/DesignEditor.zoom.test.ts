@@ -1,8 +1,10 @@
+import { DEFAULT_CANVAS_MIN_ZOOM } from "@shared/canvas-math";
 import { describe, expect, it } from "vitest";
 
 import {
   clampOverviewDisplayZoom,
   clampZoom,
+  getBoardSelectionFitBounds,
   computeFitCameraForFrames,
   computeIframeLocalCanvasPoint,
   readOverviewZoomPercentFromTransform,
@@ -110,6 +112,69 @@ describe("getNextZoomStepUp / getNextZoomStepDown — Figma-style doubling ancho
   });
 });
 
+describe("getBoardSelectionFitBounds", () => {
+  it("fits a distant Board layer with selected Screen frames, excluding the Board frame", () => {
+    const bounds = getBoardSelectionFitBounds({
+      selectedFrameEntries: [
+        {
+          id: "board",
+          geometry: { x: -65_536, y: -65_536, width: 131_072, height: 131_072 },
+        },
+        {
+          id: "screen-selected",
+          geometry: { x: 1000, y: 200, width: 320, height: 240 },
+        },
+        {
+          id: "screen-unselected",
+          geometry: { x: 8000, y: 8000, width: 1280, height: 800 },
+        },
+      ],
+      selectedScreenIds: new Set(["board", "screen-selected"]),
+      boardFileId: "board",
+      boardBounds: { left: -1200, top: 100, width: 120, height: 90 },
+    });
+
+    expect(bounds).toMatchObject({
+      left: -1200,
+      top: 100,
+      right: 1320,
+      bottom: 440,
+      width: 2520,
+      height: 340,
+      centerX: 60,
+      centerY: 270,
+    });
+  });
+
+  it("keeps Board-only fit bounds when no Screen frames are selected", () => {
+    expect(
+      getBoardSelectionFitBounds({
+        selectedFrameEntries: [
+          {
+            id: "board",
+            geometry: {
+              x: -65_536,
+              y: -65_536,
+              width: 131_072,
+              height: 131_072,
+            },
+          },
+        ],
+        selectedScreenIds: new Set(["board"]),
+        boardFileId: "board",
+        boardBounds: { left: -1200, top: 100, width: 120, height: 90 },
+      }),
+    ).toMatchObject({
+      left: -1200,
+      top: 100,
+      right: -1080,
+      bottom: 190,
+      width: 120,
+      height: 90,
+    });
+  });
+});
+
 describe("getAllScreenFrameEntries", () => {
   it("merges persisted geometry over the initial-fallback geometry per screen", () => {
     const entries = getAllScreenFrameEntries({
@@ -130,6 +195,30 @@ describe("getAllScreenFrameEntries", () => {
     // No persisted geometry for "b" — falls back to getInitialFrameGeometry.
     expect(Number.isFinite(b.geometry.x)).toBe(true);
     expect(Number.isFinite(b.geometry.y)).toBe(true);
+  });
+
+  it("reserves the rendered breakpoint row when requested for adjacency placement", () => {
+    const args = {
+      overviewScreens: [
+        {
+          id: "screen-1",
+          width: 402,
+          height: 874,
+          breakpointWidths: [360, 375],
+        },
+      ],
+      canvasFrameGeometryById: {
+        "screen-1": { x: 0, y: 0, width: 402, height: 874 },
+      },
+    };
+
+    expect(getAllScreenFrameEntries(args)[0]?.geometry.width).toBe(402);
+    expect(
+      getAllScreenFrameEntries({
+        ...args,
+        includeResponsivePreviews: true,
+      })[0]?.geometry.width,
+    ).toBe(1185);
   });
 
   it("includes actual board content bounds when provided and not already a screen", () => {
@@ -686,6 +775,22 @@ describe("computeFitCameraForFrames", () => {
     expect(camera).not.toBeNull();
     // The union bounds span ~1200x1200 — must zoom out to fit both.
     expect(camera!.zoom).toBeLessThan(100);
+  });
+
+  it("still fits a board far too wide to show at a legible zoom", () => {
+    // Zoom to fit must reach the bottom of the zoom range: a floor of 10% caps
+    // an explicit fit at roughly nine 1280px screens in a row.
+    const frames = Array.from({ length: 30 }, (_, index) => ({
+      id: `s${index}`,
+      geometry: { x: index * 1400, y: 0, width: 1280, height: 900 },
+    }));
+    const camera = computeFitCameraForFrames(frames, {
+      width: 1400,
+      height: 900,
+    });
+    expect(camera).not.toBeNull();
+    expect(camera!.zoom).toBeLessThan(10);
+    expect(camera!.zoom).toBeGreaterThanOrEqual(DEFAULT_CANVAS_MIN_ZOOM);
   });
 
   it("clamps the computed zoom to the shared canvas zoom range", () => {

@@ -159,7 +159,11 @@ describe("radial/diamond gradient axis mapping (bug: radiusX/radiusY swapped)", 
     expect(radiusY).toBeCloseTo(90, 0);
   });
 
-  it("applies the same fixed axis mapping to the diamond-gradient ellipse approximation", () => {
+  // A diamond gradient is drawn as four quadrant tiles rather than an ellipse
+  // (CSS has no diamond, but the falloff is linear inside one quadrant). The
+  // axis mapping still has to hold: the tile is rx by ry, so the same swap
+  // would make every tile the wrong shape.
+  it("applies the same fixed axis mapping to the diamond gradient's quadrant tiles", () => {
     const node: FigmaNode = {
       id: "diamond",
       type: "RECTANGLE",
@@ -173,10 +177,13 @@ describe("radial/diamond gradient axis mapping (bug: radiusX/radiusY swapped)", 
       children: [node],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    const match = html.match(/radial-gradient\(ellipse ([\d.]+)px ([\d.]+)px/);
+    const match = html.match(/background-size:\s*([\d.]+)px ([\d.]+)px/);
+    expect(match).not.toBeNull();
     const radiusX = Number(match![1]);
     const radiusY = Number(match![2]);
     expect(radiusX).toBeGreaterThan(radiusY);
+    expect(radiusX).toBeCloseTo(180, 0);
+    expect(radiusY).toBeCloseTo(90, 0);
   });
 });
 
@@ -254,10 +261,16 @@ describe("rotation unit conversion (bug: REST rotation is radians, not degrees)"
     const { html } = mapFigmaNodeToHtml(root);
     const match = html.match(/rotate\((-?[\d.]+)deg\)/);
     expect(match).not.toBeNull();
-    // -15deg in Figma's convention negates to +15deg for CSS (see the
-    // module's Rotation caveat doc comment) -- NOT ~-0.26deg, which is what
-    // the un-converted radian value produced before this fix.
-    expect(Number(match![1])).toBeCloseTo(15, 1);
+    // The unit conversion is the point of this test, and it still holds: the
+    // radian value must become degrees, NOT the ~-0.26deg the un-converted
+    // value produced. The SIGN is not flipped, though — this assertion used to
+    // expect +15 and that was wrong. Figma's `rotation` is already the CSS
+    // angle: for a node reporting rotation -0.2967 rad (-17deg), its
+    // `relativeTransform` 2x2 is [[0.9563, 0.2924], [-0.2924, 0.9563]], and
+    // CSS `rotate(a)` in the same y-down space is
+    // [[cos a, -sin a], [sin a, cos a]], which solves to a = -17deg. Negating
+    // tilted every rotated node the wrong way by twice its angle.
+    expect(Number(match![1])).toBeCloseTo(-15, 1);
   });
 });
 

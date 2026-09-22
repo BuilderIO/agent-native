@@ -35,10 +35,10 @@ description: "ابدأ من منتج SaaS كامل يضم UI وقاعدة بيا
 
 ## قوالب المجتمع {#community-templates}
 
-القوالب المسماة في منتقي CLI هي قوالب **رسمية**: تتولى Agent Native صيانتها
+القوالب المسماة في منتقي CLI هي قوالب **رسمية**: تتولى Agent-Native صيانتها
 واختبارها وتوثيقها وإصدارها مع إطار العمل. أما **قالب المجتمع** فيتولى مالك
 مستودعه صيانته وإدارة إصداراته. ويمكنه استخدام سطح إطار العمل نفسه، لكن إدراجه
-في قائمة المجتمع لا يعني أن Agent Native توصي به أو تعد بدعمه.
+في قائمة المجتمع لا يعني أن Agent-Native توصي به أو تعد بدعمه.
 
 شغّل `create` واختر **قالب المجتمع** ثم الصق عنوان URL بسيطًا لمستودع GitHub عام:
 
@@ -46,8 +46,8 @@ description: "ابدأ من منتج SaaS كامل يضم UI وقاعدة بيا
 https://github.com/owner/repo
 ```
 
-إذا كان جذر المستودع تطبيق Agent Native واحدًا، تثبته CLI مباشرة من دون منتقي
-آخر. وإذا كان المستودع مساحة عمل Agent Native، تكتشف CLI العناصر الفرعية
+إذا كان جذر المستودع تطبيق Agent-Native واحدًا، تثبته CLI مباشرة من دون منتقي
+آخر. وإذا كان المستودع مساحة عمل Agent-Native، تكتشف CLI العناصر الفرعية
 المباشرة الصالحة في `apps/*`، وتستبعد `dispatch`، وتسأل عن التطبيق المراد تثبيته.
 
 تجعل علامة `agent-native.workspaceCore` غير الفارغة المستودع مساحة عمل حتى إذا
@@ -58,8 +58,8 @@ https://github.com/owner/repo
 بداية قابلة لإعادة الإنتاج. ومن دون مرجع، تجرب CLI الفرع `main` ثم `master`:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 لاختيار تطبيق المصدر من مستودع مساحة عمل دون تفاعل، استخدم
@@ -67,8 +67,8 @@ npx @agent-native/core@latest create my-app --template https://github.com/owner/
 علامات اقتباس لأن shells مثل zsh تتعامل مع `?` كنمط glob:
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 خارج مساحة العمل، يحول `create` تطبيق المصدر المحدد إلى تطبيق مستقل. لإضافته
@@ -122,7 +122,7 @@ GitHub أو عناوين URL لأشجار GitHub أو أدلتها الفرعي�
 الكاملة للتطبيق وactions والحالة والأمان والنشر.
 
 > **راجع كود المجتمع قبل تثبيت تبعياته أو تشغيله.** تُنزّل قوالب المجتمع من
-> مستودعات جهات خارجية؛ ولا تعزلها Agent Native أو تدققها أو تصونها. تنزّل CLI
+> مستودعات جهات خارجية؛ ولا تعزلها Agent-Native أو تدققها أو تصونها. تنزّل CLI
 > المصدر فقط؛ فهي لا تثبت التبعيات ولا تشغّل برامج القالب النصية. افحص
 > المصدر والترخيص والتبعيات وبرامج تثبيت الحزم، ويفضل استخدام مرجع موثوق ومثبّت.
 
@@ -140,7 +140,7 @@ GitHub أو عناوين URL لأشجار GitHub أو أدلتها الفرعي�
 
 - **وكيل عامل** — متصل بالتطبيق، وقادر على تنفيذ actions على بياناتك، ويعرف ما تنظر إليه. راجع [Messaging the agent](/docs/messaging).
 - **المصادقة** — تسجيل الدخول، والجلسات، والمؤسسات، وعزل المستأجرين المتعددين.
-- **قاعدة بيانات** — المخطط والاستعلامات وعمليات الترحيل، جاهزة للاستخدام. أحضر قاعدة بيانات SQL الخاصة بك (Postgres، SQLite، Turso، D1)؛ يتكيف إطار العمل معها.
+- **قاعدة البيانات** — مخطط واستعلامات وترحيلات جاهزة للاستخدام. استخدم PGlite محليًا أثناء التطوير وقاعدة PostgreSQL مستضافة في البيئات المنشورة.
 - **UI في الوقت الفعلي** — تظل الشاشة متزامنة مع الوكيل. على سبيل المثال، تؤدي صياغة رسالة بريد إلكتروني في الدردشة إلى تحديث البريد الوارد فورًا.
 - **جاهز للنشر** — انشر على Netlify، أو Vercel، أو Cloudflare، أو AWS، أو أي مضيف يشغّل Node.
 - **عناصر ربط العلامة التجارية** — غيّر الاسم والألوان والشعار والنسخة.
@@ -201,7 +201,7 @@ GitHub أو عناوين URL لأشجار GitHub أو أدلتها الفرعي�
 
 1. **اختر تطبيقًا.** استخدم منتقي CLI، أو تصفح المستندات.
 2. **العلامة التجارية.** قم بتغيير الاسم والألوان والشعار والنسخة. تعرض معظم التطبيقات النموذجية ذلك في ملف تكوين واحد.
-3. **قم بتخصيصه.** أجرِ تغييرات المصدر في مستودعك وسير عمل التطوير. يمكن للوكيل المساعدة عندما يُمنح إطاره عمدًا أدوات مساحة العمل والكتابة؛ وإلا فيشغّل الوكيل المضمّن التطبيق عبر actions والبيانات والتكاملات المكوّنة.
+3. **قم بتخصيصه.** أجرِ تغييرات المصدر في مستودعك وسير عمل التطوير: «أضف حقل أولوية إلى النماذج»، «اتصل بمثيل Salesforce الخاص بنا»، «غيّر نظام الألوان ليطابق علامتنا التجارية». يمكن للوكيل المساعدة عندما يُمنح إطاره عمدًا أدوات مساحة العمل والكتابة؛ وإلا فيشغّل الوكيل المضمّن التطبيق عبر actions والبيانات والتكاملات المكوّنة.
 4. **قم بشحنه.** قم بتشغيل أمر النشر. لديك الآن تطبيق للإنتاج في نطاقك الخاص.
 
 عادةً ما تستغرق الخطوات من 2 إلى 4 بضعة أيام. لا نقطة نهاية ثابتة للخطوة 3 — فالتطبيق ملكك لتطويره، بينما يظل الوكيل المضمّن متاحًا لتشغيل المنتج المنشور ويمكنه المساعدة في تغييرات المصدر عند تمكين الوصول إلى التعليمات البرمجية صراحة.
@@ -279,13 +279,13 @@ GitHub أو عناوين URL لأشجار GitHub أو أدلتها الفرعي�
 لإنشاء سقالة تطبيق جديد:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-يسأل CLI أولًا **كيف تريد البدء؟** اختر **Chat** لمساحة عمل بسيطة تضم Chat وDispatch، أو **First-party template(s)** لفتح منتقي التطبيقات المتعدد. أما Community وHeadless فهما مساران لتطبيق مستقل. تشارك تطبيقات مساحة العمل المصادقة والعلامة التجارية وتكوين الوكيل وقاعدة البيانات، ويُضاف كل تطبيق إلى `apps/<name>/` مع كل ملف تحتاجه. بالنسبة إلى automation بلا UI في المتصفح بدلاً من UI التطبيق، استخدم `npx @agent-native/core@latest create my-agent --headless`.
+يسأل CLI أولًا **كيف تريد البدء؟** اختر **Chat** لمساحة عمل بسيطة تضم Chat وDispatch، أو **First-party template(s)** لفتح منتقي التطبيقات المتعدد. أما Community وHeadless فهما مساران لتطبيق مستقل. تشارك تطبيقات مساحة العمل المصادقة والعلامة التجارية وتكوين الوكيل وقاعدة البيانات، ويُضاف كل تطبيق إلى `apps/<name>/` مع كل ملف تحتاجه. بالنسبة إلى automation بلا UI في المتصفح بدلاً من UI التطبيق، استخدم `npx --yes @agent-native/core@latest create my-agent --headless`.
 
 املأ `.env` (`ANTHROPIC_API_KEY` و`DATABASE_URL`)، ثم شغّل `pnpm install` و`pnpm dev`. لا يوجد تسجيل دخول يجب تنفيذه ولا مسارات نائبة.
 
-أهداف النشر: أي مضيف متوافق مع Nitro (Node وCloudflare وNetlify وVercel وDeno وLambda وBun) وأي قاعدة بيانات SQL متوافقة مع SQL (SQLite وPostgres وTurso وD1 وSupabase وNeon). بالنسبة لمساحات العمل، تقوم `npx @agent-native/core@latest deploy` بإنشاء كل تطبيق في وقت واحد وشحنه خلف مصدر واحد. انظر [Deployment](/docs/deployment).
+أهداف النشر: أي مضيف متوافق مع Nitro وقاعدة بيانات PostgreSQL مستضافة. بالنسبة لمساحات العمل، تقوم `npx @agent-native/core@latest deploy` بإنشاء كل تطبيق في وقت واحد وشحنه خلف مصدر واحد. انظر [Deployment](/docs/deployment).
 
 لتأليف ونشر قالب التطبيق الخاص بك، راجع [Creating Templates](/docs/creating-templates).

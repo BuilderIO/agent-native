@@ -2,7 +2,7 @@
   "name": "Factory",
   "short_name": "Factory",
   "description": "Build agent factories with gates you control.",
-  "start_url": ".",
+  "start_url": "./home",
   "background_color": "#111111",
   "theme_color": "#18181B",
   "icons": [

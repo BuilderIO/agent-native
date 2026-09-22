@@ -1,5 +1,5 @@
 /**
- * `agent-native upgrade` — bring an existing Agent Native app/workspace current.
+ * `agent-native upgrade` — bring an existing Agent-Native app/workspace current.
  *
  * Older branches often break after a core bump. Agents then invent
  * `pnpm.overrides` / patches against `@agent-native/*` (especially dispatch),
@@ -209,7 +209,7 @@ export function printUpgradeHelp(io: Pick<UpgradeIo, "log"> = defaultIo): void {
       "",
       "Options:",
       "  --skip-install   Bump package.json only; do not run the package manager",
-      "  --codemods       Rewrite moved Agent Native imports and exports (preview by default)",
+      "  --codemods       Rewrite moved Agent-Native imports and exports (preview by default)",
       "  --yes            Apply codemods; without this flag --codemods is a dry run",
       "  --skip-skills    Skip `skills update scaffold --project`",
       "  --skip-verify    Skip typecheck after upgrade",
@@ -410,7 +410,7 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
       const isWorkspace = hasWorkspaceYaml || workspacePatterns.length > 0;
       // A manifest we cannot parse cannot be ruled out as the project root:
       // stop here so the doctor reports the parse error instead of walking past
-      // it and claiming no Agent Native project exists.
+      // it and claiming no Agent-Native project exists.
       const unreadable = !read.ok && read.reason === "unreadable";
       if (hasCore || isWorkspace || unreadable) {
         const packageFiles = [pkgPath];
@@ -641,7 +641,7 @@ function detectPackageManager(projectRoot: string): "pnpm" | "npm" | "yarn" {
   if (fs.existsSync(path.join(projectRoot, "pnpm-lock.yaml"))) return "pnpm";
   if (fs.existsSync(path.join(projectRoot, "yarn.lock"))) return "yarn";
   if (fs.existsSync(path.join(projectRoot, "package-lock.json"))) return "npm";
-  // Prefer pnpm for Agent Native scaffolds.
+  // Prefer pnpm for Agent-Native scaffolds.
   return "pnpm";
 }
 
@@ -768,7 +768,7 @@ export async function runUpgrade(
   const project = detectUpgradeProject(cwd);
   if (!project) {
     const message =
-      "No Agent Native app/workspace found. Run from an app or workspace root that depends on @agent-native/core.";
+      "No Agent-Native app/workspace found. Run from an app or workspace root that depends on @agent-native/core.";
     if (opts.json) {
       io.err(JSON.stringify({ ok: false, message }, null, 2));
     } else {

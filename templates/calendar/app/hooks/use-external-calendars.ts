@@ -33,10 +33,12 @@ export function useAddExternalCalendar() {
           (old) => (old ? [...old, created] : [created]),
         );
       }
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-external-calendars"],
       });
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }
@@ -63,12 +65,49 @@ export function useUpdateExternalCalendarColor() {
       }
       return updated;
     },
-    onSuccess: (data) => {
-      queryClient.setQueryData(
-        ["action", "list-external-calendars", undefined],
-        data,
+    onMutate: async ({ id, color }) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: EXTERNAL_CALENDARS_KEY }),
+        queryClient.cancelQueries({ queryKey: ["action", "list-events"] }),
+      ]);
+      const previousCalendars = queryClient.getQueryData<ExternalCalendar[]>(
+        EXTERNAL_CALENDARS_KEY,
       );
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      const previousEvents = queryClient.getQueriesData<CalendarEvent[]>({
+        queryKey: ["action", "list-events"],
+      });
+      queryClient.setQueryData<ExternalCalendar[]>(
+        EXTERNAL_CALENDARS_KEY,
+        (old) =>
+          old?.map((calendar) =>
+            calendar.id === id ? { ...calendar, color } : calendar,
+          ),
+      );
+      const prefix = `ical-${id}-`;
+      queryClient.setQueriesData<CalendarEvent[]>(
+        { queryKey: ["action", "list-events"] },
+        (old) =>
+          old?.map((event) =>
+            event.id.startsWith(prefix) ? { ...event, color } : event,
+          ),
+      );
+      return { previousCalendars, previousEvents };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousCalendars) {
+        queryClient.setQueryData(
+          EXTERNAL_CALENDARS_KEY,
+          context.previousCalendars,
+        );
+      }
+      if (context?.previousEvents) {
+        for (const [key, data] of context.previousEvents) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: EXTERNAL_CALENDARS_KEY });
     },
   });
 }
@@ -129,7 +168,7 @@ export function useRemoveExternalCalendar() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-external-calendars"],
       });
     },

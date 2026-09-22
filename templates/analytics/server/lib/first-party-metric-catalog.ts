@@ -157,6 +157,10 @@ export const FIRST_PARTY_TEMPLATE_SCOPED_METRIC_KEYS = [
   "seven-day-retention-by-template",
   "dau-over-time",
   "wau-over-time",
+  "activation-funnel",
+  "signup-method-conversion",
+  "onboarding-step-dropoff",
+  "sharing-actions-by-app",
 ] as const;
 const FIRST_PARTY_TEMPLATE_SQL_LIST = FIRST_PARTY_TEMPLATE_NAMES.map(
   (name) => `'${name}'`,
@@ -180,6 +184,15 @@ const RETENTION_ROLLING_DAYS = 7;
 const RETENTION_MIN_COHORT_SIZE = 5;
 const PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE = 20;
 const OBSERVED_ACTIVITY_LOOKBACK_DAYS = 365;
+/**
+ * Day count for the `retention-over-time` anchor-date spine, keyed off the
+ * same `{{timeRange}}` values as `dashboardTimeRangeFilter`. Unlike that
+ * filter (which bounds a WHERE clause), this sizes a full calendar spine, so
+ * an unrecognized/empty value must still resolve to a count ("all" -> 365)
+ * rather than leaving the spine unbounded.
+ */
+const RETENTION_SPINE_DAYS_SQL =
+  "(CASE '{{timeRange}}' WHEN '7d' THEN 7 WHEN '30d' THEN 30 WHEN '90d' THEN 90 WHEN '180d' THEN 180 WHEN '365d' THEN 365 ELSE 365 END)";
 
 function daysAgoSql(days: number): string {
   const unit = days === 1 ? "day" : "days";
@@ -221,9 +234,14 @@ const DASHBOARD_WAU_BASE_RANGE_FILTER = dashboardLookbackTimeRangeFilter(
 );
 const DASHBOARD_EMAIL_FILTER =
   "('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))";
-const SESSION_STATUS_FILTER = `event_name = 'session status' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}`;
+const DASHBOARD_APP_FILTER = `('{{appFilter}}' IN ('', 'all') OR lower(${TEMPLATE_EXPR}) = lower('{{appFilter}}'))`;
+const SESSION_STATUS_FILTER = `event_name = 'session status' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER}`;
 const SIGNED_IN_ACTIVITY_KEY_SQL = USER_KEY_SQL;
-const SIGNED_IN_ACTIVITY_FILTER = `event_name = 'session status' AND signed_in = 'true' AND ${SIGNED_IN_ACTIVITY_KEY_SQL} IS NOT NULL`;
+const SESSION_STATUS_EVENT_FILTER =
+  "event_name IN ('session status', 'session_status')";
+const LEGACY_SIGNED_IN_ACTIVITY_FILTER = `event_name = 'session status' AND signed_in = 'true' AND ${SIGNED_IN_ACTIVITY_KEY_SQL} IS NOT NULL`;
+const SIGNED_IN_ACTIVITY_FILTER = `((${SESSION_STATUS_EVENT_FILTER} AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND ${SIGNED_IN_ACTIVITY_KEY_SQL} IS NOT NULL`;
+const LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER = `${LEGACY_SIGNED_IN_ACTIVITY_FILTER} AND ${PRODUCT_ACTIVITY_TEMPLATE_FILTER}`;
 const SIGNED_IN_PRODUCT_ACTIVITY_FILTER = `${SIGNED_IN_ACTIVITY_FILTER} AND ${PRODUCT_ACTIVITY_TEMPLATE_FILTER}`;
 const REPLAY_RECORDING_DATE_SQL = "substr(started_at, 1, 10)";
 const REPLAY_TIME_RANGE_FILTER = dashboardTimeRangeFilter(
@@ -232,7 +250,8 @@ const REPLAY_TIME_RANGE_FILTER = dashboardTimeRangeFilter(
 const REPLAY_VISITOR_EMAIL_SQL =
   "COALESCE(NULLIF(CASE WHEN lower(coalesce(user_id, '')) LIKE '%@%' THEN user_id ELSE '' END, ''), NULLIF(CASE WHEN lower(coalesce(user_key, '')) LIKE '%@%' THEN user_key ELSE '' END, ''))";
 const REPLAY_EMAIL_FILTER = `('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(${REPLAY_VISITOR_EMAIL_SQL}, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(${REPLAY_VISITOR_EMAIL_SQL}, '')) LIKE '%@builder.io'))`;
-const REPLAY_RECORDING_FILTER = `chunk_count > 0 AND event_count > 0 AND ${REPLAY_VISITOR_EMAIL_SQL} IS NOT NULL AND ${REPLAY_TIME_RANGE_FILTER} AND ${REPLAY_EMAIL_FILTER}`;
+const REPLAY_APP_FILTER = `('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(app, ''), NULLIF(template, ''), 'unknown')) = lower('{{appFilter}}'))`;
+const REPLAY_RECORDING_FILTER = `chunk_count > 0 AND event_count > 0 AND ${REPLAY_VISITOR_EMAIL_SQL} IS NOT NULL AND ${REPLAY_TIME_RANGE_FILTER} AND ${REPLAY_EMAIL_FILTER} AND ${REPLAY_APP_FILTER}`;
 const REPLAY_SESSIONS_SQL = `SELECT COUNT(*) AS count FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER}`;
 const REPLAY_CHUNKS_OVER_TIME_SQL = `SELECT ${REPLAY_RECORDING_DATE_SQL} AS date, SUM(chunk_count) AS count FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER} GROUP BY ${REPLAY_RECORDING_DATE_SQL} ORDER BY date`;
 const RECENT_REPLAY_SESSIONS_SQL = `SELECT id AS recording_id, session_id, COALESCE(NULLIF(app, ''), NULLIF(template, ''), 'unknown') AS app, ${REPLAY_VISITOR_EMAIL_SQL} AS visitor, chunk_count AS chunks, event_count AS events, started_at, COALESCE(ended_at, last_ingested_at, started_at) AS last_seen, '/sessions/' || id AS href FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER} ORDER BY last_seen DESC LIMIT 25`;
@@ -262,6 +281,19 @@ export const FIRST_PARTY_DASHBOARD_FILTERS: FirstPartyDashboardFilter[] = [
       { value: "only_builder", label: "Only @builder.io" },
     ],
   },
+  {
+    id: "appFilter",
+    type: "select",
+    label: "App",
+    default: "all",
+    options: [
+      { value: "all", label: "All Agent-Native apps" },
+      ...FIRST_PARTY_TEMPLATE_NAMES.map((value) => ({
+        value,
+        label: value[0].toUpperCase() + value.slice(1),
+      })),
+    ],
+  },
 ];
 
 export function buildFirstPartyDashboardFilters(): FirstPartyDashboardFilter[] {
@@ -272,7 +304,24 @@ export function buildFirstPartyDashboardFilters(): FirstPartyDashboardFilter[] {
 }
 
 export function usesFirstPartyDashboardFilters(sql: string): boolean {
-  return sql.includes("{{timeRange}}") || sql.includes("{{emailFilter}}");
+  return (
+    sql.includes("{{timeRange}}") ||
+    sql.includes("{{emailFilter}}") ||
+    sql.includes("{{appFilter}}")
+  );
+}
+
+export function scopeFirstPartyPanelSql(sql: string): string {
+  if (sql.includes("{{appFilter}}")) return sql;
+  return sql
+    .replace(
+      /(\bFROM\s+analytics_events(?:\s+AS\s+\w+)?\s+WHERE\s+)/gi,
+      `$1${DASHBOARD_APP_FILTER} AND `,
+    )
+    .replace(
+      /(\bFROM\s+session_recordings\s+WHERE\s+)/gi,
+      `$1${REPLAY_APP_FILTER} AND `,
+    );
 }
 
 const TOTAL_SIGNUPS_SQL = `SELECT COUNT(*) AS signups FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
@@ -280,9 +329,9 @@ const LEGACY_SEED_SIGNUPS_TIME_RANGE_FILTER = `('{{timeRange}}' IN ('', 'all') O
 export const LEGACY_SEED_SIGNUPS_OVER_TIME_SQL = `WITH offsets AS (SELECT (ROW_NUMBER() OVER (ORDER BY ${EVENT_DATE_SQL}) - 1)::int AS n FROM analytics_events LIMIT 800), signup_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${LEGACY_SEED_SIGNUPS_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), bounds AS (SELECT MIN(date::date) AS start_date, MAX(date::date) AS end_date FROM signup_events), dates AS (SELECT to_char(bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN offsets WHERE bounds.start_date IS NOT NULL AND bounds.start_date + offsets.n <= bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
 export const LEGACY_SIGNUPS_OVER_TIME_SQL = `WITH offsets AS (SELECT (ROW_NUMBER() OVER (ORDER BY ${EVENT_DATE_SQL}) - 1)::int AS n FROM analytics_events LIMIT 800), signup_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), bounds AS (SELECT MIN(date::date) AS start_date, MAX(date::date) AS end_date FROM signup_events), dates AS (SELECT to_char(bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN offsets WHERE bounds.start_date IS NOT NULL AND bounds.start_date + offsets.n <= bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
 export const SIGNUPS_OVER_TIME_SQL = `WITH digits AS (SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9), offsets AS (SELECT ones.n + tens.n * 10 + hundreds.n * 100 AS n FROM digits ones CROSS JOIN digits tens CROSS JOIN digits hundreds WHERE hundreds.n < 8), signup_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}), bounds AS (SELECT MIN(date::date) AS start_date, MAX(date::date) AS end_date FROM signup_events), dates AS (SELECT to_char(bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN offsets WHERE bounds.start_date IS NOT NULL AND bounds.start_date + offsets.n <= bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
-export const LEGACY_RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key), anchor_dates AS (SELECT DISTINCT cohort_date AS date FROM first_seen WHERE cohort_date <= ${daysAgoSql(14)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_windows AS (SELECT a.date, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date), periods AS (SELECT '1-7d return' AS period UNION ALL SELECT '7-14d return' AS period), retained AS (SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY cw.date UNION ALL SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY cw.date) SELECT cs.date, p.period, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs CROSS JOIN periods p LEFT JOIN retained r ON r.date = cs.date AND r.period = p.period WHERE cs.users >= ${RETENTION_MIN_COHORT_SIZE} ORDER BY cs.date, p.period`;
-export const LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen AS (SELECT user_key, template, event_date AS cohort_date, ROW_NUMBER() OVER (PARTITION BY user_key ORDER BY event_date, template) AS rn FROM base), first_seen AS (SELECT user_key, template, cohort_date FROM ranked_first_seen WHERE rn = 1), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_sizes AS (SELECT template, COUNT(DISTINCT user_key) AS users FROM cohorts GROUP BY template), retained AS (SELECT c.template, COUNT(DISTINCT c.user_key) AS retained FROM cohorts c JOIN base b ON b.user_key = c.user_key AND b.event_date > c.cohort_date AND b.event_date <= to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY c.template) SELECT cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.template = cs.template WHERE cs.users >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cs.users DESC, cs.template`;
-export const LEGACY_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen AS (SELECT user_key, template, event_date AS cohort_date, ROW_NUMBER() OVER (PARTITION BY user_key ORDER BY event_date, template) AS rn FROM base), first_seen AS (SELECT user_key, template, cohort_date FROM ranked_first_seen WHERE rn = 1), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(14)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_sizes AS (SELECT template, COUNT(DISTINCT user_key) AS users FROM cohorts GROUP BY template), retained AS (SELECT c.template, COUNT(DISTINCT c.user_key) AS retained FROM cohorts c JOIN base b ON b.user_key = c.user_key AND b.event_date >= to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(c.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY c.template) SELECT cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.template = cs.template WHERE cs.users >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cs.users DESC, cs.template`;
+export const LEGACY_RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key), anchor_dates AS (SELECT DISTINCT cohort_date AS date FROM first_seen WHERE cohort_date <= ${daysAgoSql(14)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_windows AS (SELECT a.date, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date), periods AS (SELECT '1-7d return' AS period UNION ALL SELECT '7-14d return' AS period), retained AS (SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY cw.date UNION ALL SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY cw.date) SELECT cs.date, p.period, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs CROSS JOIN periods p LEFT JOIN retained r ON r.date = cs.date AND r.period = p.period WHERE cs.users >= ${RETENTION_MIN_COHORT_SIZE} ORDER BY cs.date, p.period`;
+export const LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${LEGACY_SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen AS (SELECT user_key, template, event_date AS cohort_date, ROW_NUMBER() OVER (PARTITION BY user_key ORDER BY event_date, template) AS rn FROM base), first_seen AS (SELECT user_key, template, cohort_date FROM ranked_first_seen WHERE rn = 1), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_sizes AS (SELECT template, COUNT(DISTINCT user_key) AS users FROM cohorts GROUP BY template), retained AS (SELECT c.template, COUNT(DISTINCT c.user_key) AS retained FROM cohorts c JOIN base b ON b.user_key = c.user_key AND b.event_date > c.cohort_date AND b.event_date <= to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY c.template) SELECT cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.template = cs.template WHERE cs.users >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cs.users DESC, cs.template`;
+export const LEGACY_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${LEGACY_SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen AS (SELECT user_key, template, event_date AS cohort_date, ROW_NUMBER() OVER (PARTITION BY user_key ORDER BY event_date, template) AS rn FROM base), first_seen AS (SELECT user_key, template, cohort_date FROM ranked_first_seen WHERE rn = 1), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(14)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_sizes AS (SELECT template, COUNT(DISTINCT user_key) AS users FROM cohorts GROUP BY template), retained AS (SELECT c.template, COUNT(DISTINCT c.user_key) AS retained FROM cohorts c JOIN base b ON b.user_key = c.user_key AND b.event_date >= to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(c.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY c.template) SELECT cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.template = cs.template WHERE cs.users >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cs.users DESC, cs.template`;
 export const LEGACY_V0_RETENTION_OVER_TIME_SQL =
   LEGACY_RETENTION_OVER_TIME_SQL.replace(
     "cohort_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ",
@@ -314,9 +363,12 @@ export const LEGACY_V0_ONE_DAY_RETENTION_BY_TEMPLATE_SQL =
       "CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))",
     );
 const SIGNUPS_BY_TEMPLATE_SQL = `SELECT ${TEMPLATE_EXPR} AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY ${TEMPLATE_EXPR} ORDER BY count DESC`;
-export const LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT a.event_date AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
-export const LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT to_char(date_trunc('week', a.event_date::date), 'YYYY-MM-DD') AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
+export const LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT a.event_date AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
+export const LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT to_char(date_trunc('week', a.event_date::date), 'YYYY-MM-DD') AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
 const OBSERVED_ACTIVITY_LOOKBACK_FILTER = `${EVENT_DATE_SQL} >= ${daysAgoSql(OBSERVED_ACTIVITY_LOOKBACK_DAYS)}`;
+// The spine's oldest anchor (365 days ago) still needs the six days of
+// first-seen events before it for its trailing cohort window.
+const RETENTION_OVER_TIME_LOOKBACK_FILTER = `${EVENT_DATE_SQL} >= ${daysAgoSql(OBSERVED_ACTIVITY_LOOKBACK_DAYS + RETENTION_ROLLING_DAYS - 1)}`;
 export const INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL =
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL.replace(
     `${DASHBOARD_EMAIL_FILTER}), first_seen`,
@@ -342,11 +394,25 @@ export const PRE_MARKETING_SITE_RETENTION_OVER_TIME_SQL =
     `${DASHBOARD_EMAIL_FILTER}), first_seen`,
     `${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER}), first_seen`,
   );
-const RETENTION_OVER_TIME_SQL =
+export const PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL =
   PRE_MARKETING_SITE_RETENTION_OVER_TIME_SQL.replace(
     PRODUCT_ACTIVITY_TEMPLATE_FILTER,
     `${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER}`,
   );
+/**
+ * Anchor dates used to be derived from cohorts' own first-seen dates, filtered
+ * to ones whose 7-14d window had already matured (`cohort_date <= now - 14d`)
+ * AND fell inside the selected `{{timeRange}}` — two constraints that
+ * contradict for 7d/30d ranges (an empty chart) and, once satisfied, only ever
+ * emit mature rows. The chart renderer then pads the x-axis out to today and
+ * zero-fills every day with no emitted row, so the last 14 days rendered as a
+ * flat 0% line instead of "not yet known" (see `fillMissingDailyRows` in
+ * `pivot.ts`). `anchor_dates` is now a full calendar spine over the selected
+ * window (independent of cohort maturity), and each period's maturity is
+ * checked per row so immature/undersized cells return NULL — which the pivot
+ * preserves — instead of a fabricated 0.
+ */
+const RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${RETENTION_OVER_TIME_LOOKBACK_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key), digits AS (SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9), offsets AS (SELECT ones.n + tens.n * 10 + hundreds.n * 100 AS n FROM digits ones CROSS JOIN digits tens CROSS JOIN digits hundreds WHERE hundreds.n < 8), anchor_dates AS (SELECT to_char(CURRENT_DATE - o.n, 'YYYY-MM-DD') AS date FROM offsets o WHERE o.n <= ${RETENTION_SPINE_DAYS_SQL}), cohort_windows AS (SELECT a.date, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date), periods AS (SELECT '1-7d return' AS period, ${daysAgoSql(7)} AS mature_through UNION ALL SELECT '7-14d return' AS period, ${daysAgoSql(14)} AS mature_through), retained AS (SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY cw.date UNION ALL SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY cw.date) SELECT a.date, p.period, CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0) ELSE NULL END AS retained_users, COALESCE(cs.users, 0) AS cohort_users, CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0)::float / NULLIF(cs.users, 0) ELSE NULL END AS rate FROM anchor_dates a CROSS JOIN periods p LEFT JOIN cohort_sizes cs ON cs.date = a.date LEFT JOIN retained r ON r.date = a.date AND r.period = p.period ORDER BY a.date, p.period`;
 export const PRE_MARKETING_SITE_ONE_DAY_RETENTION_BY_TEMPLATE_SQL =
   LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_SQL.replace(
     `${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen`,
@@ -365,17 +431,20 @@ export const PRE_MARKETING_SITE_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL =
   );
 const SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL =
   PRE_MARKETING_SITE_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL.replace(
+    LEGACY_SIGNED_IN_ACTIVITY_FILTER,
+    SIGNED_IN_ACTIVITY_FILTER,
+  ).replace(
     KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER,
     `${FIRST_PARTY_KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER}`,
   );
-export const PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_SQL = `WITH first_seen AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, MIN(${EVENT_DATE_SQL}) AS first_date FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} GROUP BY 1), activity AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER}) SELECT a.event_date AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM activity a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' GROUP BY 1, 2 ORDER BY date, template`;
+export const PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_SQL = `WITH first_seen AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, MIN(${EVENT_DATE_SQL}) AS first_date FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} GROUP BY 1), activity AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER}) SELECT a.event_date AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM activity a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' GROUP BY 1, 2 ORDER BY date, template`;
 export const DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL =
   PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_SQL.replace(
     PRODUCT_ACTIVITY_TEMPLATE_FILTER,
     `${PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER}`,
   );
 const RECURRING_USERS_BY_TEMPLATE_SQL = `WITH activity AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, ${TEMPLATE_EXPR} AS template, MIN(${EVENT_DATE_SQL}) OVER (PARTITION BY ${SIGNED_IN_ACTIVITY_KEY_SQL}) AS first_date FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER}) SELECT event_date AS date, template, COUNT(DISTINCT user_key) AS users FROM activity WHERE event_date <> first_date AND template <> 'unknown' AND ${DASHBOARD_TIME_RANGE_FILTER} GROUP BY 1, 2 ORDER BY date, template`;
-export const PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL = `WITH first_seen AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, MIN(${EVENT_DATE_SQL}) AS first_date FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} GROUP BY 1), activity AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER}) SELECT to_char(date_trunc('week', a.event_date::date), 'YYYY-MM-DD') AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM activity a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' GROUP BY 1, 2 ORDER BY date, template`;
+export const PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL = `WITH first_seen AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, MIN(${EVENT_DATE_SQL}) AS first_date FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} GROUP BY 1), activity AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER}) SELECT to_char(date_trunc('week', a.event_date::date), 'YYYY-MM-DD') AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM activity a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' GROUP BY 1, 2 ORDER BY date, template`;
 export const DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL =
   PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL.replace(
     PRODUCT_ACTIVITY_TEMPLATE_FILTER,
@@ -386,8 +455,6 @@ const LEGACY_RECURRING_USERS_DESCRIPTION =
   "Daily signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.";
 const LEGACY_RECURRING_USERS_WEEKLY_DESCRIPTION =
   "Weekly distinct signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.";
-const LEGACY_RETENTION_OVER_TIME_DESCRIPTION =
-  "Trailing 7-day first-seen signed-in app session cohorts, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.";
 const LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION =
   "Selected-range signed-in cohorts by the browser identity's first non-docs app/template. Counts returns to any non-docs app within 1-7 days. Templates with fewer than 20 mature cohort identities are hidden.";
 const LEGACY_SEVEN_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION =
@@ -396,8 +463,12 @@ const RECURRING_USERS_DESCRIPTION =
   "Daily signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.";
 const RECURRING_USERS_WEEKLY_DESCRIPTION =
   "Weekly distinct signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.";
-const RETENTION_OVER_TIME_DESCRIPTION =
+export const LEGACY_RETENTION_OVER_TIME_DESCRIPTION =
+  "Trailing 7-day first-seen signed-in app session cohorts, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.";
+export const PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION =
   "Trailing 7-day cohorts whose first signed-in app session was observed in the previous 365 days, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.";
+const RETENTION_OVER_TIME_DESCRIPTION =
+  "Trailing 7-day cohort return rates. A point appears once its return window has fully elapsed (7 days for 1-7d, 14 days for 7-14d), so the newest days are blank rather than zero.";
 const ONE_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION =
   "Selected-range signed-in cohorts by the browser identity's first non-docs app/template observed in the previous 365 days. Counts returns to any non-docs app within 1-7 days. Templates with fewer than 20 mature cohort identities are hidden.";
 const SEVEN_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION =
@@ -407,7 +478,7 @@ export type ExactFirstPartyPanelReplacement = {
   id: string;
   legacySql: readonly string[];
   sql: string;
-  legacyDescription?: string;
+  legacyDescription?: string | readonly string[];
   description?: string;
 };
 type FirstPartyPanelReplacement = Omit<ExactFirstPartyPanelReplacement, "id">;
@@ -426,9 +497,13 @@ export function repairFirstPartyObservedRetentionPanels(
           LEGACY_RETENTION_OVER_TIME_SQL,
           LEGACY_V0_RETENTION_OVER_TIME_SQL,
           PRE_MARKETING_SITE_RETENTION_OVER_TIME_SQL,
+          PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
         ],
         sql: RETENTION_OVER_TIME_SQL,
-        legacyDescription: LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
+        legacyDescription: [
+          LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
+          PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
+        ],
         description: RETENTION_OVER_TIME_DESCRIPTION,
       },
     ],
@@ -504,6 +579,7 @@ export function repairFirstPartyObservedRetentionPanels(
         legacySql: [
           LEGACY_WAU_BY_TEMPLATE_SQL,
           PRE_MARKETING_SITE_WAU_BY_TEMPLATE_SQL,
+          DAU_BY_TEMPLATE_SQL,
         ],
         sql: WAU_BY_TEMPLATE_SQL,
       },
@@ -531,6 +607,23 @@ export function repairFirstPartyObservedRetentionPanels(
         : replacement,
     );
   }
+  // Persisted panels store SQL after scopeFirstPartyPanelSql injects the
+  // {{appFilter}} predicate, but every legacySql entry above is the unscoped
+  // form. Match both so already-deployed (scoped) panels are still recognized
+  // as legacy, for every replacement above, not just retention.
+  for (const [id, replacement] of replacements) {
+    replacements.set(id, {
+      ...replacement,
+      legacySql: Array.from(
+        new Set(
+          replacement.legacySql.flatMap((sql) => [
+            sql,
+            scopeFirstPartyPanelSql(sql),
+          ]),
+        ),
+      ),
+    });
+  }
   let changed = false;
   const panels = config.panels.map((rawPanel) => {
     if (!rawPanel || typeof rawPanel !== "object") return rawPanel;
@@ -552,14 +645,18 @@ export function repairFirstPartyObservedRetentionPanels(
         : null;
     return {
       ...panel,
-      sql: replacement.sql,
+      sql: scopeFirstPartyPanelSql(replacement.sql),
       ...(panelConfig
         ? {
             config: {
               ...panelConfig,
               ...(replacement.legacyDescription !== undefined &&
               replacement.description !== undefined &&
-              panelConfig.description === replacement.legacyDescription
+              typeof panelConfig.description === "string" &&
+              (typeof replacement.legacyDescription === "string"
+                ? [replacement.legacyDescription]
+                : replacement.legacyDescription
+              ).includes(panelConfig.description)
                 ? { description: replacement.description }
                 : {}),
             },
@@ -571,23 +668,164 @@ export function repairFirstPartyObservedRetentionPanels(
     ? { config: { ...config, panels }, changed }
     : { config, changed };
 }
-export const LEGACY_DAU_BY_TEMPLATE_SQL = `SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template, COUNT(DISTINCT ${SIGNED_IN_ACTIVITY_KEY_SQL}) AS visitors FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} GROUP BY ${EVENT_DATE_SQL}, ${TEMPLATE_EXPR} ORDER BY date, template`;
-export const PRE_MARKETING_SITE_DAU_BY_TEMPLATE_SQL = `SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template, COUNT(DISTINCT user_key) AS visitors FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} GROUP BY ${EVENT_DATE_SQL}, ${TEMPLATE_EXPR} ORDER BY date, template`;
-const DAU_BY_TEMPLATE_SQL = PRE_MARKETING_SITE_DAU_BY_TEMPLATE_SQL.replace(
-  ` AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} GROUP BY`,
-  ` AND ${FIRST_PARTY_KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} GROUP BY`,
-);
-export const LEGACY_WAU_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS visitor_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${DASHBOARD_WAU_BASE_RANGE_FILTER}), days AS (SELECT DISTINCT event_date AS date FROM base WHERE ${DASHBOARD_EVENT_DATE_RANGE_FILTER}) SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors FROM days d JOIN base b ON b.event_date >= to_char(d.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND b.event_date <= d.date GROUP BY d.date, b.template ORDER BY d.date, b.template`;
-export const PRE_MARKETING_SITE_WAU_BY_TEMPLATE_SQL = `WITH base AS (SELECT user_key AS visitor_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${DASHBOARD_WAU_BASE_RANGE_FILTER}), days AS (SELECT DISTINCT event_date AS date FROM base WHERE ${DASHBOARD_EVENT_DATE_RANGE_FILTER}) SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors FROM days d JOIN base b ON b.event_date >= to_char(d.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND b.event_date <= d.date GROUP BY d.date, b.template ORDER BY d.date, b.template`;
+export const LEGACY_DAU_BY_TEMPLATE_SQL = `SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template, COUNT(DISTINCT ${SIGNED_IN_ACTIVITY_KEY_SQL}) AS visitors FROM analytics_events WHERE ${LEGACY_SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} GROUP BY ${EVENT_DATE_SQL}, ${TEMPLATE_EXPR} ORDER BY date, template`;
+export const PRE_MARKETING_SITE_DAU_BY_TEMPLATE_SQL = `SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template, COUNT(DISTINCT user_key) AS visitors FROM analytics_events WHERE ${LEGACY_SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} GROUP BY ${EVENT_DATE_SQL}, ${TEMPLATE_EXPR} ORDER BY date, template`;
+export const DAU_BY_TEMPLATE_SQL =
+  PRE_MARKETING_SITE_DAU_BY_TEMPLATE_SQL.replace(
+    LEGACY_SIGNED_IN_ACTIVITY_FILTER,
+    SIGNED_IN_ACTIVITY_FILTER,
+  ).replace(
+    ` AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} GROUP BY`,
+    ` AND ${FIRST_PARTY_KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} GROUP BY`,
+  );
+export const LEGACY_WAU_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS visitor_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${LEGACY_SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${DASHBOARD_WAU_BASE_RANGE_FILTER}), days AS (SELECT DISTINCT event_date AS date FROM base WHERE ${DASHBOARD_EVENT_DATE_RANGE_FILTER}) SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors FROM days d JOIN base b ON b.event_date >= to_char(d.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND b.event_date <= d.date GROUP BY d.date, b.template ORDER BY d.date, b.template`;
+export const PRE_MARKETING_SITE_WAU_BY_TEMPLATE_SQL = `WITH base AS (SELECT user_key AS visitor_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${LEGACY_SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${DASHBOARD_WAU_BASE_RANGE_FILTER}), days AS (SELECT DISTINCT event_date AS date FROM base WHERE ${DASHBOARD_EVENT_DATE_RANGE_FILTER}) SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors FROM days d JOIN base b ON b.event_date >= to_char(d.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND b.event_date <= d.date GROUP BY d.date, b.template ORDER BY d.date, b.template`;
 const WAU_BY_TEMPLATE_SQL = PRE_MARKETING_SITE_WAU_BY_TEMPLATE_SQL.replace(
+  LEGACY_SIGNED_IN_ACTIVITY_FILTER,
+  SIGNED_IN_ACTIVITY_FILTER,
+).replace(
   ` AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${DASHBOARD_WAU_BASE_RANGE_FILTER}`,
   ` AND ${FIRST_PARTY_KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_WAU_BASE_RANGE_FILTER}`,
 );
-const PRE_MARKETING_SITE_REPEAT_USERS_SQL = `WITH user_days AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, COUNT(DISTINCT ${EVENT_DATE_SQL}) AS active_days FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY ${SIGNED_IN_ACTIVITY_KEY_SQL}) SELECT COUNT(*) AS count FROM user_days WHERE active_days >= 2`;
-const REPEAT_USERS_SQL = PRE_MARKETING_SITE_REPEAT_USERS_SQL.replace(
-  PRODUCT_ACTIVITY_TEMPLATE_FILTER,
-  `${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER}`,
-);
+const PRE_MARKETING_SITE_REPEAT_USERS_SQL = `WITH user_days AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, COUNT(DISTINCT ${EVENT_DATE_SQL}) AS active_days FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY ${SIGNED_IN_ACTIVITY_KEY_SQL}) SELECT COUNT(*) AS count FROM user_days WHERE active_days >= 2`;
+const REPEAT_USERS_SQL = `WITH user_days AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, COUNT(DISTINCT ${EVENT_DATE_SQL}) AS active_days FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY ${SIGNED_IN_ACTIVITY_KEY_SQL}) SELECT COUNT(*) AS count FROM user_days WHERE active_days >= 2`;
+
+const FUNNEL_EMAIL_FILTER =
+  "('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(funnel_user_email, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io'))";
+const FUNNEL_SCOPE_FILTER = `${DASHBOARD_TIME_RANGE_FILTER} AND ${FUNNEL_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
+const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (
+  SELECT NULLIF(anonymous_id, '') AS anonymous_id,
+    MIN(NULLIF(user_id, '')) AS signup_user_id
+  FROM analytics_events
+  WHERE event_name = 'signup'
+    AND ${DASHBOARD_TIME_RANGE_FILTER}
+    AND ${DASHBOARD_EMAIL_FILTER}
+    AND ${DASHBOARD_APP_FILTER}
+    AND ${FIRST_PARTY_TEMPLATE_FILTER}
+    AND NULLIF(anonymous_id, '') IS NOT NULL
+    AND NULLIF(user_id, '') IS NOT NULL
+  GROUP BY NULLIF(anonymous_id, '')
+), raw_funnel_events AS (
+  SELECT e.*,
+    COALESCE(si.signup_user_id, NULLIF(e.user_id, ''), NULLIF(e.anonymous_id, '')) AS funnel_user_key,
+    COALESCE(si.signup_user_id, NULLIF(e.user_id, '')) AS funnel_user_email
+  FROM analytics_events e
+  LEFT JOIN signup_identity si ON si.anonymous_id = NULLIF(e.anonymous_id, '')
+  WHERE ${DASHBOARD_TIME_RANGE_FILTER}
+    AND ${DASHBOARD_APP_FILTER}
+    AND ${FIRST_PARTY_TEMPLATE_FILTER}
+), funnel_events AS (
+  SELECT e.*
+  FROM raw_funnel_events e
+  WHERE ${FUNNEL_SCOPE_FILTER}
+), signup_cohort AS (
+  SELECT funnel_user_key, MIN(timestamp::timestamptz) AS signup_at
+  FROM funnel_events
+  WHERE event_name = 'signup'
+    AND funnel_user_key IS NOT NULL
+    AND ${FUNNEL_SCOPE_FILTER}
+  GROUP BY funnel_user_key
+), cohort_events AS (
+  SELECT e.*, c.signup_at
+  FROM funnel_events e
+  JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
+)`;
+const SIGNIFICANT_ACTION_FILTER = `((event_name IN ('action_completed', 'core_action_completed') AND COALESCE(properties::jsonb ->> 'success', 'true') = 'true') OR event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
+const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
+  SELECT DISTINCT funnel_user_key
+  FROM funnel_events
+  WHERE funnel_user_key IS NOT NULL
+), page_stage AS (
+  SELECT u.funnel_user_key, c.signup_at, page.page_at
+  FROM funnel_users u
+  LEFT JOIN signup_cohort c ON c.funnel_user_key = u.funnel_user_key
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS page_at
+    FROM funnel_events e
+    WHERE e.funnel_user_key = u.funnel_user_key
+      AND e.event_name = 'auth.signup_viewed'
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) page ON true
+), cta_stage AS (
+  SELECT p.*, cta.cta_at
+  FROM page_stage p
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS cta_at
+    FROM funnel_events e
+    WHERE e.funnel_user_key = p.funnel_user_key
+      AND p.page_at IS NOT NULL
+      AND e.event_name = 'auth.signup_clicked'
+      AND e.timestamp::timestamptz >= p.page_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) cta ON true
+), signup_stage AS (
+  SELECT cta_stage.*,
+    CASE WHEN cta_at IS NOT NULL AND signup_at >= cta_at THEN signup_at END AS signed_up_at
+  FROM cta_stage
+), onboarding_start_stage AS (
+  SELECT s.*, started.started_at
+  FROM signup_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS started_at
+    FROM cohort_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.signed_up_at IS NOT NULL
+      AND e.event_name = 'onboarding_started'
+      AND e.timestamp::timestamptz >= s.signed_up_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) started ON true
+), step_stage AS (
+  SELECT s.*, step.step_at
+  FROM onboarding_start_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS step_at
+    FROM cohort_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.started_at IS NOT NULL
+      AND e.event_name = 'onboarding_step_viewed'
+      AND e.timestamp::timestamptz >= s.started_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) step ON true
+), completion_stage AS (
+  SELECT s.*, completed.completed_at
+  FROM step_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS completed_at
+    FROM cohort_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.step_at IS NOT NULL
+      AND e.event_name = 'onboarding_completed'
+      AND e.timestamp::timestamptz >= s.started_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) completed ON true
+), entry_stage AS (
+  SELECT s.*, entered.entered_at
+  FROM completion_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS entered_at
+    FROM cohort_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.completed_at IS NOT NULL
+      AND (e.event_name IN ('app_entered', 'onboarding_app_entered') OR (e.event_name = 'session status' AND e.signed_in = 'true'))
+      AND e.timestamp::timestamptz >= s.completed_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) entered ON true
+), action_stage AS (
+  SELECT s.*, action.action_at
+  FROM entry_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS action_at
+    FROM cohort_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.entered_at IS NOT NULL
+      AND ${SIGNIFICANT_ACTION_FILTER}
+      AND e.timestamp::timestamptz >= s.entered_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) action ON true
+) SELECT 1 AS stage_order, 'Signup page viewed' AS stage, COUNT(*) FILTER (WHERE page_at IS NOT NULL) AS users FROM action_stage UNION ALL SELECT 2, 'Signup CTA clicked', COUNT(*) FILTER (WHERE cta_at IS NOT NULL) FROM action_stage UNION ALL SELECT 3, 'Signed up', COUNT(*) FILTER (WHERE signed_up_at IS NOT NULL) FROM action_stage UNION ALL SELECT 4, 'Onboarding started', COUNT(*) FILTER (WHERE started_at IS NOT NULL) FROM action_stage UNION ALL SELECT 5, 'Onboarding step reached', COUNT(*) FILTER (WHERE step_at IS NOT NULL) FROM action_stage UNION ALL SELECT 6, 'Onboarding completed', COUNT(*) FILTER (WHERE completed_at IS NOT NULL) FROM action_stage UNION ALL SELECT 7, 'Entered app', COUNT(*) FILTER (WHERE entered_at IS NOT NULL) FROM action_stage UNION ALL SELECT 8, 'First significant action', COUNT(*) FILTER (WHERE action_at IS NOT NULL) FROM action_stage ORDER BY stage_order`;
+const SIGNUP_METHOD_CONVERSION_SQL = `${FUNNEL_EVENTS_CTE}, clicks AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'method', ''), 'unknown') AS method, COUNT(DISTINCT funnel_user_key) AS clicks FROM funnel_events WHERE event_name = 'auth.signup_clicked' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), signups AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'signup_method', ''), CASE WHEN lower(properties::jsonb ->> 'auth_provider') = 'google' THEN 'google' ELSE 'unknown' END) AS method, COUNT(DISTINCT funnel_user_key) AS signups FROM funnel_events WHERE event_name = 'signup' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), methods AS (SELECT method FROM clicks UNION SELECT method FROM signups) SELECT methods.method, COALESCE(clicks.clicks, 0) AS clicks, COALESCE(signups.signups, 0) AS signups, COALESCE(signups.signups::float / NULLIF(clicks.clicks, 0), 0) AS conversion_rate FROM methods LEFT JOIN clicks ON clicks.method = methods.method LEFT JOIN signups ON signups.method = methods.method ORDER BY clicks DESC NULLS LAST, methods.method`;
+const ONBOARDING_STEP_DROPOFF_SQL = `${FUNNEL_EVENTS_CTE}, views AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), 'unknown') AS flow, COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COALESCE(NULLIF(properties::jsonb ->> 'step_index', ''), '999') AS step_index, COUNT(DISTINCT funnel_user_key) AS users_reached FROM funnel_events WHERE event_name = 'onboarding_step_viewed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2, 3), completions AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), 'unknown') AS flow, COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COUNT(DISTINCT funnel_user_key) AS users_completed FROM funnel_events WHERE event_name = 'onboarding_step_completed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2) SELECT views.flow, views.step_id, views.step_index, views.users_reached, COALESCE(completions.users_completed, 0) AS users_completed, COALESCE(completions.users_completed::float / NULLIF(views.users_reached, 0), 0) AS completion_rate FROM views LEFT JOIN completions ON completions.flow = views.flow AND completions.step_id = views.step_id ORDER BY views.step_index, views.flow, views.step_id`;
+const SHARING_ACTIONS_BY_APP_SQL = `${FUNNEL_EVENTS_CTE} SELECT ${TEMPLATE_EXPR} AS app, event_name AS action, COUNT(*) AS events, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name IN ('share_view', 'share_cta_click', 'share_invite_sent', 'share_visibility_change', 'share_link_copied') AND ${FUNNEL_SCOPE_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY 1, 2 ORDER BY app, events DESC`;
 
 /**
  * Catalog entries. Order here is the default panel order when a caller passes
@@ -1149,7 +1387,7 @@ const ENTRIES: FirstPartyMetric[] = [
       },
       stacked: true,
       description:
-        "Distinct signed-in browser identities per day, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level DAU, until session telemetry includes account identity.",
+        "Distinct signed-in activity identities per day from session-status or identified app-entry telemetry, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level DAU.",
     },
   },
   {
@@ -1171,7 +1409,7 @@ const ENTRIES: FirstPartyMetric[] = [
       },
       stacked: true,
       description:
-        "Trailing 7-day distinct signed-in browser identities for each active date, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level WAU, until session telemetry includes account identity.",
+        "Trailing 7-day distinct signed-in activity identities for each active date from session-status or identified app-entry telemetry, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level WAU.",
     },
   },
 
@@ -1321,6 +1559,82 @@ const ENTRIES: FirstPartyMetric[] = [
     },
   },
   {
+    key: "activation-funnel",
+    title: "Agent-Native Activation Funnel",
+    chartType: "bar",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ACTIVATION_FUNNEL_SQL),
+    config: {
+      xKey: "stage",
+      yKey: "users",
+      yFormatter: "number",
+      color: "var(--brand-purple)",
+      description:
+        "Distinct visitors through the Agent-Native funnel: signup page, signup CTA, signup, onboarding, app entry, and first significant action. Anonymous pre-signup events are joined to their signup identity when available. Use the App and Email filters to isolate a product or cohort.",
+    },
+  },
+  {
+    key: "signup-method-conversion",
+    title: "Signup Method Usage & Conversion",
+    chartType: "table",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(SIGNUP_METHOD_CONVERSION_SQL),
+    config: {
+      description:
+        "Distinct signup CTA users, completed signups, and signup conversion by Google, magic link, password, or unknown method.",
+      columns: [
+        { key: "method", label: "Method" },
+        { key: "clicks", label: "CTA users", format: "number" },
+        { key: "signups", label: "Signups", format: "number" },
+        { key: "conversion_rate", label: "Conversion", format: "percent" },
+      ],
+    },
+  },
+  {
+    key: "onboarding-step-dropoff",
+    title: "Onboarding Step Drop-off",
+    chartType: "table",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(ONBOARDING_STEP_DROPOFF_SQL),
+    config: {
+      xKey: "step_id",
+      description:
+        "Distinct visitors who reached and completed each first-run or checklist onboarding step, ordered by the emitted step index.",
+      columns: [
+        { key: "step_index", label: "Order" },
+        { key: "step_id", label: "Step" },
+        { key: "users_reached", label: "Reached", format: "number" },
+        { key: "users_completed", label: "Completed", format: "number" },
+        { key: "completion_rate", label: "Completion", format: "percent" },
+      ],
+    },
+  },
+  {
+    key: "sharing-actions-by-app",
+    title: "Sharing Actions by App",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(SHARING_ACTIONS_BY_APP_SQL),
+    config: {
+      description:
+        "Sharing views, CTA clicks, invitations, public visibility changes, and copied links by Agent-Native app. Counts users as well as events.",
+      columns: [
+        { key: "app", label: "App" },
+        { key: "action", label: "Action" },
+        { key: "events", label: "Events", format: "number" },
+        { key: "users", label: "Users", format: "number" },
+      ],
+    },
+  },
+  {
     key: "viral-participation-rate-90d",
     title: "Viral Participation Rate (90d)",
     chartType: "metric",
@@ -1446,13 +1760,14 @@ export function buildPanel(
       config.timeScope = "fixed-window";
     }
   }
+  const sql = scopeFirstPartyPanelSql(metric.buildSql(window));
   return {
     id: overrides.id?.trim() || metric.key,
     title,
     chartType: overrides.chartType?.trim() || metric.chartType,
     source: "first-party",
     width,
-    sql: metric.buildSql(window),
+    sql,
     // Clone so callers can't mutate the shared catalog config object.
     config,
   };

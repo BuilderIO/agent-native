@@ -63,7 +63,7 @@ describe("resolveDefaultIntegrationExecutionContext", () => {
     upsertIdentityMock.mockReset();
   });
 
-  it("runs a verified Slack DM as the linked Agent Native user", async () => {
+  it("runs a verified Slack DM as the linked Agent-Native user", async () => {
     getInstallationMock.mockResolvedValue({
       id: "installation-1",
       orgId: "org-1",

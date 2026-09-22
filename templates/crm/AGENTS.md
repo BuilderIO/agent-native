@@ -10,6 +10,7 @@ HubSpot/Salesforce lens; UI and agent share actions.
 
 ## Core model
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - **Typed attributes**, 17 types, two of them system-only (interaction and
   personal-name). Call `list-crm-attributes` first; never guess a slug or type.
 - **Managed options.** A status/select value must already exist as an option;

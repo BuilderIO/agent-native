@@ -14,6 +14,7 @@ import {
   renderBookingReceivedEmail,
 } from "./booking-emails.js";
 import { renderEventGuestNote } from "./event-guest-notifications.js";
+import { renderOverlayRequestEmail } from "./overlay-request-emails.js";
 
 /** Obviously-fake sample data — these render in a preview pane, never send. */
 const SAMPLE_TITLE = "Intro call";
@@ -24,6 +25,9 @@ const SAMPLE_GUEST_NAME = "Sam Rivera";
 const SAMPLE_MANAGE_URL = "https://example.com/book/dana/manage/sample-token";
 const SAMPLE_BOOK_AGAIN_URL = "https://example.com/book/dana/intro-call";
 const SAMPLE_MEETING_LINK = "https://meet.example.com/sample-intro-call";
+const SAMPLE_REQUESTER_NAME = "Dana Hill";
+const SAMPLE_APP_LINK =
+  "https://example.com/_agent-native/open?app=calendar&view=calendar";
 
 export const CALENDAR_BOOKING_CONFIRMED_EMAIL_ID = "calendar.booking-confirmed";
 export const CALENDAR_BOOKING_RECEIVED_EMAIL_ID = "calendar.booking-received";
@@ -33,12 +37,32 @@ export const CALENDAR_BOOKING_CANCELLED_HOST_EMAIL_ID =
 export const CALENDAR_EVENT_UPDATE_NOTE_EMAIL_ID = "calendar.event-update-note";
 export const CALENDAR_EVENT_CANCELLATION_NOTE_EMAIL_ID =
   "calendar.event-cancellation-note";
+export const CALENDAR_OVERLAY_REQUEST_EMAIL_ID = "calendar.overlay-request";
 
 let registered = false;
 
 export function registerCalendarEmails(): void {
   if (registered) return;
   registered = true;
+
+  defineTransactionalEmail({
+    id: CALENDAR_OVERLAY_REQUEST_EMAIL_ID,
+    name: "Calendar access request",
+    trigger:
+      "The owner of a booking link clicks Send request on a host whose working hours are not being applied. Only fires for a peer already in the owner's `calendar-overlay-people` who has not added the owner back, and is rate-limited to one request per peer per hour and 20 per owner per day.",
+    recipientLabel: "Booking link co-host",
+    recipient:
+      "The peer the owner has overlaid but who has not reciprocally overlaid the owner.",
+    senderLabel: "Default, reply-to requester",
+    sender:
+      "The configured EMAIL_FROM, with reply-to set to the booking link owner who requested access.",
+    preview: () =>
+      renderOverlayRequestEmail({
+        requesterName: SAMPLE_REQUESTER_NAME,
+        requesterEmail: SAMPLE_HOST,
+        appLink: SAMPLE_APP_LINK,
+      }),
+  });
 
   defineTransactionalEmail({
     id: CALENDAR_BOOKING_CONFIRMED_EMAIL_ID,
@@ -139,7 +163,8 @@ export function registerCalendarEmails(): void {
         message: "Moving this an hour later so the whole team can join.",
         when: SAMPLE_WHEN,
         kind: "update",
-        htmlLink: "https://calendar.example.com/event/sample",
+        calendarLink:
+          "https://calendar.example.com/_agent-native/open?app=calendar&view=calendar&eventId=google-sample&date=2026-05-21",
       }),
   });
 

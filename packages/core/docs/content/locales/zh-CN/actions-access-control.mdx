@@ -1,25 +1,26 @@
 ---
 title: "访问与授权"
-description: "谁可以调用一个 action:暴露 flag(agentTool、toolCallable)、基于 ctx 的范围界定、accessFilter/assertAccess,以及 authorize 守卫。"
+description: "谁可以调用一个 action:暴露 flag(agentTool、mcpTool、toolCallable)、基于 ctx 的范围界定、accessFilter/assertAccess,以及 authorize 守卫。"
 ---
 
 # 访问与授权
 
-五个设置项决定谁可以调用一个 action:代理、前端、扩展、外部 API 调用者,或者在没有人工先批准的情况下谁都不行。大多数 action 从来不需要碰这些设置,因为默认值已经适合普通的 UI 和代理使用场景。
+六个设置项决定谁可以调用一个 action:代理、前端、扩展、外部 API 调用者,或者在没有人工先批准的情况下谁都不行。大多数 action 从来不需要碰这些设置,因为默认值已经适合普通的 UI 和代理使用场景。
 
 ### 暴露 flag {#exposure-flags}
 
-全部五个 flag 都默认取宽松值,所以只有在需要收紧某个特定界面时才需要设置其中之一。下表是一份速览,后面的小节会补充每个 flag 所需的那一个细节。
+全部六个 flag 都默认取宽松值——`mcpTool` 是通过继承 `agentTool` 取到的——所以只有在需要收紧某个特定界面时才需要设置其中之一。下表是一份速览,后面的小节会补充每个 flag 所需的那一个细节。
 
-| Flag            | 默认值     | 限制值 → 谁仍然可以调用                                            | 典型用途                                              |
-| --------------- | ---------- | ------------------------------------------------------------------ | ----------------------------------------------------- |
-| `agentTool`     | `true`     | `false` → 仅 UI、HTTP 和 CLI(对模型、MCP 和 A2A 隐藏)              | 不应占用工具位置的仅 UI 或程序化 action               |
-| `toolCallable`  | `true`     | `false` → 除沙盒化的扩展 iframe 桥接之外的一切(403)                | 敏感的账户或组织变更(删除账户、变更成员关系)          |
-| `publicAgent`   | 关闭(私有) | `{ expose: true }` → 把该 action 加入**公共** MCP/A2A/OpenAPI 界面 | 不需要身份验证的安全读取或摄取类工具                  |
-| `needsApproval` | `false`    | `true` → 代理**暂停**,必须由人工批准这次具体的调用                 | 有实际后果的副作用(发送邮件、扣款、删除)              |
-| `authorize`     | 无         | 一个守卫函数 → 只有它接受的调用者才能在**每一个**界面上调用        | 限定于某个角色的操作(按应用划分的 RBAC、仅管理员操作) |
+| Flag            | 默认值      | 限制值 → 谁仍然可以调用                                            | 典型用途                                              |
+| --------------- | ----------- | ------------------------------------------------------------------ | ----------------------------------------------------- |
+| `agentTool`     | `true`      | `false` → 仅 UI、HTTP 和 CLI(对模型、MCP 和 A2A 隐藏)              | 不应占用工具位置的仅 UI 或程序化 action               |
+| `mcpTool`       | `agentTool` | `false` → 只有你自己应用的代理(对 MCP 和 A2A 隐藏)                 | 需要对端有应用界面或会话的 action                     |
+| `toolCallable`  | `true`      | `false` → 除沙盒化的扩展 iframe 桥接之外的一切(403)                | 敏感的账户或组织变更(删除账户、变更成员关系)          |
+| `publicAgent`   | 关闭(私有)  | `{ expose: true }` → 把该 action 加入**公共** MCP/A2A/OpenAPI 界面 | 不需要身份验证的安全读取或摄取类工具                  |
+| `needsApproval` | `false`     | `true` → 代理**暂停**,必须由人工批准这次具体的调用                 | 有实际后果的副作用(发送邮件、扣款、删除)              |
+| `authorize`     | 无          | 一个守卫函数 → 只有它接受的调用者才能在**每一个**界面上调用        | 限定于某个角色的操作(按应用划分的 RBAC、仅管理员操作) |
 
-这些 flag 相互独立,设置其中一个不会改变其他的。`agentTool` 控制模型能看到什么,见下方[对模型隐藏](#agent-tool)。`toolCallable` 只控制扩展 iframe,见下方[阻止扩展 iframe](#tool-callable)。`publicAgent` 增加了一个可选的公共界面,一个公开的网页路由从不意味着公开的工具暴露,见下方[对公共代理暴露](#public-agent)。`needsApproval` 是在调用已经发生之后才对执行进行门控,见下方[要求人工批准](#needs-approval)。`authorize` 决定这个调用者是否可以运行该 action,适用于每一条调用路径,在进入 `run()` 之前生效,见下方[按角色限制调用者](#authorize)。
+这些 flag 相互独立,只有一个例外:未声明的 `mcpTool` 会继承 `agentTool`。`agentTool` 控制模型能看到什么,见下方[对模型隐藏](#agent-tool)。`mcpTool` 把这一点进一步收紧到只针对外部代理,见下方[对外部代理隐藏](#mcp-tool)。`toolCallable` 只控制扩展 iframe,见下方[阻止扩展 iframe](#tool-callable)。`publicAgent` 增加了一个可选的公共界面,一个公开的网页路由从不意味着公开的工具暴露,见下方[对公共代理暴露](#public-agent)。`needsApproval` 是在调用已经发生之后才对执行进行门控,见下方[要求人工批准](#needs-approval)。`authorize` 决定这个调用者是否可以运行该 action,适用于每一条调用路径,在进入 `run()` 之前生效,见下方[按角色限制调用者](#authorize)。
 
 ## 对模型隐藏 {#agent-tool}
 
@@ -38,6 +39,44 @@ export default defineAction({
 ```
 
 当你新增一个仅供 UI 使用或纯程序化的 action,或者当 UI 不再使用某个原本会一直暴露给模型的 action 时,使用它。
+
+## 对外部代理隐藏 {#mcp-tool}
+
+`agentTool` 是全有或全无:一个 action 要么对所有代理都是工具,要么对谁都不是。`mcpTool` 把它一分为二,让一个 action 对你自己应用的代理仍然是普通工具,同时永远不会经由 MCP 和 A2A 到达 Claude、Cursor 或兄弟应用:
+
+```ts
+export default defineAction({
+  description: "Open the record inspector beside the current selection.",
+  mcpTool: false, // needs a live screen on the other end
+  schema: z.object({ recordId: z.string() }),
+  run: async ({ recordId }) => {
+    /* ... */
+  },
+});
+```
+
+当一个 action 的结果只有配合你应用的 UI、一个打开的会话或调用者眼前的当前选择才有意义时,就用它。`mcpTool` 只能收紧 `agentTool`,不能放宽:声明了 `agentTool: false` 的 action 在任何地方都仍然隐藏。它管的是对外的工具界面本身,而不是你自己的代理在回答一次 `ask_app` 提问时能做什么——那次运行属于你自己的代理,它保留完整的工具列表。
+
+不声明时,`mcpTool` 跟随 `agentTool`,而不是一律取 `true`:把一个 action 对代理隐藏,也就同时对外部代理隐藏了,一个 flag 仍然只对应一个决定。
+
+相反的取值还有另一个用途。默认情况下,外部代理拿到的是一份精选的小目录,而不是你的整个 action 注册表,而 `mcpTool: true` 就是一个 action 声明自己属于该目录的方式:
+
+```ts
+export default defineAction({
+  description: "List the databases connected to this workspace.",
+  mcpTool: true, // served to external agents, not just discoverable
+  http: { method: "GET" },
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+这与插件的 `mcp: { connectorCatalog: [...] }` 列表是同一份目录,只是声明写在 action 上,而不是写在一个每次重命名都要同步的独立数组里。两种写法都有效,应用可以一次迁移一个 action。没有列入的部分仍然可以通过 `tool-search` 发现。
+
+把两个 flag 反过来搭配——`agentTool: false` 配 `mcpTool: true`——就得到一个**仅限 MCP** 的 action:外部代理拿得到,你自己应用的代理永远看不到。用它来做外部工具需要、而你自己的代理没有理由调用的导出、同步或交接。
+
+在目录里并不等于有权限。外部调用者仍然要通过 OAuth scope 检查和 `externalAgents` 策略;在不经过模型的直接 A2A 路径上,还要通过下方的 `publicAgent` 选择加入。
 
 ## 阻止扩展 iframe {#tool-callable}
 

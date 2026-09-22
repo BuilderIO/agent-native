@@ -2,16 +2,21 @@ import { describe, expect, it } from "vitest";
 import { afterEach, beforeEach, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  bumpChangeVersion: vi.fn(),
   callAction: vi.fn(),
+  getChangeVersion: vi.fn(() => 0),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  bumpChangeVersion: (...args: unknown[]) => mocks.bumpChangeVersion(...args),
   callAction: (...args: unknown[]) => mocks.callAction(...args),
+  getChangeVersion: mocks.getChangeVersion,
   useChangeVersions: vi.fn(() => "0"),
 }));
 
 import {
   buildAiRequestChatOptions,
+  notifyAiRequestQueued,
   nextAutoTitleFallbackDelay,
   retryWorkflowAction,
   WORKFLOW_ACTION_MAX_ATTEMPTS,
@@ -21,6 +26,17 @@ const recording = {
   id: "rec_123",
   title: "Demo recording",
 } as any;
+
+describe("notifyAiRequestQueued", () => {
+  it("wakes the bridge for the queued recording request", () => {
+    notifyAiRequestQueued("rec_123");
+
+    expect(mocks.bumpChangeVersion).toHaveBeenCalledWith(
+      "app-state:clips-ai-request-rec_123",
+      expect.any(Number),
+    );
+  });
+});
 
 describe("buildAiRequestChatOptions", () => {
   it("keeps queued AI requests hidden by default", () => {

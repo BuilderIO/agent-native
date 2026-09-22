@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -9,6 +9,9 @@ import type {
   ContentDatabaseDescriptionResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
+import { getDatabaseMutationContract } from "./_database-row-mutation.js";
+import { getDatabaseSetupContract } from "./_database-setup-discovery.js";
+import { configurationRevision } from "./_database-setup-mutation.js";
 import { resolveContentDatabaseRead } from "./_database-utils.js";
 import {
   listPropertiesForDatabase,
@@ -20,15 +23,16 @@ import listContentDatabases, {
 
 export default defineAction({
   description:
-    "Describe one exact ordinary Content database, including its live metadata, views, and property schema but not its rows. Resolve the stable database or document ID with list-content-databases first.",
+    "Describe one exact ordinary Content collection, including its live metadata, views, and property schema but not its rows. Resolve the stable collection or document ID with list-content-databases first.",
+  mcpTool: true,
   schema: z
     .object({
-      databaseId: z.string().min(1).optional().describe("Exact database ID"),
+      databaseId: z.string().min(1).optional().describe("Exact collection ID"),
       documentId: z
         .string()
         .min(1)
         .optional()
-        .describe("Exact database document/page ID"),
+        .describe("Exact collection document/page ID"),
     })
     .refine(
       (input) => Boolean(input.databaseId) !== Boolean(input.documentId),
@@ -80,7 +84,22 @@ export default defineAction({
       listPropertiesForDatabase(resolved.database.id),
       getDocumentContextPath(databaseDocument),
     ]);
+    const mutationContract = selected.spaceId
+      ? await getDatabaseMutationContract({
+          spaceId: selected.spaceId,
+          databaseId: selected.databaseId,
+          databaseDocumentId: selected.documentId,
+          authorityScope: resolved.database.orgId
+            ? { kind: "organization", id: resolved.database.orgId }
+            : { kind: "personal", id: resolved.database.ownerEmail },
+        })
+      : undefined;
     return {
+      configurationRevision: configurationRevision(resolved.database),
+      mutationContract,
+      setupContract: mutationContract
+        ? await getDatabaseSetupContract(resolved.database, mutationContract)
+        : undefined,
       database: serializeDatabase(
         { ...resolved.database, title: selected.title },
         selected.description,

@@ -4,8 +4,10 @@ import {
   humanizeToolLabelText,
   humanizeToolName,
   isCallAgentToolCallShadowed,
+  resolveToolCallRowContext,
   runningToolLabel,
   shadowedCallAgentToolCallIds,
+  toolLabel,
 } from "./tool-display.js";
 
 describe("tool display labels", () => {
@@ -23,6 +25,21 @@ describe("tool display labels", () => {
     expect(humanizeToolName("edit-design")).toBe("edit screen");
   });
 
+  it("prefers an app's translated tool label over the derived name", () => {
+    const translate = (key: string) =>
+      key === "agentChat.toolLabels.get-case" ? "Načítanie prípadu" : "";
+    expect(toolLabel(translate, "get-case")).toBe("Načítanie prípadu");
+  });
+
+  it("falls back to the derived name when no label is translated", () => {
+    const translate = (
+      _key: string,
+      options?: Record<string, unknown>,
+    ): string => String(options?.defaultValue ?? "");
+    expect(toolLabel(translate, "get-case")).toBe("get case");
+    expect(toolLabel(translate, undefined)).toBe("tool");
+  });
+
   it("uses humanized names in running labels", () => {
     expect(runningToolLabel("generate-design")).toBe("Running generate design");
   });
@@ -34,6 +51,27 @@ describe("tool display labels", () => {
         "get-design-snapshot",
       ),
     ).toBe("Preparing get screen snapshot action");
+  });
+
+  it("surfaces the actual command or target beside a tool label", () => {
+    expect(
+      resolveToolCallRowContext({ cmd: "pnpm test\n--filter core" }),
+    ).toEqual({
+      text: "pnpm test --filter core",
+      mono: true,
+      kind: "data",
+    });
+    expect(resolveToolCallRowContext({ query: "activity trace" })).toEqual({
+      text: "activity trace",
+      mono: false,
+      kind: "data",
+    });
+    expect(resolveToolCallRowContext({ filePath: "src/App.tsx" })).toEqual({
+      text: "src/App.tsx",
+      mono: true,
+      kind: "file",
+    });
+    expect(resolveToolCallRowContext({ ignored: "secret" })).toBeNull();
   });
 
   it("shadows the raw call-agent row when its richer agent row is present", () => {

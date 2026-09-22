@@ -14,7 +14,7 @@
  * | `list_apps`           | none         | `{ apps: [{ id, url, running }] }`       |
  * | `open_app`            | none         | `{ url }` (+ deep-link `link`)           |
  * | `create_embed_session`| ticket mint  | `{ startUrl }` for MCP App iframes       |
- * | `ask_app`             | agent loop   | `{ app, routedVia, response }` or task   |
+ * | `ask_app`             | agent loop   | `{ app, routedVia, response, verification }` or task   |
  * | `ask_app_status`      | none         | poll a durable `ask_app` task            |
  * | `create_workspace_app`| scaffolds    | `{ name, url, port, deepLink }` (+ link) |
  *
@@ -37,6 +37,7 @@ import type { ActionTool } from "../agent/types.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { buildDeepLink } from "../server/deep-link.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -88,7 +89,8 @@ function currentAppId(config: MCPConfig): string {
 
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
-const ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
+// Leave response headroom for the hosted MCP transport after the inline wait.
+const ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const ASK_APP_POLL_INTERVAL_MS = 1_500;
 const ASK_APP_A2A_REQUEST_TIMEOUT_MS = 10_000;
 const ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -123,6 +125,7 @@ interface AskAppTaskResult {
   taskHandle?: string;
   status: string;
   response?: string;
+  verification?: "unverified";
   error?: string;
   inputRequired?: string;
   note?: string;
@@ -166,12 +169,6 @@ function appendParamsToPath(
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-function viewToAppPath(view: string): string | null {
-  const value = view.trim();
-  if (!value) return null;
-  return safeAppPath(value.startsWith("/") ? value : `/${value}`);
-}
-
 function withConfiguredBasePath(path: string): string {
   const base = getConfiguredAppBasePath();
   if (!base || path === base || path.startsWith(`${base}/`)) return path;
@@ -197,7 +194,8 @@ function agentNativeA2AEndpoint(urlOrOrigin: string): string {
       return value;
     }
   } catch {
-    // Fall through and append the conventional Agent Native endpoint.
+    // coercion-ok: invalid URL input intentionally uses the conventional endpoint fallback.
+    // Fall through and append the conventional Agent-Native endpoint.
   }
   return `${value}/_agent-native/a2a`;
 }
@@ -281,6 +279,7 @@ function askAppTaskResult(
     return {
       ...base,
       response: response || "(no response)",
+      verification: "unverified",
     };
   }
 
@@ -348,7 +347,11 @@ function askAppInlineTaskResult(
   };
 
   if (inline.status === "completed") {
-    return { ...base, response: inline.response || "(no response)" };
+    return {
+      ...base,
+      response: inline.response || "(no response)",
+      verification: "unverified",
+    };
   }
 
   if (inline.status === "failed") {
@@ -451,6 +454,36 @@ async function waitForA2ATask(
   return current;
 }
 
+async function askAppIdempotencyKey(
+  route: AskAppRoute,
+  issuerApp: string,
+  issuerAudience: string,
+  message: string,
+  approvedActions?: A2AApprovedAction[],
+): Promise<string> {
+  const requestId = getRequestContext()?.mcpRequestId;
+  if (!requestId) return `ask-app:${globalThis.crypto.randomUUID()}`;
+
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify({
+        requestId,
+        route,
+        issuerApp,
+        issuerAudience,
+        message,
+        approvedActions: approvedActions ?? [],
+      }),
+    ),
+  );
+  let hex = "";
+  for (const byte of new Uint8Array(digest)) {
+    hex += byte.toString(16).padStart(2, "0");
+  }
+  return `ask-app:v1:${hex}`;
+}
+
 async function submitAskAppA2ATask(
   route: AskAppRoute,
   issuerApp: string,
@@ -460,10 +493,19 @@ async function submitAskAppA2ATask(
   approvedActions?: A2AApprovedAction[],
 ): Promise<AskAppTaskResult> {
   const deadline = maxWaitMs > 0 ? Date.now() + maxWaitMs : undefined;
+  const submissionDeadline =
+    deadline ?? Date.now() + ASK_APP_A2A_REQUEST_TIMEOUT_MS;
   const { client, metadata } = await createA2AClientForAskApp(
     route.origin,
     route.requestOrigin,
-    deadline,
+    submissionDeadline,
+  );
+  const idempotencyKey = await askAppIdempotencyKey(
+    route,
+    issuerApp,
+    issuerAudience,
+    message,
+    approvedActions,
   );
   const task = await client.send(
     {
@@ -473,6 +515,8 @@ async function submitAskAppA2ATask(
     {
       async: true,
       metadata,
+      idempotencyKey,
+      deadlineMs: submissionDeadline,
       ...(approvedActions?.length ? { approvedActions } : {}),
     },
   );
@@ -552,7 +596,12 @@ function isTransientAskAppStatusError(err: unknown): boolean {
 function askAppStatusErrorCategory(
   err: unknown,
 ): AskAppStatusErrorCategory | null {
-  const message = err instanceof Error ? err.message : String(err ?? "");
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : (JSON.stringify(err ?? "") ?? "");
   const causeCode = askAppStatusErrorCauseCode(err) ?? "";
   const diagnostic = `${message} ${causeCode}`;
   if (/A2A request failed \(429\)/i.test(message)) return "rate_limited";
@@ -867,14 +916,17 @@ function openAppTool(
       }
       if (params && Object.keys(params).length === 0) params = undefined;
 
-      const directViewPath = embed && view ? viewToAppPath(view) : null;
+      // A bare `view` is a name, not a route. Only `/_agent-native/open` knows
+      // the mapping — each app supplies it through `resolveOpenPath` (design
+      // routes `view: "editor"` at `/design/:id`, slides at `/deck/:id`,
+      // content at `/page/:id`). Synthesizing `/<view>` here produced a 404
+      // both inside the embed iframe and in the "Open in new tab" fallback the
+      // host offers when that iframe fails. Deep-link instead; embed tickets
+      // already accept an open-route target (see `requestMatchesEmbedTarget`).
       const relUrl = path
         ? appendParamsToPath(path, params)
-        : directViewPath
-          ? appendParamsToPath(directViewPath, params)
-          : buildDeepLink({ app, view, params });
-      const sameAppUrl =
-        path || directViewPath ? withConfiguredBasePath(relUrl) : relUrl;
+        : buildDeepLink({ app, view, params });
+      const sameAppUrl = path ? withConfiguredBasePath(relUrl) : relUrl;
 
       // Cross-app target in a workspace: resolve the TARGET app's origin and
       // return an absolute URL. Otherwise the MCP layer would prefix the
@@ -952,7 +1004,7 @@ function openAppTool(
       resource: embedApp({
         title: "Open app",
         description: "Render the requested app route inline.",
-        iframeTitle: "Agent Native app",
+        iframeTitle: "Agent-Native app",
         openLabel: "Open app",
       }),
     },
@@ -1064,7 +1116,13 @@ async function routeAskOverA2A(
     approvedActions?: A2AApprovedAction[];
   },
 ): Promise<
-  { app: string; routedVia: "a2a"; response: string } | AskAppTaskResult
+  | {
+      app: string;
+      routedVia: "a2a";
+      response: string;
+      verification: "unverified";
+    }
+  | AskAppTaskResult
 > {
   if (options?.durable) {
     if (!options.issuerApp || !options.issuerAudience) {
@@ -1103,7 +1161,7 @@ async function routeAskOverA2A(
     // Bound the wait — cross-app A2A polls async by default.
     timeoutMs: 5 * 60_000,
   });
-  return { app: id, routedVia: "a2a", response };
+  return { app: id, routedVia: "a2a", response, verification: "unverified" };
 }
 
 async function resolveAskAppStatusRoute(
@@ -1164,10 +1222,12 @@ function askAppTool(
   return {
     tool: tool(
       "Send a natural-language message to an app's AI agent and get its " +
-        "response. Use this first for natural-language investigation, " +
-        "diagnosis, multi-step work, and changes; it runs with the app's " +
-        "full skills, instructions, tools, and context. Use direct action " +
-        "tools only for a known, bounded read or simple UI handoff. In a " +
+        "response. A completed response is an agent claim, not proof of a " +
+        "write; it includes verification:'unverified'. Prefer host page WebMCP or cataloged direct action tools for " +
+        "known, bounded current-app work. Use this when direct tools are " +
+        "unavailable or the task needs the app agent's interpretation, full " +
+        "skills, instructions, tools, and context for investigation, diagnosis, " +
+        "multi-step work, or changes. In a " +
         "single-app project the 'app' " +
         "param is optional (defaults to this app). When 'app' names a " +
         "different workspace app it is routed there over A2A; the result's " +
@@ -1191,7 +1251,7 @@ function askAppTool(
         maxWaitMs: {
           type: "number",
           description:
-            "Maximum time to wait inline before returning a taskHandle. Hosted MCP clamps this to 25000ms.",
+            "Maximum time to wait inline before returning a taskHandle. Hosted MCP clamps this to 20000ms.",
         },
         approvedActions: {
           type: "array",
@@ -1352,6 +1412,7 @@ function askAppTool(
           app: selfId,
           routedVia: "local",
           response: inline.response || "(no response)",
+          verification: "unverified",
         };
       }
       if (inline.status === "failed") {

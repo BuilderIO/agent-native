@@ -169,12 +169,12 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
   },
   {
     id: "dev-fusion-tanstack-compromise",
-    title: "Agent Native TanStack compromise review found no affected packages",
+    title: "Agent-Native TanStack compromise review found no affected packages",
     summary:
-      "Agent Native uses TanStack, but the TanStack compromise review concluded Agent Native did not use the affected packages; PR #673 added minimum package age and CI package pinning hardening.",
-    body: "The #dev-fusion Agent Native TanStack compromise review concluded that Agent Native does use TanStack, but it did not depend on the affected packages from the compromise. Follow-up hardening in PR #673 added minimum package age checks and CI package pinning so future installs are less exposed to dependency compromise windows.",
+      "Agent-Native uses TanStack, but the TanStack compromise review concluded Agent-Native did not use the affected packages; PR #673 added minimum package age and CI package pinning hardening.", // guard:allow-raw-color - #673 is a PR reference, not a color.
+    body: "The #dev-fusion Agent-Native TanStack compromise review concluded that Agent-Native does use TanStack, but it did not depend on the affected packages from the compromise. Follow-up hardening in PR #673 added minimum package age checks and CI package pinning so future installs are less exposed to dependency compromise windows.", // guard:allow-raw-color - #673 is a PR reference, not a color.
     quote:
-      "Agent Native uses TanStack but not the affected packages; PR #673 hardened installs with minimum package age and CI package pinning.",
+      "Agent-Native uses TanStack but not the affected packages; PR #673 hardened installs with minimum package age and CI package pinning.", // guard:allow-raw-color - #673 is a PR reference, not a color.
     captureTitle: "#dev-fusion TanStack compromise review",
     sourceUrl:
       "https://slack.example.com/archives/CDEVFUSION/p1778874000001000",
@@ -208,12 +208,12 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
   },
   {
     id: "architecture-sql-retrieval",
-    title: "Brain retrieval uses portable SQL before connector breadth",
+    title: "Brain retrieval uses Postgres SQL before connector breadth",
     summary:
-      "Brain retrieval starts with portable SQL over approved knowledge, uses raw-capture fallback only when policy allows, and does not require a vector database in V1.",
-    body: "Engineering architecture for Brain retrieval: start with portable SQL over brain_knowledge, then use raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs. V1 has no vector database requirement, which keeps connector pilots deterministic and portable.",
+      "Brain retrieval starts with Postgres SQL over approved knowledge, uses raw-capture fallback only when policy allows, and does not require a vector database in V1.",
+    body: "Engineering architecture for Brain retrieval: start with Postgres SQL over brain_knowledge, then use raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs. V1 has no vector database requirement, which keeps connector pilots deterministic.",
     quote:
-      "Start with portable SQL over brain_knowledge, then use raw capture fallback only when source policy allows; V1 has no vector database requirement.",
+      "Start with Postgres SQL over brain_knowledge, then use raw capture fallback only when source policy allows; V1 has no vector database requirement.",
     captureTitle: "#brain-pilot retrieval architecture",
     sourceUrl:
       "https://slack.example.com/archives/CBRAINPILOT/p1778888400001400",
@@ -360,9 +360,9 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
   {
     id: "dev-fusion-tanstack-compromise",
     kind: "answer",
-    question: "Was Agent Native affected by the TanStack compromise?",
+    question: "Was Agent-Native affected by the TanStack compromise?",
     expectedTitle:
-      "Agent Native TanStack compromise review found no affected packages",
+      "Agent-Native TanStack compromise review found no affected packages",
     requiredTerms: [
       "uses TanStack",
       "not the affected packages",
@@ -404,9 +404,9 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
     id: "architecture-sql-retrieval",
     kind: "answer",
     question: "How does Brain retrieval work architecturally?",
-    expectedTitle: "Brain retrieval uses portable SQL before connector breadth",
+    expectedTitle: "Brain retrieval uses Postgres SQL before connector breadth",
     requiredTerms: [
-      "portable SQL",
+      "Postgres SQL",
       "brain_knowledge",
       "raw capture fallback",
       "no vector database requirement",

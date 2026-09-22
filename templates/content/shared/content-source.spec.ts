@@ -50,6 +50,19 @@ describe("content source files", () => {
       parentId: null,
       title: "Launch Plan",
       content: "First line\n\nSecond line",
+      visibility: "private",
+    });
+  });
+
+  it("rejects invalid visibility frontmatter", () => {
+    expect(
+      parseContentSourceFile(
+        "content/pricing-page.mdx",
+        '---\nid: "doc_1234"\nvisibility: "team"\n---\n\nBody',
+      ),
+    ).toMatchObject({
+      visibility: undefined,
+      errors: ["Invalid visibility frontmatter."],
     });
   });
 

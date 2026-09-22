@@ -36,9 +36,12 @@ export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
   // GET / — List all pins, optionally filtered
   router.get("/", async (req: Request, res: Response) => {
     try {
-      const pageUrl = String(req.query.pageUrl || "") || undefined;
+      const pageUrl =
+        typeof req.query.pageUrl === "string" ? req.query.pageUrl : undefined;
       const status = req.query.status
-        ? (String(req.query.status) as any)
+        ? ((typeof req.query.status === "string"
+            ? req.query.status
+            : undefined) as any)
         : undefined;
       const pins = await store.list({ pageUrl, status });
       res.json(pins);
@@ -124,7 +127,8 @@ export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
   // DELETE / — Clear pins (optionally by pageUrl)
   router.delete("/", async (req: Request, res: Response) => {
     try {
-      const pageUrl = String(req.query.pageUrl || "") || undefined;
+      const pageUrl =
+        typeof req.query.pageUrl === "string" ? req.query.pageUrl : undefined;
       await store.clear(pageUrl);
       res.json({ ok: true });
     } catch (err) {

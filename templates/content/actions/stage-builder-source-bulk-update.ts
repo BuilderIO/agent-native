@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -585,11 +585,11 @@ const fieldSchema = z.object({
 
 export const stageBuilderSourceBulkUpdateSchema = z
   .object({
-    databaseId: z.string().optional().describe("Content database ID"),
+    databaseId: z.string().optional().describe("Content collection ID"),
     documentId: z
       .string()
       .optional()
-      .describe("Content database backing document ID"),
+      .describe("Content collection backing document ID"),
     sourceId: z
       .string()
       .optional()
@@ -598,12 +598,12 @@ export const stageBuilderSourceBulkUpdateSchema = z
       .array(z.string())
       .max(DATABASE_ROW_BATCH_LIMIT)
       .optional()
-      .describe("Selected database row item IDs to stage in one batch."),
+      .describe("Selected collection row item IDs to stage in one batch."),
     documentIds: z
       .array(z.string())
       .max(DATABASE_ROW_BATCH_LIMIT)
       .optional()
-      .describe("Selected database row document IDs to stage in one batch."),
+      .describe("Selected collection row document IDs to stage in one batch."),
     field: fieldSchema.describe(
       "One mapped Builder-backed field to update across the selected rows.",
     ),

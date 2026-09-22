@@ -57,7 +57,7 @@ export function registerDispatchOnboardingSteps(): void {
     id: "dispatch:connect-slack-workspace",
     title: "Connect a Slack workspace",
     description:
-      "Install Agent Native with OAuth, then configure channel identities and access policies.",
+      "Install Agent-Native with OAuth, then configure channel identities and access policies.",
     order: 60,
     required: false,
     methods: [

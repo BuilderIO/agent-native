@@ -78,7 +78,7 @@ export function useNavigationState() {
     getNavigationState: ({ pathname, searchParams }) => {
       const state: NavigationState = { view: "forms" };
 
-      if (pathname === "/" || pathname === "/ask") {
+      if (pathname === "/home" || pathname === "/ask") {
         state.view = "ask";
       } else if (pathname.startsWith("/forms")) {
         const formMatch = pathname.match(/\/forms\/([^/]+)/);

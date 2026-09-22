@@ -6,8 +6,8 @@
     {
       "name": "conventions",
       "type": "registry:item",
-      "title": "Agent Native Conventions",
-      "description": "Agent instructions and core skills for building Agent Native apps.",
+      "title": "Agent-Native Conventions",
+      "description": "Agent instructions and core skills for building Agent-Native apps.",
       "categories": ["agent-native", "agents", "project-conventions"],
       "files": [
         {
@@ -56,12 +56,12 @@
           "target": "~/.agents/skills/shadcn-ui/SKILL.md"
         }
       ],
-      "docs": "Installs a project-level AGENTS.md and core Agent Native skills. Review the diff before installing into a project that already has agent instructions."
+      "docs": "Installs a project-level AGENTS.md and core Agent-Native skills. Review the diff before installing into a project that already has agent instructions."
     },
     {
       "name": "actions",
       "type": "registry:item",
-      "title": "Agent Native Actions",
+      "title": "Agent-Native Actions",
       "description": "Skills for defining app operations as shared frontend and agent actions.",
       "categories": ["agent-native", "actions"],
       "files": [
@@ -81,8 +81,8 @@
     {
       "name": "data",
       "type": "registry:item",
-      "title": "Agent Native Data",
-      "description": "Skills for SQL storage, portability, security, and sharing in Agent Native apps.",
+      "title": "Agent-Native Data",
+      "description": "Skills for SQL storage, portability, security, and sharing in Agent-Native apps.",
       "categories": ["agent-native", "data", "security"],
       "files": [
         {
@@ -111,7 +111,7 @@
     {
       "name": "ui",
       "type": "registry:item",
-      "title": "Agent Native UI",
+      "title": "Agent-Native UI",
       "description": "Skills for frontend design, shadcn/ui, routing, application state, and real-time sync.",
       "categories": ["agent-native", "ui", "frontend"],
       "files": [
@@ -146,7 +146,7 @@
     {
       "name": "extensions",
       "type": "registry:item",
-      "title": "Agent Native Extensions",
+      "title": "Agent-Native Extensions",
       "description": "Skills for sandboxed extensions and extension slots.",
       "categories": ["agent-native", "extensions", "widgets"],
       "files": [

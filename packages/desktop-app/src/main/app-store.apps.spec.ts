@@ -162,3 +162,53 @@ describe("desktop app mode defaults", () => {
     ).toBe(true);
   });
 });
+
+describe("loading a store that cannot be migrated", () => {
+  beforeEach(() => {
+    electronState.userData = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-app-store-"),
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(electronState.userData, { recursive: true, force: true });
+  });
+
+  it("keeps the user's apps when a malformed entry breaks migration", () => {
+    const storePath = path.join(electronState.userData, "app-config.json");
+    const custom = {
+      id: "self-hosted",
+      name: "Self Hosted",
+      icon: "mail",
+      description: "",
+      devPort: 0,
+      url: "https://mail.example.internal",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+    // A single bad element is enough to throw inside migration, which used to
+    // replace the whole file with defaults.
+    fs.writeFileSync(storePath, JSON.stringify([custom, null]));
+
+    const apps = loadApps();
+
+    expect(apps.some((app) => app.id === "self-hosted")).toBe(true);
+    const onDisk = JSON.parse(fs.readFileSync(storePath, "utf-8"));
+    expect(
+      onDisk.some(
+        (app: { id?: string } | null) => app && app.id === "self-hosted",
+      ),
+    ).toBe(true);
+  });
+
+  it("seeds defaults when the store is unparseable", () => {
+    const storePath = path.join(electronState.userData, "app-config.json");
+    fs.writeFileSync(storePath, "{ not json");
+
+    const apps = loadApps();
+
+    expect(apps.length).toBeGreaterThan(0);
+    expect(apps.every((app) => app.mode === "prod")).toBe(true);
+  });
+});

@@ -31,3 +31,64 @@ export function statusAfterTriageSourceUpdate(
 ): string {
   return sourceChanged ? reviewStatus : (existingStatus ?? reviewStatus);
 }
+
+// `sourceChanged` ignores GitHub's updatedAt, but it also ignores comments, so
+// a needs_manual babysit decision has to be preserved explicitly or the next
+// poll flips it back to pr_observed and the Inbox status flaps.
+const STICKY_BABYSIT_STATES = new Set([
+  "out-of-scope",
+  "closed-or-draft",
+  "merged",
+  "owner-managed",
+  "stuck",
+]);
+
+function sameGitHubLogin(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+/** Keep a babysit skip out of pr_observed until author or draft/open state can change the decision. */
+export function statusAfterPullRequestPoll(input: {
+  existingStatus?: string;
+  existingAuthor?: string;
+  nextAuthor: string;
+  existingBabysitState?: string;
+  babysitReopened?: boolean;
+  nextState: string;
+  nextDraft: boolean;
+  sourceChanged: boolean;
+}): string {
+  if (
+    input.existingStatus === "merged" ||
+    input.existingBabysitState === "merged"
+  ) {
+    return input.nextState === "open" && !input.nextDraft
+      ? "pr_observed"
+      : "merged";
+  }
+  // The babysit layer found new human review work, which GitHub's title, body,
+  // and head SHA do not reflect. Without this a reopened item keeps its
+  // needs_manual status and never returns to the review window.
+  if (input.babysitReopened) return "pr_observed";
+  const sticky =
+    (input.existingStatus === "needs_manual" ||
+      input.existingStatus === "merged") &&
+    Boolean(input.existingBabysitState) &&
+    STICKY_BABYSIT_STATES.has(input.existingBabysitState!);
+  if (sticky) {
+    const authorChanged =
+      Boolean(input.existingAuthor?.trim()) &&
+      !sameGitHubLogin(input.existingAuthor ?? "", input.nextAuthor);
+    const reopenedFromClosedOrDraft =
+      input.existingBabysitState === "closed-or-draft" &&
+      input.nextState === "open" &&
+      !input.nextDraft;
+    if (authorChanged || reopenedFromClosedOrDraft) return "pr_observed";
+    return input.existingStatus === "merged" ? "merged" : "needs_manual";
+  }
+  return statusAfterTriageSourceUpdate(
+    input.existingStatus,
+    input.sourceChanged,
+    "pr_observed",
+  );
+}

@@ -119,6 +119,11 @@ pub(crate) fn rewind_clip_prepare(
     if state.0.lock().map_err(|error| error.to_string())?.is_some() {
         return Err("a Rewind-derived clip is already prepared or active".into());
     }
+    // The completion slot is take-once but never expires, and the recording
+    // pill drains it whenever a completion card opens. The native start path
+    // clears it per session; this one has to as well, or a Rewind take's card
+    // can consume the previous recording's result and show its URL.
+    native_screen::reset_native_upload_completion_state();
     let temporary_audio = if include_mic || include_system_audio {
         screen_memory::acquire_temporary_audio_consumer(
             &app,

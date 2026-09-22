@@ -98,6 +98,27 @@ describe("Slack read behavior", () => {
     });
   });
 
+  it("does not fabricate users when the directory request fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: false, error: "invalid_auth" }), {
+            status: 200,
+          }),
+      ),
+    );
+
+    const result = await resolveUsersWithCoverage("secondary", ["U-directory"]);
+
+    expect(result.users).toEqual({});
+    expect(result.coverage).toMatchObject({
+      unresolved_user_ids: ["U-directory"],
+      coverage_complete: false,
+      truncation_reasons: ["user_directory_error"],
+    });
+  });
+
   it("reports the existing timestamp cursor and provider coverage explicitly", async () => {
     vi.stubGlobal(
       "fetch",

@@ -4,6 +4,7 @@ import {
   assertSourceSlidePreserved,
   buildSourceImportMetadata,
   mergeSourceImportMetadata,
+  sourceImportCoverage,
 } from "./source-import.js";
 
 describe("source import preservation", () => {
@@ -106,5 +107,32 @@ describe("source import preservation", () => {
     expect(() => mergeSourceImportMetadata(metadata, incoming)).toThrow(
       "Cannot append a PDF source import to a PPTX source-imported deck",
     );
+  });
+
+  it("reports source coverage and order against the persisted manifest", () => {
+    const source = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [
+        { ...metadata.slides[0], id: "slide-1" },
+        { ...metadata.slides[0], id: "slide-2" },
+        { ...metadata.slides[0], id: "slide-3" },
+      ],
+    });
+
+    expect(sourceImportCoverage(source, ["slide-1", "slide-3"])).toMatchObject({
+      complete: false,
+      ordered: false,
+      expectedSlideIds: ["slide-1", "slide-2", "slide-3"],
+      missingSlideIds: ["slide-2"],
+      unexpectedSlideIds: [],
+    });
+    expect(
+      sourceImportCoverage(source, ["slide-1", "slide-2", "slide-3"]),
+    ).toMatchObject({
+      complete: true,
+      ordered: true,
+      missingSlideIds: [],
+      unexpectedSlideIds: [],
+    });
   });
 });

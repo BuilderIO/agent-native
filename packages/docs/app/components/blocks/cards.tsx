@@ -1,6 +1,7 @@
 import { defineBlock } from "@agent-native/core/blocks";
 import type { BlockReadProps } from "@agent-native/core/blocks";
 import {
+  IconCalendar,
   IconComponents,
   IconNetwork,
   IconPlug,
@@ -23,6 +24,7 @@ const CARD_ICON: Record<string, TablerIcon> = {
   plug: IconPlug,
   network: IconNetwork,
   terminal: IconTerminal2,
+  calendar: IconCalendar,
 };
 
 export function CardsBlock({ data, ctx }: BlockReadProps<CardsData>) {
@@ -43,7 +45,7 @@ export function CardsBlock({ data, ctx }: BlockReadProps<CardsData>) {
           <li key={i} className="docs-card">
             {card.href ? (
               <Link
-                to={card.href}
+                to={ctx.localizeHref?.(card.href) ?? card.href}
                 prefetch="viewport"
                 data-an-prefetch="viewport"
                 className={`docs-card-link ${gridClass}`}

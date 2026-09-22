@@ -5,6 +5,7 @@ import {
   buildAgentWebStaticFiles,
   buildMarkdownResponseHeaders,
   buildRobotsTxt,
+  buildPageJsonLd,
   buildSitemapXml,
   estimateMarkdownTokens,
   markdownFilePathForPage,
@@ -52,7 +53,7 @@ describe("agent web generators", () => {
     const files = buildAgentWebStaticFiles({
       siteName: "Agent-Native",
       siteUrl: "https://www.agent-native.com",
-      description: "Agent-native framework docs.",
+      description: "Agent-Native framework docs.",
       config,
       pages: [
         {
@@ -87,9 +88,104 @@ describe("agent web generators", () => {
     });
 
     expect(headers["content-type"]).toBe("text/markdown; charset=utf-8");
+    expect(headers.vary).toBe("Accept, Accept-Encoding");
     expect(headers["x-markdown-tokens"]).toBe(
       String(estimateMarkdownTokens("# Docs\n\nContent")),
     );
     expect(headers.link).toContain('rel="llms-txt"');
+  });
+
+  it("lists developer resources in both llms files", () => {
+    const files = buildAgentWebStaticFiles({
+      siteName: "Agent-Native",
+      siteUrl: "https://www.agent-native.com",
+      config,
+      whenToUse: [
+        "Use Agent-Native when an agent and UI share actions and state.",
+      ],
+      pages: [],
+      developerResources: [
+        {
+          title: "OpenAPI specification",
+          url: "/openapi.json",
+          description: "Typed HTTP operations.",
+        },
+        {
+          title: "CLI",
+          url: "https://www.npmjs.com/package/@agent-native/core",
+        },
+      ],
+    });
+
+    const byPath = new Map(files.map((file) => [file.path, file.content]));
+    expect(byPath.get("llms.txt")).toContain("## Developer resources");
+    expect(byPath.get("llms.txt")).toContain("## When to use this");
+    expect(byPath.get("llms.txt")).toContain(
+      "https://www.agent-native.com/openapi.json",
+    );
+    expect(byPath.get("llms-full.txt")).toContain(
+      "https://www.npmjs.com/package/@agent-native/core",
+    );
+  });
+
+  // A site whose canonical URLs carry a trailing slash must advertise that
+  // exact form. Stripping it made every sitemap entry point at a redirect.
+  it("preserves a trailing slash in advertised page URLs", () => {
+    const sitemap = buildSitemapXml(
+      [{ path: "/docs/actions-overview/", title: "Actions" }],
+      "https://www.agent-native.com",
+    );
+
+    expect(sitemap).toContain(
+      "<loc>https://www.agent-native.com/docs/actions-overview/</loc>",
+    );
+  });
+
+  it("keeps bare page paths bare", () => {
+    const sitemap = buildSitemapXml(
+      [{ path: "/docs/actions-overview", title: "Actions" }],
+      "https://www.agent-native.com",
+    );
+
+    expect(sitemap).toContain(
+      "<loc>https://www.agent-native.com/docs/actions-overview</loc>",
+    );
+  });
+
+  // The Markdown twin is an asset path derived from the route, so it must not
+  // inherit the route's trailing slash.
+  it("derives the markdown twin without the route trailing slash", () => {
+    expect(markdownFilePathForPage("/about/")).toBe("about.md");
+    expect(markdownFilePathForPage("/about")).toBe("about.md");
+    expect(markdownFilePathForPage("/")).toBe("index.md");
+  });
+
+  // Breadcrumb entries are page URLs, so a bare crumb under a slash-terminated
+  // page points structured data at a redirect.
+  it("gives breadcrumb items the page's trailing slash", () => {
+    const jsonLd = buildPageJsonLd({
+      siteName: "Agent-Native",
+      siteUrl: "https://www.agent-native.com",
+      page: { path: "/docs/actions-overview/", title: "Actions" },
+    });
+
+    const urls = JSON.stringify(jsonLd).match(
+      /https:\/\/www\.agent-native\.com\/docs[^"]*/g,
+    );
+
+    expect(urls).not.toBeNull();
+    expect(urls!.filter((url) => !url.endsWith("/"))).toEqual([]);
+  });
+
+  it("leaves breadcrumbs bare for a bare page path", () => {
+    const jsonLd = buildPageJsonLd({
+      siteName: "Agent-Native",
+      siteUrl: "https://www.agent-native.com",
+      page: { path: "/docs/actions-overview", title: "Actions" },
+    });
+
+    expect(JSON.stringify(jsonLd)).toContain(
+      '"https://www.agent-native.com/docs/actions-overview"',
+    );
   });
 });

@@ -355,7 +355,7 @@ async fn live_upload_loop(
                 "[live-upload] {rec}: acknowledged {offset} bytes before finalize={finalize}"
             ));
             index += 1;
-            emit_native_upload_progress(&app, "uploading", "Uploading clip", None, None);
+            emit_native_upload_progress(&app, &rec, "uploading", "Uploading clip", None, None);
         }
 
         if finalize {
@@ -366,7 +366,7 @@ async fn live_upload_loop(
             eprintln!(
                 "[live-upload] {rec}: finalizing — {index} chunk(s) sent, draining tail (offset={offset}, final_len={final_len})"
             );
-            emit_native_upload_progress(&app, "processing", "Uploading clip", None, None);
+            emit_native_upload_progress(&app, &rec, "processing", "Uploading clip", None, None);
 
             // The last tail chunk doubles as the final post (data + is_final).
             // The server's resumable-session path relays chunks to GCS, whose
@@ -445,7 +445,7 @@ async fn live_upload_loop(
                     }
                 };
             }
-            emit_native_upload_progress(&app, "opening", "Uploading clip", None, Some(1.0));
+            emit_native_upload_progress(&app, &rec, "opening", "Uploading clip", None, Some(1.0));
             eprintln!("[live-upload] {rec}: done — {index} post(s), {final_len} bytes total");
             crate::logfile::diagnostic(&format!(
                 "[live-upload] {rec}: complete with {final_len} acknowledged bytes"

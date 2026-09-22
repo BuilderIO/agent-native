@@ -30,6 +30,7 @@ export {
   sendToBuilderChat,
   type BuilderChatMessage,
 } from "../builder-frame.js";
+export { getClientSurface, type ClientSurface } from "../client-surface.js";
 export {
   AgentNative,
   useAgentNativeScreenContext,
@@ -57,6 +58,7 @@ export {
 } from "../AgentNativeFrame.js";
 export {
   AgentNativeRouteWarmup,
+  isClientRouteUrl,
   type AgentNativeRouteWarmupProps,
 } from "../route-warmup.js";
 export {
@@ -106,7 +108,9 @@ export {
   readAgentNativeScreenContext,
   requestAgentNativeHostActions,
   requestAgentNativeHostContext,
+  requestAgentNativeHostWebMcpTools,
   runAgentNativeHostAction,
+  runAgentNativeHostWebMcpTool,
   sendAgentNativeHostCommand,
   type AgentNativeActionAvailability,
   type AgentNativeActionManifestEntry,
@@ -139,6 +143,22 @@ export {
   type BuiltInAgentNativeHostCommand,
 } from "../host-bridge.js";
 export {
+  AgentNativeWebMcpUnsupportedError,
+  createAgentNativeWebMcpClient,
+  createAgentNativeWebMcpRegistration,
+  initializeAgentNativeWebMcp,
+  isAgentNativeWebMcpSupported,
+  type AgentNativeWebMcpApprovalRequest,
+  type AgentNativeWebMcpClient,
+  type AgentNativeWebMcpClientOptions,
+  type AgentNativeWebMcpRegistration,
+  type AgentNativeWebMcpRegistrationOptions,
+  type AgentNativeWebMcpTool,
+  type AgentNativeWebMcpToolAnnotations,
+  type AgentNativeWebMcpToolExecutionOptions,
+  type AgentNativeWebMcpToolResult,
+} from "../webmcp.js";
+export {
   AGENT_NATIVE_HOST_TOOL_NAMES,
   createAgentNativeHostTools,
   type AgentNativeHostToolDefinition,
@@ -147,6 +167,7 @@ export {
   type AgentNativeHostToolSet,
   type CreateAgentNativeHostToolsOptions,
   type RunAgentNativeHostActionToolInput,
+  type RunAgentNativeHostWebMcpToolInput,
   type SendAgentNativeHostCommandToolInput,
 } from "../host-tools.js";
 export {

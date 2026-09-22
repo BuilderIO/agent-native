@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -319,8 +319,8 @@ export default defineAction({
   description:
     "Execute a bounded batch of approved outbound Builder CMS change-sets. Each item uses the existing prepare and execute gates, continues on item errors, and does not publish or unpublish unless an explicit per-change-set transition is provided.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z
       .string()
       .optional()

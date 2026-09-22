@@ -6,7 +6,6 @@ import {
   IconRefresh,
 } from "@tabler/icons-react-native";
 import * as Calendar from "expo-calendar";
-import { Link } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -24,6 +23,7 @@ import {
   type UpcomingMeeting,
 } from "@/lib/calendar-readiness";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { useMobileNavigation } from "@/lib/navigation";
 
 const LOOKAHEAD_DAYS = 30;
 
@@ -41,6 +41,7 @@ export default function UpcomingMeetingCard({
   onPrepare,
 }: UpcomingMeetingCardProps) {
   const colors = useMobileThemeColors();
+  const navigation = useMobileNavigation();
   const [state, setState] = useState<CalendarReadinessState>({
     status: "checking",
   });
@@ -156,7 +157,7 @@ export default function UpcomingMeetingCard({
                 Be ready for your next meeting
               </Text>
               <Text className="text-text-muted text-xs leading-[17px] mt-1">
-                Connect your device calendar to see what’s next. Agent Native
+                Connect your device calendar to see what’s next. Agent-Native
                 never joins or starts recording on its own.
               </Text>
             </View>
@@ -233,7 +234,7 @@ export default function UpcomingMeetingCard({
           <View className="flex-row gap-2 mt-4">
             {state.meeting.joinUrl ? (
               <Pressable
-                accessibilityHint="Opens the meeting link outside Agent Native"
+                accessibilityHint="Opens the meeting link outside Agent-Native"
                 accessibilityRole="link"
                 onPress={() => void openJoinLink(state.meeting!.joinUrl!)}
                 className="items-center bg-gray-charcoal rounded-xl flex-row gap-2 justify-center h-10.5 px-3.5 active:opacity-70"
@@ -242,23 +243,24 @@ export default function UpcomingMeetingCard({
                 <Text className="text-text-light text-sm font-bold">Join</Text>
               </Pressable>
             ) : null}
-            <Link asChild href="/capture/audio">
-              <Pressable
-                accessibilityHint="Opens meeting capture ready to record"
-                accessibilityRole="link"
-                onPress={onPrepare}
-                className="items-center align-stretch bg-accent-blue rounded-xl flex-row gap-2 justify-center mt-0 h-10.5 px-3.5 flex-1 active:opacity-70"
-              >
-                <IconMicrophone
-                  color={colors.primaryForeground}
-                  size={17}
-                  strokeWidth={2.1}
-                />
-                <Text className="text-primary-foreground text-sm font-bold">
-                  Prepare recording
-                </Text>
-              </Pressable>
-            </Link>
+            <Pressable
+              accessibilityHint="Opens meeting capture ready to record"
+              accessibilityRole="link"
+              onPress={() => {
+                onPrepare();
+                navigation.push("/capture/audio");
+              }}
+              className="items-center align-stretch bg-accent-blue rounded-xl flex-row gap-2 justify-center mt-0 h-10.5 px-3.5 flex-1 active:opacity-70"
+            >
+              <IconMicrophone
+                color={colors.primaryForeground}
+                size={17}
+                strokeWidth={2.1}
+              />
+              <Text className="text-primary-foreground text-sm font-bold">
+                Prepare recording
+              </Text>
+            </Pressable>
           </View>
         </View>
       ) : null}

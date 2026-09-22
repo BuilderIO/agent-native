@@ -1,6 +1,6 @@
 ---
 title: "Docs components"
-description: "Reference for every MDX component available in the Agent Native docs, with live rendered examples and copy-paste syntax."
+description: "Reference for every MDX component available in the Agent-Native docs, with live rendered examples and copy-paste syntax."
 ---
 
 # Docs components
@@ -143,6 +143,58 @@ Each step is a `###` heading followed by the body content. Steps work best for 3
 
 ---
 
+## Sequence
+
+<Sequence>
+
+### A webhook **arrives** at the endpoint
+
+### The payload is **verified** against its signature
+
+### A job is **queued** for processing
+
+---
+
+### The queued job **runs** and updates the record
+
+</Sequence>
+
+```mdx
+<Sequence>
+
+### A webhook **arrives** at the endpoint
+
+### The payload is **verified** against its signature
+
+### A job is **queued** for processing
+
+---
+
+### The queued job **runs** and updates the record
+
+</Sequence>
+```
+
+Each card is a `###` heading with a short phrase, not a paragraph — unlike `Steps`, there's no body content below the heading. Rows cap at three cards; a fourth wraps automatically into a new row connected by an elbow instead of an arrow, with no `---` required. A lone `---` line between two cards forces an earlier break, e.g. an intentional 2-then-2 split instead of waiting for the automatic three-card cap.
+
+Prefix a card's heading with `:blue:`, `:green:`, `:red:`, or `:yellow:` — the same shortcode `Comparison` uses — to accent the one card that matters, e.g. which app handles a step:
+
+```mdx
+<Sequence>
+
+### A support message arrives in Slack
+
+### :blue: Dispatch recognizes it as a billing question
+
+### The ticket is filed in the billing app
+
+</Sequence>
+```
+
+Reserve the accent for the single card that matters; leaving every card unaccented keeps the chain reading as one even flow. A short 1–3 card sequence with no wrap stretches to fill the full width; a trailing row after a wrap (like the fourth card above) stays naturally sized instead of stretching.
+
+---
+
 ## Cards
 
 <Cards>
@@ -153,7 +205,7 @@ Typed operations callable from the agent, UI, CLI, and HTTP. Define once, call f
 
 ### [Database](/docs/server-database)
 
-SQL persistence with automatic migrations. SQLite locally, Postgres/Turso in production.
+PostgreSQL persistence with automatic migrations. PGlite locally, hosted Postgres in production.
 
 ### [Agent Surfaces](/docs/agent-surfaces)
 
@@ -174,7 +226,7 @@ Typed operations callable from the agent, UI, CLI, and HTTP. Define once, call f
 
 ### [Database](/docs/server-database)
 
-SQL persistence with automatic migrations. SQLite locally, Postgres/Turso in production.
+PostgreSQL persistence with automatic migrations. PGlite locally, hosted Postgres in production.
 
 ### [Agent Surfaces](/docs/agent-surfaces)
 
@@ -197,6 +249,7 @@ Each card is a `###` heading (optionally linked) followed by the description. Ca
 | `plug`       | integrations, connected tools           |
 | `network`    | cross-app or distributed communication  |
 | `terminal`   | CLI, scripts, terminal-driven workflows |
+| `calendar`   | scheduling, dates, time-based features  |
 
 The grid defaults to 3 columns. Set `columns` (1-4) on the opening tag to override it, e.g. `<Cards columns={2}>`. Below 640px the grid always collapses to a single column regardless of `columns`.
 
@@ -337,7 +390,25 @@ Define one action. The agent calls it as a tool, the UI calls it through a React
 </Comparison>
 ```
 
-Add more `###` sections to get 3 or 4 columns (max 4). The red/green label accent only applies to headings that exactly match `Before`, `Old`, `Without` (red) or `After`, `New`, `With` (green).
+Add more `###` sections to get 3 or 4 columns (max 4). The red/green label accent applies automatically to headings that exactly match `Before`, `Old`, `Without` (red) or `After`, `New`, `With` (green).
+
+For any other pairing, an explicit `:color:` prefix sets a column's accent directly, the same shortcode idiom `Cards` uses for `:icon:`:
+
+```mdx
+<Comparison>
+
+### :blue: You ask
+
+"Am I free Thursday afternoon?"
+
+### :green: What happens
+
+The agent answers in chat. Nothing on screen changes.
+
+</Comparison>
+```
+
+`color` accepts `blue`, `green`, `red`, or `yellow`, matching `Badge`'s color naming. Each routes through a real theme token (the site's brand blue, or the same semantic red/yellow/green used elsewhere) rather than a raw color, so it stays correct in both themes. An explicit `color` always wins over the Before/After heuristic.
 
 ---
 
@@ -809,6 +880,7 @@ Like `TabsBlock`, `Columns` is self-closing with a single JSON `columns` attribu
 | Deprecated/beta/version notice at page or section top | `Banner`                             |
 | Status or version tag at page or section top          | `Badge`                              |
 | Sequential procedure with titled steps                | `Steps`                              |
+| Ordered chain of short connected event cards          | `Sequence`                           |
 | FAQ-style content, one answer at a time               | `Accordion`                          |
 | Navigation or feature overview grid                   | `Cards`                              |
 | Before vs. after, old vs. new (prose)                 | `Comparison`                         |

@@ -18,6 +18,7 @@ export type ShareQueryKey = readonly [
 export interface ShareOrgMember {
   email: string;
   name?: string | null;
+  image?: string | null;
   role?: string | null;
   joinedAt?: number | null;
 }
@@ -265,6 +266,7 @@ export function normalizeOrgMembers(value: unknown): ShareOrgMember[] {
       const value = member as {
         email?: unknown;
         name?: unknown;
+        image?: unknown;
         role?: unknown;
         joinedAt?: unknown;
         joined_at?: unknown;
@@ -273,6 +275,7 @@ export function normalizeOrgMembers(value: unknown): ShareOrgMember[] {
       return {
         email: value.email,
         name: typeof value.name === "string" ? value.name : null,
+        image: typeof value.image === "string" ? value.image : null,
         role: typeof value.role === "string" ? value.role : null,
         joinedAt:
           typeof value.joinedAt === "number"

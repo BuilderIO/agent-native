@@ -72,7 +72,7 @@ host layout/styles/routes/business logic, or adding a new slot:
    - In a local development or outer code-editing surface, follow the
      `self-modifying-code` skill and edit the app source directly.
 
-Full source-code customization is a core Agent Native capability. Extensions
+Full source-code customization is a core Agent-Native capability. Extensions
 are an optional, sandboxed, no-deploy patch layer—not the limit of what the app
 can become. Most apps keep extension creation disabled; do not offer or create
 one unless the host app has explicitly opted in.

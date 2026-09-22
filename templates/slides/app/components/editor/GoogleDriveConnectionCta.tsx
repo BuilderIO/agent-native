@@ -1,6 +1,6 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   IconBrandGoogleDrive,
   IconLoader2,
@@ -15,14 +15,14 @@ interface GoogleDocsStatus {
   configured: boolean;
   connected: boolean;
   googleSlidesUrlImportReady?: boolean;
+  googleSlidesUrlImportError?: string;
   error?: string;
   message?: string;
 }
 
-interface GoogleDocsAuthResponse {
-  url?: string;
-  error?: string;
-  message?: string;
+interface GoogleDriveConnectionCtaProps {
+  /** Only query and render for a detected pasted-link intent. */
+  active?: boolean;
 }
 
 type JsonReadResult<T> = { ok: true; data: T } | { ok: false; error: Error };
@@ -54,12 +54,8 @@ function responseError(
   );
 }
 
-export interface GoogleDriveConnectionCtaProps {
-  onConnected?: () => void;
-}
-
 export function GoogleDriveConnectionCta({
-  onConnected,
+  active = true,
 }: GoogleDriveConnectionCtaProps) {
   const t = useT();
   const [status, setStatus] = useState<GoogleDocsStatus | null>(null);
@@ -97,77 +93,38 @@ export function GoogleDriveConnectionCta({
     }, []);
 
   useEffect(() => {
+    if (!active) {
+      setStatus(null);
+      setError(null);
+      setDismissed(false);
+      setConnecting(false);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setDismissed(false);
     void refreshStatus();
-  }, [refreshStatus]);
+  }, [active, refreshStatus]);
 
   const needsReconnect =
     status?.connected === true && status.googleSlidesUrlImportReady === false;
-  const requiresUrlImportAccess =
-    status?.connected === true ||
-    status?.googleSlidesUrlImportReady !== undefined;
-
-  const connect = useCallback(async () => {
+  const connect = useCallback(() => {
     if (connecting) return;
     setConnecting(true);
     setError(null);
-    const popup = window.open(
-      "about:blank",
-      "google-docs-oauth",
-      "popup,width=520,height=720",
-    );
-    try {
-      const authUrl = new URL(endpoint("/_agent-native/google-docs/auth-url"));
-      authUrl.searchParams.set(
-        "redirect_uri",
-        oauthRedirectUri("/_agent-native/google-docs/callback"),
-      );
-      authUrl.searchParams.set(
-        "return",
-        window.location.pathname + window.location.search,
-      );
-      const response = await fetch(authUrl.toString(), {
-        credentials: "same-origin",
-      });
-      const result = await readJson<GoogleDocsAuthResponse>(response);
-      if (!result.ok) throw result.error;
-      if (!response.ok || !result.data.url) {
-        throw responseError(
-          response,
-          result.data,
-          "Could not start Google OAuth",
-        );
-      }
-      if (!popup) {
-        window.location.href = result.data.url;
-        return;
-      }
-      popup.location.href = result.data.url;
+    startWorkspaceProviderOAuth("google_drive", {
+      appId: "slides",
+      returnPath: `${window.location.pathname}${window.location.search}`,
+      scope: "user",
+    });
+  }, [connecting]);
 
-      const deadline = Date.now() + 90_000;
-      while (Date.now() < deadline && !popup.closed) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1_200));
-        const next = await refreshStatus();
-        const nextHasUrlImportAccess =
-          next?.googleSlidesUrlImportReady ?? !requiresUrlImportAccess;
-        if (next?.connected && nextHasUrlImportAccess) {
-          popup.close();
-          onConnected?.();
-          return;
-        }
-      }
-      const next = await refreshStatus();
-      const nextHasUrlImportAccess =
-        next?.googleSlidesUrlImportReady ?? !requiresUrlImportAccess;
-      if (next?.connected && nextHasUrlImportAccess) onConnected?.();
-    } catch (caught) {
-      popup?.close();
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setConnecting(false);
-    }
-  }, [connecting, onConnected, refreshStatus, requiresUrlImportAccess]);
-
-  if (dismissed || loading || (status?.connected && !needsReconnect)) {
+  if (
+    !active ||
+    dismissed ||
+    loading ||
+    (status?.connected && !needsReconnect)
+  ) {
     return null;
   }
 
@@ -191,13 +148,18 @@ export function GoogleDriveConnectionCta({
             ? t("home.googleSlidesReferenceConnect")
             : t("raw.googleOAuthNotConfigured")}
         </p>
+        {displayStatus.googleSlidesUrlImportError && (
+          <p className="mt-1 text-[11px] text-destructive">
+            {displayStatus.googleSlidesUrlImportError}
+          </p>
+        )}
         {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
       </div>
       {displayStatus.configured && (
         <Button
           type="button"
           size="sm"
-          onClick={() => void connect()}
+          onClick={() => connect()}
           disabled={connecting}
           aria-busy={connecting}
           className="h-7 shrink-0 gap-1.5 rounded-md px-2.5 text-[11px] disabled:cursor-wait"

@@ -1,7 +1,8 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 
@@ -15,7 +16,7 @@ export default defineAction({
     format: z.enum(["csv", "json"]).optional().describe("Export format"),
   }),
   http: false,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const formId = args.form;
     const { resource: form } = await assertAccess("form", formId, "editor");
     const db = getDb();
@@ -90,11 +91,40 @@ export default defineAction({
     }).catch(() => null);
 
     if (!uploaded) {
-      throw new Error(
+      fail(
         "Export was generated but not saved because file storage is not configured. " +
           "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider.",
+        { errorCode: "file_storage_not_configured" },
       );
     }
+
+    track(
+      "submissions_viewed",
+      {
+        app_name: "forms",
+        template_name: "forms",
+        output_id: formId,
+        output_type: "form",
+        form_id: formId,
+        view_type: "export",
+        export_format: fmt,
+        response_count: responses.length,
+      },
+      ctx,
+    );
+    track(
+      "form_exported",
+      {
+        app_name: "forms",
+        template_name: "forms",
+        output_id: formId,
+        output_type: "form",
+        form_id: formId,
+        format: fmt,
+        response_count: responses.length,
+      },
+      ctx,
+    );
 
     return `Exported ${responses.length} responses to ${uploaded.url}`;
   },

@@ -95,6 +95,14 @@ data and the same actions.
 
 保留一個規範指令檔案：`AGENTS.md`。如果用戶端需要 `CLAUDE.md`，請將其設為 `AGENTS.md` 的符號連結，而不是第二個副本。兩個手工維護的檔案發生了偏差，代理最終得出了相互矛盾的規則。真相的一個來源，在需要的地方連結。
 
+`AGENTS.md` 是這個框架所建立於其上的通用標準，因此任何會讀取專案指令的 AI 程式碼工具都能開箱即用：
+
+- **Claude Code**：讀取 `CLAUDE.md`（由 CLI 安裝流程從 `AGENTS.md` 建立符號連結）
+- **Cursor**：直接讀取 `AGENTS.md`，若存在則讀取 `.cursorrules`（Cursor 的舊版位置）
+- **Windsurf**：直接讀取 `AGENTS.md`，若存在則讀取 `.windsurfrules`（Windsurf 的舊版位置）
+- **Codex、Gemini 及其他工具**：透過內嵌代理面板運作
+- **Builder.io**：具備視覺化編輯與協作功能的雲端託管代理
+
 ## SKILL.md frontmatter 必須說 AND 時的內容 {#skill-frontmatter}
 
 `description` 是代理在決定是否讀取技能時唯一看到的東西。它必須回答兩個問題：技能涵蓋什麼以及何時觸發它。僅描述主題的描述不會觸發。

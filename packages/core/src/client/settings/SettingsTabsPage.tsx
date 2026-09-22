@@ -1,6 +1,7 @@
 import { Tabs, useDesignSystem } from "@agent-native/toolkit/design-system";
 import {
   IconArrowUpRight,
+  IconFlask,
   IconHistory,
   IconSearch,
   IconSettings,
@@ -17,10 +18,18 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import { Link } from "react-router";
+import { Link, useInRouterContext, useLocation } from "react-router";
 
-import { appBasePath, appPath } from "../../client/api-path.js";
-import { buildSettingsRoute } from "../../navigation/index.js";
+import { appMountPath, appMountedPath } from "../../client/api-path.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
+import type { LabDefinition } from "../../labs/registry.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
+import { useT } from "../i18n.js";
+import { LabsSettings } from "../labs/LabsSettings.js";
+import { SIGN_OUT_SEARCH_TERMS } from "../sign-out.js";
 import { cn } from "../utils.js";
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
@@ -65,6 +74,8 @@ export interface SettingsTabItem {
    * keeps the compact horizontal tab scroller unchanged.
    */
   group?: string;
+  /** Optional human-readable label for the visual navigation group. */
+  groupLabel?: string;
   /** Extra space-separated terms so this tab is findable via search. */
   keywords?: string;
   /** Deep-link entries within this tab for the settings search. */
@@ -77,6 +88,10 @@ export interface SettingsTabsPageProps {
   team?: ReactNode;
   whatsNew?: ReactNode;
   extraTabs?: SettingsTabItem[];
+  /** User labs to expose in the searchable settings surface. */
+  labs?: readonly LabDefinition[];
+  labsLabel?: string;
+  labsIntro?: string;
   generalLabel?: string;
   accountLabel?: string;
   teamLabel?: string;
@@ -118,6 +133,11 @@ interface ResolvedSearchEntry extends SettingsSearchEntry {
   haystack: string;
 }
 
+interface SettingsRouterLocation {
+  pathname: string;
+  hash: string;
+}
+
 function normalizeTabId(value?: string | null): string | null {
   let decoded = value?.replace(/^#/, "").trim() ?? "";
   try {
@@ -145,19 +165,53 @@ function normalizeTabId(value?: string | null): string | null {
   return normalized;
 }
 
+function normalizeSettingsRoute(value: string): string {
+  const normalized = normalizeTabId(value) ?? value;
+  const legacyPrefixes = [
+    ["labs:experiments:experiment-", "labs:lab-"],
+    ["experiments:experiment-", "labs:lab-"],
+    ["experiment-", "labs:lab-"],
+  ] as const;
+  for (const [legacyPrefix, canonicalPrefix] of legacyPrefixes) {
+    if (normalized.startsWith(legacyPrefix)) {
+      return `${canonicalPrefix}${normalized.slice(legacyPrefix.length)}`;
+    }
+  }
+  return normalized;
+}
+
 function resolveTabId(
   tabs: SettingsTabItem[],
   value?: string | null,
 ): string | null {
-  const normalized = normalizeTabId(value);
+  const normalized = normalizeSettingsRoute(value ?? "");
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  // Keep old settings links working after the user-facing tab rename.
+  if (
+    (normalized === "experiments" || normalized.startsWith("experiments:")) &&
+    tabs.some((tab) => tab.id === "labs")
+  ) {
+    return "labs";
+  }
+  // Legacy `#browser` deep links: the Browser Automation section now lives
+  // inside the merged Integrations tab (id varies by consumer).
+  if (normalized === "browser") {
+    const browserOwner = tabs.find(
+      (tab) => tab.id === "integrations" || tab.id === "connections",
+    );
+    if (browserOwner) return browserOwner.id;
+  }
   const alternateTabId =
     normalized === "connections"
       ? "integrations"
       : normalized === "integrations"
         ? "connections"
-        : null;
+        : normalized === "secrets"
+          ? "keys"
+          : normalized === "keys"
+            ? "secrets"
+            : null;
   if (alternateTabId && tabs.some((tab) => tab.id === alternateTabId)) {
     return alternateTabId;
   }
@@ -191,12 +245,14 @@ function resolveTabId(
 function activeTabFromLocation(
   tabs: SettingsTabItem[],
   defaultTab: string,
+  location?: SettingsRouterLocation,
 ): string {
-  if (typeof window === "undefined") return defaultTab;
-  const pathname = appLocalPathname();
+  if (typeof window === "undefined" && !location) return defaultTab;
+  const pathname = appLocalPathname(location?.pathname);
+  const hash = location?.hash ?? window.location.hash;
   const settingsPrefix = "/settings";
   if (pathname === settingsPrefix) {
-    return resolveTabId(tabs, window.location.hash) ?? defaultTab;
+    return resolveTabId(tabs, hash) ?? defaultTab;
   }
   if (pathname.startsWith(`${settingsPrefix}/`)) {
     const segments = pathname
@@ -215,20 +271,21 @@ function activeTabFromLocation(
       if (tabId) return tabId;
     }
   }
-  return resolveTabId(tabs, window.location.hash) ?? defaultTab;
+  return resolveTabId(tabs, hash) ?? defaultTab;
 }
 
-function appLocalPathname(): string {
-  if (typeof window === "undefined") return "/";
-  const pathname = window.location.pathname;
-  const basePath = appBasePath();
+function appLocalPathname(pathname?: string): string {
+  if (typeof window === "undefined" && !pathname) return "/";
+  const currentPathname = pathname ?? window.location.pathname;
+  const mountPath = appMountPath(STANDARD_APP_ROUTES.settings);
   if (
-    basePath &&
-    (pathname === basePath || pathname.startsWith(`${basePath}/`))
+    mountPath &&
+    (currentPathname === mountPath ||
+      currentPathname.startsWith(`${mountPath}/`))
   ) {
-    return pathname.slice(basePath.length) || "/";
+    return currentPathname.slice(mountPath.length) || "/";
   }
-  return pathname;
+  return currentPathname;
 }
 
 function buildSettingsEntryRoute(tabId: string, section?: string): string {
@@ -247,12 +304,16 @@ function buildSettingsEntryRoute(tabId: string, section?: string): string {
 
 function updateRouteForTab(tabId: string, section?: string) {
   if (typeof window === "undefined") return;
-  const route = buildSettingsEntryRoute(tabId, section);
+  const route = buildSettingsEntryRoute(
+    tabId,
+    section ? normalizeSettingsRoute(section) : section,
+  );
   window.history.pushState(
     null,
     "",
-    `${appPath(route)}${window.location.search}`,
+    `${appMountedPath(route, STANDARD_APP_ROUTES.settings)}${window.location.search}`,
   );
+  window.dispatchEvent(new Event("popstate"));
 }
 
 function isEditableElement(element: Element | null): boolean {
@@ -266,7 +327,7 @@ function isEditableElement(element: Element | null): boolean {
   );
 }
 
-export function SettingsTabsPage({
+function SettingsTabsPageContent({
   general,
   account,
   team,
@@ -286,13 +347,24 @@ export function SettingsTabsPage({
   searchPlaceholder = "Search settings",
   searchEntries,
   generalSearchEntries,
+  labs = [],
+  labsLabel = "Labs",
+  labsIntro,
   value,
   onValueChange,
-}: SettingsTabsPageProps) {
+  routerLocation,
+}: SettingsTabsPageProps & { routerLocation?: SettingsRouterLocation }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const autoFocusedSearchRef = useRef(false);
   const controlledHashRef = useRef<string | null>(null);
+  const t = useT();
+  const visibleLabs = useMemo(() => {
+    if (labs.some((lab) => lab.key === CHATGPT_SUBSCRIPTION_LAB.key)) {
+      return labs;
+    }
+    return [CHATGPT_SUBSCRIPTION_LAB, ...labs];
+  }, [labs]);
   const tabs = useMemo<SettingsTabItem[]>(() => {
     const hasOrganizationTab = extraTabs.some(
       (tab) => tab.id === "organization",
@@ -314,10 +386,36 @@ export function SettingsTabsPage({
         label: accountLabel,
         icon: IconUserCircle,
         content: account,
-        keywords: "profile photo avatar identity signed in email name",
+        keywords: [
+          "profile photo avatar identity signed in email name",
+          ...SIGN_OUT_SEARCH_TERMS,
+          t("agentChat.auth.logOut"),
+        ].join(" "),
       });
     }
     next.push(...inlineTabs);
+    if (visibleLabs.length > 0) {
+      next.push({
+        id: "labs",
+        label: labsLabel,
+        icon: IconFlask,
+        keywords: "experimental unstable beta bugs feedback",
+        content: (
+          <LabsSettings
+            labs={visibleLabs}
+            title={labsLabel}
+            intro={labsIntro}
+          />
+        ),
+        searchEntries: visibleLabs.map((lab) => ({
+          id: `lab:${lab.key}`,
+          label: lab.displayName ?? lab.key,
+          keywords: `${lab.key} ${lab.keywords ?? ""}`,
+          description: lab.description,
+          hash: `lab-${lab.key}`,
+        })),
+      });
+    }
     if (team && !hasOrganizationTab) {
       next.push({
         id: "team",
@@ -332,7 +430,7 @@ export function SettingsTabsPage({
         id: "whats-new",
         label: whatsNewLabel,
         icon: IconHistory,
-        group: next.at(-1)?.group ?? "app",
+        group: "app",
         content: whatsNew,
       });
     }
@@ -342,6 +440,9 @@ export function SettingsTabsPage({
     account,
     accountLabel,
     extraTabs,
+    visibleLabs,
+    labsIntro,
+    labsLabel,
     general,
     generalLabel,
     generalSearchEntries,
@@ -349,33 +450,42 @@ export function SettingsTabsPage({
     teamLabel,
     whatsNew,
     whatsNewLabel,
+    t,
   ]);
 
   const fallbackTab = tabs.some((tab) => tab.id === defaultTab)
     ? defaultTab
     : (tabs[0]?.id ?? "general");
   const tabGroups = useMemo(() => {
-    const groups: Array<{ id: string; tabs: SettingsTabItem[] }> = [];
+    // Keyed by group id so tabs sharing a group merge into one section even
+    // when another group's tabs sit between them in `tabs` — adjacency-only
+    // merging left same-id groups duplicated (and rendered with duplicate
+    // React keys) whenever the tab list interleaved groups.
+    const groupsById = new Map<
+      string,
+      { id: string; tabs: SettingsTabItem[] }
+    >();
     for (const tab of tabs) {
       const groupId = tab.group ?? "app";
-      const previousGroup = groups.at(-1);
-      if (previousGroup?.id === groupId) {
-        previousGroup.tabs.push(tab);
+      const group = groupsById.get(groupId);
+      if (group) {
+        group.tabs.push(tab);
       } else {
-        groups.push({ id: groupId, tabs: [tab] });
+        groupsById.set(groupId, { id: groupId, tabs: [tab] });
       }
     }
-    return groups;
+    return Array.from(groupsById.values());
   }, [tabs]);
   const tabGroupLabels: Record<string, string> = {
     app: "Personal",
+    automation: "Automation",
     integrations: "Integrations",
     workspace: "Workspace",
     agent: "Agent",
   };
   const isControlled = value !== undefined;
   const [internalTab, setInternalTab] = useState(() =>
-    activeTabFromLocation(tabs, fallbackTab),
+    activeTabFromLocation(tabs, fallbackTab, routerLocation),
   );
   const activeTab = isControlled ? value : internalTab;
   const [query, setQuery] = useState("");
@@ -401,11 +511,17 @@ export function SettingsTabsPage({
 
   useEffect(() => {
     if (isControlled) return;
-    const syncLocation = () => {
-      const fromPath = activeTabFromLocation(tabs, fallbackTab);
+    const syncLocation = (event?: Event) => {
+      // Native history events carry the live browser URL. Reading the
+      // render-captured router location here would re-canonicalize the same
+      // legacy hash before BrowserRouter has rerendered.
+      const location = event ? undefined : routerLocation;
+      const pathname = location?.pathname ?? window.location.pathname;
+      const hash = location?.hash ?? window.location.hash;
+      const fromPath = activeTabFromLocation(tabs, fallbackTab, location);
       if (fromPath) setInternalTab(fromPath);
-      if (appLocalPathname().startsWith("/settings/")) return;
-      const hashValue = window.location.hash.replace(/^#/, "");
+      if (appLocalPathname(pathname).startsWith("/settings/")) return;
+      const hashValue = hash.replace(/^#/, "");
       const fromHash = resolveTabId(tabs, hashValue);
       if (!fromHash || !hashValue) return;
       const isTabHash = fromHash === hashValue;
@@ -418,18 +534,20 @@ export function SettingsTabsPage({
       window.removeEventListener("hashchange", syncLocation);
       window.removeEventListener("popstate", syncLocation);
     };
-  }, [fallbackTab, isControlled, tabs]);
+  }, [fallbackTab, isControlled, routerLocation, tabs]);
 
   useEffect(() => {
     if (!isControlled) return;
     const syncControlledLocation = () => {
-      const fromPath = appLocalPathname().startsWith("/settings/")
-        ? activeTabFromLocation(tabs, defaultTab)
+      const pathname = routerLocation?.pathname ?? window.location.pathname;
+      const hash = routerLocation?.hash ?? window.location.hash;
+      const fromPath = appLocalPathname(pathname).startsWith("/settings/")
+        ? activeTabFromLocation(tabs, defaultTab, routerLocation)
         : null;
-      const hashValue = window.location.hash.replace(/^#/, "");
+      const hashValue = hash.replace(/^#/, "");
       const fromHash = hashValue ? resolveTabId(tabs, hashValue) : null;
       const next = fromPath ?? fromHash;
-      const key = `${window.location.pathname}${window.location.hash}`;
+      const key = `${pathname}${hash}`;
       if (!next || next === value || controlledHashRef.current === key) {
         controlledHashRef.current = key;
         return;
@@ -444,7 +562,7 @@ export function SettingsTabsPage({
       window.removeEventListener("hashchange", syncControlledLocation);
       window.removeEventListener("popstate", syncControlledLocation);
     };
-  }, [defaultTab, isControlled, onValueChange, tabs, value]);
+  }, [defaultTab, isControlled, onValueChange, routerLocation, tabs, value]);
 
   useEffect(() => {
     if (!enableSearch || autoFocusedSearchRef.current) return;
@@ -478,6 +596,40 @@ export function SettingsTabsPage({
   }, [enableSearch]);
 
   const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
+
+  useEffect(() => {
+    if (!selectedTab) return;
+    const pathname = appLocalPathname(routerLocation?.pathname);
+    if (!pathname.startsWith("/settings/")) return;
+    const routeValue = pathname
+      .slice("/settings/".length)
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => {
+        try {
+          return decodeURIComponent(segment);
+        } catch {
+          return segment;
+        }
+      })
+      .join(":");
+    const canonicalRouteValue = normalizeSettingsRoute(routeValue);
+    const prefix = `${selectedTab.id}:`;
+    if (!canonicalRouteValue.startsWith(prefix)) return;
+    const section = canonicalRouteValue.slice(prefix.length);
+    const targetId =
+      selectedTab.searchEntries?.find(
+        (entry) => normalizeTabId(entry.hash ?? entry.id) === section,
+      )?.hash ?? section;
+    if (!targetId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId.replace(/^#/, ""))?.scrollIntoView?.({
+        block: "start",
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [routerLocation, selectedTab]);
 
   // Flatten tab + deep-link entries into one searchable index.
   const searchIndex = useMemo<ResolvedSearchEntry[]>(() => {
@@ -545,7 +697,6 @@ export function SettingsTabsPage({
     if (section) {
       updateRouteForTab(entry.tabId, section);
       // Let the inner panels open + scroll to their section.
-      window.dispatchEvent(new Event("popstate"));
       window.dispatchEvent(new Event("hashchange"));
       window.requestAnimationFrame(() => {
         document
@@ -563,13 +714,15 @@ export function SettingsTabsPage({
     <div
       ref={rootRef}
       className={cn(
-        "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background sm:flex-row",
+        // Bound to the viewport when the host page gives no height, so the
+        // content pane scrolls and the rail stays put instead of the page.
+        "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background sm:max-h-dvh sm:flex-row",
         className,
       )}
     >
       <div
         className={cn(
-          "flex shrink-0 flex-col gap-2 border-b border-border/60 bg-background p-2 sm:min-h-0 sm:w-56 sm:flex-none sm:overflow-y-auto sm:border-b-0 sm:border-r sm:border-border/60 sm:p-4 lg:w-60 xl:w-64",
+          "flex shrink-0 flex-col gap-2 border-b border-border/60 bg-background p-2 sm:min-h-0 sm:w-56 sm:flex-none sm:overflow-y-auto sm:border-b-0 sm:p-4 lg:w-60 xl:w-64",
           navClassName,
         )}
       >
@@ -591,7 +744,7 @@ export function SettingsTabsPage({
               }}
               placeholder={searchPlaceholder}
               aria-label={searchPlaceholder}
-              className="h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
+              className="agent-native-search-input h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
             />
             {query ? (
               <button
@@ -705,7 +858,9 @@ export function SettingsTabsPage({
               >
                 <div className="contents sm:flex sm:flex-col sm:gap-1">
                   <div className="hidden px-3 pb-1 pt-1 text-[11px] font-medium text-muted-foreground sm:block">
-                    {tabGroupLabels[group.id] ?? group.id}
+                    {group.tabs.find((tab) => tab.groupLabel)?.groupLabel ??
+                      tabGroupLabels[group.id] ??
+                      group.id}
                   </div>
                   {group.tabs.map((tab) => {
                     const Icon = tab.icon;
@@ -783,7 +938,7 @@ export function SettingsTabsPage({
         role="tabpanel"
         aria-labelledby={`settings-tab-${selectedTab?.id ?? "general"}`}
         className={cn(
-          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8",
+          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:pt-4 sm:pb-6 lg:px-8 lg:pt-4 lg:pb-8",
           contentClassName,
         )}
       >
@@ -792,5 +947,19 @@ export function SettingsTabsPage({
         </div>
       </div>
     </div>
+  );
+}
+
+function SettingsTabsPageWithRouter(props: SettingsTabsPageProps) {
+  const location = useLocation();
+  return <SettingsTabsPageContent {...props} routerLocation={location} />;
+}
+
+export function SettingsTabsPage(props: SettingsTabsPageProps) {
+  const inRouterContext = useInRouterContext();
+  return inRouterContext ? (
+    <SettingsTabsPageWithRouter {...props} />
+  ) : (
+    <SettingsTabsPageContent {...props} />
   );
 }

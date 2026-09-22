@@ -28,9 +28,39 @@ import {
 /** Grace period after stop for whisper to emit any flushed trailing finals. */
 const WHISPER_STOP_SETTLE_MS = 1500;
 const WEB_SPEECH_STOP_SETTLE_MS = 1200;
+const WEB_SPEECH_RESTART_RETRY_BASE_MS = 400;
+const WEB_SPEECH_MAX_RESTART_ATTEMPTS = 8;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function createActiveTimeline(now: () => number = Date.now) {
+  let elapsedMs = 0;
+  let running = true;
+  let runningSinceMs = now();
+
+  const current = () =>
+    elapsedMs + (running ? Math.max(0, now() - runningSinceMs) : 0);
+
+  return {
+    current,
+    pause(elapsedAtPauseMs: number = current()) {
+      if (!running) return;
+      elapsedMs = elapsedAtPauseMs;
+      running = false;
+    },
+    resume() {
+      if (running) return;
+      runningSinceMs = now();
+      running = true;
+    },
+    reset(shouldRun: boolean = true) {
+      elapsedMs = 0;
+      runningSinceMs = now();
+      running = shouldRun;
+    },
+  };
 }
 
 export interface CapturedTranscript {
@@ -42,6 +72,10 @@ export interface CapturedTranscript {
   segments: SourcedTranscriptSegment[];
   /** Source stored with `save-browser-transcript`. */
   source?: "web-speech" | "macos-native" | "whisper";
+  /** Set when capture died partway. Text plus a reason is what tells the server
+   *  this transcript is truncated and has to be re-transcribed in the cloud;
+   *  omitting it saves a partial capture as a complete one. */
+  failureReason?: string;
 }
 
 export interface TranscriptionCapture {
@@ -170,15 +204,54 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
   const transcriptBuffer = createWebSpeechTranscriptBuffer();
   let stopResolver: ((value: CapturedTranscript) => void) | null = null;
   let settleTimer: ReturnType<typeof window.setTimeout> | null = null;
+  let restartTimer: ReturnType<typeof window.setTimeout> | null = null;
+  let restartFailures = 0;
+  let failureReason: string | null = null;
 
   const captured = (): CapturedTranscript => ({
     text: transcriptBuffer.text(),
     segments: [],
     source: "web-speech",
+    failureReason: failureReason ?? undefined,
   });
+
+  const clearRestartTimer = () => {
+    if (restartTimer === null) return;
+    window.clearTimeout(restartTimer);
+    restartTimer = null;
+  };
+
+  // Chrome ends the recognizer on its own roughly every minute, and always
+  // throws if start() is called synchronously from inside `onend`. Nothing
+  // starts, so no further `onend` arrives — the retry has to live here or the
+  // first failure ends transcription for the rest of the recording.
+  const scheduleRestart = (delayMs: number) => {
+    if (restartTimer !== null) return;
+    restartTimer = window.setTimeout(() => {
+      restartTimer = null;
+      if (disposed || stopped || paused) return;
+      try {
+        recognition.start();
+        restartFailures = 0;
+      } catch (err) {
+        const attempt = ++restartFailures;
+        if (attempt >= WEB_SPEECH_MAX_RESTART_ATTEMPTS) {
+          failureReason =
+            "Web Speech transcription stopped mid-recording and could not be restarted.";
+          console.warn(
+            "[clips-recorder] Web Speech transcription restart failed:",
+            err,
+          );
+          return;
+        }
+        scheduleRestart(WEB_SPEECH_RESTART_RETRY_BASE_MS * attempt);
+      }
+    }, delayMs);
+  };
 
   const settleStop = () => {
     if (!stopResolver) return;
+    clearRestartTimer();
     if (settleTimer) {
       window.clearTimeout(settleTimer);
       settleTimer = null;
@@ -200,6 +273,12 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 
   recognition.onerror = (event) => {
     if (event.error === "no-speech" || event.error === "aborted") return;
+    // A non-benign error drops audio until `onend` restarts recognition. That
+    // restart usually succeeds, so without recording the gap here the transcript
+    // saves as complete and the server never schedules cloud transcription for
+    // the missing stretch. Deliberately not cleared by a later successful
+    // restart: recovering the engine does not recover the lost speech.
+    failureReason ??= `Web Speech transcription dropped audio after a "${event.error}" error.`;
     console.warn(
       "[clips-recorder] Web Speech transcription error:",
       event.error,
@@ -215,14 +294,7 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
     }
     // While paused, keep the committed transcript but don't restart the engine.
     if (paused) return;
-    try {
-      recognition.start();
-    } catch (err) {
-      console.warn(
-        "[clips-recorder] Web Speech transcription restart failed:",
-        err,
-      );
-    }
+    scheduleRestart(0);
   };
 
   try {
@@ -250,6 +322,7 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
     async cancel() {
       disposed = true;
       stopped = true;
+      clearRestartTimer();
       if (settleTimer) {
         window.clearTimeout(settleTimer);
         settleTimer = null;
@@ -273,14 +346,18 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
     async resume() {
       if (disposed || stopped || !paused) return;
       paused = false;
+      restartFailures = 0;
       console.log("[clips-recorder] transcription resumed (web-speech)");
       try {
         recognition.start();
-      } catch (err) {
-        console.warn(
-          "[clips-recorder] Web Speech transcription resume failed:",
-          err,
-        );
+      } catch {
+        // `paused` is already false, so the recording is live through the
+        // failed start and the retry delay. A later successful retry does not
+        // recover that speech, so the gap is recorded durably and the server
+        // still schedules cloud transcription.
+        failureReason ??=
+          "Web Speech transcription dropped audio while resuming after a pause.";
+        scheduleRestart(WEB_SPEECH_RESTART_RETRY_BASE_MS);
       }
     },
     async resetTimeline() {
@@ -289,7 +366,11 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
   };
 }
 
-export const __test = { createWebSpeechTranscriptBuffer };
+export const __test = {
+  createActiveTimeline,
+  createWebSpeechTranscriptBuffer,
+  startBrowserTranscriptionCapture,
+};
 
 /**
  * Local transcription opens a microphone capture of its own. System-only
@@ -321,7 +402,9 @@ export async function startTranscriptionCapture(
   // asynchronously. Track when those are expected to have landed so a stop
   // soon after a pause waits for them instead of dropping the last words.
   let pauseFinalsSettleUntil = 0;
+  let transitionFailure: string | null = null;
   const unlistens: UnlistenFn[] = [];
+  const timeline = createActiveTimeline();
 
   const cleanup = () => {
     disposed = true;
@@ -342,6 +425,7 @@ export async function startTranscriptionCapture(
     text: transcriptFullText(lines),
     segments: transcriptSegments(lines),
     source: engine,
+    failureReason: transitionFailure ?? undefined,
   });
 
   let engine: TranscriptionEngine;
@@ -382,12 +466,14 @@ export async function startTranscriptionCapture(
     transitioning = true;
     try {
       if (desiredPaused) {
+        const pauseBoundaryMs = timeline.current();
         await stopTranscriptionEngine(engine);
+        timeline.pause(pauseBoundaryMs);
         paused = true;
         pauseFinalsSettleUntil = Date.now() + WHISPER_STOP_SETTLE_MS;
         console.log(`[clips-recorder] transcription paused (${engine})`);
       } else {
-        engine = await startTranscriptionEngine({
+        const nextEngine = await startTranscriptionEngine({
           mic,
           captureSystem,
           voiceProcessing: opts?.voiceProcessing,
@@ -396,9 +482,24 @@ export async function startTranscriptionCapture(
         // stop()/cancel() can run during the await above; if it did, the new
         // engine would leak (mic/system capture stays live). Tear it down.
         if (disposed) {
-          await stopTranscriptionEngine(engine).catch(() => {});
+          await stopTranscriptionEngine(nextEngine).catch(() => {});
           return;
         }
+        // A resumed Whisper capture is a fresh native session whose timestamps
+        // otherwise begin at zero. Rebase it to the recorder's active elapsed
+        // time, excluding the pause, before any new speech can finalize.
+        try {
+          await resetTranscriptionTimeline(nextEngine, timeline.current());
+        } catch (err) {
+          await stopTranscriptionEngine(nextEngine).catch(() => {});
+          throw err;
+        }
+        if (disposed) {
+          await stopTranscriptionEngine(nextEngine).catch(() => {});
+          return;
+        }
+        engine = nextEngine;
+        timeline.resume();
         paused = false;
         console.log(`[clips-recorder] transcription resumed (${engine})`);
       }
@@ -407,6 +508,7 @@ export async function startTranscriptionCapture(
       // reset it) so the next pause/resume toggle retries and converges, and
       // return early so we don't busy-loop re-applying a persistently failing
       // transition. `paused` still reflects the real engine state.
+      transitionFailure = `Local transcription ${desiredPaused ? "pause" : "resume"} failed; engine still ${paused ? "paused" : "live"}.`;
       console.warn(
         `[clips-recorder] transcription ${desiredPaused ? "pause" : "resume"} failed; engine still ${paused ? "paused" : "live"}:`,
         err,
@@ -416,6 +518,9 @@ export async function startTranscriptionCapture(
     } finally {
       transitioning = false;
     }
+    // Reached only when the transition landed, so a failure the next toggle
+    // converged on is no longer a reason to re-transcribe in the cloud.
+    transitionFailure = null;
     // Re-apply in case the desired state changed mid-transition.
     void applyAudioState();
   };
@@ -464,7 +569,8 @@ export async function startTranscriptionCapture(
       await applyAudioState();
     },
     async resetTimeline() {
-      await resetTranscriptionTimeline(engine);
+      timeline.reset(!desiredPaused);
+      await resetTranscriptionTimeline(engine, timeline.current());
     },
   };
 }

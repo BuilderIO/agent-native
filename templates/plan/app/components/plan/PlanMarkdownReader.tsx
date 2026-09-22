@@ -2,7 +2,7 @@ import { CodeSurface } from "@agent-native/core/blocks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconLink } from "@tabler/icons-react";
 import type { ComponentPropsWithoutRef, ElementType, ReactNode } from "react";
-import { isValidElement, useCallback, useRef } from "react";
+import { isValidElement, memo, useCallback, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -68,7 +68,7 @@ export function buildPlanMarkdownSectionCopyUrl(
  * treatment as the editor and code tabs (Shiki is client-only with a plain
  * `<pre>` SSR fallback, so this stays SSR-safe).
  */
-export function PlanMarkdownReader({
+export const PlanMarkdownReader = memo(function PlanMarkdownReader({
   markdown,
   className,
   blockId,
@@ -194,4 +194,4 @@ export function PlanMarkdownReader({
       </div>
     </div>
   );
-}
+});

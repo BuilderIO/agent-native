@@ -5,6 +5,8 @@ description: "The Nitro server layer in an agent-native app: what it's for, when
 
 # Server
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 The `server/` directory is the infrastructure layer of an agent-native app. It handles startup tasks, authentication, and the HTTP surfaces that actions don't cover. Most product behavior belongs in [Actions](/docs/actions-overview). The server is what makes those actions available.
 
 <Diagram id="doc-block-server-overview-1" title="How requests flow through the server" summary="Callers reach the Nitro server, which handles most requests through Actions. Middleware and Routes cover cases Actions can't. Both paths can query the database.">
@@ -85,9 +87,9 @@ The `server/` directory is the infrastructure layer of an agent-native app. It h
 
 ## Where the Server Fits {#role}
 
-In a traditional web app, the server is where most logic lives. Business rules, data access, and presentation all happen inside route handlers. Agent-native apps work differently. Logic lives in actions, which the agent and UI share as equal partners. The server's job is coordination: apply app-owned database migrations, configure authentication, mount the agent loop, and handle the narrow set of HTTP concerns that actions can't express on their own.
+In a traditional web app, the server is where most logic lives. Business rules, data access, and presentation all happen inside route handlers. Agent-Native apps work differently. Logic lives in actions, which the agent and UI share as equal partners. The server's job is coordination: apply app-owned database migrations, configure authentication, mount the agent loop, and handle the narrow set of HTTP concerns that actions can't express on their own.
 
-<Diagram id="doc-block-server-overview-2" title="Traditional server vs. Agent Native">
+<Diagram id="doc-block-server-overview-2" title="Traditional server vs. Agent-Native">
 
 ```html
 <div class="diagram-cmp">
@@ -109,7 +111,7 @@ In a traditional web app, the server is where most logic lives. Business rules, 
   </div>
   <div class="cmp-vs diagram-muted">vs</div>
   <div class="cmp-col">
-    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-label diagram-muted">Agent-Native</div>
     <div class="cmp-callers">
       <div class="diagram-node">Browser / UI</div>
       <div class="diagram-node">Agent</div>
@@ -215,7 +217,7 @@ The underlying request/response API is [H3](https://h3.unjs.io). When you see `d
 
 ## Default to Actions first {#actions-first}
 
-Agent Native architecture is different. Whenever you think of a new feature for your application, consider first whether it can be an action. For example, if the UI and agent both need to do something, define an action instead of a custom API route. Actions automatically become:
+Agent-Native architecture is different. Whenever you think of a new feature for your application, consider first whether it can be an action. For example, if the UI and agent both need to do something, define an action instead of a custom API route. Actions automatically become:
 
 - Agent tools.
 - Typed frontend hooks.

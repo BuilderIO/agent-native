@@ -1,3 +1,5 @@
+import { parseRetryAfterMs } from "../../shared/retry-after.js";
+
 /**
  * Compose an error's message with its `cause` chain.
  *
@@ -12,12 +14,24 @@
 const DEFAULT_MAX_CAUSE_LINKS = 4;
 const MAX_CAUSE_LINK_CHARS = 200;
 
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
 export function describeErrorWithCauses(
   err: unknown,
   maxLinks: number = DEFAULT_MAX_CAUSE_LINKS,
 ): string {
   const head =
-    err instanceof Error ? err.message : String(err ?? "Unknown error");
+    err instanceof Error
+      ? err.message
+      : stringifyUnknown(err) || "Unknown error";
   const links: string[] = [];
   const seen = new Set<unknown>([err]);
   let cause: unknown = (err as { cause?: unknown } | null)?.cause;
@@ -25,7 +39,8 @@ export function describeErrorWithCauses(
     if (seen.has(cause)) break;
     seen.add(cause);
     const code = (cause as { code?: unknown }).code;
-    const message = cause instanceof Error ? cause.message : String(cause);
+    const message =
+      cause instanceof Error ? cause.message : stringifyUnknown(cause);
     const text = (typeof code === "string" ? `${code} ${message}` : message)
       .trim()
       .slice(0, MAX_CAUSE_LINK_CHARS);
@@ -97,14 +112,60 @@ export function isContextOverflowMessage(message: string): boolean {
 /**
  * The Builder gateway's own 500 envelope, which is the whole message: an
  * apology sentence plus a correlation id, e.g. "Sorry, we ran into an issue
- * processing your request. ERROR ID: 0f3c...". The apology prose varies; the
- * correlation id does not, so that is what the predicate below anchors on.
+ * processing your request. ERROR ID: 0f3c...". Require the known apology
+ * prefix as well as the id so an unrelated provider message cannot match.
  */
 export const BUILDER_GATEWAY_INTERNAL_ERROR_CODE =
   "builder_gateway_internal_error";
 
+/**
+ * A provider refusal with no structured reason: the gateway relayed an
+ * upstream 403 whose body was empty or a bare "Forbidden". Prod shows these
+ * arriving in bursts across unrelated users, usually right after a 429 run,
+ * for credentials that worked seconds earlier — load-shedding, not a revoked
+ * key. Classifying them as a credential rejection told users to reconnect a
+ * working provider and ended the turn on the first attempt; this code keeps
+ * them on the retry-with-backoff lane next to 429/529.
+ */
+export const PROVIDER_TRANSIENT_REJECTION_ERROR_CODE =
+  "provider_transient_rejection";
+
+/**
+ * Terminal code for a turn that stayed rate limited after the engine's short
+ * retries, one cooled-down continuation, and the fallback model. The client
+ * renders it with a manual retry and never auto-continues it, so a sustained
+ * provider limit cannot become a multi-minute chain of identical requests.
+ */
+export const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
+
+/** Shared so the gateway, chat copy, and error presentation classify quotas alike. */
+export function isCreditsLimitErrorCode(errorCode?: string): boolean {
+  const code = errorCode?.trim().toLowerCase();
+  return code === "http_402" || code?.startsWith("credits-limit") === true;
+}
+
+/**
+ * A 403 whose "reason" is only an SDK/proxy status echo — an empty body, a
+ * bare "Forbidden", or the AI SDK's "403 status code (no body)" — carries no
+ * signal to act on, unlike a structured gateway code or a message that names
+ * a credential. Shared by `classifyProviderError` below and the Builder
+ * engine's own 403 handling so both engines classify the identical wording as
+ * transient rather than disagreeing on which "Forbidden" means what.
+ */
+export function isBareProviderRejectionMessage(message: string): boolean {
+  const trimmed = message.trim();
+  return (
+    trimmed === "" ||
+    /^forbidden$/i.test(trimmed) ||
+    /^403 status code(?: \(no body\))?$/i.test(trimmed) ||
+    /^builder gateway returned 403$/i.test(trimmed)
+  );
+}
+
 const BUILDER_GATEWAY_ERROR_ID_PATTERN = /\berror id:\s*([0-9a-f]+)\b/i;
 const BUILDER_GATEWAY_ERROR_ID_MIN_CHARS = 8;
+const BUILDER_GATEWAY_ERROR_PREFIX_PATTERN =
+  /^sorry,\s+(?:we ran into an issue processing your request|this was caused by an internal error)\b/i;
 
 /**
  * The gateway attaches that envelope to an unhandled 500, and it arrives two
@@ -118,8 +179,21 @@ const BUILDER_GATEWAY_ERROR_ID_MIN_CHARS = 8;
 export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
   const match = BUILDER_GATEWAY_ERROR_ID_PATTERN.exec(message);
   return (
-    match !== null && match[1].length >= BUILDER_GATEWAY_ERROR_ID_MIN_CHARS
+    BUILDER_GATEWAY_ERROR_PREFIX_PATTERN.test(message) &&
+    match !== null &&
+    match[1].length >= BUILDER_GATEWAY_ERROR_ID_MIN_CHARS
   );
+}
+
+/** Preserve the canonical code only for the gateway's generic error envelope. */
+export function canonicalizeBuilderGatewayErrorCode(
+  code: string | undefined,
+  message: string,
+): string | undefined {
+  return (code === undefined || code === "provider_internal_error") &&
+    isBuilderGatewayInternalErrorMessage(message)
+    ? BUILDER_GATEWAY_INTERNAL_ERROR_CODE
+    : code;
 }
 
 /** The overflow codes a provider or gateway may report instead of prose. */
@@ -136,6 +210,43 @@ export interface ProviderErrorClassification {
   errorCode?: string;
   statusCode?: number;
   providerRetryable?: boolean;
+  /**
+   * Provider-requested backoff from its `Retry-After` header, capped at
+   * {@link MAX_RETRY_AFTER_MS}. Absent when no error in the chain carried a
+   * (parseable) header — callers fall back to their own fixed backoff.
+   */
+  retryAfterMs?: number;
+}
+
+/**
+ * Upper bound on a provider-requested `Retry-After` wait. Without a cap, a
+ * provider asking for an hour-long backoff would silently consume the entire
+ * hosted foreground run budget on one retry attempt.
+ */
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/**
+ * Read `Retry-After` off whichever error in the chain actually carries the
+ * HTTP response: the raw error, the AI SDK's unwrapped `RetryError.lastError`,
+ * or a plain `.cause`. Checked in that order so the most specific source wins.
+ */
+export function extractRetryAfterMs(err: unknown): number | undefined {
+  const wrapped = err as { lastError?: unknown; cause?: unknown } | null;
+  for (const source of [err, wrapped?.lastError, wrapped?.cause]) {
+    const headers = (source as { responseHeaders?: unknown } | null)
+      ?.responseHeaders;
+    if (!headers || typeof headers !== "object") continue;
+    const ms = parseRetryAfterMs(headers as Record<string, string>);
+    if (ms !== null) {
+      if (ms > MAX_RETRY_AFTER_MS) {
+        console.warn(
+          `[classifyProviderError] Retry-After ${ms}ms exceeds cap; using ${MAX_RETRY_AFTER_MS}ms`,
+        );
+      }
+      return Math.min(ms, MAX_RETRY_AFTER_MS);
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -185,22 +296,48 @@ export function classifyProviderError(
       isProviderConnectionErrorMessage(
         typeof providerError?.message === "string"
           ? providerError.message
-          : String(providerError),
+          : stringifyUnknown(providerError),
+      ));
+
+  // A 403 with a real status but no reason worth reading — the gateway
+  // load-shedding signature, not a revoked credential. Checked against both
+  // the cause chain and the raw provider message for the same reason
+  // `isConnectionError` is. This helper also serves the direct provider
+  // adapters, whose SDKs can say `isRetryable: false` outright; that verdict
+  // outranks the inference, so an opaque but explicitly final 403 from a
+  // direct provider keeps `http_403` and the credential-rejected lane.
+  const isBareRejection =
+    statusCode === 403 &&
+    providerError?.isRetryable !== false &&
+    (isBareProviderRejectionMessage(described) ||
+      isBareProviderRejectionMessage(
+        typeof providerError?.message === "string"
+          ? providerError.message
+          : stringifyUnknown(providerError),
       ));
 
   const providerRetryable =
     typeof providerError?.isRetryable === "boolean"
       ? providerError.isRetryable
-      : isConnectionError || timedOut
+      : isConnectionError || isBareRejection || timedOut
         ? true
         : undefined;
+
+  const retryAfterMs = extractRetryAfterMs(err);
 
   return {
     // Tag every known status as `http_<status>` (not just 401) so a rate limit
     // surfaces as `http_429`: the structured statusCode drives turn-level
-    // retries, but run-level continuation keys off the errorCode.
+    // retries, but run-level continuation keys off the errorCode. A bare 403
+    // is the one status that gets a different code instead of `http_403`,
+    // because that code is the client's credential-rejected signal.
     ...(statusCode !== undefined
-      ? { errorCode: `http_${statusCode}`, statusCode }
+      ? isBareRejection
+        ? {
+            errorCode: PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+            statusCode,
+          }
+        : { errorCode: `http_${statusCode}`, statusCode }
       : isConnectionError || timedOut
         ? { errorCode: "provider_network_error" }
         : // Nothing structured — fall back to reading the message, so a
@@ -210,6 +347,7 @@ export function classifyProviderError(
             return code ? { errorCode: code } : {};
           })()),
     ...(providerRetryable !== undefined ? { providerRetryable } : {}),
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   };
 }
 

@@ -17,7 +17,7 @@ let skippingLogged = false;
 
 export async function runMediaVerificationSweepOnce(): Promise<void> {
   const { rows } = await getDbExec().execute({
-    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE ?`,
+    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE $1`,
     args: [`${MEDIA_VERIFICATION_STATE_PREFIX}%`],
   });
   const now = Date.now();
@@ -101,7 +101,7 @@ export async function runMediaVerificationSweepOnce(): Promise<void> {
       );
     } catch (err) {
       console.warn("[media-verification] sweep item failed", {
-        key: String(row.key ?? ""),
+        key: typeof row.key === "string" ? row.key : "",
         recordingId,
         error: err instanceof Error ? err.message : String(err),
       });

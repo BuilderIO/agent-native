@@ -158,14 +158,27 @@ function pickString(value: unknown, max: number): string | undefined {
   return trimmed.slice(0, max);
 }
 
-export default defineEventHandler(async (event: H3Event) => {
-  const recordingId = getRouterParam(event, "recordingId");
+export async function handleResetRecordingChunks(
+  event: H3Event,
+  override?: {
+    recordingId?: string;
+    ownerEmail?: string;
+    orgId?: string;
+  },
+) {
+  const recordingId =
+    override?.recordingId ?? getRouterParam(event, "recordingId");
   if (!recordingId) {
     setResponseStatus(event, 400);
     return { error: "Missing recordingId" };
   }
 
-  const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
+  const { ownerEmail, orgId } = override?.ownerEmail
+    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
+    : await getEventOwnerContext(event).then(({ userEmail, orgId }) => ({
+        ownerEmail: userEmail,
+        orgId,
+      }));
   const body = (await readBody(event).catch(() => null)) as {
     compression?: CompressionMeta | null;
     requestStreaming?: boolean;
@@ -238,7 +251,10 @@ export default defineEventHandler(async (event: H3Event) => {
         : null;
     const existingAttemptId = existing.uploadAttemptId ?? null;
     const existingGenerationId = existing.uploadGenerationId ?? null;
-    if (recoveryEnabled && existingAttemptId !== requestedAttemptId) {
+    if (
+      existingAttemptId !== null &&
+      existingAttemptId !== requestedAttemptId
+    ) {
       setResponseStatus(event, 409);
       return {
         error: "A newer upload retry is already active.",
@@ -251,7 +267,10 @@ export default defineEventHandler(async (event: H3Event) => {
       body.uploadGenerationId.length <= 128
         ? body.uploadGenerationId
         : null;
-    if (recoveryEnabled && existingGenerationId !== requestedGenerationId) {
+    if (
+      existingGenerationId !== null &&
+      existingGenerationId !== requestedGenerationId
+    ) {
       setResponseStatus(event, 409);
       return {
         error: "A newer upload generation is already active.",
@@ -281,10 +300,12 @@ export default defineEventHandler(async (event: H3Event) => {
     // fence. Retry claims always opt in; legacy reset callers keep the null
     // generation wire contract until they are upgraded.
     const useGenerationFence =
-      recoveryEnabled &&
-      (requestedAttemptId !== null ||
-        requestedGenerationId !== null ||
-        body?.useGenerationFence === true);
+      existingAttemptId !== null ||
+      existingGenerationId !== null ||
+      (recoveryEnabled &&
+        (requestedAttemptId !== null ||
+          requestedGenerationId !== null ||
+          body?.useGenerationFence === true));
     const nextGenerationId = useGenerationFence ? randomUUID() : null;
     const uploadStateKey = `recording-upload-${recordingId}`;
     const uploadStateSnapshot = await readAppState(uploadStateKey);
@@ -314,7 +335,9 @@ export default defineEventHandler(async (event: H3Event) => {
         failureReason: null,
         uploadProgress: 0,
         uploadGenerationId: nextGenerationId,
-        ...(!recoveryEnabled ? { uploadAttemptId: null } : {}),
+        ...(!recoveryEnabled && existingAttemptId === null
+          ? { uploadAttemptId: null }
+          : {}),
         uploadLeaseExpiresAt: uploadLeaseExpiry(),
         updatedAt: now,
       })
@@ -503,8 +526,9 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     }
 
+    const preservedAttemptId = existingAttemptId;
     const resetLease = await renewUploadLease(recordingId, {
-      attemptId: recoveryEnabled ? existingAttemptId : null,
+      attemptId: preservedAttemptId,
       generationId: nextGenerationId,
     });
     if (!resetLease.held) {
@@ -528,7 +552,7 @@ export default defineEventHandler(async (event: H3Event) => {
         progress: 0,
         chunksReceived: 0,
         bytesReceived: 0,
-        uploadAttemptId: recoveryEnabled ? existingAttemptId : null,
+        uploadAttemptId: preservedAttemptId,
         uploadGenerationId: nextGenerationId,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         updatedAt: now,
@@ -550,8 +574,7 @@ export default defineEventHandler(async (event: H3Event) => {
         );
       if (
         current?.status !== "uploading" ||
-        (current.uploadAttemptId ?? null) !==
-          (recoveryEnabled ? existingAttemptId : null) ||
+        (current.uploadAttemptId ?? null) !== preservedAttemptId ||
         (current.uploadGenerationId ?? null) !== nextGenerationId
       ) {
         setResponseStatus(event, 409);
@@ -583,4 +606,8 @@ export default defineEventHandler(async (event: H3Event) => {
       uploadGenerationId: nextGenerationId,
     };
   });
-});
+}
+
+export default defineEventHandler((event: H3Event) =>
+  handleResetRecordingChunks(event),
+);

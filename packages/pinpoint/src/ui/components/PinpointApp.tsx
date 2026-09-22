@@ -235,7 +235,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     // Cmd/Ctrl+Shift+C -> Copy annotations
     if (mod && e.shiftKey && e.key === "C") {
       e.preventDefault();
-      copyPins();
+      void copyPins();
       return;
     }
 
@@ -243,11 +243,11 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     if (mod && e.shiftKey && e.key === "Enter") {
       e.preventDefault();
       if (queue().length > 0) {
-        sendQueue();
+        void sendQueue();
       } else if (selectedPinIds().size > 0) {
-        sendSelected();
+        void sendSelected();
       } else {
-        sendPins();
+        void sendPins();
       }
       return;
     }
@@ -318,7 +318,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
   // Load existing pins
   createEffect(() => {
     const pageUrl = window.location.pathname;
-    storage.load(pageUrl).then((loaded) => setPins(loaded));
+    void storage.load(pageUrl).then((loaded) => setPins(loaded));
   });
 
   // Sync DOM markers whenever pins change
@@ -567,7 +567,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     };
 
     setPins((prev) => [...prev, pin]);
-    storage.save(pin);
+    void storage.save(pin);
     closePopup();
     return pin;
   }
@@ -615,7 +615,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     const now = new Date().toISOString();
     const updated = { ...pin, comment, updatedAt: now };
     setPins((prev) => prev.map((p) => (p.id === pin.id ? updated : p)));
-    storage.update(pin.id, { comment, updatedAt: now });
+    void storage.update(pin.id, { comment, updatedAt: now });
     closePopup();
   }
 
@@ -641,7 +641,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
 
   function removePin(id: string) {
     setPins((prev) => prev.filter((p) => p.id !== id));
-    storage.delete(id);
+    void storage.delete(id);
     // Also remove from selected
     setSelectedPinIds((prev) => {
       const next = new Set(prev);
@@ -652,7 +652,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
 
   function clearPins() {
     const pageUrl = window.location.pathname;
-    storage.clear(pageUrl);
+    void storage.clear(pageUrl);
     setPins([]);
     setSelectedPinIds(new Set<string>());
   }

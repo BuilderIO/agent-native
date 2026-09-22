@@ -5,7 +5,9 @@ description: "File-based routing for agent-native apps with React Router v8: pag
 
 # Routing
 
-Agent-native apps use **React Router v8** with file-based routing via `flatRoutes()` from `@react-router/fs-routes`. Every file in `app/routes/` becomes a URL. Templates use the dot-notation convention. Dots separate URL segments inside a single filename.
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
+Agent-Native apps use **React Router v8** with file-based routing via `flatRoutes()` from `@react-router/fs-routes`. Every file in `app/routes/` becomes a URL. Templates use the dot-notation convention. Dots separate URL segments inside a single filename.
 
 This page covers client routes, the pages rendered in the browser from `app/routes/`. Server routes are a separate system: Nitro file routes under `server/routes/`, plus the framework's own `/_agent-native/*` endpoints. Those live on the [Routes](/docs/server-routes) page. The two don't share a directory, a naming convention, or a router, so a `server/routes/` file never becomes a page here and an `app/routes/` file never becomes a server endpoint.
 

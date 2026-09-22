@@ -1,7 +1,7 @@
 ---
 name: browser-sessions
 description: >-
-  Architecture for attaching Chrome page context and control to Agent Native
+  Architecture for attaching Chrome page context and control to Agent-Native
   conversations. Use when building browser capture, extension chat, browser
   control, or cross-app webpage workflows.
 scope: dev
@@ -13,11 +13,11 @@ metadata:
 
 ## Rule
 
-Attach a browser session to an Agent Native conversation. Keep the extension
+Attach a browser session to an Agent-Native conversation. Keep the extension
 generic and let Dispatch route domain work to other apps over A2A.
 
 The packaged extension owns Chrome APIs, permission state, tab identity, and
-the local side-panel shell. The Agent Native app owns authentication, chat
+the local side-panel shell. The Agent-Native app owns authentication, chat
 history, streaming, approvals, and agent routing.
 
 ## Capability tiers
@@ -62,7 +62,7 @@ or SQL. Upload them to configured blob storage and pass references.
 ## Side-panel chat
 
 Bundle the extension shell and all privileged logic in the Manifest V3 package.
-A remote Agent Native chat may render in an iframe, but it never gains Chrome
+A remote Agent-Native chat may render in an iframe, but it never gains Chrome
 APIs. Validate every bridge message with:
 
 - the exact expected origin;

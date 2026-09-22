@@ -2,7 +2,6 @@ import {
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
-  intType,
 } from "@agent-native/core/db";
 
 import * as schema from "../db/schema.js";
@@ -76,9 +75,9 @@ export const runMailMigrations = runMigrations(
     owner_email TEXT NOT NULL,
     contact_email TEXT NOT NULL,
     contact_name TEXT NOT NULL DEFAULT '',
-    send_count ${intType()} NOT NULL DEFAULT 0,
-    receive_count ${intType()} NOT NULL DEFAULT 0,
-    last_contacted_at ${intType()} NOT NULL
+    send_count BIGINT NOT NULL DEFAULT 0,
+    receive_count BIGINT NOT NULL DEFAULT 0,
+    last_contacted_at BIGINT NOT NULL
   )`,
     },
     {
@@ -87,10 +86,10 @@ export const runMailMigrations = runMigrations(
     pixel_token TEXT PRIMARY KEY,
     message_id TEXT NOT NULL,
     owner_email TEXT NOT NULL,
-    sent_at ${intType()} NOT NULL,
-    opens_count ${intType()} NOT NULL DEFAULT 0,
-    first_opened_at ${intType()},
-    last_opened_at ${intType()},
+    sent_at BIGINT NOT NULL,
+    opens_count BIGINT NOT NULL DEFAULT 0,
+    first_opened_at BIGINT,
+    last_opened_at BIGINT,
     last_user_agent TEXT
   )`,
     },
@@ -104,9 +103,9 @@ export const runMailMigrations = runMigrations(
     click_token TEXT PRIMARY KEY,
     pixel_token TEXT NOT NULL,
     url TEXT NOT NULL,
-    clicks_count ${intType()} NOT NULL DEFAULT 0,
-    first_clicked_at ${intType()},
-    last_clicked_at ${intType()}
+    clicks_count BIGINT NOT NULL DEFAULT 0,
+    first_clicked_at BIGINT,
+    last_clicked_at BIGINT
   )`,
     },
     {
@@ -133,9 +132,9 @@ export const runMailMigrations = runMigrations(
     compose_id TEXT,
     sent_message_id TEXT,
     status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'in_review', 'sent', 'dismissed')),
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL,
-    sent_at ${intType()}
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    sent_at BIGINT
   )`,
     },
     {
@@ -167,8 +166,8 @@ CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules(owner_
     owner_email TEXT NOT NULL,
     name TEXT NOT NULL,
     body TEXT NOT NULL,
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
   );
 CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name)`,
     },
@@ -186,7 +185,7 @@ CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name
       version: 17,
       name: "queued-draft-send-claim",
       sql: `ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claim_id TEXT;
-ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at ${intType()}`,
+ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at BIGINT`,
     },
     {
       version: 18,
@@ -196,9 +195,9 @@ ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at ${intTy
     owner_email TEXT NOT NULL,
     query_fingerprint TEXT NOT NULL,
     state TEXT NOT NULL,
-    version ${intType()} NOT NULL DEFAULT 1,
-    expires_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL
+    version BIGINT NOT NULL DEFAULT 1,
+    expires_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
   );
 CREATE INDEX IF NOT EXISTS idx_mail_inventory_cursors_owner_expiry ON mail_inventory_cursors(owner_email, expires_at);`,
     },
@@ -206,7 +205,81 @@ CREATE INDEX IF NOT EXISTS idx_mail_inventory_cursors_owner_expiry ON mail_inven
       version: 19,
       name: "mail-inventory-cursor-leases",
       sql: `ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claim_id TEXT;
-ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claimed_at ${intType()}`,
+ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claimed_at BIGINT`,
+    },
+    {
+      version: 20,
+      name: "automation-rules-kind",
+      sql: `ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'automation';
+CREATE INDEX IF NOT EXISTS idx_automation_rules_owner_kind ON automation_rules(owner_email, kind)`,
+    },
+    {
+      version: 21,
+      name: "mail-sync-accounts",
+      sql: `CREATE TABLE IF NOT EXISTS mail_sync_accounts (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    history_id TEXT,
+    full_sync_page_token TEXT,
+    full_sync_history_id TEXT,
+    full_sync_started_at BIGINT,
+    status TEXT NOT NULL DEFAULT 'idle' CHECK(status IN ('idle', 'syncing', 'error', 'needs_reauth')),
+    last_error TEXT,
+    last_synced_at BIGINT,
+    sync_claim_id TEXT,
+    sync_claimed_at BIGINT,
+    labels_json TEXT,
+    labels_updated_at BIGINT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_mail_sync_accounts_owner ON mail_sync_accounts(owner_email);`,
+    },
+    {
+      version: 22,
+      name: "mail-inbox-threads",
+      sql: `CREATE TABLE IF NOT EXISTS mail_inbox_threads (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    history_id TEXT,
+    in_inbox INTEGER NOT NULL,
+    is_unread INTEGER,
+    is_starred INTEGER,
+    is_important INTEGER,
+    is_automated INTEGER,
+    latest_date BIGINT NOT NULL,
+    latest_message_id TEXT,
+    subject TEXT,
+    snippet TEXT,
+    from_name TEXT,
+    from_email TEXT,
+    to_json TEXT,
+    label_ids_json TEXT NOT NULL,
+    message_ids_json TEXT NOT NULL,
+    message_count INTEGER,
+    unread_count INTEGER,
+    has_attachments INTEGER,
+    synced_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_mail_inbox_threads_owner_inbox_date ON mail_inbox_threads(owner_email, in_inbox, latest_date);
+CREATE INDEX IF NOT EXISTS idx_mail_inbox_threads_owner_account ON mail_inbox_threads(owner_email, account_email);`,
+    },
+    {
+      version: 23,
+      name: "mail-inbox-local-mutation-fence",
+      sql: `ALTER TABLE mail_inbox_threads ADD COLUMN IF NOT EXISTS local_mutation_at BIGINT`,
+    },
+    {
+      version: 24,
+      name: "mail-inbox-mutation-evidence",
+      sql: `ALTER TABLE mail_inbox_threads
+ADD COLUMN IF NOT EXISTS local_mutation_history_id TEXT;
+ALTER TABLE mail_inbox_threads
+ADD COLUMN IF NOT EXISTS local_mutation_fields INTEGER`,
     },
   ],
   { table: "mail_migrations" },

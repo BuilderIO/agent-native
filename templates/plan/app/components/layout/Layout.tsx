@@ -1,13 +1,17 @@
 import {
   AgentSidebar,
   isAgentChatHomeHandoffActive,
+  isAssistantChatHistoryVersion,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 
 import {
@@ -47,6 +51,7 @@ function isPlanDetailRoute(pathname: string): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -87,19 +92,57 @@ export function Layout({ children }: LayoutProps) {
 
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const planDetailRoute = isPlanDetailRoute(location.pathname);
-  const chatRoute = location.pathname === "/";
+  const chatRoute = pathname === "/chat";
+  const planScope = useMemo(() => {
+    if (!planDetailRoute || pathname.startsWith("/local-plans/")) {
+      return undefined;
+    }
+    const match = pathname.match(/^\/(?:plans|recaps)\/([^/]+)/);
+    return match?.[1] ? { type: "plan" as const, id: match[1] } : undefined;
+  }, [pathname, planDetailRoute]);
+  const planChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!planScope) return undefined;
+    const planId = planScope.id;
+    return {
+      list: {
+        action: "list-plan-versions",
+        args: { planId, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-plan-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          planId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [planScope]);
+  const { session, isLoading: sessionLoading } = useSession();
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "plans",
-    activePath: location.pathname,
+    activePath: pathname,
     enabled: !chatRoute,
   });
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("plans");
   useAgentChatHomeHandoffLinks({
     storageKey: "plans",
-    chatPath: "/",
+    chatPath: "/chat",
+    isChatPath: (path) => (path.replace(/\/+$/, "") || "/") === "/chat",
     requireActiveHandoff: true,
   });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;
+  const hideAppHeader = pathname === "/plans" && !sessionLoading && !session;
   const effectiveSidebarCollapsed = chatRoute
     ? chatSidebarCollapsed
     : sidebarCollapsed;
@@ -168,6 +211,17 @@ export function Layout({ children }: LayoutProps) {
             </button>
           </div>
         )
+      ) : hideAppHeader ? (
+        <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label={t("sidebar.openNavigation")}
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+          >
+            <IconMenu2 className="h-4 w-4" />
+          </button>
+        </div>
       ) : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}
@@ -211,6 +265,8 @@ export function Layout({ children }: LayoutProps) {
             chatViewTransitionHandoff={chatHomeHandoffPending}
             storageKey="plans"
             openOnChatRunning={chatHomeHandoffActive}
+            scope={planScope}
+            chatHistory={planChatHistory}
             agentPageHref="/settings/agent"
             emptyStateText={t("agent.emptyState")}
             suggestions={[

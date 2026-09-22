@@ -16,9 +16,14 @@ on:
       - ".changeset/**"
       - ".github/workflows/changeset-check.yml"
       - "scripts/check-changeset.mjs"
+      - "scripts/guard-no-major-changeset.mjs"
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -29,6 +34,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+          filter: blob:none
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -38,3 +44,6 @@ jobs:
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
         run: node scripts/check-changeset.mjs
+
+      - name: Enforce package bump policy
+        run: node scripts/guard-no-major-changeset.mjs

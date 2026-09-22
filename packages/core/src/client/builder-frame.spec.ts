@@ -2,11 +2,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  _resetBuilderFrameDetectionForTests,
   isBuildAppOrAgentRequest,
   isInBuilderFrame,
+  isTrustedBuilderMessage,
   sendToBuilderChat,
   shouldParentFrameOwnAgentPanel,
 } from "./builder-frame.js";
+
+afterEach(() => {
+  _resetBuilderFrameDetectionForTests();
+});
 
 function setParentWindow(value: unknown) {
   Object.defineProperty(window, "parent", {
@@ -28,21 +34,85 @@ function setAncestorOrigin(origin: string | null) {
   });
 }
 
+function setDocumentReferrer(referrer: string) {
+  Object.defineProperty(document, "referrer", {
+    configurable: true,
+    value: referrer,
+  });
+}
+
 describe("isInBuilderFrame", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
     setParentWindow(window);
     setAncestorOrigin(null);
+    setDocumentReferrer("");
   });
 
   it("does not treat a plain top-level page as Builder", () => {
     expect(isInBuilderFrame()).toBe(false);
   });
 
+  it("does not treat a top-level Dispatch page opened from Builder as Builder", () => {
+    setDocumentReferrer("https://builder.io/content/123");
+
+    expect(isInBuilderFrame()).toBe(false);
+  });
+
+  it("does not treat the hosted Dispatch shell as a Builder editor", () => {
+    setParentWindow({ postMessage: vi.fn() });
+    setAncestorOrigin("https://agent-workspace.builder.io");
+
+    expect(isInBuilderFrame()).toBe(false);
+    expect(shouldParentFrameOwnAgentPanel()).toBe(true);
+  });
+
   it("treats Builder preview params as Builder in top-level webviews", () => {
     window.history.replaceState({}, "", "/?builder.preview=interact");
 
     expect(isInBuilderFrame()).toBe(true);
+  });
+
+  it("keeps Builder detection after SPA navigation drops preview params", () => {
+    window.history.replaceState({}, "", "/?builder.preview=interact");
+    expect(isInBuilderFrame()).toBe(true);
+
+    window.history.pushState({}, "", "/apps/mail");
+
+    expect(isInBuilderFrame()).toBe(true);
+  });
+
+  it("keeps the verified local Builder origin for messages after navigation", () => {
+    const parent = { postMessage: vi.fn() };
+    setParentWindow(parent);
+    setAncestorOrigin("http://localhost:3000");
+    window.history.replaceState({}, "", "/?builder.preview=interact");
+
+    expect(isInBuilderFrame()).toBe(true);
+
+    window.history.pushState({}, "", "/apps/mail");
+
+    expect(
+      isTrustedBuilderMessage({
+        origin: "http://localhost:3000",
+        source: parent,
+      } as MessageEvent),
+    ).toBe(true);
+  });
+
+  it("captures the Builder signal before the first SPA navigation", async () => {
+    vi.resetModules();
+    try {
+      window.history.replaceState({}, "", "/?builder.preview=interact");
+
+      const { isInBuilderFrame: detectBuilderFrame } =
+        await import("./builder-frame.js");
+      window.history.pushState({}, "", "/apps/mail");
+
+      expect(detectBuilderFrame()).toBe(true);
+    } finally {
+      vi.resetModules();
+    }
   });
 });
 
@@ -76,6 +146,13 @@ describe("shouldParentFrameOwnAgentPanel", () => {
     setAncestorOrigin("https://builder.io");
 
     expect(shouldParentFrameOwnAgentPanel()).toBe(false);
+  });
+
+  it("keeps the app chat panel delegated for the beta Dispatch shell", () => {
+    setParentWindow({ postMessage: vi.fn() });
+    setAncestorOrigin("https://beta.agent-workspace.builder.io");
+
+    expect(shouldParentFrameOwnAgentPanel()).toBe(true);
   });
 });
 

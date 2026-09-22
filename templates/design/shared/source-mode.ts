@@ -105,6 +105,7 @@ export type ElementProvenanceMethod =
   | "data-attribute" // build-time transform's data-source-*/data-loc attributes
   | "debug-source" // React <=18 structured `_debugSource` fiber field
   | "debug-stack" // React 19 `_debugStack` owner stack
+  | "debug-stack-remapped" // React 19 stack position remapped through a source map
   | "vue-inspector" // Vue dev compiler's `__v_inspector` vnode prop
   | "svelte-meta"; // Svelte dev compiler's `__svelte_meta.loc`
 
@@ -116,10 +117,33 @@ export type ElementProvenanceFramework =
   | "angular"
   | "lwc";
 
+/**
+ * Runtime component boundary discovered by a framework bridge. This is
+ * deliberately separate from the durable component annotations used by the
+ * inline component model: the bridge can identify an unannotated React
+ * boundary before promotion, while promotion still writes the canonical
+ * `data-agent-native-component` marker.
+ */
+export interface RuntimeComponentIdentity {
+  componentId: string;
+  instanceId: string;
+  name: string;
+  framework: ElementProvenanceFramework;
+  sourceFile?: string;
+  line?: number;
+  column?: number;
+  method?: ElementProvenanceMethod;
+  ownerKey?: string;
+  props: Array<{ name: string; value: string }>;
+  writeCapability: "authored-jsx-literal" | "unsupported";
+  reason?: string;
+}
+
 export const ELEMENT_PROVENANCE_METHODS: readonly ElementProvenanceMethod[] = [
   "data-attribute",
   "debug-source",
   "debug-stack",
+  "debug-stack-remapped",
   "vue-inspector",
   "svelte-meta",
 ];
@@ -134,9 +158,11 @@ export type SourcePositionPrecision = "authored" | "transformed" | "unknown";
  * the authored one: measured on the React 19.2 + Vite 8 target, `<h1>`
  * authored at line 13 reports as line 26.
  *
- * So a `debug-stack` position must never be presented as the authored JSX
- * line, and deterministic writers must not seek to it. `unknown` (no tier
- * reported) is deliberately not folded into `authored`.
+ * So an unmapped `debug-stack` position must never be presented as the
+ * authored JSX line, and deterministic writers must not seek to it. A
+ * `debug-stack-remapped` position has crossed a verified source map and is
+ * authored again. `unknown` (no tier reported) is deliberately not folded
+ * into `authored`.
  */
 export function sourcePositionPrecision(
   method: ElementProvenanceMethod | undefined,
@@ -198,7 +224,9 @@ export type { DesignSourceCapabilities };
 
 export interface LocalhostDesignRoute {
   id: string;
+  connectionId?: string;
   path: string;
+  url?: string;
   title: string;
   sourceFile?: string;
   sourceKind?: "react-router" | "html" | "manual";
@@ -493,20 +521,26 @@ export function designSourceTypeFromData(
 }
 
 export function designConnectionIdFromData(value: unknown): string | undefined {
+  return designConnectionIdsFromData(value)[0];
+}
+
+export function designConnectionIdsFromData(value: unknown): string[] {
   let parsed = value;
   if (typeof parsed === "string") {
     try {
       parsed = JSON.parse(parsed) as unknown;
     } catch {
-      return undefined;
+      // coercion-ok: malformed persisted design data has no connection ids.
+      return [];
     }
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return undefined;
+    return [];
   }
   const data = parsed as Record<string, unknown>;
+  const ids = new Set<string>();
   if (typeof data.connectionId === "string" && data.connectionId) {
-    return data.connectionId;
+    ids.add(data.connectionId);
   }
   for (const metadataKey of ["screenMetadata", "localhostScreens"] as const) {
     const metadata = data[metadataKey];
@@ -517,11 +551,11 @@ export function designConnectionIdFromData(value: unknown): string | undefined {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
       const connectionId = (entry as Record<string, unknown>).connectionId;
       if (typeof connectionId === "string" && connectionId) {
-        return connectionId;
+        ids.add(connectionId);
       }
     }
   }
-  return undefined;
+  return [...ids];
 }
 
 export function makeLocalhostRouteId(path: string): string {

@@ -126,6 +126,68 @@ describe("responsive Interact wiring", () => {
     );
   });
 
+  it("keeps guided questions and Interact content clear of the absolute left rail", () => {
+    expect(source).toContain("const leftChromeOverlayInset =");
+    expect(source.match(/paddingLeft: leftChromeOverlayInset/g)).toHaveLength(
+      2,
+    );
+    expect(source).toContain(
+      "responsiveInteractActive && leftChromeOverlayInset",
+    );
+  });
+
+  it("pins a squeeze-immune close beside the docked bar", () => {
+    // Reported gap: a wide left rail (the Code panel is 640px) plus a
+    // modest window squeezes the docked bar's canvas column enough that
+    // its own Close gets clipped by overflow-hidden before anything else
+    // in the row. The docked bar hides its own Close (showClose={floating}
+    // is false when docked) and a pinned duplicate, anchored to the canvas
+    // area's own right edge rather than the bar's shrunken one, takes over.
+    expect(source).toContain("showClose={floating}");
+    expect(source).toContain("ResponsiveInteractExitButton");
+    const pinnedExitIndex = source.indexOf(
+      "responsiveInteractActive && !minimalUi ? (",
+    );
+    expect(pinnedExitIndex).toBeGreaterThan(-1);
+    const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 400);
+    expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
+    expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
+    // Height/edge-matched to the bar's own row, with an opaque panel
+    // background so scrollable dimensions cannot render through the exit.
+    expect(pinnedExit).toContain(
+      "flex h-12 items-center bg-[var(--design-editor-panel-bg)] pl-1 pr-3",
+    );
+  });
+
+  it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
+    expect(source).toContain(
+      "embedded && !hostOwnsChrome && !embedChromeRequested",
+    );
+    // Minimal mode auto-opens the floating inspector from selection — no
+    // manual right-rail toggle (the flipped LayoutSidebar icon was that control).
+    expect(source).not.toContain(
+      '<IconLayoutSidebar className="size-4 -scale-x-100" />',
+    );
+    expect(source).not.toContain('data-design-minimal-toggle="right"');
+    expect(source).toContain('data-design-minimal-bar="interact"');
+    expect(source).toContain(
+      "grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)]",
+    );
+    expect(source).toContain(
+      'className="pointer-events-none flex min-w-0 justify-center"',
+    );
+    expect(source).toContain(
+      "isMobileViewport && minimalInspectorHasSelection",
+    );
+  });
+
+  it("resets chrome mode when same-design navigation changes embed mode", () => {
+    expect(source).toContain("setMinimalUi(minimalUiByDefault);");
+    expect(source).toContain(
+      "}, [minimalUiByDefault, embedChromeRequested, hostOwnsChrome]);",
+    );
+  });
+
   it("pushes editing safety live in addition to baking it", () => {
     // Editing safety stays BAKED into the gesture script (keyed on
     // interactMode). Un-baking it to keep the bridge key stable across
@@ -141,6 +203,23 @@ describe("responsive Interact wiring", () => {
       '.replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true")',
     );
     expect(canvas).toContain("editingSafetyEnabled: !interactMode");
+  });
+
+  it("reports live router paths while Interact omits editor chrome", () => {
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain("data-agent-native-live-route-bridge");
+    expect(canvas).toContain('type: "agent-native:live-route-path"');
+    expect(canvas).toContain("window.history.pushState = function ()");
+    expect(canvas).toContain("window.history.replaceState = function ()");
+    expect(canvas).toContain(
+      'if (e.data.type === "agent-native:live-route-path") {',
+    );
+    expect(canvas).toContain(
+      '(includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +',
+    );
   });
 
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
@@ -163,8 +242,12 @@ describe("responsive Interact wiring", () => {
   });
 
   it("routes every Interact request into the responsive view", () => {
-    expect(source).toContain("enterSingleScreen(screenId");
-    expect(source).toContain("enterSingleScreen(activeFileId)");
+    expect(source).toContain(
+      'handleModeChange("interact", { targetFileId: screenId })',
+    );
+    expect(source).toContain('handleModeChange("interact");');
+    expect(source).toContain("enterSingleScreen(screenId, { mode });");
+    expect(source).not.toContain("enterSingleScreenInteract");
     expect(editorSurface).toContain("resolveModeChangeView({");
     // Only an explicit mode from an embedding host differs; every other entry
     // into a focused screen is still Interact.
@@ -215,7 +298,8 @@ describe("responsive Interact wiring", () => {
       source.indexOf("<ResponsiveInteractBar"),
       source.indexOf("onClose={handleExitResponsiveInteract}"),
     );
-    expect(barMount).toContain("onModeChange={handleModeChange}");
+    expect(barMount).toContain("onModeChange={(next) => {");
+    expect(barMount).toContain("setRuntimeLayerSnapshotRequest(");
     expect(barMount).toContain("canAnnotate={canEditDesign}");
     const bar = readFileSync(
       "app/components/design/ResponsiveInteractBar.tsx",
@@ -226,14 +310,62 @@ describe("responsive Interact wiring", () => {
     expect(bar).not.toContain('"interact"');
   });
 
+  it("refreshes live Layers when Interact returns to Edit", () => {
+    const exitHandler = source.slice(
+      source.indexOf("const handleExitResponsiveInteract ="),
+      source.indexOf("// Escape is the standard"),
+    );
+    expect(exitHandler).toContain("setRuntimeLayerSnapshotRequest(");
+    expect(source).toContain(
+      "runtimeLayerSnapshotRequest={runtimeLayerSnapshotRequest}",
+    );
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain('type: "request-runtime-layer-snapshot"');
+  });
+
+  it("keeps localhost bridge identity stable across Interact mode changes", () => {
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain("const includeLiveEditEditorChrome = !readOnly;");
+    expect(canvas).toContain('type: "set-interaction-mode"');
+    expect(canvas).toContain("interact: interactModeRef.current");
+    expect(canvas).not.toContain(
+      "const includeLiveEditEditorChrome = !interactMode && !readOnly;",
+    );
+    const bridge = readFileSync(
+      "app/components/design/bridge/editor-chrome.bridge.ts",
+      "utf8",
+    );
+    expect(bridge).toContain('e.data.type === "set-interaction-mode"');
+    expect(bridge).toContain('shieldOverlay.style.pointerEvents = "none"');
+    expect(bridge).toContain("scheduleRuntimeLayerSnapshot()");
+  });
+
+  it("keeps a focused localhost screen on its live route when returning to Edit", () => {
+    const focusedCanvas = source.slice(
+      source.lastIndexOf("<DesignCanvas"),
+      source.indexOf(
+        "onRoutePathChange={handleLiveRoutePathChange}",
+        source.lastIndexOf("<DesignCanvas"),
+      ) + 100,
+    );
+    expect(focusedCanvas).toContain('activeCanvasSourceType === "localhost"');
+    expect(focusedCanvas).toContain("previewUrlAtLiveRoute(");
+    expect(focusedCanvas).toContain("liveRoutePathsByScreenIdRef.current[");
+    expect(focusedCanvas).toContain("activeFile.id");
+  });
+
   it("uses the selected screen size and the real canvas bounds", () => {
     expect(editorSurface).toContain("resolveInteractDeviceForScreen(");
     expect(source).toContain("container.clientWidth - 48");
     expect(source).toContain("new ResizeObserver(updateZoomToFit)");
     expect(source).toContain("responsiveInteractActive ? interactZoom : zoom");
-    expect(source).toContain(
-      "responsiveInteractActive ? setInteractZoom : setZoom",
-    );
+    expect(source).toContain("responsiveInteractActive ? undefined : setZoom");
     expect(source).toContain("? interactDeviceSize.width");
     expect(source).toContain("? interactDeviceSize.height");
     const canvas = readFileSync(
@@ -242,11 +374,37 @@ describe("responsive Interact wiring", () => {
     );
     expect(canvas).toContain("previewHeightPx?: number");
     expect(canvas).toContain("const resolvedHeight =");
+    expect(canvas).toContain("enabled: Boolean(onZoomChange) && !interactMode");
+    expect(canvas).toContain('if (e.data.type === "pinch-zoom-wheel") {');
+    expect(canvas).toContain("if (interactMode) return;");
   });
 
-  it("leaves Escape entirely to the running app", () => {
+  it("keeps the canvas-shell Escape handling inert, but exits Interact on Escape", () => {
+    // The canvas shell's selection/drawing/breakpoint Escape handling must
+    // not fire underneath the running prototype.
     expect(source).toContain(
       "onEscape: responsiveInteractActive ? undefined : handleEscapeHotkey",
+    );
+    // Reported gap: Interact had no keyboard way out at all, only the bar's
+    // Close button. A dedicated window listener (not useDesignHotkeys, which
+    // stays disabled above) now exits Interact on Escape whenever the event
+    // reaches the parent window un-intercepted — i.e. never while a Radix
+    // layer (the device Select) or the iframe itself has
+    // already handled it, matching DesignColorPicker.escape.test.tsx's
+    // documented ordering.
+    const escapeExitEffect = source.slice(
+      source.indexOf("const handleExitResponsiveInteract ="),
+      source.indexOf("// Fit against the actual center canvas"),
+    );
+    expect(escapeExitEffect).toContain(
+      "if (!responsiveInteractActive) return;",
+    );
+    expect(escapeExitEffect).toContain(
+      'if (event.key !== "Escape" || event.defaultPrevented) return;',
+    );
+    expect(escapeExitEffect).toContain("handleExitResponsiveInteract();");
+    expect(escapeExitEffect).toContain(
+      'window.addEventListener("keydown", handleKeyDown);',
     );
   });
 
@@ -255,8 +413,9 @@ describe("responsive Interact wiring", () => {
       "app/components/design/ResponsiveInteractBar.tsx",
       "utf8",
     );
-    expect(bar).toContain("formatInteractZoom(zoom)");
     expect(bar).toContain("w-[88px]");
     expect(bar).toContain("appearance:textfield");
+    expect(bar).not.toContain("zoomIn");
+    expect(bar).not.toContain("zoomOut");
   });
 });

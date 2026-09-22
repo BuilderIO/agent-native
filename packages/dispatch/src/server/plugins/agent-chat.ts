@@ -4,6 +4,7 @@ import { createAgentChatPlugin } from "@agent-native/core/server";
 import { dispatchActions } from "../../actions/index.js";
 import {
   workspaceAppActionRouteAuth,
+  WORKSPACE_APP_CLAIM_ACTION_PATH,
   WORKSPACE_APPS_ACTION_PATH,
 } from "../lib/workspace-app-action-auth.js";
 
@@ -39,6 +40,7 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "dispatch",
+  connectApps: true,
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
@@ -60,7 +62,10 @@ export default createAgentChatPlugin({
   // template-only construct that the Vite plugin emits next to actions/).
   actions: dispatchActions,
   actionRouteAuth: workspaceAppActionRouteAuth,
-  actionRoutePublicPaths: [WORKSPACE_APPS_ACTION_PATH],
+  actionRoutePublicPaths: [
+    WORKSPACE_APPS_ACTION_PATH,
+    WORKSPACE_APP_CLAIM_ACTION_PATH,
+  ],
   codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the central dispatch for this workspace.
 
@@ -93,7 +98,7 @@ Use the standard workspace primitives:
 - Treat first-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. Do not create wrapper apps, child apps, nested routes, or cloned template copies just to give a new app access to them; build only the genuinely new workflow and delegate cross-app work to those existing apps.
 - Integration grants are not provider capability limits. For ad hoc provider inspection, querying, reporting, or troubleshooting, call provider-api-catalog/provider-api-docs, then provider-api-request against the provider's real HTTP API. Use connectionId for a specific shared grant and accountId for a specific OAuth account. Never expose secret values or silently widen app access while doing this.
 - For broad provider searches, joins, classification, corpus counts, or absence claims, fetch every relevant page or an explicitly bounded cohort, stage/save large responses with stageAs/saveToFile/fetchAllPages, and reduce them with query-staged-dataset or run-code. Report source, filters, row counts, pagination, truncation, failed pages, and uncovered gaps.
-- For Builder.io or AI credit spend, LLM usage by workspace member or month, or workspace app/Builder branch creation history, call list-dispatch-usage-metrics with scope=workspace and the requested sinceDays. Its monthlyByUser and workspaceAppCreationsByUserMonth fields are the authoritative shared-database result; do not ask for a user export or BigQuery schema.
+- For Builder.io or AI credit spend, LLM usage by workspace member or month, or workspace app/Builder branch creation history, call list-dispatch-usage-metrics with scope=workspace and the requested sinceDays. Its monthlyByUser and workspaceAppCreationsByUserMonth fields are the authoritative shared-database result; do not ask for a user export or BigQuery schema. For app adoption, call it with scope=app and appId: app creators can see aggregate daily/weekly active users and tracked actions for their own app, while organization owners/admins can inspect any accessible app. App scope omits individual users and prompt previews.
 
 When a user asks for something like a digest, reminder, routing rule, or saved behavior:
 - First decide whether it should be a resource, a recurring job, a destination, or a delegated task.

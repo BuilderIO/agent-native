@@ -134,6 +134,56 @@ describe("createAnthropicEngine", () => {
     vi.doUnmock("@anthropic-ai/sdk");
   });
 
+  // Anthropic's `input_tokens` EXCLUDES both cache fields; every other engine
+  // reports the whole prompt. Passing it through under-reported the prompt and
+  // made `calculateCost` charge the cached tokens a second time.
+  it("reports the whole prompt in inputTokens, cache included", async () => {
+    const finalMsg = {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 3,
+        output_tokens: 285,
+        cache_read_input_tokens: 36_734,
+        cache_creation_input_tokens: 5_701,
+      },
+    };
+    const mockStream = {
+      [Symbol.asyncIterator]: async function* () {},
+      finalMessage: vi.fn().mockResolvedValue(finalMsg),
+    };
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: vi.fn().mockReturnValue(mockStream) };
+      },
+    }));
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+
+    const events = await collectEvents(
+      freshCreate({ apiKey: "test" }).stream({
+        model: "claude-haiku-4-5-20251001",
+        systemPrompt: "You are helpful.",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        tools: [],
+        abortSignal: new AbortController().signal,
+      }),
+    );
+
+    const usage = events.find((e) => e.type === "usage");
+    // 3 fresh + 36,734 read + 5,701 written — not the bare 3 the API returns.
+    expect(usage?.inputTokens).toBe(42_438);
+    expect(usage?.cacheReadTokens).toBe(36_734);
+    expect(usage?.cacheWriteTokens).toBe(5_701);
+    // The partition holds, which is what makes the cost math correct.
+    expect(
+      usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens,
+    ).toBe(3);
+
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
   it("adds a moving cache breakpoint on the last user message's last content block", async () => {
     const requestParams = await captureRequestParams({
       model: "claude-haiku-4-5-20251001",

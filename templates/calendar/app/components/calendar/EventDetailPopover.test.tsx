@@ -222,6 +222,10 @@ describe("EventDetailPopover characterization", () => {
     calendarContext.setEventDetailSidebar.mockClear();
     calendarContext.setSidebarEvent.mockClear();
     calendarContext.setFocusedEvent.mockClear();
+    updateEventMutate.mockImplementation(
+      (_input: unknown, options?: { onSettled?: () => void }) =>
+        options?.onSettled?.(),
+    );
   });
 
   afterEach(() => {
@@ -272,7 +276,90 @@ describe("EventDetailPopover characterization", () => {
       'div[class*="radix-popover-content-available-height"]',
     );
     expect(content).toBeTruthy();
-    expect(content?.className).toContain("w-[min(420px,calc(100vw-2rem))]");
+    expect(content?.className).toContain("w-[min(284px,calc(100vw-2rem))]");
+    expect(content?.innerHTML).toContain("text-[13px] font-medium");
+  });
+
+  it("passes the selected calendar event through to delete", () => {
+    const event = baseEvent({
+      accountEmail: "steve@builder.io",
+      calendarSourceKey: "calendar-two",
+      calendarId: "calendar-two-id",
+    });
+    const onDelete = vi.fn();
+
+    act(() => {
+      root.render(
+        <EventDetailPopover event={event} defaultOpen onDelete={onDelete}>
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const deleteButton = findByExactText("button", "eventForm.delete");
+    expect(deleteButton).toBeTruthy();
+    act(() => (deleteButton as HTMLElement).click());
+
+    expect(onDelete).toHaveBeenCalledOnce();
+    expect(onDelete).toHaveBeenCalledWith(event);
+  });
+
+  it("shows shared-calendar provenance without edit controls", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            accountEmail: "emdistal@gmail.com",
+            calendarName: "Friends",
+            calendarPrimary: false,
+            calendarReadOnly: true,
+          })}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "eventForm.viewingOwnerCalendar",
+    );
+    expect(
+      document.querySelector('button[aria-label="eventForm.eventOptions"]'),
+    ).toBeNull();
+    const title = document.querySelector("h2");
+    act(() => {
+      title?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(
+      document.querySelector('input[placeholder="eventForm.addTitle"]'),
+    ).toBeNull();
+    expect(updateEventMutate).not.toHaveBeenCalled();
+  });
+
+  it("makes the event options visible and scrolls to them when opened", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const optionsButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.eventOptions"]',
+    );
+    expect(optionsButton).toBeTruthy();
+    act(() => optionsButton!.click());
+
+    expect(optionsButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(`#event-more-options-event-1`)).toBeTruthy();
+    expect(document.body.textContent).toContain("eventForm.showAs");
   });
 
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {
@@ -310,10 +397,11 @@ describe("EventDetailPopover characterization", () => {
 
   it("preserves a literal fallback label typed by the user", () => {
     const onTitleSave = vi.fn();
+    const event = baseEvent({ title: "(No title)" });
     act(() => {
       root.render(
         <EventDetailPopover
-          event={baseEvent({ title: "(No title)" })}
+          event={event}
           defaultOpen
           onDelete={() => undefined}
           onTitleSave={onTitleSave}
@@ -335,24 +423,21 @@ describe("EventDetailPopover characterization", () => {
       );
     });
 
-    expect(onTitleSave).toHaveBeenCalledWith(
-      "event-1",
-      "(No title)",
-      undefined,
-    );
+    expect(onTitleSave).toHaveBeenCalledWith(event, "(No title)");
   });
 
   it("dismisses a blank out-of-office draft without saving its generated title", () => {
     const onTitleSave = vi.fn();
     const onDismissNew = vi.fn();
+    const event = baseEvent({
+      title: "Out of office",
+      titleIsGenerated: true,
+      eventType: "outOfOffice",
+    });
     act(() => {
       root.render(
         <EventDetailPopover
-          event={baseEvent({
-            title: "Out of office",
-            titleIsGenerated: true,
-            eventType: "outOfOffice",
-          })}
+          event={event}
           isDraft
           defaultOpen
           onDelete={() => undefined}
@@ -376,7 +461,7 @@ describe("EventDetailPopover characterization", () => {
     });
 
     expect(onTitleSave).not.toHaveBeenCalled();
-    expect(onDismissNew).toHaveBeenCalledWith("event-1", undefined);
+    expect(onDismissNew).toHaveBeenCalledWith(event);
   });
 
   it("preserves an explicit Out of office title on a draft", () => {
@@ -662,8 +747,82 @@ describe("EventDetailPopover characterization", () => {
     const endTimeTrigger = document.querySelector<HTMLButtonElement>(
       'button[aria-label="eventForm.end"]',
     );
-    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
-    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
+    expect(startTimeTrigger?.textContent).toBe("12 PM");
+    expect(endTimeTrigger?.textContent).toBe("1 PM");
+  });
+
+  it.each([true, false])(
+    "disables scheduling controls only for read-only sources (%s)",
+    (readOnly) => {
+      act(() => {
+        root.render(
+          <EventDetailPopover
+            event={baseEvent({ calendarReadOnly: readOnly })}
+            defaultOpen
+            onDelete={() => undefined}
+          >
+            <button type="button">Open</button>
+          </EventDetailPopover>,
+        );
+      });
+      const scheduling = document.querySelector("fieldset");
+      expect(scheduling).not.toBeNull();
+      expect(scheduling?.disabled).toBe(readOnly);
+      expect(scheduling?.querySelectorAll("button").length).toBeGreaterThan(0);
+      expect(updateEventMutate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("prefers the viewer's calendar timezone over the event's stored timezone when seeding the time editor", () => {
+    // Same instant as the previous test, but this event was created in a
+    // different zone (America/Los_Angeles) than the viewer's currently
+    // configured Calendar Settings timezone (America/New_York, passed as the
+    // `timezone` prop). The grid always converts into the viewer's zone, so
+    // this popover must match it instead of falling back to the event's own
+    // stored creation zone.
+    vi.stubEnv("TZ", "UTC");
+    const event = baseEvent({
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      startTimeZone: "America/Los_Angeles",
+      endTimeZone: "America/Los_Angeles",
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          timezone="America/New_York"
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const openPopoverButtons = () =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter(
+        (button) => button.textContent === "Mock open popover",
+      );
+
+    const startTimePopoverButton = openPopoverButtons()[1];
+    const endTimePopoverButton = openPopoverButtons()[2];
+    expect(startTimePopoverButton).toBeTruthy();
+    expect(endTimePopoverButton).toBeTruthy();
+    act(() => {
+      startTimePopoverButton!.click();
+      endTimePopoverButton!.click();
+    });
+
+    const startTimeTrigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.start"]',
+    );
+    const endTimeTrigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.end"]',
+    );
+    expect(startTimeTrigger?.textContent).toBe("12 PM");
+    expect(endTimeTrigger?.textContent).toBe("1 PM");
   });
 
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {
@@ -737,6 +896,7 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "all",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 
@@ -794,6 +954,105 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "none",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
+    );
+  });
+
+  it("labels attendee draft creation Save while still submitting the draft", () => {
+    const onDraftCreate = vi.fn();
+    const event = baseEvent({
+      id: "attendee-draft",
+      source: "local",
+      attendees: [{ email: "guest@example.com" }],
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onDraftCreate={onDraftCreate}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const saveButton = findByExactText("button", "eventForm.save");
+    expect(saveButton).toBeTruthy();
+    expect(
+      findByExactText("button", "eventForm.createAndSend"),
+    ).toBeUndefined();
+
+    act(() => {
+      (saveButton as HTMLElement).click();
+    });
+
+    expect(onDraftCreate).toHaveBeenCalledWith("attendee-draft", {
+      title: "Team sync",
+    });
+  });
+
+  it("offers series scope before removing Google Meet from a recurring event", async () => {
+    const event = baseEvent({
+      id: "event-recurring",
+      accountEmail: "steve@example.com",
+      recurringEventId: "series-1",
+      hangoutLink: "https://meet.google.com/abc-defg-hij",
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const removeButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.delete eventForm.googleMeet"]',
+    );
+    expect(removeButton).toBeTruthy();
+
+    await act(async () => {
+      removeButton!.click();
+      await flushMicrotasks();
+    });
+
+    expect(document.body.textContent).toContain("eventForm.applyChangesTo");
+    expect(document.body.textContent).toContain("eventForm.thisEvent");
+    expect(document.body.textContent).toContain("eventForm.allEvents");
+    expect(updateEventMutate).not.toHaveBeenCalled();
+
+    const allEventsOption = document.querySelector<HTMLButtonElement>(
+      "#guest-update-scope-all",
+    );
+    expect(allEventsOption).toBeTruthy();
+    act(() => allEventsOption!.click());
+
+    const confirmButton = findByExactText<HTMLButtonElement>(
+      "button",
+      "eventForm.updateEvent",
+    );
+    expect(confirmButton).toBeTruthy();
+    await act(async () => {
+      confirmButton!.click();
+      await flushMicrotasks();
+    });
+
+    expect(updateEventMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "event-recurring",
+        removeGoogleMeet: true,
+        scope: "all",
+      }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 

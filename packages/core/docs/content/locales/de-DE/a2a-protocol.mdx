@@ -358,6 +358,169 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## Verbindungen zu gehosteten Agenten {#hosted-agent-connections}
+
+Ein gehosteter Agent kann an A2A teilnehmen, wenn er einen kompatiblen
+A2A-Endpunkt bereitstellt. Ein Modellanbieter oder ein Agent-SDK allein ist
+kein A2A-Peer. Halten Sie UI, Aktionen und Datenbank der App auf dem normalen
+App-Host und verbinden Sie die Agent-Laufzeit über einen Adapter oder deren
+A2A-Endpunkt.
+
+Eine gehostete Verbindung enthält Endpunkt-Metadaten und eine
+Authentifizierungsbeschreibung. Speichern Sie diese Metadaten beim
+Remote-Agent-Ressourceneintrag oder beim Verbindungsdatensatz. Legen Sie niemals
+ein Token oder Client-Geheimnis in das Manifest:
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a/agentCard/v1.0",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url` ist der Aufruf-Endpunkt oder die Basis-URL. `cardUrl` ist optional, wenn
+die Erkennung `/.well-known/agent-card.json` verwendet. Verwenden Sie es, wenn
+der Anbieter seine Karte an einem anderen Pfad veröffentlicht. Der Client liest
+die Protokollversion aus der Agentenkarte. Wenn die Karte des Anbieters sie
+nicht enthält, übergeben Sie `protocolVersion` direkt an `A2AClient`. `auth`
+beschreibt, wie serverseitiger Code ein Bearer-Token erhält. Unterstützt werden
+`bearer` mit einem in der Vault gespeicherten `credentialRef` sowie
+`oauth-client-credentials` mit `tokenUrl`, `clientId`, `clientSecretRef` und
+`scope`. `credentialRef` und `clientSecretRef` sind Verweise auf Geheimnisse,
+keine Geheimniswerte.
+
+### Generisches Bearer-A2A {#generic-bearer-a2a}
+
+Verwenden Sie den Standard-Client, wenn der Peer `Authorization: Bearer ...`
+akzeptiert, eine kompatible Karte bereitstellt und Agent-Native JSON-RPC
+akzeptiert:
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+Lösen Sie `token` serverseitig über die Workspace-Verbindung oder Vault auf.
+Senden Sie es nicht aus Browser-Code, schreiben Sie es nicht in ein Manifest und
+fügen Sie es keiner Eingabeaufforderung hinzu. Ein statischer API-Schlüssel ist
+nur ein Transport-Credential für den entfernten Dienst. Er stellt keine
+Agent-Native-Identität her und überträgt keine `approvedActions`.
+
+### Microsoft Foundry {#microsoft-foundry}
+
+[Azure AI Foundry hosted agents](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+führen Ihren Agent-Code oder Container hinter einem verwalteten Endpunkt mit
+Identität, Skalierung, Sitzungsstatus und Observability aus. Dieses Modell dient
+der Agent-Laufzeit. Halten Sie Agent-Native UI, Aktionen und die PostgreSQL-
+Bereitstellung auf dem App-Host und rufen Sie den Foundry-Endpunkt serverseitig
+auf.
+
+Foundry kann über [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint)
+einen A2A-Endpunkt bereitstellen. Dafür ist Microsoft-Entra-Authentifizierung
+erforderlich. Der Aufrufer benötigt außerdem die Foundry-Agent-Consumer-
+Berechtigung. Version 1.0 ist der GA-JSON-RPC-Endpunkt; verwenden Sie die
+Karten-URL `.../agents/{agent}/endpoint/protocols/a2a/agentCard/v1.0`, wenn sie verfügbar ist. Version 0.3 ist der
+Vorschau-Endpunkt, der ohne Versionsauswahl zurückgegeben wird. Übergeben Sie
+`protocolVersion` nur dann an `A2AClient`, wenn die Karte die Version auslässt.
+Foundry v1 bietet kein SSE-Streaming, daher verwendet der Client
+`message/send`. Der Token-Provider muss ein Entra-Zugriffstoken beziehen und
+erneuern. `A2A_SECRET` und ein statischer API-Schlüssel erfüllen die Foundry-
+Authentifizierung nicht.
+
+Für die Client-Anmeldeinformationen eines Dienstprinzipals fordern Sie ein
+Entra-Token mit dem Bereich `https://ai.azure.com/.default` an und weisen Sie
+dem Aufrufer auf Projekt- oder Agent-Ebene die Rolle **Foundry Agent Consumer**
+zu. Speichern Sie das Client-Geheimnis im Vault und referenzieren Sie es im
+Manifest:
+
+```json
+{
+  "auth": {
+    "type": "oauth-client-credentials",
+    "tokenUrl": "https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token",
+    "clientId": "<application-id>",
+    "clientSecretRef": "FOUNDRY_CLIENT_SECRET",
+    "scope": "https://ai.azure.com/.default"
+  }
+}
+```
+
+### Gemini Enterprise {#gemini-enterprise}
+
+[Gemini Enterprise kann externe A2A-Agenten registrieren](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
+und verwaltete Assistenten stellen einen standardmäßigen A2A-JSON-RPC-Endpunkt
+bereit. Der Endpunkt liegt unter der Assistant-Ressource, zum Beispiel
+`.../assistants/default_assistant/agents/{id}/a2a`; die Agentenkarte kann unter
+einer benutzerdefinierten URL liegen. Verwenden Sie den generischen Bearer-Client
+und übergeben Sie diese Karten-URL:
+
+```ts
+const client = new A2AClient(geminiEndpoint, googleBearerToken, {
+  cardUrl: geminiCardUrl,
+});
+```
+
+Der Aufrufer benötigt ein Google-OAuth-Bearer-Token mit der Berechtigung
+`discoveryengine.assist`. Die Registrierung eigener A2A-Agenten ist Pre-GA.
+Prüfen Sie daher die Verfügbarkeit im Zielprojekt, bevor Sie sie im
+Arbeitsbereichs-Picker anbieten. Siehe [Gemini-Enterprise-Agent aufrufen](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+für Ressourcen-URL und IAM-Anforderungen.
+
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents stellt keinen eingehenden A2A-Endpunkt bereit.
+Verwenden Sie den Framework-Adapter, wenn Agent-Native die A2A-Oberfläche, den
+Workflow-Zustand und die Genehmigungen besitzen soll, während der gehostete
+Agent seine Sitzung, seinen Kontext und seine Tools besitzt. Der Adapter legt
+eine Managed-Agents-Sitzung an, sendet `user.message`-Ereignisse und liest den
+Sitzungsereignisstrom. Ein blockierendes `agent.tool_use`- oder
+`agent.mcp_tool_use`-Ereignis wird zu einer A2A-Aufgabe mit
+`input-required` und einem `approval-request`-Laufzeitereignis. Setzen Sie die
+Sitzung mit ausdrücklichen strukturierten Bestätigungen in den zurückgegebenen
+Metadaten fort. Genehmigungen dürfen nie aus einer Nachricht abgeleitet werden:
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` ist ein Vault-Verweis auf den Anthropic-API-Schlüssel. Der
+Adapter löst ihn im Benutzer- und Organisationsbereich des Aufrufers auf und
+sendet die erforderlichen Header `anthropic-beta:
+managed-agents-2026-04-01` und `anthropic-version: 2023-06-01`. Registrieren Sie
+`anthropic-managed-agents` im Workspace-Verbindungskatalog, um die vorhandenen
+Verbindungsfreigaben pro App wiederzuverwenden. Der Adapter wird über den
+üblichen `A2AConfig.handler`-Einstiegspunkt eingebunden:
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// `handler` in die an mountA2A() übergebene A2AConfig einsetzen
+```
+
 ## Programmatischer Arbeitsbereichsaufruf {#programmatic-invoke}
 
 Bevorzugen Sie für agentennative Arbeitsbereiche den `agentNative`-Hilfscode oder einen
@@ -381,7 +544,7 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 
 Verwenden Sie dies für zusammensetzbare Mini-Apps: Dispatch oder eine Orchestrator-App erkennt
 Workspace-Geschwister und ruft dann die Spezialisten-App auf, die Eigentümer des Anbieters ist
-Datensatz oder Workflow. Legen Sie in Produktions-Agent-nativen Apps jeweils `A2A_SECRET` fest
+Datensatz oder Workflow. Legen Sie in Produktions-Agent-Nativen Apps jeweils `A2A_SECRET` fest
 App-Umgebung und übergeben Sie die Anruferidentität (`userEmail`), sodass ausgehende Anrufe erfolgen
 signiert als JWT-Inhaber-Token. Verwenden Sie `apiKeyEnv` nur für ältere externe Peers, die
 erwarten Sie ein statisches Inhabertoken. Verwenden Sie lokales actions, anstatt sich selbst aufzurufen.

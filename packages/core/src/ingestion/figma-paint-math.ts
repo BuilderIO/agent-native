@@ -220,16 +220,32 @@ export function resolveGradientHandles(
 
 /**
  * Derive a CSS `linear-gradient()` angle (degrees) from Figma's normalized
- * `gradientHandlePositions`.  Handle positions are normalized independently in
- * x and y (0..1 relative to the node's bounding box), so the angle must be
- * computed in actual pixel space using the node's real width/height —
- * otherwise a non-square box silently distorts the angle.
+ * `gradientHandlePositions`.
+ *
+ * Handle positions are normalized independently in x and y (0..1 of the node's
+ * bounding box), and Figma evaluates the gradient parameter in that normalized
+ * space:
+ *
+ *   t(x, y) = ((x/w - u0)·du + (y/h - v0)·dv) / (du² + dv²)
+ *
+ * A CSS `linear-gradient(angle)` runs along the direction of steepest change,
+ * so the angle must follow ∇t = (du/w, dv/h) — the iso-line *normal*, which
+ * under a non-uniform scale transforms by the INVERSE of the scale. Scaling
+ * the handle vector instead (du·w, dv·h) is the classic covariant/contravariant
+ * mistake: it agrees for axis-aligned handles or a square box (which is why it
+ * survived those identity checks) and is visibly wrong everywhere else.
+ *
+ * Measured, not argued: for the `fills-effects` corpus frame (a 180×90 rect
+ * whose handles run diagonally, du=+0.7071, dv=-0.7071) a least-squares plane
+ * fit of Figma's own PNG render gives ∂c/∂y ÷ ∂c/∂x = -1.962 on all three
+ * channels, i.e. CSS 27.0°. ∇t predicts (du·h, dv·w) → 26.57°; the handle
+ * vector predicts 65.73°. Our render before this fix measured -0.451 / 65.73°.
+ *
+ * (du/w, dv/h) is scaled by w·h to (du·h, dv·w) so a zero-width or zero-height
+ * box divides by nothing.
  *
  * Identity: left-to-right handles (start=(0,0.5), end=(1,0.5)) → 90 deg.
  * Top-to-bottom handles (start=(0.5,0), end=(0.5,1)) → 180 deg.
- *
- * This is the same function previously inlined in figma-node-to-html.ts and
- * is preserved here verbatim for public API compatibility.
  */
 export function gradientAngleDegrees(
   paint: { gradientHandlePositions?: Array<Vec2> },
@@ -248,10 +264,30 @@ export function gradientAngleDegreesFromHandles(
   handles: GradientHandles,
   box: { width: number; height: number },
 ): number {
-  const dx = (handles.end.x - handles.start.x) * box.width;
-  const dy = (handles.end.y - handles.start.y) * box.height;
+  const dx = (handles.end.x - handles.start.x) * box.height;
+  const dy = (handles.end.y - handles.start.y) * box.width;
   const angleRad = Math.atan2(dy, dx);
   const angleDeg = (angleRad * 180) / Math.PI + 90;
+  return ((angleDeg % 360) + 360) % 360;
+}
+
+/**
+ * Angle (same CSS convention: degrees clockwise from "to top") of the ray that
+ * runs from the gradient's centre handle through its `end` handle, in real
+ * pixel space.
+ *
+ * This is the *vector* transform (du·w, dv·h) — the opposite of
+ * `gradientAngleDegreesFromHandles` above, and correct for a different
+ * question. A conic gradient's `from` angle points at a specific pixel (the
+ * end handle), not along an iso-line normal, so it scales like a position.
+ */
+export function gradientRayAngleDegreesFromHandles(
+  handles: GradientHandles,
+  box: { width: number; height: number },
+): number {
+  const dx = (handles.end.x - handles.start.x) * box.width;
+  const dy = (handles.end.y - handles.start.y) * box.height;
+  const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
   return ((angleDeg % 360) + 360) % 360;
 }
 

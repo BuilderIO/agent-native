@@ -31,7 +31,21 @@ export function builderBodyHydrationProgressKey(
 export function builderBodyHydrationMutationMadeProgress(
   result: ProcessBuilderBodyHydrationResponse,
 ) {
-  return result.succeeded > 0 || result.remaining === 0;
+  return (
+    result.succeeded > 0 ||
+    result.remaining === 0 ||
+    result.nextAttemptAt !== null
+  );
+}
+
+export function builderBodyHydrationRetryDelayMs(
+  result: ProcessBuilderBodyHydrationResponse,
+  now = Date.now(),
+) {
+  if (!result.nextAttemptAt) return null;
+  const nextAttemptAt = Date.parse(result.nextAttemptAt);
+  if (!Number.isFinite(nextAttemptAt)) return null;
+  return Math.max(0, nextAttemptAt - now);
 }
 
 export function shouldPumpBuilderBodyHydration(

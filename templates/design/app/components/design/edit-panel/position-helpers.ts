@@ -1,5 +1,6 @@
 import {
   parseCssColor,
+  parseCssColorExtended,
   rgbaToCss,
   withColorOpacity,
 } from "@shared/color-utils";
@@ -24,6 +25,7 @@ export function cssColorOrFallback(
   const normalized = value?.trim();
   if (
     !normalized ||
+    normalized === "none" ||
     normalized === "transparent" ||
     normalized === "rgba(0, 0, 0, 0)"
   ) {
@@ -48,6 +50,27 @@ export function strokeIsVisible(
  */
 export function strokeHiddenByColor(color: string | undefined): boolean {
   return Boolean(color) && !colorHasVisibleAlpha(color);
+}
+
+/**
+ * An SVG shape carries no stroke until its paint stops being `none`, so a
+ * zero-alpha stroke still counts as a configured (hidden) layer here — the
+ * same eye-toggle round trip `strokeHiddenByColor` gives border/outline.
+ */
+export function vectorStrokeExists(stroke: string | undefined): boolean {
+  const value = stroke?.trim();
+  return Boolean(value && value !== "none");
+}
+
+export function vectorStrokeIsVisible(
+  stroke: string | undefined,
+  width: string | undefined,
+): boolean {
+  return (
+    vectorStrokeExists(stroke) &&
+    cssLengthNumber(width) > 0 &&
+    colorHasVisibleAlpha(stroke)
+  );
 }
 
 /**
@@ -247,7 +270,7 @@ export function compactCssValue(value: string | undefined, fallback: string) {
 }
 
 export function colorHasVisibleAlpha(value: string | undefined): boolean {
-  const parsed = parseCssColor(value || "");
+  const parsed = parseCssColorExtended(value || "");
   if (!parsed) return Boolean(value && value !== "transparent");
   return parsed.a > 0;
 }

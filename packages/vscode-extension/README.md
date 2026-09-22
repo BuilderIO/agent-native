@@ -43,7 +43,7 @@ Open a running local app in
 URL-backed iframe screens for visual editing, route-state review, and flow
 comparison.
 
-The extension's **Agent Native: Open Design Canvas** command starts the local
+The extension's **Agent-Native: Open Design Canvas** command starts the local
 Design bridge for the current workspace and opens `https://design.agent-native.com`
 in the VS Code side panel so you can choose the localhost connection directly.
 
@@ -81,17 +81,17 @@ npx @agent-native/skills@latest add
 
 ## Commands
 
-- **Agent Native: Open Agent Native** opens the configured default app.
-- **Agent Native: Open Agent Native URL** opens any `http(s)` Agent Native app
+- **Agent-Native: Open Agent-Native** opens the configured default app.
+- **Agent-Native: Open Agent-Native URL** opens any `http(s)` Agent-Native app
   URL or `vscode://builder.agent-native/open?url=...` handoff link.
-- **Agent Native: Connect Workspace to Agent Native MCP** runs the existing
+- **Agent-Native: Connect Workspace to Agent-Native MCP** runs the existing
   `@agent-native/core` connect flow for VS Code / GitHub Copilot MCP.
-- **Agent Native: Open Design Canvas** starts the local Design bridge for a
+- **Agent-Native: Open Design Canvas** starts the local Design bridge for a
   running app and opens Design in the VS Code side panel.
 
 ## Handoff URL
 
-External agents can open a focused Agent Native app view with:
+External agents can open a focused Agent-Native app view with:
 
 ```text
 vscode://builder.agent-native/open?url=https%3A%2F%2Fdesign.agent-native.com

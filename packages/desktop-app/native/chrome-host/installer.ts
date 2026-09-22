@@ -72,7 +72,7 @@ function defaultConfigPath(): string {
     homedir(),
     "Library",
     "Application Support",
-    "Agent Native",
+    "Agent-Native",
     "browser-control",
     "native-host.json",
   );

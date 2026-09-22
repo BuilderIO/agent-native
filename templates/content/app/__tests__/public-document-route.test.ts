@@ -1,3 +1,4 @@
+import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resultQueue = vi.hoisted(() => ({ current: [] as unknown[][] }));
@@ -53,7 +54,9 @@ vi.mock("../../server/db", () => ({
   },
 }));
 
-import { loader } from "../routes/p.$id";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { AgentReadableDocumentDiscovery, loader, meta } from "../routes/p.$id";
 
 function requestFor(id = "doc-1", token?: string) {
   const url = new URL(`https://content.example.test/p/${id}`);
@@ -84,6 +87,79 @@ describe("public document route", () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
   });
 
+  it("emits hidden MCP guidance without adding an accessible control", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentReadableDocumentDiscovery, {
+        document: { id: "doc-1" },
+        basePath: "/content",
+        origin: "https://content.example.test",
+        accessState: "authentication-required",
+      }),
+    );
+
+    expect(html).toContain('class="hidden"');
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain("https://content.example.test/content/mcp/connect");
+    expect(html).toContain("get-document");
+    expect(html).toContain("Agent-Native Content access record");
+    expect(html).toContain(
+      "https://www.agent-native.com/docs/external-agents/#private-content-links",
+    );
+    expect(html).toContain(
+      "Adding a connection changes the user&#x27;s agent configuration and is the user&#x27;s choice",
+    );
+    expect(html).toContain(
+      "does not grant new document access. The connected account&#x27;s permission for this document has not been evaluated",
+    );
+    expect(html).not.toContain("add this instance");
+    expect(html).not.toContain("and retry");
+    expect(html).not.toContain("tell the user");
+    expect(html).not.toContain("Do not ask");
+    expect(html).not.toContain("button");
+    expect(html).not.toContain("Launch notes");
+    expect(html).not.toContain("Ship it");
+  });
+
+  it("does not disclose private document fields to an anonymous share-page request", async () => {
+    resultQueue.current = [documentRows("private")];
+
+    const result = await loader(requestFor());
+
+    expect(result).toMatchObject({
+      document: null,
+      unavailable: {
+        reason: "private",
+        id: "doc-1",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("Launch notes");
+    expect(JSON.stringify(result)).not.toContain("Ship it");
+  });
+
+  it("advertises the agent context endpoint for private share pages", () => {
+    const descriptors = meta({
+      loaderData: {
+        document: null,
+        agentAccessToken: null,
+        basePath: "/content",
+        origin: "https://content.example.test",
+        unavailable: {
+          reason: "private",
+          id: "doc-1",
+          basePath: "/content",
+        },
+      },
+    } as never);
+
+    expect(descriptors).toContainEqual({
+      tagName: "link",
+      rel: "alternate",
+      type: "application/agent-native+json",
+      href: "/content/api/document-agent-context.json?id=doc-1",
+      title: "Agent-readable Content document",
+    });
+  });
+
   it("serves a public document without private loader headers", async () => {
     resultQueue.current = [documentRows("public")];
 
@@ -96,6 +172,7 @@ describe("public document route", () => {
       },
       agentAccessToken: null,
       basePath: "",
+      origin: "https://content.example.test",
     });
     expect((result as any).type).not.toBe("DataWithResponseInit");
     expect(where).toHaveBeenCalledWith({ column: "id_col", value: "doc-1" });
@@ -120,6 +197,7 @@ describe("public document route", () => {
       document: { id: "doc-1", title: "Launch notes" },
       agentAccessToken: "tok+1",
       basePath: "",
+      origin: "https://content.example.test",
     });
   });
 });

@@ -7,7 +7,7 @@
  *   pnpm action decline-invite --token=<token>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { orgInvitations } from "@agent-native/core/org";
 import { eq } from "drizzle-orm";

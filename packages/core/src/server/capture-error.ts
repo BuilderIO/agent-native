@@ -1,3 +1,5 @@
+import { getRequestContext } from "./request-context.js";
+
 export interface CaptureErrorContext {
   /** The request path or logical route, when known. */
   route?: string;
@@ -55,6 +57,8 @@ export function captureError(
   error: unknown,
   context: CaptureErrorContext = {},
 ): string | undefined {
+  if (getRequestContext()?.isSyntheticTraffic) return undefined;
+
   let eventId: string | undefined;
   for (const provider of providers.values()) {
     try {

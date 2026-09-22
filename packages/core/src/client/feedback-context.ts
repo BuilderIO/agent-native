@@ -13,6 +13,7 @@ export interface FeedbackClientContext {
 export interface FeedbackClientContextOptions {
   chatSessionId?: string | null;
   storageKey?: string | null;
+  activeRunId?: string | null;
 }
 
 const ACTIVE_THREAD_KEY_PREFIX = "agent-chat-active-thread";
@@ -81,7 +82,9 @@ export function getFeedbackClientContext(
   const context: FeedbackClientContext = {
     chatSessionIds: [...ids].slice(0, MAX_CHAT_SESSION_IDS),
   };
-  if (activeRun?.runId) context.activeRunId = activeRun.runId;
+  const activeRunId =
+    options.activeRunId === undefined ? activeRun?.runId : options.activeRunId;
+  if (activeRunId) context.activeRunId = activeRunId;
   if (typeof window !== "undefined") {
     context.pageUrl = scrubUrl(window.location.href);
     context.clientSurface = getClientSurface();

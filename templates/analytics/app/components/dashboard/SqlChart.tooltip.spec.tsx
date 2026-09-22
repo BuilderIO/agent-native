@@ -109,4 +109,35 @@ describe("ChartTooltip", () => {
       sidebar.remove();
     }
   });
+
+  it("shows a bold stacked total above the rows without changing row formatting", async () => {
+    await act(async () => {
+      root.render(
+        <ChartTooltip
+          active
+          stacked
+          label="May 10"
+          payload={[
+            { name: "signups", value: 12, color: "#10b981" },
+            { name: "revenue", value: 8, color: "#f59e0b" },
+          ]}
+          valueFormatter={(value) => `v:${value}`}
+        />,
+      );
+    });
+
+    const tooltip =
+      document.body.querySelector<HTMLElement>('[role="tooltip"]');
+    expect(tooltip).not.toBeNull();
+    expect(tooltip?.firstElementChild?.textContent).toBe("v:20");
+    expect(tooltip?.textContent).toContain("May 10");
+    expect(tooltip?.textContent).toContain("signups");
+    expect(tooltip?.textContent).toContain("revenue");
+    expect(
+      [...(tooltip?.querySelectorAll("span.font-medium") ?? [])].map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(["v:12", "v:8"]);
+    expect(tooltip?.firstElementChild?.className).toContain("font-semibold");
+  });
 });

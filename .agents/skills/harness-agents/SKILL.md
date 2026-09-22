@@ -1,7 +1,7 @@
 ---
 name: harness-agents
 description: >-
-  Add or use full agent harness runtimes like Claude Code, Codex, Pi, Cursor, Mastra, or ACP agents inside Agent Native.
+  Add or use full agent harness runtimes like Claude Code, Codex, Pi, Cursor, Mastra, or ACP agents inside Agent-Native.
 scope: dev
 ---
 
@@ -70,7 +70,7 @@ existing run routes as `goalId=agent-harness`.
 
 ## ACP Agents
 
-Agent Native can act as an [ACP](https://agentclientprotocol.com) (Agent Client
+Agent-Native can act as an [ACP](https://agentclientprotocol.com) (Agent Client
 Protocol) client and drive a local coding agent — Gemini CLI, Claude Code, or
 any ACP-compliant agent — through this same substrate. This is scoped to **local
 coding**: the agent is spawned as a child process speaking newline-delimited
@@ -118,11 +118,11 @@ const custom = resolveAgentHarness("acp", {
 
 - Keep harness packages optional. Use dynamic imports in adapters and expose an
   install hint through `installPackage`.
-- Use the AI SDK harness adapter as one implementation, not as Agent Native's
+- Use the AI SDK harness adapter as one implementation, not as Agent-Native's
   public abstraction.
 - For bridge-backed coding harnesses, require a real sandbox/workspace provider.
   Do not run arbitrary coding agents in the host process by default.
-- Pass only a narrow, intentional set of Agent Native actions as host tools.
+- Pass only a narrow, intentional set of Agent-Native actions as host tools.
   Preserve `defineAction` auth, request context, timeouts, truncation, and
   read-only metadata.
 
@@ -155,7 +155,7 @@ const custom = resolveAgentHarness("acp", {
 ## Don't
 
 - Don't add Claude Code, Codex, Cursor, Mastra, or Pi as an `AgentEngine`.
-- Don't replay full Agent Native chat history into a native harness each turn.
+- Don't replay full Agent-Native chat history into a native harness each turn.
   Resume the harness session instead.
 - Don't store resume state in `application_state`; it belongs in the harness
   session SQL table.

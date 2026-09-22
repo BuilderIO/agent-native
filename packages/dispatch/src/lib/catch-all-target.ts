@@ -116,10 +116,12 @@ export async function resolveServerCatchAllTarget(
   appId: string,
 ): Promise<string | null> {
   if (!import.meta.env.SSR) return null;
-  const { getBuiltinAgents, loadWorkspaceAppsManifest } =
+  const { getBuiltinAgents, loadWorkspaceAppsManifest, normalizeAgentId } =
     await import("@agent-native/core/server/agent-discovery");
-  return resolveCatchAllTarget(appId, {
-    workspaceApps: loadWorkspaceAppsManifest(),
+  // Dispatch receives legacy route segments before discovery normalizes the
+  // manifest IDs, so normalize the lookup key at this boundary as well.
+  return resolveCatchAllTarget(normalizeAgentId(appId), {
+    workspaceApps: await loadWorkspaceAppsManifest(),
     builtinAgents: getBuiltinAgents("dispatch"),
   });
 }

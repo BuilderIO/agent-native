@@ -7,9 +7,9 @@ description: "Localized pointer to the the Docker packaging guide."
 
 # Docker
 
-Read the [English Docker guide](/docs/docker) for the build steps and
-provider-specific production configuration.
+[영문 Docker 가이드](/docs/docker)를 참고하세요. 스캐폴드는 `Dockerfile`을
+생성하지 않으므로 `docker build` 전에 안내된 예시를 앱에 복사하세요.
 
-The deployment must use a persistent SQL database. Configure `DATABASE_URL`
+The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
 and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
 `node`.

@@ -6,7 +6,10 @@ import {
 import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
-import { pivotRows } from "../../app/pages/adhoc/sql-dashboard/pivot";
+import {
+  pivotRows,
+  timeRangeDays,
+} from "../../app/pages/adhoc/sql-dashboard/pivot";
 import type {
   ColumnFormat,
   SqlDashboardConfig,
@@ -339,12 +342,16 @@ export async function fetchReportPanelData(args: {
 }
 
 function escapeHtml(value: unknown): string {
-  return String(value ?? "")
+  return (typeof value === "string" ? value : (JSON.stringify(value) ?? ""))
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeMarkdownTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
 }
 
 function isNumericLike(value: unknown): boolean {
@@ -387,7 +394,9 @@ function formatMetricValue(
   const numeric = toNumber(raw);
   return numeric !== null
     ? formatYValue(numeric, formatter)
-    : String(raw ?? "-");
+    : typeof raw === "string"
+      ? raw
+      : (JSON.stringify(raw) ?? "-");
 }
 
 function formatCell(value: unknown, format: ColumnFormat | undefined): string {
@@ -404,7 +413,9 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
     }
   }
   if (format === "date") {
-    const date = new Date(String(value));
+    const date = new Date(
+      typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+    );
     if (!Number.isNaN(date.getTime())) {
       return date.toLocaleDateString("en-US", {
         year: "numeric",
@@ -413,7 +424,7 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
       });
     }
   }
-  return String(value);
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
 function safeLinkHref(value: unknown): string | null {
@@ -550,10 +561,12 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
 function pivotPanelRows(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
+  timeRange?: number,
 ): { rows: Array<Record<string, unknown>>; forcedYKeys?: string[] } {
   if (!panel.config?.pivot || rows.length === 0) return { rows };
   const pivoted = pivotRows(rows, panel.config.pivot, {
     fillDateGaps: panel.chartType !== "bar",
+    timeRange,
   });
   return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
 }
@@ -576,7 +589,11 @@ function buildChartInput(
 
   const droppedPoints = Math.max(0, rows.length - MAX_CHART_POINTS);
   const visible = droppedPoints ? rows.slice(-MAX_CHART_POINTS) : rows;
-  const labels = visible.map((row) => String(row[xKey] ?? ""));
+  const labels = visible.map((row) =>
+    typeof row[xKey] === "string"
+      ? row[xKey]
+      : (JSON.stringify(row[xKey]) ?? ""),
+  );
   const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
@@ -688,12 +705,19 @@ function renderCalloutHtml(rows: Array<Record<string, unknown>>): {
   const lines: string[] = [];
   const html = rows
     .map((row) => {
-      const severityRaw = String(row.severity ?? "info").toLowerCase();
+      const severityRaw = (
+        typeof row.severity === "string"
+          ? row.severity
+          : (JSON.stringify(row.severity) ?? "info")
+      ).toLowerCase();
       const severity =
         severityRaw === "critical" || severityRaw === "warning"
           ? severityRaw
           : "info";
-      const message = String(row.message ?? "");
+      const message =
+        typeof row.message === "string"
+          ? row.message
+          : (JSON.stringify(row.message) ?? "");
       lines.push(`${severity.toUpperCase()}: ${message}`);
       const colors = palette[severity];
       return `<p style="margin:0 0 6px;padding:8px 10px;border:1px solid ${colors.border};background:${colors.background};color:${colors.text};font-size:13px;">${escapeHtml(message)}</p>`;
@@ -759,10 +783,14 @@ function renderTableHtml(
       : "";
 
   const text = [
-    columns.map((column) => column.label ?? column.key).join(" | "),
+    columns
+      .map((column) => escapeMarkdownTableCell(column.label ?? column.key))
+      .join(" | "),
     ...visible.map((row) =>
       columns
-        .map((column) => formatCell(row[column.key], column.format))
+        .map((column) =>
+          escapeMarkdownTableCell(formatCell(row[column.key], column.format)),
+        )
         .join(" | "),
     ),
     ...(rows.length > visible.length
@@ -813,8 +841,15 @@ function renderHeatmapHtml(
   const yValues: string[] = [];
   const grid = new Map<string, number>();
   for (const row of rows) {
-    const x = String(row[xKey] ?? "");
-    const y = rowKey ? String(row[rowKey] ?? "") : "";
+    const x =
+      typeof row[xKey] === "string"
+        ? row[xKey]
+        : (JSON.stringify(row[xKey]) ?? "");
+    const y = rowKey
+      ? typeof row[rowKey] === "string"
+        ? row[rowKey]
+        : (JSON.stringify(row[rowKey]) ?? "")
+      : "";
     if (!xValues.includes(x)) xValues.push(x);
     if (!yValues.includes(y)) yValues.push(y);
     const value = toNumber(row[valueKey]);
@@ -869,7 +904,7 @@ function renderHeatmapHtml(
     .join("");
 
   const text = [
-    [rowKey, ...xValues].join(" | "),
+    [rowKey, ...xValues].map(escapeMarkdownTableCell).join(" | "),
     ...yValues.map((y) =>
       [
         y || "—",
@@ -877,7 +912,9 @@ function renderHeatmapHtml(
           const value = grid.get(`${x}\u0000${y}`);
           return value != null ? formatYValue(value, config?.yFormatter) : "";
         }),
-      ].join(" | "),
+      ]
+        .map(escapeMarkdownTableCell)
+        .join(" | "),
     ),
   ].join("\n");
 
@@ -1157,7 +1194,11 @@ export async function renderReportEmail(args: {
     const truncatedNote = data.truncated
       ? noteHtml("The source truncated this result set.")
       : "";
-    const { rows, forcedYKeys } = pivotPanelRows(panel, data.rows);
+    const { rows, forcedYKeys } = pivotPanelRows(
+      panel,
+      data.rows,
+      timeRangeDays(vars.timeRange),
+    );
 
     const chartType: ReportChartType | undefined =
       REPORT_CHART_TYPES[panel.chartType];

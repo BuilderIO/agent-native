@@ -1,4 +1,4 @@
-export const REWIND_AGENT_PROMPT = `Set up Agent Native Rewind for this agent once so I can later say things like “Look at Rewind” or “What did I just say?” without pasting setup instructions again.
+export const REWIND_AGENT_PROMPT = `Set up Agent-Native Rewind for this agent once so I can later say things like “Look at Rewind” or “What did I just say?” without pasting setup instructions again.
 
 Install or refresh the public Rewind skill and its local Clips Screen Memory MCP connection with:
 

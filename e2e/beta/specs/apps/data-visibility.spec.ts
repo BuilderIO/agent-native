@@ -6,7 +6,13 @@ import {
   signedInContext,
   skipUnlessAuthed,
 } from "../../lib/authed";
-import { chatSites, originFor, selectedSites, siteById } from "../../lib/fleet";
+import {
+  authenticatedEntryPath,
+  chatSites,
+  originFor,
+  selectedSites,
+  siteById,
+} from "../../lib/fleet";
 
 /**
  * "My things are gone."
@@ -48,7 +54,7 @@ test.describe("slides deck list", () => {
       const page = await context.newPage();
       const { errors } = collectAppPageErrors(page, origin);
 
-      await page.goto(`${origin}/`, {
+      await page.goto(`${origin}${authenticatedEntryPath(site)}`, {
         waitUntil: "domcontentloaded",
         timeout: 90_000,
       });
@@ -111,7 +117,7 @@ test.describe("content workspace", () => {
       const page = await context.newPage();
       const { errors } = collectAppPageErrors(page, origin);
 
-      await page.goto(`${origin}/`, {
+      await page.goto(`${origin}${authenticatedEntryPath(site)}`, {
         waitUntil: "domcontentloaded",
         timeout: 90_000,
       });
@@ -191,7 +197,7 @@ test.describe("clips recorder", () => {
         timeout: 90_000,
       });
       const recorderBody = await renderedText(page, "beta.clips idle recorder");
-      expect(recorderBody).toContain("Clips recorder");
+      expect(recorderBody).toMatch(/Clips recorder/i);
       expect(recorderBody).not.toMatch(
         /preparing sources|recording your screen|saving your recording|already recording/i,
       );
@@ -335,10 +341,13 @@ test.describe("app-local chat history", () => {
       try {
         await assertSignedInOnBeta(context, site);
         const page = await context.newPage();
-        await page.goto(`${origin}/?agentSidebar=open`, {
-          waitUntil: "domcontentloaded",
-          timeout: 90_000,
-        });
+        await page.goto(
+          `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
+          {
+            waitUntil: "domcontentloaded",
+            timeout: 90_000,
+          },
+        );
 
         const result = await page.evaluate(async () => {
           const response = await fetch(

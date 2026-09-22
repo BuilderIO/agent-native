@@ -6,18 +6,12 @@
  * run-store.ts and usage/store.ts — framework tables use getDbExec()
  * rather than Drizzle ORM (which is for template-level schemas).
  */
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
-import { isDuplicateColumnError } from "../db/migrations.js";
 import type {
   TraceSpan,
   TraceSummary,
@@ -28,6 +22,7 @@ import type {
   Experiment,
   ExperimentAssignment,
   ExperimentMetricResult,
+  InstructionUpdate,
 } from "./types.js";
 
 function safeJsonParse<T>(value: unknown, fallback: T): T {
@@ -49,6 +44,7 @@ const USER_SCOPED_TABLES = [
   "agent_satisfaction_scores",
   "agent_evals",
   "agent_feedback",
+  "agent_instruction_updates",
 ] as const;
 
 /**
@@ -73,8 +69,6 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureObservabilityTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
-
       const traceSpansCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_trace_spans (
           id TEXT PRIMARY KEY,
@@ -84,16 +78,16 @@ export async function ensureObservabilityTables(): Promise<void> {
           parent_span_id TEXT,
           span_type TEXT NOT NULL,
           name TEXT NOT NULL,
-          input_tokens ${intType()} NOT NULL DEFAULT 0,
-          output_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_read_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_write_tokens ${intType()} NOT NULL DEFAULT 0,
-          cost_cents_x100 ${intType()} NOT NULL DEFAULT 0,
-          duration_ms ${intType()} NOT NULL DEFAULT 0,
+          input_tokens BIGINT NOT NULL DEFAULT 0,
+          output_tokens BIGINT NOT NULL DEFAULT 0,
+          cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+          cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+          cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+          duration_ms BIGINT NOT NULL DEFAULT 0,
           status TEXT NOT NULL DEFAULT 'success',
           error_message TEXT,
           metadata TEXT,
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 
@@ -102,17 +96,17 @@ export async function ensureObservabilityTables(): Promise<void> {
           run_id TEXT PRIMARY KEY,
           thread_id TEXT,
           user_id TEXT,
-          total_spans ${intType()} NOT NULL DEFAULT 0,
-          llm_calls ${intType()} NOT NULL DEFAULT 0,
-          tool_calls ${intType()} NOT NULL DEFAULT 0,
-          successful_tools ${intType()} NOT NULL DEFAULT 0,
-          failed_tools ${intType()} NOT NULL DEFAULT 0,
-          total_duration_ms ${intType()} NOT NULL DEFAULT 0,
-          total_cost_cents_x100 ${intType()} NOT NULL DEFAULT 0,
-          total_input_tokens ${intType()} NOT NULL DEFAULT 0,
-          total_output_tokens ${intType()} NOT NULL DEFAULT 0,
+          total_spans BIGINT NOT NULL DEFAULT 0,
+          llm_calls BIGINT NOT NULL DEFAULT 0,
+          tool_calls BIGINT NOT NULL DEFAULT 0,
+          successful_tools BIGINT NOT NULL DEFAULT 0,
+          failed_tools BIGINT NOT NULL DEFAULT 0,
+          total_duration_ms BIGINT NOT NULL DEFAULT 0,
+          total_cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+          total_input_tokens BIGINT NOT NULL DEFAULT 0,
+          total_output_tokens BIGINT NOT NULL DEFAULT 0,
           model TEXT NOT NULL DEFAULT '',
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 
@@ -121,11 +115,27 @@ export async function ensureObservabilityTables(): Promise<void> {
           id TEXT PRIMARY KEY,
           run_id TEXT,
           thread_id TEXT,
-          message_seq ${intType()},
+          message_seq BIGINT,
           feedback_type TEXT NOT NULL,
           value TEXT NOT NULL DEFAULT '',
+          idempotency_key TEXT,
           user_id TEXT,
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
+        )
+      `;
+
+      const instructionUpdatesCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_instruction_updates (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          thread_id TEXT,
+          target TEXT NOT NULL,
+          instruction TEXT NOT NULL,
+          feedback TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'draft',
+          user_id TEXT NOT NULL,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
         )
       `;
 
@@ -139,7 +149,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           abandonment_score REAL NOT NULL DEFAULT 0,
           sentiment_score REAL NOT NULL DEFAULT 0,
           length_trend_score REAL NOT NULL DEFAULT 0,
-          computed_at ${intType()} NOT NULL
+          computed_at BIGINT NOT NULL
         )
       `;
 
@@ -154,7 +164,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           score REAL NOT NULL DEFAULT 0,
           reasoning TEXT,
           metadata TEXT,
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 
@@ -164,8 +174,8 @@ export async function ensureObservabilityTables(): Promise<void> {
           name TEXT NOT NULL,
           description TEXT NOT NULL DEFAULT '',
           entries TEXT NOT NULL DEFAULT '[]',
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
         )
       `;
 
@@ -177,9 +187,9 @@ export async function ensureObservabilityTables(): Promise<void> {
           variants TEXT NOT NULL DEFAULT '[]',
           metrics TEXT NOT NULL DEFAULT '[]',
           assignment_level TEXT NOT NULL DEFAULT 'user',
-          started_at ${intType()},
-          ended_at ${intType()},
-          created_at ${intType()} NOT NULL,
+          started_at BIGINT,
+          ended_at BIGINT,
+          created_at BIGINT NOT NULL,
           owner_email TEXT
         )
       `;
@@ -189,7 +199,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           experiment_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
           variant_id TEXT NOT NULL,
-          assigned_at ${intType()} NOT NULL,
+          assigned_at BIGINT NOT NULL,
           PRIMARY KEY (experiment_id, user_id)
         )
       `;
@@ -201,14 +211,14 @@ export async function ensureObservabilityTables(): Promise<void> {
           variant_id TEXT NOT NULL,
           metric TEXT NOT NULL,
           value REAL NOT NULL DEFAULT 0,
-          sample_size ${intType()} NOT NULL DEFAULT 0,
+          sample_size BIGINT NOT NULL DEFAULT 0,
           confidence_low REAL NOT NULL DEFAULT 0,
           confidence_high REAL NOT NULL DEFAULT 0,
-          computed_at ${intType()} NOT NULL
+          computed_at BIGINT NOT NULL
         )
       `;
 
-      if (isPostgres()) {
+      {
         // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
         await ensureTableExists("agent_trace_spans", traceSpansCreateSql);
         await ensureTableExists(
@@ -216,6 +226,10 @@ export async function ensureObservabilityTables(): Promise<void> {
           traceSummariesCreateSql,
         );
         await ensureTableExists("agent_feedback", feedbackCreateSql);
+        await ensureTableExists(
+          "agent_instruction_updates",
+          instructionUpdatesCreateSql,
+        );
         await ensureTableExists(
           "agent_satisfaction_scores",
           satisfactionScoresCreateSql,
@@ -243,6 +257,11 @@ export async function ensureObservabilityTables(): Promise<void> {
             `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS user_id TEXT`,
           );
         }
+        await ensureColumnExists(
+          "agent_feedback",
+          "idempotency_key",
+          `ALTER TABLE agent_feedback ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+        );
         await ensureIndexExists(
           "idx_trace_spans_run",
           `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
@@ -288,6 +307,14 @@ export async function ensureObservabilityTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_feedback_type_created ON agent_feedback (feedback_type, created_at)`,
         );
         await ensureIndexExists(
+          "idx_feedback_idempotency",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_idempotency ON agent_feedback (user_id, idempotency_key)`,
+        );
+        await ensureIndexExists(
+          "idx_instruction_updates_run_user",
+          `CREATE INDEX IF NOT EXISTS idx_instruction_updates_run_user ON agent_instruction_updates (run_id, user_id, updated_at)`,
+        );
+        await ensureIndexExists(
           "idx_satisfaction_thread",
           `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
         );
@@ -312,81 +339,6 @@ export async function ensureObservabilityTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
         );
         return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await retryOnDdlRace(() => client.execute(traceSpansCreateSql));
-
-      await retryOnDdlRace(() => client.execute(traceSummariesCreateSql));
-
-      await retryOnDdlRace(() => client.execute(feedbackCreateSql));
-
-      await retryOnDdlRace(() => client.execute(satisfactionScoresCreateSql));
-
-      await retryOnDdlRace(() => client.execute(evalsCreateSql));
-
-      await retryOnDdlRace(() => client.execute(evalDatasetsCreateSql));
-
-      await retryOnDdlRace(() => client.execute(experimentsCreateSql));
-
-      // Additive migration for DBs created before the owner column shipped
-      // (any pre-existing rows have NULL owner — see `updateExperiment` for
-      // the migration semantics). Mutations on those rows fall back to the
-      // standard authentication gate but cannot enforce per-owner scoping
-      // until they're re-saved.
-      try {
-        await client.execute(
-          `ALTER TABLE agent_experiments ADD COLUMN owner_email TEXT`,
-        );
-      } catch {
-        // Column already exists — expected after first run.
-      }
-
-      await retryOnDdlRace(() =>
-        client.execute(experimentAssignmentsCreateSql),
-      );
-
-      await retryOnDdlRace(() => client.execute(experimentResultsCreateSql));
-
-      // Idempotent column upgrades for DBs created before per-user
-      // isolation. SQLite has no `ADD COLUMN IF NOT EXISTS`; Postgres
-      // surfaces "column ... already exists". `isDuplicateColumnError`
-      // (from db/migrations.ts) recognizes both shapes.
-      for (const table of USER_SCOPED_TABLES) {
-        try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
-        } catch (err) {
-          if (isDuplicateColumnError(err)) continue;
-          throw err;
-        }
-      }
-
-      // Indexes for common query patterns
-      const indexes = [
-        `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_spans_thread ON agent_trace_spans (thread_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_spans_created ON agent_trace_spans (created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_summaries_created ON agent_trace_summaries (created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_summaries_user ON agent_trace_summaries (user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_summaries_thread_user_created ON agent_trace_summaries (thread_id, user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_spans_user ON agent_trace_spans (user_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_feedback_thread ON agent_feedback (thread_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_feedback_user ON agent_feedback (user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_feedback_type_created ON agent_feedback (feedback_type, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_satisfaction_user ON agent_satisfaction_scores (user_id, computed_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_evals_run ON agent_evals (run_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_evals_created ON agent_evals (created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
-      ];
-      for (const sql of indexes) {
-        try {
-          await client.execute(sql);
-        } catch {
-          // Index might already exist
-        }
       }
     })().catch((err) => {
       _initPromise = undefined;
@@ -434,43 +386,7 @@ export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
   const client = getDbExec();
   // user_id is intentionally NOT updated on conflict — once a run's
   // owner is recorded it shouldn't change under us.
-  if (isPostgres()) {
-    await client.execute({
-      sql: `INSERT INTO agent_trace_summaries
-        (run_id, thread_id, user_id, total_spans, llm_calls, tool_calls,
-         successful_tools, failed_tools, total_duration_ms,
-         total_cost_cents_x100, total_input_tokens, total_output_tokens,
-         model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (run_id) DO UPDATE SET
-          total_spans = EXCLUDED.total_spans,
-          llm_calls = EXCLUDED.llm_calls,
-          tool_calls = EXCLUDED.tool_calls,
-          successful_tools = EXCLUDED.successful_tools,
-          failed_tools = EXCLUDED.failed_tools,
-          total_duration_ms = EXCLUDED.total_duration_ms,
-          total_cost_cents_x100 = EXCLUDED.total_cost_cents_x100,
-          total_input_tokens = EXCLUDED.total_input_tokens,
-          total_output_tokens = EXCLUDED.total_output_tokens,
-          model = EXCLUDED.model`,
-      args: [
-        summary.runId,
-        summary.threadId,
-        summary.userId,
-        summary.totalSpans,
-        summary.llmCalls,
-        summary.toolCalls,
-        summary.successfulTools,
-        summary.failedTools,
-        summary.totalDurationMs,
-        summary.totalCostCentsX100,
-        summary.totalInputTokens,
-        summary.totalOutputTokens,
-        summary.model,
-        summary.createdAt,
-      ],
-    });
-  } else {
+  {
     await client.execute({
       sql: `INSERT INTO agent_trace_summaries
         (run_id, thread_id, user_id, total_spans, llm_calls, tool_calls,
@@ -624,13 +540,14 @@ export async function getLatestTraceSummaryForThread(
 
 // ─── Feedback CRUD ───────────────────────────────────────────────────
 
-export async function insertFeedback(entry: FeedbackEntry): Promise<void> {
+export async function insertFeedback(entry: FeedbackEntry): Promise<boolean> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  await client.execute({
+  const result = await client.execute({
     sql: `INSERT INTO agent_feedback
-      (id, run_id, thread_id, message_seq, feedback_type, value, user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, run_id, thread_id, message_seq, feedback_type, value, idempotency_key, user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT DO NOTHING`,
     args: [
       entry.id,
       entry.runId,
@@ -638,10 +555,12 @@ export async function insertFeedback(entry: FeedbackEntry): Promise<void> {
       entry.messageSeq,
       entry.feedbackType,
       entry.value,
+      entry.idempotencyKey,
       entry.userId,
       entry.createdAt,
     ],
   });
+  return result.rowsAffected > 0;
 }
 
 export async function getFeedback(opts: {
@@ -718,6 +637,62 @@ export async function getFeedbackStats(
   return { total, thumbsUp, thumbsDown, categories };
 }
 
+export async function insertInstructionUpdate(
+  update: InstructionUpdate,
+): Promise<void> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  await client.execute({
+    sql: `INSERT INTO agent_instruction_updates
+      (id, run_id, thread_id, target, instruction, feedback, status, user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      update.id,
+      update.runId,
+      update.threadId,
+      update.target,
+      update.instruction,
+      update.feedback,
+      update.status,
+      update.userId,
+      update.createdAt,
+      update.updatedAt,
+    ],
+  });
+}
+
+export async function getInstructionUpdates(opts: {
+  runId?: string;
+  sinceMs?: number;
+  limit?: number;
+  userId?: string;
+}): Promise<InstructionUpdate[]> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const conditions: string[] = [];
+  const args: unknown[] = [];
+  if (opts.runId) {
+    conditions.push("run_id = ?");
+    args.push(opts.runId);
+  }
+  if (opts.sinceMs) {
+    conditions.push("updated_at >= ?");
+    args.push(opts.sinceMs);
+  }
+  if (opts.userId) {
+    conditions.push("user_id = ?");
+    args.push(opts.userId);
+  }
+  const where =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_instruction_updates ${where}
+      ORDER BY updated_at DESC LIMIT ?`,
+    args: [...args, opts.limit ?? 500],
+  });
+  return (rows as any[]).map(rowToInstructionUpdate);
+}
+
 // ─── Satisfaction scores CRUD ────────────────────────────────────────
 
 export async function upsertSatisfactionScore(
@@ -725,32 +700,7 @@ export async function upsertSatisfactionScore(
 ): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  if (isPostgres()) {
-    await client.execute({
-      sql: `INSERT INTO agent_satisfaction_scores
-        (id, thread_id, user_id, frustration_score, rephrasing_score,
-         abandonment_score, sentiment_score, length_trend_score, computed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET
-          frustration_score = EXCLUDED.frustration_score,
-          rephrasing_score = EXCLUDED.rephrasing_score,
-          abandonment_score = EXCLUDED.abandonment_score,
-          sentiment_score = EXCLUDED.sentiment_score,
-          length_trend_score = EXCLUDED.length_trend_score,
-          computed_at = EXCLUDED.computed_at`,
-      args: [
-        score.id,
-        score.threadId,
-        score.userId,
-        score.frustrationScore,
-        score.rephrasingScore,
-        score.abandonmentScore,
-        score.sentimentScore,
-        score.lengthTrendScore,
-        score.computedAt,
-      ],
-    });
-  } else {
+  {
     await client.execute({
       sql: `INSERT INTO agent_satisfaction_scores
         (id, thread_id, user_id, frustration_score, rephrasing_score,
@@ -1054,7 +1004,7 @@ export async function upsertAssignment(
 ): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  if (isPostgres()) {
+  {
     await client.execute({
       sql: `INSERT INTO agent_experiment_assignments
         (experiment_id, user_id, variant_id, assigned_at)
@@ -1062,18 +1012,6 @@ export async function upsertAssignment(
         ON CONFLICT (experiment_id, user_id) DO UPDATE SET
           variant_id = EXCLUDED.variant_id,
           assigned_at = EXCLUDED.assigned_at`,
-      args: [
-        assignment.experimentId,
-        assignment.userId,
-        assignment.variantId,
-        assignment.assignedAt,
-      ],
-    });
-  } else {
-    await client.execute({
-      sql: `INSERT OR REPLACE INTO agent_experiment_assignments
-        (experiment_id, user_id, variant_id, assigned_at)
-        VALUES (?, ?, ?, ?)`,
       args: [
         assignment.experimentId,
         assignment.userId,
@@ -1272,8 +1210,24 @@ function rowToFeedback(row: Record<string, any>): FeedbackEntry {
     messageSeq: row.message_seq != null ? Number(row.message_seq) : null,
     feedbackType: row.feedback_type as FeedbackEntry["feedbackType"],
     value: String(row.value ?? ""),
+    idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
     userId: row.user_id ? String(row.user_id) : null,
     createdAt: Number(row.created_at),
+  };
+}
+
+function rowToInstructionUpdate(row: Record<string, any>): InstructionUpdate {
+  return {
+    id: String(row.id),
+    runId: String(row.run_id),
+    threadId: row.thread_id ? String(row.thread_id) : null,
+    target: row.target as InstructionUpdate["target"],
+    instruction: String(row.instruction),
+    feedback: String(row.feedback ?? ""),
+    status: row.status as InstructionUpdate["status"],
+    userId: String(row.user_id),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
   };
 }
 

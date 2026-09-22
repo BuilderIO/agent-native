@@ -129,7 +129,7 @@ describe("import-figma-clipboard", () => {
           return structureWithFrames([{ id: "1:1", name: "Hero" }]);
         }
         if (path === `/files/${FILE_KEY}/nodes`) {
-          expect(query).toEqual({ ids: "1:1" });
+          expect(query).toEqual(expect.objectContaining({ ids: "1:1" }));
           return jsonEnvelope({
             nodes: { "1:1": { document: HERO_NODE_DOCUMENT } },
           });
@@ -160,7 +160,7 @@ describe("import-figma-clipboard", () => {
     mocks.executeProviderApiRequest.mockImplementation(
       async ({ path, query }: any) => {
         expect(path).toBe(`/files/${FILE_KEY}/nodes`);
-        expect(query).toEqual({ ids: "1:1" });
+        expect(query).toEqual(expect.objectContaining({ ids: "1:1" }));
         return jsonEnvelope({
           nodes: { "1:1": { document: HERO_NODE_DOCUMENT } },
         });
@@ -263,7 +263,8 @@ describe("import-figma-clipboard", () => {
     expect(result.strategy).toBe("htmlFallback");
     expect(result.files).toEqual([]);
     expect(result.figmaApiKeyMissing).toBe(true);
-    expect(result.guidance).toMatch(/current figma clipboard data has no/i);
+    expect(result.guidance).toMatch(/no browser-readable HTML/i);
+    expect(result.guidance).toMatch(/Connect your Figma access token/i);
     expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
   });
 
@@ -329,6 +330,42 @@ describe("import-figma-clipboard", () => {
       } as any),
     ).rejects.toThrow(/durable file storage/i);
     expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+  });
+
+  it("treats the typed figma_auth_required as a missing token, like the raw resolver message", async () => {
+    // What the provider wrapper now raises instead of the raw core message.
+    mocks.executeProviderApiRequest.mockRejectedValue(
+      Object.assign(new Error("No Figma access token is available"), {
+        errorCode: "figma_auth_required",
+        statusCode: 401,
+      }),
+    );
+
+    const result: any = await action.run({
+      figmetaFileKey: FILE_KEY,
+      clipboardHtml: CLIPBOARD_HTML_HERO,
+    } as any);
+
+    expect(result.figmaApiKeyMissing).toBe(true);
+    expect(result.strategy).toBe("htmlFallback");
+    expect(result.guidance).toMatch(/connect your figma access token/i);
+  });
+
+  it("treats a provider quota cooldown as transient so the local buffer still decodes", async () => {
+    mocks.executeProviderApiRequest.mockRejectedValue(
+      Object.assign(new Error("Design is pacing its own Figma requests"), {
+        errorCode: "figma_provider_quota_cooldown",
+        statusCode: 429,
+      }),
+    );
+
+    const result: any = await action.run({
+      figmetaFileKey: FILE_KEY,
+      clipboardHtml: CLIPBOARD_HTML_HERO,
+    } as any);
+
+    expect(result.figmaApiKeyMissing).toBe(false);
+    expect(result.matchStatus).toBe("error");
   });
 
   it("falls back to the HTML preview with a key-missing hint when Figma credentials aren't configured", async () => {
@@ -440,7 +477,13 @@ describe("import-figma-clipboard", () => {
     } as any);
     expect(result.strategy).toBe("htmlFallback");
     expect(result.files).toEqual([]);
-    expect(result.guidance).toMatch(/did not expose exact node ids/i);
+    expect(result.guidance).toMatch(
+      /no exact node ids and no browser-readable HTML/i,
+    );
+    // The refusal must name the strategy that failed, not just report nothing.
+    expect(result.guidance).toMatch(
+      /did not include exact node ids or visible text/i,
+    );
   });
 
   it("throws for an invalid figmeta file key", async () => {
@@ -564,6 +607,41 @@ describe("import-figma-clipboard", () => {
       expect(result.strategy).toBe("htmlFallback");
       expect(result.files).toEqual([]);
       expect(result.figmaApiKeyMissing).toBe(true);
+      // The swallowed decode error was the difference between "paste failed
+      // because X" and a paste that appeared to do nothing at all.
+      expect(result.guidance).toMatch(/No editable frames found/);
+    });
+
+    it("names a decode that produced zero frames rather than importing nothing", async () => {
+      mocks.importFigmaClipboardFromBuffer.mockResolvedValue({
+        files: [],
+        warnings: [],
+        unresolvedImageRefs: [],
+      });
+
+      const result = await action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        clipboardBuffer: FAKE_BUFFER_BASE64,
+      } as any);
+
+      expect(result.files).toEqual([]);
+      expect(result.guidance).toMatch(/decoded to zero frames/i);
+    });
+
+    it("explains an oversized clipboard selection the client could not send", async () => {
+      const result = await action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        clipboardBufferOmittedBytes: 12 * 1024 * 1024,
+      } as any);
+
+      expect(result.files).toEqual([]);
+      expect(result.clipboardBufferOmittedBytes).toBe(12 * 1024 * 1024);
+      expect(result.guidance).toMatch(/12 MB of clipboard data/);
+      expect(result.guidance).toMatch(/Import the \.fig file instead/);
     });
 
     it("does not attempt local decode when no buffer is provided", async () => {

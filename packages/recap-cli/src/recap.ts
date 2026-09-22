@@ -2197,14 +2197,15 @@ async function githubRequest<T>(
   init: RequestInit = {},
   fetchFn: typeof fetch = fetch,
 ): Promise<T> {
+  const headers = new Headers({
+    accept: "application/vnd.github+json",
+    authorization: `Bearer ${token}`,
+    "x-github-api-version": "2022-11-28",
+  });
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value));
   const res = await fetchFn(`https://api.github.com${apiPath}`, {
     ...init,
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${token}`,
-      "x-github-api-version": "2022-11-28",
-      ...(init.headers ?? {}),
-    },
+    headers,
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -3524,15 +3525,21 @@ const RECAP_SYSTEM_CHROME_EXECUTABLES = [
   "/usr/bin/chromium",
 ];
 
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return JSON.stringify(err) ?? "";
+}
+
 function shouldTrySystemChromeFallback(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   return /Executable doesn't exist|playwright install|browser.*not found|chromium.*not found/i.test(
     message,
   );
 }
 
 function shouldRetryRecapDocumentLoad(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   return (
     /waitForSelector:\s*Timeout/i.test(message) &&
     message.includes(RECAP_DOCUMENT_SELECTOR)
@@ -4754,8 +4761,10 @@ function parseLastJsonObject(text: string): Record<string, any> | null {
 
 /**
  * Claude Code `-p --output-format json` prints one final result object with a
- * `usage` block and `total_cost_usd`. Anthropic's `input_tokens` already
- * EXCLUDES cache tokens, so no normalization is needed here.
+ * `usage` block and `total_cost_usd`. Anthropic's `input_tokens` EXCLUDES cache
+ * tokens, so the cache counts are added back: `inputTokens` reports the whole
+ * prompt, with the cache counts a slice of it. That is the one convention
+ * `calculateCost` and the engine `usage` event share.
  */
 export function parseClaudeUsage(stdout: string): ParsedUsage | null {
   const obj = parseLastJsonObject(stdout);
@@ -4767,11 +4776,14 @@ export function parseClaudeUsage(stdout: string): ParsedUsage | null {
       : obj?.modelUsage && typeof obj.modelUsage === "object"
         ? Object.keys(obj.modelUsage)[0]
         : undefined;
+  const cacheReadTokens = Number(u.cache_read_input_tokens ?? 0);
+  const cacheWriteTokens = Number(u.cache_creation_input_tokens ?? 0);
   return {
-    inputTokens: Number(u.input_tokens ?? 0),
+    inputTokens:
+      Number(u.input_tokens ?? 0) + cacheReadTokens + cacheWriteTokens,
     outputTokens: Number(u.output_tokens ?? 0),
-    cacheReadTokens: Number(u.cache_read_input_tokens ?? 0),
-    cacheWriteTokens: Number(u.cache_creation_input_tokens ?? 0),
+    cacheReadTokens,
+    cacheWriteTokens,
     model,
     reportedCostUsd:
       typeof obj?.total_cost_usd === "number" ? obj.total_cost_usd : undefined,
@@ -4805,21 +4817,23 @@ function lastCodexUsage(jsonl: string): Record<string, any> | undefined {
 
 /**
  * Codex `exec --json` reports `input_tokens` INCLUSIVE of `cached_input_tokens`
- * (OpenAI counts cached as a subset of prompt tokens) and bills
- * `reasoning_output_tokens` separately. Normalize to the cache-exclusive shape
- * `calculateCost` expects: strip cached out of input, fold reasoning into
- * output. Without this, cached tokens are billed twice and reasoning is dropped.
+ * (OpenAI counts cached as a subset of prompt tokens), which is already the
+ * convention `calculateCost` and the engine `usage` event share — so input
+ * passes through untouched and `calculateCost` subtracts to price each token
+ * once. This used to strip the cached tokens out here instead, back when
+ * pricing added the cache counts on top; doing both now bills them twice.
+ *
+ * `reasoning_output_tokens` is still folded into output — it is billed at the
+ * output rate and would otherwise be dropped.
  */
 export function parseCodexUsage(jsonl: string): ParsedUsage | null {
   const u = lastCodexUsage(jsonl);
   if (!u) return null;
-  const cached = Number(u.cached_input_tokens ?? 0);
-  const input = Number(u.input_tokens ?? 0) - cached;
   return {
-    inputTokens: Math.max(0, input),
+    inputTokens: Number(u.input_tokens ?? 0),
     outputTokens:
       Number(u.output_tokens ?? 0) + Number(u.reasoning_output_tokens ?? 0),
-    cacheReadTokens: cached,
+    cacheReadTokens: Number(u.cached_input_tokens ?? 0),
     cacheWriteTokens: 0, // Codex has no separate cache-write token charge
     model: typeof u.model === "string" ? u.model : undefined,
   };

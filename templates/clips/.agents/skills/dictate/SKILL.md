@@ -40,6 +40,7 @@ Dictate captures **mic only** — system audio is never recorded for dictations.
 | Action               | What it does                                                                                |
 | -------------------- | ------------------------------------------------------------------------------------------- |
 | `list-dictations`    | Past dictations, scoped via `accessFilter`                                                  |
+| `search-dictations`  | Search native or cleaned dictation text, with matching snippets                            |
 | `cleanup-dictation`  | Polish a single dictation's text (writes `cleanedText`)                                     |
 | `cleanup-transcript` | Shared cleanup pipeline (also used by Clips + Meetings); resolves credentials per the order below |
 
@@ -92,7 +93,7 @@ listeners and the mobile capture UI own those user gestures.
 
 ## Mobile dictation
 
-The Agent Native iOS/Android app exposes Dictate from native Home, deep links,
+The Agent-Native iOS/Android app exposes Dictate from native Home, deep links,
 and OS quick actions. Mobile is click-to-toggle rather than hold-to-talk:
 
 1. `expo-audio` records mic-only M4A and persists it under the app documents

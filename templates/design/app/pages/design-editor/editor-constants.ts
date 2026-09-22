@@ -15,6 +15,15 @@ export const DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS = 150;
  *  not caught up with the insert yet — see removeEmptyTextNodeWithRetry. */
 export const EMPTY_TEXT_CLEANUP_RETRY_MS = 400;
 
+/**
+ * How many times the empty-text cleanup re-asks for the screen's content before
+ * giving up. A board's very first primitive is the reason this is not 1: the
+ * board file's content has not reached the client map yet at that moment, and a
+ * cleanup that gave up there left the node on the canvas forever with nothing
+ * left to remove it.
+ */
+export const EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS = 8;
+
 /** Floor for an inspector-typed frame size, matching the frame tool's own
  *  drawing minimum (see getDraftGeometryForTool). */
 export const MIN_FRAME_SIZE_PX = 24;
@@ -47,8 +56,6 @@ export const NO_LOCALHOST_WRITE_PATH_MESSAGE =
   "Can't determine the source file for this screen."; /* i18n-ignore */
 export const TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE =
   "You need edit access to add tweak controls."; /* i18n-ignore */
-
-export const PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS = 60_000;
-export const PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS = 15_000;
+export const PENDING_STRUCTURE_HARD_TIMEOUT_MS = 10 * 60_000;
 export const PENDING_STRUCTURE_SOURCE_POLL_MS = 750;
 export const PENDING_STRUCTURE_RUNTIME_POLL_MS = 150;

@@ -24,7 +24,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,7 +45,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useDbStatus } from "@/hooks/use-db-status";
 import {
   useForms,
   useCreateForm,
@@ -66,7 +64,9 @@ const statusColors: Record<string, string> = {
 
 export function FormsListPage() {
   const t = useT();
-  const { formatDate, formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const navigate = useNavigate();
   const [view, setView] = useState<"active" | "archive">("active");
   const {
@@ -79,8 +79,6 @@ export function FormsListPage() {
   const deleteForm = useDeleteForm();
   const restoreForm = useRestoreForm();
   const updateForm = useUpdateForm();
-  const { isLocal } = useDbStatus();
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const [purgeId, setPurgeId] = useState<string | null>(null);
   const [bulkPurgeOpen, setBulkPurgeOpen] = useState(false);
   const [bulkDeletePending, setBulkDeletePending] = useState(false);
@@ -147,7 +145,7 @@ export function FormsListPage() {
         {
           onSuccess: (newForm) => {
             toast.success(t("forms.duplicated"));
-            navigate(`/forms/${newForm.id}`);
+            void navigate(`/forms/${newForm.id}`);
           },
         },
       );
@@ -224,14 +222,10 @@ export function FormsListPage() {
       : toast.loading(t("forms.movingToArchive"));
     setBulkDeletePending(true);
     try {
-      await Promise.all(
-        ids.map((id) =>
-          deleteForm.mutateAsync({
-            id,
-            purge,
-          }),
-        ),
-      );
+      await deleteForm.mutateAsync({
+        id: ids,
+        purge,
+      });
       toast.success(
         ids.length === 1
           ? purge
@@ -262,10 +256,6 @@ export function FormsListPage() {
 
   function handleTogglePublish(form: (typeof forms)[0]) {
     const newStatus = form.status === "published" ? "draft" : "published";
-    if (newStatus === "published" && isLocal) {
-      setShowCloudUpgrade(true);
-      return;
-    }
     updateForm.mutate(
       { id: form.id, status: newStatus },
       {
@@ -528,7 +518,7 @@ export function FormsListPage() {
                     toggleSelection(form.id);
                     return;
                   }
-                  navigate(formHref);
+                  void navigate(formHref);
                 }}
                 onKeyDown={(e) => {
                   if (
@@ -540,7 +530,7 @@ export function FormsListPage() {
                       toggleSelection(form.id);
                       return;
                     }
-                    navigate(formHref);
+                    void navigate(formHref);
                   }
                 }}
               >
@@ -617,7 +607,7 @@ export function FormsListPage() {
                             <DropdownMenuItem
                               onClick={(e) => {
                                 e.stopPropagation();
-                                navigate(`/forms/${form.id}/responses`);
+                                void navigate(`/forms/${form.id}/responses`);
                               }}
                             >
                               <IconChartBar className="h-4 w-4 me-2" />
@@ -665,7 +655,7 @@ export function FormsListPage() {
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    navigate(`/forms/${form.id}`);
+                                    void navigate(`/forms/${form.id}`);
                                   }}
                                 >
                                   <IconExternalLink className="h-4 w-4 me-2" />
@@ -678,7 +668,9 @@ export function FormsListPage() {
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    navigate(`/forms/${form.id}/responses`);
+                                    void navigate(
+                                      `/forms/${form.id}/responses`,
+                                    );
                                   }}
                                 >
                                   <IconChartBar className="h-4 w-4 me-2" />
@@ -698,7 +690,7 @@ export function FormsListPage() {
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDuplicate(form);
+                                    void handleDuplicate(form);
                                   }}
                                 >
                                   <IconCopy className="h-4 w-4 me-2" />
@@ -783,14 +775,6 @@ export function FormsListPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {showCloudUpgrade && (
-        <CloudUpgrade
-          title={t("forms.publishCloudTitle")}
-          description={t("forms.publishCloudDescription")}
-          onClose={() => setShowCloudUpgrade(false)}
-        />
-      )}
     </div>
   );
 }

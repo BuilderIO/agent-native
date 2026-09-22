@@ -102,6 +102,7 @@ export type ReactSemanticOperation =
   | "remove"
   | "auto-layout"
   | "set-layer-state"
+  | "metadata"
   | "component-change";
 
 export type ReactRuntimeRelationshipKind =
@@ -208,6 +209,7 @@ const MAX_DESCRIPTION_LENGTH = 800;
 const MAX_COMPONENT_LENGTH = 160;
 const MAX_ID_LENGTH = 120;
 const MAX_SCREEN_ID_LENGTH = 160;
+const MAX_SOURCE_PATH_LENGTH = 1_000;
 
 export interface BuildRuntimeReactStructureMoveHandoffInput {
   subjectAnchor: ReactSourceAnchor;
@@ -316,6 +318,9 @@ function ownerAnchorFields(anchor: ReactSourceAnchor) {
   const ownerPath =
     safeRelativePath(anchor.ownerRelPath) ??
     safeRelativePath(anchor.ownerSourceFile);
+  const rawOwnerPath =
+    bounded(anchor.ownerRelPath, MAX_SOURCE_PATH_LENGTH) ??
+    bounded(anchor.ownerSourceFile, MAX_SOURCE_PATH_LENGTH);
   const hasOwnerPosition =
     !!ownerPath &&
     Number.isInteger(anchor.ownerLine) &&
@@ -334,7 +339,21 @@ function ownerAnchorFields(anchor: ReactSourceAnchor) {
             : {}),
           ...(anchor.ownerMethod ? { ownerMethod: anchor.ownerMethod } : {}),
         }
-      : {}),
+      : rawOwnerPath
+        ? {
+            ownerSourceFile: rawOwnerPath,
+            ownerSourcePathStatus: "outside-connected-root" as const,
+            ...(Number.isInteger(anchor.ownerLine) &&
+            (anchor.ownerLine ?? 0) > 0
+              ? { ownerLine: anchor.ownerLine }
+              : {}),
+            ...(Number.isInteger(anchor.ownerColumn) &&
+            (anchor.ownerColumn ?? 0) > 0
+              ? { ownerColumn: anchor.ownerColumn }
+              : {}),
+            ...(anchor.ownerMethod ? { ownerMethod: anchor.ownerMethod } : {}),
+          }
+        : {}),
     ...(bounded(anchor.ownerComponent, MAX_COMPONENT_LENGTH)
       ? { ownerComponent: bounded(anchor.ownerComponent, MAX_COMPONENT_LENGTH) }
       : {}),
@@ -347,12 +366,14 @@ function ownerAnchorFields(anchor: ReactSourceAnchor) {
 /** What prompt serialization emits: the anchor plus its honest precision. */
 export type RedactedReactSourceAnchor = ReactSourceAnchor & {
   positionPrecision: SourcePositionPrecision;
+  sourcePathStatus?: "outside-connected-root";
+  ownerSourcePathStatus?: "outside-connected-root";
 };
 
 /**
  * Bound an optional live-preview anchor for prompt serialization. Absolute
- * Fiber paths are replaced by the bridge-safe relPath when available, or
- * omitted when no safe project-relative path has been resolved yet.
+ * Fiber paths use the bridge-safe relPath when available; otherwise the
+ * bounded absolute path remains visible with an explicit root-status marker.
  *
  * `positionPrecision` always ships with the coordinates: a reader that sees
  * `line` without it would take a React 19 stack line for the authored one.
@@ -362,7 +383,8 @@ export function redactReactSourceAnchor(
 ): RedactedReactSourceAnchor | undefined {
   if (!anchor) return undefined;
   const relPath = safeRelativePath(anchor.relPath);
-  const sourceFile = safeRelativePath(anchor.sourceFile);
+  const rawSourceFile = bounded(anchor.sourceFile, MAX_SOURCE_PATH_LENGTH);
+  const sourceFile = safeRelativePath(rawSourceFile);
   const canonicalPath = relPath ?? sourceFile;
   return {
     positionPrecision: sourcePositionPrecision(anchor.method),
@@ -374,7 +396,12 @@ export function redactReactSourceAnchor(
           relPath: canonicalPath,
           sourceFile: sourceFile ?? canonicalPath,
         }
-      : {}),
+      : rawSourceFile
+        ? {
+            sourceFile: rawSourceFile,
+            sourcePathStatus: "outside-connected-root" as const,
+          }
+        : {}),
     ...(Number.isInteger(anchor.line) && (anchor.line ?? 0) > 0
       ? { line: anchor.line }
       : {}),
@@ -408,14 +435,35 @@ function exactAnchor(
   anchor: ReactSourceAnchor,
   index: number,
 ): ExactReactSourceAnchor | ReactSemanticHandoffBuildResult {
-  const relPath = safeRelativePath(anchor.relPath);
-  const sourceFile = safeRelativePath(anchor.sourceFile);
-  const canonicalPath = relPath ?? sourceFile;
+  const leafRelPath = safeRelativePath(anchor.relPath);
+  const leafSourceFile = safeRelativePath(anchor.sourceFile);
+  const ownerRelPath = safeRelativePath(anchor.ownerRelPath);
+  const ownerSourceFile = safeRelativePath(anchor.ownerSourceFile);
+  const leafPath = leafRelPath ?? leafSourceFile;
+  const ownerPath = ownerRelPath ?? ownerSourceFile;
+  // A toolkit-rendered leaf can be outside the connected root while its
+  // owning app component is inside it. In that case the owner coordinates are
+  // the only source location this handoff can safely give the coding agent.
+  const useOwnerPath = !leafPath && Boolean(ownerPath);
+  const canonicalPath = leafPath ?? ownerPath;
+  const sourceFile =
+    leafSourceFile ?? leafRelPath ?? ownerSourceFile ?? ownerRelPath;
+  const line = useOwnerPath ? anchor.ownerLine : anchor.line;
+  const column = useOwnerPath ? anchor.ownerColumn : anchor.column;
+  const method = useOwnerPath ? anchor.ownerMethod : anchor.method;
+  const component = useOwnerPath
+    ? (anchor.ownerComponent ?? anchor.component)
+    : anchor.component;
   if (!canonicalPath) {
-    if (anchor.relPath || anchor.sourceFile) {
+    if (
+      anchor.relPath ||
+      anchor.sourceFile ||
+      anchor.ownerRelPath ||
+      anchor.ownerSourceFile
+    ) {
       return anchorFailure(
         "unsafe-source-path",
-        `Source anchor ${index + 1} does not include a safe project-relative path.`,
+        `Source anchor ${index + 1} has neither a safe project-relative leaf path nor an app-authored owner path.`,
       );
     }
     return anchorFailure(
@@ -424,10 +472,10 @@ function exactAnchor(
     );
   }
   if (
-    !Number.isInteger(anchor.line) ||
-    !Number.isInteger(anchor.column) ||
-    (anchor.line ?? 0) < 1 ||
-    (anchor.column ?? 0) < 1
+    !Number.isInteger(line) ||
+    !Number.isInteger(column) ||
+    (line ?? 0) < 1 ||
+    (column ?? 0) < 1
   ) {
     return anchorFailure(
       "invalid-source-location",
@@ -441,12 +489,12 @@ function exactAnchor(
     // Never forward an absolute jsxDEV/Fiber path. The verified root-relative
     // path is exact for the bridge and safe to include in an agent prompt.
     sourceFile: sourceFile ?? canonicalPath,
-    line: anchor.line!,
-    column: anchor.column!,
-    positionPrecision: sourcePositionPrecision(anchor.method),
-    ...(anchor.method ? { method: anchor.method } : {}),
-    ...(bounded(anchor.component, MAX_COMPONENT_LENGTH)
-      ? { component: bounded(anchor.component, MAX_COMPONENT_LENGTH) }
+    line: line!,
+    column: column!,
+    positionPrecision: sourcePositionPrecision(method),
+    ...(method ? { method } : {}),
+    ...(bounded(component, MAX_COMPONENT_LENGTH)
+      ? { component: bounded(component, MAX_COMPONENT_LENGTH) }
       : {}),
     ...ownerAnchorFields(anchor),
     runtimeMultiplicity:

@@ -95,6 +95,14 @@ data and the same actions.
 
 하나의 정식 지침 파일인 `AGENTS.md`를 보관하세요. 클라이언트가 `CLAUDE.md`를 기대하는 경우 두 번째 복사본이 아닌 `AGENTS.md`에 대한 심볼릭 링크로 만듭니다. 손으로 관리하는 두 개의 파일이 표류하고 에이전트는 결국 모순되는 규칙에 직면하게 됩니다. 필요한 곳에 연결되는 단일 정보 소스
 
+`AGENTS.md`는 프레임워크가 기반으로 삼는 보편적인 표준이므로, 프로젝트 지침을 읽는 모든 AI 코딩 도구가 별도 설정 없이 바로 작동합니다:
+
+- **Claude Code**: `CLAUDE.md`를 읽습니다(CLI 설정에 의해 `AGENTS.md`에 대한 심볼릭 링크로 생성됨)
+- **Cursor**: `AGENTS.md`를 직접 읽거나, 있는 경우 `.cursorrules`(Cursor의 레거시 위치)를 읽습니다
+- **Windsurf**: `AGENTS.md`를 직접 읽거나, 있는 경우 `.windsurfrules`(Windsurf의 레거시 위치)를 읽습니다
+- **Codex, Gemini 및 기타**: 내장된 에이전트 패널을 통해 작동합니다
+- **Builder.io**: 시각적 편집과 공동 작업을 지원하는 클라우드 호스팅 에이전트입니다
+
 ## SKILL.md 머리말은 언제 AND가 무엇인지 말해야 합니다 {#skill-frontmatter}
 
 `description`는 에이전트가 스킬 읽기 여부를 결정할 때 보는 유일한 것입니다. 기술이 다루는 내용과 발동 시기라는 두 가지 질문에 답해야 합니다. 주제만을 설명하는 설명은 실행되지 않습니다.

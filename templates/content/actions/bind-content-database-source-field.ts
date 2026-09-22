@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -25,10 +25,10 @@ const SOURCE_TAG_PROPERTY_NAME = "Source";
 
 export default defineAction({
   description:
-    "Bind a source field to an existing database column (row-union per-source field binding), or unbind it. Binding routes the source's per-row values into the shared column; types must be compatible. Pass propertyId: null to unbind.",
+    "Bind a source field to an existing collection column (row-union per-source field binding), or unbind it. Binding routes the source's per-row values into the shared column; types must be compatible. Pass propertyId: null to unbind.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceFieldId: z.string().describe("Source field mapping ID"),
     propertyId: z
       .string()
@@ -361,6 +361,25 @@ export default defineAction({
         .where(eq(schema.contentDatabaseSourceFields.id, lockedField.id))
         .returning({ id: schema.contentDatabaseSourceFields.id });
       if (!updatedField) {
+        throw new Error(
+          "Source field was deleted before its binding could be saved.",
+        );
+      }
+      const [persistedField] = await tx
+        .select({
+          id: schema.contentDatabaseSourceFields.id,
+          propertyId: schema.contentDatabaseSourceFields.propertyId,
+          localFieldKey: schema.contentDatabaseSourceFields.localFieldKey,
+          mappingType: schema.contentDatabaseSourceFields.mappingType,
+        })
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.id, updatedField.id));
+      if (
+        !persistedField ||
+        persistedField.propertyId !== property.id ||
+        persistedField.localFieldKey !== property.id ||
+        persistedField.mappingType !== "property"
+      ) {
         throw new Error(
           "Source field was deleted before its binding could be saved.",
         );

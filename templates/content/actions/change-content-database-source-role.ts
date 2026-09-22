@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -325,10 +325,10 @@ async function readSourceEntries(args: {
 
 export default defineAction({
   description:
-    "Change how an attached content database source participates: add more item rows, or add details to existing rows through a confirmed match key.",
+    "Change how an attached content collection source participates: add more item rows, or add details to existing rows through a confirmed match key.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z.string().describe("Attached source ID to change."),
     relationshipMode: z
       .enum(["items", "details"])

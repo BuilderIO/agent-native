@@ -42,7 +42,8 @@ export function WorkspaceFileWidget({
   result: WorkspaceFileResult;
 }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const { file } = result;
   const FileIcon = fileIcon(file.contentType);
   const href = resourceDownloadUrl(file.resourceId);

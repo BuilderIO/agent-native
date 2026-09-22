@@ -1,15 +1,19 @@
-import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
+import {
+  formatScrubValue,
+  parseScrubExpression,
+  resolveFontFamilySelectValue,
+} from "@agent-native/toolkit/design-tweaks";
 
-export const FONT_FAMILY_OPTIONS = [
-  { value: "inherit", key: "inherit" },
-  { value: "sans-serif", key: "sansSerif" },
-  { value: "serif", key: "serif" },
-  { value: "monospace", key: "monospace" },
-  { value: "'Inter', sans-serif", key: "inter" },
-  { value: "'Poppins', sans-serif", key: "poppins" },
-  { value: "'Playfair Display', serif", key: "playfairDisplay" },
-  { value: "'JetBrains Mono', monospace", key: "jetBrainsMono" },
-] as const;
+import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
+import { parseNumericValue } from "./style-options";
+
+export {
+  displayFontFamilyName,
+  FONT_FAMILY_OPTIONS,
+  resolveFontFamilySelectValue,
+  sortFontFamilyOptions,
+  splitFontFamilyList,
+} from "@agent-native/toolkit/design-tweaks";
 
 export const FONT_WEIGHT_OPTIONS = [
   { value: "100", key: "thin" },
@@ -36,6 +40,349 @@ export function isKnownFontWeight(value: string): boolean {
 
 export type TextResizeMode = "auto-width" | "auto-height" | "fixed";
 
+export type LineHeightUnit = "px" | "%";
+
+export interface LineHeightFieldValue {
+  text: string;
+  value: number;
+  unit: LineHeightUnit;
+}
+
+export interface ParsedLineHeightInput extends LineHeightFieldValue {
+  cssValue: string;
+}
+
+export const TEXT_TRUNCATION_ORIGINAL_DISPLAY =
+  "--agent-native-truncate-original-display";
+export const TEXT_TRUNCATION_ORIGINAL_OVERFLOW =
+  "--agent-native-truncate-original-overflow";
+
+export function textTruncationLineCount(
+  value: string | undefined,
+): number | null {
+  const trimmed = value?.trim() ?? "";
+  if (!/^\d+$/.test(trimmed)) return null;
+  const count = Number(trimmed);
+  return Number.isSafeInteger(count) && count > 0 ? count : null;
+}
+
+/**
+ * Legacy Chromium line clamping uses a box display that replaces authored
+ * display and overflow values. Keep their raw inline values as JSON strings on
+ * the node so CSS-wide keywords and absent declarations survive save/reload.
+ */
+export function textTruncationStyleChanges(
+  enabled: boolean,
+  lineCount: number,
+  inlineStyles: Record<string, string> | undefined,
+): Record<string, string> | null {
+  if (!enabled) {
+    const savedDisplay = inlineStyles?.[TEXT_TRUNCATION_ORIGINAL_DISPLAY];
+    const savedOverflow = inlineStyles?.[TEXT_TRUNCATION_ORIGINAL_OVERFLOW];
+    const hasSavedDisplay = savedDisplay !== undefined;
+    const hasSavedOverflow = savedOverflow !== undefined;
+    if (hasSavedDisplay !== hasSavedOverflow) return null;
+
+    const changes: Record<string, string> = {
+      webkitBoxOrient: "horizontal",
+      webkitLineClamp: "none",
+    };
+    if (!hasSavedDisplay) return changes;
+
+    const originalDisplay = decodeTextTruncationValue(savedDisplay);
+    const originalOverflow = decodeTextTruncationValue(savedOverflow);
+    if (originalDisplay === null || originalOverflow === null) return null;
+
+    changes.display = originalDisplay || "revert-layer";
+    changes.overflow = originalOverflow || "revert-layer";
+    changes[TEXT_TRUNCATION_ORIGINAL_DISPLAY] = "initial";
+    changes[TEXT_TRUNCATION_ORIGINAL_OVERFLOW] = "initial";
+    return changes;
+  }
+
+  if (!Number.isSafeInteger(lineCount) || lineCount < 1) return null;
+
+  const styles: Record<string, string> = {
+    display: "-webkit-box",
+    webkitBoxOrient: "vertical",
+    webkitLineClamp: String(lineCount),
+    overflow: "hidden",
+  };
+  const currentlyTruncated =
+    textTruncationLineCount(inlineStyles?.webkitLineClamp) !== null;
+  const savedDisplay = inlineStyles?.[TEXT_TRUNCATION_ORIGINAL_DISPLAY];
+  const savedOverflow = inlineStyles?.[TEXT_TRUNCATION_ORIGINAL_OVERFLOW];
+  const hasSavedDisplay = savedDisplay !== undefined;
+  const hasSavedOverflow = savedOverflow !== undefined;
+  if (hasSavedDisplay !== hasSavedOverflow) return null;
+  if (currentlyTruncated && hasSavedDisplay) {
+    if (
+      decodeTextTruncationValue(savedDisplay) === null ||
+      decodeTextTruncationValue(savedOverflow) === null
+    ) {
+      return null;
+    }
+  } else {
+    styles[TEXT_TRUNCATION_ORIGINAL_DISPLAY] = JSON.stringify(
+      inlineStyles?.display ?? "",
+    );
+    styles[TEXT_TRUNCATION_ORIGINAL_OVERFLOW] = JSON.stringify(
+      inlineStyles?.overflow ?? "",
+    );
+  }
+  return styles;
+}
+
+function decodeTextTruncationValue(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    // coercion-ok: invalid saved metadata is rejected and the UI blocks the style mutation with a localized error.
+    return null;
+  }
+}
+
+function lineHeightPixels(
+  computedLineHeight: string | undefined,
+  fontSize: string | undefined,
+  resolvedNormalPx: string | undefined,
+): number {
+  const computed = computedLineHeight?.trim() ?? "";
+  const computedPx = computed.match(/^([\d.]+)px$/i);
+  if (computedPx) return Number(computedPx[1]);
+
+  if (/^(?:normal|auto)$/i.test(computed)) {
+    const measured = Number.parseFloat(resolvedNormalPx ?? "");
+    if (Number.isFinite(measured) && measured > 0) return measured;
+  }
+
+  const fontPx = Number.parseFloat(fontSize ?? "");
+  const font = Number.isFinite(fontPx) && fontPx > 0 ? fontPx : 16;
+  const computedRatio = Number.parseFloat(computed);
+  if (Number.isFinite(computedRatio) && computedRatio > 0) {
+    return font * computedRatio;
+  }
+  return font * 1.2;
+}
+
+/**
+ * Read line-height in the same units the author chose. Computed styles turn
+ * percentages and unitless ratios into px, so the authored inline snapshot is
+ * the authority when present; a legacy unitless ratio is shown equivalently
+ * as a percentage without changing the source until the user edits it.
+ */
+export function resolveLineHeightFieldValue(
+  authoredLineHeight: string | undefined,
+  computedLineHeight: string | undefined,
+  fontSize: string | undefined,
+  resolvedNormalPx?: string,
+): LineHeightFieldValue {
+  const authored = authoredLineHeight?.trim() ?? "";
+  const raw = authored || computedLineHeight?.trim() || "normal";
+  if (/^(?:normal|auto)$/i.test(raw)) {
+    return {
+      text: "Auto",
+      value: lineHeightPixels(computedLineHeight, fontSize, resolvedNormalPx),
+      unit: "px",
+    };
+  }
+
+  const explicit = raw.match(/^([+-]?(?:\d*\.)?\d+)\s*(px|%)$/i);
+  if (explicit) {
+    const value = Number(explicit[1]);
+    if (Number.isFinite(value) && value >= 0) {
+      const unit = explicit[2]!.toLowerCase() as LineHeightUnit;
+      return { text: formatScrubValue(value, { unit }), value, unit };
+    }
+  }
+
+  const unitless = raw.match(/^([+]?(?:\d*\.)?\d+)$/);
+  if (unitless) {
+    const ratio = Number(unitless[1]);
+    if (Number.isFinite(ratio) && ratio >= 0) {
+      const value = ratio * 100;
+      return {
+        text: formatScrubValue(value, { unit: "%", precision: 2 }),
+        value,
+        unit: "%",
+      };
+    }
+  }
+
+  const computedPx = raw === computedLineHeight ? raw : computedLineHeight;
+  return {
+    text: raw,
+    value: lineHeightPixels(computedPx, fontSize, resolvedNormalPx),
+    unit: "px",
+  };
+}
+
+/**
+ * Finds the unit token (one of `units`) in `raw`, validated to appear at
+ * most once. Both callers below funnel into parseScrubExpression, which
+ * strips every occurrence of the unit it's told to use (global regex) — so
+ * a second, unstripped occurrence, a doubled suffix ("2pxpx"/"2px px") or a
+ * mismatched pair ("2%%", "2em%"), would otherwise silently vanish instead
+ * of failing to parse. Returns null for that malformed case.
+ *
+ * Matches anywhere in the input, not only at the end: a letter-spacing
+ * expression like "(x+0.005em)*2" carries its one unit token
+ * mid-expression, so this is deliberately looser than "exactly one
+ * TRAILING token" — it only guards against a SECOND token appearing
+ * anywhere, not against where the single token sits.
+ */
+function singleUnitToken(
+  raw: string,
+  units: readonly string[],
+): { unit: string | undefined } | null {
+  const matches = raw.match(new RegExp(units.join("|"), "gi"));
+  if (matches && matches.length > 1) return null;
+  return { unit: matches?.[0]?.toLowerCase() };
+}
+
+/** Parse Figma-style px / percent / Auto input; bare values are pixels. */
+export function parseLineHeightInput(
+  input: string,
+  current: Pick<LineHeightFieldValue, "value" | "unit">,
+): ParsedLineHeightInput | null {
+  const raw = input.trim();
+  if (/^(?:auto|normal)$/i.test(raw)) {
+    return {
+      text: "Auto",
+      value: current.value,
+      unit: "px",
+      cssValue: "normal",
+    };
+  }
+
+  const token = singleUnitToken(raw, ["px", "%"]);
+  if (!token) return null;
+  const explicitUnit = token.unit;
+  const unit: LineHeightUnit = explicitUnit
+    ? (explicitUnit as LineHeightUnit)
+    : "px";
+  const parsed = parseScrubExpression(raw, current.value, {
+    unit,
+    min: 0,
+    precision: 2,
+  });
+  if (!parsed) return null;
+  const value = parsed.value;
+  const text = formatScrubValue(value, { unit, precision: 2 });
+  return { text, value, unit, cssValue: text };
+}
+
+export type LetterSpacingUnit = "px" | "%";
+
+export interface LetterSpacingFieldValue {
+  text: string;
+  value: number;
+  unit: LetterSpacingUnit;
+}
+
+export interface ParsedLetterSpacingInput extends LetterSpacingFieldValue {
+  cssValue: string;
+}
+
+// The field accepts 2 decimal places of percent; a percent that small needs 4
+// em decimals to round-trip instead of collapsing to "0em" (e.g. 0.01% -> 0.0001em).
+const LETTER_SPACING_EM_PRECISION = 4;
+
+function letterSpacingCssValue(value: number, unit: LetterSpacingUnit): string {
+  return unit === "%"
+    ? formatScrubValue(value / 100, {
+        unit: "em",
+        precision: LETTER_SPACING_EM_PRECISION,
+      })
+    : formatScrubValue(value, { unit: "px", precision: 2 });
+}
+
+/**
+ * Figma's tracking field is a percentage of the font size, which CSS spells
+ * as em. An authored em (or %) value is shown and scrubbed as a percentage so
+ * a later nudge keeps the relative semantics; anything else is px.
+ */
+export function resolveLetterSpacingFieldValue(
+  authoredLetterSpacing: string | undefined,
+  computedLetterSpacing: string | undefined,
+): LetterSpacingFieldValue {
+  const authored = authoredLetterSpacing?.trim() ?? "";
+  const relative = authored.match(/^([+-]?(?:\d*\.)?\d+)\s*(em|%)$/i);
+  if (relative) {
+    const number = Number(relative[1]);
+    if (Number.isFinite(number)) {
+      const value = relative[2]!.toLowerCase() === "em" ? number * 100 : number;
+      return {
+        text: formatScrubValue(value, { unit: "%", precision: 2 }),
+        value,
+        unit: "%",
+      };
+    }
+  }
+  const value = computedLetterSpacing
+    ? parseNumericValue(computedLetterSpacing)
+    : 0;
+  return {
+    text: formatScrubValue(value, { unit: "px", precision: 2 }),
+    value,
+    unit: "px",
+  };
+}
+
+/** Parse Figma-style px / percent / em input; bare values keep the field's unit. */
+export function parseLetterSpacingInput(
+  input: string,
+  current: Pick<LetterSpacingFieldValue, "value" | "unit">,
+): ParsedLetterSpacingInput | null {
+  const raw = input.trim();
+  const token = singleUnitToken(raw, ["px", "em", "%"]);
+  if (!token) return null;
+  const explicitUnit = token.unit;
+  const unit: LetterSpacingUnit =
+    explicitUnit === "px" ? "px" : explicitUnit ? "%" : current.unit;
+  // "em" input is parsed in em (current value converted from % to em, so
+  // relative expressions like "+0.01em" stay in the right space) at 4 decimals
+  // to match LETTER_SPACING_EM_PRECISION, then converted to percent and
+  // rounded to the field's 2 decimals.
+  //
+  // The `x` token has no defined base across dimensions: it's only meaningful
+  // when the explicit unit's dimension matches the field's current unit (px
+  // input against a px field, em/% input against a % field). A bare number
+  // always matches since it keeps the field's unit. When the dimensions
+  // differ, pass NaN so an `x` expression is refused; absolute input (no `x`)
+  // still parses fine against NaN.
+  const nonEmUnit = explicitUnit ?? (unit === "%" ? "%" : "px");
+  const nonEmBase =
+    !explicitUnit || nonEmUnit === current.unit ? current.value : Number.NaN;
+  const parsed =
+    explicitUnit === "em"
+      ? parseScrubExpression(
+          raw,
+          current.unit === "%" ? current.value / 100 : Number.NaN,
+          { unit: "em", precision: LETTER_SPACING_EM_PRECISION },
+        )
+      : parseScrubExpression(raw, nonEmBase, {
+          unit: nonEmUnit,
+          precision: 2,
+        });
+  if (!parsed) return null;
+  const value =
+    explicitUnit === "em"
+      ? Number((parsed.value * 100).toFixed(2))
+      : parsed.value;
+  const text = formatScrubValue(value, { unit, precision: 2 });
+  return { text, value, unit, cssValue: letterSpacingCssValue(value, unit) };
+}
+
+export function letterSpacingScrubCssValue(
+  value: number,
+  unit: LetterSpacingUnit,
+): string {
+  return letterSpacingCssValue(value, unit);
+}
+
 /**
  * Fallback dimension used when converting a text box from an auto (width or
  * height) resize mode to "fixed". When the box already has a real authored
@@ -53,99 +400,6 @@ export function resolveFixedResizeDimension(
   if (authoredValue && !isAuto) return authoredValue;
   const size = Number.isFinite(boundingSizePx) ? Math.round(boundingSizePx) : 0;
   return `${Math.max(1, size)}px`;
-}
-
-function cleanFontFamilyName(value: string): string {
-  const trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1).trim();
-  }
-  return trimmed;
-}
-
-export function splitFontFamilyList(value: string | undefined): string[] {
-  const raw = value?.trim();
-  if (!raw) return [];
-
-  const families: string[] = [];
-  let token = "";
-  let quote: '"' | "'" | null = null;
-
-  for (let i = 0; i < raw.length; i += 1) {
-    const char = raw[i];
-    if ((char === '"' || char === "'") && raw[i - 1] !== "\\") {
-      if (quote === char) quote = null;
-      else if (!quote) quote = char;
-      token += char;
-      continue;
-    }
-    if (char === "," && !quote) {
-      const cleaned = cleanFontFamilyName(token);
-      if (cleaned) families.push(cleaned);
-      token = "";
-      continue;
-    }
-    token += char;
-  }
-
-  const cleaned = cleanFontFamilyName(token);
-  if (cleaned) families.push(cleaned);
-  return families;
-}
-
-function normalizeFontFamilyName(value: string): string {
-  return cleanFontFamilyName(value).replace(/\s+/g, " ").toLowerCase();
-}
-
-function normalizeFontFamilyStack(value: string): string {
-  return splitFontFamilyList(value).map(normalizeFontFamilyName).join(",");
-}
-
-export function displayFontFamilyName(value: string | undefined): string {
-  const first = splitFontFamilyList(value)[0];
-  if (!first) return "Sans Serif"; // i18n-ignore design generic font label
-
-  const normalized = normalizeFontFamilyName(first);
-  if (normalized === "sans-serif") {
-    return "Sans Serif"; // i18n-ignore design generic font label
-  }
-  if (normalized === "serif") return "Serif"; // i18n-ignore design generic font label
-  if (normalized === "monospace") {
-    return "Monospace"; // i18n-ignore design generic font label
-  }
-  if (normalized === "system-ui" || normalized === "-apple-system") {
-    return "System UI"; // i18n-ignore design generic font label
-  }
-  if (normalized === "blinkmacsystemfont") {
-    return "Apple System"; // i18n-ignore design generic font label
-  }
-  return first;
-}
-
-export function resolveFontFamilySelectValue(
-  value: string | undefined,
-): string {
-  const raw = value?.trim();
-  if (!raw) return "sans-serif";
-
-  const normalizedStack = normalizeFontFamilyStack(raw);
-  const exactOption = FONT_FAMILY_OPTIONS.find(
-    (option) => normalizeFontFamilyStack(option.value) === normalizedStack,
-  );
-  if (exactOption) return exactOption.value;
-
-  const firstFamily = normalizeFontFamilyName(
-    splitFontFamilyList(raw)[0] ?? "",
-  );
-  const firstFamilyOption = FONT_FAMILY_OPTIONS.find(
-    (option) =>
-      normalizeFontFamilyName(splitFontFamilyList(option.value)[0] ?? "") ===
-      firstFamily,
-  );
-  return firstFamilyOption?.value ?? raw;
 }
 
 /**

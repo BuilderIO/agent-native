@@ -66,7 +66,7 @@ export function KpiChart({
   const t = useT();
   const data = useMemo(() => {
     return rows.map((r) => ({
-      period: String(r.period ?? ""),
+      period: typeof r.period === "string" ? r.period : "",
       [dataKey]: Number(r[dataKey] ?? 0),
     }));
   }, [rows, dataKey]);

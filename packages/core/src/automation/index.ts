@@ -402,7 +402,7 @@ function payloadTooLarge(maxBytes: number): AutomationConnectorError {
   );
 }
 
-async function readBoundedRequestBody(
+export async function readBoundedRequestBody(
   event: H3Event,
   maxBytes: number,
 ): Promise<string> {

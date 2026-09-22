@@ -89,6 +89,10 @@ function asDirectory(value: unknown): FlagDirectory {
   return value && typeof value === "object" ? (value as FlagDirectory) : {};
 }
 
+export function hasFleetApps(value: unknown): boolean {
+  return (asDirectory(value).apps?.length ?? 0) > 0;
+}
+
 function isReady(app: FlagApp) {
   return app.state === "ready" || app.status === "ready";
 }
@@ -121,7 +125,7 @@ export function FeatureFlagsFleetPanel() {
     { retry: false },
   );
   const mutation = useActionMutation<
-    VerifiedFlagMutation | unknown,
+    unknown,
     { appId: string } & SetFeatureFlagInput
   >("set-workspace-feature-flag", {
     skipActionQueryInvalidation: true,
@@ -188,7 +192,10 @@ export function FeatureFlagsFleetPanel() {
   const directory = asDirectory(flags.data);
   const apps = directory.apps ?? [];
   if (flags.isLoading) return <PanelLoading />;
-  if (flags.error || directory.directoryStatus === "unavailable")
+  if (
+    flags.error ||
+    (directory.directoryStatus === "unavailable" && !hasFleetApps(directory))
+  )
     return (
       <StatusState
         title={t("agents.flagsUnavailable")}
@@ -226,6 +233,14 @@ export function FeatureFlagsFleetPanel() {
           {t("agents.reloadFlags")}
         </Button>
       </div>
+      {directory.directoryStatus === "unavailable" ? (
+        <p
+          className="rounded-lg border px-4 py-3 text-sm text-muted-foreground"
+          role="status"
+        >
+          {t("agents.flagsUnreachable")}
+        </p>
+      ) : null}
       {apps.map((app) => (
         <section key={appId(app)} className="overflow-hidden rounded-lg border">
           <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">

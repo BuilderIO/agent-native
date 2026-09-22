@@ -4,7 +4,8 @@
  * The session ID determines which user's application state is read/written.
  * Resolution order:
  *   1. Per-request context (AsyncLocalStorage) — set by the HTTP handler
- *   2. AGENT_USER_EMAIL env var — CLI scripts only
+ *   2. Verified request capability — scoped public/embed sessions
+ *   3. AGENT_USER_EMAIL env var — CLI scripts only
  *
  * The per-request context is critical in multi-user deployments: the env var
  * is process-global and gets overwritten by concurrent requests, so it cannot
@@ -14,6 +15,7 @@
 
 import {
   getAmbientUserEmail,
+  getRequestAuthCapability,
   getRequestRunContext,
 } from "../server/request-context.js";
 import {
@@ -32,8 +34,9 @@ import {
  *
  * In an HTTP/action context, uses the per-request user email from
  * AsyncLocalStorage so concurrent users don't collide. In a CLI context
- * (no request), falls back to AGENT_USER_EMAIL. Throws when neither is
- * present — application state must be scoped to a real identity.
+ * (no request), falls back to AGENT_USER_EMAIL. Capability-only requests use
+ * the verified capability as their isolated session key. Throws when neither
+ * is present — application state must be scoped to a real identity or grant.
  */
 async function resolveSessionId(): Promise<string> {
   try {
@@ -44,6 +47,9 @@ async function resolveSessionId(): Promise<string> {
   } catch {
     // request-context not available — fall through to env var
   }
+
+  const capability = getRequestAuthCapability();
+  if (capability) return `capability:${capability}`;
 
   const email = getAmbientUserEmail();
   if (email) return email;
@@ -56,8 +62,7 @@ async function resolveSessionId(): Promise<string> {
 export async function readAppState(
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  const sessionId = await resolveSessionId();
-  return appStateGet(sessionId, key);
+  return readUnscopedAppState(requestScopedAppStateKey(key));
 }
 
 export async function writeAppState(
@@ -65,14 +70,14 @@ export async function writeAppState(
   value: Record<string, unknown>,
 ): Promise<void> {
   const sessionId = await resolveSessionId();
-  return appStatePut(sessionId, key, value, {
+  return appStatePut(sessionId, requestScopedAppStateKey(key), value, {
     requestSource: "agent",
   });
 }
 
 export async function deleteAppState(key: string): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateDelete(sessionId, key, {
+  return appStateDelete(sessionId, requestScopedAppStateKey(key), {
     requestSource: "agent",
   });
 }
@@ -83,18 +88,27 @@ export async function compareAndSetAppState(
   nextValue: Record<string, unknown> | null,
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateCompareAndSet(sessionId, key, expectedValue, nextValue, {
-    requestSource: "agent",
-  });
+  return appStateCompareAndSet(
+    sessionId,
+    requestScopedAppStateKey(key),
+    expectedValue,
+    nextValue,
+    { requestSource: "agent" },
+  );
 }
 
 export async function compareAndSetManyAppState(
   operations: readonly AppStateCompareAndSetOperation[],
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateCompareAndSetMany(sessionId, operations, {
-    requestSource: "agent",
-  });
+  return appStateCompareAndSetMany(
+    sessionId,
+    operations.map((operation) => ({
+      ...operation,
+      key: requestScopedAppStateKey(operation.key),
+    })),
+    { requestSource: "agent" },
+  );
 }
 
 export async function listAppState(
@@ -112,8 +126,19 @@ export async function deleteAppStateByPrefix(prefix: string): Promise<number> {
 }
 
 const SAFE_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+const TAB_SCOPED_AMBIENT_KEYS = new Set([
+  "navigation",
+  "navigate",
+  "__url__",
+  "__set_url__",
+]);
 
-function normalizeBrowserTabId(value: unknown): string | null {
+/**
+ * Exported so server code that reads a browser-tab id off a request header
+ * (e.g. action-routes.ts) shares this exact validation instead of a copy —
+ * only a tab-id-shaped value is ever trusted to scope app state.
+ */
+export function normalizeBrowserTabId(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return SAFE_TAB_ID_RE.test(trimmed) ? trimmed : null;
@@ -121,7 +146,7 @@ function normalizeBrowserTabId(value: unknown): string | null {
 
 /**
  * Browser tab id for the current request, if the client sent one. Used to
- * scope ambient UI state (navigation, selection, etc.) so a chat from one tab
+ * scope ambient navigation state so a chat from one tab
  * reads that tab's state instead of whichever tab wrote the global key last.
  */
 export function getCurrentRequestBrowserTabId(): string | null {
@@ -141,22 +166,35 @@ export function appStateKeyForBrowserTab(
   return normalized ? `${key}:${normalized}` : key;
 }
 
+function requestScopedAppStateKey(key: string): string {
+  if (!TAB_SCOPED_AMBIENT_KEYS.has(key)) return key;
+  return appStateKeyForBrowserTab(key, getCurrentRequestBrowserTabId());
+}
+
+async function readUnscopedAppState(
+  key: string,
+): Promise<Record<string, unknown> | null> {
+  const sessionId = await resolveSessionId();
+  return appStateGet(sessionId, key);
+}
+
 /**
  * Read application state scoped to the requesting browser tab. Reads the
- * tab-scoped key first and (by default) falls back to the global key so
- * CLI/external agents and pre-scoping clients keep working.
+ * tab-scoped key first. Global fallback is opt-in when a browser tab is
+ * present, so a missing tab snapshot cannot silently expose another tab.
  */
 export async function readAppStateForCurrentTab(
   key: string,
   options?: { fallbackToGlobal?: boolean },
 ): Promise<Record<string, unknown> | null> {
-  const tabKey = appStateKeyForBrowserTab(key, getCurrentRequestBrowserTabId());
+  const browserTabId = getCurrentRequestBrowserTabId();
+  const tabKey = appStateKeyForBrowserTab(key, browserTabId);
   if (tabKey !== key) {
-    const scoped = await readAppState(tabKey).catch(() => null);
+    const scoped = await readAppState(tabKey);
     if (scoped) return scoped;
-    if (options?.fallbackToGlobal === false) return null;
+    if (options?.fallbackToGlobal !== true) return null;
   }
-  return readAppState(key);
+  return readUnscopedAppState(key);
 }
 
 /** Write application state scoped to the requesting browser tab. */

@@ -126,6 +126,7 @@ vi.mock("../settings/store.js", () => ({
 import {
   readOAuthCredentialState,
   resolveOAuthCredentialAccess,
+  markOAuthReconnectRequired,
   revokeOAuthCredential,
   saveOAuthCredential,
   type OAuthCredential,
@@ -193,6 +194,22 @@ describe("OAuth credential lifecycle", () => {
         owner: { scope: "user", id: "bob@example.com" },
       }),
     ).resolves.toEqual({ kind: "missing" });
+  });
+
+  it("marks a stored credential reconnect_required without a refresh", async () => {
+    await saveOAuthCredential(identity, credential());
+
+    await expect(markOAuthReconnectRequired(identity)).resolves.toBe(true);
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "reconnect_required",
+    });
+  });
+
+  it("reports nothing to mark when no credential is stored", async () => {
+    await expect(markOAuthReconnectRequired(identity)).resolves.toBe(false);
+    await expect(readOAuthCredentialState(identity)).resolves.toEqual({
+      kind: "missing",
+    });
   });
 
   it("reads and deletes legacy user credentials stored under mixed-case ownership", async () => {

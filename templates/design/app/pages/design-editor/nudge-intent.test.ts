@@ -403,7 +403,7 @@ describe("hasExplicitGridPlacement", () => {
 });
 
 describe("DEFAULT_NUDGE_AMOUNTS", () => {
-  it("matches Figma's 1px / 10px defaults", () => {
+  it("uses the Figma-style 10px Shift nudge independently of the layout grid", () => {
     expect(DEFAULT_NUDGE_AMOUNTS).toEqual({ small: 1, big: 10 });
   });
 });
@@ -413,6 +413,7 @@ function elementInfoFor(
   tagName = "div",
   parentDisplay?: string,
   parentFlexDirection?: string,
+  parentLayoutOverrides?: Partial<NonNullable<ElementInfo["parentLayout"]>>,
 ): ElementInfo {
   // A real bridge payload always carries a computed `flex-direction` alongside
   // a flex `parentDisplay`, so the default keeps fixtures faithful to that.
@@ -420,6 +421,10 @@ function elementInfoFor(
     parentDisplay === "flex" || parentDisplay === "inline-flex"
       ? (parentFlexDirection ?? "row")
       : parentFlexDirection;
+  const parentLayout = {
+    ...(flexDirection ? { flexDirection } : {}),
+    ...parentLayoutOverrides,
+  };
   return {
     tagName,
     sourceId: nodeId,
@@ -427,7 +432,7 @@ function elementInfoFor(
     classes: [],
     computedStyles: {},
     parentDisplay,
-    ...(flexDirection ? { parentLayout: { flexDirection } } : {}),
+    ...(Object.keys(parentLayout).length > 0 ? { parentLayout } : {}),
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
   } as unknown as ElementInfo;
 }
@@ -440,6 +445,7 @@ function orderAfterNudge(
   direction: "up" | "right" | "down" | "left",
   parentDisplay?: string,
   parentFlexDirection?: string,
+  parentLayoutOverrides?: Partial<NonNullable<ElementInfo["parentLayout"]>>,
 ): string[] | { kind: string } {
   const intent = resolveElementNudgeIntent({
     content,
@@ -448,6 +454,7 @@ function orderAfterNudge(
       "div",
       parentDisplay,
       parentFlexDirection,
+      parentLayoutOverrides,
     ),
     direction,
     largeStep: false,
@@ -538,6 +545,78 @@ describe("resolveElementNudgeIntent", () => {
       </section>
     </body></html>`;
     expect(orderAfterNudge(content, "a", "down")).toEqual(["b", "c", "a", "d"]);
+  });
+
+  it("uses rendered grid tracks when the grid display comes from a stylesheet", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="grid" class="grid-source">
+        <div data-agent-native-node-id="a">A</div>
+        <div data-agent-native-node-id="b">B</div>
+        <div data-agent-native-node-id="c">C</div>
+        <div data-agent-native-node-id="d">D</div>
+      </section>
+    </body></html>`;
+    // Native Figma moves an auto-placed grid selection by visual cell. The
+    // bridge's computed track list supplies the row width when authored CSS
+    // lives in a stylesheet and the source parser sees no grid utilities.
+    expect(
+      orderAfterNudge(content, "a", "down", "grid", undefined, {
+        display: "grid",
+        gridAutoFlow: "column",
+        gridTemplateColumns: "100px 100px",
+        gridTemplateRows: "100px 100px",
+      }),
+    ).toEqual(["b", "a", "c", "d"]);
+  });
+
+  it("does not reorder a stylesheet-positioned grid child", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="grid" class="grid-source">
+        <div data-agent-native-node-id="a">A</div>
+        <div data-agent-native-node-id="b">B</div>
+      </section>
+    </body></html>`;
+    const intent = resolveElementNudgeIntent({
+      content,
+      selectedElement: {
+        ...elementInfoFor("a", "div", "grid", undefined, {
+          display: "grid",
+          gridTemplateColumns: "100px 100px",
+        }),
+        computedStyles: { gridColumn: "2 / auto", gridRow: "auto" },
+      },
+      direction: "right",
+      largeStep: false,
+    });
+    expect(intent).toEqual({ kind: "none" });
+  });
+
+  it("reorders an auto-placed grid child with span-only placement", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="grid" class="grid-source">
+        <div data-agent-native-node-id="a">A</div>
+        <div data-agent-native-node-id="b">B</div>
+      </section>
+    </body></html>`;
+    const intent = resolveElementNudgeIntent({
+      content,
+      selectedElement: {
+        ...elementInfoFor("a", "div", "grid", undefined, {
+          display: "grid",
+          gridTemplateColumns: "100px 100px",
+        }),
+        computedStyles: {
+          gridColumn: "auto / span 2",
+          gridRow: "auto / auto",
+        },
+      },
+      direction: "right",
+      largeStep: false,
+    });
+    expect(intent).toMatchObject({
+      kind: "reorder",
+      placement: "after",
+    });
   });
 
   it("translates a child that opted out of the flow with position: absolute", () => {

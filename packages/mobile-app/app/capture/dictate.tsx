@@ -1,3 +1,4 @@
+import { useRoute, type RouteProp } from "@react-navigation/native";
 import {
   IconCheck,
   IconChevronLeft,
@@ -6,7 +7,6 @@ import {
   IconShare,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
-import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -36,6 +36,7 @@ import {
   publishKeyboardDictation,
 } from "@/lib/ios-companion";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
+import { useMobileNavigation, type RootStackParamList } from "@/lib/navigation";
 import { persistCaptureFile } from "@/lib/persist-capture";
 import {
   saveMobileDictation,
@@ -47,11 +48,9 @@ import {
 type Phase = "capture" | "transcribing" | "review";
 
 export default function DictationCaptureScreen() {
-  const router = useRouter();
-  const params = useLocalSearchParams<{
-    requestId?: string | string[];
-    source?: string | string[];
-  }>();
+  const navigation = useMobileNavigation();
+  const { params = {} } =
+    useRoute<RouteProp<RootStackParamList, "CaptureDictate">>();
   const routeKeyboardRequestId =
     params.source === "keyboard" &&
     typeof params.requestId === "string" &&
@@ -249,7 +248,7 @@ export default function DictationCaptureScreen() {
       >
         <AudioCaptureView
           kind="dictation"
-          onCancel={() => router.back()}
+          onCancel={navigation.back}
           onCaptured={handleCaptured}
         />
       </SafeAreaView>
@@ -270,7 +269,7 @@ export default function DictationCaptureScreen() {
             accessibilityLabel="Close dictation"
             accessibilityRole="button"
             hitSlop={10}
-            onPress={() => router.replace("/" as never)}
+            onPress={() => navigation.replace("/")}
             className="items-center h-11 justify-center w-11 active:opacity-75"
           >
             <IconChevronLeft color="#f4f4f5" size={24} />

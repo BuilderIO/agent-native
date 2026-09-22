@@ -8,7 +8,8 @@
  *
  * Protocol (iframe → parent):
  *
- *   { type: 'pinch-zoom-wheel', deltaY, clientX, clientY }
+ *   { type: 'pinch-zoom-wheel', deltaY, deltaMode, clientX, clientY,
+ *     ctrlKey, metaKey }
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -23,7 +24,9 @@
     document.documentElement || document.body || document;
   function onWheel(e: WheelEvent): void {
     if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault();
+    // A fling's wheel events are not cancelable; cancelling one logs a browser
+    // Intervention per event and scrolls anyway.
+    if (e.cancelable) e.preventDefault();
     try {
       (window.parent as Window).postMessage(
         {
@@ -31,6 +34,12 @@
           deltaY: e.deltaY,
           clientX: e.clientX,
           clientY: e.clientY,
+          // The parent classifies and scales from these three. Dropping the
+          // modifiers puts every pinch on the notch curve; dropping the mode
+          // makes a Firefox line tick read as 3px of travel.
+          deltaMode: e.deltaMode,
+          ctrlKey: !!e.ctrlKey,
+          metaKey: !!e.metaKey,
         },
         "*",
       );

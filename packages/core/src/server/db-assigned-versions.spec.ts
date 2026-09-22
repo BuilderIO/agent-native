@@ -111,22 +111,9 @@ describe("dbAssignedVersions", () => {
     const db = makeAllocatorDb();
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
     });
     s.recordChange(baseEvent());
     // Synchronous contract: the event is visible before any await.
-    expect(s.getChangesSince(0).events).toHaveLength(1);
-    expect(db.log.some((q) => q.sql.includes("sync_version"))).toBe(false);
-  });
-
-  it("SQLite + gate on: falls through to the synchronous clock path", () => {
-    const db = makeAllocatorDb();
-    const s = new AppSyncState({
-      getDb: () => db as never,
-      isPostgres: () => false,
-      dbAssignedVersions: true,
-    });
-    s.recordChange(baseEvent());
     expect(s.getChangesSince(0).events).toHaveLength(1);
     expect(db.log.some((q) => q.sql.includes("sync_version"))).toBe(false);
   });
@@ -135,7 +122,6 @@ describe("dbAssignedVersions", () => {
     const db = makeAllocatorDb();
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const emitted: number[] = [];
@@ -167,12 +153,10 @@ describe("dbAssignedVersions", () => {
     const dbB = makeAllocatorDb(shared);
     const a = new AppSyncState({
       getDb: () => dbA as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const b = new AppSyncState({
       getDb: () => dbB as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
 
@@ -197,13 +181,11 @@ describe("dbAssignedVersions", () => {
     const shared = { v: 0, ids: new Map<string, number>() };
     const a = new AppSyncState({
       getDb: () => makeAllocatorDb(shared) as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
       deterministicEventIds: true,
     });
     const b = new AppSyncState({
       getDb: () => makeAllocatorDb(shared) as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
       deterministicEventIds: true,
     });
@@ -226,7 +208,6 @@ describe("dbAssignedVersions", () => {
     db.failAllocation = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -257,7 +238,6 @@ describe("dbAssignedVersions", () => {
     db.failReseed = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -290,7 +270,6 @@ describe("dbAssignedVersions", () => {
     db.failAllocationAfterCommit = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -319,7 +298,6 @@ describe("dbAssignedVersions", () => {
     db.failAllocation = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -338,7 +316,6 @@ describe("dbAssignedVersions", () => {
     const db = makeAllocatorDb();
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -363,7 +340,6 @@ describe("dbAssignedVersions", () => {
     db.failAllocation = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -412,7 +388,6 @@ describe("dbAssignedVersions", () => {
     };
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
 
@@ -433,7 +408,6 @@ describe("dbAssignedVersions", () => {
     const db = makeAllocatorDb();
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -448,7 +422,6 @@ describe("dbAssignedVersions", () => {
     db.failAllocation = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

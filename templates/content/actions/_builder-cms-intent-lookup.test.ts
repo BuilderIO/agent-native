@@ -7,7 +7,10 @@ function entry(data: Record<string, unknown>): BuilderCmsSourceEntry {
   return {
     id: "remote-1",
     model: "agent-native-blog-article-test",
-    title: String(data.title ?? "Untitled"),
+    title:
+      typeof data.title === "string"
+        ? data.title
+        : (JSON.stringify(data.title ?? "Untitled") ?? "Untitled"),
     urlPath: null,
     updatedAt: "2026-07-13T00:00:00.000Z",
     sourceValues: {},

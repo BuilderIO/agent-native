@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -20,7 +20,7 @@ export default defineAction({
       .default(true)
       .describe("Whether this design system should be the default"),
   }),
-  run: async ({ id, isDefault = true }) => {
+  run: async ({ id, isDefault }) => {
     await assertAccess("design-system", id, "editor");
 
     const db = getDb();

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,7 +14,9 @@ import {
 
 const routeSchema = z.object({
   id: z.string().optional(),
+  connectionId: z.string().optional(),
   path: z.string().min(1),
+  url: z.string().optional(),
   title: z.string().optional(),
   sourceFile: z.string().optional(),
   sourceKind: z.enum(["react-router", "html", "manual"]).optional(),
@@ -56,7 +58,7 @@ function isLoopbackHostname(hostname: string): boolean {
   );
 }
 
-function normalizeBridgeUrl(value: string): string {
+export function normalizeBridgeUrl(value: string): string {
   const normalized = normalizeUrl(value, "bridgeUrl");
   const parsed = new URL(normalized);
   if (parsed.username || parsed.password) {
@@ -89,6 +91,7 @@ function stableConnectionId(
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+export const DEFAULT_BRIDGE_URL = "http://127.0.0.1:7331";
 
 /** One-way compatibility derivation shared with the core design-connect CLI. */
 export function derivePreviewToken(bridgeToken: string): string {
@@ -97,6 +100,28 @@ export function derivePreviewToken(bridgeToken: string): string {
     .update(PREVIEW_TOKEN_DOMAIN)
     .update(bridgeToken)
     .digest("hex");
+}
+
+function fallbackRouteIdentity(
+  route: { connectionId?: string; path: string; url?: string },
+  devServerUrl: string,
+  connectionId: string,
+): string {
+  if (route.connectionId && route.connectionId !== connectionId) {
+    return `${route.connectionId}:${route.path}`;
+  }
+  if (route.url) {
+    try {
+      const routeUrl = new URL(route.url, devServerUrl);
+      if (routeUrl.origin !== new URL(devServerUrl).origin) {
+        routeUrl.hash = "";
+        return routeUrl.toString();
+      }
+    } catch {
+      // coercion-ok: add-localhost-screens validates malformed route URLs later.
+    }
+  }
+  return route.path;
 }
 
 export default defineAction({
@@ -158,13 +183,20 @@ export default defineAction({
     const now = new Date().toISOString();
     const db = getDb();
     const devServerUrl = normalizeUrl(args.devServerUrl, "devServerUrl");
-    const bridgeUrl = args.bridgeUrl
+    const requestedBridgeUrl = args.bridgeUrl
       ? normalizeBridgeUrl(args.bridgeUrl)
       : undefined;
+    const rootPath = args.routeManifest?.rootPath ?? args.rootPath;
+    const id =
+      args.id ?? stableConnectionId(devServerUrl, rootPath, ownerEmail, orgId);
     const rawRoutes = args.routeManifest?.routes ?? args.routes ?? [];
     const routes = rawRoutes.map((route) => ({
-      id: route.id ?? makeLocalhostRouteId(route.path),
+      id:
+        route.id ??
+        makeLocalhostRouteId(fallbackRouteIdentity(route, devServerUrl, id)),
+      connectionId: route.connectionId,
       path: route.path,
+      url: route.url,
       title: route.title ?? titleFromRoutePath(route.path),
       sourceFile: route.sourceFile,
       sourceKind: route.sourceKind ?? "manual",
@@ -175,18 +207,10 @@ export default defineAction({
       version: 1 as const,
       sourceType: "localhost" as const,
       devServerUrl,
-      rootPath: args.routeManifest?.rootPath ?? args.rootPath,
+      rootPath,
       routes,
       generatedAt: args.routeManifest?.generatedAt ?? now,
     };
-    const id =
-      args.id ??
-      stableConnectionId(
-        devServerUrl,
-        routeManifest.rootPath,
-        ownerEmail,
-        orgId,
-      );
     const capabilities =
       args.capabilities ??
       DESIGN_BRIDGE_OPERATIONS.map((operation) => ({
@@ -208,6 +232,7 @@ export default defineAction({
       .select({
         ownerEmail: schema.designLocalhostConnections.ownerEmail,
         orgId: schema.designLocalhostConnections.orgId,
+        bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
         previewToken: schema.designLocalhostConnections.previewToken,
         bridgeToken: schema.designLocalhostConnections.bridgeToken,
       })
@@ -226,6 +251,15 @@ export default defineAction({
       );
     }
 
+    // The page-local visual-edit entry point does not need to make the user
+    // repeat the conventional bridge port. Preserve a custom existing port;
+    // new connections use the same default as `design connect`.
+    const bridgeUrl =
+      requestedBridgeUrl ??
+      (existing[0]?.bridgeUrl
+        ? normalizeBridgeUrl(existing[0].bridgeUrl)
+        : DEFAULT_BRIDGE_URL);
+
     // Token for a new row: explicit, else existing, else mint. The account or
     // trusted local-CLI principal owning the row is what lets the bridge skip a
     // separate browser sign-in without making the token ambient.
@@ -234,13 +268,14 @@ export default defineAction({
       explicitToken ||
       existing[0]?.bridgeToken ||
       crypto.randomBytes(32).toString("hex");
-    const explicitPreviewToken =
-      args.previewToken?.trim() ||
-      (explicitToken ? derivePreviewToken(nextBridgeToken) : undefined);
-    const nextPreviewToken =
-      explicitPreviewToken ||
-      existing[0]?.previewToken ||
-      derivePreviewToken(nextBridgeToken);
+    const derivedPreviewToken = derivePreviewToken(nextBridgeToken);
+    const explicitPreviewToken = args.previewToken?.trim();
+    if (explicitPreviewToken && explicitPreviewToken !== derivedPreviewToken) {
+      throw new Error(
+        "previewToken must match the deterministic token derived from bridgeToken",
+      );
+    }
+    const nextPreviewToken = derivedPreviewToken;
     const baseValues = {
       id,
       name: args.name ?? new URL(devServerUrl).host,
@@ -257,11 +292,11 @@ export default defineAction({
       updatedAt: now,
     };
 
-    // On conflict, an explicit token overwrites; a server-minted one uses
-    // coalesce(existing, minted) evaluated at write time — it fills a null token
-    // but never clobbers one, so concurrent first-time callers converge on the
-    // first writer (read->mint->write isn't atomic). setWhere keeps a cross-user
-    // conflict a no-op.
+    // Keep the read-only credential paired with the bridge credential on every
+    // reconnect. A legacy row may contain an unrelated preview token from
+    // before the deterministic pairing contract; preserving it makes the
+    // next daemon restart fail again. setWhere keeps a cross-user conflict a
+    // no-op, and the read-back below returns the winning row after a race.
     await db
       .insert(schema.designLocalhostConnections)
       .values({
@@ -277,9 +312,7 @@ export default defineAction({
           bridgeToken: explicitToken
             ? nextBridgeToken
             : sql`coalesce(${schema.designLocalhostConnections.bridgeToken}, excluded.bridge_token)`,
-          previewToken: explicitPreviewToken
-            ? nextPreviewToken
-            : sql`coalesce(${schema.designLocalhostConnections.previewToken}, excluded.preview_token)`,
+          previewToken: nextPreviewToken,
         },
         setWhere: ownerOrgScope,
       });
@@ -296,8 +329,7 @@ export default defineAction({
       .where(and(eq(schema.designLocalhostConnections.id, id), ownerOrgScope))
       .limit(1);
     const effectiveBridgeToken = stored?.bridgeToken ?? nextBridgeToken;
-    const effectivePreviewToken =
-      stored?.previewToken ?? derivePreviewToken(effectiveBridgeToken);
+    const effectivePreviewToken = derivePreviewToken(effectiveBridgeToken);
 
     return {
       id,

@@ -10,7 +10,6 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
-import { getA2ASecretByDomain } from "../org/context.js";
 import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
@@ -53,6 +52,12 @@ import type {
   Artifact,
 } from "./types.js";
 
+const getA2ASecretByDomain: (typeof import("../org/context.js"))["getA2ASecretByDomain"] =
+  (...args) =>
+    import("../org/context.js").then(({ getA2ASecretByDomain }) =>
+      getA2ASecretByDomain(...args),
+    );
+
 // Inlined to avoid pulling the entire core-routes-plugin (and its h3
 // transitive deps) into the a2a/handlers test boundary. Must stay in sync
 // with FRAMEWORK_ROUTE_PREFIX in `server/core-routes-plugin.ts`.
@@ -68,7 +73,7 @@ const A2A_READ_INVOKE_EVENT = "$a2a_read_invoke";
 
 function trustedApprovedActions(
   value: unknown,
-  event: any | undefined,
+  event: any,
 ): A2AApprovedAction[] | undefined {
   // Static API keys and unsigned requests do not prove which user authorized
   // a consequential action. Only a verified identity-bearing JWT may carry
@@ -147,7 +152,7 @@ function resolvedSlackSourceContext(
 
 async function trustedSourceContext(
   value: unknown,
-  event: any | undefined,
+  event: any,
 ): Promise<A2ASourceContext | undefined> {
   const verifiedEmail = event?.context?.__a2aVerifiedEmail as
     | string
@@ -161,7 +166,7 @@ async function trustedSourceContext(
     return undefined;
   }
 
-  const dispatch = findWorkspaceDispatchAgent();
+  const dispatch = await findWorkspaceDispatchAgent();
   if (!dispatch) return undefined;
   const orgDomain = event?.context?.__a2aOrgDomain as string | undefined;
   let orgSecret: string | undefined;
@@ -210,7 +215,7 @@ function requestOriginFromMetadata(
   }
 }
 
-function requestOriginFromEvent(event: any | undefined): string | undefined {
+function requestOriginFromEvent(event: any): string | undefined {
   if (!event) return undefined;
   try {
     return requestOriginFromMetadata({
@@ -228,7 +233,7 @@ function requestOriginFromEvent(event: any | undefined): string | undefined {
  */
 function requestOriginForContext(
   metadata: Record<string, unknown> | undefined,
-  event: any | undefined,
+  event: any,
 ): string | undefined {
   if (!event) return undefined;
   const receiverOrigin = requestOriginFromEvent(event);
@@ -244,7 +249,7 @@ function requestOriginForContext(
 
 function trustedA2AMetadata(
   metadata: Record<string, unknown> | undefined,
-  event: any | undefined,
+  event: any,
 ): Record<string, unknown> | undefined {
   if (!metadata) return undefined;
   const trusted = { ...metadata };
@@ -586,7 +591,7 @@ function makeHandlerContext(
  */
 async function withA2ARequestContext<T>(
   metadata: Record<string, unknown> | undefined,
-  event: any | undefined,
+  event: any,
   fn: () => Promise<T>,
 ): Promise<T> {
   const { runWithRequestContext } =

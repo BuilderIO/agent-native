@@ -134,7 +134,7 @@ describe("DocsLanguagePicker", () => {
 
     const zhLink = screen.getByRole("link", { name: /简体中文/ });
     expect(zhLink.getAttribute("href")).toBe(
-      "/zh-CN/docs/internationalization?tab=api#overview",
+      "/zh-cn/docs/internationalization/?tab=api#overview",
     );
     expect(zhLink.getAttribute("data-an-prefetch")).toBe("viewport");
   });
@@ -174,7 +174,7 @@ describe("DocsLanguagePicker", () => {
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("fr-FR");
     await waitFor(() => {
       expect(screen.getByTestId("location").textContent).toBe(
-        "/fr-FR/docs/internationalization?tab=api#overview",
+        "/fr-fr/docs/internationalization/?tab=api#overview",
       );
     });
   });
@@ -194,7 +194,7 @@ describe("DocsLanguageSuggestion", () => {
       name: "Switch to Français",
     });
     expect(switchLink.getAttribute("href")).toBe(
-      "/fr-FR/docs/internationalization?tab=api#overview",
+      "/fr-fr/docs/internationalization/?tab=api#overview",
     );
   });
 
@@ -209,7 +209,7 @@ describe("DocsLanguageSuggestion", () => {
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("fr-FR");
     await waitFor(() => {
       expect(screen.getByTestId("location").textContent).toBe(
-        "/fr-FR/docs/internationalization?tab=api#overview",
+        "/fr-fr/docs/internationalization/?tab=api#overview",
       );
     });
   });

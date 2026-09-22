@@ -29,7 +29,9 @@ export function calendarDateKey(value: Date | DocumentPropertyValue) {
   if (dateKey) return dateKey;
   if (value === null || value === undefined || value === "") return null;
 
-  const date = new Date(String(value));
+  const date = new Date(
+    typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+  );
   if (Number.isNaN(date.getTime())) return null;
   return formatCalendarDateKey(date);
 }
@@ -278,7 +280,10 @@ export function propertyDateValue(
 ) {
   if (!property || !property.value) return Number.NaN;
   const value = new Date(
-    documentPropertyDatePart(property.value, "start") || String(property.value),
+    documentPropertyDatePart(property.value, "start") ||
+      (typeof property.value === "string"
+        ? property.value
+        : (JSON.stringify(property.value) ?? "")),
   ).getTime();
   return Number.isFinite(value) ? value : Number.NaN;
 }

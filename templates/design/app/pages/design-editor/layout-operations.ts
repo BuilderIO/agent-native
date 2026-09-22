@@ -35,6 +35,20 @@ export function mergeAuthoredAndLiveRect(args: {
   };
 }
 
+/**
+ * Authored length in CSS px, or null for anything else. `Number.parseFloat`
+ * turns `width:100%` into 100 and `width:120` into 120 — the first is a 100px
+ * bounds for a full-width parent, the second is invalid CSS the browser drops.
+ * Either one suppresses the live measurement that would have been right.
+ */
+export function authoredPxLength(value: string | undefined): number | null {
+  const match = /^(-?(?:\d+\.?\d*|\.\d+))(px)?$/i.exec(value?.trim() ?? "");
+  if (!match) return null;
+  const parsed = Number.parseFloat(match[1]!);
+  if (!Number.isFinite(parsed)) return null;
+  return match[2] || parsed === 0 ? parsed : null;
+}
+
 export function computeAlignedPositions(
   rects: readonly AlignableRect[],
   bounds: { x: number; y: number; width: number; height: number },
@@ -212,6 +226,38 @@ export function computeTidyPositions(
   return next;
 }
 
+/**
+ * Which axis sibling rects already flow along, measured from how they are
+ * separated: a stack of full-width rows spans wider than it is tall, so a
+ * union-box comparison calls a vertical list a `row`. Ties (grids, mutually
+ * overlapping shapes) fall back to that box comparison. Exported for tests.
+ */
+export function inferFlowAxisFromRects(
+  rects: readonly { x: number; y: number; width: number; height: number }[],
+): "row" | "column" {
+  if (rects.length < 2) return "column";
+  let sideBySidePairs = 0;
+  let stackedPairs = 0;
+  for (let i = 0; i < rects.length; i += 1) {
+    for (let j = i + 1; j < rects.length; j += 1) {
+      const a = rects[i]!;
+      const b = rects[j]!;
+      const overlapsX = a.x < b.x + b.width && b.x < a.x + a.width;
+      const overlapsY = a.y < b.y + b.height && b.y < a.y + a.height;
+      if (overlapsY && !overlapsX) sideBySidePairs += 1;
+      else if (overlapsX && !overlapsY) stackedPairs += 1;
+    }
+  }
+  if (sideBySidePairs !== stackedPairs) {
+    return sideBySidePairs > stackedPairs ? "row" : "column";
+  }
+  const minX = Math.min(...rects.map((rect) => rect.x));
+  const maxX = Math.max(...rects.map((rect) => rect.x + rect.width));
+  const minY = Math.min(...rects.map((rect) => rect.y));
+  const maxY = Math.max(...rects.map((rect) => rect.y + rect.height));
+  return maxX - minX >= maxY - minY ? "row" : "column";
+}
+
 export function inferAutoLayoutFromChildren(
   container: { x: number; y: number; width: number; height: number },
   children: readonly AlignableRect[],
@@ -234,10 +280,7 @@ export function inferAutoLayoutFromChildren(
   const maxX = Math.max(...children.map((child) => child.x + child.width));
   const minY = Math.min(...children.map((child) => child.y));
   const maxY = Math.max(...children.map((child) => child.y + child.height));
-  const spreadWidth = maxX - minX;
-  const spreadHeight = maxY - minY;
-  const direction: "row" | "column" =
-    spreadWidth >= spreadHeight ? "row" : "column";
+  const direction = inferFlowAxisFromRects(children);
   const sorted = [...children].sort((a, b) =>
     direction === "row" ? a.x - b.x : a.y - b.y,
   );

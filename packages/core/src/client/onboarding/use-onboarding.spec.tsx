@@ -4,7 +4,18 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
+const trackEventMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../analytics.js", () => ({
+  getAnalyticsIdentityKey: () => null,
+  trackEvent: trackEventMock,
+}));
+
+import {
+  trackOnboardingEvent,
+  useOnboarding,
+  type UseOnboardingResult,
+} from "./use-onboarding.js";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: async () => body } as Response;
@@ -23,35 +34,38 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
     return null;
   }
 
-  function stubFetch(completeImpl: () => Response | Promise<Response>): void {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/onboarding/steps")) return jsonResponse([]);
-        if (url.includes("/onboarding/dismissed")) {
-          return jsonResponse({ dismissed: false });
-        }
-        if (url.includes("/onboarding/profile")) {
-          return jsonResponse({
+  function stubFetch(
+    completeImpl: () => Response | Promise<Response>,
+    firstRun = true,
+  ) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/onboarding/summary")) {
+        return jsonResponse({
+          steps: [],
+          dismissed: false,
+          profile: {
             appId: "app",
             appName: "App",
             capabilities: [],
-          });
-        }
-        if (url.includes("/onboarding/first-run/status")) {
-          return jsonResponse({ firstRun: true });
-        }
-        if (url.includes("/onboarding/first-run/complete")) {
-          return completeImpl();
-        }
-        throw new Error(`Unexpected fetch: ${url}`);
-      }),
-    );
+          },
+        });
+      }
+      if (url.includes("/onboarding/first-run/status")) {
+        return jsonResponse({ firstRun });
+      }
+      if (url.includes("/onboarding/first-run/complete")) {
+        return completeImpl();
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
   }
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    trackEventMock.mockReset();
     latest = null;
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -67,6 +81,9 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
   async function mountAndSettle() {
     await act(async () => {
       root.render(<Harness />);
+      // The initial read is deferred past first paint; the fallback timer
+      // bounds that wait at 250ms, so settling past it is deterministic.
+      await new Promise((resolve) => setTimeout(resolve, 300));
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -84,6 +101,24 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
     // Never falsely advance past a failed completion.
     expect(latest?.firstRun).toBe(true);
     expect(latest?.completeFirstRunError).toBeTruthy();
+    expect(trackEventMock).toHaveBeenCalledWith("onboarding_failed", {
+      flow: "first_run",
+      stage: "complete",
+      reason: "http_error",
+      status_code: 500,
+    });
+  });
+
+  it("preserves gate-granted first-run state while loading onboarding data", async () => {
+    const fetchMock = stubFetch(() => jsonResponse({}), false);
+    await mountAndSettle();
+
+    expect(latest?.firstRun).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/onboarding/first-run/status"),
+      ),
+    ).toHaveLength(0);
   });
 
   it("rejects instead of raising an unhandled rejection when the request itself fails", async () => {
@@ -98,6 +133,11 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
 
     expect(latest?.firstRun).toBe(true);
     expect(latest?.completeFirstRunError).toBe("network down");
+    expect(trackEventMock).toHaveBeenCalledWith("onboarding_failed", {
+      flow: "first_run",
+      stage: "complete",
+      reason: "network_error",
+    });
   });
 
   it("clears the error and completes on a successful retry", async () => {
@@ -109,15 +149,15 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.includes("/onboarding/steps")) return jsonResponse([]);
-        if (url.includes("/onboarding/dismissed")) {
-          return jsonResponse({ dismissed: false });
-        }
-        if (url.includes("/onboarding/profile")) {
+        if (url.includes("/onboarding/summary")) {
           return jsonResponse({
-            appId: "app",
-            appName: "App",
-            capabilities: [],
+            steps: [],
+            dismissed: false,
+            profile: {
+              appId: "app",
+              appName: "App",
+              capabilities: [],
+            },
           });
         }
         if (url.includes("/onboarding/first-run/status")) {
@@ -145,5 +185,244 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
 
     expect(latest?.completeFirstRunError).toBeNull();
     expect(latest?.firstRun).toBe(false);
+  });
+});
+
+describe("trackOnboardingEvent", () => {
+  beforeEach(() => trackEventMock.mockReset());
+
+  it("keeps distinct integration and role intents distinct", () => {
+    trackOnboardingEvent("integration_cta_clicked", {
+      flow: "first_run",
+      step_id: "tools",
+      integration_id: "context7",
+    });
+    trackOnboardingEvent("integration_cta_clicked", {
+      flow: "first_run",
+      step_id: "tools",
+      integration_id: "linear",
+    });
+    trackOnboardingEvent("onboarding_role_option_selected", {
+      flow: "first_run",
+      step_id: "role",
+      role: "developer",
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not deduplicate integration retries", () => {
+    const properties = {
+      flow: "first_run",
+      step_id: "tools",
+      integration_id: "context7",
+    };
+    trackOnboardingEvent("integration_cta_clicked", properties);
+    trackOnboardingEvent("integration_cta_clicked", properties);
+    trackOnboardingEvent("integration_connect_started", properties);
+    trackOnboardingEvent("integration_connect_started", properties);
+    trackOnboardingEvent("integration_connect_failed", {
+      ...properties,
+      error_type: "Error",
+    });
+    trackOnboardingEvent("integration_connect_failed", {
+      ...properties,
+      error_type: "popup_or_navigation_blocked",
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("does not deduplicate role save retries", () => {
+    const properties = {
+      flow: "first_run",
+      step_id: "role",
+      role: "developer",
+    };
+    trackOnboardingEvent("onboarding_role_save_started", properties);
+    trackOnboardingEvent("onboarding_role_save_started", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// A focus or visibility event inside the after-paint window used to stack a
+// second summary read on top of the scheduled initial read once the window
+// elapsed; it must consume the scheduled read instead so exactly one lands.
+describe("useOnboarding — focus during the deferral window", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let latest: UseOnboardingResult | null;
+  let summaryCalls = 0;
+
+  function Harness() {
+    latest = useOnboarding({ initialFirstRun: true });
+    return null;
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    latest = null;
+    summaryCalls = 0;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/onboarding/summary")) {
+          summaryCalls += 1;
+          return jsonResponse({
+            steps: [],
+            dismissed: false,
+            profile: {
+              appId: "app",
+              appName: "App",
+              capabilities: [],
+            },
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  async function settlePastPaintWindow() {
+    // The fallback timer bounds the deferral wait at 250ms, so settling past
+    // it is deterministic.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  it("focus inside the window consumes the scheduled read instead of duplicating it", async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    // The focus refetch stays immediate and the scheduled initial read is
+    // consumed, not stacked behind it.
+    expect(summaryCalls).toBe(1);
+
+    await settlePastPaintWindow();
+    expect(summaryCalls).toBe(1);
+    expect(latest?.error).toBeNull();
+    expect(latest?.loading).toBe(false);
+  });
+
+  it("visibility-visible inside the window behaves the same", async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+    });
+    expect(summaryCalls).toBe(1);
+
+    await settlePastPaintWindow();
+    expect(summaryCalls).toBe(1);
+    expect(latest?.error).toBeNull();
+    // Restore happy-dom's own visibilityState for the other describes.
+    delete (document as { visibilityState?: string }).visibilityState;
+  });
+});
+
+// The composed summary endpoint serves steps and profile even when the
+// optional dismissed-flag read had to fall back to its safe default, so the
+// hook must adopt that degraded summary instead of surfacing an error that
+// hides a usable checklist.
+describe("useOnboarding — degraded summary tolerance", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let latest: UseOnboardingResult | null;
+
+  function Harness() {
+    latest = useOnboarding({ initialFirstRun: true });
+    return null;
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    latest = null;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/onboarding/summary")) {
+          return jsonResponse({
+            steps: [
+              {
+                id: "llm",
+                title: "Connect an AI engine",
+                description: "Pick an engine to power the agent.",
+                order: 10,
+                required: true,
+                complete: false,
+                methods: [],
+              },
+            ],
+            dismissed: false,
+            profile: {
+              appId: "app",
+              appName: "App",
+              capabilities: [],
+            },
+          });
+        }
+        if (url.includes("/onboarding/first-run/status")) {
+          return jsonResponse({ firstRun: false });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps steps and profile when the summary answers with safe-default dismissed data", async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    // The initial read is deferred past first paint; the fallback timer
+    // bounds that wait at 250ms, so settling past it is deterministic.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(latest?.error).toBeNull();
+    expect(latest?.steps).toHaveLength(1);
+    expect(latest?.steps[0]?.id).toBe("llm");
+    expect(latest?.profile).toEqual({
+      appId: "app",
+      appName: "App",
+      capabilities: [],
+    });
+    expect(latest?.dismissed).toBe(false);
   });
 });

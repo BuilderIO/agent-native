@@ -15,11 +15,8 @@ import {
   isAgentEngineSettingConfigured,
 } from "../agent/engine/registry.js";
 import { getAppConfig } from "../app-config/index.js";
-import {
-  getActiveFileUploadProviderForRequest,
-  registerFileUploadProvider,
-} from "../file-upload/registry.js";
-import { s3FileUploadProvider } from "../file-upload/s3.js";
+import { getActiveFileUploadProviderForRequest } from "../file-upload/registry.js";
+import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
@@ -27,7 +24,7 @@ import {
 } from "../server/credential-provider.js";
 import { getSetting } from "../settings/store.js";
 import { registerOnboardingStep } from "./registry.js";
-import type { OnboardingStep } from "./types.js";
+import type { OnboardingMethod, OnboardingStep } from "./types.js";
 
 type LlmKeyMethod = {
   provider: keyof typeof PROVIDER_ENV_META;
@@ -82,6 +79,25 @@ const LLM_KEY_METHODS: LlmKeyMethod[] = [
   },
 ];
 
+const JEV_KEY_METHOD: OnboardingMethod = {
+  id: "jev-key",
+  kind: "form",
+  label: "Decision model (Jev)",
+  description:
+    "Optional direct Jev API key for smarter tool and skill selection. Builder-managed Jev may be available through Connect Builder, so both are not required.",
+  badge: "recommended",
+  payload: {
+    writeScope: "user",
+    fields: [
+      {
+        key: "JEV_API_KEY",
+        label: "JEV_API_KEY",
+        secret: true,
+      },
+    ],
+  },
+};
+
 const llmStep: OnboardingStep = {
   id: "llm",
   order: 10,
@@ -100,6 +116,7 @@ const llmStep: OnboardingStep = {
         scope: "llm",
       },
     },
+    JEV_KEY_METHOD,
     ...LLM_KEY_METHODS.map(({ provider, id, label, description, primary }) => {
       const meta = PROVIDER_ENV_META[provider];
       return {
@@ -161,7 +178,7 @@ const databaseStep: OnboardingStep = {
   required: false,
   title: "Database",
   description:
-    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database or opt into local PGlite.",
+    "Agent-Native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database or opt into local PGlite.",
   methods: [
     {
       id: "database-url",
@@ -174,14 +191,7 @@ const databaseStep: OnboardingStep = {
           {
             key: "DATABASE_URL",
             label: "DATABASE_URL",
-            placeholder:
-              "postgres://..., libsql://..., file:./data/app.db, pglite:./data/pglite",
-          },
-          {
-            key: "DATABASE_AUTH_TOKEN",
-            label: "DATABASE_AUTH_TOKEN (if needed)",
-            placeholder: "Token for providers such as Turso/libSQL",
-            secret: true,
+            placeholder: "postgres://..., pglite:./data/pglite",
           },
         ],
       },
@@ -264,7 +274,7 @@ const emailStep: OnboardingStep = {
           {
             key: "EMAIL_FROM",
             label: "EMAIL_FROM (from address)",
-            placeholder: "Agent Native <noreply@yourdomain.com>",
+            placeholder: "Agent-Native <noreply@yourdomain.com>",
           },
           {
             key: "APP_NAME",
@@ -291,7 +301,7 @@ const emailStep: OnboardingStep = {
           {
             key: "EMAIL_FROM",
             label: "EMAIL_FROM (from address)",
-            placeholder: "Agent Native <noreply@yourdomain.com>",
+            placeholder: "Agent-Native <noreply@yourdomain.com>",
           },
         ],
       },
@@ -493,9 +503,10 @@ export function registerDefaultOnboardingSteps(): void {
   if (registered) return;
   registered = true;
   // The framework provides a generic S3/R2 implementation for the custom-key
-  // onboarding path. Templates may replace the same provider id with a
-  // domain-specific implementation after this default plugin mounts.
-  registerFileUploadProvider(s3FileUploadProvider);
+  // onboarding path. A template may hold the same provider id with a
+  // domain-specific implementation, and this plugin mounts in no fixed order
+  // relative to that registration, so claim the slot only when it is free.
+  ensureS3FileUploadProvider();
   registerOnboardingStep(llmStep);
   registerOnboardingStep(fileStorageStep);
   registerOnboardingStep(databaseStep);

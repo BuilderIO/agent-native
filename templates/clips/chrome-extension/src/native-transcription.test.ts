@@ -56,6 +56,23 @@ describe("createNativeTranscriptionCapture", () => {
     });
   });
 
+  it("keeps the failure reason on a transcript that died mid-recording", async () => {
+    setWindow({ SpeechRecognition: FakeSpeechRecognition });
+    const capture = createNativeTranscriptionCapture({ lang: "en-US" });
+    capture.start();
+
+    FakeSpeechRecognition.instance?.onresult?.({
+      resultIndex: 0,
+      results: [{ isFinal: true, 0: { transcript: "First minute only" } }],
+    });
+    FakeSpeechRecognition.instance?.onerror?.({ error: "network" });
+
+    await expect(capture.stop()).resolves.toEqual({
+      text: "First minute only",
+      failureReason: "Chrome Web Speech recognition error: network.",
+    });
+  });
+
   it("returns a concrete fallback reason when Web Speech is unavailable", async () => {
     setWindow({});
     const capture = createNativeTranscriptionCapture();

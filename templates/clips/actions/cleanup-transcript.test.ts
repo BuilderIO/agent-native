@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockBuilderStream = vi.hoisted(() => vi.fn());
-const mockResolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const mockResolveHasBuilderGatewayCredential = vi.hoisted(() => vi.fn());
 const mockResolveSecret = vi.hoisted(() => vi.fn());
 const mockNoteBuilderCreditsExhausted = vi.hoisted(() => vi.fn());
 const mockClearBuilderCreditsExhausted = vi.hoisted(() => vi.fn());
@@ -24,8 +24,8 @@ vi.mock("@agent-native/core/server", () => ({
       this.requiredCredential = opts.requiredCredential;
     }
   },
-  resolveBuilderCredentials: (...args: unknown[]) =>
-    mockResolveBuilderCredentials(...args),
+  resolveHasBuilderGatewayCredential: (...args: unknown[]) =>
+    mockResolveHasBuilderGatewayCredential(...args),
   resolveSecret: (...args: unknown[]) => mockResolveSecret(...args),
 }));
 
@@ -47,10 +47,7 @@ import { cleanupMaxOutputTokens } from "./cleanup-transcript";
 describe("cleanup-transcript", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockResolveBuilderCredentials.mockResolvedValue({
-      privateKey: "bpk-test",
-      publicKey: "public-test",
-    });
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(true);
     mockResolveSecret.mockResolvedValue("gemini-key");
     mockNoteBuilderCreditsExhausted.mockResolvedValue(undefined);
     mockClearBuilderCreditsExhausted.mockResolvedValue(undefined);
@@ -103,6 +100,22 @@ describe("cleanup-transcript", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("skips the Builder gateway entirely when no Builder credential is connected", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+
+    const result = await cleanupTranscript.run({
+      transcript: "raw transcript",
+      task: "cleanup",
+    });
+
+    expect(result).toMatchObject({
+      task: "cleanup",
+      cleanedText: "Cleaned transcript from Gemini.",
+      provider: "gemini-byok",
+    });
+    expect(mockBuilderStream).not.toHaveBeenCalled();
+  });
+
   it("falls back to BYOK Gemini when Builder credits are exhausted", async () => {
     const result = await cleanupTranscript.run({
       transcript: "raw transcript",
@@ -138,7 +151,9 @@ describe("cleanup-transcript", () => {
       expect.objectContaining({ maxOutputTokens: 9_994 }),
     );
     const [, init] = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(init?.body)) as {
+    const body = JSON.parse(
+      typeof init?.body === "string" ? init.body : "",
+    ) as {
       generationConfig: { maxOutputTokens: number };
     };
     expect(body.generationConfig.maxOutputTokens).toBe(9_994);

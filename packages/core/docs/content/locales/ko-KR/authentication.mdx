@@ -163,8 +163,26 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 
 이 플래그가 설정되면 이메일/비밀번호 가입에 이메일이 필요하지 않습니다.
 인증을 받았으나 가입 확인 메일이 발송되지 않습니다. QA에만 사용하세요
-또는 환경을 미리 보고 `+qa` 주소로 테스트 계정 이름을 지정
-(`name+qa@example.com`) 쉽게 식별할 수 있습니다.
+또는 환경을 미리 보고 `+autoz` 주소로 테스트 계정 이름을 지정
+(`name+autoz@example.com`) 쉽게 식별할 수 있습니다.
+
+## 이메일 확인 정책 {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION`은 로컬 및 QA용 편의 기능이며 호스팅된 배포에서는
+무시됩니다. 프로덕션을 포함한 모든 환경에 대해 정책을 명시하려면 구성에서
+선언하세요:
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+배포 별칭은 `AUTH_REQUIRE_EMAIL_VERIFICATION=0`입니다. 선언된 값은
+`AUTH_SKIP_EMAIL_VERIFICATION`과 환경별 기본값보다 모두 우선합니다.
+
+`false`는 확인되지 않은 주소를 로그인 자격 증명으로 허용합니다. 누구나 어떤
+이메일이든 사용할 수 있으므로 가입이 이미 다른 방법으로 제한된 곳에서만
+사용하세요. 이메일 공급자가 없는 배포에서 `true`로 설정하면 확인을 전달할 수
+없으므로 대신 비밀번호 가입이 비활성화됩니다.
 
 ## 소셜 제공자 {#social-providers}
 
@@ -438,6 +456,7 @@ const state = encodeOAuthState({
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | 더 나은 인증을 위한 서명 키(설정되지 않은 경우 자동 생성)                                                                                                                        |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | QA/미리보기 환경에서 `1`로 설정하면 확인 없이 이메일/비밀번호 가입이 진행될 수 있습니다. 기본적으로 로컬 개발/테스트 건너뛰기                                                    |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | `0` 또는 `1`로 설정하면 프로덕션을 포함한 모든 환경에서 비밀번호 가입 확인 정책을 선언합니다. `AUTH_SKIP_EMAIL_VERIFICATION`보다 우선합니다                                      |
 | `AUTH_DISABLED`                         | 로그인/가입을 건너뛰려면 `true` 또는 `1`로 설정하세요. 모든 요청은 하나의 공유 사용자로 실행됩니다(로컬 개발/미리 보기에만 해당 - 실제 사용자가 있는 프로덕션에는 해당되지 않음) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 새로운 개발 데이터베이스에서 로컬 호스트 자동 로그인을 비활성화하려면 `1`로 설정하세요.                                                                                          |
 | `AUTH_MODE`                             | `local`는 CLI/에이전트 ID만 확인합니다(개발자 사용자 `pnpm action`가 실행되는 ID). 브라우저 로그인 우회는 절대 안 됩니다                                                         |
@@ -457,5 +476,9 @@ const state = encodeOAuthState({
 
 기본적으로 꺼진 Dispatch의 `desktop.workspace-sso` 플래그는 사용 가능 여부만 제어하며 인증, 서명, nonce, origin, callback, 세션, 해지 검사는 항상 적용됩니다. 플래그가 꺼져 있거나 읽을 수 없으면 Desktop은 앱별 로그인, 로그아웃 또는 설정을 변경하지 않습니다.
 User-Agent의 Canary 표시는 가용성 힌트일 뿐 원격 증명이 아니며, 인증과 권한 부여는 이를 신뢰하지 않습니다.
-정식 호스팅 앱은 앱별 identity hub 환경 설정 없이 패키지된 Desktop SSO Canary 요청을 인식합니다. 일반 브라우저와 자체 호스팅 앱에는 계속 `AGENT_NATIVE_IDENTITY_HUB_URL`이 필요합니다. 안정적인 Desktop 빌드는 이후 릴리스가 별도로 승인될 때까지 브로커를 초기화하지 않습니다.
+정식 호스팅 앱은 앱별 identity hub 환경 설정 없이 패키지된 Desktop SSO Canary 요청을 인식합니다. 일반 브라우저는 일반 앱별 로그인을 계속 사용합니다. 자체 호스팅 앱에는 남아 있는 명시적 Desktop 또는 서버 측 페더레이션 경로에만 `AGENT_NATIVE_IDENTITY_HUB_URL`이 필요합니다. 안정적인 Desktop 빌드는 이후 릴리스가 별도로 승인될 때까지 브로커를 초기화하지 않습니다.
 Canary는 익명 앱 로그인 탐색을 가로채지 않습니다. 사용자는 활성 등록 앱에 대해 Desktop 설정에서 워크스페이스 로그인을 명시적으로 선택해야 하며, 일반 앱 로그인은 기본 경로로 유지됩니다.
+
+## 관리 배포와 초대
+
+관리 배포에서는 `AUTH_SIGNUP=invited`, `ORG_CREATION=closed`, `AUTO_CREATE_DEFAULT_ORG=0`을 설정합니다. [관리 배포 가이드](/docs/administered-deployments)에서 부트스트랩 관리자, 초대, 허용 도메인을 확인하세요. 멤버 초대와 도메인 가입은 별도의 규칙입니다.

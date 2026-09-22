@@ -22,9 +22,10 @@ import type { FrameGeometry, Point } from "./types";
 //   reachable.
 // - A bounded live-context pool keeps nearby screens warm without retaining
 //   every browsing context ever visited. Active/selected/in-progress screens
-//   are protected; the remaining budget is filled by viewport distance and
-//   then by recency. Evicted screens keep their lightweight React content-cache
-//   entry so revisiting can remount directly without rebuilding source HTML.
+//   are protected; the remaining budget first preserves already-live screens
+//   that are still in the raw viewport, then fills by viewport distance and
+//   recency. Evicted screens keep their lightweight React content-cache entry
+//   so revisiting can remount directly without rebuilding source HTML.
 
 /** Escape hatch: flip to `false` to fully disable culling in one line if a
  *  regression appears — every screen goes back to always rendering full
@@ -63,6 +64,43 @@ export const OVERVIEW_LIVE_SCREEN_BUDGET = 32;
  * bound — set high enough that a normal breakpoint-bearing board is limited by
  * OVERVIEW_LIVE_SCREEN_BUDGET instead of by this. */
 export const OVERVIEW_LIVE_IFRAME_CEILING = 96;
+
+/** Maximum number of live app documents allowed to boot simultaneously. */
+export const OVERVIEW_LIVE_BOOT_BUDGET = 4;
+
+export type LiveScreenBootStatus = "booting" | "ready";
+
+export function admitBootBudget({
+  candidates,
+  bootStatusById,
+  bootBudget = OVERVIEW_LIVE_BOOT_BUDGET,
+  costById,
+  protectedIds,
+}: {
+  candidates: readonly string[];
+  bootStatusById: ReadonlyMap<string, LiveScreenBootStatus>;
+  bootBudget?: number;
+  costById?: ReadonlyMap<string, number>;
+  protectedIds: ReadonlySet<string>;
+}): Set<string> {
+  const admitted = new Set<string>();
+  let bootingCount = 0;
+  const limit = Math.max(0, Math.floor(bootBudget));
+  const cost = (id: string) => Math.max(1, Math.floor(costById?.get(id) ?? 1));
+  for (const id of candidates) {
+    const status = bootStatusById.get(id);
+    if (!status) continue;
+    admitted.add(id);
+    if (status === "booting") bootingCount += cost(id);
+  }
+  for (const id of candidates) {
+    if (admitted.has(id)) continue;
+    if (!protectedIds.has(id) && bootingCount + cost(id) > limit) continue;
+    admitted.add(id);
+    if (!protectedIds.has(id)) bootingCount += cost(id);
+  }
+  return admitted;
+}
 
 export type ScreenCullTier =
   /** Full content (iframe/DesignCanvas) is mounted and rendered normally. */
@@ -129,6 +167,7 @@ function distanceSquaredToViewportCenter(
  * Allocation order is intentional:
  * 1. protected interactions (active, selected, dragged, text/layer edited),
  * 2. screens inside the overscanned viewport, nearest the viewport center,
+ *    preserving prior-live screens only while they overlap the raw viewport,
  * 3. previously-mounted offscreen screens, most recently visible first.
  *
  * This keeps imminent pan/zoom destinations live while guaranteeing that a
@@ -139,6 +178,7 @@ function distanceSquaredToViewportCenter(
 export function computeBoundedScreenCullState({
   candidates,
   viewport,
+  visibleViewport,
   protectedScreenIds,
   previousLiveScreenIds,
   everVisibleScreenIds,
@@ -149,6 +189,9 @@ export function computeBoundedScreenCullState({
 }: {
   candidates: readonly ScreenCullCandidate[];
   viewport: OverscannedViewportBounds | null;
+  /** The unexpanded camera viewport, used to keep overscan-only screens from
+   *  displacing screens that have just entered the actual viewport. */
+  visibleViewport: OverscannedViewportBounds | null;
   protectedScreenIds: ReadonlySet<string>;
   previousLiveScreenIds: ReadonlySet<string>;
   everVisibleScreenIds: ReadonlySet<string>;
@@ -235,6 +278,22 @@ export function computeBoundedScreenCullState({
     )
     .sort((a, b) => {
       if (!viewport) return a.id.localeCompare(b.id);
+      // Keep the live pool stable while a camera move still overlaps the raw
+      // viewport. The overscan halo is only a warm-ahead buffer, so an old
+      // overscan-only screen must not displace a screen that just entered the
+      // actual viewport.
+      const previousLiveDelta =
+        Number(
+          previousLiveScreenIds.has(b.id) &&
+            visibleViewport !== null &&
+            isFrameWithinOverscannedViewport(b.geometry, visibleViewport),
+        ) -
+        Number(
+          previousLiveScreenIds.has(a.id) &&
+            visibleViewport !== null &&
+            isFrameWithinOverscannedViewport(a.geometry, visibleViewport),
+        );
+      if (previousLiveDelta !== 0) return previousLiveDelta;
       const distanceDelta =
         distanceSquaredToViewportCenter(a.geometry, viewport) -
         distanceSquaredToViewportCenter(b.geometry, viewport);

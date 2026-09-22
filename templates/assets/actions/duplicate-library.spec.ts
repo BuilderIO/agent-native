@@ -57,6 +57,7 @@ vi.mock("../server/lib/json.js", () => ({
 vi.mock("./_helpers.js", () => ({
   serializeAsset: vi.fn((row: unknown) => row),
   serializeGenerationPreset: vi.fn((row: unknown) => row),
+  serializeTemplate: vi.fn((row: unknown) => row),
   serializeLibrary: vi.fn((row: unknown) => row),
 }));
 
@@ -74,6 +75,9 @@ vi.mock("../server/db/index.js", () => ({
     },
     assetGenerationPresets: {
       libraryId: "presets.library_id",
+    },
+    assetTemplates: {
+      libraryId: "templates.library_id",
     },
     assets: {
       id: "assets.id",
@@ -273,6 +277,8 @@ describe("duplicate-library", () => {
       id: "copy-preset",
       libraryId: "copy-lib",
       collectionId: "copy-collection",
+      ownerEmail: "designer@example.com",
+      orgId: "org-1",
     });
     expect(JSON.parse(result.generationPresets[0].settings)).toMatchObject({
       presetReferences: [

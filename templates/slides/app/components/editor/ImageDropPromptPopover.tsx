@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  canInlineImageFile,
   buildImageDropAgentPayload,
   readFileAsDataUrl,
   type HostedImageUploadResult,
@@ -36,8 +37,8 @@ interface ImageDropPromptPopoverProps {
  *
  * Prefers a hosted CDN URL via `/api/assets/upload` when a file-upload
  * provider (Builder.io / S3 / …) is configured. When nothing is configured,
- * falls back to an inline data-URL attachment so the drop still reaches the
- * agent instead of toasting a 503.
+ * falls back to an inline data-URL attachment within Core's request limit so
+ * the drop still reaches the agent instead of toasting a 503.
  *
  * Why this exists: dropping image files onto an unclear target previously did
  * one of two unhelpful things — opened the file in a new browser tab (when the
@@ -126,8 +127,7 @@ export default function ImageDropPromptPopover({
       const form = new FormData();
       form.append("file", file);
       // Prefer the hosted provider chain. When none is configured the route
-      // returns 503 — fall back to an inline data URL so the agent still gets
-      // the image (chat already accepts `images` data URLs).
+      // returns 503 — fall back to an inline data URL for inline-safe images.
       const res = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,
@@ -143,10 +143,9 @@ export default function ImageDropPromptPopover({
         error: data.error,
       };
 
-      let dataUrl: string | undefined;
-      if (!upload.ok) {
-        dataUrl = await readFileAsDataUrl(file);
-      }
+      const dataUrl = canInlineImageFile(file)
+        ? await readFileAsDataUrl(file)
+        : undefined;
 
       const payload = buildImageDropAgentPayload({
         intent: prompt,
@@ -162,6 +161,7 @@ export default function ImageDropPromptPopover({
           context: payload.context,
           submit: true,
           referenceImagePaths: payload.referenceImagePaths,
+          images: payload.images,
         });
       } else {
         sendToAgentChat({

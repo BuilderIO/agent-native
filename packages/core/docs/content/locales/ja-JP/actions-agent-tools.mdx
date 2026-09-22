@@ -62,12 +62,12 @@ export default createAgentChatPlugin({
 利用可能なモードは次のとおりです。
 
 - `off`。デフォルトです。本番ではコード実行ツールは一切登録されません。
-- `sandboxed`。`run-code` を登録します。これは、環境変数を除去し、新しい一時ディレクトリ、出力/時間の制限、そして `provider-api-request`、`provider-api-docs`、`provider-api-catalog`、`web-request`、および `workspaceRead` / `workspaceWrite` が使用する Resources 対応のワークスペースファイルブリッジといった許可リスト登録済みツールへの localhost ブリッジを持つ、隔離された Node.js の JavaScript ランナーです。
+- `sandboxed`。`run-code` を登録します。これは、メモリ、スタック、ソース、結果、出力を制限し、許可リスト登録済みツールへホスト関数で接続する強化 QuickJS evaluator です。ゲストコードでは Node モジュール、ファイルシステム、環境変数、ネットワーク、タイマー、imports を利用できません。
 - `trusted`。`run-code` に加えて、フル機能のコーディングツールレジストリ（`bash`、`read`、`edit`、`write`）を登録します。ホストへの完全なシェルアクセスが意図的なものである、シングルテナントまたはオペレーター管理下のデプロイでのみ使用してください。
 
 コードを変更せずに特定のデプロイでプラグインオプションを上書きするには、`AGENT_PROD_CODE_EXECUTION=sandboxed` または `AGENT_PROD_CODE_EXECUTION=trusted` を設定します。`AGENT_PROD_CODE_EXECUTION=off` は、プラグインオプションが有効にしている場合でもコード実行を強制的に無効にします。
 
-`run-code` のサンドボックスは、OS コンテナではなくプロセスレベルの隔離です。子プロセスの環境からアプリのシークレットを取り除き、利用可能な場合は Node のパーミッションモデルを使用しますが、アウトバウンドのネットワークは Node 自体ではブロックされません。認証が必要な呼び出しは、このツールが公開するブリッジヘルパーを経由するべきです。
+本番の `run-code` evaluator は Node の子プロセスではなく強化 QuickJS を使用します。OS コンテナではありません。ホスト関数は信頼された機能として認証と認可を適用し、evaluator はゲストコードのリソースとブリッジ呼び出しを制限します。
 
 ## 次は何ですか
 

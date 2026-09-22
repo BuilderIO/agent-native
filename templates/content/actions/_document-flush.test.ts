@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  appStateCompareAndSet: vi.fn(),
   appStateDelete: vi.fn(),
   appStateGet: vi.fn(),
   appStatePut: vi.fn(),
@@ -10,6 +11,20 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  appStateCompareAndSet: async (
+    session: string,
+    key: string,
+    expected: unknown,
+    next: unknown,
+    options: unknown,
+  ) => {
+    if (expected === null && next !== null) {
+      await mocks.appStatePut(session, key, next, options);
+    } else if (next === null) {
+      await mocks.appStateDelete(session, key, options);
+    }
+    return mocks.appStateCompareAndSet(session, key, expected, next, options);
+  },
   appStateDelete: mocks.appStateDelete,
   appStateGet: mocks.appStateGet,
   appStatePut: mocks.appStatePut,
@@ -45,6 +60,7 @@ describe("flushOpenDocumentEditorToSql", () => {
     ]);
     mocks.getRequestUserEmail.mockReturnValue("editor@example.com");
     mocks.appStatePut.mockResolvedValue(undefined);
+    mocks.appStateCompareAndSet.mockResolvedValue(true);
     mocks.appStateDelete.mockResolvedValue(undefined);
   });
 
@@ -72,6 +88,171 @@ describe("flushOpenDocumentEditorToSql", () => {
       expect.objectContaining({ id: "doc-1" }),
       { requestSource: "agent" },
     );
+  });
+
+  it("targets one exact additional Blocks field", async () => {
+    mocks.appStateGet.mockImplementation(async () => ({
+      id: "doc-1",
+      requestId: mocks.appStatePut.mock.calls[0]?.[2]?.requestId,
+      status: "success",
+    }));
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(flush).resolves.toBeUndefined();
+    expect(mocks.appStatePut).toHaveBeenCalledTimes(1);
+    expect(mocks.appStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      expect.objectContaining({ propertyId: "notes" }),
+      { requestSource: "agent" },
+    );
+  });
+
+  it("waits for an occupied document flush mailbox before writing", async () => {
+    mocks.appStateCompareAndSet
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    mocks.appStateGet
+      .mockResolvedValueOnce({
+        id: "doc-1",
+        requestId: "another-request",
+        status: "pending",
+      })
+      .mockImplementation(async () => ({
+        id: "doc-1",
+        requestId: mocks.appStatePut.mock.calls.at(-1)?.[2]?.requestId,
+        status: "success",
+      }));
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(flush).resolves.toBeUndefined();
+    expect(mocks.appStateCompareAndSet).toHaveBeenCalledTimes(3);
+  });
+
+  it("reclaims a stale terminal acknowledgement before writing", async () => {
+    const stale = {
+      id: "doc-1",
+      requestId: "timed-out-request",
+      status: "success",
+      ts: Date.now() - 4_001,
+    };
+    mocks.appStateCompareAndSet
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true);
+    mocks.appStateGet
+      .mockResolvedValueOnce(stale)
+      .mockImplementation(async () => ({
+        id: "doc-1",
+        requestId: mocks.appStatePut.mock.calls.at(-1)?.[2]?.requestId,
+        status: "success",
+      }));
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(flush).resolves.toBeUndefined();
+    expect(mocks.appStateCompareAndSet).toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      stale,
+      null,
+      { requestSource: "agent" },
+    );
+  });
+
+  it("does not reclaim a concurrent request's fresh acknowledgement", async () => {
+    const fresh = {
+      id: "doc-1",
+      requestId: "concurrent-request",
+      status: "success",
+      ts: Date.now(),
+    };
+    mocks.appStateCompareAndSet.mockResolvedValue(false);
+    mocks.appStateGet.mockResolvedValue(fresh);
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    const rejected = expect(flush).rejects.toThrow(
+      /could not ask the open document editor/i,
+    );
+    await vi.advanceTimersByTimeAsync(4_200);
+
+    await rejected;
+    expect(mocks.appStateCompareAndSet).not.toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      fresh,
+      null,
+      { requestSource: "agent" },
+    );
+  });
+
+  it("fails an exact-field read when multiple editors are open", async () => {
+    mocks.loadAwarenessRowsStrict.mockResolvedValue([
+      {
+        clientId: 123,
+        state: JSON.stringify({
+          canFlushDocument: true,
+          visible: true,
+          user: { email: "owner@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+      {
+        clientId: 456,
+        state: JSON.stringify({
+          canFlushDocument: true,
+          visible: true,
+          user: { email: "collaborator@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+    ]);
+
+    await expect(
+      flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+        propertyId: "notes",
+      }),
+    ).rejects.toThrow(/exact fresh Blocks field value/i);
+    expect(mocks.appStatePut).not.toHaveBeenCalled();
+  });
+
+  it("fails an exact-field read when only a legacy editor is identifiable", async () => {
+    mocks.loadAwarenessRowsStrict.mockResolvedValue([
+      {
+        clientId: 456,
+        state: JSON.stringify({
+          visible: true,
+          user: { email: "legacy@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+    ]);
+
+    await expect(
+      flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+        propertyId: "notes",
+      }),
+    ).rejects.toThrow(/exact fresh Blocks field value/i);
+    expect(mocks.appStatePut).not.toHaveBeenCalled();
   });
 
   it("fails closed when the live editor reports a save error", async () => {

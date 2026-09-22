@@ -1,10 +1,28 @@
+import { getCurrentAdapter } from "better-auth";
+
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import { invalidateSessionEmailCache } from "../server/session-email-cache.js";
 
-export type RequiredAuthProvider = "google" | null;
+export type RequiredAuthProvider = "google" | `sso:${string}` | null;
+export type ResolvedRequiredAuthProvider = RequiredAuthProvider | "conflict";
 
 export const GOOGLE_AUTH_REQUIRED_MESSAGE =
   "This organization requires Google sign-in.";
+
+export const SSO_AUTH_REQUIRED_MESSAGE =
+  "This organization requires single sign-on.";
+
+export function authProviderRequiredMessage(
+  provider: ResolvedRequiredAuthProvider,
+): string {
+  if (provider === "conflict") {
+    return "Your organizations require conflicting sign-in providers. Contact an administrator.";
+  }
+  return provider?.startsWith("sso:")
+    ? SSO_AUTH_REQUIRED_MESSAGE
+    : GOOGLE_AUTH_REQUIRED_MESSAGE;
+}
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -13,16 +31,19 @@ function normalizeEmail(email: string): string {
 function providerFromRow(row: Record<string, unknown>): RequiredAuthProvider {
   const provider = row.provider == null ? "" : String(row.provider);
   if (!provider) return null;
-  if (provider !== "google") {
-    throw new Error(`Unsupported organization auth provider: ${provider}`);
+  if (provider === "google") return provider;
+  if (!provider.startsWith("sso:") || provider.slice(4).trim() === "") {
+    throw new Error(
+      `Unsupported organization auth provider: ${String(provider)}`,
+    );
   }
-  return "google";
+  return provider as `sso:${string}`;
 }
 
 function isMissingOrgAuthPolicySchema(error: unknown): boolean {
   const candidate = error as { code?: unknown; message?: unknown };
   if (candidate.code === "42P01" || candidate.code === "42703") return true;
-  return /no such table:\s*(organizations|org_members|org_invitations)|no such column:\s*required_auth_provider|relation ["']?(organizations|org_members|org_invitations)["']? does not exist|column ["']?required_auth_provider["']? does not exist/i.test(
+  return /relation ["']?(organizations|org_members|org_invitations)["']? does not exist|column ["']?required_auth_provider["']? does not exist/i.test(
     String(candidate.message ?? error),
   );
 }
@@ -59,7 +80,7 @@ export async function getRequiredAuthProviderForOrg(
  */
 export async function getRequiredAuthProviderForEmail(
   email: string,
-): Promise<RequiredAuthProvider> {
+): Promise<ResolvedRequiredAuthProvider> {
   const normalizedEmail = normalizeEmail(email);
   const domain = normalizedEmail.split("@")[1] ?? "";
   if (!normalizedEmail || !domain) return null;
@@ -76,6 +97,7 @@ export async function getRequiredAuthProviderForEmail(
                   FROM org_members m
                   WHERE m.org_id = o.id
                     AND LOWER(m.email) = ?
+                    AND m.federation_removal_pending_at IS NULL
                 )
                 OR EXISTS (
                   SELECT 1
@@ -86,7 +108,7 @@ export async function getRequiredAuthProviderForEmail(
                 )
                 OR LOWER(o.allowed_domain) = ?
               )
-            LIMIT 1`,
+            ORDER BY o.id`,
       args: [normalizedEmail, normalizedEmail, domain],
     });
   } catch (error) {
@@ -97,7 +119,14 @@ export async function getRequiredAuthProviderForEmail(
   }
 
   if (result.rows.length === 0) return null;
-  return providerFromRow(result.rows[0] as Record<string, unknown>);
+
+  const providers = new Set(
+    result.rows.map((row) => providerFromRow(row as Record<string, unknown>)),
+  );
+  providers.delete(null);
+  if (providers.size === 0) return null;
+  if (providers.size > 1) return "conflict";
+  return [...providers][0] ?? null;
 }
 
 export async function isGoogleSignInRequiredForEmail(
@@ -107,12 +136,26 @@ export async function isGoogleSignInRequiredForEmail(
 }
 
 /** Resolve the email used by Better Auth's session lifecycle hook. */
-export async function getAuthEmailForUserId(userId: string): Promise<string> {
-  const result = await getDbExec().execute({
-    sql: 'SELECT email FROM "user" WHERE id = ? LIMIT 1',
-    args: [userId],
-  });
-  const email = result.rows[0]?.email;
+export async function getAuthEmailForUserId(
+  userId: string,
+  adapter?: Parameters<typeof getCurrentAdapter>[0],
+): Promise<string> {
+  let email: unknown;
+  if (adapter) {
+    // The session-create hook can run before the new user commits.
+    const user = await (
+      await getCurrentAdapter(adapter)
+    ).findOne<{
+      email: string;
+    }>({ model: "user", where: [{ field: "id", value: userId }] });
+    email = user?.email;
+  } else {
+    const result = await getDbExec().execute({
+      sql: 'SELECT email FROM "user" WHERE id = ? LIMIT 1',
+      args: [userId],
+    });
+    email = result.rows[0]?.email;
+  }
   if (typeof email !== "string" || !email) {
     throw new Error(`Better Auth user email not found: ${userId}`);
   }
@@ -122,7 +165,7 @@ export async function getAuthEmailForUserId(userId: string): Promise<string> {
 function isMissingLegacySessionTable(error: unknown): boolean {
   const candidate = error as { code?: unknown; message?: unknown };
   if (candidate.code === "42P01") return true;
-  return /no such table:\s*sessions|relation ["']?sessions["']? does not exist/i.test(
+  return /relation ["']?sessions["']? does not exist/i.test(
     String(candidate.message ?? error),
   );
 }
@@ -138,8 +181,27 @@ export async function setRequiredAuthProvider(
   revokedBetterAuthSessions: number;
   revokedLegacySessions: number;
 }> {
-  if (provider !== "google" && provider !== null) {
-    throw new Error(`Unsupported organization auth provider: ${provider}`);
+  if (
+    provider !== "google" &&
+    provider !== null &&
+    (!provider.startsWith("sso:") || provider.slice(4).trim() === "")
+  ) {
+    throw new Error(
+      `Unsupported organization auth provider: ${String(provider)}`,
+    );
+  }
+
+  if (provider?.startsWith("sso:")) {
+    if (!getAppConfig().access.sso.enabled) {
+      throw new Error("SSO is not enabled for this deployment");
+    }
+    const providerId = provider.slice(4);
+    const configured = await dbQuerySSOProvider(orgId, providerId);
+    if (!configured) {
+      throw new Error(
+        "The selected SSO provider must belong to this organization and have a verified domain",
+      );
+    }
   }
 
   const db = getDbExec();
@@ -150,7 +212,7 @@ export async function setRequiredAuthProvider(
     args: [provider, orgId],
   });
 
-  if (provider !== "google") {
+  if (provider === null) {
     return { revokedBetterAuthSessions: 0, revokedLegacySessions: 0 };
   }
 
@@ -161,6 +223,7 @@ export async function setRequiredAuthProvider(
             FROM "user" u
             INNER JOIN org_members m ON LOWER(m.email) = LOWER(u.email)
             WHERE m.org_id = ?
+              AND m.federation_removal_pending_at IS NULL
           )`,
     args: [orgId],
   });
@@ -170,7 +233,8 @@ export async function setRequiredAuthProvider(
     legacyResult = await db.execute({
       sql: `DELETE FROM sessions
             WHERE LOWER(email) IN (
-              SELECT LOWER(email) FROM org_members WHERE org_id = ?
+              SELECT LOWER(email) FROM org_members
+              WHERE org_id = ? AND federation_removal_pending_at IS NULL
             )`,
       args: [orgId],
     });
@@ -185,4 +249,32 @@ export async function setRequiredAuthProvider(
     revokedBetterAuthSessions: Number(betterAuthResult.rowsAffected ?? 0),
     revokedLegacySessions: Number(legacyResult.rowsAffected ?? 0),
   };
+}
+
+async function dbQuerySSOProvider(
+  orgId: string,
+  providerId: string,
+): Promise<boolean> {
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT 1 FROM sso_provider
+            WHERE organization_id = ?
+              AND provider_id = ?
+              AND domain_verified = TRUE
+            LIMIT 1`,
+      args: [orgId, providerId],
+    });
+    return result.rows.length > 0;
+  } catch (error) {
+    const candidate = error as { code?: unknown; message?: unknown };
+    if (
+      candidate.code === "42P01" ||
+      /relation ["']?sso_provider["']? does not exist/i.test(
+        String(candidate.message ?? error),
+      )
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }

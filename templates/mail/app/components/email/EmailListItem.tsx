@@ -299,6 +299,7 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleTouchCancel = useCallback(() => {
     resetSwipe();
+    didSwipeRef.current = false;
   }, [resetSwipe]);
 
   // Suppress click fired at the end of a swipe.
@@ -316,10 +317,17 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleRowKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (!thread) return;
-      if (e.key === "Enter") onSelect(thread);
+      // Action buttons live inside the row. Their Enter/Space events must not
+      // also open the conversation or toggle selection.
+      if (!thread || e.target !== e.currentTarget) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(thread);
+      }
       if (e.key === " ") {
         e.preventDefault();
+        e.stopPropagation();
         onToggleMultiSelect(e, thread);
       }
     },
@@ -476,6 +484,11 @@ export const EmailListItem = memo(function EmailListItem({
       <div
         role="row"
         tabIndex={0}
+        data-mail-email-row
+        data-email-id={email.id}
+        data-thread-key={email.threadId || email.id}
+        aria-selected={isMultiSelected}
+        aria-current={isFocused ? "true" : undefined}
         onClick={handleRowClick}
         // `mouseenter` can fire when layout moves under a stationary cursor.
         // `mousemove` only follows the pointer after the user actually moves it,
@@ -526,7 +539,11 @@ export const EmailListItem = memo(function EmailListItem({
         <div className="relative me-2 flex h-full w-5 shrink-0 items-center justify-center">
           <button
             type="button"
-            aria-label={isMultiSelected ? "Deselect email" : "Select email"}
+            aria-label={t(
+              isMultiSelected
+                ? "mail.selection.deselectEmail"
+                : "mail.selection.selectEmail",
+            )}
             onClick={handleToggleMultiSelectClick}
             className={cn(
               "absolute inset-y-0 left-1/2 flex w-6 -translate-x-1/2 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
@@ -631,6 +648,11 @@ export const EmailListItem = memo(function EmailListItem({
                   <button
                     type="button"
                     onClick={handleToggleReadClick}
+                    aria-label={t(
+                      isUnread
+                        ? "mail.actions.markRead"
+                        : "mail.actions.markUnread",
+                    )}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     {isUnread ? (
@@ -641,7 +663,9 @@ export const EmailListItem = memo(function EmailListItem({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {isUnread ? "Mark read" : "Mark unread"}
+                  {isUnread
+                    ? t("mail.actions.markRead")
+                    : t("mail.actions.markUnread")}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -651,12 +675,13 @@ export const EmailListItem = memo(function EmailListItem({
                   <button
                     type="button"
                     onClick={handleArchiveClick}
+                    aria-label={t("mail.actions.archive")}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
                   >
                     <IconArchive className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Archive</TooltipContent>
+                <TooltipContent>{t("mail.actions.archive")}</TooltipContent>
               </Tooltip>
             )}
             {showSnooze && (
@@ -665,12 +690,13 @@ export const EmailListItem = memo(function EmailListItem({
                   <button
                     type="button"
                     onClick={handleSnoozeClick}
+                    aria-label={t("mail.snooze.snooze")}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
                   >
                     <IconClock className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Snooze</TooltipContent>
+                <TooltipContent>{t("mail.snooze.snooze")}</TooltipContent>
               </Tooltip>
             )}
             {showSendNow && (
@@ -679,6 +705,7 @@ export const EmailListItem = memo(function EmailListItem({
                   <button
                     type="button"
                     onClick={handleSendNowClick}
+                    aria-label={t("mail.sendLater.sendNow")}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
@@ -693,6 +720,7 @@ export const EmailListItem = memo(function EmailListItem({
                   <button
                     type="button"
                     onClick={handleCancelScheduleClick}
+                    aria-label={t("mail.sendLater.cancelScheduledSend")}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     <IconX className="h-3.5 w-3.5" />
@@ -709,6 +737,7 @@ export const EmailListItem = memo(function EmailListItem({
                   <button
                     type="button"
                     onClick={handleTrashClick}
+                    aria-label={t("mail.actions.moveToTrash")}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                   >
                     <IconTrash className="h-3.5 w-3.5" />
@@ -722,6 +751,9 @@ export const EmailListItem = memo(function EmailListItem({
                 <button
                   type="button"
                   onClick={handleStarClick}
+                  aria-label={t(
+                    isStarred ? "mail.actions.unstar" : "mail.actions.star",
+                  )}
                   className={cn(
                     "flex h-6 w-6 items-center justify-center rounded transition-colors",
                     isStarred
@@ -732,7 +764,9 @@ export const EmailListItem = memo(function EmailListItem({
                   <IconStarFilled className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{isStarred ? "Unpin" : "Pin"}</TooltipContent>
+              <TooltipContent>
+                {t(isStarred ? "mail.actions.unstar" : "mail.actions.star")}
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>

@@ -1,4 +1,4 @@
-const STRUCTURED_TITLE_START = /^[\[{]/;
+const STRUCTURED_TITLE_START = /^[[{]/;
 
 /**
  * Browser titles must be human-readable strings. React Router stringifies a
@@ -25,5 +25,5 @@ export function normalizeDocumentTitle(
 ): string {
   if (isHumanReadableDocumentTitle(value)) return value.trim();
   if (isHumanReadableDocumentTitle(fallbackTitle)) return fallbackTitle.trim();
-  return "Agent Native";
+  return "Agent-Native";
 }

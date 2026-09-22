@@ -1,9 +1,9 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
   getChannelHistory as readChannelHistory,
-  addEyesReaction as writeEyesReaction,
+  addReaction as writeReaction,
   authTest as readAuthTest,
-  getEyesReaction as readEyesReaction,
+  hasReaction as readReaction,
   getThread as readThread,
   getTeamInfo as readTeamInfo,
   getUserInfo as readUserInfo,
@@ -24,6 +24,15 @@ import {
 export interface SlackReaderIdentity {
   ownerEmail: string;
   orgId?: string | null;
+}
+
+const AGENT_NATIVE_SLACK_USER_NAMES = new Set(["agent-native", "agentnative"]);
+
+/** Slack reports the bot as @agent-native or @agentnative; do not treat hyphen padding as the same handle. */
+export function isAgentNativeSlackUserName(value: string): boolean {
+  return AGENT_NATIVE_SLACK_USER_NAMES.has(
+    value.trim().replace(/^@/, "").toLowerCase(),
+  );
 }
 
 function createTokenResolver({
@@ -53,8 +62,7 @@ export function createSlackReader(identity: SlackReaderIdentity) {
     const existing = identities.get(workspace);
     if (existing) return existing;
     const auth = await readAuthTest(workspace, tokenResolver);
-    const userName = auth.userName.trim().replace(/^@/, "").toLowerCase();
-    if (userName !== "agent-native") {
+    if (!isAgentNativeSlackUserName(auth.userName)) {
       throw new Error(
         `Slack credential authenticated as @${auth.userName}, not @agent-native.`,
       );
@@ -113,13 +121,20 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         tokenResolver,
       );
     },
-    async addEyesReaction(
+    async addReaction(
       workspace: Workspace,
       channelId: string,
       timestamp: string,
+      name: string,
     ): Promise<SlackReactionResult> {
       await verifyAgentNativeIdentity(workspace);
-      return writeEyesReaction(workspace, channelId, timestamp, tokenResolver);
+      return writeReaction(
+        workspace,
+        channelId,
+        timestamp,
+        name,
+        tokenResolver,
+      );
     },
     async postThreadReply(
       workspace: Workspace,
@@ -136,13 +151,14 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         tokenResolver,
       );
     },
-    async getEyesReaction(
+    async hasReaction(
       workspace: Workspace,
       channelId: string,
       timestamp: string,
+      name: string,
     ): Promise<SlackReactionState> {
       await verifyAgentNativeIdentity(workspace);
-      return readEyesReaction(workspace, channelId, timestamp, tokenResolver);
+      return readReaction(workspace, channelId, timestamp, name, tokenResolver);
     },
     async getCompleteThread(
       workspace: Workspace,

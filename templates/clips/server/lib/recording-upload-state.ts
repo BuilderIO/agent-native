@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 
 function escapeLike(value: string): string {
   return value.replace(/[!%_]/g, (match) => `!${match}`);
@@ -32,7 +32,7 @@ function exactChunkKeyArgs(
   ];
 }
 
-const exactChunkKeyWhere = `session_id = ? AND key LIKE ? ESCAPE '!' AND length(key) = ? AND key >= ? AND key <= ?`;
+const exactChunkKeyWhere = `session_id = $1 AND key LIKE $2 ESCAPE '!' AND length(key) = $3 AND key >= $4 AND key <= $5`;
 
 function isChunkKeyForGeneration(
   key: string,
@@ -141,9 +141,7 @@ export async function sumRecordingChunkBytes(
   recordingId: string,
   generationId?: string | null,
 ): Promise<number> {
-  const bytesExpression = isPostgres()
-    ? `COALESCE(SUM((value::jsonb ->> 'bytes')::bigint), 0)`
-    : `COALESCE(SUM(json_extract(value, '$.bytes')), 0)`;
+  const bytesExpression = `COALESCE(SUM((value::jsonb ->> 'bytes')::bigint), 0)`;
   const { rows } = await getDbExec().execute({
     sql: `SELECT ${bytesExpression} AS bytes FROM application_state WHERE ${exactChunkKeyWhere}`,
     args: exactChunkKeyArgs(ownerEmail, recordingId, generationId),

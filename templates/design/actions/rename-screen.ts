@@ -1,15 +1,18 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   applyText,
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
-import { isPostgres } from "@agent-native/core/db";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  designSourceMutationLockKey,
+  lockDesignFilesTable,
+} from "../server/source-workspace.js";
 import { isProbablyHtmlDocumentContent } from "../shared/html-content.js";
 import {
   renameFilenamePreservingExtension,
@@ -61,12 +64,7 @@ function isRetryableTransactionConflict(error: unknown): boolean {
     typeof rawCode === "string" || typeof rawCode === "number"
       ? String(rawCode)
       : "";
-  return (
-    code === "SQLITE_BUSY" ||
-    code === "SQLITE_LOCKED" ||
-    code === "40001" ||
-    code === "40P01"
-  );
+  return code === "40001" || code === "40P01";
 }
 
 function assertValidFilename(filename: string): void {
@@ -110,7 +108,6 @@ type RenamedFileResult = {
 export default defineAction({
   description:
     "Atomically rename one Design screen and rewrite exact data-screen links in every HTML screen.",
-  agentTool: false,
   schema: z
     .object({
       id: z.string().min(1).max(256).describe("design_files.id to rename"),
@@ -187,15 +184,10 @@ export default defineAction({
       for (let attempt = 0; attempt < MAX_RENAME_ATTEMPTS; attempt += 1) {
         try {
           return await db.transaction(async (tx) => {
-            if (isPostgres()) {
-              await (
-                tx as unknown as {
-                  execute: (query: unknown) => Promise<unknown>;
-                }
-              ).execute(
-                sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`,
-              );
-            }
+            await tx.execute(
+              sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(scopedFile.designId)}, 0::bigint))`,
+            );
+            await lockDesignFilesTable(tx);
 
             const [design] = await tx
               .select({ updatedAt: schema.designs.updatedAt })
@@ -216,7 +208,8 @@ export default defineAction({
                 updatedAt: schema.designFiles.updatedAt,
               })
               .from(schema.designFiles)
-              .where(eq(schema.designFiles.designId, scopedFile.designId));
+              .where(eq(schema.designFiles.designId, scopedFile.designId))
+              .for("update");
             const target = currentFiles.find((file) => file.id === id);
             if (!target) throw new Error(`Screen not found: ${id}`);
             if (target.fileType !== "html") {

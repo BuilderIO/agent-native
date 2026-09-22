@@ -1,11 +1,14 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   nativeCreativeArtifactFromMetadata,
   reassembleNativeCreativeArtifact,
 } from "@agent-native/creative-context";
-import { recordGenerationCreativeContext } from "@agent-native/creative-context/server";
+import {
+  assertCreativeContextLabEnabled,
+  recordGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
 import {
   createContextPack,
   getCreativeContextItem,
@@ -13,6 +16,7 @@ import {
 } from "@agent-native/creative-context/store";
 import { z } from "zod";
 
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   resolveImportDesignId,
   saveImportedDesignFiles,
@@ -33,10 +37,14 @@ export default defineAction({
       .describe("Design id. Defaults to the active editor navigation state."),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async ({ itemId, itemVersionId, designId: explicitDesignId }) => {
-    const contextState = (await readAppState("creative-context").catch(
-      () => null,
-    )) as { contextMode?: "auto" | "off" } | null;
+  run: async (
+    { itemId, itemVersionId, designId: explicitDesignId },
+    context,
+  ) => {
+    await assertCreativeContextLabEnabled();
+    const contextState = (await readAppState("creative-context")) as {
+      contextMode?: "auto" | "off";
+    } | null;
     if (contextState?.contextMode === "off") {
       throw new Error(
         "Creative Context is off. Enable it before cloning a library design.",
@@ -80,6 +88,7 @@ export default defineAction({
         reason: "Exact native artifact reuse",
       })),
     });
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const saved = await saveImportedDesignFiles({
       designId,
       sourceType: "creative-context-clone",

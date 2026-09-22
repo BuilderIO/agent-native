@@ -1,6 +1,11 @@
-import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import {
+  isInboxScopedAppLabel,
+  mailLabelsInclude,
+  mailLabelsIncludeAny,
+} from "@shared/gmail-labels";
+import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
-import type { EmailMessage } from "@shared/types";
+import type { EmailMessage, SavedMailFilter } from "@shared/types";
 
 /**
  * Single source of truth for partitioning the loaded inbox into the top-bar
@@ -29,14 +34,61 @@ export const COLLAPSIBLE_VIEW_IDS = [
 export const OTHER_INBOX_TAB_ID = "__inbox_other__";
 export const OTHER_INBOX_TAB_PARAM = "other";
 
-/** Pinned labels include a virtual "important" tab when Google is connected. */
+export function inboxThreadKey(
+  email: Pick<EmailMessage, "accountEmail" | "threadId" | "id">,
+): string {
+  return `${email.accountEmail?.trim().toLowerCase() ?? ""}:${email.threadId || email.id}`;
+}
+
+/** Use the default Important tab only before the user has saved pin choices. */
 export function resolvePinnedLabels(
-  userPinnedLabels: readonly string[],
+  userPinnedLabels: readonly string[] | undefined,
   isGoogleConnected: boolean,
 ): string[] {
-  return isGoogleConnected
-    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-    : [...userPinnedLabels];
+  if (userPinnedLabels === undefined) {
+    return isGoogleConnected ? ["important"] : [];
+  }
+  return [...userPinnedLabels];
+}
+
+// labels are filed/archived independently of the inbox — routing them
+// through /inbox forces `in:inbox` server-side and hides every message the
+// user has archived out of the inbox while keeping the label, which reads as
+// "label is empty" even though it has mail. Route those through /all so the
+// label search is unscoped.
+export function labelTabHref(labelId: string): string {
+  const view = isInboxScopedAppLabel(labelId) ? "inbox" : "all";
+  return `/${view}?label=${encodeURIComponent(labelId)}`;
+}
+
+/**
+ * Resolves the default destination href when opening the mail app. Selects
+ * the first top label by default (e.g. Important), or the first user label /
+ * saved filter, falling back to /inbox when combined inbox is enabled or all
+ * triage tabs are unpinned.
+ */
+export function resolveDefaultMailHref(opts: {
+  combineInbox?: boolean;
+  pinnedLabels?: readonly string[];
+  isGoogleConnected?: boolean;
+  savedFilters?: readonly Pick<SavedMailFilter, "id">[];
+}): string {
+  if (opts.combineInbox) return "/inbox";
+  const resolved = resolvePinnedLabels(
+    opts.pinnedLabels,
+    opts.isGoogleConnected ?? true,
+  );
+  if (resolved.length > 0) {
+    const firstId = resolved[0];
+    if ((COLLAPSIBLE_VIEW_IDS as readonly string[]).includes(firstId)) {
+      return `/${firstId}`;
+    }
+    return labelTabHref(firstId);
+  }
+  if (opts.savedFilters && opts.savedFilters.length > 0) {
+    return `/inbox?filter=${encodeURIComponent(opts.savedFilters[0].id)}`;
+  }
+  return "/inbox";
 }
 
 /** Pinned labels that act as inbox triage tabs (drop system views). */
@@ -66,7 +118,7 @@ export function augmentSelfSentLabels(
   if (opts.hasNoteToSelf) {
     const threads = new Map<string, EmailMessage[]>();
     for (const e of emails) {
-      const key = e.threadId || e.id;
+      const key = inboxThreadKey(e);
       const thread = threads.get(key) ?? [];
       thread.push(e);
       threads.set(key, thread);
@@ -79,7 +131,7 @@ export function augmentSelfSentLabels(
   }
 
   return emails.map((e) => {
-    const key = e.threadId || e.id;
+    const key = inboxThreadKey(e);
     const isSelfSent = opts.connectedEmails.has(e.from.email.toLowerCase());
     const virtualLabel = opts.hasNoteToSelf
       ? selfNoteThreads.has(key)
@@ -130,13 +182,30 @@ export function qualifiesForInboxTab(
 function latestByThread(emails: EmailMessage[]): Map<string, EmailMessage> {
   const map = new Map<string, EmailMessage>();
   for (const e of emails) {
-    const key = e.threadId || e.id;
+    const key = inboxThreadKey(e);
     const existing = map.get(key);
     if (!existing || new Date(e.date) > new Date(existing.date)) {
       map.set(key, e);
     }
   }
   return map;
+}
+
+/** Threads claimed by saved query tabs, with Gmail's thread-level membership. */
+export function savedFilterThreadIds(
+  emails: EmailMessage[],
+  savedFilterQueries: readonly string[] = [],
+): Set<string> {
+  const queries = savedFilterQueries
+    .map((query) => query.trim())
+    .filter(Boolean);
+  const matched = new Set<string>();
+  for (const email of emails) {
+    if (queries.some((query) => emailMessageMatchesSearch(email, query))) {
+      matched.add(inboxThreadKey(email));
+    }
+  }
+  return matched;
 }
 
 /**
@@ -151,14 +220,19 @@ export function filterInboxTabEmails(
   emails: EmailMessage[],
   tab: string | null,
   pinnedLabels: readonly string[],
+  savedFilterQueries: readonly string[] = [],
 ): EmailMessage[] {
   const triage = pinnedTriageLabels(pinnedLabels);
   const latest = latestByThread(emails);
+  const savedFilterThreads = savedFilterThreadIds(emails, savedFilterQueries);
   const qualified = new Set<string>();
   for (const [key, latestMsg] of latest) {
-    if (qualifiesForInboxTab(latestMsg.labelIds, tab, triage)) {
+    if (
+      !savedFilterThreads.has(key) &&
+      qualifiesForInboxTab(latestMsg.labelIds, tab, triage)
+    ) {
       qualified.add(key);
     }
   }
-  return emails.filter((e) => qualified.has(e.threadId || e.id));
+  return emails.filter((e) => qualified.has(inboxThreadKey(e)));
 }

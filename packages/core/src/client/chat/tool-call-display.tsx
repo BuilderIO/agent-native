@@ -1,9 +1,9 @@
 // Owns: tool-payload formatting helpers, ToolCallDisplay, ToolCallFallback,
 // and ReconnectStreamMessage used by AssistantChat.
 
+import { CubeLoader } from "@agent-native/toolkit/ui/cube-loader";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
-  IconLoader2,
   IconAlertTriangle,
   IconCircleX,
   IconCheck,
@@ -15,8 +15,6 @@ import {
   IconDatabase,
   IconSearch,
   IconFileCode,
-  IconShieldCheck,
-  IconX,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -47,6 +45,7 @@ import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import type { AgentCallProgress, ContentPart } from "../sse-event-processor.js";
+import { useThinkingDisplay } from "../thinking-display.js";
 import {
   BashCell,
   EditCell,
@@ -54,13 +53,16 @@ import {
   FilesChangedSummary,
 } from "../tool-cells/index.js";
 import {
-  humanizeToolName,
   isCallAgentToolCallShadowed,
   isToolCallActive,
+  resolveToolCallRowContext,
+  toolLabel,
 } from "../tool-display.js";
 import { useAgentChatContext } from "../use-agent-chat-context.js";
 import { cn } from "../utils.js";
 import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
+import { AgentActivityObject } from "./agent-activity-object.js";
+import { AgentApprovalCard } from "./agent-approval-card.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
@@ -69,6 +71,7 @@ import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
   isBuiltinDataWidgetActionRenderer,
   isBuiltinWorkspaceFileResult,
+  isBuiltinConnectRequiredResult,
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
 } from "./widgets/builtin-tool-renderers.js";
@@ -103,8 +106,8 @@ export function ToolCallStackMotion({
  * re-issues the turn approving a specific paused tool call (opt-in
  * `needsApproval` actions). When null, the Approve button is not rendered.
  * Deny defaults to local-only (the action stays un-run) unless `onDeny` is
- * provided, and "Always allow" only renders when `onAlwaysAllow` is provided
- * — both are additive so existing action-approval consumers are unaffected.
+ * provided. The chevron menu persists an action-type policy before approving
+ * the current call.
  */
 export type ApprovalResolution = "approved" | "denied";
 
@@ -140,10 +143,13 @@ export type ApprovalContextValue = {
    */
   onDeny?: (approvalKey: string) => void;
   /**
-   * Optional host hook that persists this exact call so future occurrences
-   * skip the approval gate. When absent, no "Always allow" button renders.
+   * Optional host hook that persists this action type and resolves the current
+   * call. The default AssistantChat implementation uses the shared policy.
    */
-  onAlwaysAllow?: (approvalKey: string) => void;
+  onAlwaysAllow?: (
+    approvalKey: string,
+    toolName: string,
+  ) => void | Promise<void>;
 };
 export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
@@ -161,7 +167,7 @@ export function toolCallHasPendingApproval(part: {
   );
 }
 
-export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
+export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 5 * 60_000;
 
 export function ToolActivityPresentation({
   toolName,
@@ -199,7 +205,7 @@ export function ToolActivityPresentation({
       <div className="agent-tool-call__content">
         {children}
         {isRunning && showLongRunningHint && (
-          <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
+          <div className="agent-kit-caption-copy mt-0.5 px-2.5 pb-2 leading-snug text-muted-foreground/80">
             {t("agentChat.tool.longRunning")}
           </div>
         )}
@@ -234,7 +240,7 @@ function looksLikeSql(text: string): boolean {
   );
 }
 
-function parseJsonText(text: string): unknown | null {
+function parseJsonText(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed || !/^[{[]/.test(trimmed)) return null;
   try {
@@ -427,14 +433,14 @@ function SimpleCodeViewer({
   return (
     <div
       className={cn(
-        "agent-tool-code overflow-auto rounded-md bg-muted/70 font-mono text-[11px] leading-relaxed text-foreground",
+        "agent-tool-code agent-kit-caption-copy overflow-auto rounded-md bg-muted/70 font-mono leading-relaxed text-foreground",
         maxHeightClass,
         className,
       )}
     >
       {lang !== "text" && (
         <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-border/40 bg-muted/90 px-2.5 py-1">
-          <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/80">
+          <span className="agent-kit-micro-copy font-mono uppercase tracking-wide text-muted-foreground/80">
             {lang}
           </span>
         </div>
@@ -563,12 +569,21 @@ function ApprovalAffordance({
 }: {
   toolName: string;
   toolCallId?: string;
-  approval: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
 }) {
   const t = useT();
   const ctx = React.useContext(ApprovalContext);
   const [localResolution, setLocalResolution] =
     useState<ApprovalResolution | null>(null);
+  const [isAlwaysAllowing, setIsAlwaysAllowing] = useState(false);
+  const [alwaysAllowFailed, setAlwaysAllowFailed] = useState(false);
+  const onAlwaysAllow =
+    approval.allowPersistentApproval === false ? undefined : ctx?.onAlwaysAllow;
   const retainedResolution =
     ctx?.getApprovalResolution?.(
       approval.approvalKey,
@@ -599,78 +614,64 @@ function ApprovalAffordance({
       </div>
     );
   }
+  const handleAlwaysAllow = async () => {
+    if (!onAlwaysAllow || isAlwaysAllowing) return;
+    setIsAlwaysAllowing(true);
+    setAlwaysAllowFailed(false);
+    try {
+      await onAlwaysAllow(approval.approvalKey, toolName);
+      setLocalResolution("approved");
+      ctx?.onApprovalResolved?.(
+        approval.approvalKey,
+        "approved",
+        toolCallId,
+        approval.askId,
+      );
+    } catch {
+      setAlwaysAllowFailed(true);
+    } finally {
+      setIsAlwaysAllowing(false);
+    }
+  };
   return (
-    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
-      <IconShieldCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-        {t("agentChat.approval.question", { tool: toolName })}
-      </span>
-      {ctx && (
-        <button
-          type="button"
-          onClick={() => {
-            setLocalResolution("approved");
-            ctx.onApprovalResolved?.(
-              approval.approvalKey,
-              "approved",
-              toolCallId,
-              approval.askId,
-            );
-            ctx.onApprove(approval.approvalKey);
-          }}
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-            "bg-foreground text-background hover:bg-foreground/90",
-          )}
-        >
-          <IconCheck className="h-3.5 w-3.5" />
-          {t("agentChat.approval.approve")}
-        </button>
-      )}
-      {ctx?.onAlwaysAllow && (
-        <button
-          type="button"
-          onClick={() => {
-            setLocalResolution("approved");
-            ctx.onApprovalResolved?.(
-              approval.approvalKey,
-              "approved",
-              toolCallId,
-              approval.askId,
-            );
-            ctx.onAlwaysAllow?.(approval.approvalKey);
-          }}
-          title={t("agentChat.approval.alwaysAllowHint")}
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
-            "text-foreground hover:bg-muted",
-          )}
-        >
-          <IconShieldCheck className="h-3.5 w-3.5" />
-          {t("agentChat.approval.alwaysAllow")}
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={() => {
-          setLocalResolution("denied");
-          ctx?.onApprovalResolved?.(
-            approval.approvalKey,
-            "denied",
-            toolCallId,
-            approval.askId,
-          );
-          ctx?.onDeny?.(approval.approvalKey);
-        }}
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
-          "text-foreground hover:bg-muted",
-        )}
-      >
-        <IconX className="h-3.5 w-3.5" />
-        {t("agentChat.approval.deny")}
-      </button>
-    </div>
+    <AgentApprovalCard
+      toolName={toolName}
+      question={t("agentChat.approval.question", { tool: toolName })}
+      approveLabel={t("agentChat.approval.approve")}
+      denyLabel={t("agentChat.approval.deny")}
+      moreOptionsLabel={t("agentChat.approval.moreOptions")}
+      alwaysAllowLabel={t("agentChat.approval.alwaysAllowAction")}
+      alwaysAllowHint={t("agentChat.approval.alwaysAllowActionHint")}
+      saveFailedLabel={
+        alwaysAllowFailed ? t("agentChat.common.saveFailed") : undefined
+      }
+      isAlwaysAllowing={isAlwaysAllowing}
+      onApprove={
+        ctx
+          ? () => {
+              setLocalResolution("approved");
+              ctx.onApprovalResolved?.(
+                approval.approvalKey,
+                "approved",
+                toolCallId,
+                approval.askId,
+              );
+              ctx.onApprove(approval.approvalKey);
+            }
+          : undefined
+      }
+      onDeny={() => {
+        setLocalResolution("denied");
+        ctx?.onApprovalResolved?.(
+          approval.approvalKey,
+          "denied",
+          toolCallId,
+          approval.askId,
+        );
+        ctx?.onDeny?.(approval.approvalKey);
+      }}
+      onAlwaysAllow={onAlwaysAllow ? handleAlwaysAllow : undefined}
+    />
   );
 }
 
@@ -705,7 +706,12 @@ export function ToolCallDisplay({
   outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
-  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval?: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
   repeatCount?: number;
   /** The latest tool shown while the overall chat turn is still active. */
   isActiveTail?: boolean;
@@ -800,6 +806,8 @@ export function ToolCallDisplay({
   );
 }
 
+const WorkSummaryContentContext = React.createContext(false);
+
 function ToolCallDisplayGeneric({
   toolName,
   toolCallId,
@@ -827,11 +835,17 @@ function ToolCallDisplayGeneric({
   outcome?: "unknown";
   isActiveTail: boolean;
   structuredMeta?: Record<string, unknown>;
-  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval?: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
   repeatCount?: number;
   context?: string;
 }) {
   const t = useT();
+  const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
   const suppressInlineOpenApp = React.useContext(SuppressInlineOpenAppContext);
   const isRawCallAgent = toolName === "call-agent";
   const isAgentCall = toolName.startsWith("agent:") || isRawCallAgent;
@@ -957,7 +971,8 @@ function ToolCallDisplayGeneric({
         context={nativeToolContext}
         isBuiltinDataWidget={
           isBuiltinDataWidgetActionRenderer(nativeToolContext) ||
-          isBuiltinWorkspaceFileResult(nativeToolContext)
+          isBuiltinWorkspaceFileResult(nativeToolContext) ||
+          isBuiltinConnectRequiredResult(nativeToolContext)
         }
       >
         <NativeToolRenderer context={nativeToolContext} />
@@ -980,7 +995,8 @@ function ToolCallDisplayGeneric({
       : isAgentError
         ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
         : t("agentChat.tool.askedAgent", { agent: agentName })
-    : humanizeToolName(toolName);
+    : toolLabel(t, toolName);
+  const rowContext = isAgentCall ? null : resolveToolCallRowContext(args);
 
   const canExpand = isAgentCall
     ? hasStreamText
@@ -993,6 +1009,7 @@ function ToolCallDisplayGeneric({
     return (
       <AgentCallCell
         agentName={agentName ?? t("agentChat.common.agent")}
+        toolCallId={toolCallId}
         activity={agentActivity}
         progress={agentProgress}
         responseText={agentStreamText}
@@ -1017,14 +1034,14 @@ function ToolCallDisplayGeneric({
         onClick={() => canExpand && setExpanded(!isExpanded)}
         aria-expanded={canExpand ? isExpanded : undefined}
         className={cn(
-          "flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground transition-colors",
+          "agent-kit-density flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground transition-colors",
           canExpand && "hover:text-foreground",
           isRunning && "text-muted-foreground",
         )}
       >
         <span className="relative flex size-4 shrink-0 items-center justify-center">
           {isRunning ? (
-            <IconLoader2 className="size-3.5 animate-spin" />
+            <CubeLoader aria-hidden="true" className="size-3.5" />
           ) : isAgentError ? (
             <IconCircleX className="size-3.5 text-destructive" />
           ) : isUnknownOutcome ? (
@@ -1056,9 +1073,19 @@ function ToolCallDisplayGeneric({
         >
           {displayName}
         </span>
+        {rowContext ? (
+          <AgentActivityObject
+            object={{
+              kind: rowContext.kind,
+              label: rowContext.text,
+              mono: rowContext.mono,
+            }}
+            className="agent-kit-activity-object-boundary ms-auto shrink"
+          />
+        ) : null}
         {repeatCount && repeatCount > 1 && (
           <span
-            className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
+            className="agent-kit-micro-copy shrink-0 rounded border border-border/60 px-1.5 py-0.5 leading-none text-muted-foreground"
             title={t("agentChat.tool.repeated", { count: repeatCount })}
           >
             {repeatCount}x
@@ -1068,7 +1095,7 @@ function ToolCallDisplayGeneric({
       <AnimatedCollapse
         open={isExpanded && !isAgentCall && (hasArgs || result !== undefined)}
       >
-        <div className="mt-1 space-y-2 pl-5">
+        <div className={cn("mt-1 space-y-2", !embeddedInWorkSummary && "pl-5")}>
           {inputPayload && (
             <SimpleCodeViewer
               text={inputPayload.text}
@@ -1096,7 +1123,13 @@ function ToolCallDisplayGeneric({
         </div>
       </AnimatedCollapse>
       {isUnknownOutcome && (
-        <p role="status" className="ps-5 text-xs text-muted-foreground">
+        <p
+          role="status"
+          className={cn(
+            "text-xs text-muted-foreground",
+            !embeddedInWorkSummary && "ps-5",
+          )}
+        >
           {t("agentChat.tool.interrupted")}
         </p>
       )}
@@ -1122,6 +1155,7 @@ function ToolCallDisplayGeneric({
 
 function AgentCallCell({
   agentName,
+  toolCallId,
   activity,
   progress,
   responseText,
@@ -1130,6 +1164,7 @@ function AgentCallCell({
   durationMs,
 }: {
   agentName: string;
+  toolCallId?: string;
   activity?: A2AAgentActivitySnapshot;
   progress?: AgentCallProgress;
   responseText: string;
@@ -1140,6 +1175,7 @@ function AgentCallCell({
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
   const [open, setOpen] = useState(true);
+  const responseKey = toolCallId ?? agentName;
   const toolCount = activity?.toolCalls?.length ?? 0;
   // Response segments are ordered against the tool calls that preceded them, so
   // they render in the timeline where the remote agent actually said them.
@@ -1163,7 +1199,7 @@ function AgentCallCell({
       ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
       : t("agentChat.tool.askedAgent", { agent: agentName });
   const workContent = work ? (
-    <div className="space-y-1 ps-5">
+    <div className="space-y-1">
       {Array.from({ length: workItemCount }, (_, index) => {
         const reasoningText = activity?.reasoning?.[index];
         const segment = inlineSegments[index];
@@ -1191,7 +1227,7 @@ function AgentCallCell({
                     activity?.activePhase === "responding" &&
                     index === inlineSegments.length - 1
                   }
-                  resetKey={`agent-response-${agentName}-${index}`}
+                  resetKey={`agent-response-${responseKey}-${index}`}
                   statusType={isRunning ? "running" : "complete"}
                 />
               </div>
@@ -1228,10 +1264,10 @@ function AgentCallCell({
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+        className="agent-kit-density flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground transition-colors hover:text-foreground"
       >
         {isRunning ? (
-          <IconLoader2 className="size-3.5 animate-spin" />
+          <CubeLoader aria-hidden="true" className="size-3.5" />
         ) : isError ? (
           <IconCircleX className="size-3.5 text-destructive" />
         ) : (
@@ -1249,7 +1285,7 @@ function AgentCallCell({
         </span>
       </button>
       <AnimatedCollapse open={open}>
-        <div className="ms-1 border-s border-border/50 ps-2 pt-1">
+        <div className="pt-1">
           {workContent &&
             (isRunning ? (
               workContent
@@ -1260,7 +1296,7 @@ function AgentCallCell({
             ))}
           {progressText && (
             <p
-              className="ps-5 pb-1 text-xs text-muted-foreground"
+              className="pb-1 text-xs text-muted-foreground"
               data-testid="agent-call-progress"
               aria-live="polite"
             >
@@ -1268,11 +1304,11 @@ function AgentCallCell({
             </p>
           )}
           {finalText && (
-            <div className="ps-5 pb-1">
+            <div className="pb-1">
               <SmoothMarkdownText
                 text={finalText}
                 streaming={isRunning}
-                resetKey={`agent-response-${agentName}`}
+                resetKey={`agent-response-${responseKey}`}
                 statusType={isRunning ? "running" : "complete"}
               />
             </div>
@@ -1290,6 +1326,7 @@ function AgentActivityToolCallRow({
   tool: A2AAgentActivityToolCall;
   isActiveTail: boolean;
 }) {
+  const t = useT();
   const isRunning = tool.status === "running";
   const ToolIcon = resolveToolIcon(tool.name);
 
@@ -1300,10 +1337,10 @@ function AgentActivityToolCallRow({
       toolCallId={tool.id}
       suppressLongRunningHint
     >
-      <div className="my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground">
+      <div className="agent-kit-density my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground">
         <span className="flex size-4 shrink-0 items-center justify-center">
           {isRunning ? (
-            <IconLoader2 className="size-3.5 animate-spin" />
+            <CubeLoader aria-hidden="true" className="size-3.5" />
           ) : (
             <ToolIcon className="size-3.5" />
           )}
@@ -1314,7 +1351,7 @@ function AgentActivityToolCallRow({
             isActiveTail && "agent-running-shimmer",
           )}
         >
-          {humanizeToolName(tool.name)}
+          {toolLabel(t, tool.name)}
         </span>
       </div>
     </ToolActivityPresentation>
@@ -1336,7 +1373,12 @@ export function ToolCallFallback({
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
   outcome?: "unknown";
-  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval?: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
   repeatCount?: number;
   isLatestRunning?: boolean;
   isActiveTail?: boolean;
@@ -1505,7 +1547,7 @@ export function ReconnectStreamMessage({
 
   return (
     <div className="flex justify-start">
-      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
+      <div className="agent-kit-tool-content-boundary w-full text-sm leading-relaxed text-foreground">
         <ToolCallStackMotion className="space-y-1">
           {renderedParts}
         </ToolCallStackMotion>
@@ -1587,11 +1629,10 @@ function isReconnectToolSummaryPart(
 
 /**
  * Completed reasoning and tool calls share one outer "Worked for…"
- * disclosure. Reasoning cells inside it render their prose directly so
- * opening that summary never reveals a redundant second disclosure.
+ * disclosure. Inside it a reasoning cell keeps its own disclosure — the tool
+ * calls it sits between are collapsible there, and reasoning that could not be
+ * collapsed was the longest thing in an opened summary by far.
  */
-const WorkSummaryContentContext = React.createContext(false);
-
 export function ReasoningCell({
   text,
   isStreaming = false,
@@ -1619,15 +1660,18 @@ export function ReasoningCell({
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
+  const display = useThinkingDisplay();
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
-  const [open, setOpen] = useState(defaultOpen ?? true);
+  // Only "expanded" honours a caller's request to start open. "collapsed"
+  // keeps every cell shut until the reader asks for it, which is the point of
+  // the mode — a live cell that opens itself is what pushes the answer off
+  // screen mid-turn.
+  const startOpen = display === "expanded" ? (defaultOpen ?? true) : false;
+  const [open, setOpen] = useState(startOpen);
   const wasStreamingRef = useRef(isStreaming);
   const wasReplacedRef = useRef(collapseWhenReplaced);
+  const previousDisplayRef = useRef(display);
   const trimmed = text.trim();
-  // Reasoning is already a compact live status surface. Rendering the latest
-  // chunk directly avoids a second character-level queue that can lag behind
-  // the model and make the surrounding chat look like it is jumping.
-  const visibleText = trimmed;
 
   useEffect(() => {
     if (autoCollapse && wasStreamingRef.current && !isStreaming) {
@@ -1643,15 +1687,17 @@ export function ReasoningCell({
     wasReplacedRef.current = collapseWhenReplaced;
   }, [collapseWhenReplaced]);
 
-  if (!trimmed && !isStreaming) return null;
+  // Switching the preference re-applies it to cells already on screen, so the
+  // change is visible on the turn the reader is looking at rather than only on
+  // the next one.
+  useEffect(() => {
+    if (previousDisplayRef.current === display) return;
+    previousDisplayRef.current = display;
+    setOpen(startOpen);
+  }, [display, startOpen]);
 
-  if (embeddedInWorkSummary) {
-    return (
-      <div className="pb-1 pl-5 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-        {visibleText || (isStreaming ? "…" : "")}
-      </div>
-    );
-  }
+  if (display === "hidden") return null;
+  if (!trimmed && !isStreaming) return null;
 
   const label = isStreaming
     ? t("agentChat.status.thinking")
@@ -1665,12 +1711,12 @@ export function ReasoningCell({
   const showTail = isStreaming && open;
 
   return (
-    <div className="my-0.5 w-full">
+    <div className={cn("w-full", embeddedInWorkSummary ? "my-0" : "my-0.5")}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+        className="agent-kit-density flex items-center gap-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
       >
         <IconChevronRight
           className={cn(
@@ -1685,10 +1731,32 @@ export function ReasoningCell({
         )}
       </button>
       <AnimatedCollapse open={open}>
-        <div className={cn("pl-5 pb-1", showTail && "reasoning-cell-tail")}>
-          <div className="text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {visibleText || (isStreaming ? "…" : "")}
-          </div>
+        <div
+          className={cn(
+            "pb-1",
+            !embeddedInWorkSummary && "ps-5",
+            showTail && "reasoning-cell-tail",
+          )}
+        >
+          {trimmed ? (
+            // Reasoning summaries arrive as markdown — OpenAI's carry `**bold**`
+            // headers — so a pre-wrap block shows the source characters. Smoothing
+            // stays off: a second character-level queue lags the model and makes
+            // the surrounding chat jump.
+            <div className="agent-reasoning-markdown agent-kit-density leading-relaxed text-muted-foreground">
+              <SmoothMarkdownText
+                text={trimmed}
+                streaming={isStreaming}
+                animateStreaming={false}
+                resetKey="reasoning"
+                statusType={isStreaming ? "running" : "complete"}
+              />
+            </div>
+          ) : (
+            <div className="agent-kit-density leading-relaxed text-muted-foreground">
+              {isStreaming ? "…" : ""}
+            </div>
+          )}
         </div>
       </AnimatedCollapse>
     </div>
@@ -1745,11 +1813,14 @@ export function useLocalizedWorkedDuration() {
 
 export function WorkedForSummary({
   durationMs,
+  isRunning = false,
   defaultOpen = false,
   autoCollapse = false,
   children,
 }: {
   durationMs?: number | null;
+  /** Show a live work label while the owning assistant turn streams. */
+  isRunning?: boolean;
   /** Keep completed work visible when the turn contains interactive UI. */
   defaultOpen?: boolean;
   /** When true, close the summary after a run has completed. */
@@ -1770,8 +1841,9 @@ export function WorkedForSummary({
     }
   }, [autoCollapse, defaultOpen]);
 
-  const label =
-    durationMs != null && durationMs >= 1000
+  const label = isRunning
+    ? t("agentChat.status.working")
+    : durationMs != null && durationMs >= 1000
       ? t("agentChat.tool.workedFor", {
           duration: formatDuration(durationMs),
         })
@@ -1783,9 +1855,11 @@ export function WorkedForSummary({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+        className="agent-kit-density flex items-center gap-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span>{label}</span>
+        <span className={cn(isRunning && "agent-running-shimmer")}>
+          {label}
+        </span>
         <IconChevronRight
           className={cn(
             "size-3.5 shrink-0 transition-transform",
@@ -1824,7 +1898,7 @@ export function RanToolsSummary({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+        className="agent-kit-density flex items-center gap-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
       >
         <span className="agent-tool-summary__label">{label}</span>
         <IconChevronRight

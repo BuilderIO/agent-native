@@ -1,4 +1,4 @@
-/** Slack OAuth v2 helpers for managed Agent Native messaging installs. */
+/** Slack OAuth v2 helpers for managed Agent-Native messaging installs. */
 
 import type { SecretScope } from "../secrets/register.js";
 import type {
@@ -10,7 +10,7 @@ export const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
 export const SLACK_TOKEN_URL = "https://slack.com/api/oauth.v2.access";
 export const SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test";
 
-/** Scopes needed for contextual, file-aware Agent Native conversations. */
+/** Scopes needed for contextual, file-aware Agent-Native conversations. */
 export const SLACK_AGENT_BOT_SCOPES = [
   "assistant:write",
   "app_mentions:read",

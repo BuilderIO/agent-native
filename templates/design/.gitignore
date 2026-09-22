@@ -1,15 +1,13 @@
 build
 .output/
+data/
 
 # `.generated/bridge` is committed source that DesignCanvas imports at module
 # load — ignoring it yields a checkout where every design page 500s.
 .generated/*
 !.generated/bridge/
 
-# Stray SQLite files at the template root (real DB lives under data/)
-/app.db
-/app.db-shm
-/app.db-wal
-/local.db
-
 .vercel/
+
+# Ad hoc run-artifact logs from local/agent runs (e.g. .tmp-rev-3.log).
+.tmp-*.log

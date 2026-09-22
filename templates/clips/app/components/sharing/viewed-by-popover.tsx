@@ -38,7 +38,12 @@ export function ViewedByPopover({
   className,
 }: ViewedByPopoverProps) {
   const t = useT();
-  const { formatDate, formatRelativeTime } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = (date: Date) => formatters.formatDate(date);
+  const formatRelativeTime = (
+    value: number,
+    unit: Parameters<typeof formatters.formatRelativeTime>[1],
+  ) => formatters.formatRelativeTime(value, unit);
   const [open, setOpen] = useState(false);
 
   const q = useActionQuery<{ views: ClipViewRecord[] }>(

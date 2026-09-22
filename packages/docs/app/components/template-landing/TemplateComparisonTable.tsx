@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 
+import { LogoMark } from "../website-redesign/ds/logo-mark";
+
 export type TemplateComparisonColumn = {
   agentNative?: {
-    color: string;
     name: string;
   };
   className?: string;
@@ -59,19 +60,9 @@ export function TemplateComparisonTable({
               >
                 {column.agentNative ? (
                   <span className="inline-flex items-center gap-2">
-                    <img
-                      src="/agent-native-icon-dark.svg"
-                      alt=""
-                      aria-hidden="true"
-                      className="size-5"
-                      loading="lazy"
-                      decoding="async"
-                    />
+                    <LogoMark className="size-5" />
                     <span className="font-semibold tracking-tight">
-                      Agent-Native{" "}
-                      <span style={{ color: column.agentNative.color }}>
-                        {column.agentNative.name}
-                      </span>
+                      Agent-Native {column.agentNative.name}
                     </span>
                   </span>
                 ) : (

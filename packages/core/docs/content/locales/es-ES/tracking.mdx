@@ -107,7 +107,7 @@ track(
 
 `source` es el `ctx` de una acción, pasado directamente, o un objeto meta `{ userId, anonymousId, sessionId }` para llamadas que no tienen `ctx`.
 
-La sesión del navegador no es algo que quien llama deba proporcionar: proviene del contexto de solicitud ambiental (`RequestContext.browserSessionId`, establecido a partir de la cabecera `X-Agent-Native-Session-Id` que envían el cliente de acciones, el chat y el `track()` del navegador), de modo que la misma visita se correlaciona tanto si el evento lo desencadenó la interfaz como el agente. Cada proveedor la asigna a su propio campo de sesión: `$session_id` en PostHog, que une el evento con la repetición de sesión; una propiedad `session_id` en Mixpanel y Amplitude; un `sessionId` de nivel superior en webhooks y Agent Native Analytics. Está ausente para llamadas sin navegador (cron, CLI, MCP, A2A), y un `sessionId` en el objeto meta la sobrescribe.
+La sesión del navegador no es algo que quien llama deba proporcionar: proviene del contexto de solicitud ambiental (`RequestContext.browserSessionId`, establecido a partir de la cabecera `X-Agent-Native-Session-Id` que envían el cliente de acciones, el chat y el `track()` del navegador), de modo que la misma visita se correlaciona tanto si el evento lo desencadenó la interfaz como el agente. Cada proveedor la asigna a su propio campo de sesión: `$session_id` en PostHog, que une el evento con la repetición de sesión; una propiedad `session_id` en Mixpanel y Amplitude; un `sessionId` de nivel superior en webhooks y Agent-Native Analytics. Está ausente para llamadas sin navegador (cron, CLI, MCP, A2A), y un `sessionId` en el objeto meta la sobrescribe.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -194,11 +194,11 @@ Diferencias clave con respecto al [server `track()`](#track):
 - **Dispara y olvida.** Nunca bloquea el UI, nunca lanza ni traga errores de red.
 - **Autenticado, solo de origen.** La ruta requiere una sesión y un marcador del mismo origen/CSRF (establecido automáticamente por el ayudante), por lo que no se puede utilizar como retransmisión de análisis abierta. `name` tiene un límite de 200 caracteres y `properties` de ~16 KB; se rechazan las cargas útiles de gran tamaño o con formato incorrecto.
 
-Esto es distinto de la telemetría interna del navegador del marco (`trackEvent()` / vistas de página automáticas; consulte [Browser defaults](#browser-defaults) a continuación), que impulsa el propio análisis de productos de Agent Native. Utilice `track()` para los eventos de análisis propios de su aplicación que deberían llegar a sus proveedores configurados.
+Esto es distinto de la telemetría interna del navegador del marco (`trackEvent()` / vistas de página automáticas; consulte [Browser defaults](#browser-defaults) a continuación), que impulsa el propio análisis de productos de Agent-Native. Utilice `track()` para los eventos de análisis propios de su aplicación que deberían llegar a sus proveedores configurados.
 
 ## Repetición de sesión {#session-replay}
 
-Las aplicaciones de Agent Native pueden habilitar la repetición de sesión del navegador de origen sin agregar un segundo SDK de análisis. Llame a `configureTracking()` una vez en la raíz del navegador y pase la clave pública de Analytics más el endpoint del recolector:
+Las aplicaciones de Agent-Native pueden habilitar la repetición de sesión del navegador de origen sin agregar un segundo SDK de análisis. Llame a `configureTracking()` una vez en la raíz del navegador y pase la clave pública de Analytics más el endpoint del recolector:
 
 ```ts
 import { configureTracking } from "@agent-native/core/client/analytics";
@@ -219,7 +219,7 @@ configureTracking({
 
 Cuando `sessionReplay.enabled` es verdadero, el cliente importa dinámicamente `@rrweb/record` después del inicio y publica fragmentos de repetición en el endpoint de repetición. Si `endpoint` termina en `/api/analytics/track` o `/track`, el endpoint de repetición se deriva automáticamente como `/api/analytics/replay`. Anúlelo explícitamente con `sessionReplay.endpoint` cuando el recolector de repetición se encuentre en otro lugar.
 
-Las raíces de las plantillas de Agent Native ya llaman a `configureTracking()`. Las implementaciones de plantillas alojadas pueden activar la repetición con variables de entorno de Vite/Netlify, mientras que los consumidores de la biblioteca deberían preferir la forma explícita `configureTracking({ key, endpoint, sessionReplay })` anterior:
+Las raíces de las plantillas de Agent-Native ya llaman a `configureTracking()`. Las implementaciones de plantillas alojadas pueden activar la repetición con variables de entorno de Vite/Netlify, mientras que los consumidores de la biblioteca deberían preferir la forma explícita `configureTracking({ key, endpoint, sessionReplay })` anterior:
 
 ```bash
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
@@ -228,7 +228,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
-El ayudante del navegador también realiza una lectura sin bloqueo y de mejor esfuerzo de la sesión de autenticación actual de Agent Native. La repetición es solo para usuarios con sesión iniciada de forma predeterminada: cuando `sessionReplay` está habilitado, la grabación no se inicia a menos que la sesión se resuelva en una dirección de correo electrónico de usuario. Las repeticiones de usuarios con sesión iniciada incluyen `userId`/`userEmail` respaldados por correo electrónico más `orgId`.
+El ayudante del navegador también realiza una lectura sin bloqueo y de mejor esfuerzo de la sesión de autenticación actual de Agent-Native. La repetición es solo para usuarios con sesión iniciada de forma predeterminada: cuando `sessionReplay` está habilitado, la grabación no se inicia a menos que la sesión se resuelva en una dirección de correo electrónico de usuario. Las repeticiones de usuarios con sesión iniciada incluyen `userId`/`userEmail` respaldados por correo electrónico más `orgId`.
 
 Configure `sessionReplay.requireSignedInUser: false` o `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` solo para una implementación de repetición anónima intencional. Cuando la restricción de autenticación está deshabilitada, las grabaciones anónimas siguen siendo consultables por visitante anónimo, sesión, aplicación/plantilla, nombre de host y ruta.
 

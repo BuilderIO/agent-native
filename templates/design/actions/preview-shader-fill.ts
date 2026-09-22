@@ -18,7 +18,7 @@
  * Plan reference: DESIGN-STUDIO-PLAN.md §6.7 + §7 (`preview-shader-fill`).
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {

@@ -32,13 +32,13 @@ export function LocalFolderLiveSync() {
             })
             .then((outcome) => {
               if (!active || !outcome.synced) return;
-              queryClient.invalidateQueries({
+              void queryClient.invalidateQueries({
                 queryKey: ["action", "list-documents"],
               });
-              queryClient.invalidateQueries({
+              void queryClient.invalidateQueries({
                 queryKey: ["action", "get-document"],
               });
-              queryClient.invalidateQueries({
+              void queryClient.invalidateQueries({
                 queryKey: ["action", "get-content-database"],
               });
             })

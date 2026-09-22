@@ -85,7 +85,7 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
 
 在傳統的網頁應用中，伺服器是大部分邏輯的所在地。業務規則、資料存取和呈現全都發生在路由處理常式內。Agent-Native 應用的運作方式不同：邏輯存在於 actions 中，由 agent 與 UI 以平等夥伴的關係共用。伺服器的工作是協調——執行資料庫遷移、設定驗證、掛載 agent 迴圈，並處理 actions 本身無法表達的少數 HTTP 相關事務。
 
-<Diagram id="doc-block-server-overview-2" title="傳統伺服器與 Agent Native 的比較">
+<Diagram id="doc-block-server-overview-2" title="傳統伺服器與 Agent-Native 的比較">
 
 ```html
 <div class="diagram-cmp">
@@ -107,7 +107,7 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
   </div>
   <div class="cmp-vs diagram-muted">相對於</div>
   <div class="cmp-col">
-    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-label diagram-muted">Agent-Native</div>
     <div class="cmp-callers">
       <div class="diagram-node">瀏覽器 / UI</div>
       <div class="diagram-node">Agent</div>
@@ -213,7 +213,7 @@ Nitro 同時也與部署平台無關。同一個應用可以無須修改程式�
 
 ## 優先預設使用 Actions {#actions-first}
 
-Agent Native 的架構思路不同。每當您想到應用的新功能時，先考慮它能否成為一個 action。舉例來說，如果 UI 與 agent 都需要執行某件事，就定義一個 action，而不是自訂 API 路由。Actions 會自動變成：
+Agent-Native 的架構思路不同。每當您想到應用的新功能時，先考慮它能否成為一個 action。舉例來說，如果 UI 與 agent 都需要執行某件事，就定義一個 action，而不是自訂 API 路由。Actions 會自動變成：
 
 - Agent 工具。
 - 具型別的前端 hooks。

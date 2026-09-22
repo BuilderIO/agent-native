@@ -5,7 +5,9 @@ import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   deleteAppSecret,
+  last4,
   listAppSecretsForScope,
+  VAULT_SYNC_DESCRIPTION_PREFIX,
   writeAppSecret,
   type SecretScope,
 } from "@agent-native/core/secrets";
@@ -25,7 +27,6 @@ import {
 } from "./dispatch-store.js";
 
 const VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
-const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
 
 export type VaultAccessMode = "all-apps" | "manual";
 
@@ -163,7 +164,10 @@ export async function assertCanManageVault(): Promise<void> {
   let role: unknown = null;
   try {
     const result = await getDbExec().execute({
-      sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [orgId, email],
     });
     role = result.rows[0]?.role;
@@ -813,6 +817,36 @@ export async function revokeGrant(
 
 type VaultSecretRow = typeof schema.vaultSecrets.$inferSelect;
 
+export interface VaultSecretMetadata {
+  id: string;
+  name: string;
+  credentialKey: string;
+  last4: string;
+  provider: string | null;
+  description: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Return the fields safe to expose to clients, agents, and action callers. */
+export function toVaultSecretMetadata(
+  secret: VaultSecretRow | null,
+): VaultSecretMetadata | null {
+  if (!secret) return null;
+  return {
+    id: secret.id,
+    name: secret.name,
+    credentialKey: secret.credentialKey,
+    last4: last4(secret.value),
+    provider: secret.provider,
+    description: secret.description,
+    createdBy: secret.createdBy,
+    createdAt: secret.createdAt,
+    updatedAt: secret.updatedAt,
+  };
+}
+
 export function credentialStoreScopeForVaultCtx(ctx: VaultCtx): {
   scope: Extract<SecretScope, "org" | "workspace">;
   scopeId: string;
@@ -1371,6 +1405,8 @@ export interface IntegrationEntry {
   configured: boolean;
   vaultGranted: boolean;
   vaultSecretId?: string;
+  /** False for non-credential settings (flags, addresses) — see env-status's `secret`. Default true. */
+  secret: boolean;
 }
 
 export interface AppIntegrations {
@@ -1420,6 +1456,7 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
         label: string;
         required: boolean;
         configured: boolean;
+        secret?: boolean;
       }> = await res.json();
 
       const appGrants = grants.filter(
@@ -1439,6 +1476,7 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
             (access.mode === "all-apps" ||
               grantedSecretIds.has(matchingSecret.id)),
           vaultSecretId: matchingSecret?.id,
+          secret: env.secret ?? true,
         };
       });
 

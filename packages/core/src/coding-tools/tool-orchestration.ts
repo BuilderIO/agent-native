@@ -2,6 +2,7 @@ import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   executeSandboxCode,
+  type SandboxCodeEvaluator,
   type ExecuteSandboxCodeResult,
 } from "./run-code.js";
 
@@ -22,7 +23,9 @@ const MAX_TOOL_CALLS = 128;
  */
 export function createToolOrchestrationEntry(
   getActions: () => Record<string, ActionEntry>,
+  options: { evaluator?: SandboxCodeEvaluator } = {},
 ): ActionEntry {
+  const evaluator = options.evaluator ?? "node";
   return {
     readOnly: true,
     allowInPlanMode: false,
@@ -30,10 +33,14 @@ export function createToolOrchestrationEntry(
     maxResultChars: MAX_OUTPUT_CHARS,
     tool: {
       description: [
-        "Run a bounded JavaScript orchestration script in the existing sandbox.",
+        evaluator === "run"
+          ? "Run a bounded JavaScript orchestration script in a hardened QuickJS sandbox."
+          : "Run a bounded JavaScript orchestration script in the existing sandbox.",
         "Use toolSearch(query) to discover read-only or conditionally read-only tools, then toolCall(name, args) to fan out, join, filter, and aggregate their results without putting every intermediate payload into chat. The host rechecks conditional policies against each argument object.",
         "The host rechecks every child call: mutating actions, hidden actions, provider writes, non-GET/HEAD web requests, staging, file saves, and workspace writes are rejected. Call mutations directly as native tools.",
-        "The orchestration sandbox has no background mode, a strict child-tool-call budget, and a 20-page cap on each provider fetchAllPages call. It is a bounded orchestration path, not a general-purpose replacement for run-code.",
+        evaluator === "run"
+          ? "The production orchestration sandbox has no Node modules, filesystem, environment, network, timers, or imports; it has no background mode, a strict child-tool-call budget, and a 20-page cap on each provider fetchAllPages call."
+          : "The orchestration sandbox has no background mode, a strict child-tool-call budget, and a 20-page cap on each provider fetchAllPages call. It is a bounded orchestration path, not a general-purpose replacement for run-code.",
         "Available globals: toolSearch(query?, options?), toolCall(name, args?), providerFetch(provider, path, init?), providerFetchAll(...), providerSearchAll(...), webFetch(url, init?), webRead(url, init?), workspaceRead(path, opts?), workspaceReadMeta(path, opts?), workspaceList(prefix?), and appAction(name, args?) for eligible read-only actions.",
         "Print only the compact result needed by the conversation with console.log().",
       ].join(" "),
@@ -43,7 +50,9 @@ export function createToolOrchestrationEntry(
           code: {
             type: "string",
             description:
-              "JavaScript source to execute. ESM syntax and top-level await are supported.",
+              evaluator === "run"
+                ? "JavaScript source to execute. Top-level await and return are supported; Node ESM imports are not available."
+                : "JavaScript source to execute. ESM syntax and top-level await are supported.",
           },
           timeoutMs: {
             type: "number",
@@ -92,6 +101,7 @@ export function createToolOrchestrationEntry(
         mode: "tool-orchestration",
         maxToolCalls,
         context,
+        evaluator,
       });
       return formatResult(result, timeoutMs, maxOutputChars);
     },

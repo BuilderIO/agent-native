@@ -1,27 +1,41 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { ActionContractError } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  type ShareRole,
+} from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   recordGenerationCreativeContext,
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
-import { provisionContentSpaces } from "./_content-spaces.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import { resolveContentSpaceTarget } from "./_content-space-target.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -61,26 +75,55 @@ const reuseLabelSchema = z
   });
 
 export default defineAction({
-  description: "Create a new document.",
+  description:
+    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and the resolved spaceId for subsequent get-document or edit-document calls.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z.object({
     id: z
       .string()
       .optional()
-      .describe("Pre-generated document ID (for optimistic UI)"),
+      .describe(
+        "Optional pre-generated document ID for optimistic UI; omit for normal external creation.",
+      ),
     spaceId: z
       .string()
       .optional()
-      .describe("Content space for a new top-level document"),
-    title: z.string().describe("Document title"),
-    content: z.string().optional().describe("Markdown content"),
+      .describe("Content workspace ID for a new top-level document."),
+    spaceName: z
+      .string()
+      .optional()
+      .describe(
+        "Content workspace name for a new top-level document, when the user named a workspace instead of giving its ID. Fails when the name matches no authorized workspace; it never falls back to Personal.",
+      ),
+    title: z.string().describe("Title for the new document."),
+    content: z
+      .string()
+      .optional()
+      .describe(
+        "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
+          'shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+      ),
+    preserveLeadingTitleHeading: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Preserve a leading H1 that matches the title when reproducing an exact saved body.",
+      ),
     description: z
       .string()
       .optional()
       .describe(
         "Stable guidance describing why this page exists and what belongs in it",
       ),
-    parentId: z.string().nullish().describe("Parent document ID for nesting"),
-    icon: z.string().optional().describe("Emoji icon"),
+    parentId: z
+      .string()
+      .nullish()
+      .describe(
+        "Actual parent page ID for nesting; use spaceId or spaceName for a top-level root page. A workspace Files document ID is accepted as a top-level target for compatibility.",
+      ),
+    icon: z.string().optional().describe("Optional emoji icon."),
     contextPackId: z
       .string()
       .optional()
@@ -108,7 +151,7 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||
       args.contextModeOverride ||
@@ -151,7 +194,7 @@ export default defineAction({
     let content = args.content || "";
     const description = args.description?.trim() ?? "";
     // Strip leading H1 that duplicates the title
-    if (title && content) {
+    if (title && content && !args.preserveLeadingTitleHeading) {
       const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
       if (
         h1Match &&
@@ -161,21 +204,76 @@ export default defineAction({
       }
     }
 
-    const parentId = args.parentId || null;
+    let parentId = args.parentId || null;
     const icon = args.icon || null;
     const currentUserEmail = getRequestUserEmail();
     if (!currentUserEmail) throw new Error("no authenticated user");
+    const actor = requireDocumentRequestActor(ctx);
     let ownerEmail = currentUserEmail;
     let orgId = getRequestOrgId() ?? null;
     let visibility: "private" | "org" | "public" = "private";
     let hideFromSearch = 0;
     const db = getDb();
+    let rootSpaceId: string | null = null;
     let inheritedRole: "owner" | ShareRole = "owner";
     let inheritedShares: Array<{
       principalType: "user" | "group" | "org";
       principalId: string;
       role: ShareRole;
     }> = [];
+
+    if (parentId) {
+      const [filesTarget] = await db
+        .select({ spaceId: schema.contentDatabases.spaceId })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.documentId, parentId),
+            eq(schema.contentDatabases.systemRole, "files"),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (filesTarget?.spaceId) {
+        let canContribute = false;
+        try {
+          await resolveContentSpaceAccess(filesTarget.spaceId, "contributor", {
+            db,
+          });
+          canContribute = true;
+        } catch (error) {
+          if (
+            !(error instanceof ActionContractError) ||
+            !["FORBIDDEN", "SPACE_NOT_FOUND"].includes(error.errorCode)
+          ) {
+            throw error;
+          }
+          // An unauthorized Files target must behave like any other parent so
+          // its system role cannot be discovered through a conflict response.
+        }
+        if (canContribute) {
+          if (args.spaceId || args.spaceName) {
+            const explicitTarget = await resolveContentSpaceTarget({
+              db,
+              userEmail: currentUserEmail,
+              spaceId: args.spaceId,
+              spaceName: args.spaceName,
+            });
+            if (explicitTarget.spaceId !== filesTarget.spaceId) {
+              throw new ActionContractError(
+                "The Files document and workspace target must refer to the same Content space.",
+                { errorCode: "SPACE_TARGET_CONFLICT", statusCode: 409 },
+              );
+            }
+          }
+          rootSpaceId = filesTarget.spaceId;
+          parentId = null;
+        } else {
+          await assertAccess("document", parentId, "editor");
+          throw new ForbiddenError(`No access to document ${parentId}`);
+        }
+      }
+    }
 
     if (parentId) {
       const parentAccess = await assertAccess("document", parentId, "editor");
@@ -207,10 +305,24 @@ export default defineAction({
       if (args.spaceId && args.spaceId !== parent.spaceId) {
         throw new Error("Nested documents must use their parent Content space");
       }
+      if (args.spaceName) {
+        throw new Error(
+          "Nested documents inherit their parent Content space; omit spaceName",
+        );
+      }
       spaceId = parent.spaceId;
     } else {
-      const provisioned = await provisionContentSpaces(db, currentUserEmail);
-      spaceId = args.spaceId ?? provisioned.personalSpaceId;
+      if (rootSpaceId) {
+        spaceId = rootSpaceId;
+      } else {
+        const target = await resolveContentSpaceTarget({
+          db,
+          userEmail: currentUserEmail,
+          spaceId: args.spaceId,
+          spaceName: args.spaceName,
+        });
+        spaceId = target.spaceId;
+      }
       const spaceAccess = await resolveContentSpaceAccess(
         spaceId,
         "contributor",
@@ -228,7 +340,7 @@ export default defineAction({
       async () => {
         // Get max position among siblings
         const maxPos = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             parentId
@@ -242,7 +354,7 @@ export default defineAction({
                 ),
           );
 
-        const position = (maxPos[0]?.max ?? -1) + 1;
+        const position = nextAppendPosition(maxPos[0]?.max);
 
         await db.transaction(async (tx) => {
           await tx.insert(schema.documents).values({
@@ -259,6 +371,7 @@ export default defineAction({
             isFavorite: 0,
             hideFromSearch,
             visibility,
+            ...documentCreationAttribution(actor),
             createdAt: now,
             updatedAt: now,
           });
@@ -305,8 +418,21 @@ export default defineAction({
       });
     }
 
+    track(
+      "document_created",
+      {
+        app_name: "content",
+        template_name: "content",
+        output_id: doc.id,
+        output_type: "document",
+        content_present: Boolean(content),
+      },
+      ctx,
+    );
+
     return {
       id: doc.id,
+      spaceId,
       urlPath: `/page/${doc.id}`,
       deepLink: buildDeepLink({
         app: "content",

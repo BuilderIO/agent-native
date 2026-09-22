@@ -12,15 +12,23 @@ vi.mock("dom-to-pptx", () => ({
 
 import {
   addSpeakerNotesToPptxBlob,
+  pinTextBoxesInXml,
+  retypeThemeFonts,
+  usedFontFamilies,
   blankRasterResult,
   buildDeckPptxBlob,
   exportDeckAsPptx,
   gradientPaint,
+  markWrappedLines,
   materializeClipPathShapes,
+  materializeCompositeBorders,
   patchBulletIndentsInPptxBlob,
+  pinRenderedFontFamilies,
   pptxExportScale,
   replaceInlineSvgsWithImages,
+  widenInPlace,
 } from "./export-pptx-client";
+import { WRAP_MARK } from "./pptx-google-slides";
 
 async function buildMinimalPptxBlob(slideCount = 1): Promise<Blob> {
   const zip = new JSZip();
@@ -188,7 +196,7 @@ describe("exportDeckAsPptx", () => {
     expect(target.style.height).toBe("540px");
     expect(target.isConnected).toBe(false);
     expect(options).toMatchObject({
-      autoEmbedFonts: true,
+      autoEmbedFonts: false,
       fileName: "Quarterly-Review.pptx",
       height: 7.5,
       skipDownload: true,
@@ -435,6 +443,11 @@ describe("waitForImagesToSettle", () => {
     ]);
 
     await vi.runAllTimersAsync();
+    // The export finishes with a JSZip round-trip (wrap/autofit pinning,
+    // bullet indents, notes), and JSZip schedules its own work on real timers.
+    // The image wait is what these tests drive with fake ones, so hand the
+    // clock back before awaiting the file itself.
+    vi.useRealTimers();
 
     expect(await settled).toBe(true);
     await exportPromise;
@@ -470,6 +483,12 @@ describe("waitForImagesToSettle", () => {
     ]);
 
     await vi.advanceTimersByTimeAsync(0);
+    // The export finishes with a JSZip round-trip (wrap/autofit pinning,
+    // bullet indents, notes), and JSZip schedules its own work on real timers.
+    // The image wait is what these tests drive with fake ones, so hand the
+    // clock back before awaiting the file itself.
+    vi.useRealTimers();
+
     expect(await settled).toBe(true);
     await exportPromise;
     expect(mocks.exportToPptx).toHaveBeenCalledTimes(1);
@@ -855,5 +874,407 @@ describe("blank shape rasters", () => {
     expect(blankRasterResult(new Uint8ClampedArray([255, 255, 255, 255]))).toBe(
       false,
     );
+  });
+});
+
+/**
+ * Google Slides has no text-wrap property in its shape model, so it drops
+ * `wrap="none"` on import and rewraps the text at whatever width the box
+ * states — a width Chrome measured for one unbroken line. It *does* honour
+ * `spAutoFit`, so the shape then grows downward over its neighbours. That pair
+ * is what turned Oliver's deck into overlapping text one import later.
+ */
+describe("pinTextBoxesForImport", () => {
+  it("replaces every wrap=none with wrap=square", () => {
+    const xml = pinTextBoxesInXml(
+      '<a:bodyPr wrap="none" lIns="0" rtlCol="0" anchor="t"><a:spAutoFit/></a:bodyPr>' +
+        '<a:bodyPr wrap="none" lIns="0"/>',
+    );
+    expect(xml).not.toContain('wrap="none"');
+    expect(xml.match(/wrap="square"/g)).toHaveLength(2);
+  });
+
+  it("turns autofit off so the receiving app cannot re-grow the measured box", () => {
+    const xml = pinTextBoxesInXml("<a:bodyPr><a:spAutoFit/></a:bodyPr>");
+    expect(xml).toContain("<a:noAutofit/>");
+    expect(xml).not.toContain("spAutoFit");
+  });
+
+  it("leaves a body that already wraps alone", () => {
+    const original = '<a:bodyPr wrap="square" lIns="0"/>';
+    expect(pinTextBoxesInXml(original)).toBe(original);
+  });
+
+  it("does not corrupt a wrap attribute belonging to some other element", () => {
+    const xml = pinTextBoxesInXml('<a:other wrap="none"/>');
+    expect(xml).toBe('<a:other wrap="none"/>');
+  });
+});
+
+/**
+ * dom-to-pptx resolves fonts by walking document.styleSheets, and a
+ * cross-origin sheet throws SecurityError, which it swallows. Every deck font
+ * that arrives through the design system's Google Fonts <link> is invisible to
+ * it, so it shipped 700KB of the app's self-hosted Poppins for a deck set in
+ * Geist. We resolve the families ourselves instead.
+ */
+describe("usedFontFamilies", () => {
+  it("orders families by how much text each one sets, so the theme font is the deck's own", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      `<p style="font-family: Geist">${"a".repeat(200)}</p>` +
+      `<p style="font-family: Poppins">short</p>`;
+    document.body.appendChild(root);
+
+    expect(usedFontFamilies([root])[0]).toBe("Geist");
+    root.remove();
+  });
+
+  it("reports the first family of each text element's stack", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      `<h1 style="font-family: 'Geist', Inter, sans-serif">Title</h1>` +
+      `<p style="font-family: 'Geist Mono', monospace">01</p>`;
+    document.body.appendChild(root);
+
+    const families = usedFontFamilies([root]);
+    expect(families).toContain("Geist");
+    expect(families).toContain("Geist Mono");
+    root.remove();
+  });
+
+  it("does not let a <style> block's CSS outweigh the deck's visible text", () => {
+    // Slide HTML is allowed to carry a stylesheet, and its source is a direct
+    // text node that inherits the slide's family. Counting it could pick the
+    // theme font off CSS nobody reads.
+    const root = document.createElement("div");
+    root.innerHTML =
+      `<style style="font-family: Poppins">${"/*x*/".repeat(400)}</style>` +
+      `<p style="font-family: Geist">visible copy</p>`;
+    document.body.appendChild(root);
+
+    expect(usedFontFamilies([root])[0]).toBe("Geist");
+    root.remove();
+  });
+
+  it("skips generic families, which name no font to embed", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<p style="font-family: monospace">code</p>`;
+    document.body.appendChild(root);
+
+    expect(usedFontFamilies([root])).not.toContain("monospace");
+    root.remove();
+  });
+
+  it("ignores elements with no text to paint", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<div style="font-family: Nothing"></div>`;
+    document.body.appendChild(root);
+
+    expect(usedFontFamilies([root])).not.toContain("Nothing");
+    root.remove();
+  });
+});
+
+describe("retypeThemeFonts", () => {
+  it("points the theme's major and minor latin faces at the deck's family", () => {
+    const xml = retypeThemeFonts(
+      '<a:majorFont><a:latin typeface="Calibri Light" panose="020F0302"/></a:majorFont>' +
+        '<a:minorFont><a:latin typeface="Calibri" panose="020F0502"/></a:minorFont>',
+      "Geist",
+    );
+    expect(xml).not.toContain("Calibri");
+    expect(xml.match(/typeface="Geist"/g)).toHaveLength(2);
+    // The rest of the element survives — this is a retype, not a rewrite.
+    expect(xml).toContain('panose="020F0302"');
+  });
+
+  it("escapes a family name that would otherwise break the attribute", () => {
+    const xml = retypeThemeFonts(
+      '<a:minorFont><a:latin typeface="Calibri"/></a:minorFont>',
+      'Ampersand & "Quote"',
+    );
+    expect(xml).toContain('typeface="Ampersand &amp; &quot;Quote&quot;"');
+  });
+
+  it("leaves east-asian and complex-script faces alone", () => {
+    const original = '<a:minorFont><a:ea typeface="MS Gothic"/></a:minorFont>';
+    expect(retypeThemeFonts(original, "Geist")).toBe(original);
+  });
+});
+
+describe("pinRenderedFontFamilies", () => {
+  it("is a no-op in happy-dom, where the canvas probe cannot distinguish fonts", () => {
+    const root = document.createElement("div");
+    // A generic family the function would otherwise retype to a concrete face
+    // (see GENERIC_EXPORT_FACES) — a meaningful no-op check, not just an
+    // absence of a crash.
+    root.innerHTML = '<p style="font-family: sans-serif;">Some text</p>';
+    document.body.appendChild(root);
+    const paragraph = root.querySelector("p")!;
+
+    expect(() => pinRenderedFontFamilies(root, "google-slides")).not.toThrow();
+
+    expect(paragraph.style.fontFamily).toBe("sans-serif");
+    root.remove();
+  });
+});
+
+/**
+ * happy-dom lays out nothing, so `Range.getClientRects()` always answers
+ * empty — every stubbed test below fakes layout by keying the rect's `top` off
+ * which text node (and offset) the walk is currently ranging over.
+ */
+describe("markWrappedLines", () => {
+  it("inserts a wrap mark immediately before the text that starts a new line", () => {
+    document.body.innerHTML = "<div><p>alpha beta gamma</p></div>";
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const top = this.startOffset < 11 ? 0 : 24;
+        return [
+          { bottom: top + 20, height: 20, top, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(1);
+    expect(root.querySelector("p")?.textContent).toBe(
+      `alpha beta ${WRAP_MARK}gamma`,
+    );
+  });
+
+  it("does not mark a line that starts after an explicit <br>", () => {
+    document.body.innerHTML = "<div><p>alpha<br>beta</p></div>";
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const top = (this.startContainer as Text).data === "beta" ? 24 : 0;
+        return [
+          { bottom: top + 20, height: 20, top, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(0);
+    expect(root.querySelector("p")?.textContent).toBe("alphabeta");
+  });
+
+  it("skips text inside an aria-hidden subtree even when it looks wrapped", () => {
+    document.body.innerHTML =
+      '<div><p aria-hidden="true">alpha beta gamma</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const top = this.startOffset < 11 ? 0 : 24;
+        return [
+          { bottom: top + 20, height: 20, top, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(0);
+    expect(root.querySelector("p")?.textContent).toBe("alpha beta gamma");
+  });
+
+  it("marks a wrap after a tall inline run whose glyphs reach below the next line's centres", () => {
+    document.body.innerHTML = "<div><p>BIG small next</p></div>";
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const offset = this.startOffset;
+        const rect =
+          offset < 3
+            ? { top: 0, height: 60, left: offset * 30 }
+            : offset < 10
+              ? { top: 44, height: 12, left: 60 + offset * 8 }
+              : { top: 50, height: 12, left: (offset - 10) * 8 };
+        return [
+          { ...rect, bottom: rect.top + rect.height, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(1);
+    expect(root.querySelector("p")?.textContent).toBe(
+      `BIG small ${WRAP_MARK}next`,
+    );
+  });
+
+  it("marks a wrap after a tall inline run in right-to-left text, where the next line starts on the right", () => {
+    document.body.innerHTML =
+      '<div><p style="direction: rtl">BIG small next</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const offset = this.startOffset;
+        const rect =
+          offset < 3
+            ? { top: 0, height: 60, left: 400 - offset * 30 }
+            : offset < 10
+              ? { top: 44, height: 12, left: 300 - offset * 8 }
+              : { top: 50, height: 12, left: 400 - (offset - 10) * 8 };
+        return [
+          {
+            ...rect,
+            bottom: rect.top + rect.height,
+            right: rect.left + 8,
+            width: 8,
+          },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(1);
+    expect(root.querySelector("p")?.textContent).toBe(
+      `BIG small ${WRAP_MARK}next`,
+    );
+  });
+});
+
+describe("widenInPlace", () => {
+  it.each([
+    ["ltr", "start", "10px", "-10px"],
+    ["ltr", "end", "-10px", "10px"],
+    ["rtl", "start", "-10px", "10px"],
+    ["rtl", "end", "10px", "-10px"],
+  ])(
+    "keeps the aligned edge fixed for %s text aligned to %s",
+    (direction, textAlign, marginLeft, marginRight) => {
+      document.body.innerHTML = `<p style="direction: ${direction}; text-align: ${textAlign}; margin-left: 10px; margin-right: 10px">Label</p>`;
+      const element = document.querySelector<HTMLElement>("p")!;
+      vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+        width: 100,
+      } as DOMRect);
+
+      widenInPlace(element, 120);
+
+      expect(element.style.marginLeft).toBe(marginLeft);
+      expect(element.style.marginRight).toBe(marginRight);
+    },
+  );
+
+  it("moves a box back to its aligned edge when pinning its margins shifts it, as a grid item's auto margins do", () => {
+    document.body.innerHTML =
+      '<p style="text-align: left; margin-left: 0px; margin-right: 0px">Label</p>';
+    const element = document.querySelector<HTMLElement>("p")!;
+    vi.spyOn(element, "getBoundingClientRect")
+      .mockReturnValueOnce({ left: 170, width: 60 } as DOMRect)
+      .mockReturnValueOnce({ left: 0, width: 80 } as DOMRect);
+
+    widenInPlace(element, 80);
+
+    expect(element.style.marginLeft).toBe("170px");
+    expect(element.style.marginRight).toBe("-190px");
+  });
+});
+
+describe("materializeCompositeBorders", () => {
+  const barsOf = (element: HTMLElement) =>
+    Array.from(element.children).filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement && child.style.position === "absolute",
+    );
+
+  it("redraws a one-sided rule as a box and moves its width into the padding", () => {
+    document.body.innerHTML =
+      '<div><p style="padding-bottom: 12px; border-bottom-width: 1px; border-bottom-style: solid; border-bottom-color: rgb(255, 0, 0)">Row</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const row = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(row.style.getPropertyValue("border-bottom-width")).toMatch(
+      /^0(px)?$/,
+    );
+    expect(row.style.getPropertyValue("padding-bottom")).toBe("13px");
+    const [bar] = barsOf(row);
+    expect(bar.style.height).toBe("1px");
+    expect(bar.style.backgroundColor).toBe("rgb(255, 0, 0)");
+    expect(bar.style.getPropertyValue("bottom")).toMatch(/^0(px)?$/);
+  });
+
+  it("leaves a uniform border alone, which already exports as a line", () => {
+    document.body.innerHTML =
+      '<div><p style="border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: rgb(0, 0, 255); border-right-color: rgb(0, 0, 255); border-bottom-color: rgb(0, 0, 255); border-left-color: rgb(0, 0, 255)">Card</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const card = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(barsOf(card)).toHaveLength(0);
+    expect(card.style.getPropertyValue("border-bottom-width")).toBe("1px");
+  });
+
+  it("leaves a dashed rule alone rather than redrawing it solid", () => {
+    document.body.innerHTML =
+      '<div><p style="border-bottom-width: 1px; border-bottom-style: dashed; border-bottom-color: rgb(255, 0, 0)">Row</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const row = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(barsOf(row)).toHaveLength(0);
+    expect(row.style.getPropertyValue("border-bottom-width")).toBe("1px");
+  });
+
+  it("leaves a rounded box alone, whose corners a straight bar cannot follow", () => {
+    document.body.innerHTML =
+      '<div><p style="border-bottom-width: 1px; border-bottom-style: solid; border-bottom-color: rgb(255, 0, 0); border-top-left-radius: 8px">Card</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const card = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(barsOf(card)).toHaveLength(0);
+    expect(card.style.getPropertyValue("border-bottom-width")).toBe("1px");
+  });
+
+  it("leaves adjacent sides that differ alone, since CSS mitres that corner", () => {
+    document.body.innerHTML =
+      '<div><p style="border-top-width: 2px; border-top-style: solid; border-top-color: rgb(255, 0, 0); border-left-width: 1px; border-left-style: solid; border-left-color: rgb(0, 0, 255)">Card</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const card = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(barsOf(card)).toHaveLength(0);
+    expect(card.style.getPropertyValue("border-top-width")).toBe("2px");
+  });
+
+  it("leaves a box holding positioned children alone, since their anchors follow its padding box", () => {
+    document.body.innerHTML =
+      '<div><p style="position: relative; border-bottom-width: 1px; border-bottom-style: solid; border-bottom-color: rgb(255, 0, 0)"><span style="position: absolute; right: 0px">Pinned</span></p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const row = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(row.style.getPropertyValue("border-bottom-width")).toBe("1px");
+    expect(row.querySelector("div")).toBeNull();
+  });
+
+  it("redraws a rule on the export root, which its own query does not return", () => {
+    document.body.innerHTML =
+      '<div style="position: relative; border-top-width: 2px; border-top-style: solid; border-top-color: rgb(0, 255, 0)"><p>Slide</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+
+    materializeCompositeBorders(root);
+
+    expect(root.style.getPropertyValue("border-top-width")).toMatch(/^0(px)?$/);
+    expect(root.style.getPropertyValue("padding-top")).toBe("2px");
+    const [bar] = barsOf(root);
+    expect(bar.style.height).toBe("2px");
+    expect(bar.style.backgroundColor).toBe("rgb(0, 255, 0)");
   });
 });

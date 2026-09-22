@@ -1,8 +1,10 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     whatsNew: "What's new",
   },
@@ -468,6 +470,9 @@ const enUS = {
     adminOnlyTitle: "Admin access required",
     adminOnlyDescription:
       "Only organization owners and admins can open Analytics admin tools.",
+    roleUnavailableTitle: "Couldn't verify your access",
+    roleUnavailableDescription:
+      "We couldn't check your organization role: {{message}}",
     notTracked: "Not tracked",
     visibilityprivate: "Private",
     visibilityorg: "Shared with org",
@@ -490,7 +495,6 @@ const enUS = {
     connectionAppId: "App ID",
     connectionAppUrl: "App URL",
     connectionDatabaseUrl: "Database URL",
-    connectionAuthToken: "Auth token (optional)",
     saveConnection: "Save connection",
     deleteConnection: "Delete connection",
     deleteConnectionTitle: "Delete database connection?",
@@ -621,6 +625,10 @@ const enUS = {
     unhideFailed: "Couldn't unhide dashboard",
     addPanel: "Add panel",
     dashboardActions: "Dashboard details and actions",
+    certifyForAi: "Certify for AI queries",
+    certifiedForAi: "Certified for AI queries",
+    certificationSaved: "Dashboard certified for AI queries",
+    certificationFailed: "Couldn't certify dashboard: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
     public: "Public",
@@ -1213,7 +1221,7 @@ const enUS = {
   sessions: {
     title: "Sessions",
     description:
-      "Review first-party browser sessions and replay recordings captured by Agent Native Analytics.",
+      "Review first-party browser sessions and replay recordings captured by Agent-Native Analytics.",
     filters: "Filters",
     segmentFilters: "Segment filters",
     sessionPlaylist: "Session playlist",
@@ -4953,6 +4961,10 @@ function mergeMessages(overrides: {
     dialogs: { ...enUS.dialogs, ...overrides.dialogs },
     commandPalette: { ...enUS.commandPalette, ...overrides.commandPalette },
     common: { ...enUS.common, ...overrides.common },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
     dataDictionary: { ...enUS.dataDictionary, ...overrides.dataDictionary },
     dataSources: { ...enUS.dataSources, ...overrides.dataSources },
     analyticsBackend: {
@@ -6965,6 +6977,13 @@ export const messagesByLocale = {
   }),
 } satisfies Record<LocaleCode, Messages>;
 
+for (const locale of Object.keys(creativeContextMessagesByLocale) as Array<
+  keyof typeof creativeContextMessagesByLocale
+>) {
+  messagesByLocale[locale].creativeContext =
+    creativeContextMessagesByLocale[locale];
+}
+
 type AnalyticsPartialMessages = {
   [K in Section]?: Partial<Messages[K]>;
 };
@@ -7047,6 +7066,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "添加图表",
+      dashboardFallback: "仪表板",
+      archived: '已归档 "{{name}}"',
       archiveFailed: "无法存档仪表板",
       configNotFound: "未找到配置",
       dashboardActions: "仪表板操作",
@@ -7130,7 +7151,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "应用 ID",
       connectionAppUrl: "应用 URL",
       connectionDatabaseUrl: "数据库 URL",
-      connectionAuthToken: "认证令牌（可选）",
       saveConnection: "保存连接",
       deleteConnection: "删除连接",
       deleteConnectionTitle: "删除数据库连接？",
@@ -7142,6 +7162,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "添加描述",
       addFirstPanel: "添加您的第一个面板",
       addPanel: "添加面板",
+      dashboardFallback: "仪表板",
+      archived: '已归档 "{{name}}"',
       archiveFailed: "无法存档仪表板",
       clearAll: "全部清除",
       collapseFilters: "折叠过滤器",
@@ -7287,6 +7309,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "Agregar gráfico",
+      dashboardFallback: "panel",
+      archived: 'Panel archivado: "{{name}}"',
       archiveFailed: "No se pudo archivar el panel",
       configNotFound: "Configuración no encontrada",
       dashboardActions: "Acciones del panel",
@@ -7373,7 +7397,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ID de app",
       connectionAppUrl: "URL de app",
       connectionDatabaseUrl: "URL de base de datos",
-      connectionAuthToken: "Token de autenticación (opcional)",
       saveConnection: "Guardar conexión",
       deleteConnection: "Eliminar conexión",
       deleteConnectionTitle: "¿Eliminar conexión de base de datos?",
@@ -7385,6 +7408,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "Agregar descripción",
       addFirstPanel: "Añade tu primer panel",
       addPanel: "Agregar panel",
+      dashboardFallback: "panel",
+      archived: 'Panel archivado: "{{name}}"',
       archiveFailed: "No se pudo archivar el panel",
       clearAll: "Borrar todo",
       collapseFilters: "Contraer filtros",
@@ -7537,6 +7562,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "Ajouter un graphique",
+      dashboardFallback: "tableau de bord",
+      archived: 'Tableau de bord "{{name}}" archivé',
       archiveFailed: "Impossible d'archiver le tableau de bord",
       configNotFound: "Configuration introuvable",
       dashboardActions: "Actions du tableau de bord",
@@ -7623,7 +7650,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ID de l'app",
       connectionAppUrl: "URL de l'app",
       connectionDatabaseUrl: "URL de la base de données",
-      connectionAuthToken: "Jeton d'authentification (facultatif)",
       saveConnection: "Enregistrer la connexion",
       deleteConnection: "Supprimer la connexion",
       deleteConnectionTitle: "Supprimer la connexion à la base de données ?",
@@ -7635,6 +7661,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "Ajouter une description",
       addFirstPanel: "Ajoutez votre premier panneau",
       addPanel: "Ajouter un panneau",
+      dashboardFallback: "tableau de bord",
+      archived: 'Tableau de bord "{{name}}" archivé',
       archiveFailed: "Impossible d'archiver le tableau de bord",
       clearAll: "Tout effacer",
       collapseFilters: "Réduire les filtres",
@@ -7789,6 +7817,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "Diagramm hinzufügen",
+      dashboardFallback: "Dashboard",
+      archived: "Dashboard „{{name}}“ archiviert",
       archiveFailed: "Das Dashboard konnte nicht archiviert werden",
       configNotFound: "Konfiguration nicht gefunden",
       dashboardActions: "Dashboard-Aktionen",
@@ -7875,7 +7905,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "App-ID",
       connectionAppUrl: "App-URL",
       connectionDatabaseUrl: "Datenbank-URL",
-      connectionAuthToken: "Authentifizierungstoken (optional)",
       saveConnection: "Verbindung speichern",
       deleteConnection: "Verbindung löschen",
       deleteConnectionTitle: "Datenbankverbindung löschen?",
@@ -7887,6 +7916,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "Beschreibung hinzufügen",
       addFirstPanel: "Fügen Sie Ihr erstes Panel hinzu",
       addPanel: "Panel hinzufügen",
+      dashboardFallback: "Dashboard",
+      archived: "Dashboard „{{name}}“ archiviert",
       archiveFailed: "Das Dashboard konnte nicht archiviert werden",
       clearAll: "Alles löschen",
       collapseFilters: "Filter ausblenden",
@@ -8035,6 +8066,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "チャートの追加",
+      dashboardFallback: "ダッシュボード",
+      archived: "「{{name}}」をアーカイブしました",
       archiveFailed: "ダッシュボードをアーカイブできませんでした",
       configNotFound: "構成が見つかりません",
       dashboardActions: "ダッシュボードのアクション",
@@ -8120,7 +8153,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "アプリ ID",
       connectionAppUrl: "アプリ URL",
       connectionDatabaseUrl: "データベース URL",
-      connectionAuthToken: "認証トークン（任意）",
       saveConnection: "接続を保存",
       deleteConnection: "接続を削除",
       deleteConnectionTitle: "データベース接続を削除しますか？",
@@ -8132,6 +8164,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "説明を追加",
       addFirstPanel: "最初のパネルを追加する",
       addPanel: "パネルの追加",
+      dashboardFallback: "ダッシュボード",
+      archived: "「{{name}}」をアーカイブしました",
       archiveFailed: "ダッシュボードをアーカイブできませんでした",
       clearAll: "すべてクリア",
       collapseFilters: "フィルターを折りたたむ",
@@ -8280,6 +8314,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "차트 추가",
+      dashboardFallback: "대시보드",
+      archived: '"{{name}}" 대시보드를 보관처리했습니다.',
       archiveFailed: "대시보드를 보관처리할 수 없습니다.",
       configNotFound: "구성을 찾을 수 없습니다.",
       dashboardActions: "대시보드 작업",
@@ -8364,7 +8400,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "앱 ID",
       connectionAppUrl: "앱 URL",
       connectionDatabaseUrl: "데이터베이스 URL",
-      connectionAuthToken: "인증 토큰(선택 사항)",
       saveConnection: "연결 저장",
       deleteConnection: "연결 삭제",
       deleteConnectionTitle: "데이터베이스 연결을 삭제할까요?",
@@ -8376,6 +8411,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "설명 추가",
       addFirstPanel: "첫 번째 패널 추가",
       addPanel: "패널 추가",
+      dashboardFallback: "대시보드",
+      archived: '"{{name}}" 대시보드를 보관처리했습니다.',
       archiveFailed: "대시보드를 보관처리할 수 없습니다.",
       clearAll: "모두 지우기",
       collapseFilters: "필터 접기",
@@ -8526,6 +8563,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "Adicionar gráfico",
+      dashboardFallback: "painel",
+      archived: 'Painel "{{name}}" arquivado',
       archiveFailed: "Não foi possível arquivar o painel",
       configNotFound: "Configuração não encontrada",
       dashboardActions: "Ações do painel",
@@ -8612,7 +8651,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ID do app",
       connectionAppUrl: "URL do app",
       connectionDatabaseUrl: "URL do banco de dados",
-      connectionAuthToken: "Token de autenticação (opcional)",
       saveConnection: "Salvar conexão",
       deleteConnection: "Excluir conexão",
       deleteConnectionTitle: "Excluir conexão de banco de dados?",
@@ -8624,6 +8662,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "Adicionar descrição",
       addFirstPanel: "Adicione seu primeiro painel",
       addPanel: "Adicionar painel",
+      dashboardFallback: "painel",
+      archived: 'Painel "{{name}}" arquivado',
       archiveFailed: "Não foi possível arquivar o painel",
       clearAll: "Limpar tudo",
       collapseFilters: "Recolher filtros",
@@ -8773,6 +8813,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "चार्ट जोड़ें",
+      dashboardFallback: "डैशबोर्ड",
+      archived: "“{{name}}” संग्रहीत किया गया",
       archiveFailed: "डैशबोर्ड संग्रहीत नहीं किया जा सका",
       configNotFound: "कॉन्फ़िगरेशन नहीं मिला",
       dashboardActions: "डैशबोर्ड क्रियाएँ",
@@ -8857,7 +8899,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "ऐप ID",
       connectionAppUrl: "ऐप URL",
       connectionDatabaseUrl: "डेटाबेस URL",
-      connectionAuthToken: "Auth token (वैकल्पिक)",
       saveConnection: "कनेक्शन सहेजें",
       deleteConnection: "कनेक्शन हटाएं",
       deleteConnectionTitle: "डेटाबेस कनेक्शन हटाएं?",
@@ -8869,6 +8910,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "विवरण जोड़ें",
       addFirstPanel: "अपना पहला पैनल जोड़ें",
       addPanel: "पैनल जोड़ें",
+      dashboardFallback: "डैशबोर्ड",
+      archived: "“{{name}}” संग्रहीत किया गया",
       archiveFailed: "डैशबोर्ड संग्रहीत नहीं किया जा सका",
       clearAll: "सब साफ़ करें",
       collapseFilters: "फ़िल्टर संक्षिप्त करें",
@@ -9016,6 +9059,8 @@ const translatedAnalyticsDebtTranslations = {
     },
     explorerDashboard: {
       addChart: "إضافة الرسم البياني",
+      dashboardFallback: "لوحة المعلومات",
+      archived: 'تمت أرشفة "{{name}}"',
       archiveFailed: "تعذر أرشفة لوحة التحكم",
       configNotFound: "لم يتم العثور على التكوين",
       dashboardActions: "إجراءات لوحة القيادة",
@@ -9100,7 +9145,6 @@ const translatedAnalyticsDebtTranslations = {
       connectionAppId: "معرّف التطبيق",
       connectionAppUrl: "رابط التطبيق",
       connectionDatabaseUrl: "رابط قاعدة البيانات",
-      connectionAuthToken: "رمز المصادقة (اختياري)",
       saveConnection: "حفظ الاتصال",
       deleteConnection: "حذف الاتصال",
       deleteConnectionTitle: "هل تريد حذف اتصال قاعدة البيانات؟",
@@ -9112,6 +9156,8 @@ const translatedAnalyticsDebtTranslations = {
       addDescription: "أضف الوصف",
       addFirstPanel: "أضف اللوحة الأولى الخاصة بك",
       addPanel: "إضافة لوحة",
+      dashboardFallback: "لوحة المعلومات",
+      archived: 'تمت أرشفة "{{name}}"',
       archiveFailed: "تعذر أرشفة لوحة التحكم",
       clearAll: "مسح الكل",
       collapseFilters: "Collapse filters",
@@ -9403,6 +9449,10 @@ const translatedAnalyticsDebtCorrections = {
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "أضف وصفًا",
+      certifyForAi: "اعتماد لاستعلامات الذكاء الاصطناعي",
+      certifiedForAi: "معتمد لاستعلامات الذكاء الاصطناعي",
+      certificationSaved: "تم اعتماد لوحة المعلومات لاستعلامات الذكاء الاصطناعي",
+      certificationFailed: "تعذر اعتماد لوحة المعلومات: {{message}}",
       collapseFilters: "طي عوامل التصفية",
       refreshing: "جارٍ التحديث...",
     },
@@ -9434,6 +9484,11 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "Inaktive Lücken werden abgespielt",
     },
     sqlDashboard: {
+      certifyForAi: "Für KI-Abfragen zertifizieren",
+      certifiedForAi: "Für KI-Abfragen zertifiziert",
+      certificationSaved: "Dashboard für KI-Abfragen zertifiziert",
+      certificationFailed:
+        "Dashboard konnte nicht zertifiziert werden: {{message}}",
       refreshing: "Wird aktualisiert...",
     },
   },
@@ -9461,6 +9516,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "Reproduciendo pausas inactivas",
     },
     sqlDashboard: {
+      certifyForAi: "Certificar para consultas de IA",
+      certifiedForAi: "Certificado para consultas de IA",
+      certificationSaved: "Panel certificado para consultas de IA",
+      certificationFailed: "No se pudo certificar el panel: {{message}}",
       refreshing: "Actualizando...",
     },
   },
@@ -9492,6 +9551,10 @@ const translatedAnalyticsDebtCorrections = {
     },
     sqlDashboard: {
       formatSql: "Formater SQL",
+      certifyForAi: "Certifier pour les requêtes IA",
+      certifiedForAi: "Certifié pour les requêtes IA",
+      certificationSaved: "Tableau certifié pour les requêtes IA",
+      certificationFailed: "Impossible de certifier le tableau : {{message}}",
       refreshing: "Actualisation...",
     },
   },
@@ -9519,6 +9582,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "निष्क्रिय अंतराल चलाए जा रहे हैं",
     },
     sqlDashboard: {
+      certifyForAi: "AI क्वेरी के लिए प्रमाणित करें",
+      certifiedForAi: "AI क्वेरी के लिए प्रमाणित",
+      certificationSaved: "डैशबोर्ड को AI क्वेरी के लिए प्रमाणित किया गया",
+      certificationFailed: "डैशबोर्ड प्रमाणित नहीं हो सका: {{message}}",
       refreshing: "रीफ़्रेश हो रहा है...",
     },
   },
@@ -9546,6 +9613,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "非アクティブな間隔を再生中",
     },
     sqlDashboard: {
+      certifyForAi: "AI クエリ用に認定",
+      certifiedForAi: "AI クエリ用に認定済み",
+      certificationSaved: "ダッシュボードを AI クエリ用に認定しました",
+      certificationFailed: "ダッシュボードを認定できませんでした: {{message}}",
       refreshing: "更新中...",
     },
   },
@@ -9573,6 +9644,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "비활성 구간을 재생하는 중",
     },
     sqlDashboard: {
+      certifyForAi: "AI 쿼리용 인증",
+      certifiedForAi: "AI 쿼리용 인증됨",
+      certificationSaved: "대시보드가 AI 쿼리용으로 인증됨",
+      certificationFailed: "대시보드를 인증할 수 없음: {{message}}",
       refreshing: "새로고침 중...",
     },
   },
@@ -9600,6 +9675,11 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "Reproduzindo lacunas inativas",
     },
     sqlDashboard: {
+      certifyForAi: "Certificar para consultas de IA",
+      certifiedForAi: "Certificado para consultas de IA",
+      certificationSaved: "Dashboard certificado para consultas de IA",
+      certificationFailed:
+        "Não foi possível certificar o dashboard: {{message}}",
       refreshing: "Atualizando...",
     },
   },
@@ -9627,6 +9707,10 @@ const translatedAnalyticsDebtCorrections = {
       skipInactiveOff: "正在播放非活动间隔",
     },
     sqlDashboard: {
+      certifyForAi: "认证用于 AI 查询",
+      certifiedForAi: "已认证用于 AI 查询",
+      certificationSaved: "仪表板已认证用于 AI 查询",
+      certificationFailed: "无法认证仪表板：{{message}}",
       refreshing: "正在刷新...",
     },
   },
@@ -10201,7 +10285,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "配置 S3 存储",
       title: "会话",
       description:
-        "查看 Agent Native Analytics 捕获的第一方浏览器会话和回放记录。",
+        "查看 Agent-Native Analytics 捕获的第一方浏览器会话和回放记录。",
       filters: "筛选器",
       filtersDescription:
         "筛选器保存在 URL 中，因此代理和共享链接会看到同一份会话列表。",
@@ -10323,7 +10407,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "Configurar almacenamiento S3",
       title: "Sesiones",
       description:
-        "Revisa sesiones de navegador propias y grabaciones de reproducción capturadas por Agent Native Analytics.",
+        "Revisa sesiones de navegador propias y grabaciones de reproducción capturadas por Agent-Native Analytics.",
       filters: "Filtros",
       filtersDescription:
         "Los filtros se guardan en la URL para que el agente y los enlaces compartidos vean la misma lista de sesiones.",
@@ -10449,7 +10533,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "Configurer le stockage S3",
       title: "Sessions",
       description:
-        "Consultez les sessions de navigateur first-party et les enregistrements de relecture capturés par Agent Native Analytics.",
+        "Consultez les sessions de navigateur first-party et les enregistrements de relecture capturés par Agent-Native Analytics.",
       filters: "Filtres",
       filtersDescription:
         "Les filtres sont stockés dans l'URL afin que l'agent et les liens partagés voient la même liste de sessions.",
@@ -10578,7 +10662,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "S3-Speicher konfigurieren",
       title: "Sitzungen",
       description:
-        "Prüfe First-Party-Browsersitzungen und Wiedergabeaufzeichnungen aus Agent Native Analytics.",
+        "Prüfe First-Party-Browsersitzungen und Wiedergabeaufzeichnungen aus Agent-Native Analytics.",
       filters: "Filter",
       filtersDescription:
         "Filter werden in der URL gespeichert, damit Agent und geteilte Links dieselbe Sitzungsliste sehen.",
@@ -10703,7 +10787,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "S3 ストレージを設定",
       title: "セッション",
       description:
-        "Agent Native Analytics が取得したファーストパーティのブラウザーセッションとリプレイ記録を確認します。",
+        "Agent-Native Analytics が取得したファーストパーティのブラウザーセッションとリプレイ記録を確認します。",
       filters: "フィルター",
       filtersDescription:
         "フィルターは URL に保存されるため、エージェントと共有リンクで同じセッション一覧を表示できます。",
@@ -10829,7 +10913,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "S3 저장소 구성",
       title: "세션",
       description:
-        "Agent Native Analytics가 캡처한 퍼스트파티 브라우저 세션과 리플레이 기록을 검토합니다.",
+        "Agent-Native Analytics가 캡처한 퍼스트파티 브라우저 세션과 리플레이 기록을 검토합니다.",
       filters: "필터",
       filtersDescription:
         "필터는 URL에 저장되므로 에이전트와 공유 링크가 같은 세션 목록을 봅니다.",
@@ -10954,7 +11038,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "Configurar armazenamento S3",
       title: "Sessões",
       description:
-        "Revise sessões de navegador first-party e gravações de replay capturadas pelo Agent Native Analytics.",
+        "Revise sessões de navegador first-party e gravações de replay capturadas pelo Agent-Native Analytics.",
       filters: "Filtros",
       filtersDescription:
         "Os filtros ficam salvos na URL para que o agente e links compartilhados vejam a mesma lista de sessões.",
@@ -11078,7 +11162,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "S3 स्टोरेज कॉन्फ़िगर करें",
       title: "सत्र",
       description:
-        "Agent Native Analytics द्वारा कैप्चर किए गए प्रथम-पक्ष ब्राउज़र सत्र और रीप्ले रिकॉर्डिंग देखें।",
+        "Agent-Native Analytics द्वारा कैप्चर किए गए प्रथम-पक्ष ब्राउज़र सत्र और रीप्ले रिकॉर्डिंग देखें।",
       filters: "फ़िल्टर",
       filtersDescription:
         "फ़िल्टर URL में सहेजे जाते हैं ताकि एजेंट और साझा लिंक वही सत्र सूची देखें।",
@@ -11199,7 +11283,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "تهيئة تخزين S3",
       title: "الجلسات",
       description:
-        "راجع جلسات المتصفح من الطرف الأول وتسجيلات إعادة التشغيل التي يلتقطها Agent Native Analytics.",
+        "راجع جلسات المتصفح من الطرف الأول وتسجيلات إعادة التشغيل التي يلتقطها Agent-Native Analytics.",
       filters: "عوامل التصفية",
       filtersDescription:
         "تُحفظ عوامل التصفية في URL حتى يرى الوكيل والروابط المشتركة قائمة الجلسات نفسها.",
@@ -13018,6 +13102,8 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "需要管理员权限",
       adminOnlyDescription:
         "只有组织所有者和管理员可以打开 Analytics 管理工具。",
+      roleUnavailableTitle: "无法验证你的访问权限",
+      roleUnavailableDescription: "无法检查你的组织角色：{{message}}",
       notTracked: "未跟踪",
       visibilityprivate: "私有",
       visibilityorg: "与组织共享",
@@ -13066,6 +13152,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "Se requiere acceso de administrador",
       adminOnlyDescription:
         "Solo los propietarios y administradores de la organización pueden abrir las herramientas de administración de Analytics.",
+      roleUnavailableTitle: "No se pudo verificar tu acceso",
+      roleUnavailableDescription:
+        "No pudimos comprobar tu rol en la organización: {{message}}",
       notTracked: "No registrado",
       visibilityprivate: "Privado",
       visibilityorg: "Compartido con la organización",
@@ -13114,6 +13203,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "Accès administrateur requis",
       adminOnlyDescription:
         "Seuls les propriétaires et administrateurs de l'organisation peuvent ouvrir les outils d'administration Analytics.",
+      roleUnavailableTitle: "Impossible de vérifier votre accès",
+      roleUnavailableDescription:
+        "Nous n'avons pas pu vérifier votre rôle dans l'organisation : {{message}}",
       notTracked: "Non suivi",
       visibilityprivate: "Privé",
       visibilityorg: "Partagé avec l'organisation",
@@ -13162,6 +13254,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "Adminzugriff erforderlich",
       adminOnlyDescription:
         "Nur Organisationsinhaber und Administratoren können Analytics-Admin-Tools öffnen.",
+      roleUnavailableTitle: "Zugriff konnte nicht überprüft werden",
+      roleUnavailableDescription:
+        "Deine Organisationsrolle konnte nicht überprüft werden: {{message}}",
       notTracked: "Nicht erfasst",
       visibilityprivate: "Privat",
       visibilityorg: "Mit Organisation geteilt",
@@ -13210,6 +13305,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "管理者アクセスが必要です",
       adminOnlyDescription:
         "組織の所有者と管理者のみが Analytics 管理ツールを開けます。",
+      roleUnavailableTitle: "アクセス権を確認できませんでした",
+      roleUnavailableDescription:
+        "組織内のロールを確認できませんでした: {{message}}",
       notTracked: "未追跡",
       visibilityprivate: "非公開",
       visibilityorg: "組織と共有",
@@ -13257,6 +13355,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "관리자 권한 필요",
       adminOnlyDescription:
         "조직 소유자와 관리자만 Analytics 관리 도구를 열 수 있습니다.",
+      roleUnavailableTitle: "접근 권한을 확인할 수 없습니다",
+      roleUnavailableDescription:
+        "조직 역할을 확인하지 못했습니다: {{message}}",
       notTracked: "추적 안 됨",
       visibilityprivate: "비공개",
       visibilityorg: "조직과 공유됨",
@@ -13305,6 +13406,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "Acesso de administrador necessário",
       adminOnlyDescription:
         "Somente proprietários e administradores da organização podem abrir as ferramentas administrativas do Analytics.",
+      roleUnavailableTitle: "Não foi possível verificar seu acesso",
+      roleUnavailableDescription:
+        "Não conseguimos verificar sua função na organização: {{message}}",
       notTracked: "Não rastreado",
       visibilityprivate: "Privado",
       visibilityorg: "Compartilhado com a organização",
@@ -13352,6 +13456,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "एडमिन access आवश्यक है",
       adminOnlyDescription:
         "केवल organization owners और admins Analytics admin tools खोल सकते हैं।",
+      roleUnavailableTitle: "आपका access सत्यापित नहीं किया जा सका",
+      roleUnavailableDescription:
+        "हम आपकी organization role जांच नहीं सके: {{message}}",
       notTracked: "ट्रैक नहीं किया गया",
       visibilityprivate: "निजी",
       visibilityorg: "संगठन के साथ साझा",
@@ -13400,6 +13507,8 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "مطلوب وصول مسؤول",
       adminOnlyDescription:
         "يمكن لمالكي المؤسسة والمسؤولين فقط فتح أدوات إدارة Analytics.",
+      roleUnavailableTitle: "تعذر التحقق من وصولك",
+      roleUnavailableDescription: "تعذر التحقق من دورك في المؤسسة: {{message}}",
       notTracked: "غير متتبع",
       visibilityprivate: "خاص",
       visibilityorg: "مشترك مع المؤسسة",

@@ -15,6 +15,7 @@ import { useMemo } from "react";
 import messages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
+import { formsAccessDescriptor } from "../../shared/app-roles";
 
 export function meta() {
   return [{ title: messages.routeTitles.settingsForms }];
@@ -22,7 +23,10 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  // /extensions redirects here and the agent's own navigate instructions list
+  // "extensions" as a workspace view, so the settings tab must exist too —
+  // otherwise /settings/extensions silently falls back to General.
+  const agentSettingsTabs = useAgentSettingsTabs({ extensionTools: true });
   useSetPageTitle(t("settings.title"));
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
@@ -67,6 +71,7 @@ export default function SettingsRoute() {
         <div className="mx-auto w-full max-w-3xl">
           <TeamPage
             showTitle={false}
+            appRoles={formsAccessDescriptor}
             createOrgDescription="Set up a team to share forms and view responses together."
           />
         </div>

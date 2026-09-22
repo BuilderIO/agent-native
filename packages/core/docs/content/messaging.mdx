@@ -5,11 +5,13 @@ description: "Talk to your agent from Slack, Microsoft Teams, Discord interactio
 
 # Messaging
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 Connect your agent to Slack, Microsoft Teams, Discord interactions, email, Telegram, or WhatsApp. It's the same agent — same memory, same tools, same threads — just reachable from more places.
 
 <Callout tone="info">
 
-**Using the Dispatch template?** All of this is wired up for you in **Settings → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/dispatch) or the [Dispatch template reference](/docs/template-dispatch).
+**Using the Dispatch template?** All of this is wired up for you in **Admin → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/dispatch) or the [Dispatch template reference](/docs/template-dispatch).
 
 </Callout>
 
@@ -86,13 +88,13 @@ Managed OAuth is the recommended setup for Dispatch and multi-workspace apps.
 Each install gets its own encrypted bot-token bundle and health record, and
 Slack workspace, app, channel, and thread IDs are part of the conversation key.
 
-1. In **Settings → Messaging**, select **Agent manifest** to download the
+1. In **Admin → Messaging**, select **Agent manifest** to download the
    host-specific `agent-native-slack-manifest.json`, then create or update your
    Slack app at **[api.slack.com/apps](https://api.slack.com/apps)** by importing
    it from **App Manifest**. The manifest enables Slack's current `agent_view`
    experience plus a writable App Home **Messages** tab for direct messages.
    Slack app icons are not part of the manifest. Under **Basic Information →
-   Display Information**, upload the Agent Native icon so the Agents picker
+   Display Information**, upload the Agent-Native icon so the Agents picker
    matches the product; you can use the app's public `icon-512.svg` as the source
    and convert it to a Slack-supported upload format if needed.
 2. Verify that the manifest requests these exact **Bot Token Scopes** under
@@ -137,7 +139,7 @@ Slack workspace, app, channel, and thread IDs are part of the conversation key.
    ```
 
 6. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and
-   `SLACK_SIGNING_SECRET` on your app. Then open **Settings → Messaging** and
+   `SLACK_SIGNING_SECRET` on your app. Then open **Admin → Messaging** and
    click **Add to Slack**. Only an organization owner or admin can create a
    shared workspace install.
 7. Reinstall the Slack app after applying or changing the manifest, scopes,
@@ -184,7 +186,7 @@ take precedence.
   `assistant:write` enables Agent View context events; `chat:write` powers
   replies and live status updates.
 - **Personal and channel identity.** A personal Slack DM is accepted only for a
-  verified Agent Native organization member or a Slack identity already linked
+  verified Agent-Native organization member or a Slack identity already linked
   to that member. Configured channels instead run as the channel's explicit
   service principal, with separate channel policies and budgets, so shared tools
   and connections do not silently inherit the latest speaker's personal access.
@@ -229,7 +231,7 @@ and `link_shared` events to the Clips unfurl handler.
 
 - **Channel mentions** — use an @mention to start work. Each channel turn must explicitly mention the agent; ordinary thread replies and general channel chatter do not invoke it.
 - **DMs** — accepted personal DMs are private conversations and require a verified organization member or linked Slack identity.
-- **Identity** — personal DMs require a verified Agent Native organization member or an already linked Slack identity. Configured channels use a separate service principal, policy, and budget.
+- **Identity** — personal DMs require a verified Agent-Native organization member or an already linked Slack identity. Configured channels use a separate service principal, policy, and budget.
 - **Production allowlists** — set `SLACK_ALLOWED_TEAM_IDS` and, for shared Slack apps, `SLACK_ALLOWED_API_APP_IDS` so a valid signing secret cannot be reused by an unexpected workspace.
 - **Clips app unfurls** — Clips can share the managed Slack app credentials, but a Slack app has only one Events API Request URL; route `link_shared` to Clips when chat and unfurls share an app.
 
@@ -415,7 +417,7 @@ Why this is nice:
 
 - **One agent, one inbox.** All your channels (Slack, email, Telegram, WhatsApp) flow into Dispatch. You only set up integrations once.
 - **Dispatch delegates.** Ask "summarize last week's signups" — Dispatch calls the analytics agent. Ask "draft a reply to Alice" — Dispatch calls the mail agent.
-- **Clicks, not config.** Dispatch's **Settings → Messaging** page has connect buttons for every platform with the env-var fields built in.
+- **Clicks, not config.** Dispatch's **Admin → Messaging** page has connect buttons for every platform with the env-var fields built in.
 
 If you don't need an orchestrator, any single template can wire up messaging directly using the env vars on this page.
 

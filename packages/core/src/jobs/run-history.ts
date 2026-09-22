@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -176,7 +176,6 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS ${TABLE} (
           id TEXT PRIMARY KEY,
@@ -189,27 +188,27 @@ export async function ensureTable(): Promise<void> {
             run_id TEXT,
           thread_id TEXT,
           status TEXT NOT NULL DEFAULT 'running',
-          started_at ${intType()} NOT NULL,
-          finished_at ${intType()},
+          started_at BIGINT NOT NULL,
+          finished_at BIGINT,
           error TEXT,
           error_code TEXT,
-          claimed_at ${intType()},
-          dispatch_pending ${intType()} NOT NULL DEFAULT 0
+          claimed_at BIGINT,
+          dispatch_pending BIGINT NOT NULL DEFAULT 0
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation ON ${TABLE} (owner, automation, started_at)`;
 
-      if (isPostgres()) {
+      {
         await ensureTableExists(TABLE, createSql);
         await ensureColumnExists(
           TABLE,
           "claimed_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS claimed_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS claimed_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
           "dispatch_pending",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS dispatch_pending ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS dispatch_pending BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           TABLE,
@@ -219,36 +218,6 @@ export async function ensureTable(): Promise<void> {
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
         return;
       }
-
-      await client.execute(createSql);
-      const { rows } = await client.execute(`PRAGMA table_info("${TABLE}")`);
-      const columns = new Set(
-        rows.map((row) => String((row as Record<string, unknown>).name)),
-      );
-      for (const [name, definition] of [
-        ["claimed_at", `${intType()}`],
-        ["dispatch_pending", `${intType()} NOT NULL DEFAULT 0`],
-        ["app_id", "TEXT"],
-        ["error_code", "TEXT"],
-      ] as const) {
-        if (columns.has(name)) continue;
-        try {
-          await client.execute(
-            `ALTER TABLE ${TABLE} ADD COLUMN ${name} ${definition}`,
-          );
-        } catch (error) {
-          const message = String(
-            (error as { message?: unknown } | null)?.message ?? error,
-          );
-          if (
-            !/duplicate column name/i.test(message) &&
-            !/column .* already exists/i.test(message)
-          ) {
-            throw error;
-          }
-        }
-      }
-      await client.execute(indexSql);
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -258,22 +227,22 @@ export async function ensureTable(): Promise<void> {
 }
 
 function toRun(row: Record<string, unknown>, now: number): AutomationRun {
-  const stored = String(row.status) as AutomationRunStatus;
+  const stored = stringifyValue(row.status) as AutomationRunStatus;
   const startedAt = Number(row.started_at);
   const status: AutomationRunStatus =
     stored === "running" && now - startedAt > resolveRunLivenessCeilingMs()
       ? "interrupted"
       : stored;
   return {
-    id: String(row.id),
-    owner: String(row.owner),
-    automation: String(row.automation),
-    path: String(row.path),
-    scope: row.scope == null ? null : String(row.scope),
-    orgId: row.org_id == null ? null : String(row.org_id),
-    appId: row.app_id == null ? null : String(row.app_id),
-    runId: row.run_id == null ? null : String(row.run_id),
-    threadId: row.thread_id == null ? null : String(row.thread_id),
+    id: stringifyValue(row.id),
+    owner: stringifyValue(row.owner),
+    automation: stringifyValue(row.automation),
+    path: stringifyValue(row.path),
+    scope: row.scope == null ? null : stringifyValue(row.scope),
+    orgId: row.org_id == null ? null : stringifyValue(row.org_id),
+    appId: row.app_id == null ? null : stringifyValue(row.app_id),
+    runId: row.run_id == null ? null : stringifyValue(row.run_id),
+    threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
     status,
     startedAt,
     finishedAt: row.finished_at == null ? null : Number(row.finished_at),
@@ -282,13 +251,13 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
         ? INTERRUPTED_RUN_MESSAGE
         : row.error == null
           ? null
-          : String(row.error),
+          : stringifyValue(row.error),
     errorCode:
       row.error_code == null && status === "interrupted"
         ? INTERRUPTED_RUN_ERROR_CODE
         : row.error_code == null
           ? null
-          : String(row.error_code),
+          : stringifyValue(row.error_code),
   };
 }
 
@@ -379,6 +348,16 @@ export async function listUnclaimedAutomationRuns(options?: {
   );
 }
 
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Drop the oldest rows for one automation once it exceeds the retention cap.
  *
@@ -435,19 +414,19 @@ export async function finishAutomationRun(
       "automation.run.finished",
       {
         automationRunId: id,
-        owner: String(row.owner),
-        automation: String(row.automation),
-        path: String(row.path),
-        orgId: row.org_id == null ? null : String(row.org_id),
-        runId: row.run_id == null ? null : String(row.run_id),
-        threadId: row.thread_id == null ? null : String(row.thread_id),
+        owner: stringifyValue(row.owner),
+        automation: stringifyValue(row.automation),
+        path: stringifyValue(row.path),
+        orgId: row.org_id == null ? null : stringifyValue(row.org_id),
+        runId: row.run_id == null ? null : stringifyValue(row.run_id),
+        threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
         status,
         error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
         errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
         durationMs:
           startedAt === null ? null : Math.max(0, finishedAt - startedAt),
       },
-      { owner: String(row.owner) },
+      { owner: stringifyValue(row.owner) },
     );
   } catch (eventError) {
     // History is the source of truth. A subscriber must never turn a recorded

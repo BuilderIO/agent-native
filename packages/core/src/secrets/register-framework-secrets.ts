@@ -14,6 +14,7 @@
  * key with stricter requirements; the guard below preserves their definition.
  */
 
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { getRequiredSecret, registerRequiredSecret } from "./register.js";
 
 export function registerFrameworkSecrets(): void {
@@ -29,7 +30,7 @@ export function registerFrameworkSecrets(): void {
       id: "google_drive",
       credentialPrefix: "GOOGLE",
       oauthProvider: "google",
-      label: "Google Drive",
+      label: "Google Workspace",
       docsUrl:
         "https://developers.google.com/identity/protocols/oauth2/web-server",
     },
@@ -111,7 +112,9 @@ export function registerFrameworkSecrets(): void {
         kind: "oauth",
         required: false,
         oauthProvider: provider.oauthProvider,
-        oauthConnectUrl: `/_agent-native/connections/oauth/${provider.id}/start`,
+        oauthConnectUrl: publicFrameworkPath(
+          `/_agent-native/connections/oauth/${provider.id}/start`,
+        ),
       });
     }
   }
@@ -164,6 +167,81 @@ export function registerFrameworkSecrets(): void {
               error: `OpenAI rejected the key (HTTP ${response.status}).`,
             };
       },
+    });
+  }
+
+  if (!getRequiredSecret("JEV_API_KEY")) {
+    registerRequiredSecret({
+      key: "JEV_API_KEY",
+      label: "Decision model (Jev)",
+      description:
+        "Optional TypeSafe Jev key for semantic tool selection before the agent's first model request.",
+      docsUrl: "https://docs.typesafe.ai/",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+      validator: async (value) => {
+        const response = await fetch("https://api.typesafe.ai/v1/models", {
+          headers: { Authorization: `Bearer ${value}` },
+        });
+        return response.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              error: `Jev rejected the key (HTTP ${response.status}).`,
+            };
+      },
+    });
+  }
+
+  // The other AI SDK providers the engine can run on. Registering them here
+  // is what makes them show up in Settings → API keys, so bringing your own
+  // OpenRouter or Gemini key is the same flow as OpenAI or Anthropic.
+  const modelProviderKeys: {
+    key: string;
+    label: string;
+    description: string;
+    docsUrl: string;
+  }[] = [
+    {
+      key: "OPENROUTER_API_KEY",
+      label: "OpenRouter API key",
+      description:
+        "Route model calls through OpenRouter's catalog of providers.",
+      docsUrl: "https://openrouter.ai/settings/keys",
+    },
+    {
+      key: "GOOGLE_GENERATIVE_AI_API_KEY",
+      label: "Google Gemini API key",
+      description: "Run Gemini models with your own Google AI Studio key.",
+      docsUrl: "https://aistudio.google.com/app/apikey",
+    },
+    {
+      key: "GROQ_API_KEY",
+      label: "Groq API key",
+      description: "Run open models on Groq's inference service.",
+      docsUrl: "https://console.groq.com/keys",
+    },
+    {
+      key: "MISTRAL_API_KEY",
+      label: "Mistral API key",
+      description: "Run Mistral models with your own key.",
+      docsUrl: "https://console.mistral.ai/api-keys",
+    },
+    {
+      key: "COHERE_API_KEY",
+      label: "Cohere API key",
+      description: "Run Cohere models with your own key.",
+      docsUrl: "https://dashboard.cohere.com/api-keys",
+    },
+  ];
+  for (const entry of modelProviderKeys) {
+    if (getRequiredSecret(entry.key)) continue;
+    registerRequiredSecret({
+      ...entry,
+      scope: "user",
+      kind: "api-key",
+      required: false,
     });
   }
 

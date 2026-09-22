@@ -58,11 +58,16 @@ const ptBR = {
     draftLabel: "Rascunho",
     draftDescription:
       "Esta página está em andamento. O conteúdo pode estar incompleto ou sujeito a alterações antes da publicação.",
+    translationLabel: "Traduzido automaticamente",
+    translationDescription:
+      "Esta página foi traduzida automaticamente e pode não ser totalmente precisa.",
+    translationViewOriginal: "Ver o original em inglês",
   },
   search: {
     dialogLabel: "Pesquisar documentação",
     placeholder: "Pesquisar documentação...",
     empty: "Digite para pesquisar em toda a documentação",
+    toggleChatSidebar: "Alternar barra lateral do chat",
     loadError: "A busca não pôde ser carregada. Tente novamente.",
     retry: "Tentar novamente",
     noResults: 'Nenhum resultado para "{{query}}"',
@@ -156,8 +161,8 @@ const ptBR = {
           body: "Defina o trabalho uma vez e use pela UI, agent, HTTP, MCP, A2A e CLI.",
         },
         sqlStateOrm: {
-          title: "Estado SQL e ORM",
-          body: "Dados duráveis da app, estado da aplicação, migrações e esquemas independentes de provedor.",
+          title: "Estado PostgreSQL e ORM",
+          body: "Dados duráveis da app, estado da aplicação, migrações e esquemas PostgreSQL/PGlite.",
         },
         dbAdmin: {
           title: "Admin de banco de dados",
@@ -210,7 +215,7 @@ const ptBR = {
       body1:
         "Agent-Native é um framework open source para construir agentic applications: comece com Chat, defina actions compartilhadas e depois adicione UI, jobs e colaboração ao redor do mesmo estado.",
       body2:
-        "Traga seu próprio banco de dados, provedor de hospedagem, stack de modelos e código da app.",
+        "Use PGlite local ou PostgreSQL hospedado, seu provedor de hospedagem, stack de modelos e código da app.",
       cta: "Ler o guia do framework",
       primitives: {
         actions: {
@@ -228,10 +233,10 @@ const ptBR = {
           description:
             "O app-agent loop, tools, skills, memory, jobs e observabilidade são entregues juntos.",
         },
-        backendAgnostic: {
-          title: "Independente de backend",
+        postgresSpecific: {
+          title: "Específico de PostgreSQL",
           description:
-            "Conecte qualquer banco de dados SQL compatível com Drizzle e qualquer host compatível com Nitro.",
+            "Use os auxiliares de esquema PostgreSQL da estrutura com PGlite local ou Postgres hospedado em qualquer host compatível com Nitro.",
         },
       },
     },
@@ -310,7 +315,7 @@ const ptBR = {
     },
     quickStart: {
       title: "Comece com um comando",
-      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e SQLite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
+      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e PGlite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
     },
     finalCta: {
       title: "Software feito para a era agentic",
@@ -415,6 +420,7 @@ const ptBR = {
   },
   common: {
     copied: "Copiado",
+    copyFailed: "Falha ao copiar",
     copyCommand: "Comando copiar",
     copyCode: "Copiar código",
     tryIt: "Experimentar",
@@ -432,25 +438,188 @@ const ptBR = {
     freeAndOpenSource: "100% grátis • código aberto",
     viewAllApps: "Ver todos os apps",
   },
+  homepage: {
+    hero: {
+      title: "O framework para aplicativos agentic",
+      bodyLine1: "Crie agentes autônomos com interfaces intuitivas.",
+      bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
+      tryAnApp: "Experimentar um app",
+    },
+    install: {
+      copyCommand: "Copiar comando de instalação",
+    },
+    actions: {
+      title: "Uma Action alimenta cada superfície",
+      bodyLine1: "Defina uma capacidade uma vez com defineAction().",
+      bodyLine2:
+        "Seu agente, sua UI React, clientes HTTP e integrações usam o mesmo código.",
+      diagramAlt:
+        "Uma Action alimenta UI, MCP, chat do agente, A2A, HTTP API e CLI",
+    },
+    builtIn: {
+      title: "Tudo o que seu agente precisa",
+      body: "UI, contexto, dados, permissões e infraestrutura, já conectados entre si.",
+      pillars: {
+        reactUi: {
+          title: "UI em React",
+          body: "Dê aos usuários telas familiares para navegar, editar e revisar trabalho.",
+        },
+        agentChat: {
+          title: "Chat de agente incorporado",
+          body: "Deixe os usuários delegarem trabalho, fazerem perguntas e revisarem resultados na mesma UI.",
+        },
+        sharedState: {
+          title: "Estado de aplicação compartilhado",
+          body: "O agente sabe o que os usuários estão vendo, selecionando e editando.",
+        },
+        sharedSql: {
+          title: "Dados PostgreSQL compartilhados",
+          body: "Usuários e agentes leem e atualizam a mesma fonte de verdade.",
+        },
+        skillsMemory: {
+          title: "Habilidades e memória",
+          body: "Dê aos agentes expertise reutilizável e contexto persistente.",
+        },
+        automations: {
+          title: "Automações",
+          body: "Execute trabalho do agente automaticamente por horários ou eventos.",
+        },
+        agentTeams: {
+          title: "Equipes de agentes",
+          body: "Delegue trabalho a agentes especializados no mesmo workspace ou entre agentes conectados.",
+        },
+        auth: {
+          title: "Autenticação e organizações",
+          body: "Login, contas de usuário e associação a organizações já vêm integrados.",
+        },
+        sharing: {
+          title: "Compartilhamento e permissões",
+          body: "Controle quem pode visualizar, comentar, editar ou gerenciar cada recurso.",
+        },
+      },
+    },
+    stack: {
+      title: "Traga sua própria stack",
+      body: "Agent-Native é TypeScript de código aberto. Escolha seu modelo, banco de dados e hospedagem, e mantenha o código da aplicação no seu repositório.",
+      exploreApps: "Explore apps criados com Agent-Native",
+    },
+    showcase: {
+      title: "Apps reais criados com Agent-Native",
+      body: "Apps Agent-Native de código aberto que você pode usar gratuitamente ou personalizar infinitamente.",
+      browseApps: "Explorar apps",
+      scrollLeft: "Rolar apps para a esquerda",
+      scrollRight: "Rolar apps para a direita",
+    },
+    bottomCta: {
+      title: "Crie seu primeiro agente com uma UI",
+      body: "O agente e a UI compartilham as mesmas capacidades. Traga seu próprio LLM e implante em qualquer lugar.",
+    },
+    footer: {
+      tagline: "O framework para aplicativos agentic.",
+      framework: "Framework",
+      ecosystem: "Ecossistema",
+      community: "Comunidade",
+      legal: "Legal",
+      docs: "Documentação",
+      download: "Baixar",
+      apps: "Apps",
+      privacyPolicy: "Política de Privacidade",
+      saasTerms: "Termos de SaaS",
+      legalResources: "Recursos jurídicos",
+    },
+  },
+  gettingStarted: {
+    tabs: {
+      label: "Escolha como criar",
+      local: "Criar localmente",
+      localDescription: "Use a CLI para criar no seu computador.",
+      cloud: "Criar na nuvem",
+      cloudDescription: "Crie no navegador com o Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Crie os mesmos aplicativos sem instalar nada. Descreva o que você quer e o agente escreve e executa o código em um espaço de trabalho hospedado pelo Builder.",
+      stepOneTitle: "Crie uma conta no Builder",
+      stepOneBody:
+        "Use sua conta do Builder para criar no navegador. Comece gratuitamente, sem precisar fornecer chaves de API.",
+      stepTwoTitle: "Envie seu prompt",
+      stepTwoBody:
+        "Descreva em linguagem simples o que você quer criar e o agente fará isso por você.",
+      stepThreeTitle: "Publique",
+      stepThreeBody:
+        "Quando estiver pronto, publique seu agente e sua UI com um clique no Builder.",
+    },
+  },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
     eyebrow: "Comece com uma app funcional e deixe o agente evoluí-la.",
     body: "Você pode personalizar tudo.",
+    firstPartyTitle: "Criados pelo Agent-Native",
     community:
       "Quer uma app em branco? Comece do zero com o guia do framework.",
     createYourOwn: "Começar do zero",
-    communityTitle: "Modelos da comunidade",
+    communityTitle: "Aplicativos da comunidade",
     communityDescription:
-      "Aplicativos independentes mantidos por seus autores. Instale a partir de um repositório público do GitHub ou experimente uma versão hospedada quando disponível.",
-    submitCommunityTemplate: "Enviar seu modelo",
+      "Descubra aplicativos mantidos por seus autores. Experimente uma versão hospedada quando disponível ou veja o código-fonte e personalize por conta própria.",
+    submitCommunityTemplate: "Enviar um aplicativo",
     communityEmpty:
-      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado em um repositório público e envie-o para o catálogo.",
+      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado e envie-o para o catálogo.",
     publishGuide: "Ler o guia de publicação",
     communityTrust:
-      "Modelos da comunidade são código de terceiros. Revise o repositório, a licença, as dependências e os scripts de instalação antes de executá-lo.",
+      "Aplicativos da comunidade são código de terceiros. Revise o código-fonte, a licença, as dependências e os scripts de instalação antes de executá-los.",
     copyCommunityInstallCommand: "Copiar comando de instalação",
     viewRepository: "Ver repositório",
     tryCommunityDemo: "Experimentar demo",
+    customizeDescription: "Use este app como ponto de partida.",
+    customizeOnline: "Online",
+    customizeOnlineBadge: "Entrar na lista de espera",
+    customizeLocally: "Local",
+    communityNew: "Novo",
+    communityComingSoon: "Em breve",
+    communityGithubStars: "{{count}} estrelas no GitHub",
+    tryCommunityApp: "Experimentar aplicativo",
+    viewCommunitySource: "Ver código-fonte",
+    communityEyebrow: "Aplicativo da comunidade",
+    communityScreenshots: "Capturas de tela",
+    previousScreenshot: "Captura anterior",
+    nextScreenshot: "Próxima captura",
+    communityNoScreenshots: "As capturas aparecerão aqui após a revisão.",
+    communityScreenshotAlt: "Captura {{index}} de {{name}}",
+    communityNoHostedVersion:
+      "Uma versão hospedada estará disponível em breve. Acompanhe o desenvolvimento pelo código-fonte.",
+    communitySubmissionTitle: "Compartilhe um aplicativo da comunidade",
+    communitySubmissionDescription:
+      "Conte onde encontrar seu aplicativo e o que ele faz. Revisaremos os detalhes antes de publicar a listagem.",
+    communitySubmissionName: "Nome do aplicativo",
+    communitySubmissionNamePlaceholder: "Central de suporte ao cliente",
+    communitySubmissionUrl: "URL do aplicativo",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "Descrição",
+    communitySubmissionDescriptionPlaceholder:
+      "O que o aplicativo faz e para quem ele é?",
+    communitySubmissionRepository: "Repositório do GitHub (opcional)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Capturas de tela (opcional)",
+    communitySubmissionScreenshotsPlaceholder: "Solte até 5 imagens aqui",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG ou WebP. Máximo de 1,5 MB cada.",
+    communitySubmissionScreenshotSlot: "Captura {{index}}",
+    communitySubmissionScreenshotsAdd: "Adicionar capturas",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 selecionadas",
+    communitySubmissionScreenshotRemove: "Remover captura {{index}}",
+    communitySubmissionSubmit: "Enviar aplicativo",
+    communitySubmissionReady:
+      "Obrigado. Vamos revisar seu aplicativo antes de publicá-lo.",
+    communitySubmissionNameError: "Insira um nome para o aplicativo.",
+    communitySubmissionDescriptionError: "Adicione uma descrição curta.",
+    communitySubmissionUrlError: "Insira um link válido, como example.com.",
+    communitySubmissionRepositoryError:
+      "Insira um link de repositório do GitHub.",
+    communitySubmissionScreenshotsError:
+      "Use imagens PNG, JPG ou WebP de até 1,5 MB cada, com no máximo 5 imagens.",
+    communitySubmissionSubmitError:
+      "Não foi possível enviar agora. Verifique os campos destacados e tente novamente.",
+    communitySubmissionSubmitting: "Enviando…",
   },
   buildFromScratch: {
     title: "Criar do zero",
@@ -458,8 +627,10 @@ const ptBR = {
       "Comece com o guia do framework ou crie online com o agente de programação em nuvem da Builder.io.",
     readDocs: "Ler a documentação",
     buildOnline: "Criar online",
-    popoverTitle: "Criar online com a Builder.io",
+    popoverTitle: "Criar no navegador",
     popoverBody:
+      "Gere rapidamente apps agent-native na nuvem com a Builder.io.",
+    waitlistBody:
       "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
     emailLabel: "Email",
     emailPlaceholder: "voce@empresa.com",
@@ -469,6 +640,9 @@ const ptBR = {
       "Você está na lista de espera. Enviaremos um email quando o acesso para criar online abrir.",
     invalidEmail: "Insira um endereço de email válido.",
     submitError: "Não foi possível entrar na lista de espera. Tente novamente.",
+    waitlistUnavailable:
+      "As inscrições na lista de espera ainda não estão disponíveis neste ambiente. Tente o site de documentação hospedado.",
+    launchBuilder: "Abrir o Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Cole em seu terminal.",
@@ -488,7 +662,7 @@ const ptBR = {
     clips: {
       replaces: "Substitui ou amplia Loom, Granola e Wisprflow",
       description:
-        "Gravações de tela com captura de depuração do navegador, notas de reuniões sincronizadas com o calendário e ditado de voz em espera Fn — tudo transcrito, resumido e pesquisável, com um agente que pode editar qualquer um deles.",
+        "Grava sua tela, reuniões e notas de voz para que os agentes entendam o que aconteceu e tomem providências.",
     },
     plan: {
       replaces:
@@ -499,27 +673,27 @@ const ptBR = {
     design: {
       replaces: "Substitui ou amplia ferramentas de prototipagem de design",
       description:
-        "Estúdio de prototipagem HTML agent-native. Gere designs Alpine/Tailwind interativos, compare variantes, ajuste controles ao vivo e exporte o resultado.",
+        "Transforma prompts em designs interativos que seguem seu sistema de design enquanto o agente refina cada tela com seu feedback.",
     },
     content: {
       replaces: "Substitui ou aumenta Obsidian por MDX, Notion, Google Docs",
       description:
-        "Edite arquivos Markdown/MDX locais como Obsidian, gere blocos personalizados interativos avançados e use um agente AI para redigir, reescrever e publicar.",
+        "Trabalha com seus documentos enquanto um agente escreve com sua voz, cria conteúdo interativo e publica no seu site.",
     },
     slides: {
       replaces: "Substitui ou aumenta Google Slides, Pitch",
       description:
-        "Gere apresentações completas a partir de um prompt. Edite visualmente ou de forma conversacional. AI geração de imagem, 8 layouts e modo de apresentação integrado.",
+        "Cria apresentações editáveis e alinhadas à sua marca a partir de prompts ou slides existentes, que um agente pode criar, editar e refinar.",
     },
     analytics: {
       replaces: "Alternativa de código aberto ao Amplitude e ao FullStory",
       description:
-        "Conecte qualquer fonte de dados, solicite qualquer gráfico, crie painéis reutilizáveis. O agente escreve SQL, gera visualizações e evolui o aplicativo.",
+        "Conecta seus dados para que um agente responda perguntas em linguagem simples e transforme os resultados em gráficos e painéis.",
     },
     mail: {
       replaces: "Substitui ou aumenta Superhuman, Gmail",
       description:
-        "Cliente de e-mail estilo Superhuman com atalhos de teclado, triagem AI, suporte para várias contas e automações de e-mail. Seja dono do fluxo de trabalho da sua caixa de entrada.",
+        "Uma caixa de entrada pensada para o teclado, onde um agente prioriza e-mails, redige respostas, resume conversas e acompanha pendências.",
     },
     forms: {
       replaces: "Substitui ou aumenta Typeform, Google Forms",
@@ -530,12 +704,12 @@ const ptBR = {
       replaces:
         "Substitui ou aumenta DAMs, bibliotecas de ativos de marca e geradores de mídia AI",
       description:
-        "Gerenciador de ativos digitais para uploads, bibliotecas de marcas, referências pesquisáveis e geração de imagens/vídeos da marca que outros aplicativos podem chamar por meio de A2A ou incorporar como seletor.",
+        "Oferece aos agentes uma biblioteca compartilhada de diretrizes, imagens e vídeos da marca para criar e escolher mídias alinhadas em seus apps.",
     },
     calendar: {
       replaces: "Substitui ou aumenta Google Calendar, Calendly",
       description:
-        "Calendário completo com sincronização Google, gerenciamento de disponibilidade e página de reserva pública. O agente encontra vagas abertas, cria eventos e gerencia sua programação.",
+        "Reúne seus Google Calendars para que um agente encontre horários, agende ou reagende eventos e gerencie reservas.",
     },
     dispatch: {
       replaces: "Controle de missão para seus aplicativos nativos de agente",
@@ -555,24 +729,65 @@ const ptBR = {
     },
     analytics: {
       faq: {
-        question1:
-          "Posso fazer perguntas sobre meus dados analíticos em linguagem natural?",
+        question1: "O que é o Agent-Native Analytics?",
         answer1:
-          "Sim. Faça a pergunta; o agente escreve o SQL, executa no BigQuery e cria o gráfico. As consultas mantêm histórico, contagem de linhas e URLs compartilháveis.",
-        question2:
-          "Qual é a diferença entre Analytics e Amplitude ou Mixpanel?",
+          "Agent-Native Analytics é uma ferramenta de análise de IA gratuita e de código aberto. Faça perguntas a um agente de IA sobre dados conectados, inspecione consultas e crie painéis reutilizáveis. Também inclui repetição de sessão, rastreamento de erros e monitoramento de uptime.",
+        question2: "Preciso saber SQL para usar o Analytics?",
         answer2:
-          "Essas plataformas cobram por usuário e por evento, e a interface pertence a elas. Analytics é gratuito e de código aberto, e o agente amplia o próprio app — com novos gráficos e conectores — quando você pede.",
+          "Você pode fazer perguntas em linguagem natural e deixar seu agente de IA escrever as consultas. Para o BigQuery, também é possível criar gráficos selecionando tabelas, métricas e filtros no Explorer. O SQL continua disponível para inspeção, e alguém familiarizado com seus dados pode precisar ajudar a conectar fontes e definir métricas.",
         question3: "Quais fontes de dados posso conectar?",
         answer3:
-          "Mais de dez conectores integrados: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud e outros. Se o seu não estiver disponível, o agente pode criar o conector.",
-        question4: "Preciso saber SQL?",
+          "As fontes compatíveis incluem BigQuery, Google Analytics 4, Amplitude, Mixpanel, PostHog, HubSpot e Stripe. Cada fonte precisa das credenciais adequadas ou de uma conexão de workspace compartilhada concedida ao Analytics. As respostas disponíveis dependem dos dados e permissões que você conectar.",
+        question4: "Posso usar nossas próprias definições de métricas?",
         answer4:
-          "Não: a linguagem natural é a interface. Mas o explorador de SQL está disponível quando você precisar, com acesso direto ao BigQuery e histórico completo das consultas.",
-        question5: "Analytics é gratuito?",
+          "Sim. Use o dicionário de dados para documentar definições, nomes de tabelas e colunas, exemplos de consultas e exceções, como excluir contas internas. Seu agente de IA pode usar essas definições ao escrever consultas. Revise o SQL e os resultados ao conferir uma métrica de negócio.",
+        question5: "Posso compartilhar painéis e agendar relatórios?",
         answer5:
-          "Sim, é gratuito e de código aberto, sem cobrança por evento. Seus dados permanecem no seu próprio data warehouse.",
+          "Sim. Compartilhe painéis com colegas de equipe ou sua organização com acesso de visualizador, editor ou administrador. Você também pode agendar relatórios por e-mail com os resultados atuais do painel, ou configurar alertas para as condições que quiser acompanhar.",
       },
+      // Copy V3 da landing page (2026-09-14) — do hero ao CTA final abaixo.
+      heroEyebrow: "Analytics",
+      heroTitle: "Analise seus dados com seu agente de IA",
+      heroDescription:
+        "Analytics é uma ferramenta de análise de IA gratuita e de código aberto para consultar seus dados conectados, criar painéis e investigar sessões de usuários.",
+      heroCta: "Explore seus dados",
+      useCasesHeading: "O que você pode fazer com o Analytics?",
+      useCasesBody:
+        "Acompanhe o crescimento do produto, relate o desempenho do negócio, ou investigue um problema que alguém encontrou no seu app.",
+      useCase1Title: "Acompanhar o crescimento do produto",
+      useCase1Body:
+        "Pergunte como cadastros, usuários ativos ou conversões mudaram. Compare períodos e detalhe os resultados por canal, plano ou segmento de cliente.",
+      useCase2Title: "Relatar o desempenho do negócio",
+      useCase2Body:
+        "Traga métricas de receita, pipeline ou uso para um painel da sua equipe. Defina filtros de data e volte a consultá-lo antes da próxima revisão.",
+      useCase3Title: "Investigar problemas de usuários",
+      useCase3Body:
+        "Encontre uma sessão gravada e reproduza o que aconteceu. Inspecione erros de console e requisições de rede, depois compartilhe o diagnóstico com seu agente de IA.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para consultar, visualizar e explorar",
+      feature1Title: "Consultas em linguagem natural",
+      feature1Body:
+        "Faça uma pergunta ao seu agente de IA sobre seus dados. Receba um gráfico, tabela ou métrica, e continue com um detalhamento diferente.",
+      feature2Title: "Painéis reutilizáveis",
+      feature2Body:
+        "Crie painéis com seu agente de IA ou edite-os você mesmo. Organize painéis, adicione filtros, salve visualizações e compartilhe o acesso com sua equipe.",
+      feature3Title: "Explorador de consultas SQL",
+      feature3Body:
+        "Execute consultas do BigQuery e revise seus resultados e histórico. Inspecione o SQL por trás dos painéis do dashboard para conferir os cálculos e filtros.",
+      feature4Title: "Conexões com fontes de dados",
+      feature4Body:
+        "Conecte fontes como BigQuery, GA4, HubSpot e Stripe. Consulte dados do warehouse, eventos de produto, registros de clientes e receita a partir do mesmo app.",
+      feature5Title: "Dicionário de dados",
+      feature5Body:
+        "Documente definições de métricas, tabelas e exemplos de consultas. Seu agente de IA usa esse contexto ao escrever consultas e trabalhar com seus dados.",
+      feature6Title: "Repetição de sessão",
+      feature6Body:
+        "Reproduza sessões gravadas junto com a atividade de console e rede. Vá direto aos erros e copie um link de diagnóstico temporário para seu agente de IA.",
+      finalCtaHeading: "Comece com uma pergunta sobre seus dados",
+      finalCtaBody:
+        "Conecte uma fonte e peça ao seu agente de IA o primeiro gráfico.",
+      finalCtaButton: "Explore seus dados",
       s001: "Captura de tela do modelo Analytics",
       s002: "Conectores de dados",
       s003: "Tipos de gráfico",
@@ -641,20 +856,68 @@ const ptBR = {
     },
     calendar: {
       faq: {
-        question1: "A IA pode agendar minhas reuniões?",
+        question1: "O que é o Agent-Native Calendar?",
         answer1:
-          "Sim. Peça ao agente para encontrar um horário, criar um evento, verificar a disponibilidade ou reagendar: ele trabalha dentro do seu calendário real e respeita os eventos existentes.",
-        question2: "Calendar oferece links de reserva como o Calendly?",
+          "O Agent-Native Calendar é um assistente de agendamento com IA gratuito e de código aberto que se conecta ao Google Calendar. Use um agente de IA para gerenciar eventos e encontrar horários, ou compartilhe links de reserva para que outras pessoas agendem com você.",
+        question2: "Quais calendários posso conectar?",
         answer2:
-          "Sim: páginas de reserva personalizáveis, com disponibilidade por tipo, coleta de informações do visitante, confirmações e domínios personalizados.",
-        question3: "Ele sincroniza com o Google Calendar?",
+          "Conecte várias contas do Google para ver os eventos delas juntos. Eventos novos e atualizados são gravados no calendário principal da conta selecionada. Você também pode exibir feeds ICS ou webcal somente leitura; eles não são integrações bidirecionais com Outlook ou Apple Calendar. Calendários do Google compartilhados são somente visualização e não bloqueiam a disponibilidade de reserva.",
+        question3: "O que o agente de IA pode fazer com meu calendário?",
         answer3:
-          "Sim: sincronização via OAuth, suporte a várias contas e atualização automática de tokens. Crie, atualize e exclua eventos diretamente no Google.",
-        question4: "Calendar é gratuito?",
+          "Seu agente de IA pode verificar sua agenda, encontrar horários disponíveis e criar ou reagendar eventos. Quando você pede para ele encontrar um horário, ele verifica suas regras de disponibilidade e eventos existentes, além das informações de livre/ocupado dos convidados nomeados quando acessíveis. Você escolhe o horário sugerido antes que a reunião seja marcada.",
+        question4:
+          "As pessoas precisam de uma conta para marcar uma reunião comigo?",
         answer4:
-          "Sim. É gratuito e de código aberto, incluindo as páginas de reserva.",
+          "Não. Qualquer pessoa com seu link de reserva público pode escolher um horário disponível e responder suas perguntas de reserva sem fazer login. Após a reserva, ela recebe um link privado para reagendar ou cancelar a reunião.",
+        question5:
+          "Um link de reserva pode verificar a disponibilidade de vários anfitriões?",
+        answer5:
+          "Sim. Adicione coanfitriões obrigatórios, e o Calendar verifica as informações de livre/ocupado deles antes de oferecer um horário. Para também respeitar o horário de trabalho configurado de cada coanfitrião, você e esse coanfitrião precisam adicionar os calendários um do outro como sobreposições. Sem esse compartilhamento mútuo, o Calendar verifica apenas as informações de livre/ocupado deles.",
       },
       s001: "Captura de tela do modelo Calendar",
+      // Cópia V3 da página de destino (10/09/2026) — do hero ao CTA final.
+      heroEyebrow: "Calendar",
+      heroTitle: "Gerencie sua agenda com seu agente de IA",
+      heroDescription:
+        "Calendar é um assistente de agendamento com IA gratuito e de código aberto para gerenciar eventos do Google Calendar, encontrar horários e permitir que outras pessoas marquem com você.",
+      heroCta: "Comece a agendar",
+      useCasesHeading: "O que você pode fazer com o Calendar?",
+      useCasesBody:
+        "Marque uma chamada com um cliente, reúna sua equipe ou ajuste seu dia quando os planos mudarem.",
+      useCase1Title: "Marque chamadas e demonstrações com clientes",
+      useCase1Body:
+        "Dê aos seus clientes em potencial e atuais um link de reserva para que escolham um horário. Colete as informações que você precisa antes da chamada.",
+      useCase2Title: "Encontre horários para reuniões de equipe",
+      useCase2Body:
+        "Peça ao seu agente de IA um horário em que seus colegas de equipe estejam disponíveis. Escolha um horário sugerido para marcar a reunião.",
+      useCase3Title: "Ajuste seu dia quando os planos mudarem",
+      useCase3Body:
+        "Peça ao seu agente de IA para mover uma reunião ou encontrar outro horário, considerando seus eventos e horários de trabalho existentes.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo o que você precisa para agendar, marcar e reagendar",
+      feature1Title: "Agendamento com IA",
+      feature1Body:
+        "Peça ao seu agente de IA para verificar sua agenda, encontrar horários disponíveis e criar ou reagendar eventos no seu Google Calendar conectado.",
+      feature2Title: "Várias contas de calendário",
+      feature2Body:
+        "Veja contas do Google de trabalho e pessoais juntas nas visualizações de dia, semana ou mês. Adicione feeds de calendário somente leitura ao lado dos seus eventos.",
+      feature3Title: "Links de reserva personalizáveis",
+      feature3Body:
+        "Crie páginas de reserva para diferentes tipos de reunião. Defina a duração e adicione perguntas para as pessoas responderem ao marcar.",
+      feature4Title: "Controles de disponibilidade",
+      feature4Body:
+        "Defina seu horário de trabalho, fuso horário e intervalos entre reuniões. Escolha quanto aviso prévio você precisa e com quanta antecedência as pessoas podem marcar.",
+      feature5Title: "Agendamento com coanfitriões",
+      feature5Body:
+        "Adicione coanfitriões obrigatórios a um link de reserva. Ofereça horários em que todos estejam livres e convide-os assim que alguém marcar.",
+      feature6Title: "Links de reunião por vídeo",
+      feature6Body:
+        "Adicione o Google Meet, conecte o Zoom ou use um link de reunião personalizado para que os convidados saibam onde entrar ao marcar.",
+      finalCtaHeading: "Coloque sua próxima reunião no calendário",
+      finalCtaBody:
+        "Encontre um horário com seu agente de IA ou envie um link de reserva.",
+      finalCtaButton: "Comece a agendar",
       s002: "Calendar visualizações",
       s003: "Ações do agente",
       s004: "Tipos de link de reserva",
@@ -716,42 +979,191 @@ const ptBR = {
     },
     assets: {
       faq: {
-        question1: "A IA pode gerar imagens alinhadas à minha marca?",
+        question1: "O que é o Agent-Native Assets?",
         answer1:
-          "Sim: a geração se baseia nas bibliotecas da marca e nas referências que você enviou, não no gosto de um modelo genérico. São imagens e vídeos alinhados à marca, criados a partir de regras que o agente realmente leu.",
-        question2: "Qual é a diferença entre Assets e um DAM?",
+          "Agent-Native Assets é uma biblioteca de assets de marca gratuita e de código aberto com geração de imagem e vídeo por IA. Organize mídias existentes, forneça referências de marca e trabalhe com um agente de IA para gerar, editar e reutilizar assets em vários projetos.",
+        question2: "Como o Assets usa minhas diretrizes de marca?",
         answer2:
-          "Um DAM armazena arquivos aprovados para as pessoas pesquisarem. Assets faz isso e também torna a marca legível por máquinas, para que os agentes gerem e escolham mídias alinhadas à marca por padrão.",
-        question3: "Meus outros apps podem usá-lo?",
+          "Adicione seu logotipo, imagens de referência, cores e notas de estilo a um kit de marca. Modelos reutilizáveis fornecem instruções para tipos específicos de conteúdo. Seu agente de IA usa esse contexto para guiar a geração, e você pode revisar e refinar os resultados antes de salvá-los.",
+        question3: "Posso enviar e organizar imagens e vídeos existentes?",
         answer3:
-          "Sim: qualquer app Agent-Native pode chamar Assets via A2A ou incorporá-lo como seletor, para que apps como Slides e Design usem a mesma biblioteca aprovada.",
-        question4: "Assets é gratuito?",
+          "Sim. Envie mídias existentes ou importe um asset a partir de uma URL, depois organize-o em bibliotecas e pastas junto com o conteúdo gerado. Você pode navegar e pesquisar na biblioteca, reutilizar assets como referências ou exportá-los para outro projeto.",
+        question4: "Meu agente de IA pode usar o Assets a partir de outro app?",
         answer4:
-          "Sim, é gratuito e de código aberto. Execute `npx @agent-native/core@latest create my-assets-app --template assets` e o app será seu.",
+          "Sim. Conecte um agente compatível pela integração MCP do Assets para pesquisar, gerar e selecionar mídias pelo chat. Apps Agent-Native também podem solicitar assets ou incorporar um seletor. A experiência disponível depende do app hospedeiro e da sua conexão com o Assets.",
+        question5: "O Assets pode usar meu logotipo real nas imagens geradas?",
+        answer5:
+          "Sim. Defina um logotipo canônico no seu kit de marca e ative o compositing de logotipo para a geração. O Assets posiciona o logotipo original sobre a imagem depois da geração, para que o modelo de imagem não o redesenhe. Revise o posicionamento e a imagem ao redor antes de usar.",
       },
+      s001: "Captura de tela do app Assets",
+      heroEyebrow: "Assets",
+      heroTitle: "Crie e gerencie assets de marca com seu agente de IA",
+      heroDescription:
+        "Assets é uma biblioteca de assets de marca gratuita e de código aberto para organizar suas imagens, vídeos e referências de marca, com um agente de IA que gera e edita mídias usando seu kit de marca.",
+      heroCta: "Gere uma imagem",
+      useCasesHeading: "O que você pode fazer com o Assets?",
+      useCasesBody:
+        "Crie imagens de campanha, adapte visuais para novos projetos, ou dê à sua equipe e aos agentes de IA uma biblioteca de marca compartilhada.",
+      useCase1Title: "Criar visuais de campanha",
+      useCase1Body:
+        "Peça ao seu agente de IA imagens para blog, artes para redes sociais ou visuais de lançamento usando suas referências de marca. Compare as opções e refine a que você escolher.",
+      useCase2Title: "Adaptar imagens para novos projetos",
+      useCase2Body:
+        "Dê ao seu agente de IA uma imagem existente e descreva as mudanças que você precisa, como um fundo diferente ou espaço para um título.",
+      useCase3Title: "Compartilhar assets de marca em todo o seu trabalho",
+      useCase3Body:
+        "Mantenha logotipos, imagens de produto e referências de marca juntos para que colegas de equipe e agentes de IA conectados encontrem mídias para apresentações, sites e outros projetos.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo o que você precisa para gerar, refinar e reutilizar",
+      feature1Title: "Bibliotecas de assets de marca",
+      feature1Body:
+        "Organize mídias enviadas e geradas em bibliotecas e pastas. Adicione logotipos, imagens de referência e notas de estilo para seu agente de IA usar.",
+      feature2Title: "Geração de imagem e vídeo por IA",
+      feature2Body:
+        "Descreva a mídia que você precisa e escolha suas referências de marca. Gere opções de imagem ou vídeos curtos, depois revise os resultados antes de salvar.",
+      feature3Title: "Edição de imagem",
+      feature3Body:
+        "Peça ao seu agente de IA para editar ou reestilizar uma imagem. Use o asset existente como referência e refine-o com feedback.",
+      feature4Title: "Modelos reutilizáveis",
+      feature4Body:
+        "Salve instruções de geração para trabalhos recorrentes, como capas de blog ou artes para redes sociais. Associe modelos a um kit de marca para reutilizar suas referências.",
+      feature5Title: "Posicionamento do logotipo original",
+      feature5Body:
+        "Defina o logotipo do seu kit de marca e adicione-o às imagens geradas. O compositing de logotipo posiciona o arquivo original em vez de gerar uma nova versão.",
+      feature6Title: "Acesso do agente",
+      feature6Body:
+        "Conecte seu agente de IA para pesquisar na biblioteca, gerar mídias e escolher assets pelo chat. Apps compatíveis também podem incorporar um seletor de assets.",
+      finalCtaHeading: "Crie seu próximo asset de marca",
+      finalCtaBody:
+        "Escolha suas referências e diga ao seu agente de IA o que você precisa.",
+      finalCtaButton: "Gere uma imagem",
     },
     chat: {
       faq: {
-        question1: "O que é o template Chat?",
+        question1: "O que é o Agent-Native Chat?",
         answer1:
-          "Uma estrutura mínima no estilo do ChatGPT para seu próprio agente: threads duráveis, autenticação, actions, sincronização em tempo real, barra lateral padrão e um caminho simples para adicionar telas ou conectar seu backend.",
-        question2: "Qual é a diferença para o ChatGPT?",
+          "O Agent-Native Chat é um app de chat com IA gratuito e de código aberto para desenvolvedores. Inclui threads salvas, uma interface de chat com agente, autenticação, actions compartilhadas e sincronização em tempo real. Você adiciona os dados e o comportamento específicos do seu domínio para sua aplicação.",
+        question2: "O Chat é um assistente de IA pronto?",
         answer2:
-          "ChatGPT é o app da OpenAI para os modelos da OpenAI. Este é seu: seu backend de agente, seus dados e suas telas. É um ponto de partida que você amplia, não um produto que você aluga.",
-        question3: "Está pronto para produção?",
+          "O Chat oferece uma interface de conversa funcional e o framework por trás dela. Ele inclui uma action de exemplo, mas os fluxos de trabalho de negócio e as integrações com provedores ficam por sua conta implementar e configurar.",
+        question3: "Posso adicionar telas além da interface de chat?",
         answer3:
-          "É uma estrutura intencionalmente mínima: o ponto de partida realista para um app de chat, não um app concluído. Se você quer algo pronto, comece com um dos outros apps.",
+          "Sim. Adicione rotas e componentes para listas, filas, editores ou outras telas que seu fluxo de trabalho precisar. Conecte-as às mesmas actions e dados de aplicação que o agente usa.",
+        question4: "O Chat inclui conexões com minhas ferramentas de negócio?",
+        answer4:
+          "O template mínimo não inclui integrações com provedores específicas de domínio. Adicione as conexões e regras de acesso que seu app precisar. Se já existe um app Agent-Native que corresponde ao seu fluxo de trabalho, o template dele pode ser um ponto de partida mais adequado.",
+        question5: "Posso personalizar e implantar minha própria versão?",
+        answer5:
+          "Sim. Crie uma cópia com a CLI, adicione suas actions, dados e interface, e implante sua aplicação. Configure a autenticação e o acesso a provedores para seu ambiente, e teste os fluxos de trabalho que você adicionar antes de compartilhá-los com seus usuários.",
       },
+      s001: "Captura de tela do app Chat",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "Construa seu próprio app de chat com IA",
+      heroDescription:
+        "O Chat é um app de chat com IA gratuito e de código aberto, com conversas salvas, autenticação e um agente que você pode estender com suas próprias actions, dados e telas.",
+      heroCta: "Crie seu chat",
+      heroSecondaryCta: "Abrir Chat",
+      useCasesHeading: "O que você pode construir com o Chat?",
+      useCasesBody:
+        "Comece com o app de chat e depois adicione os dados e as actions do seu caso de uso. Esses fluxos de trabalho são seus, para construir sobre essa base.",
+      useCase1Title: "Construa um assistente interno",
+      useCase1Body:
+        "Adicione actions que buscam informações ou tratam solicitações da sua equipe. Use o login e o histórico de conversas incluídos como ponto de partida.",
+      useCase2Title: "Prototipe um fluxo de trabalho de agente",
+      useCase2Body:
+        "Implemente uma action útil e teste-a pelo chat. Refine as instruções e o comportamento do agente antes de adicionar mais ferramentas ou telas.",
+      useCase3Title: "Adicione uma interface para o trabalho do agente",
+      useCase3Body:
+        "Construa uma fila, lista ou editor quando os usuários precisarem revisar o trabalho visualmente. Conecte-o às mesmas actions e dados do seu agente.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading: "Um ponto de partida para seu agente e sua interface",
+      feature1Title: "Conversas salvas",
+      feature1Body:
+        "Ofereça aos usuários threads para retornar depois. Crie, reabra, renomeie, fixe e arquive conversas pela barra lateral incluída.",
+      feature2Title: "Chat com agente integrado",
+      feature2Body:
+        "Comece com uma conversa em tela cheia e o runtime de agente do framework. Adicione instruções e ferramentas para as tarefas que sua aplicação precisa lidar.",
+      feature3Title: "Autenticação e sessões",
+      feature3Body:
+        "Comece com login, cadastro, sessões e suporte a organizações já configurados. Adicione as regras de acesso que os dados e fluxos de trabalho da sua aplicação exigem.",
+      feature4Title: "Actions compartilhadas",
+      feature4Body:
+        "Defina uma operação uma vez para seu agente e sua interface usarem. Siga a action de exemplo incluída ao adicionar suas próprias capacidades.",
+      feature5Title: "Sincronização de dados em tempo real",
+      feature5Body:
+        "Mantenha sua interface atualizada quando o agente alterar dados da aplicação. Construa telas em torno do estado compartilhado e da sincronização de banco de dados do framework.",
+      feature6Title: "Inspeção de banco de dados e execuções",
+      feature6Body:
+        "Use as telas de administração de banco de dados e observabilidade incluídas para inspecionar dados armazenados e execuções do agente enquanto constrói e depura sua aplicação.",
+      finalCtaHeading: "Construa seu primeiro fluxo de trabalho de agente",
+      finalCtaBody:
+        "Crie sua cópia e adicione a primeira action que seus usuários precisam.",
+      finalCtaButton: "Crie seu chat",
     },
     clips: {
       s001: "Captura de tela do modelo Clips",
+      // V5 landing page copy (2026-09-09) — hero through final CTA below.
+      heroEyebrow: "Clips",
+      heroTitle: "Gravações de tela que seu agente de IA pode ver e ouvir",
+      heroDescription:
+        "Clips é um gravador de tela gratuito e de código aberto para compartilhar bugs, feedback e tutoriais com agentes de IA.",
+      heroCta: "Gravar um clipe",
+      useCasesHeading: "O que você pode fazer com o Clips?",
+      useCasesBody:
+        "Comece com um clipe que você gravou ou que alguém compartilhou com você. Dê ao seu agente de IA o contexto e diga o que você precisa.",
+      useCase1Title: "Agir sobre feedback gravado",
+      useCase1Body:
+        "Dê ao seu agente de IA feedback gravado para transformar em um plano ou ajudar a implementar as mudanças solicitadas.",
+      useCase2Title: "Investigar um bug relatado",
+      useCase2Body:
+        "Compartilhe uma gravação de bug com seu agente de IA para investigar o que deu errado e definir os próximos passos.",
+      useCase3Title: "Criar a partir de um briefing gravado",
+      useCase3Body:
+        "Use um briefing gravado para orientar seu agente de IA na criação de uma apresentação, design, conteúdo ou mudança no app.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para gravar, transcrever e compartilhar",
+      feature1Title: "Gravações legíveis por agentes",
+      feature1Body:
+        "Compartilhe a transcrição e as imagens com marca de tempo de um clipe com seu agente de IA por meio de um único link legível por agentes.",
+      feature2Title: "Transcrições automáticas",
+      feature2Body:
+        "Obtenha transcrições de gravações, reuniões e ditados. Clique em qualquer linha da transcrição para voltar àquele momento.",
+      feature3Title: "Logs de depuração do navegador",
+      feature3Body:
+        "Capture erros de console e requisições que falharam junto com sua gravação com a extensão do Clips para Chrome.",
+      feature4Title: "Agente de IA integrado",
+      feature4Body:
+        "Pergunte ao agente de IA integrado sobre um clipe ou sobre toda a sua biblioteca, e deixe que ele edite as transcrições no chat.",
+      feature5Title: "Biblioteca de gravações pesquisável",
+      feature5Body:
+        "Encontre clipes pesquisando suas transcrições. Organize suas gravações com pastas, tags e espaços de equipe.",
+      feature6Title: "Ditado push-to-talk",
+      feature6Body:
+        "Mantenha Fn pressionado no app de desktop para ditar em outros aplicativos. Reveja transcrições e o texto revisado no seu histórico.",
+      teammatesLine:
+        "Seus colegas de equipe podem assistir à mesma gravação no player.",
+      teammatesLinkLabel: "Ler o guia de compartilhamento com agentes",
+      seeInActionHeading: "Veja o Clips em ação",
+      seeInActionBody:
+        "Veja o Clips em uso, desde a gravação de um fluxo de trabalho no navegador até mostrar a um agente de IA como realizar uma tarefa.",
+      watchClipLabel: "Ver o clipe",
+      finalCtaHeading: "Ponha seu próximo clipe para trabalhar",
+      finalCtaBody:
+        "Grave uma explicação ou leve um clipe compartilhado para o seu agente de IA.",
+      finalCtaButton: "Gravar um clipe",
       s002: "Gravação de tela",
       s003: "Logs de depuração do navegador",
       s004: "Ditar",
       s005: "Pode ver + ouvir",
       s006: "Todos os modelos",
-      s007: "A alternativa de código aberto para Loom",
-      s008: "Cole um link Clips em um agente e ele poderá ouvir a transcrição, ler resumos e ver quadros com carimbo de data/hora, mesmo que seu modelo não consiga ingerir vídeo ou áudio bruto.",
+      s007Primary: "Gravações de tela que sua",
+      s007Secondary: "AI pode ver e ouvir.",
+      s008: "Capture logs de depuração do navegador, obtenha transcrições e use o ditado integrado. 100% grátis, código aberto e personalizável.",
+      s063: "Receba uma recomendação personalizada",
+      s064: "Cole este prompt no Claude, ChatGPT ou Cursor para ver como o Clips pode impactar seu fluxo de trabalho.",
       s009: "Experimente",
       s010: "O que você pode fazer",
       s011: "Grave, transcreva e depure — um aplicativo, uma biblioteca, sem a pilha de assinaturas.",
@@ -804,8 +1216,26 @@ const ptBR = {
       s058: "Gratuito e de código aberto",
       s059: "Comece agora",
       s060: "Escolha o que capturar e comece a gravar no Clips.",
-      s061: "Ver mais aplicativos",
       s062: "Ver todos os modelos",
+      faq: {
+        question1: "O que é o Agent-Native Clips?",
+        answer1:
+          "Agent-Native Clips é um gravador de tela gratuito e de código aberto para compartilhar bugs, feedback e tutoriais com agentes de IA. Ele fornece ao seu agente de IA uma transcrição e imagens com marca de tempo de uma gravação, enquanto as pessoas podem assistir ao mesmo clipe.",
+        question2:
+          "Posso compartilhar gravações com Claude, ChatGPT ou Cursor?",
+        answer2:
+          "O Clips fornece um link legível por agentes com uma transcrição e imagens com marca de tempo. Seu agente precisa conseguir abrir o conteúdo do link e ler imagens para usar os dois. Alguns modos de chat conseguem ler a transcrição, mas exigem que você envie uma imagem separadamente.",
+        question3: "Preciso da extensão do Chrome para gravar minha tela?",
+        answer3:
+          "Não. Você pode gravar no app web do Clips. Use a extensão do Chrome quando também quiser mensagens de console e diagnósticos de rede da aba que está demonstrando.",
+        question4:
+          "Agentes de IA conseguem assistir às minhas gravações de tela?",
+        answer4:
+          "Com o Clips, agentes de IA compatíveis conseguem entender sua gravação por meio de uma transcrição e imagens com marca de tempo. Eles usam o texto e as imagens em vez de reproduzir o vídeo, então você pode fazer perguntas sobre o que aconteceu ou dar ao seu agente de IA uma tarefa baseada na gravação.",
+        question5: "Quem pode acessar uma gravação compartilhada?",
+        answer5:
+          "As gravações usam links públicos por padrão, a menos que sua organização altere essa configuração. Qualquer pessoa com o link pode acessá-las. Há opções de acesso privado e organizacional disponíveis, e clipes privados podem ser compartilhados com agentes por meio de links temporários sem tornar a gravação pública.",
+      },
       quickStart: {
         recordingMode: "Modo de gravação",
         modeScreenCamera: "Tela + câmera",
@@ -824,24 +1254,68 @@ const ptBR = {
     },
     content: {
       faq: {
-        question1:
-          "Um agente de IA pode editar meus documentos sem exportação ou API?",
+        question1: "O que é o Agent-Native Content?",
         answer1:
-          "Sim. Content trabalha com arquivos Markdown/MDX locais, os mesmos que estão no seu repositório. Seu agente já os tem no disco: sem API, sincronização ou etapa de exportação.",
-        question2: "Qual é a diferença entre Content e Notion ou Obsidian?",
+          "Agent-Native Content é um espaço de trabalho gratuito e de código aberto para documentos, tarefas e bancos de dados. Ele combina um editor de documentos com IA e tabelas estruturadas e páginas compartilhadas que pessoas e agentes de IA conectados podem ler e atualizar juntos.",
+        question2: "Posso usar meu próprio agente de IA com o Content?",
         answer2:
-          "Notion mantém seus documentos no banco de dados dele, atrás da API. Content usa arquivos locais como o Obsidian, com um editor rico por cima e um agente que redige, reescreve e publica com a sua voz.",
-        question3: "A IA pode escrever no meu estilo?",
+          "Sim. O Content oferece uma conexão MCP para ferramentas compatíveis, como Claude Code, Codex e Cursor. Depois de conectar e autorizar o acesso, seu agente pode trabalhar com os documentos e bancos de dados disponíveis para ele. Você também pode usar o agente integrado do Content.",
+        question3: "Posso pedir para a IA revisar meu texto sem reescrevê-lo?",
         answer3:
-          "Sim. O agente aprende sua voz, seu guia de estilo e seu tom para que os rascunhos pareçam escritos por você; além disso, pode reescrever, expandir, resumir ou alterar o tom de qualquer seleção.",
-        question4: "Posso publicar no meu CMS?",
+          "Sim. Peça ao seu agente de IA para deixar comentários em um documento ou trecho. Você pode ler o feedback e fazer as alterações você mesmo, ou pedir ao agente para editar o texto. Pedir comentários não exige entregar a redação a ele.",
+        question4:
+          "O Content consegue acompanhar tarefas e coletar pedidos da equipe?",
         answer4:
-          "Sim: conecte qualquer CMS headless por meio de scripts. WordPress, Contentful e Builder são compatíveis, Notion sincroniza nas duas direções, e o agente executa os scripts de publicação de forma autônoma.",
-        question5: "Content é gratuito?",
+          "Sim. Crie um banco de dados com campos como responsável, status, data de entrega e próximo passo. Adicione descrições explicando o que cada campo deve conter. Essas descrições orientam seu agente de IA ao criar ou atualizar itens, inclusive para pedir informações que estejam faltando.",
+        question5:
+          "Posso controlar quem edita meu trabalho e restaurar uma versão anterior?",
         answer5:
-          "Sim. É gratuito e de código aberto; como seus documentos são arquivos locais comuns, não haverá nada para exportar se você decidir deixar de usá-lo.",
+          "Sim. Novos documentos são privados por padrão. Compartilhe-os com acesso de visualização, edição ou administração, e use o histórico de versões da página para restaurar um snapshot anterior. Restaurar um snapshot substitui o conteúdo atual da página.",
       },
       s001: "Captura de tela do modelo Content",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Content",
+      heroTitle: "Crie e organize seu trabalho com seu agente de IA",
+      heroDescription:
+        "Content é um espaço de trabalho gratuito e de código aberto para documentos, listas de tarefas e bancos de dados que você e seus agentes de IA podem ler e atualizar juntos.",
+      heroCta: "Organize seu trabalho",
+      useCasesHeading: "O que você pode fazer com o Content?",
+      useCasesBody:
+        "Trabalhe em um rascunho, acompanhe o que ainda precisa ser feito ou reúna os detalhes de um novo pedido.",
+      useCase1Title: "Escreva e revise conteúdo",
+      useCase1Body:
+        "Peça ao seu agente de IA para redigir uma página, revisar um trecho ou deixar comentários no seu texto. Escolha como você quer que ele ajude.",
+      useCase2Title: "Acompanhe o trabalho com seus agentes",
+      useCase2Body:
+        "Mantenha tarefas, status e próximos passos em uma tabela compartilhada. Peça aos seus agentes de IA conectados para atualizá-la enquanto você avança em um projeto.",
+      useCase3Title: "Colete pedidos de projeto",
+      useCase3Body:
+        "Configure uma tabela para pedidos de design ou outro trabalho da equipe. Dê instruções em cada campo para que seu agente de IA possa pedir os detalhes que faltarem.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo o que você precisa para escrever, organizar e colaborar",
+      feature1Title: "Escrita e revisão com IA",
+      feature1Body:
+        "Obtenha um primeiro rascunho, peça alterações no texto selecionado ou peça comentários. Seu agente de IA trabalha diretamente no documento.",
+      feature2Title: "Documentos e páginas aninhadas",
+      feature2Body:
+        "Escreva páginas com títulos, tabelas, imagens e blocos de código. Agrupe documentos relacionados em um projeto e pesquise por título e conteúdo para encontrá-los.",
+      feature3Title: "Bancos de dados e visualizações",
+      feature3Body:
+        "Organize o trabalho em tabelas, quadros ou calendários. Adicione campos para responsáveis, datas e status, com um documento completo por trás de cada linha.",
+      feature4Title: "Instruções de página e campo",
+      feature4Body:
+        "Descreva o que deve constar em uma página ou em um campo do banco de dados. Dê aos seus agentes de IA orientações sobre as informações e o formato que você espera.",
+      feature5Title: "Agentes de IA conectados",
+      feature5Body:
+        "Conecte agentes de ferramentas como Claude Code, Codex ou Cursor para ler e atualizar seus documentos e bancos de dados junto com o agente integrado.",
+      feature6Title: "Colaboração em equipe",
+      feature6Body:
+        "Edite páginas em conjunto, comente trechos e responda em threads. Compartilhe com pessoas específicas ou com sua organização e escolha o nível de acesso delas.",
+      finalCtaHeading: "Traga seu próximo projeto para o Content",
+      finalCtaBody:
+        "Comece com um documento, uma lista de tarefas ou uma tabela que sua equipe já usa.",
+      finalCtaButton: "Organize seu trabalho",
       s002: "Todos os modelos",
       s003: "Código aberto Obsidian para MDX",
       s004: "Edite arquivos Markdown/MDX locais como Obsidian, gere blocos personalizados interativos avançados e escreva com um agente AI que conhece seus documentos.",
@@ -906,30 +1380,72 @@ const ptBR = {
     },
     design: {
       faq: {
-        question1:
-          "A IA pode gerar um design que seja código de verdade, não um mockup?",
+        question1: "O que é o Agent-Native Design?",
         answer1:
-          "Sim. Design gera HTML completo e independente, com estilos do Tailwind e interações do Alpine. O protótipo é a implementação: não há nada para repassar e reconstruir.",
-        question2: "Qual é a diferença entre Design e Figma?",
+          "Agent-Native Design é uma ferramenta de design e prototipagem com IA gratuita e de código aberto. Crie protótipos HTML interativos com um agente de IA, aplique sua marca e refine designs com controles visuais ou por chat. Compartilhe o resultado para receber feedback ou exporte para desenvolvimento.",
+        question2: "Posso editar um design depois que a IA o gera?",
         answer2:
-          "Figma foi feito para equipes de design que trabalham no nível do pixel, e o resultado é uma imagem que alguém precisa reimplementar. Design começa com um prompt e termina em HTML/CSS/JS funcional que você pode publicar ou continuar aprimorando.",
-        question3: "Ele consegue seguir meu sistema de design?",
+          "Sim. Ajuste texto, espaçamento e estilo com controles visuais, ou peça ao agente de IA para mudar o design. Você pode comparar direções diferentes e continuar refinando a que escolher.",
+        question3: "Posso usar meu próprio design system?",
         answer3:
-          "Sim. Salve preferências reutilizáveis do sistema de design e ajuste visualmente as variáveis comuns enquanto o agente cuida das mudanças estruturais e de texto: “paleta mais quente”, “título mais marcante” e pronto.",
-        question4: "O que recebo ao exportar?",
+          "Sim. Vincule um design system para guiar cores, tipografia, estilo e diretrizes de marca. Você pode reutilizá-lo em vários designs e usá-lo como contexto para as revisões do agente de IA.",
+        question4: "Posso trabalhar com designs vindos do Figma?",
         answer4:
-          "O resultado real: HTML/CSS/JS completo como arquivo, ZIP ou PDF. Independente, sem formato proprietário e pronto para você publicar em qualquer lugar.",
-        question5: "Design é gratuito?",
+          "Sim. Design oferece suporte a fluxos de importação do Figma e uma exportação SVG dedicada, pronta para o Figma. Revise fontes, layouts e elementos editáveis depois de transferir um design, já que a compatibilidade depende da origem e do formato de exportação.",
+        question5: "O que posso exportar, e é um aplicativo pronto?",
         answer5:
-          "Sim, é gratuito e de código aberto, ao contrário de ferramentas de design que cobram mensalmente por usuário ou medem o uso em créditos.",
+          "Exporte o HTML ou um ZIP dos arquivos de design, ou prepare um repasse para um agente de programação. O protótipo oferece um ponto de partida para o desenvolvimento; a lógica da aplicação, integrações, testes e implantação ainda precisam de implementação e revisão. As exportações em HTML podem usar recursos externos em tempo de execução.",
       },
       s001: "Captura de tela do modelo Design",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "Crie protótipos interativos com seu agente de IA",
+      heroDescription:
+        "Design é uma ferramenta de design e prototipagem com IA gratuita e de código aberto para criar páginas e interfaces de produto com a identidade da sua marca, com designs que você mesmo pode editar.",
+      heroCta: "Desenhe de graça",
+      useCasesHeading: "O que você pode fazer com o Design?",
+      useCasesBody:
+        "Explore uma nova página, fluxo de produto ou interface antes de construí-la. Dê ao seu agente de IA o briefing e os detalhes que importam.",
+      useCase1Title: "Explorar ideias de landing page",
+      useCase1Body:
+        "Transforme um briefing de campanha ou produto em um protótipo de landing page. Revise a mensagem, o layout e as chamadas para ação com sua equipe.",
+      useCase2Title: "Trabalhar fluxos de produto",
+      useCase2Body:
+        "Crie o protótipo de um fluxo de onboarding, cadastro ou checkout. Percorra as etapas e refine a experiência antes de se comprometer com a implementação.",
+      useCase3Title: "Criar dashboards e ferramentas internas",
+      useCase3Body:
+        "Transforme requisitos de fluxo de trabalho em um dashboard ou interface de administração. Explore como as pessoas vão encontrar informações e concluir suas tarefas diárias.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para criar, prototipar e compartilhar",
+      feature1Title: "Protótipos interativos",
+      feature1Body:
+        "Descreva a página ou o fluxo de que você precisa. Seu agente de IA cria um protótipo HTML com interações que você pode testar na pré-visualização.",
+      feature2Title: "Edição por IA e visual",
+      feature2Body:
+        "Ajuste texto, espaçamento e estilo com controles visuais, ou peça ao seu agente de IA para mudar o layout e as interações.",
+      feature3Title: "Variações de design lado a lado",
+      feature3Body:
+        "Peça ao seu agente de IA diferentes direções de design. Compare-as na tela, escolha uma abordagem e continue refinando-a.",
+      feature4Title: "Estilos de marca reutilizáveis",
+      feature4Body:
+        "Vincule um design system com suas cores, tipografia e estilo. Use-o para guiar novos designs e revisões em todo o seu projeto.",
+      feature5Title: "Comentários de revisão de design",
+      feature5Body:
+        "Fixe um feedback em um elemento específico para manter o contexto claro. Envie um comentário ao seu agente de IA para trabalhar na mudança.",
+      feature6Title: "Exportação HTML e repasse de código",
+      feature6Body:
+        "Exporte o HTML ou um ZIP dos seus arquivos de design. Dê a um desenvolvedor ou agente de programação o protótipo e o contexto para continuar a implementação.",
+      finalCtaHeading: "Comece seu próximo design",
+      finalCtaBody:
+        "Traga um briefing. Explore as possibilidades. Refine os detalhes.",
+      finalCtaButton: "Desenhe de graça",
       s002: "Descrever",
       s003: "Gerar",
       s004: "Refinar",
       s005: "Todos os modelos",
       s006: "O estúdio de prototipagem de código aberto AI HTML",
-      s007: "Gere protótipos Alpine/Tailwind interativos a partir de um prompt, compare variantes, refine com controles de ajuste e exporte arquivos reais de sua propriedade.",
+      s007: "Crie designs e protótipos interativos. Refine com ferramentas familiares ou faça edições de conversação. Exporte para qualquer lugar.",
       s008: "Crie algo",
       s009: "Como funciona",
       s010: "Tudo que você precisa",
@@ -983,30 +1499,70 @@ const ptBR = {
       s058: "Comece com o modelo e comece a gerar protótipos interativos com um agente que edita a fonte.",
       s059: "Leia os documentos",
       s060: "Ver todos os modelos",
+      s061: "100% grátis, código aberto e personalizável.",
     },
     dispatch: {
       faq: {
-        question1:
-          "Como executo vários agentes de IA sem precisar supervisionar cada um?",
+        question1: "O que é o Agent-Native Dispatch?",
         answer1:
-          "Dispatch é a base de operações: envie uma mensagem pelo Slack ou Telegram, e ele encaminhará o trabalho para seus outros agentes — Mail, Slides, Design — via A2A, com aprovações e agendas em um só lugar.",
-        question2: "Posso falar com meu agente pelo Slack?",
+          "O Agent-Native Dispatch é um aplicativo gratuito e de código aberto de orquestração de agentes de IA para um workspace Agent-Native. Ele coordena solicitações entre aplicativos conectados, recebe mensagens de canais compatíveis, agenda tarefas recorrentes e gerencia integrações compartilhadas.",
+        question2: "Com quais aplicativos o Dispatch pode trabalhar?",
         answer2:
-          "Sim: mensagens bidirecionais com contexto da thread e aprovações integradas, no Slack ou Telegram. Os resultados do agente retornam à mesma conversa.",
-        question3: "O agente pode trabalhar de acordo com uma agenda?",
+          "O Dispatch delega tarefas para aplicativos conectados e disponíveis no seu workspace, como Analytics ou Mail. Cada aplicativo cuida de suas próprias tarefas e dados. Configure as conexões e permissões relevantes antes de pedir ao Dispatch para usá-los.",
+        question3: "Posso usar o Dispatch pelo Slack ou Telegram?",
         answer3:
-          "Sim: jobs baseados em cron para stand-ups diários, resumos semanais e verificações de hora em hora. Os resultados chegam ao seu mensageiro, não a um painel que você precisa lembrar de abrir.",
-        question4: "Ele se lembra das conversas anteriores?",
+          "Sim. Configure o canal de mensagens e vincule sua identidade à conta do workspace, se necessário. O Dispatch pode receber solicitações e retornar resultados por esse canal. Conectar um canal não concede automaticamente a todo remetente acesso a todos os aplicativos.",
+        question4: "Os agentes podem executar tarefas em uma agenda?",
         answer4:
-          "Sim: os aprendizados de cada conversa são capturados automaticamente e têm escopo por usuário, por organização ou global. A memória pode ser inspecionada e editada; não é uma caixa-preta.",
-        question5: "E se eu não quiser que ele aja sozinho?",
+          "Sim. Configure uma tarefa recorrente e, se necessário, um destino de entrega para os resultados. O Dispatch mostra a última execução da tarefa, a próxima execução e o status de erro, para que você possa verificar se ela foi executada com sucesso.",
+        question5: "As aprovações do Dispatch cobrem tudo o que um agente faz?",
         answer5:
-          "Os fluxos de aprovação são integrados: ações sensíveis — enviar um e-mail, publicar uma atualização, executar uma automação — aguardam uma aprovação com um toque no Slack. Você configura quais ações precisam de autorização.",
-        question6: "Dispatch é gratuito?",
-        answer6:
-          "Sim. É gratuito e de código aberto, ao contrário de plataformas de agentes que cobram mensalmente por usuário.",
+          "Não. Em um workspace de equipe, o Dispatch pode exigir revisão das próprias alterações que faz em recursos e configurações compartilhados. Ações dentro de aplicativos conectados, como enviar e-mail, seguem os controles desses aplicativos. A fila de aprovações do Dispatch não é um portão universal para toda ação de agente.",
       },
       s001: "Captura de tela do modelo Dispatch",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "Coordene seus agentes de IA em um só lugar",
+      heroDescription:
+        "O Dispatch é um aplicativo gratuito e de código aberto de orquestração de agentes de IA para delegar trabalho a aplicativos Agent-Native conectados, agendar tarefas recorrentes e gerenciar conexões compartilhadas.",
+      heroCta: "Delegue uma tarefa",
+      useCasesHeading: "O que você pode fazer com o Dispatch?",
+      useCasesBody:
+        "Peça ajuda a um aplicativo conectado, configure uma atualização regular ou investigue uma execução de agente que precisa de atenção.",
+      useCase1Title: "Delegue trabalho a partir de uma única conversa",
+      useCase1Body:
+        "Peça um resumo de métricas ou um rascunho de resposta. O Dispatch encaminha a solicitação ao agente Analytics ou Mail conectado e retorna o resultado.",
+      useCase2Title: "Configure atualizações recorrentes para a equipe",
+      useCase2Body:
+        "Agende um resumo diário de métricas ou um resumo semanal a partir dos seus aplicativos conectados. Escolha um canal ou caixa de entrada configurado para onde o resultado deve chegar.",
+      useCase3Title: "Investigue a atividade dos agentes",
+      useCase3Body:
+        "Verifique a última execução de uma tarefa e quaisquer erros. Use os detalhes de threads e monitoramento disponíveis para investigar o que aconteceu quando um fluxo de trabalho precisa de atenção.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo o que você precisa para delegar, agendar e monitorar",
+      feature1Title: "Delegação entre aplicativos",
+      feature1Body:
+        "Envie solicitações ao aplicativo conectado que cuida do trabalho. Cada aplicativo usa seu próprio agente, ações e dados para responder.",
+      feature2Title: "Conexões de mensagens",
+      feature2Body:
+        "Conecte canais como Slack ou Telegram para enviar solicitações e receber respostas. Vincule identidades para que o Dispatch saiba qual usuário do workspace está perguntando.",
+      feature3Title: "Tarefas agendadas",
+      feature3Body:
+        "Defina uma agenda para o trabalho recorrente. Veja se uma tarefa está ativada, quando foi executada pela última vez, a próxima execução e qualquer erro registrado.",
+      feature4Title: "Destinos de entrega salvos",
+      feature4Body:
+        "Salve um canal do Slack, um chat do Telegram ou um endereço de e-mail como destino de entrega. Reutilize-o para resultados agendados e verifique o status da entrega.",
+      feature5Title: "Integrações compartilhadas",
+      feature5Body:
+        "Configure uma conexão de provedor uma vez e conceda acesso aos aplicativos que precisam dela. Gerencie conexões compartilhadas e acesso de aplicativos a partir do Dispatch.",
+      feature6Title: "Aprovações de mudanças no workspace",
+      feature6Body:
+        "Exija que outro administrador revise as mudanças que o Dispatch faz em recursos e configurações compartilhados. Revise solicitações pendentes e aprove ou rejeite-as em um workspace de equipe.",
+      finalCtaHeading: "Comece com uma tarefa conectada",
+      finalCtaBody:
+        "Escolha os aplicativos de que você precisa e peça ao Dispatch para coordenar o trabalho.",
+      finalCtaButton: "Delegue uma tarefa",
       s002: "+ Telegram incluído",
       s003: "Interagente",
       s004: "Memória",
@@ -1063,23 +1619,65 @@ const ptBR = {
     },
     forms: {
       faq: {
-        question1: "A IA pode criar um formulário para mim?",
+        question1: "O que é o Agent-Native Forms?",
         answer1:
-          "Sim. Descreva o formulário e ele aparecerá completo. Refine por conversa — “adicione uma lista suspensa obrigatória de nível de experiência” — ou mova os campos no editor visual, com prévia em tempo real e opção de desfazer.",
-        question2: "O que acontece quando alguém envia o formulário?",
+          "Agent-Native Forms é um criador de formulários com IA gratuito e de código aberto. Crie formulários e pesquisas com um agente de IA, edite os campos visualmente, publique um link público e revise ou analise as respostas no mesmo app.",
+        question2: "Posso editar um formulário depois que a IA o cria?",
         answer2:
-          "A resposta é salva no seu próprio banco de dados SQL e encaminhada imediatamente, de forma estruturada, para Slack, Discord, Google Sheets ou um webhook. As respostas chegam onde seu agente pode agir, não em uma exportação que ninguém abre.",
-        question3: "Qual é a diferença entre Forms e Typeform?",
+          "Sim. Altere perguntas, rótulos, opções, campos obrigatórios e a ordem dos campos no editor visual, ou peça ao seu agente de IA para fazer as alterações. As duas formas atualizam o mesmo formulário. Você também pode adicionar perguntas condicionais com base em respostas anteriores.",
+        question3:
+          "As pessoas precisam de uma conta para preencher meu formulário?",
         answer3:
-          "Typeform aprimora a experiência de preenchimento. Forms se concentra no que acontece depois: respostas no seu próprio banco de dados, encaminhadas às suas ferramentas, sem cobrança por resposta; além disso, o próprio formulário evolui por prompt.",
-        question4: "Forms é gratuito? Há limite de respostas?",
+          "Não. Qualquer pessoa com o link público de um formulário publicado pode enviar uma resposta sem conta. Formulários em rascunho não são públicos, e formulários fechados param de aceitar novas respostas.",
+        question4: "Posso coletar feedback anônimo?",
         answer4:
-          "É gratuito e de código aberto, sem tarifa ou limite por resposta. Os dados estão no seu banco de dados; a capacidade dele é o limite.",
-        question5: "Posso colocar um formulário no meu próprio site?",
+          "Sim. Ative o modo anônimo para omitir a identidade de quem responde e os metadados de origem. Também evite perguntas que peçam nome, e-mail ou outros dados de identificação se quiser que as respostas continuem anônimas.",
+        question5: "Posso enviar as respostas para o Google Sheets ou o Slack?",
         answer5:
-          "Sim: incorpore-o em qualquer site ou hospede-o em um domínio personalizado. Cada formulário também recebe uma URL pública própria e otimizada para SEO.",
+          "Sim, depois de configurar um destino para o formulário. Slack e Discord usam URLs de webhook. O Google Sheets exige um endpoint do Google Apps Script implantado que receba os envios; apenas um link de planilha não funciona. Você também pode usar um webhook ou exportar as respostas como CSV. Exportações do agente de todas as respostas em CSV ou JSON exigem armazenamento de arquivos conectado.",
       },
       s001: "Captura de tela do modelo Forms",
+      heroEyebrow: "Forms",
+      heroTitle: "Crie formulários com seu agente de IA",
+      heroDescription:
+        "Forms é um criador de formulários com IA gratuito e de código aberto para criar pesquisas, formulários de inscrição e formulários de solicitação, com perguntas que você mesmo pode editar e respostas que seu agente de IA pode ajudar a analisar.",
+      heroCta: "Criar um formulário",
+      useCasesHeading: "O que você pode fazer com o Forms?",
+      useCasesBody:
+        "Colete feedback de clientes, inscreva pessoas em um evento ou reúna os detalhes que sua equipe precisa para atender uma solicitação.",
+      useCase1Title: "Colete feedback de clientes",
+      useCase1Body:
+        "Pergunte aos clientes sobre a experiência deles com avaliações, perguntas de múltipla escolha e respostas escritas. Peça ao seu agente de IA para resumir o feedback recebido.",
+      useCase2Title: "Reúna inscrições e cadastros",
+      useCase2Body:
+        "Crie um formulário para um webinar, evento ou lista de espera de produto. Colete dados de contato e preferências, depois revise ou exporte os envios.",
+      useCase3Title: "Colete solicitações de projeto",
+      useCase3Body:
+        "Ofereça às pessoas um formulário para solicitações de design, briefings de projeto ou suporte interno. Peça prazos, requisitos e outros detalhes que sua equipe precise.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para criar, compartilhar e analisar",
+      feature1Title: "Geração de formulários com IA",
+      feature1Body:
+        "Descreva o que você quer coletar e seu agente de IA cria o formulário. Peça para ele adicionar perguntas ou revisar campos existentes.",
+      feature2Title: "Edição visual de campos",
+      feature2Body:
+        "Edite rótulos, opções, campos obrigatórios e a ordem das perguntas você mesmo. Escolha tipos de campo como texto, e-mail, múltipla escolha, datas, avaliações e escalas.",
+      feature3Title: "Perguntas condicionais",
+      feature3Body:
+        "Mostre uma pergunta de acompanhamento quando uma resposta anterior corresponder a uma regra. Peça mais detalhes quando alguém selecionar “Outro”, por exemplo.",
+      feature4Title: "Links públicos do formulário",
+      feature4Body:
+        "Publique um formulário e compartilhe o link. Defina uma mensagem de conclusão ou redirecionamento, e feche o formulário quando parar de aceitar respostas.",
+      feature5Title: "Insights e exportação de respostas",
+      feature5Body:
+        "Revise os envios em uma tabela ou peça ao seu agente de IA resumos e tendências das respostas. Baixe a tabela de respostas como CSV.",
+      feature6Title: "Integrações de envio",
+      feature6Body:
+        "Configure o envio para Slack, Discord, Google Sheets ou um webhook. Novas respostas vão para o destino configurado para aquele formulário.",
+      finalCtaHeading: "Crie seu próximo formulário",
+      finalCtaBody: "Diga ao seu agente de IA o que você quer coletar.",
+      finalCtaButton: "Criar um formulário",
       s002: "Descrever",
       s003: "Gerar",
       s004: "Rota",
@@ -1142,22 +1740,68 @@ const ptBR = {
     },
     mail: {
       faq: {
-        question1: "A IA pode organizar minha caixa de entrada?",
+        question1: "O que é o Agent-Native Mail?",
         answer1:
-          "Sim. O agente lê sua caixa de entrada, destaca prioridades, aplica rótulos e organiza as mensagens, redige respostas, define regras de arquivamento automático e resume e-mails não lidos com os itens de ação em destaque.",
-        question2: "Qual é a diferença entre Mail e Superhuman?",
+          "O Agent-Native Mail é um cliente de e-mail gratuito e de código aberto para o Gmail com um assistente de e-mail com IA. Leia e pesquise mensagens, resuma conversas, redija respostas e organize seu e-mail pela caixa de entrada ou pelo seu agente de IA.",
+        question2: "O Mail funciona com minha conta do Gmail existente?",
         answer2:
-          "A velocidade centrada no teclado é o ponto de partida: escrever, arquivar e responder, tudo por atalhos. A diferença é um agente que realmente trabalha na caixa de entrada, sem assinatura e com código que pertence a você.",
-        question3: "Mail funciona com Gmail?",
-        answer3: "Sim, funciona com Gmail e oferece suporte a várias contas.",
-        question4: "Meu e-mail é privado?",
+          "Sim. Conecte sua conta do Gmail existente para ler e enviar e-mails pelo Mail. Você pode conectar várias contas do Gmail e pesquisar em todas elas. O Mail não oferece um novo endereço de e-mail, e atualmente é compatível com o Gmail, e não com o Outlook ou outros provedores de e-mail.",
+        question3: "O agente de IA vai enviar e-mails sem minha aprovação?",
+        answer3:
+          "Quando você pede ao agente de IA para enviar um e-mail no chat, é necessária sua aprovação. Envios acionados por automações também exigem aprovação, a menos que você ative explicitamente o envio automático nas configurações do Mail. Você pode revisar e editar os rascunhos antes de enviá-los.",
+        question4:
+          "A IA pode organizar minha caixa de entrada automaticamente?",
         answer4:
-          "Mail é de código aberto e roda localmente: seus e-mails permanecem na sua infraestrutura, e você pode ler cada linha de código que acessa as mensagens.",
-        question5: "Mail é gratuito?",
+          "Sim. Crie regras em linguagem natural para rotular, arquivar, marcar com estrela ou marcar como lidas as mensagens recebidas. O Mail também é compatível com filtros nativos do Gmail para condições como remetente ou assunto. Os filtros do Gmail rodam no Gmail e continuam funcionando mesmo com o Mail fechado.",
+        question5:
+          "Um colega de equipe pode preparar um e-mail para eu revisar?",
         answer5:
-          "Sim. É gratuito e de código aberto, sem assinatura ou dependência de fornecedor.",
+          "Sim. Um colega de equipe pode solicitar um rascunho que aparece na sua fila de revisão. Abra-o, edite a mensagem e envie quando estiver pronto. Quem solicitou não pode enviá-lo em seu nome; quem controla o envio é o dono do rascunho ou um administrador da organização.",
       },
       s001: "Captura de tela do modelo Mail",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "Gerencie sua caixa de entrada com seu agente de IA",
+      heroDescription:
+        "O Mail é um cliente de e-mail gratuito e de código aberto para o Gmail, com um agente de IA que encontra mensagens, resume conversas, redige respostas e organiza sua caixa de entrada.",
+      heroCta: "Gerencie sua caixa de entrada",
+      useCasesHeading: "O que você pode fazer com o Mail?",
+      useCasesBody:
+        "Coloque as conversas em dia, responda a clientes e colegas, ou organize um acúmulo de e-mails.",
+      useCase1Title: "Coloque as conversas em dia",
+      useCase1Body:
+        "Pergunte ao seu agente de IA o que aconteceu em uma conversa longa, o que foi combinado e quais perguntas ainda precisam de resposta.",
+      useCase2Title: "Responda a clientes e colegas",
+      useCase2Body:
+        "Dê ao seu agente de IA os pontos que você quer abordar. Revise e edite a resposta no painel de redação antes de enviá-la.",
+      useCase3Title: "Organize sua caixa de entrada",
+      useCase3Body:
+        "Peça ao seu agente de IA para rotular faturas, arquivar newsletters ou marcar com estrela as mensagens de um cliente. Aplique regras para tratar e-mails semelhantes assim que chegarem.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo o que você precisa para ler, escrever e organizar e-mails",
+      feature1Title: "Resumos de conversas com IA",
+      feature1Body:
+        "Pergunte sobre a conversa que você tem aberta. Seu agente de IA lê a conversa para resumir a discussão e identificar perguntas em aberto.",
+      feature2Title: "Redação de e-mails com IA",
+      feature2Body:
+        "Redija uma resposta ou revise o texto selecionado com seu agente de IA. Defina suas preferências de escrita, adicione sua assinatura e edite os rascunhos você mesmo.",
+      feature3Title: "Pesquisa multiconta",
+      feature3Body:
+        "Conecte suas contas do Gmail pessoal e de trabalho. Pesquise em todas elas a partir de uma única caixa de entrada, usando a barra de pesquisa ou pedindo ao seu agente de IA.",
+      feature4Title: "Automações da caixa de entrada",
+      feature4Body:
+        "Descreva regras para rotular, arquivar, marcar com estrela ou marcar como lidas as mensagens recebidas. Use regras de IA ou configure filtros nativos do Gmail.",
+      feature5Title: "Atalhos de teclado",
+      feature5Body:
+        "Navegue entre mensagens, redija respostas, arquive conversas e pesquise sua caixa de entrada pelo teclado. Abra a paleta de comandos para encontrar mais ações.",
+      feature6Title: "Envios programados e adiamento",
+      feature6Body:
+        "Escolha quando enviar um e-mail ou quando trazer uma mensagem de volta à sua atenção. Revise os itens programados e cancele-os se os planos mudarem.",
+      finalCtaHeading: "Comece com seu próximo e-mail",
+      finalCtaBody:
+        "Abra uma conversa e peça ao seu agente de IA um resumo ou um rascunho de resposta.",
+      finalCtaButton: "Gerencie sua caixa de entrada",
       s002: "Teclado primeiro",
       s003: "Triagem da caixa de entrada",
       s004: "Visualizações",
@@ -1221,130 +1865,140 @@ const ptBR = {
     },
     plan: {
       faq: {
-        question1:
-          "Posso revisar o plano de um agente de programação com IA antes que ele escreva o código?",
+        question1: "O que é o Agent-Native Plans?",
         answer1:
-          "Sim. Plans transforma a intenção do agente em wireframes, diagramas e código anotado com uma URL compartilhável. Sua equipe comenta, o agente revisa e só então escreve o código: a revisão acontece antes de o código existir, não depois.",
-        question2: "Plans funciona com Claude Code, Codex e Cursor?",
+          "Agent-Native Plans é uma ferramenta de planejamento visual gratuita e de código aberto para agentes de programação com IA. Revise planos de implementação com diagramas, wireframes, código anotado e comentários, ou gere recapitulações visuais de mudanças já concluídas.",
+        question2: "Como uso o Plans com meu agente de programação?",
         answer2:
-          "Sim, além de GitHub Copilot, OpenCode e outros agentes de programação. Um comando o adiciona como skill: `npx @agent-native/core@latest skills add visual-plan`. Não há um app separado para implantar.",
-        question3: "Minha equipe inteira pode revisar o plano, não apenas eu?",
+          "Instale as skills de planejamento e o conector com `npx @agent-native/core@latest skills add visual-plan`, depois conclua a etapa de autenticação do seu cliente. O guia de instalação cobre clientes como Claude Code e Codex. Use `/visual-plan` para pedir ao seu agente um plano de implementação visual.",
+        question3:
+          "Meu agente pode revisar um plano com base nos meus comentários?",
         answer3:
-          "Cada plano recebe uma URL pública com comentários integrados. A equipe revisa wireframes e diffs anotados de forma assíncrona — sem precisar do terminal —, e o agente lê o feedback e atualiza o plano.",
-        question4:
-          "Qual é a diferença para o modo de planejamento do Claude Code?",
+          "Sim. Deixe comentários no texto ou fixe-os em um elemento visual, depois peça ao seu agente para ler e responder ao feedback. Ele pode atualizar o plano e responder às discussões de revisão. Isso apoia seu processo de revisão; não impede automaticamente que o agente altere o código.",
+        question4: "Posso usar o Plans para revisar código que já foi escrito?",
         answer4:
-          "O modo de planejamento é texto no seu terminal, visível para uma pessoa e perdido depois que você aprova. Plans é visual — com wireframes, diagramas e diffs anotados —, compartilhável e persistente: os agentes criam, leem e atualizam os planos durante todo o ciclo de vida do recurso.",
-        question5: "Posso ver os planos ao lado do meu código?",
+          "Sim. Use `/visual-recap` com um pull request, commit, branch ou diff para obter uma explicação visual da mudança. Use a recapitulação para guiar sua revisão do código e dos testes reais.",
+        question5: "Onde os planos ficam salvos, e posso compartilhá-los?",
         answer5:
-          "Sim. A extensão do VS Code abre os planos em um painel lateral, e o Agent Native Desktop espelha os planos hospedados em arquivos MDX locais.",
-        question6: "Plans é gratuito?",
-        answer6:
-          "Sim. É gratuito, de código aberto e licenciado sob MIT. Plans oferece links de compartilhamento hospedados, e você pode espelhar tudo em arquivos locais.",
+          "A instalação padrão conecta seu agente ao aplicativo Plans hospedado. Novos planos hospedados são privados até que você os compartilhe. Colegas de equipe podem revisar planos compartilhados no navegador; comentar exige uma conta. Fluxos de trabalho locais também estão disponíveis pelo guia de configuração.",
       },
-      s001: "Captura de tela do modelo de planos",
-      s002: "Tipos de bloco",
-      s003: "Integrações de agentes",
-      s004: "Links compartilháveis",
-      s005: "Protótipo de corredor",
-      s006: "Adicione a habilidade",
-      s007: "Um comando instala a habilidade de plano em Claude Code, Codex, Pi, Cursor, OpenCode, GitHub Copilot / VS Code e projetos de agente semelhantes. Nenhum aplicativo separado para implantar.",
-      s008: "Agente abre um plano",
-      s009: "Peça ao seu agente para planejar um recurso. Ele chama /visual-plan e o plano abre em seu navegador ou VS Code – blocos estruturados, não uma parede de descontos.",
-      s010: "Revise e comente",
-      s011: "Pin comentários para qualquer bloco. Faça perguntas, sinalize preocupações ou aprove seções – o agente pode ver todos os comentários.",
-      s012: "Agente itera",
-      s013: "O agente lê seus comentários e atualiza o plano em vigor. As diferenças mostram exatamente o que mudou e por quê.",
-      s014: "Todos os modelos",
-      s015Primary: "Planos visuais para Codex,",
-      s015Secondary: "Claude Code e agentes de codificação",
-      s016: "Instale em um comando. Seu agente abre planos estruturados com wireframes, diagramas, código anotado e links de revisão compartilháveis ​​– em vez de despejar paredes de descontos no terminal.",
-      s017: "Experimentar",
-      s018: "O que os agentes podem fazer",
-      s019: "Cada tipo de bloco é um cidadão de primeira classe – dados estruturados, não HTML brutos, para que o agente possa ler e atualizar os planos à medida que o trabalho evolui.",
-      s020: "Wireframes",
-      s021: "Maquetes UI incompletas baseadas em seu produto real - não em espaços reservados genéricos para desktop.",
-      s022: "Diagramas",
-      s023: "Fluxogramas de arquitetura, modelos de dados e diagramas de sequência renderizados em linha.",
-      s024: "Código anotado",
-      s025: "Arquivos de origem reais com notas por linha, diferenças e justificativa de mudança - não despejos de código bruto.",
-      s026: "Links compartilháveis",
-      s027: "Cada plano recebe um URL público. Compartilhe com colegas de equipe para revisão, comentários e aprovações assíncronas.",
-      s028: "Sincronização de arquivos da área de trabalho",
-      s029: "Espelhe planos hospedados para arquivos MDX locais do Agent Native Desktop sem clonar o aplicativo ou executar um CLI.",
-      s030: ", então a revisão fica ao lado do código.",
-      s031: "Como funciona",
-      s032: "O planejamento fica em um aplicativo compartilhado – você e o agente podem lê-lo e atualizá-lo durante todo o ciclo de vida de um recurso.",
-      s033: "Biblioteca de blocos rica",
-      s034: "Os planos são compostos de blocos estruturados – não de HTML de formato livre. O agente conhece o esquema de cada bloco e pode criar, atualizar e raciocinar sobre eles com precisão.",
-      s035: "código anotado",
-      s036: "Valide o proprietário antes de inserir",
-      s037: "Emitir evento para automações",
-      s038: "adicionar",
-      s039: "Como se compara",
-      s040: "Markdown no terminal",
-      s041: "Renderização visual",
-      s042: "No",
-      s043: "Básico",
-      s044: "Blocos ricos, wireframes, diagramas",
-      s045: "O agente pode ler e atualizar",
-      s046: "Sim, texto bruto",
-      s047: "Limitado",
-      s048: "Sim, esquema estruturado",
-      s049: "Link compartilhável",
-      s050: "Sim",
-      s051: "Sim, com comentários",
-      s052: "Caixa de areia Alpine.js ativa",
-      s053: "Funciona com Codex / Claude Code / Pi",
-      s054: "Sim, instalação com um comando",
-      s055: "Código aberto",
-      s056: "Sim, MIT licenciado",
-      s057: "Comece em segundos",
-      s058: "Um comando adiciona planejamento visual a Claude Code, Codex, Pi, Cursor, OpenCode, GitHub Copilot / VS Code e projetos de agentes semelhantes. Nenhuma implantação separada é necessária.",
-      s059: "Leia os documentos",
-      s060: "Ver todos os modelos",
-      s061: "Envios para VS Code",
-      s062: "Abra links de planos em um painel lateral do VS Code com a",
-      s063: "extensão Agent Native Plans",
-      s064: "Wireframe — maquete de UI esboçada com slots de componentes",
-      s065: "Código anotado — arquivo-fonte com notas por linha",
-      s066: "Diagrama — fluxo, sequência ou arquitetura",
-      s067: "Protótipo — sandbox Alpine.js ao vivo em um iframe",
-      s068: "Decisão — escolhas definidas com justificativa",
-      s069: "Endpoint de API — método, caminho e tipos de solicitação/resposta",
-      s070: "Modelo de dados — esquema com anotações de campos",
-      s071: "Árvore de arquivos — estrutura do projeto com notas por caminho",
-      s072: "// Bloco de plano de exemplo",
-      s073: "ChatGPT Canvas e Notion",
-      s074: "N/D",
+      s001: "Captura de tela do modelo Plans",
+      heroEyebrow: "Plans",
+      heroTitle:
+        "Veja o que seu agente de programação com IA planeja construir",
+      heroDescription:
+        "Plans é uma ferramenta de planejamento visual gratuita e de código aberto para revisar a abordagem do seu agente de programação, dar feedback e entender mudanças de código por meio de diagramas, wireframes e código anotado.",
+      heroCta: "Planeje visualmente",
+      heroSecondaryCta: "Abrir o Plans",
+      useCasesHeading: "O que você pode fazer com o Plans?",
+      useCasesBody:
+        "Revise uma abordagem de implementação, avalie uma interface ou entenda uma mudança concluída com seu agente de programação com IA.",
+      useCase1Title: "Revise a arquitetura antes da implementação",
+      useCase1Body:
+        "Peça ao seu agente de programação para diagramar um recurso ou refatoração proposta. Verifique o fluxo de dados, as dependências e os pontos de falha antes que ele comece a alterar o código.",
+      useCase2Title: "Avalie mudanças de interface",
+      useCase2Body:
+        "Revise telas e fluxos de usuário propostos com seu agente de programação. Aponte estados ou interações ausentes e peça a ele para revisar o plano.",
+      useCase3Title: "Entenda mudanças de código já concluídas",
+      useCase3Body:
+        "Peça ao seu agente de programação uma recapitulação visual de um pull request, commit ou branch. Revise as mudanças de comportamento e os arquivos afetados.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para visualizar, revisar e discutir",
+      feature1Title: "Diagramas de arquitetura",
+      feature1Body:
+        "Mostre fluxos de solicitação, relações entre sistemas e modelos de dados dentro de um plano. Peça ao seu agente de programação com IA para atualizar os diagramas conforme a abordagem muda.",
+      feature2Title: "Wireframes e protótipos",
+      feature2Body:
+        "Revise layouts de tela e opções de protótipo interativo junto com o plano de implementação. Dê feedback sobre a interface proposta antes de pedir ao seu agente para construí-la.",
+      feature3Title: "Passo a passo de código anotado",
+      feature3Body:
+        "Leia arquivos de origem com notas por linha e explicações das mudanças. Use árvores de arquivos para ver onde o trabalho proposto se encaixa na base de código.",
+      feature4Title: "Comentários e anotações",
+      feature4Body:
+        "Comente no texto ou fixe feedback em um ponto específico de um elemento visual. Direcione perguntas ao seu agente ou a um colega de equipe.",
+      feature5Title: "Recapitulações visuais de código",
+      feature5Body:
+        "Use `/visual-recap` para transformar um pull request, commit, branch ou diff existente em um passo a passo com diagramas e explicações das mudanças.",
+      feature6Title: "Compartilhamento e exportações",
+      feature6Body:
+        "Compartilhe um plano para que colegas de equipe revisem no navegador. Exporte-o como HTML, Markdown, JSON ou MDX quando precisar de uma cópia separada.",
+      finalCtaHeading: "Revise sua próxima tarefa de programação visualmente",
+      finalCtaBody:
+        "Peça um plano ao seu agente, depois avaliem os detalhes juntos.",
+      finalCtaButton: "Planeje visualmente",
     },
     slides: {
       faq: {
-        question1:
-          "Posso criar uma apresentação a partir do Claude ou ChatGPT?",
+        question1: "O que é o Agent-Native Slides?",
         answer1:
-          "Sim. Peça uma apresentação ao Claude ou ChatGPT, e ela chegará ao Slides — com sua marca, editável e exportável — em vez de você precisar começar de novo em um site de apresentações.",
-        question2: "Posso corrigir o que a IA fizer de errado?",
+          "Agent-Native Slides é um criador de apresentações de IA gratuito e de código aberto. Crie decks com a identidade da sua marca a partir das suas ideias e materiais de origem com um agente de IA, depois edite os slides você mesmo, apresente ou exporte para o PowerPoint.",
+        question2: "Posso editar os slides depois que a IA os gera?",
         answer2:
-          "De três formas: por prompt, manualmente — clique em qualquer elemento e dê dois cliques em qualquer texto — ou no código. Você nunca fica preso no ciclo de gerar novamente e torcer para dar certo.",
-        question3: "Como as apresentações permanecem alinhadas à marca?",
+          "Sim. Edite texto, layout e estilo diretamente no editor visual, ou peça ao agente de IA para revisar um slide selecionado. Você pode continuar refinando a apresentação depois do primeiro rascunho.",
+        question3:
+          "Posso criar uma apresentação a partir de um deck ou documento existente?",
         answer3:
-          "Marque como favorita uma apresentação da qual você se orgulha. Cada nova apresentação herda layouts, títulos, estilo visual e tokens de marca dela. Geradores de uma tentativa criam uma apresentação; esta abordagem cria uma prática repetível para suas apresentações.",
-        question4: "Qual é a diferença entre Slides e Gamma?",
+          "Sim. Anexe um deck ou documento como material de referência para uma nova apresentação. Para trabalhar no deck existente propriamente dito, importe-o explicitamente. Revise os slides importados em busca de mudanças de layout ou imagens ausentes.",
+        question4:
+          "Posso usar minhas próprias cores de marca, fontes e logotipo?",
         answer4:
-          "Gamma cria rapidamente uma apresentação razoável em uma tentativa; depois você fica no canvas da plataforma, pagando a assinatura e gerando novamente quando o resultado está apenas 85% certo. Slides é gratuito, de código aberto, herda sua marca e permite editar tudo.",
-        question5: "Slides é gratuito?",
+          "Sim. Aplique um design system com as cores, tipografia e logotipos da sua marca, e reutilize-o em vários decks. Você também pode fornecer uma apresentação de referência para guiar as escolhas de design do agente de IA.",
+        question5:
+          "Posso usar minha apresentação no PowerPoint ou no Google Slides?",
         answer5:
-          "Sim. É gratuito e de código aberto, sem assinatura, medidor de créditos ou cobrança por apresentação.",
+          "Exporte um arquivo PPTX para abrir no PowerPoint. Para usar a apresentação no Google Slides, importe esse arquivo lá. Revise fontes e layouts após a exportação, pois podem ser renderizados de forma diferente entre os editores.",
       },
       s001: "Captura de tela do modelo Slides",
+      // V4 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Slides",
+      heroTitle: "Crie apresentações com seu agente de IA",
+      heroDescription:
+        "Slides é um criador de apresentações de IA gratuito e de código aberto para criar decks com a identidade da sua marca a partir das suas ideias e materiais de origem, com slides que você mesmo pode editar.",
+      heroCta: "Criar um deck",
+      useCasesHeading: "O que você pode fazer com o Slides?",
+      useCasesBody:
+        "Prepare um pitch, apresente um plano ou compartilhe uma atualização. Dê ao seu agente de IA o material e o público que você tem em mente.",
+      useCase1Title: "Criar apresentações de vendas e pitch",
+      useCase1Body:
+        "Transforme o briefing do seu produto em um deck para clientes em potencial ou investidores. Ajuste a narrativa ao público para quem você está apresentando.",
+      useCase2Title: "Apresentar planos e estratégias",
+      useCase2Body:
+        "Dê ao seu agente de IA um briefing de estratégia ou plano de lançamento para transformar em slides que expliquem a direção e os próximos passos propostos.",
+      useCase3Title: "Compartilhar atualizações do negócio",
+      useCase3Body:
+        "Transforme anotações de projetos ou relatórios de desempenho em uma apresentação que mostre o progresso, explique os resultados e destaque o que precisa de atenção.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para criar, editar e apresentar",
+      feature1Title: "Geração de apresentações por IA",
+      feature1Body:
+        "Comece com um prompt, documento ou deck de referência. Dê ao seu agente de IA o tema e o público para construir a apresentação em torno deles.",
+      feature2Title: "Edição por IA e visual",
+      feature2Body:
+        "Selecione o texto para que seu agente de IA o revise, ou edite texto, layout e estilo diretamente no slide você mesmo.",
+      feature3Title: "Estilos de marca reutilizáveis",
+      feature3Body:
+        "Salve suas cores, fontes e logotipos em um design system. Aplique-o em vários decks para manter as apresentações consistentes com sua marca.",
+      feature4Title: "Imagens e logotipos",
+      feature4Body:
+        "Peça ao seu agente de IA para gerar imagens, encontrar fotos ou procurar logotipos de empresas para usar nos seus slides.",
+      feature5Title: "Colaboração em equipe",
+      feature5Body:
+        "Trabalhe em decks com colegas de equipe, deixe comentários em slides específicos e restaure uma versão anterior quando precisar.",
+      feature6Title: "Apresentação e exportação",
+      feature6Body:
+        "Apresente em tela cheia com notas do apresentador, compartilhe um link de visualização ou exporte seu deck como um arquivo do PowerPoint.",
+      finalCtaHeading: "Comece sua próxima apresentação",
+      finalCtaBody: "Traga uma ideia, um briefing ou um deck já existente.",
+      finalCtaButton: "Criar um deck",
       s002: "Descrever",
       s003: "Gerar",
       s004: "Refinar",
       s005: "Todos os modelos",
       s006Primary: "Apresentações de slides",
-      s006Secondary: "para pessoas e agentes",
-      s007: "Gere apresentações com a identidade da sua marca usando seu agente de IA, faça suas próprias alterações manuais a qualquer momento e exporte para qualquer lugar.",
+      s006Secondary: "Com sua marca e editáveis",
+      s007: "Gere apresentações com a identidade da sua marca usando seu agente de IA, depois edite os slides você mesmo e exporte para qualquer lugar.",
       s008: "Experimentar",
       s009: "Como funciona",
       s010: "Tudo que você precisa",
@@ -1524,9 +2178,9 @@ const ptBR = {
     },
   },
   downloadPage: {
-    title: "Baixar Agent Native",
-    body: "Todos os seus apps agent-native em uma única shell de desktop. Apps de produção integrados, com alternância de modo dev para desenvolvimento local.",
-    openDesktop: "Abrir Agent Native",
+    title: "Baixar Agent-Native",
+    body: "Experimente apps agênticos para reuniões, design, apresentações, dados, agendamento, e-mail e muito mais, tudo em um único app de desktop.",
+    openDesktop: "Abrir Agent-Native",
     downloadInstaller: "Baixar instalador",
     downloadStarted: "Download iniciado",
     downloadAgain: "Não funcionou? Tente baixar novamente",
@@ -1534,27 +2188,33 @@ const ptBR = {
     checkingRelease: "Verificando a versão desktop mais recente...",
     retry: "Tentar novamente",
     unavailable: "Instalador indisponível para esta plataforma",
+    allPlatforms: "Todas as plataformas",
     stable: "Estável",
     nightly: "Nightly",
-    switchToNightly: "Mudar para builds Nightly",
-    switchToStable: "Mudar para builds estáveis",
-    runFromSource: "Ou executar a partir do código-fonte",
+    runFromSource: "Crie o seu",
     runFromSourceBody:
-      "Ainda não há instalador para sua plataforma, ou prefere a CLI? Crie um novo app com npm e rode localmente; funciona em macOS, Windows e Linux.",
+      "Crie um app Agent-Native pela linha de comando e execute-o localmente no macOS, Windows ou Linux.",
     platforms: {
       mac: {
         primary: "Baixar para Apple Silicon",
         alternative: "Mac Intel",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Baixar para Windows",
         alternative: "ARM64",
+        gridPrimary: "Instalador x64",
+        gridAlternative: "Instalador Arm64",
         note: "Windows 10 ou posterior.",
       },
       linux: {
         primary: "Baixar arquivo Linux",
         appImage: "Baixar AppImage",
         deb: "Baixar .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "Universal",
+        gridDeb: "Debian / Ubuntu",
         note: "O arquivo funciona sem FUSE. AppImage pode exigir FUSE 2 em algumas distribuições.",
       },
     },
@@ -1592,6 +2252,35 @@ const ptBR = {
   },
   legal: {
     lastUpdated: "Última atualização: {{date}}",
+    resources: {
+      eyebrow: "Recursos jurídicos",
+      title: "Recursos jurídicos do Agent-Native",
+      intro:
+        "Políticas jurídicas independentes do Agent-Native para aplicações e serviços hospedados.",
+      agentNative: {
+        title: "Políticas do Agent-Native",
+        body: "Estas páginas adaptam o conjunto de políticas compartilhado ao projeto open source e aos exemplos hospedados do Agent-Native.",
+        terms: "Termos de Serviço do Agent-Native",
+        privacy: "Política de Privacidade do Agent-Native",
+      },
+      builder: {
+        title: "Políticas adicionais do serviço hospedado",
+        body: "Estas cópias locais abrangem uso aceitável, recursos de IA, regras da plataforma, suspensão e remoção, direitos autorais e solicitações de autoridades. A versão em inglês prevalece.",
+      },
+      links: {
+        terms: "Contrato de Serviços SaaS",
+        privacy: "Política de Privacidade",
+        acceptableUse: "Política de Uso Aceitável",
+        aiTerms: "Termos de IA",
+        platformRules: "Regras da Plataforma",
+        takedown: "Política de Suspensão, Remoção e Tratamento de Dados",
+        lawEnforcement: "Política para Solicitações de Autoridades Policiais",
+      },
+      notIncluded: {
+        title: "Condições comerciais não incluídas",
+        body: "O Agent-Native não tem planos pagos nem contrato empresarial. Materiais comerciais como SLAs empresariais, termos de suporte, DPAs, adendos de segurança, termos de serviços profissionais e taxas não estão incluídos.",
+      },
+    },
     privacy: {
       eyebrow: "Política de Privacidade",
       title: "Agent-Native aplicativos hospedados",
@@ -1614,6 +2303,7 @@ const ptBR = {
       sections: {
         scope: "Escopo",
         information: "Informações que coletamos",
+        cookies: "Cookies e analytics",
         clipsExtension: "Extensão Chrome do Agent-Native Clips",
         use: "Como usamos as informações",
         sharing: "Compartilhamento e terceiros",
@@ -1629,6 +2319,8 @@ const ptBR = {
           "Esta política destina-se a complementar a visão mais ampla de Builder.io",
         scope2Suffix:
           "para comportamento do aplicativo hospedado Agent-Native.",
+        cookies:
+          "O site de documentação e os aplicativos hospedados do Agent-Native podem usar cookies necessários para autenticação e segurança, armazenamento de preferências como idioma ou tema e tecnologias de analytics configuradas. O site de documentação pode carregar o Google Analytics ou o Google Tag Manager quando configurados pela implantação, e o serviço hospedado pode usar analytics próprios para medir a confiabilidade e o uso de recursos. Não usamos o conteúdo de aplicativos hospedados para publicidade de terceiros. Você pode controlar cookies nas configurações do navegador, embora desativar os cookies necessários possa impedir o login ou outros recursos.",
         clips1:
           "O Agent-Native Clips Chrome extension ajuda você a iniciar gravações baseadas no navegador e, quando ativado, anexar diagnósticos do navegador a um clipe. Ele pode coletar a fonte de captura selecionada, mídia de câmera e microfone que você escolhe incluir, o título e URL da guia ativa e o estado de autenticação necessário para conectar a extensão ao Clips hospedado.",
         clips2:
@@ -1685,6 +2377,55 @@ const ptBR = {
         builderPrivacyFull: "Builder.io Política de Privacidade",
       },
     },
+    about: {
+      eyebrow: "Sobre o Agent-Native",
+      title: "Apps de código aberto para agentes e pessoas",
+      intro:
+        "Agent-Native é um framework de código aberto para criar aplicações em que agentes de IA e interfaces compartilham as mesmas ações, dados e estado da aplicação.",
+      sections: {
+        project: {
+          title: "Um modelo operacional compartilhado",
+          body: "O Agent-Native trata o agente e a interface como parceiros iguais. Uma ação pode alimentar um controle de UI, uma ferramenta do agente, uma rota HTTP, uma capacidade MCP ou A2A, um comando de CLI e um fluxo auditável. O estado SQL compartilhado mantém a visão humana e a do agente alinhadas.",
+        },
+        openSource: {
+          title: "Código aberto por padrão",
+          body: "O código-fonte está disponível sob a licença MIT no repositório BuilderIO/agent-native. Desenvolvedores podem inspecioná-lo, executá-lo localmente, escolher seus provedores de banco e modelos e adaptá-lo ao produto. Os serviços hospedados são operados separadamente de forks e implantações próprias.",
+        },
+        hosted: {
+          title: "Hospedado e autohospedado",
+          body: "A Builder.io opera as aplicações hospedadas e a documentação do Agent-Native em agent-native.com. O framework também atende equipes que querem implantar e manter suas próprias aplicações. Os contratos de ações, limites de acesso, instruções de agentes e protocolos públicos podem ser revisados no código e na documentação.",
+        },
+        community: {
+          title: "Construído em público",
+          body: "O projeto é desenvolvido abertamente por meio de issues, pull requests, documentação e da comunidade Agent-Native. Leia a documentação para entender a arquitetura, consulte o código para verificar uma implementação ou participe da comunidade para discutir um caso de uso e contribuir.",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "Contato",
+      title: "Entre em contato com a Builder.io sobre o Agent-Native",
+      intro:
+        "Use os canais de suporte, código e comunidade para fazer perguntas, relatar problemas, sugerir melhorias ou comunicar uma preocupação de segurança sobre o Agent-Native.",
+      emailLabel: "Enviar e-mail para support@builder.io",
+      sections: {
+        support: {
+          title: "Suporte do produto e do serviço hospedado",
+          body: "Para dúvidas sobre uma aplicação hospedada, acesso à conta, um problema na documentação ou um comportamento que você não consegue resolver, escreva para support@builder.io. Inclua a URL pública, uma descrição reproduzível e identificadores relevantes. Não envie senhas, chaves de API, tokens bearer ou dados privados de clientes.",
+        },
+        source: {
+          title: "Projeto de código aberto e comunidade",
+          body: "Use o repositório no GitHub para bugs no código, propostas, pull requests e discussões de implementação. O Discord é útil para perguntas que se beneficiam da conversa com outros desenvolvedores. Pesquise primeiro as issues e a documentação para fornecer o contexto necessário aos mantenedores.",
+        },
+        security: {
+          title: "Relatos de segurança",
+          body: "Não divulgue uma vulnerabilidade sem correção em uma issue ou chat público. Entre em contato com a Builder.io pelo canal de segurança disponível e forneça apenas os detalhes necessários para reproduzir e avaliar o relato. Mantenha credenciais, dados privados e material de exploração fora do suporte comum.",
+        },
+        legal: {
+          title: "Legal e privacidade",
+          body: "Para dúvidas de privacidade, consulte a política de privacidade do Agent-Native e os recursos legais da Builder.io antes de falar com o suporte. A Builder.io, Inc. fica em 95 3rd Street, 2nd Floor, San Francisco, CA 94103, Estados Unidos. Os termos do serviço hospedado e as responsabilidades de autohospedagem estão nos Termos de Serviço.",
+        },
+      },
+    },
     terms: {
       eyebrow: "Termos de Serviço",
       title: "Agent-Native aplicativos hospedados",
@@ -1724,6 +2465,8 @@ const ptBR = {
         scope2Middle: "e o Agent-Native",
         scope2Suffix:
           "Se você usar um aplicativo Agent-Native hospedado em nome de uma empresa ou organização, você declara ter autoridade para aceitar estes termos para essa organização.",
+        scope3:
+          "O Agent-Native não tem planos pagos nem assinaturas de hospedagem pagas. Termos comerciais da Builder.io, como formulários de pedido, tarifas, suporte empresarial, níveis de serviço e aditivos de tratamento de dados, não fazem parte desta oferta, salvo se acordados separadamente por escrito.",
         hostedService:
           "Builder.io pode fornecer aplicativos Agent-Native hospedados, modelos, demonstrações, espaços de trabalho compartilhados, extensões de navegador e fluxos de trabalho de agentes relacionados. O serviço hospedado pode ser atualizado, limitado, suspenso ou descontinuado à medida que o produto evolui.",
         accounts1:
@@ -1786,7 +2529,6 @@ const ptBR = {
     usingYourAgent: "Usar seu Agent",
     agentResources: "Recursos do Agente",
     integrations: "Integrações",
-    buildApps: "Criar apps",
     advancedRuntime: "Avançado: estender o runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeiros passos",
@@ -1818,6 +2560,7 @@ const ptBR = {
     capabilityPackages: "Pacotes de capacidade",
     capabilityPackagesOverview: "Visão geral",
     packageLifecycle: "Ciclo de vida de pacotes",
+    versioningAndStability: "Versionamento e estabilidade",
     templatesOverview: "Modelos",
     pureAgentApps: "Apps focados em automação",
     faq: "FAQ",
@@ -1844,12 +2587,19 @@ const ptBR = {
     actionsAgentTools: "Acesso do Agente em Produção",
     publicAgentWeb: "Agent Web público",
     database: "Banco de dados",
+    databaseProviders: "Provedores de banco de dados",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
+    databasePostgres: "Plain Postgres",
     internationalization: "Internacionalização",
     localFileMode: "Modo de arquivos locais",
     fileUploads: "Uploads de arquivos",
     deployment: "Deploy",
     deploymentOverview: "Visão geral",
-    deploymentProviders: "Provedores",
+    deploymentProviders: "Provedores de hospedagem",
     deploymentProduction: "Produção e avançado",
     deployAnApp: "Fazer deploy de um app",
     workspaceDeployment: "Deploy do Workspace",
@@ -1872,6 +2622,7 @@ const ptBR = {
     authentication: "Autenticação",
     multiTenancy: "Multilocação",
     organizationsTeamsPermissions: "Organizações, equipes e permissões",
+    administeredDeployments: "Implantações administradas",
     securityDataScoping: "Segurança e escopo de dados",
     sharingPrivacy: "Compartilhamento e privacidade",
     trackingAnalytics: "Tracking e analytics",
@@ -1887,6 +2638,7 @@ const ptBR = {
     dropInAgent: "Agent drop-in",
     componentApi: "API de componentes",
     nativeChatUi: "UI de chat nativa",
+    agentkit: "AgentKit",
     generativeUi: "UI generativa",
     realTimeCollaboration: "Colaboração em tempo real",
     agentResourcesOverview: "Visão geral dos recursos do agente",
@@ -1911,6 +2663,7 @@ const ptBR = {
     externalAgents: "Agents externos (conectar host)",
     externalAgentsCatalog: "Catálogo de agents externos",
     mcpApps: "MCP Apps (UIs inline)",
+    webMcp: "WebMCP (ferramentas do navegador)",
     crossAppSso: "SSO entre apps",
     notifications: "Notificações",
     automationConnectors: "Conectores de fluxo de trabalho",
@@ -1919,7 +2672,6 @@ const ptBR = {
     syncingTemplateChanges: "Sincronizar alterações de templates",
     writingAgentInstructions: "Escrever instruções de Agent",
     embeddingSdk: "SDK de incorporação",
-    frames: "Frames",
     agentNativeCodeUi: "UI de código Agent-Native",
     harnessAgents: "Agentes com harness",
     adapters: "Adaptadores",
@@ -1935,13 +2687,13 @@ const ptBR = {
     calendar: "Calendário",
     calendarOverview: "Visão geral",
     calendarAgent: "Conversar com o Agent",
-    calendarScheduling: "Agendamento e disponibilidade",
-    calendarBookingLinks: "Links de reserva",
+    calendarFeatures: "Funcionalidades",
+    calendarIntegrations: "Uso entre apps",
     calendarDevelopers: "Guia do desenvolvedor",
     content: "Conteúdo",
     contentOverview: "Visão geral",
     contentEditing: "Escrever e organizar",
-    contentDatabases: "Bancos de dados e formulários",
+    contentDatabases: "Coleções e formulários",
     contentSync: "Arquivos locais e sincronização",
     contentDevelopers: "Guia do desenvolvedor",
     plans: "Plans",
@@ -1954,9 +2706,9 @@ const ptBR = {
     planPluginMarketplace: "Plugin Plan e marketplace",
     slides: "Slides",
     slidesOverview: "Visão geral",
+    slidesFeatures: "Funcionalidades",
     slidesAgent: "Conversar com o Agent",
-    slidesEditing: "Gerar e editar decks",
-    slidesDesignAndMedia: "Sistemas de design e mídia",
+    slidesIntegrations: "Uso entre apps",
     slidesDevelopers: "Guia do desenvolvedor",
     analytics: "Analises",
     analyticsOverview: "Visão geral",
@@ -1972,10 +2724,11 @@ const ptBR = {
     mailDevelopers: "Guia do desenvolvedor",
     clips: "Clips",
     clipsOverview: "Visão geral",
-    clipsCaptureEverywhere: "Capture em qualquer lugar",
-    clipsAiAndEditing: "IA e edição",
-    clipsSharingAndTeams: "Compartilhamento e equipes",
+    clipsFeatures: "Funcionalidades",
+    clipsAgent: "Conversar com o Agent",
+    clipsIntegrations: "Uso entre apps",
     clipsDevelopers: "Guia do desenvolvedor",
+    clipsEmbed: "Inserir o Clips",
     assets: "Assets",
     assetsOverview: "Visão geral",
     assetsGeneration: "Gerar e refinar",
@@ -1984,19 +2737,21 @@ const ptBR = {
     assetsDevelopers: "Guia do desenvolvedor",
     design: "Design",
     designOverview: "Visão geral",
-    designQualityAndComponents: "Qualidade e componentes",
-    designBrandAndFigma: "Marca e Figma",
-    designCollaborationAndFullApps: "Revisão e entrega",
+    designFeatures: "Funcionalidades",
+    designAgent: "Conversar com o Agent",
+    designIntegrations: "Uso entre apps",
     designDevelopers: "Guia do desenvolvedor",
     dispatchOverview: "Visão geral",
-    dispatchMessagingRouting: "Mensagens e roteamento",
-    dispatchOperations: "Console do operador",
-    dispatchVaultIntegrations: "Segredos e integrações",
+    dispatchFeatures: "Funcionalidades",
+    dispatchAgent: "Conversar com o Agent",
+    dispatchIntegrations: "Uso entre apps",
     dispatchDevelopers: "Guia do desenvolvedor",
+    dispatchReference: "Referência de ações e dados",
     forms: "Formularios",
     formsOverview: "Visão geral",
-    formsBuildingPublishing: "Construção e publicação",
-    formsResponses: "Respostas e insights",
+    formsFeatures: "Funcionalidades",
+    formsAgent: "Conversar com o Agent",
+    formsIntegrations: "Uso entre apps",
     docsComponents: "Docs Components",
     formsDevelopers: "Guia do desenvolvedor",
   },

@@ -9,9 +9,21 @@ vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: unknown[]) => mockAppStatePut(...args),
 }));
 
-vi.mock("./poll.js", () => ({
-  recordChange: (...args: unknown[]) => mockRecordChange(...args),
-}));
+vi.mock("./poll.js", async () => {
+  const { setActionChangeFastPath } =
+    await import("../action-change-fast-path.js");
+  setActionChangeFastPath((target) => {
+    mockRecordChange({
+      source: "action",
+      type: "change",
+      key: target.actionName,
+      ...(target.owner ? { owner: target.owner } : {}),
+      ...(target.orgId ? { orgId: target.orgId } : {}),
+      ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+    });
+  });
+  return { recordChange: (...args: unknown[]) => mockRecordChange(...args) };
+});
 
 vi.mock("./request-context.js", () => ({
   getRequestOrgId: () => mockGetRequestOrgId(),
@@ -165,6 +177,15 @@ describe("notifyActionChange", () => {
     });
     warn.mockRestore();
   });
+
+  it("does not publish an unscoped fast event without an owner or org", async () => {
+    const { notifyActionChange } = await import("./action-change.js");
+
+    await notifyActionChange({ actionName: "update-project" });
+
+    expect(mockRecordChange).not.toHaveBeenCalled();
+    expect(mockAppStatePut).not.toHaveBeenCalled();
+  });
 });
 
 describe("actionCallIsReadOnly", () => {
@@ -206,5 +227,20 @@ describe("actionCallIsReadOnly", () => {
       },
     };
     expect(actionCallIsReadOnly(entry, {}, false)).toBe(false);
+  });
+
+  it("honors fixed Plan-mode effects", async () => {
+    const { actionCallIsReadOnly } = await import("./action-change.js");
+
+    expect(
+      actionCallIsReadOnly({ planMode: { effect: "read" } }, {}, false),
+    ).toBe(true);
+    expect(
+      actionCallIsReadOnly(
+        { readOnly: true, planMode: { effect: "write" } },
+        {},
+        true,
+      ),
+    ).toBe(false);
   });
 });

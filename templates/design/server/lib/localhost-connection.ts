@@ -25,14 +25,17 @@
 
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
+  getRequestAuthCapability,
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
 const CONNECT_HINT = "npx @agent-native/core@latest design connect";
+const VISUAL_EDIT_CAPABILITY_PREFIX = "capability:visual-edit:design:";
 
 export interface LocalhostConnectionScope {
   ownerEmail: string;
@@ -40,16 +43,76 @@ export interface LocalhostConnectionScope {
 }
 
 /** Owner + org partition for connection and write-grant rows. */
-export async function resolveLocalhostConnectionScope(): Promise<LocalhostConnectionScope> {
+export async function resolveLocalhostConnectionScope(options?: {
+  designId?: string;
+  /** Public /visual-edit may read a design's read-only preview credential. */
+  allowPublicViewer?: boolean;
+}): Promise<LocalhostConnectionScope> {
+  const designId = options?.designId;
+  if (options?.allowPublicViewer && designId) {
+    const access = await resolveAccess("design", designId);
+    const resource = access?.resource as
+      | { ownerEmail?: unknown; orgId?: unknown }
+      | undefined;
+    if (
+      access &&
+      typeof resource?.ownerEmail === "string" &&
+      resource.ownerEmail
+    ) {
+      return {
+        ownerEmail: resource.ownerEmail,
+        orgId: typeof resource.orgId === "string" ? resource.orgId : null,
+      };
+    }
+  }
+
+  const capability = getRequestAuthCapability();
+  if (
+    designId &&
+    capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) &&
+    decodeCapabilityDesignId(capability) === designId
+  ) {
+    const access = await resolveAccess("design", designId);
+    const resource = access?.resource as
+      | { ownerEmail?: unknown; orgId?: unknown }
+      | undefined;
+    if (
+      !access ||
+      access.role !== "editor" ||
+      typeof resource?.ownerEmail !== "string" ||
+      !resource.ownerEmail
+    ) {
+      throw new Error("visual-edit capability is not valid for this design");
+    }
+
+    return {
+      ownerEmail: resource.ownerEmail,
+      orgId: typeof resource.orgId === "string" ? resource.orgId : null,
+    };
+  }
+
   const ownerEmail = getRequestUserEmail();
-  if (!ownerEmail) throw new Error("no authenticated user");
-  const requestOrgId = getRequestOrgId();
-  return {
-    ownerEmail,
-    // resolveOrgIdForEmail honors an explicit Personal selection, so this
-    // cannot promote a caller into an org they left.
-    orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
-  };
+  if (ownerEmail) {
+    const requestOrgId = getRequestOrgId();
+    return {
+      ownerEmail,
+      // resolveOrgIdForEmail honors an explicit Personal selection, so this
+      // cannot promote a caller into an org they left.
+      orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
+    };
+  }
+
+  throw new Error("no authenticated user");
+}
+
+function decodeCapabilityDesignId(capability: string): string | null {
+  try {
+    const encoded = capability.slice(VISUAL_EDIT_CAPABILITY_PREFIX.length);
+    return encoded ? decodeURIComponent(encoded) : null;
+  } catch {
+    // coercion-ok: malformed capability tokens are invalid
+    return null;
+  }
 }
 
 export type LocalhostConnectionErrorCode =
@@ -221,6 +284,60 @@ export function localhostBridgeRequestError(
     `Bridge ${operation} failed (${status}): ${errText}`,
     424,
   );
+}
+
+/** Fetch the read-only DOM snapshot used by live Design screens. */
+export async function fetchLocalhostSnapshot(args: {
+  bridgeUrl: string;
+  previewToken: string | null;
+  url: string;
+}): Promise<string> {
+  if (!args.previewToken) {
+    throw new LocalhostConnectionError(
+      "bridge-token-missing",
+      "This URL-backed screen has no preview token. Reload the frame or reconnect the localhost app before requesting a live snapshot.",
+      424,
+    );
+  }
+  const endpoint = new URL("/snapshot", args.bridgeUrl);
+  endpoint.searchParams.set("url", args.url);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      headers: {
+        accept: "application/json",
+        "x-design-preview-token": args.previewToken,
+      },
+    });
+  } catch (error) {
+    throw new LocalhostConnectionError(
+      "bridge-unreachable",
+      `Could not reach the localhost bridge for snapshot (${error instanceof Error ? error.message : String(error)}).`,
+      424,
+    );
+  }
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw localhostBridgeRequestError("snapshot", response.status, errorText);
+  }
+  let payload: { html?: unknown } | null;
+  try {
+    payload = (await response.json()) as { html?: unknown } | null;
+  } catch {
+    throw new LocalhostConnectionError(
+      "bridge-request-failed",
+      "The localhost bridge returned invalid snapshot JSON.",
+      424,
+    );
+  }
+  if (!payload || typeof payload.html !== "string") {
+    throw new LocalhostConnectionError(
+      "bridge-request-failed",
+      "The localhost bridge returned no HTML snapshot.",
+      424,
+    );
+  }
+  return payload.html;
 }
 
 /** Bridge token for callers that have no other source for one. */

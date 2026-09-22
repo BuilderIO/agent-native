@@ -256,6 +256,7 @@ describe("generateSkillsPromptBlock scope filtering", () => {
     expect(block).not.toContain("dev-one");
     expect(block).toContain("[skill-runtime-one]");
     expect(block).toContain('docs-search --slug "<slug>"');
+    expect(block).toContain("reuse it for subsequent steps");
     expect(block).not.toContain('bash(command="cat <skill-dir>/SKILL.md")');
   });
 
@@ -268,6 +269,7 @@ describe("generateSkillsPromptBlock scope filtering", () => {
     const block = generateSkillsPromptBlock(bundle);
     const hints = block.match(/before starting a task it applies to/g) ?? [];
     expect(hints).toHaveLength(1);
+    expect(block).toContain("Do not repeat an equivalent lookup");
   });
 
   it("returns empty string when every skill is dev-scoped", () => {
@@ -565,9 +567,13 @@ describe("readAgentsBundleFromFs", () => {
     );
     expect(turnIntoApp!.content).toContain("Spreadsheet sources");
     expect(turnIntoApp!.content).toContain(
-      "A Google Sheets URL is a live provider source",
+      "A Google Sheets URL is not proof the sheet is readable",
     );
+    expect(turnIntoApp!.content).toContain("Never use a public export URL");
     expect(turnIntoApp!.extraFiles).toContain("references/fresh-project.md");
+    expect(turnIntoApp!.extraFiles).toContain(
+      "references/spreadsheet-source.md",
+    );
 
     const promptBlock = generateSkillsPromptBlock(bundle);
     expect(promptBlock).toContain("`turn-into-app`");

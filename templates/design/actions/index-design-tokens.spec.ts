@@ -280,4 +280,76 @@ describe("index-design-tokens design-system access boundary", () => {
       value: "#2563eb",
     });
   });
+
+  it("lists every contributing file when multiple files declare the same cssVar with the same value", async () => {
+    const fakeDesign = {
+      id: "design_1",
+      data: JSON.stringify({}),
+      designSystemId: null,
+    };
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: fakeDesign,
+    });
+    mockFrom.mockReturnValue({
+      where: () =>
+        Promise.resolve([
+          {
+            filename: "task-details.html",
+            content: ":root { --radius: 8px; }",
+          },
+          { filename: "index.html", content: ":root { --radius: 8px; }" },
+        ]),
+    });
+
+    const result = await action.run({ designId: "design_1" });
+    const token = result.tokens.find(
+      (t: { cssVar: string }) => t.cssVar === "--radius",
+    );
+
+    // Alphabetically-first file is the reported primary `source`, but both
+    // files show up in `sources` — neither is silently dropped.
+    expect(token).toMatchObject({
+      cssVar: "--radius",
+      source: "index.html",
+      sources: ["index.html", "task-details.html"],
+      value: "8px",
+    });
+    expect(token?.sourceValues).toBeUndefined();
+  });
+
+  it("surfaces per-file values when files disagree on the same cssVar", async () => {
+    const fakeDesign = {
+      id: "design_1",
+      data: JSON.stringify({}),
+      designSystemId: null,
+    };
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: fakeDesign,
+    });
+    mockFrom.mockReturnValue({
+      where: () =>
+        Promise.resolve([
+          {
+            filename: "task-details.html",
+            content: ":root { --radius: 12px; }",
+          },
+          { filename: "index.html", content: ":root { --radius: 8px; }" },
+        ]),
+    });
+
+    const result = await action.run({ designId: "design_1" });
+    const token = result.tokens.find(
+      (t: { cssVar: string }) => t.cssVar === "--radius",
+    );
+
+    expect(token).toMatchObject({
+      cssVar: "--radius",
+      source: "index.html",
+      sources: ["index.html", "task-details.html"],
+      sourceValues: { "index.html": "8px", "task-details.html": "12px" },
+      value: "8px",
+    });
+  });
 });

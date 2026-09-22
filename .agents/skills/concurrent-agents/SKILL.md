@@ -42,6 +42,13 @@ Read the hunks: a revert removes logic and puts nothing equivalent back; a
 refactor removes the same lines and adds different code doing the same job.
 Only the hunks tell you which happened — never `--stat` alone.
 
+## Shallow or grafted worktrees
+
+Shallow clones and grafted worktrees do not have complete ancestry. Treat
+`git log -S` and `git merge-base --is-ancestor` results at their boundary as
+inconclusive; fetch complete history or verify the date through the remote
+commit or pull-request record before calling a change the first occurrence.
+
 ## Never move branches without an explicit instruction
 
 Don't create, switch, delete, reset, rebase, stash, or worktree-add a branch

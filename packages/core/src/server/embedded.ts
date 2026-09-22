@@ -33,6 +33,7 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentNativeEmbeddedHostSession {
   email?: string | null;
+  emailVerified?: boolean | null;
   userId?: string | null;
   token?: string | null;
   name?: string | null;
@@ -71,8 +72,6 @@ export interface AgentNativeEmbeddedPluginOptions {
    * framework-owned tables in the host product database.
    */
   databaseUrl?: string;
-  /** Auth token for remote libsql/Turso databases. */
-  databaseAuthToken?: string;
   /** Optional app name for per-app DATABASE_URL resolution and cookie scoping. */
   appName?: string;
   /**
@@ -126,6 +125,9 @@ export function normalizeAgentNativeEmbeddedSession(
 
   return {
     email,
+    ...(typeof session.emailVerified === "boolean"
+      ? { emailVerified: session.emailVerified }
+      : {}),
     userId,
     token: readString(session.token),
     name: readString(session.name),
@@ -139,19 +141,13 @@ export function normalizeAgentNativeEmbeddedSession(
 }
 
 export function configureAgentNativeEmbeddedEnvironment(
-  options: Pick<
-    AgentNativeEmbeddedPluginOptions,
-    "appName" | "databaseAuthToken" | "databaseUrl"
-  >,
+  options: Pick<AgentNativeEmbeddedPluginOptions, "appName" | "databaseUrl">,
 ): void {
   if (options.appName) {
     process.env.APP_NAME = options.appName; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state
   }
   if (options.databaseUrl) {
     process.env.DATABASE_URL = options.databaseUrl; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state
-  }
-  if (options.databaseAuthToken) {
-    process.env.DATABASE_AUTH_TOKEN = options.databaseAuthToken; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state
   }
 }
 
@@ -190,7 +186,7 @@ export async function mountAgentNativeEmbedded(
   // factory call here: with default Better Auth, its DB bootstrap can be the
   // thing that is unavailable while public liveness routes still need to
   // mount below.
-  createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
+  void createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
     nitroApp,
   );
 

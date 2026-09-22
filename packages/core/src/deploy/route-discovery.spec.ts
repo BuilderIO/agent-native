@@ -11,7 +11,7 @@ import {
 } from "./route-discovery.js";
 
 const defineActionSource = (httpConfig: string, body = "") =>
-  `import { defineAction } from "@agent-native/core";\n` +
+  `import { defineAction } from "@agent-native/core/action";\n` +
   `export default defineAction({\n` +
   `  tool: { description: "ok", parameters: {} },\n` +
   (httpConfig ? `  http: ${httpConfig},\n` : "") +
@@ -196,7 +196,7 @@ describe("discoverActionFiles", () => {
       fs.mkdirSync(actionsDir);
       fs.writeFileSync(
         path.join(actionsDir, "real-action.ts"),
-        `import { defineAction } from "@agent-native/core";\nexport default defineAction({ tool: { description: "ok", parameters: {} }, run: async () => ({ ok: true }) });\n`,
+        `import { defineAction } from "@agent-native/core/action";\nexport default defineAction({ tool: { description: "ok", parameters: {} }, run: async () => ({ ok: true }) });\n`,
       );
       fs.writeFileSync(
         path.join(actionsDir, "real-action.spec.ts"),
@@ -254,6 +254,15 @@ describe("discoverActionFiles", () => {
           `    await fetch("https://example.com", { method: "GET" });`,
         ),
       );
+      fs.writeFileSync(
+        path.join(actionsDir, "delete-data.ts"),
+        `import { defineAction } from "@agent-native/core/action";
+export default defineAction({
+  uiOnly: true,
+  run: async () => ({ ok: true }),
+});
+`,
+      );
 
       const discovered = await discoverActionFiles(root);
       const byName = Object.fromEntries(discovered.map((a) => [a.name, a]));
@@ -270,6 +279,10 @@ describe("discoverActionFiles", () => {
         path: "nested-route",
       });
       expect(byName["posts-then-gets"]).toMatchObject({ method: "post" });
+      expect(byName["delete-data"]).toMatchObject({
+        method: "post",
+        uiOnly: true,
+      });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

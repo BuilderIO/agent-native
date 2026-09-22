@@ -263,7 +263,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();
   });
 
-  it("clears a recovery claim when the flag is disabled mid-retry", async () => {
+  it("does not clear a recovery claim when the flag is disabled mid-retry", async () => {
     mockIsFeatureFlagEnabled.mockResolvedValue(false);
     mockExistingRecording.current.uploadAttemptId = "old-attempt";
     mockReadBody.mockResolvedValue({
@@ -273,13 +273,31 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     });
 
     await expect(handler({} as any)).resolves.toEqual(
-      expect.objectContaining({ ok: true, uploadGenerationId: null }),
+      expect.objectContaining({ staleAttempt: true }),
+    );
+    expect(mockUpdateSets).toHaveLength(0);
+  });
+
+  it("preserves a fenced retry through flag disable when the client echoes its claim", async () => {
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
+    mockExistingRecording.current.uploadAttemptId = "old-attempt";
+    mockExistingRecording.current.uploadGenerationId = "generation-old";
+    mockReadBody.mockResolvedValue({
+      attemptId: "old-attempt",
+      uploadGenerationId: "generation-old",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        uploadGenerationId: expect.any(String),
+      }),
     );
     expect(mockUpdateSets).toContainEqual(
-      expect.objectContaining({
-        uploadAttemptId: null,
-        uploadGenerationId: null,
-      }),
+      expect.objectContaining({ uploadGenerationId: expect.any(String) }),
+    );
+    expect(mockUpdateSets.some((set) => set.uploadAttemptId === null)).toBe(
+      false,
     );
   });
 

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { docSourceSlugFromFilename } from "../lib/docs-source";
@@ -29,8 +29,9 @@ export default defineAction({
   description: "List all documentation pages with their titles",
   schema: z.object({}),
   http: false,
+  requiresAuth: false,
   readOnly: true,
-  publicAgent: { expose: true, readOnly: true },
+  publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   run: async () => {
     const docs = await loadDocsIndex();
     return docs

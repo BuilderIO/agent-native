@@ -9,7 +9,10 @@
  * than a copy of it.
  */
 
-import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
+import {
+  replaceTransactionalEmails,
+  type TransactionalEmailDefinition,
+} from "@agent-native/core/email-catalog";
 
 import { renderClipsInviteEmail } from "../../actions/invite-member.js";
 import {
@@ -51,38 +54,13 @@ export const CLIPS_ORGANIZATION_INVITE_EMAIL_ID = "clips.organization-invite";
 const CLIPS_SENDER =
   'From is the configured EMAIL_FROM with the display name "Agent-Native Clips"; on first-party agent-native.com deployments it becomes clips@agent-native.com. Reply-to is hello@agent-native.com.';
 
-let registered = false;
-const GLOBAL_REGISTRATION_KEY =
-  "__agentNativeClipsTransactionalEmailCatalogRegistered";
-const globalRegistrationState = globalThis as typeof globalThis &
-  Record<string, boolean | undefined>;
-
-function defineClipsTransactionalEmail(
-  definition: Parameters<typeof defineTransactionalEmail>[0],
-): boolean {
-  try {
-    defineTransactionalEmail(definition);
-    return true;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith('Duplicate transactional email id "clips.')
-    ) {
-      // The same Clips catalog can be evaluated twice by Nitro/Vite. The
-      // first definition is canonical, so a duplicate is already registered.
-      return false;
-    }
-    throw error;
-  }
-}
-
-export function registerClipsEmails(): void {
-  // Nitro/Vite can evaluate the same server module through two module
-  // instances during dev reloads. Keep the catalog registration process-wide
-  // so those instances cannot submit the same id twice.
-  if (registered || globalRegistrationState[GLOBAL_REGISTRATION_KEY]) return;
-  registered = true;
-  globalRegistrationState[GLOBAL_REGISTRATION_KEY] = true;
+function registerClipsEmailDefinitions(): void {
+  const definitions: TransactionalEmailDefinition[] = [];
+  const defineClipsTransactionalEmail = (
+    definition: TransactionalEmailDefinition,
+  ): void => {
+    definitions.push({ ...definition, app: "clips" });
+  };
 
   defineClipsTransactionalEmail({
     id: CLIPS_ACCESS_REQUEST_EMAIL_ID,
@@ -244,9 +222,9 @@ export function registerClipsEmails(): void {
     name: "Clip comment",
     trigger:
       "Someone comments or replies on a Clip. Subject and copy differ slightly for a reply; both send under this id.",
-    recipientLabel: "Owner and thread authors",
+    recipientLabel: "Owner, mentioned members, and thread authors",
     recipient:
-      "The recording owner, plus every prior author in the thread when the comment is a reply. The list is re-checked against the recording's live ACL and filtered by each user's `emailNotifications` preference; the comment's own author never receives it.",
+      "The recording owner, mentioned organization members, plus every prior author in the thread when the comment is a reply. The list is re-checked against the recording's live ACL and filtered by each user's Clips email notification preferences; the comment's own author never receives it.",
     senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
@@ -269,7 +247,7 @@ export function registerClipsEmails(): void {
     trigger: "A viewer reacts with an emoji on a Clip.",
     recipientLabel: "Clip owner",
     recipient:
-      "The recording owner plus any extra recipients the caller passes, re-checked against the recording's live ACL and filtered by each user's `emailNotifications` preference. The reacting viewer never receives it.",
+      "The recording owner plus any extra recipients the caller passes, re-checked against the recording's live ACL and filtered by each user's Clips email notification preferences. The reacting viewer never receives it.",
     senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
@@ -305,4 +283,10 @@ export function registerClipsEmails(): void {
         inviteUrl: "https://example.com/invite/sample-token",
       }),
   });
+
+  replaceTransactionalEmails("clips", "clips.", definitions);
+}
+
+export function registerClipsEmails(): void {
+  registerClipsEmailDefinitions();
 }

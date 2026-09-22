@@ -53,15 +53,35 @@ export function shouldApplyRemotePreviewContent({
   isLocalEdit,
   previousContent,
   nextContent,
+  paintedContent,
 }: {
   isLocalEdit: boolean;
   previousContent: string | null;
   nextContent: string;
+  /** What's actually on the canvas. Latest-active can race ahead of paint. */
+  paintedContent?: string | null;
 }): boolean {
-  return !isLocalEdit && nextContent !== previousContent;
+  if (isLocalEdit) return false;
+  if (paintedContent != null && paintedContent !== nextContent) return true;
+  return nextContent !== previousContent;
 }
 
 const diffMatchPatch = new DiffMatchPatch();
+
+// A rendered SQL edit can arrive before its server Yjs delta. Authoring the
+// next full-text edit against that stale document duplicates the missing edit.
+export function canWriteCollabText(
+  ydoc: Y.Doc | null,
+  isSynced: boolean,
+  baseContent: string,
+): boolean {
+  return Boolean(
+    ydoc &&
+    !ydoc.isDestroyed &&
+    isSynced &&
+    ydoc.getText("content").toString() === baseContent,
+  );
+}
 
 /**
  * Replace the collab document's text with `next` as the smallest set of
@@ -85,7 +105,7 @@ export function writeCollabText(
   next: string,
   origin: unknown,
 ): boolean {
-  const current = ytext.toString();
+  const current = ytext.toJSON();
   if (current === next) return false;
   // No cleanup pass: diff_cleanupEfficiency merges edits across equal runs
   // shorter than Diff_EditCost (4), which deletes up to three untouched

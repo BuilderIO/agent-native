@@ -9,11 +9,14 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import {
   CreativeContextSettingsLink,
   createCreativeContextAgentTab,
+  useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { SLIDES_LABS } from "@shared/labs";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
@@ -29,11 +32,29 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const agentSettingsTabs = useAgentSettingsTabs({
-    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+    agentAdditionalTabFactories: creativeContextEnabled
+      ? [createCreativeContextAgentTab]
+      : [],
   });
   useSetPageTitle(t("settings.title"));
   const { prefs, loading: prefsLoading, save: savePrefs } = useSlidesPrefs();
+  const labs = useMemo(
+    () => [
+      ...SLIDES_LABS.map((lab) => ({
+        ...lab,
+        displayName: t("deckEditor.layoutOverflowWarning"),
+        description: t("settings.labLayoutOverflowWarningDescription"),
+      })),
+      {
+        ...CREATIVE_CONTEXT_LIBRARY_LAB,
+        displayName: t("creativeContext.share.title"),
+        description: t("creativeContext.description"),
+      },
+    ],
+    [t],
+  );
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -58,6 +79,9 @@ export default function SettingsRoute() {
       account={<AccountSettingsCard />}
       teamLabel={t("navigation.team")}
       extraTabs={agentSettingsTabs}
+      labs={labs}
+      labsIntro={t("settings.labsIntro")}
+      labsLabel={t("settings.labs")}
       generalSearchEntries={generalSearchEntries}
       general={
         <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -65,7 +89,7 @@ export default function SettingsRoute() {
             {t("settings.description")}
           </p>
 
-          <CreativeContextSettingsLink />
+          {creativeContextEnabled ? <CreativeContextSettingsLink /> : null}
 
           <SettingsGroup>
             <SettingsRow

@@ -16,8 +16,10 @@
  *     placement: 'before'|'after'|'inside', axis: 'x'|'y',
  *     anchorRect: { left: number, top: number, width: number, height: number } }
  *
- * `anchorSelector` accompanies `pendingNodeId`: a body-rooted structural
- * `tag:nth-of-type(n) > …` path whose nth indexes are SOURCE-EQUIVALENT —
+ * `anchorSelector` accompanies `pendingNodeId`, and also accompanies an
+ * ambiguous stable anchor id only when the hit-test has an exact source
+ * revision proof: a body-rooted structural `tag:nth-of-type(n) > …` path
+ * whose nth indexes are SOURCE-EQUIVALENT —
  * computed against the live DOM but skipping Alpine-generated siblings
  * (x-for clones and x-if instantiations, identified via the sibling
  * templates' own `_x_lookup` / `_x_currentIfEl` bookkeeping) and
@@ -233,6 +235,19 @@
     return "y";
   }
 
+  function wrappedFlexMainAxis(parent: Element): string | null {
+    var cs = window.getComputedStyle(parent);
+    if (cs.display !== "flex" && cs.display !== "inline-flex") {
+      return null;
+    }
+    if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+      return null;
+    }
+    return cs.flexDirection && cs.flexDirection.indexOf("row") === 0
+      ? "x"
+      : "y";
+  }
+
   function isAutoLayoutElement(el: Element | null): boolean {
     if (!el) return false;
     var cs = window.getComputedStyle(el);
@@ -244,21 +259,88 @@
     );
   }
 
+  var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
+    img: true,
+    video: true,
+    picture: true,
+    audio: true,
+    canvas: true,
+    svg: true,
+    path: true,
+    input: true,
+    textarea: true,
+    select: true,
+    br: true,
+    hr: true,
+    iframe: true,
+  };
+  var BRIDGE_ADOPTING_PRIMITIVES: Record<string, boolean> = {
+    frame: true,
+    rectangle: true,
+    rect: true,
+  };
+
+  // KEEP IN SYNC with editor-chrome.bridge.ts — pinned by bridge.guard.spec.ts.
+  // Layout decides, not the tag: a group has no data-an-primitive and a
+  // generated container is often a <section>.
+
+  // keep in sync with editor-chrome.bridge.ts isFreeformRelativeContainer
+  // Complements isAbsolutePrimitiveContainer above, which requires the
+  // container itself to be absolute/fixed. A generated screen wraps content in
+  // a `position:relative` full-bleed div, and calling that flow strips a
+  // dropped layer's left/top into the corner. Every child must be out of flow:
+  // one absolute badge in a flex row does not make the row freeform.
+  function isFreeformRelativeContainer(el: Element | null): boolean {
+    if (!el || el === document.body || el === document.documentElement) {
+      return false;
+    }
+    if (isAutoLayoutElement(el)) return false;
+    if (window.getComputedStyle(el).position === "static") return false;
+    var children = el.children;
+    if (children.length === 0) return false;
+    for (var i = 0; i < children.length; i += 1) {
+      if (isOverlayElement(children[i])) continue;
+      var childPosition = window.getComputedStyle(children[i]).position;
+      if (childPosition !== "absolute" && childPosition !== "fixed") {
+        return false;
+      }
+    }
+    return true;
+  }
+
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
-    if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+    if (!el || el.nodeType !== 1) return false;
+    if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
+    if (isAutoLayoutElement(el)) return false;
     var primitive = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    if (
-      primitive !== "rectangle" &&
-      primitive !== "rect" &&
-      primitive !== "frame"
-    )
+    if (primitive) {
+      // A declared frame or rectangle is authored free-form even when empty;
+      // other drawn shapes stay leaves, matching what
+      // appendCanvasPrimitiveToHtml enforces on draw.
+      if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+    } else if (!hasAbsolutePositionedChild(el)) {
+      // Unmarked markup is judged by how it positions its CHILDREN, not by its
+      // own position: an absolutely positioned card whose children are in
+      // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
+    }
     var cs = window.getComputedStyle(el);
+    if (primitive === "frame" && cs.position === "relative") return true;
     return cs.position === "absolute" || cs.position === "fixed";
+  }
+
+  function hasAbsolutePositionedChild(el: Element): boolean {
+    var kids = el.children;
+    for (var i = 0; i < kids.length; i += 1) {
+      if (isOverlayElement(kids[i])) continue;
+      var kidPosition = window.getComputedStyle(kids[i]).position;
+      if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+    }
+    return false;
   }
 
   function absolutePrimitiveContainerTargetForPoint(
@@ -278,7 +360,10 @@
       var cursor: Element | null = hits[i];
       var candidate: Element | null = null;
       while (cursor && cursor !== document.body) {
-        if (isAbsolutePrimitiveContainer(cursor)) {
+        if (
+          isAbsolutePrimitiveContainer(cursor) ||
+          isFreeformRelativeContainer(cursor)
+        ) {
           candidate = cursor;
           break;
         }
@@ -321,46 +406,92 @@
       el.getAttribute("data-code-layer-id") ||
       el.getAttribute("data-layer-id") ||
       el.getAttribute("data-builder-id") ||
+      el.getAttribute("data-loc") ||
       el.id ||
       ""
     );
   }
 
-  // Detects an Alpine `<template x-for>` runtime clone: Alpine keeps the
-  // `<template>` element itself in the live DOM (as a hidden, zero-size
-  // marker) and inserts every rendered instance as a DIRECT SIBLING of that
-  // template, all still children of the same parent — so `ul > template,
-  // li, li, li` is the live shape for `<ul><template x-for>...</template>
-  // rendering 3 items</ul>`. The static SOURCE HTML the host resolves moves
-  // against only ever contains the single template child, never the N
-  // runtime clones, so a hit-test anchor resolved onto a clone — or onto a
-  // container whose only children are clones, if the caller doesn't skip
-  // them — can never resolve on the host and always comes back
-  // `applied:false`. Detected once per hit-test via an ancestor walk (not
-  // just the immediate parent) so nested x-for clones (e.g. a subtask `<li>`
-  // inside a per-task `<ul>` that is itself x-for'd) are also caught,
-  // stopping at the first stable-id ancestor (anything inside a stamped
-  // subtree has a real anchor and is fine).
+  function escapeAttribute(value: unknown): string {
+    var text = String(value);
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(text);
+    }
+    return text.replace(/[\0-\x1f\x7f\\"]/g, function (character) {
+      if (character === "\\" || character === '"') return "\\" + character;
+      return "\\" + character.charCodeAt(0).toString(16) + " ";
+    });
+  }
+
+  function isUniqueRenderedNodeId(
+    nodeId: string,
+    expectedElement: Element | null,
+  ): boolean {
+    if (!nodeId) return false;
+    var selectors = [
+      '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
+      '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+      '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+      '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+      '[data-loc="' + escapeAttribute(nodeId) + '"]',
+      '[id="' + escapeAttribute(nodeId) + '"]',
+    ];
+    var matches = document.querySelectorAll(selectors.join(","));
+    return matches.length === 1 && matches[0] === expectedElement;
+  }
+
+  function getAnchorNodeProvenance(
+    nodeId: string,
+    anchor: Element | null,
+  ): { versionHash?: string; uniqueNodeId?: string } | undefined {
+    if (!anchor || isTemplateCloneElement(anchor)) return undefined;
+    var candidate = (window as any).__agentNativeSourceProvenance;
+    if (!candidate || typeof candidate !== "object") return undefined;
+    var versionHash =
+      typeof candidate.versionHash === "string" && candidate.versionHash
+        ? candidate.versionHash
+        : undefined;
+    var uniqueNodeId =
+      nodeId &&
+      Array.isArray(candidate.uniqueNodeIds) &&
+      candidate.uniqueNodeIds.indexOf(nodeId) !== -1 &&
+      isUniqueRenderedNodeId(nodeId, anchor)
+        ? nodeId
+        : undefined;
+    if (!versionHash && !uniqueNodeId) return undefined;
+    var provenance: { versionHash?: string; uniqueNodeId?: string } = {};
+    if (versionHash) provenance.versionHash = versionHash;
+    if (uniqueNodeId) provenance.uniqueNodeId = uniqueNodeId;
+    return provenance;
+  }
+
+  function layerNameForElement(el: Element | null): string {
+    if (!el || !el.getAttribute) return "";
+    var attributes = [
+      "data-agent-native-layer-name",
+      "data-layer-name",
+      "layer-name",
+    ];
+    for (var i = 0; i < attributes.length; i += 1) {
+      var value = el.getAttribute(attributes[i]);
+      var trimmed = value && value.trim ? value.trim() : "";
+      if (trimmed) return trimmed;
+    }
+    return "";
+  }
+
+  // Detects exact Alpine-generated x-for/x-if instances by the template's own
+  // lookup/current-instance references. Walk through every ancestor so a
+  // descendant inside a clone is refused too; copied stable IDs do not turn a
+  // runtime instance into an authored source node.
   //
   // keep in sync with editor-chrome.bridge.ts isTemplateCloneElement
   function isTemplateCloneElement(el: Element | null): boolean {
     var node: Element | null = el;
     while (node && node !== document.documentElement) {
-      if (getNodeId(node)) return false;
       var parent = node.parentElement;
       if (!parent) return false;
-      var siblings = parent.children;
-      for (var i = 0; i < siblings.length; i += 1) {
-        var sib = siblings[i];
-        if (
-          sib !== node &&
-          sib.tagName &&
-          sib.tagName.toLowerCase() === "template" &&
-          sib.hasAttribute("x-for")
-        ) {
-          return true;
-        }
-      }
+      if (alpineGeneratedChildrenOf(parent).indexOf(node) !== -1) return true;
       node = parent;
     }
     return false;
@@ -417,6 +548,10 @@
   // getNodeId itself (a pending id is not a stable id until persisted).
   function getOrMintPendingNodeId(el: Element | null): string {
     if (!el || !el.getAttribute || !el.setAttribute) return "";
+    // The document body is the root fallback for an empty-screen drop, not a
+    // durable layer anchor. Minting a pending id here makes the host treat the
+    // root as an unresolved authored node and refuse the otherwise valid drop.
+    if (el === document.body || el === document.documentElement) return "";
     // Defensive guard: resolveHitTarget's anchor-candidate gates (see
     // isTemplateCloneElement call sites there) already keep template clones
     // out of `result.anchor`, so this should never fire in practice — but a
@@ -463,7 +598,7 @@
     var children = parent.children;
     for (var i = 0; i < children.length; i += 1) {
       var child = children[i] as Element & {
-        _x_lookup?: Record<string, Element>;
+        _x_lookup?: Map<unknown, Element> | Record<string, Element>;
         _x_currentIfEl?: Element;
       };
       if (!child.tagName || child.tagName.toLowerCase() !== "template") {
@@ -473,10 +608,21 @@
         if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
         var lookup = child._x_lookup;
         if (lookup) {
-          for (var key in lookup) {
-            if (Object.prototype.hasOwnProperty.call(lookup, key)) {
-              var item = lookup[key];
+          var map = lookup as Map<unknown, Element>;
+          if (
+            typeof map.forEach === "function" &&
+            typeof map.get === "function"
+          ) {
+            map.forEach(function (item) {
               if (item) generated.push(item);
+            });
+          } else {
+            var record = lookup as Record<string, Element>;
+            for (var key in record) {
+              if (Object.prototype.hasOwnProperty.call(record, key)) {
+                var item = record[key];
+                if (item) generated.push(item);
+              }
             }
           }
         }
@@ -531,7 +677,8 @@
   }
 
   // Resolves a between-children insertion inside `container` from the
-  // pointer position: the nearest visible child (by flow-axis center)
+  // pointer position: the nearest visible child (by flow-axis center, or
+  // two-dimensional visual distance for wrapped flex)
   // becomes the anchor with before/after placement, which renders as the
   // Figma-style insertion LINE between children. Returns null when the
   // container has no eligible children (caller falls back to "inside").
@@ -554,7 +701,14 @@
   ) {
     var children = draggableElementChildren(container);
     if (!children.length) return null;
-    var axis = parentFlowAxis(container);
+    var wrappedFlexAxis = wrappedFlexMainAxis(container);
+    var axis = wrappedFlexAxis || parentFlowAxis(container);
+    var containerStyles = window.getComputedStyle(container);
+    var multiTrackGrid =
+      (containerStyles.display === "grid" ||
+        containerStyles.display === "inline-grid") &&
+      (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
+        .length > 1;
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
@@ -566,11 +720,25 @@
       var center =
         axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
       var pointer = axis === "x" ? clientX : clientY;
-      var distance = Math.abs(pointer - center);
+      var distance =
+        multiTrackGrid || wrappedFlexAxis
+          ? Math.hypot(
+              clientX - (rect.left + rect.width / 2),
+              clientY - (rect.top + rect.height / 2),
+            )
+          : Math.abs(pointer - center);
       if (distance < bestDistance) {
         bestDistance = distance;
         best = children[j];
-        placement = pointer < center ? "before" : "after";
+        var placementPointer = axis === "x" ? clientX : clientY;
+        placement =
+          multiTrackGrid || wrappedFlexAxis
+            ? placementPointer < center
+              ? "before"
+              : "after"
+            : pointer < center
+              ? "before"
+              : "after";
       }
     }
     if (!best) return null;
@@ -580,6 +748,27 @@
       axis: axis,
       dropMode: "flow-insert",
     };
+  }
+
+  function screenRootFlowInsertionTargetForPoint(
+    clientX: number,
+    clientY: number,
+  ) {
+    // Body is the authored Screen root. It has no durable node id, so anchor
+    // cross-screen flow drops to a real root child instead of absolute mode.
+    if (!isAutoLayoutElement(document.body)) return null;
+    var bodyRect = document.body.getBoundingClientRect();
+    if (
+      bodyRect.width <= 0 ||
+      bodyRect.height <= 0 ||
+      clientX < bodyRect.left ||
+      clientX > bodyRect.right || // i18n-ignore non-user-facing pointer geometry condition
+      clientY < bodyRect.top ||
+      clientY > bodyRect.bottom
+    ) {
+      return null;
+    }
+    return nearestChildInsertionTarget(document.body, clientX, clientY);
   }
 
   /**
@@ -592,6 +781,7 @@
   function resolveHitTarget(
     clientX: number,
     clientY: number,
+    forceNestedAutoLayout = false,
   ): {
     anchor: Element;
     placement: string;
@@ -602,6 +792,25 @@
     if (!hit || hit === document.documentElement) return null;
 
     var cursor: Element | null = hit;
+    if (forceNestedAutoLayout) {
+      while (cursor && cursor !== document.body) {
+        if (isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
+          return null;
+        }
+        if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+          return (
+            nearestChildInsertionTarget(cursor, clientX, clientY) || {
+              anchor: cursor,
+              placement: "inside",
+              axis: parentFlowAxis(cursor),
+              dropMode: "flow-insert",
+            }
+          );
+        }
+        cursor = cursor.parentElement;
+      }
+      cursor = hit;
+    }
     while (cursor && cursor !== document.body) {
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
@@ -628,6 +837,15 @@
             axis: parentFlowAxis(parent),
             dropMode: "flow-insert",
           };
+        }
+        var wrappedParentAxis = wrappedFlexMainAxis(parent);
+        if (wrappedParentAxis) {
+          var wrappedParentSlot = nearestChildInsertionTarget(
+            parent,
+            clientX,
+            clientY,
+          );
+          if (wrappedParentSlot) return wrappedParentSlot;
         }
         var parentAxis = parentFlowAxis(parent);
         var childRect = cursor.getBoundingClientRect();
@@ -678,7 +896,10 @@
           dropMode: "flow-insert",
         };
       }
-      if (isAbsolutePrimitiveContainer(cursor)) {
+      if (
+        isAbsolutePrimitiveContainer(cursor) ||
+        isFreeformRelativeContainer(cursor)
+      ) {
         return {
           anchor: cursor,
           placement: "inside",
@@ -688,6 +909,12 @@
       }
       cursor = parent;
     }
+
+    var screenRootTarget = screenRootFlowInsertionTargetForPoint(
+      clientX,
+      clientY,
+    );
+    if (screenRootTarget) return screenRootTarget;
 
     var absoluteTarget = absolutePrimitiveContainerTargetForPoint(
       clientX,
@@ -713,6 +940,90 @@
       blockCursor = blockCursor.parentElement;
     }
     return null;
+  }
+
+  function ignoreAutoLayoutHitTarget(
+    target: {
+      anchor: Element;
+      placement: string;
+      axis: string;
+      dropMode: string;
+    } | null,
+    ignoreAutoLayout = false,
+  ) {
+    if (!ignoreAutoLayout || !target || target.dropMode !== "flow-insert") {
+      return target;
+    }
+    var container =
+      target.placement === "inside"
+        ? target.anchor
+        : target.anchor.parentElement;
+    if (!container || !isAutoLayoutElement(container)) return target;
+    return {
+      anchor: container,
+      placement: "inside",
+      axis: parentFlowAxis(container),
+      dropMode: "absolute-container",
+    };
+  }
+
+  function applyHitTestSizeGuard(
+    target: {
+      anchor: Element;
+      placement: string;
+      axis: string;
+      dropMode: string;
+    } | null,
+    clientX: number,
+    clientY: number,
+    sourceElementSize?: { width: number; height: number },
+    modifiers?: {
+      metaKey?: boolean;
+      ctrlKey?: boolean;
+      ignoreAutoLayout?: boolean;
+      forceNestedAutoLayout?: boolean;
+    },
+  ) {
+    if (
+      !target ||
+      target.placement !== "inside" ||
+      target.dropMode !== "flow-insert" ||
+      !sourceElementSize ||
+      modifiers?.metaKey ||
+      modifiers?.ctrlKey ||
+      modifiers?.ignoreAutoLayout
+    ) {
+      return target;
+    }
+    var container = target.anchor;
+    if (
+      container === document.body ||
+      container === document.documentElement ||
+      !isAutoLayoutElement(container)
+    ) {
+      return target;
+    }
+    var crect = container.getBoundingClientRect();
+    if (
+      crect.width >= sourceElementSize.width &&
+      crect.height >= sourceElementSize.height
+    ) {
+      return target;
+    }
+    var parent = container.parentElement;
+    if (!parent) return null;
+    var pAxis = parentFlowAxis(parent);
+    var center =
+      pAxis === "x"
+        ? crect.left + crect.width / 2
+        : crect.top + crect.height / 2;
+    var pointer = pAxis === "x" ? clientX : clientY;
+    return {
+      anchor: container,
+      placement: pointer < center ? "before" : "after",
+      axis: pAxis,
+      dropMode: "flow-insert",
+    };
   }
 
   function showInsertionGuideFor(
@@ -762,9 +1073,23 @@
   ): Element | null {
     var element = elementFromEditorPoint(clientX, clientY);
     if (!element) return null;
-    var identifiedAncestor = element.closest(
-      "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
-    );
+    var identifiedAncestor: Element | null = null;
+    var current: Element | null = element;
+    while (
+      current &&
+      current !== document.body &&
+      current !== document.documentElement
+    ) {
+      if (
+        current.matches(
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+        )
+      ) {
+        identifiedAncestor = current;
+        break;
+      }
+      current = current.parentElement;
+    }
     if (
       identifiedAncestor &&
       identifiedAncestor !== document.body &&
@@ -830,6 +1155,74 @@
     scheduleReviewLayout();
   }
 
+  var NON_SELECTABLE_TAGS = [
+    "script",
+    "style",
+    "template",
+    "link",
+    "meta",
+    "title",
+    "noscript",
+    "br",
+  ];
+  var MIN_SELECTABLE_EXTENT_PX = 4;
+
+  // keep in sync with editor-chrome.bridge.ts collectSelectableElements
+  // Same layer set as the editable bridge, by a shorter route: that one promotes
+  // svg internals to their <svg>, this one skips them, and both land on the
+  // <svg> itself. Answers only when editor chrome is absent (see the flag).
+  function collectSelectableElementInfos(): unknown[] {
+    var nodes = Array.prototype.slice.call(
+      document.body ? document.body.querySelectorAll("*") : [],
+    ) as Element[];
+    var infos: unknown[] = [];
+    nodes.forEach(function (node) {
+      if (
+        NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 ||
+        isEditorInjectedElement(node) ||
+        isTemplateCloneElement(node) ||
+        (node as SVGElement).ownerSVGElement
+      ) {
+        return;
+      }
+      var rect = node.getBoundingClientRect();
+      if (
+        rect.width < MIN_SELECTABLE_EXTENT_PX ||
+        rect.height < MIN_SELECTABLE_EXTENT_PX
+      ) {
+        // keep in sync with editor-chrome.bridge.ts isPaddedAwayFromView
+        var cs = window.getComputedStyle(node);
+        if (cs.display === "none" || cs.visibility === "hidden") return;
+      }
+      var padX =
+        rect.width < MIN_SELECTABLE_EXTENT_PX
+          ? MIN_SELECTABLE_EXTENT_PX / 2
+          : 0;
+      var padY =
+        rect.height < MIN_SELECTABLE_EXTENT_PX
+          ? MIN_SELECTABLE_EXTENT_PX / 2
+          : 0;
+      var nodeId = getNodeId(node);
+      infos.push({
+        tagName: node.tagName.toLowerCase(),
+        sourceId: nodeId || undefined,
+        // Not minted here: a whole-document sweep must stay read-only, and the
+        // host resolves an id-less node through this structural selector.
+        selector: nodeId
+          ? undefined
+          : buildSourceEquivalentSelector(node) || undefined,
+        layerName: layerNameForElement(node) || undefined,
+        boundingRect: {
+          x: rect.left - padX,
+          y: rect.top - padY,
+          width: rect.width + padX * 2,
+          height: rect.height + padY * 2,
+        },
+      });
+    });
+    return infos;
+  }
+
   window.addEventListener("message", function (e: MessageEvent) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
@@ -856,10 +1249,7 @@
             correlationId: reviewPointCorrelationId,
             nodeId: reviewPointNodeId || undefined,
             targetSelector: reviewPointSelector || undefined,
-            layerName:
-              reviewPointElement?.getAttribute(
-                "data-agent-native-layer-name",
-              ) || undefined,
+            layerName: layerNameForElement(reviewPointElement) || undefined,
             tagName: reviewPointElement?.tagName?.toLowerCase() || undefined,
           },
           "*",
@@ -946,12 +1336,64 @@
       hideInsertionGuide();
       return;
     }
+    // The only bridge injected when editor chrome is off (read-only, Interact,
+    // thumbnail overview): with no answer the host cannot tell a timeout from
+    // "nothing here is selectable".
+    if (e.data.type === "agent-native:collect-selectable-rects") {
+      // The editable bridge owns this reply when it is present; see the flag it
+      // sets in editor-chrome.bridge.ts.
+      if (
+        (window as unknown as Record<string, boolean>).__agentNativeEditorChrome
+      ) {
+        return;
+      }
+      // Deliberately uncaught: an undeliverable reply already surfaces as
+      // {status:"unanswered"} on the host's own timeout, and swallowing the
+      // throw here would hide the only signal that this bridge tried to answer.
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:selectable-rects-result",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          payload: collectSelectableElementInfos(),
+        },
+        "*",
+      );
+      return;
+    }
     if (e.data.type !== "agent-native:hit-test") return;
     var correlationId: string = e.data.correlationId;
     var x: number = Number(e.data.x);
     var y: number = Number(e.data.y);
     if (!correlationId) return;
-    var result = resolveHitTarget(x, y);
+    var sourceElementSize = e.data.sourceElementSize;
+    var validSourceElementSize =
+      sourceElementSize &&
+      Number.isFinite(sourceElementSize.width) &&
+      Number.isFinite(sourceElementSize.height) &&
+      sourceElementSize.width > 0 &&
+      sourceElementSize.height > 0
+        ? {
+            width: sourceElementSize.width,
+            height: sourceElementSize.height,
+          }
+        : undefined;
+    var result = ignoreAutoLayoutHitTarget(
+      applyHitTestSizeGuard(
+        resolveHitTarget(
+          x,
+          y,
+          e.data.modifiers?.forceNestedAutoLayout === true,
+        ),
+        x,
+        y,
+        validSourceElementSize,
+        e.data.modifiers,
+      ),
+      e.data.modifiers?.ignoreAutoLayout === true,
+    );
     if (e.data.preview) showInsertionGuideFor(result);
     var anchorNodeId: string = result ? getNodeId(result.anchor) : "";
     // Id-on-demand fallback (see file header): only mint when there is a
@@ -962,11 +1404,28 @@
     // attribute writes; a HOST caller decides whether/when to persist it.
     var pendingNodeId: string =
       result && !anchorNodeId ? getOrMintPendingNodeId(result.anchor) : "";
-    // Only computed alongside a minted pendingNodeId — it exists so a host
-    // can persist that pending id into the stored document (see the file
-    // header's anchorSelector contract). "" (omitted) when the anchor is an
-    // Alpine-generated instance with no source node.
-    var anchorSelector: string = pendingNodeId
+    // Pending ids are newly minted runtime markers, not authored ids. They
+    // can carry the rendered document revision, but are never promoted to a
+    // unique authored-node claim.
+    var targetAnchorProvenance = getAnchorNodeProvenance(
+      anchorNodeId,
+      result ? result.anchor : null,
+    );
+    // An idless anchor needs its selector so the host can persist the pending
+    // id into the stored document. An existing stable ID also needs a
+    // selector when it is not uniquely proven; in that case only an exact
+    // rendered-source version hash authorizes the positional fallback. ""
+    // (omitted) when the anchor is an Alpine-generated instance with no
+    // source node.
+    var needsSourceSelector =
+      Boolean(pendingNodeId) ||
+      Boolean(
+        anchorNodeId &&
+        targetAnchorProvenance &&
+        targetAnchorProvenance.versionHash &&
+        !targetAnchorProvenance.uniqueNodeId,
+      );
+    var anchorSelector: string = needsSourceSelector
       ? buildSourceEquivalentSelector(result ? result.anchor : null)
       : "";
     var placement: string = result ? result.placement : "inside";
@@ -979,11 +1438,15 @@
           type: "agent-native:hit-test-result",
           correlationId: correlationId,
           anchorNodeId: anchorNodeId,
+          targetAnchorProvenance: targetAnchorProvenance,
           pendingNodeId: pendingNodeId || undefined,
           anchorSelector: anchorSelector || undefined,
           placement: placement,
           axis: axis,
           dropMode: dropMode,
+          layerName: result
+            ? layerNameForElement(result.anchor) || undefined
+            : undefined,
           anchorRect: anchorRect
             ? {
                 left: anchorRect.left,

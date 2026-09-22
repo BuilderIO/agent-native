@@ -14,6 +14,13 @@ describe("renderMarkdownToHtml", () => {
     expect(html).not.toContain("<img");
   });
 
+  it("keeps legacy empty anchors as invisible fragment targets", () => {
+    const html = renderMarkdownToHtml('<a id="legacy-section"></a>');
+
+    expect(html).toContain('<span id="legacy-section"></span>');
+    expect(html).not.toContain("&lt;a");
+  });
+
   it("drops unsafe markdown link and image URLs", () => {
     const html = renderMarkdownToHtml(
       "[run](javascript:alert(1)) ![bad](javascript:alert(1)) [encoded](javascript&#58;alert(1))",
@@ -26,10 +33,14 @@ describe("renderMarkdownToHtml", () => {
     expect(html).not.toContain("<img");
   });
 
-  it("keeps normal links", () => {
-    const html = renderMarkdownToHtml("[docs](/docs) [site](https://x.test)");
+  it("canonicalizes same-site links and leaves external ones alone", () => {
+    const html = renderMarkdownToHtml(
+      "[docs](/docs) [policy](/legal/takedown) [site](https://x.test)",
+      "es-ES",
+    );
 
-    expect(html).toContain('<a href="/docs">docs</a>');
+    expect(html).toContain('<a href="/es-es/docs/">docs</a>');
+    expect(html).toContain('<a href="/es-es/legal/takedown/">policy</a>');
     expect(html).toContain('<a href="https://x.test">site</a>');
   });
 
@@ -66,7 +77,7 @@ describe("renderMarkdownToHtml", () => {
 # Company
 
 - Company: Example Co
-- Product: Agent-native workspace for internal teams
+- Product: Agent-Native workspace for internal teams
 \`\`\`
 `);
 

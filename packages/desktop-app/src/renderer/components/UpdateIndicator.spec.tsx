@@ -50,7 +50,7 @@ describe("UpdateIndicator", () => {
     expect(button?.className).toContain("code-agents-nav-link");
     expect(button?.textContent).toContain("Restart to update");
     expect(button?.getAttribute("aria-label")).toBe(
-      "Restart to update Agent Native to version 1.1.0",
+      "Restart to update Agent-Native to version 1.1.0",
     );
 
     act(() => button?.click());

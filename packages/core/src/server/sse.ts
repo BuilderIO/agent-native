@@ -50,7 +50,7 @@ export function createSSEHandler(options: SSEHandlerOptions = {}) {
     const safePush = (data: string) => {
       if (closed) return;
       try {
-        stream.push(data);
+        void stream.push(data);
       } catch {
         // Connection dead — events lost for this client, EventSource will reconnect
       }

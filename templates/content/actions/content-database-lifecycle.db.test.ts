@@ -4,13 +4,13 @@ import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { serializeRegistryBlockToMdx } from "../shared/nfm-registry.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-database-lifecycle-${process.pid}-${Date.now()}.sqlite`,
+  `content-database-lifecycle-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -34,15 +34,15 @@ let deleteDocumentPropertyAction: typeof import("./delete-document-property.js")
 let reorderDocumentPropertyAction: typeof import("./reorder-document-property.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
+let deleteTrashedDocumentSubtree: typeof import("./delete-document.js").deleteTrashedDocumentSubtree;
 let restoreDocumentAction: typeof import("./restore-document.js").default;
-let permanentlyDeleteDocumentAction: typeof import("./permanently-delete-document.js").default;
 let listTrashedDocumentsAction: typeof import("./list-trashed-documents.js").default;
 
 const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -79,11 +79,11 @@ beforeAll(async () => {
     await import("./reorder-document-property.js")
   ).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
-  deleteDocumentAction = (await import("./delete-document.js")).default;
+  const deleteDocumentModule = await import("./delete-document.js");
+  deleteDocumentAction = deleteDocumentModule.default;
+  deleteTrashedDocumentSubtree =
+    deleteDocumentModule.deleteTrashedDocumentSubtree;
   restoreDocumentAction = (await import("./restore-document.js")).default;
-  permanentlyDeleteDocumentAction = (
-    await import("./permanently-delete-document.js")
-  ).default;
   listTrashedDocumentsAction = (await import("./list-trashed-documents.js"))
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
@@ -91,9 +91,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -101,6 +99,10 @@ let counter = 0;
 function nextId(prefix: string) {
   counter += 1;
   return `${prefix}_${counter}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function permanentlyDeleteFixtureDocument(id: string) {
+  return deleteTrashedDocumentSubtree(getDb(), id, OWNER);
 }
 
 function inlineDatabaseBlock(args: {
@@ -166,6 +168,7 @@ async function createDatabase(args: {
   backingParentId?: string | null;
   deletedAt?: string | null;
   ownerEmail?: string;
+  systemRole?: string | null;
 }) {
   const db = getDb();
   const now = new Date().toISOString();
@@ -183,6 +186,7 @@ async function createDatabase(args: {
     ownerDocumentId: args.hostDocumentId ?? null,
     ownerBlockId: args.ownerBlockId ?? null,
     title: "Database",
+    systemRole: args.systemRole ?? null,
     deletedAt: args.deletedAt ?? null,
     createdAt: now,
     updatedAt: now,
@@ -200,6 +204,68 @@ async function databaseRow(databaseId: string) {
 }
 
 describe("database-scoped document properties", () => {
+  it("preserves a newer presentation save when an older client resumes", async () => {
+    const { databaseId, databaseDocumentId } = await createDatabase({});
+    const action = (await import("./update-content-database-view.js")).default;
+    const sharing = await import("@agent-native/core/sharing");
+    const originalAssertAccess = sharing.assertAccess;
+    let releaseOlder!: () => void;
+    let olderIsWaiting!: () => void;
+    const olderReleased = new Promise<void>((resolve) => {
+      releaseOlder = resolve;
+    });
+    const olderWaiting = new Promise<void>((resolve) => {
+      olderIsWaiting = resolve;
+    });
+    let pauseNext = true;
+    const access = vi
+      .spyOn(sharing, "assertAccess")
+      .mockImplementation(async (...args) => {
+        const result = await originalAssertAccess(...args);
+        if (args[1] === databaseDocumentId && pauseNext) {
+          pauseNext = false;
+          olderIsWaiting();
+          await olderReleased;
+        }
+        return result;
+      });
+    const save = (view: Record<string, unknown>) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run(
+          action.schema.parse({
+            databaseId,
+            viewConfig: {
+              activeViewId: "table",
+              views: [{ id: "table", name: "Table", type: "table", ...view }],
+            },
+          }),
+        ),
+      );
+    const olderSave = save({ rowDensity: "comfortable" });
+
+    try {
+      await olderWaiting;
+      await save({
+        tableColumnOrderIds: ["text", "name"],
+        columnWrapOverrides: { name: true },
+        frozenThroughColumnId: "text",
+      });
+      releaseOlder();
+      await olderSave;
+      const stored = JSON.parse((await databaseRow(databaseId)).viewConfigJson);
+      expect(stored.views[0]).toMatchObject({
+        rowDensity: "comfortable",
+        tableColumnOrderIds: ["text", "name"],
+        columnWrapOverrides: { name: true },
+        frozenThroughColumnId: "text",
+      });
+    } finally {
+      releaseOlder();
+      await olderSave;
+      access.mockRestore();
+    }
+  });
+
   it("accepts legacy context-free property action inputs", async () => {
     const missingDocumentId = nextId("missing_document");
     const missingPropertyId = nextId("missing_property");
@@ -254,6 +320,77 @@ describe("database-scoped document properties", () => {
         }),
       ),
     ).rejects.toThrow(`No access to document ${missingDocumentId}`);
+  });
+
+  it("clears deleted column presentation state without dropping hidden columns", async () => {
+    const db = getDb();
+    const database = await createDatabase({});
+    const deletedPropertyId = nextId("deleted_property");
+    const hiddenPropertyId = nextId("hidden_property");
+    const now = new Date().toISOString();
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: deletedPropertyId,
+        ownerEmail: OWNER,
+        databaseId: database.databaseId,
+        name: "Delete me",
+        type: "text",
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: hiddenPropertyId,
+        ownerEmail: OWNER,
+        databaseId: database.databaseId,
+        name: "Hidden",
+        type: "text",
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "table",
+          views: [
+            {
+              id: "table",
+              name: "Table",
+              type: "table",
+              sorts: [],
+              filters: [],
+              columnWidths: {},
+              hiddenPropertyIds: [hiddenPropertyId],
+              columnWrapOverrides: {
+                [deletedPropertyId]: true,
+                [hiddenPropertyId]: true,
+              },
+              frozenThroughColumnId: deletedPropertyId,
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, database.databaseId));
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentPropertyAction.run({
+        documentId: database.databaseDocumentId,
+        databaseId: database.databaseId,
+        propertyId: deletedPropertyId,
+      }),
+    );
+
+    const saved = JSON.parse(
+      (await databaseRow(database.databaseId)).viewConfigJson,
+    );
+    expect(saved.views[0]).toMatchObject({
+      hiddenPropertyIds: [hiddenPropertyId],
+      columnWrapOverrides: { [hiddenPropertyId]: true },
+      frozenThroughColumnId: null,
+    });
   });
 
   it("keeps reads and Add property mutations on the requested membership", async () => {
@@ -943,18 +1080,14 @@ describe("document trash lifecycle", () => {
 
   it("requires Trash before permanent deletion", async () => {
     const documentId = await createDocument({ title: "Purge me" });
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocumentAction.run({ id: documentId }),
-      ),
-    ).rejects.toThrow("must be in Trash");
+    await expect(permanentlyDeleteFixtureDocument(documentId)).rejects.toThrow(
+      "must be in Trash",
+    );
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: documentId }),
     );
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      permanentlyDeleteDocumentAction.run({ id: documentId }),
-    );
+    await permanentlyDeleteFixtureDocument(documentId);
     expect(await documentRow(documentId)).toBeUndefined();
   });
 
@@ -1002,9 +1135,7 @@ describe("document trash lifecycle", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: databaseDocumentId }),
     );
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      permanentlyDeleteDocumentAction.run({ id: databaseDocumentId }),
-    );
+    await permanentlyDeleteFixtureDocument(databaseDocumentId);
 
     expect(
       await getDb()
@@ -1024,7 +1155,7 @@ describe("document trash lifecycle", () => {
     expect(await databaseRow(retainedDatabase.databaseId)).toBeDefined();
   });
 
-  it("permanently deletes only a selected Trash root", async () => {
+  it("permanently deletes a selected nested Page without its Trash root", async () => {
     const rootId = await createDocument({ title: "Trash root" });
     const childId = await createDocument({
       parentId: rootId,
@@ -1034,13 +1165,9 @@ describe("document trash lifecycle", () => {
       deleteDocumentAction.run({ id: rootId }),
     );
 
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocumentAction.run({ id: childId }),
-      ),
-    ).rejects.toThrow("Trash root");
+    await permanentlyDeleteFixtureDocument(childId);
     expect(await documentRow(rootId)).toBeDefined();
-    expect(await documentRow(childId)).toBeDefined();
+    expect(await documentRow(childId)).toBeUndefined();
   });
 
   it("preserves an independently trashed descendant when deleting its parent root", async () => {
@@ -1055,9 +1182,7 @@ describe("document trash lifecycle", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: rootId }),
     );
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      permanentlyDeleteDocumentAction.run({ id: rootId }),
-    );
+    await permanentlyDeleteFixtureDocument(rootId);
 
     expect(await documentRow(rootId)).toBeUndefined();
     expect(await documentRow(childId)).toMatchObject({
@@ -1379,6 +1504,94 @@ describe("content database soft-delete actions and reads", () => {
     expect(listedIds.has(rowDocumentId)).toBe(false);
   });
 
+  it("hides soft-deleted database documents and rows from Files until restore", async () => {
+    const files = await createDatabase({ systemRole: "files" });
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const deletedDatabase = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const rowDocumentId = await createDocument({
+      parentId: deletedDatabase.databaseDocumentId,
+      title: "Deleted database row",
+    });
+    const retainedDocumentId = await createDocument({ title: "Retained file" });
+    const now = new Date().toISOString();
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({
+        content: inlineDatabaseBlock({
+          blockId: ownerBlockId,
+          databaseId: deletedDatabase.databaseId,
+          databaseDocumentId: deletedDatabase.databaseDocumentId,
+        }),
+      })
+      .where(eq(schema.documents.id, hostDocumentId));
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId: deletedDatabase.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      ...[
+        deletedDatabase.databaseDocumentId,
+        rowDocumentId,
+        retainedDocumentId,
+      ].map((documentId, position) => ({
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId: files.databaseId,
+        documentId,
+        position,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: hostDocumentId,
+        content: "The database block was removed.",
+      }),
+    );
+
+    const hidden = await runWithRequestContext({ userEmail: OWNER }, () =>
+      queryContentDatabaseItemsAction.run({ databaseId: files.databaseId }),
+    );
+    expect(hidden.items.map((item) => item.document.id)).toEqual([
+      retainedDocumentId,
+    ]);
+    expect(hidden.pagination).toMatchObject({
+      totalItems: 1,
+      returnedItems: 1,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreContentDatabaseAction.run({
+        databaseId: deletedDatabase.databaseId,
+      }),
+    );
+
+    const restored = await runWithRequestContext({ userEmail: OWNER }, () =>
+      queryContentDatabaseItemsAction.run({ databaseId: files.databaseId }),
+    );
+    expect(restored.items.map((item) => item.document.id)).toEqual([
+      deletedDatabase.databaseDocumentId,
+      rowDocumentId,
+      retainedDocumentId,
+    ]);
+    expect(restored.pagination).toMatchObject({
+      totalItems: 3,
+      returnedItems: 3,
+    });
+  });
+
   it("returns only the ordered, filtered database page and preserves read access", async () => {
     const { databaseId, databaseDocumentId } = await createDatabase({});
     const db = getDb();
@@ -1604,6 +1817,492 @@ describe("content database soft-delete actions and reads", () => {
     ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
   });
 
+  it("reads one shared private database row's properties without exposing its container", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const { databaseId, databaseDocumentId } = await createDatabase({});
+    const sharedDocumentId = await createDocument({
+      parentId: databaseDocumentId,
+      title: "Shared Personal row",
+      content: "Keep this nonempty Personal body.",
+    });
+    const siblingDocumentId = await createDocument({
+      parentId: databaseDocumentId,
+      title: "Private sibling",
+      content: "This sibling must remain private.",
+    });
+    const unrelated = await createDatabase({});
+    const propertyId = nextId("property");
+    const relationPropertyId = nextId("relation_property");
+    const rollupPropertyId = nextId("rollup_property");
+    const createdByPropertyId = nextId("created_by_property");
+
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId,
+        documentId: sharedDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId,
+        documentId: siblingDocumentId,
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: propertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Status",
+        type: "text",
+        description: "",
+        visibility: "always_show",
+        optionsJson: "{}",
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: relationPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related",
+        type: "relation",
+        description: "",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({ relation: { databaseId } }),
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: rollupPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related count",
+        type: "rollup",
+        description: "",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({
+          rollup: {
+            relationPropertyId,
+            targetPropertyId: propertyId,
+            aggregation: "count",
+          },
+        }),
+        position: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: createdByPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Created by",
+        type: "created_by",
+        description: "",
+        visibility: "always_show",
+        optionsJson: "{}",
+        position: 3,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyValues).values([
+      {
+        id: nextId("property_value"),
+        ownerEmail: OWNER,
+        documentId: sharedDocumentId,
+        propertyId,
+        valueJson: JSON.stringify("Shared only"),
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: nextId("property_value"),
+        ownerEmail: OWNER,
+        documentId: sharedDocumentId,
+        propertyId: relationPropertyId,
+        valueJson: JSON.stringify([siblingDocumentId]),
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: sharedDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: now,
+    });
+
+    const contextualDocument = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () =>
+        getDocumentAction.run({
+          id: sharedDocumentId,
+          databaseId,
+          databaseDocumentId,
+        }),
+    );
+    expect(contextualDocument).toMatchObject({
+      id: sharedDocumentId,
+      parentId: null,
+      title: "Shared Personal row",
+      content: "Keep this nonempty Personal body.",
+      accessRole: "editor",
+      canSuggest: false,
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
+      contextPath: [],
+    });
+    const contextFreeDocument = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => getDocumentAction.run({ id: sharedDocumentId }),
+    );
+    expect(contextFreeDocument).toMatchObject({
+      id: sharedDocumentId,
+      parentId: null,
+      content: "Keep this nonempty Personal body.",
+      accessRole: "editor",
+      canSuggest: false,
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
+      contextPath: [],
+    });
+
+    const listed = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listDocumentsAction.run({}),
+    );
+    expect(
+      listed.documents.find((document) => document.id === sharedDocumentId),
+    ).toMatchObject({
+      parentId: null,
+      canSuggest: false,
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
+    });
+
+    const shared = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () =>
+        listDocumentPropertiesAction.run({
+          documentId: sharedDocumentId,
+          databaseId,
+        }),
+    );
+    expect(shared).toMatchObject({
+      documentId: sharedDocumentId,
+      databaseId: null,
+      canEditValues: false,
+      canManageSchema: false,
+      properties: expect.arrayContaining([
+        expect.objectContaining({
+          definition: expect.objectContaining({
+            id: propertyId,
+            name: "Status",
+            databaseId: null,
+          }),
+          value: "Shared only",
+          editable: false,
+        }),
+        expect.objectContaining({
+          definition: expect.objectContaining({
+            id: relationPropertyId,
+            options: { relation: { databaseId: null } },
+          }),
+          value: null,
+          editable: false,
+        }),
+        expect.objectContaining({
+          definition: expect.objectContaining({
+            id: rollupPropertyId,
+            options: expect.objectContaining({
+              rollup: expect.objectContaining({
+                relationPropertyId: null,
+                targetPropertyId: null,
+              }),
+            }),
+          }),
+          value: null,
+        }),
+        expect.objectContaining({
+          definition: expect.objectContaining({ id: createdByPropertyId }),
+          value: null,
+        }),
+      ]),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        getDocumentAction.run({ id: databaseDocumentId }),
+      ),
+    ).rejects.toThrow(`Document "${databaseDocumentId}" not found`);
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        getDocumentAction.run({ id: siblingDocumentId }),
+      ),
+    ).rejects.toThrow(`Document "${siblingDocumentId}" not found`);
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        listDocumentPropertiesAction.run({
+          documentId: sharedDocumentId,
+          databaseId: unrelated.databaseId,
+        }),
+      ),
+    ).rejects.toThrow("Document is not part of this database.");
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        getDocumentAction.run({
+          id: sharedDocumentId,
+          databaseId: unrelated.databaseId,
+          databaseDocumentId: unrelated.databaseDocumentId,
+        }),
+      ),
+    ).rejects.toThrow("Database context not found");
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        configureDocumentPropertyAction.run({
+          documentId: sharedDocumentId,
+          databaseId,
+          name: "Must not be created",
+          type: "text",
+        }),
+      ),
+    ).rejects.toThrow(`No access to document ${databaseDocumentId}`);
+  });
+
+  it("lets a commenter suggest on a shared Page without exposing its private Files container", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const { databaseId } = await createDatabase({ systemRole: "files" });
+    const sharedDocumentId = await createDocument({
+      title: "Shared Personal Page",
+      content: "A Page body open to suggestions.",
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("item"),
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: sharedDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: sharedDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "commenter",
+      createdBy: OWNER,
+      createdAt: now,
+    });
+
+    const memberships = await db
+      .select({
+        documentId: schema.contentDatabaseItems.documentId,
+        systemRole: schema.contentDatabases.systemRole,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.contentDatabases,
+        eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+      )
+      .where(eq(schema.contentDatabaseItems.documentId, sharedDocumentId));
+    expect(memberships).toEqual([
+      { documentId: sharedDocumentId, systemRole: "files" },
+    ]);
+
+    const shared = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => getDocumentAction.run({ id: sharedDocumentId }),
+    );
+    expect(shared).toMatchObject({
+      id: sharedDocumentId,
+      accessRole: "commenter",
+      canComment: true,
+      canSuggest: true,
+      canEdit: false,
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
+    });
+    expect(shared.databaseMembership).not.toHaveProperty("systemRole");
+
+    const listed = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listDocumentsAction.run({}),
+    );
+    const listedShared = listed.documents.find(
+      (document) => document.id === sharedDocumentId,
+    );
+    expect(listedShared).toMatchObject({
+      accessRole: "commenter",
+      canComment: true,
+      canSuggest: true,
+      canEdit: false,
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
+    });
+    expect(listedShared?.databaseMembership).not.toHaveProperty("systemRole");
+  });
+
+  it("projects suggestion eligibility for text, inline-database, database, and source Pages", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const ordinaryDocumentId = await createDocument({
+      title: "Ordinary suggestion Page",
+      content: "A commenter can suggest a text change here.",
+    });
+    const inlineDocumentId = await createDocument({
+      title: "Inline database suggestion exclusion",
+    });
+    const inlineDatabase = await createDatabase({
+      hostDocumentId: inlineDocumentId,
+      ownerBlockId: "inline-eligibility-block",
+    });
+    await db
+      .update(schema.documents)
+      .set({
+        content: `${"Paragraph before the block. ".repeat(20)}\n\n${inlineDatabaseBlock(
+          {
+            blockId: "inline-eligibility-block",
+            databaseId: inlineDatabase.databaseId,
+            databaseDocumentId: inlineDatabase.databaseDocumentId,
+          },
+        )}`,
+      })
+      .where(eq(schema.documents.id, inlineDocumentId));
+    const fullPageDatabase = await createDatabase({});
+    const sourceDocumentId = await createDocument({
+      title: "Source-owned suggestion exclusion",
+      content: "Source-owned content.",
+    });
+    await db
+      .update(schema.documents)
+      .set({
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "source-owned.md",
+      })
+      .where(eq(schema.documents.id, sourceDocumentId));
+
+    const unrecognizedSourceDocumentIds: string[] = [];
+    for (const sourceFields of [
+      { sourceMode: "legacy-source" },
+      { sourceKind: "file" },
+      { sourcePath: "source-owned.md" },
+    ]) {
+      const id = await createDocument({
+        title: "Unrecognized source exclusion",
+      });
+      await db
+        .update(schema.documents)
+        .set(sourceFields)
+        .where(eq(schema.documents.id, id));
+      unrecognizedSourceDocumentIds.push(id);
+    }
+
+    const documentIds = [
+      ordinaryDocumentId,
+      inlineDocumentId,
+      fullPageDatabase.databaseDocumentId,
+      sourceDocumentId,
+      ...unrecognizedSourceDocumentIds,
+    ];
+    await db.insert(schema.documentShares).values(
+      documentIds.map((documentId) => ({
+        id: nextId("share"),
+        resourceId: documentId,
+        principalType: "user" as const,
+        principalId: COLLABORATOR,
+        role: "commenter" as const,
+        createdBy: OWNER,
+        createdAt: now,
+      })),
+    );
+
+    const direct = await Promise.all(
+      documentIds.map((id) =>
+        runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+          getDocumentAction.run({ id }),
+        ),
+      ),
+    );
+    expect(
+      direct.map((document) => ({
+        id: document.id,
+        canComment: document.canComment,
+        canSuggest: document.canSuggest,
+      })),
+    ).toEqual([
+      { id: ordinaryDocumentId, canComment: true, canSuggest: true },
+      { id: inlineDocumentId, canComment: true, canSuggest: false },
+      {
+        id: fullPageDatabase.databaseDocumentId,
+        canComment: true,
+        canSuggest: false,
+      },
+      { id: sourceDocumentId, canComment: true, canSuggest: false },
+      ...unrecognizedSourceDocumentIds.map((id) => ({
+        id,
+        canComment: true,
+        canSuggest: false,
+      })),
+    ]);
+
+    const listed = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listDocumentsAction.run({}),
+    );
+    const listedEligibility = new Map(
+      listed.documents
+        .filter((document) => documentIds.includes(document.id))
+        .map((document) => [document.id, document.canSuggest]),
+    );
+    expect(listedEligibility).toEqual(
+      new Map([
+        [ordinaryDocumentId, true],
+        [inlineDocumentId, false],
+        [fullPageDatabase.databaseDocumentId, false],
+        [sourceDocumentId, false],
+        ...unrecognizedSourceDocumentIds.map((id) => [id, false] as const),
+      ]),
+    );
+  });
+
   it("rejects restoring a database whose page belongs to another Trash root", async () => {
     const rootId = await createDocument({ title: "Parent Trash root" });
     const { databaseId, databaseDocumentId } = await createDatabase({
@@ -1731,6 +2430,8 @@ describe("content database soft-delete actions and reads", () => {
       expect.arrayContaining([
         {
           databaseId: ownedDeleted.databaseId,
+          spaceId: null,
+          configurationRevision: expect.any(String),
           title: "Database",
           documentId: ownedDeleted.databaseDocumentId,
           ownerDocumentId: null,
@@ -1797,7 +2498,9 @@ describe("content database soft-delete actions and reads", () => {
       runWithRequestContext({ userEmail: COLLABORATOR }, () =>
         moveDocumentAction.run({ id: databaseDocumentId, parentId: null }),
       ),
-    ).rejects.toThrow(`No access to document ${hostDocumentId}`);
+    ).rejects.toThrow(
+      `No access to document ${hostDocumentId} (argument: ownerDocumentId)`,
+    );
 
     const database = await databaseRow(databaseId);
     expect(database?.ownerDocumentId).toBe(hostDocumentId);

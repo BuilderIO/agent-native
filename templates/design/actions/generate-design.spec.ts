@@ -104,7 +104,9 @@ const mocks = vi.hoisted(() => {
 
   const tx = {
     select,
+    insert,
     update,
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const transaction = vi.fn(async (fn: (tx: typeof tx) => Promise<void>) => {
@@ -149,6 +151,7 @@ const mocks = vi.hoisted(() => {
     mutateDesignData: vi.fn(),
     assertAccess: vi.fn().mockResolvedValue(undefined),
     and: vi.fn((...conditions) => ({ conditions })),
+    inArray: vi.fn((column, values) => ({ column, values })),
     eq: vi.fn((left, right) => ({ left, right })),
     isNull: vi.fn((value) => ({ isNull: value })),
     readAppState: vi.fn().mockResolvedValue(null),
@@ -191,6 +194,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
+  inArray: mocks.inArray,
   isNull: mocks.isNull,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
@@ -202,9 +206,12 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/collab", () => {
   const seeded = mocks.seededCollabText;
+  const hasCollabState = vi.fn(async (docId: string) => seeded.has(docId));
+  const getText = vi.fn(async (docId: string) => seeded.get(docId) ?? "");
   return {
-    hasCollabState: vi.fn(async (docId: string) => seeded.has(docId)),
-    getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
+    CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
+    hasCollabState,
+    getText,
     applyText: vi.fn(async (docId: string, text: string) => {
       seeded.set(docId, text);
       return text;
@@ -212,6 +219,36 @@ vi.mock("@agent-native/core/collab", () => {
     seedFromText: vi.fn(async (docId: string, text: string) => {
       if (!seeded.has(docId)) seeded.set(docId, text);
     }),
+    applyTextToYDoc: vi.fn(
+      (doc: { content: string }, _fieldName: string, text: string) => {
+        doc.content = text;
+      },
+    ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        docId: string,
+        _requestSource: string | undefined,
+        run: (lease: {
+          doc: { content: string; getText: () => { toString: () => string } };
+          baseVersion: number | null;
+          persist: (_tx: unknown, text: string) => Promise<void>;
+        }) => Promise<unknown>,
+      ) => {
+        const hasLiveDoc = await hasCollabState(docId);
+        const doc = {
+          content: hasLiveDoc ? await getText(docId) : "",
+          getText: () => ({ toString: () => doc.content }),
+        };
+        const result = await run({
+          doc,
+          baseVersion: hasLiveDoc ? 0 : null,
+          persist: async (_tx, text) => {
+            seeded.set(docId, text);
+          },
+        });
+        return result;
+      },
+    ),
     agentEnterDocument: vi.fn(),
     agentLeaveDocument: vi.fn(),
     agentUpdateSelection: vi.fn(),
@@ -229,6 +266,7 @@ vi.mock("../server/db/index.js", () => {
     },
     designs: {
       id: "designs.id",
+      title: "designs.title",
       data: "designs.data",
     },
   };
@@ -426,7 +464,9 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     vi.clearAllMocks();
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
-    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.setDesignRows([
+      { id: "design-1", title: "Untitled Design", data: null },
+    ]);
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
@@ -471,7 +511,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     );
   });
 
-  it("rejects the update when the live content changed since it was read (concurrent write)", async () => {
+  it("reports (never throws) the conflict when the live content changed since it was read (concurrent write)", async () => {
     setExistingFile("<html><body>old</body></html>");
 
     // Simulate a concurrent writer's collab mutation landing in the exact
@@ -501,22 +541,111 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
         : "<html><body>concurrent-edit</body></html>";
     });
 
-    await expect(
-      action.run({
-        designId: "design-1",
-        prompt: "Update copy",
-        files: [
-          {
-            filename: "index.html",
-            fileType: "html",
-            content: "<html><body>stale-generated</body></html>",
-          },
-        ],
-      }),
-    ).rejects.toThrow(/changed since it was read/);
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Update copy",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>stale-generated</body></html>",
+        },
+      ],
+    });
 
-    // Must fail loud: the stale content must never be persisted.
+    // Must fail loud: the stale content must never be persisted...
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    // ...but a single-file batch is just a batch of size one — the conflict
+    // is reported the same retryable way a multi-file batch reports it, not
+    // as a thrown error, so the caller has one consistent shape to check.
+    expect(result.savedFiles).toEqual([]);
+    expect(result.fileErrors).toEqual([
+      {
+        filename: "index.html",
+        message: expect.stringContaining("changed since it was read"),
+      },
+    ]);
+  });
+
+  it("keeps an earlier file's save and reports a later file's write conflict instead of discarding both", async () => {
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body>old-1</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "file-2",
+        designId: "design-1",
+        filename: "details.html",
+        fileType: "html",
+        content: "<html><body>old-2</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    // Only file-2 gets the "concurrent write" race from the test above: its
+    // collab doc already exists, and the live content differs between this
+    // action's own pre-write read and writeInlineSourceFile's internal
+    // re-check, so its write is rejected as a genuine conflict. file-1 has no
+    // collab doc and takes the plain seedFromText path used by every other
+    // test in this block, so it must save normally in the same batch.
+    const collab = await import("@agent-native/core/collab");
+    let file2GetTextCalls = 0;
+    (collab.hasCollabState as any).mockImplementation(
+      async (docId: string) => docId === "file-2",
+    );
+    (collab.getText as any).mockImplementation(async (docId: string) => {
+      if (docId !== "file-2") return mocks.seededCollabText.get(docId) ?? "";
+      file2GetTextCalls += 1;
+      return file2GetTextCalls === 1
+        ? "<html><body>old-2</body></html>"
+        : "<html><body>concurrent-edit</body></html>";
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Update two screens",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>new-1</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html><body>new-2</body></html>",
+        },
+      ],
+    });
+
+    // file-1 saved (and got its canvas frame placed) even though file-2
+    // failed later in the same batch — a partial failure must not discard an
+    // already-committed sibling's bookkeeping.
+    expect(result.savedFiles).toEqual([
+      { id: "file-1", filename: "index.html", fileType: "html" },
+    ]);
+    expect(mocks.fileUpdateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining("new-1") }),
+    );
+    const data = mocks.getDesignData();
+    expect(
+      (data.canvasFrames as Record<string, unknown> | undefined)?.["file-1"],
+    ).toBeDefined();
+
+    // file-2's conflict is reported back, not thrown and not swallowed.
+    expect(result.fileErrors).toEqual([
+      {
+        filename: "details.html",
+        message: expect.stringContaining("changed since it was read"),
+      },
+    ]);
   });
 
   it("updates fileType separately when it changes, alongside the guarded content write", async () => {
@@ -538,6 +667,40 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       (call) => (call[0] as Record<string, unknown>).fileType === "jsx",
     );
     expect(fileTypeCall).toBeDefined();
+  });
+
+  it("rethrows an unclassified infrastructure failure instead of reporting it as a fileError", async () => {
+    setExistingFile("<html><body>old</body></html>");
+
+    // The first assertAccess call is this action's own top-level access
+    // check (line ~709); the second is writeInlineSourceFile's internal
+    // check for this one file. Reject only the second call, simulating a
+    // transient provider/DB failure unrelated to any conflict or integrity
+    // rule — the kind of failure a caller must be able to tell apart from a
+    // legitimate per-file rejection so it retries the WHOLE call instead of
+    // reading "index.html" as durably rejected.
+    mocks.assertAccess
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("ECONNREFUSED: connection lost"));
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Update copy",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>new</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("ECONNREFUSED");
+
+    // Nothing about this failure is a legitimate per-file outcome: the write
+    // never happened and the caller must see a failed action call, not a
+    // successful response with the DB error text tucked into fileErrors.
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
   });
 });
 
@@ -647,7 +810,7 @@ describe("generate-design: generation-session lock guards concurrent fan-out", (
   });
 });
 
-describe("generate-design: new-file creation path (unchanged)", () => {
+describe("generate-design: new-file creation path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.seededCollabText.clear();
@@ -691,6 +854,55 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       lastPrompt: "New landing page",
       fileCount: 1,
     });
+  });
+
+  it("replaces a placeholder title from the generation prompt", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "A warm editorial journal for book lovers\nUse cream and rust",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Reading list</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.designUpdateChain.set).toHaveBeenCalledWith({
+      title: "A warm editorial journal for book lovers",
+    });
+    expect(mocks.designUpdateChain.where).toHaveBeenCalledWith({
+      conditions: [
+        { left: "designs.id", right: "design-1" },
+        {
+          column: "designs.title",
+          values: ["Untitled", "Untitled Design"],
+        },
+      ],
+    });
+  });
+
+  it("lands urlPath and the deep link on the overview canvas focused on the new screen", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "New landing page",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Hello</body></html>",
+        },
+      ],
+    });
+
+    const savedFileId = result.savedFiles[0]!.id;
+    expect(result.urlPath).toBe(
+      `/design/design-1?editorView=overview&screen=${savedFileId}`,
+    );
+    const link = action.link?.({ args: {}, result });
+    expect(link?.url).toContain(`screen=${savedFileId}`);
+    expect(link?.url).toContain("view=editor");
   });
 
   it("defaults a generated web screen to a desktop canvas and responsive breakpoints", async () => {
@@ -743,6 +955,36 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       data.canvasFrames as Record<string, Record<string, unknown>>,
     );
     expect(frame).toMatchObject({ width: 390, height: 844 });
+  });
+
+  it("persists an explicit canvas target's viewport metadata", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a mobile onboarding screen",
+      files: [
+        {
+          filename: "onboarding.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Onboarding</body></html>",
+        },
+      ],
+      canvasFrames: [
+        {
+          filename: "onboarding.html",
+          x: 0,
+          y: 0,
+          width: 390,
+          height: 844,
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const metadata = data.screenMetadata as Record<string, unknown>;
+    expect(metadata[result.savedFiles[0]!.id]).toMatchObject({
+      width: 390,
+      height: 844,
+    });
   });
 
   it("derives the base frame and breakpoint set from an explicit devices list", async () => {
@@ -965,6 +1207,260 @@ describe("generate-design: new screens never stack on existing frames", () => {
     expect(overlaps).toBe(false);
     expect(second.x).toBeGreaterThanOrEqual(1440);
   });
+
+  it("spaces generated screens after their responsive previews", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a responsive product flow",
+      devices: ["desktop", "tablet", "mobile"],
+      files: [
+        {
+          filename: "home.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Home</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    const first = frames[result.savedFiles[0]!.id]!;
+    const second = frames[result.savedFiles[1]!.id]!;
+    // The default source aspect differs from the desktop frame, so both
+    // responsive previews use the renderer's full-scale reflow path.
+    expect(second.x - first.x).toBeCloseTo(1440 + 24 + 768 + 24 + 390 + 96);
+  });
+
+  it("does not add responsive previews to primitive board frames", async () => {
+    mocks.setFileRows([
+      {
+        id: "board",
+        designId: "design-1",
+        filename: "__board__.html",
+        fileType: "html",
+        content: "<!doctype html><html><body>Board</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        board: { x: 0, y: 0, width: 1440, height: 900 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Add another screen",
+      files: [
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    expect(frames[result.savedFiles[0]!.id]?.x).toBe(1440 + 96);
+  });
+
+  it("does not count JSX support files as responsive screen occupancy", async () => {
+    mocks.setFileRows([
+      {
+        id: "support",
+        designId: "design-1",
+        filename: "support.jsx",
+        fileType: "jsx",
+        content: "export default function Support() {}",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        support: { x: 0, y: 0, width: 1440, height: 100 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        {
+          filename: "next.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Next</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    expect(frames[result.savedFiles[0]!.id]?.x).toBe(1440 + 96);
+  });
+
+  it("uses responsive bounds for existing screens without metadata", async () => {
+    setExistingFile("<html><body>existing</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "tablet", label: "Tablet", widthPx: 768 }],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Add another screen",
+      files: [
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    expect(frames[result.savedFiles[0]!.id]?.x).toBeGreaterThan(1440 + 96);
+  });
+
+  it("reserves the final responsive footprint when an existing frame is resized", async () => {
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body>old</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: {
+        "file-1": { width: 1280, height: 800 },
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 390, height: 844 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Regenerate this responsive flow",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>updated</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html><body>details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; width: number; height: number }
+    >;
+    const newFile = result.savedFiles.find(
+      (file) => file.filename === "details.html",
+    );
+    expect(newFile).toBeDefined();
+    expect(frames["file-1"]).toMatchObject({ width: 1440, height: 900 });
+    expect(frames[newFile!.id]?.x).toBeCloseTo(1440 + 24 + 390 + 96);
+    const metadata = mocks.getDesignData().screenMetadata as Record<
+      string,
+      { width: number; height: number }
+    >;
+    expect(metadata["file-1"]).toMatchObject({ width: 1440, height: 900 });
+  });
+
+  it("reserves rotated breakpoints around the primary after an aspect-changing regeneration", async () => {
+    setExistingFile("<html><body>old</body></html>");
+    mocks.setDesignData({
+      screenMetadata: {
+        "file-1": {
+          width: 1440,
+          height: 900,
+          breakpointHeights: { "390": 2200 },
+        },
+      },
+      canvasFrames: {
+        "file-1": {
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          rotation: -90,
+        },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Regenerate for tablet and mobile",
+      devices: ["tablet", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>updated</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html><body>details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; width: number; height: number; rotation?: number }
+    >;
+    const newFile = result.savedFiles.find(
+      (file) => file.filename === "details.html",
+    );
+    expect(newFile).toBeDefined();
+    expect(frames["file-1"]).toMatchObject({
+      width: 768,
+      height: 1024,
+      rotation: -90,
+    });
+    expect(frames[newFile!.id]?.x).toBeCloseTo(2072 + 96);
+  });
 });
 
 describe("generate-design: single-device regen clears stale breakpoints", () => {
@@ -1183,6 +1679,53 @@ describe("generate-design: explicit device requests reconcile breakpoints & rota
     const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
     expect(placed.x).not.toBe(1450);
   });
+
+  it("advances a rotated responsive screen until its AABB clears the layout", async () => {
+    setExistingFile("<html><body>existing</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      screenMetadata: {
+        "file-1": { width: 1440, height: 900 },
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a rotated responsive screen",
+      files: [
+        {
+          filename: "rotated.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Rotated</body></html>",
+        },
+      ],
+      canvasFrames: [
+        {
+          filename: "rotated.html",
+          x: 1450,
+          y: 0,
+          width: 200,
+          height: 200,
+          rotation: 90,
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+    // The target's explicit 200x200 canvas frame now seeds its missing source
+    // metadata, so its 390px responsive preview has a square fallback height.
+    expect(placed.x).toBeCloseTo(2140);
+  });
 });
 
 describe("generate-design: explicit device request resizes an existing frame", () => {
@@ -1201,6 +1744,9 @@ describe("generate-design: explicit device request resizes an existing frame", (
     // Existing index.html (file-1) with a persisted desktop-sized frame.
     setExistingFile("<html><body>old</body></html>");
     mocks.setDesignData({
+      screenMetadata: {
+        "file-1": { width: 1440, height: 900 },
+      },
       canvasFrames: {
         "file-1": { x: 300, y: 120, width: 1440, height: 900, z: 0 },
       },
@@ -1224,5 +1770,10 @@ describe("generate-design: explicit device request resizes an existing frame", (
       >
     )["file-1"];
     expect(frame).toMatchObject({ x: 300, y: 120, width: 390, height: 844 });
+    const metadata = mocks.getDesignData().screenMetadata as Record<
+      string,
+      { width: number; height: number }
+    >;
+    expect(metadata["file-1"]).toMatchObject({ width: 390, height: 844 });
   });
 });

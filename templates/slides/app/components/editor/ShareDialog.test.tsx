@@ -13,9 +13,9 @@ describe("<ShareDialog>", () => {
   it("delegates to the shared dialog contract instead of rendering a bespoke URL popup", () => {
     expect(source).toContain('from "@agent-native/core/client/sharing"');
     expect(source).toContain("CoreShareDialog");
-    expect(source).toContain("ShareCopyRow");
-    expect(source).toContain("writeClipboardText");
-    expect(source).toContain("CloudUpgrade");
+    expect(source).toContain('title={t("share.title")}');
+    expect(source).not.toContain("ShareCopyRow");
+    expect(source).not.toContain("writeClipboardText");
     expect(source).toContain("fetch(`${appBasePath()}/api/share`");
     expect(source).toContain("/share/${shareToken}");
     expect(source).not.toContain("Popover");

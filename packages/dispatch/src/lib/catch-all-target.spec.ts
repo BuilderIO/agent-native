@@ -12,6 +12,14 @@ describe("resolveCatchAllTarget", () => {
     ).toBe("/todo");
   });
 
+  it("keeps the legacy mounted path for normalized agent IDs", () => {
+    expect(
+      resolveCatchAllTarget("clips", {
+        workspaceApps: [{ id: "clips", path: "/videos" }],
+      }),
+    ).toBe("/videos");
+  });
+
   it("falls back to the built-in template URL when no workspace manifest exists", () => {
     expect(
       resolveCatchAllTarget("forms", {

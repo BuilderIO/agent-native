@@ -34,7 +34,7 @@ export function freezeMedia(): () => void {
   return () => {
     playing.forEach((media) => {
       try {
-        media.play();
+        void media.play();
       } catch {
         // Media may have been removed
       }

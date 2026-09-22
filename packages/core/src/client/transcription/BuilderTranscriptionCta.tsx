@@ -7,85 +7,23 @@
  */
 
 import { IconBolt, IconLoader2 } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
 
-import { agentNativePath } from "../api-path.js";
-import { openBuilderConnectPopup } from "../settings/useBuilderStatus.js";
-import { usePollLoop } from "../use-poll-loop.js";
-
-const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 
 export function BuilderTranscriptionCta() {
-  const [configured, setConfigured] = useState<boolean | null>(null);
-  const [connectUrl, setConnectUrl] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const connectStartedAtRef = useRef<number | null>(null);
-  const mountedRef = useRef(true);
+  const flow = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: "builder_transcription_cta",
+    trackingFlow: "transcription",
+  });
+  const configured = flow.statusResolved
+    ? flow.configured || flow.envManaged
+    : null;
+  const statusUnavailable = flow.hasFetchedStatus && !flow.statusResolved;
 
-  useEffect(() => {
-    mountedRef.current = true;
-    fetch(agentNativePath("/_agent-native/builder/status"))
-      .then((r) =>
-        r.ok
-          ? (r.json() as Promise<{
-              configured: boolean;
-              envManaged?: boolean;
-              connectUrl?: string;
-            }>)
-          : null,
-      )
-      .then((s) => {
-        if (!mountedRef.current) return;
-        // Env-managed mode counts as configured for the CTA — the deploy
-        // already routes transcription through Builder, no per-user prompt.
-        setConfigured(!!(s?.configured || s?.envManaged));
-        setConnectUrl(s?.connectUrl || null);
-      })
-      .catch(() => {
-        if (mountedRef.current) setConfigured(false);
-      });
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  const handleConnect = useCallback(() => {
-    connectStartedAtRef.current = Date.now();
-    setConnecting(true);
-    setError(null);
-
-    openBuilderConnectPopup({
-      url: connectUrl ?? undefined,
-      source: "builder_transcription_cta",
-    });
-  }, [connectUrl]);
-
-  usePollLoop(
-    async (signal) => {
-      const started = connectStartedAtRef.current;
-      if (started == null) return;
-      const r = await fetch(agentNativePath("/_agent-native/builder/status"), {
-        signal,
-      });
-      if (!r.ok || !mountedRef.current) return;
-      const s = (await r.json()) as { configured: boolean };
-      if (!mountedRef.current) return;
-      if (s.configured) {
-        connectStartedAtRef.current = null;
-        setConfigured(true);
-        setConnecting(false);
-      } else if (Date.now() - started > POLL_TIMEOUT_MS) {
-        connectStartedAtRef.current = null;
-        setConnecting(false);
-        setError("Didn't hear back from Builder. Allow popups and try again.");
-      }
-    },
-    { intervalMs: 2000, leading: false, enabled: connecting },
-  );
-
-  // Already connected or still loading — render nothing
-  if (configured === null || configured) return null;
+  // Keep a retry path visible after an unreadable status response.
+  if (configured || (configured === null && !statusUnavailable)) return null;
 
   return (
     <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -95,22 +33,27 @@ export function BuilderTranscriptionCta() {
         aria-hidden="true"
       />
       <span className="flex-1">
-        {connecting
+        {flow.connecting
           ? "Waiting for Builder.io…"
-          : "Connect Builder.io for higher-quality transcription — free credits, no API key needed."}
+          : statusUnavailable
+            ? "Builder status unavailable. Try again."
+            : "Connect Builder.io for higher-quality transcription — free credits, no API key needed."}
       </span>
-      {error ? (
-        <span className="text-destructive text-[10px]">{error}</span>
-      ) : connecting ? (
+      {flow.error && (
+        <span className="text-destructive text-[10px]">{flow.error}</span>
+      )}
+      {flow.connecting ? (
         <IconLoader2 size={12} className="shrink-0 animate-spin" />
       ) : (
-        <button
-          type="button"
-          onClick={handleConnect}
-          className="ml-auto shrink-0 inline-flex items-center gap-1 rounded bg-foreground px-2 py-1 text-[10px] font-semibold text-background hover:opacity-90 transition-opacity"
-        >
-          Connect
-        </button>
+        <BuilderConnectPopover flow={flow}>
+          <button
+            type="button"
+            disabled={flow.connecting}
+            className="ml-auto shrink-0 inline-flex items-center gap-1 rounded bg-foreground px-2 py-1 text-[10px] font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          >
+            {statusUnavailable || flow.error ? "Retry" : "Connect"}
+          </button>
+        </BuilderConnectPopover>
       )}
     </div>
   );

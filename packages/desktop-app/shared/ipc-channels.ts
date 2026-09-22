@@ -7,6 +7,10 @@ import type {
   DesktopShortcutUpsertRequest,
 } from "./desktop-shortcuts";
 import type {
+  DesktopEnvironmentLane,
+  DesktopEnvironmentLanePreference,
+} from "./environment-lane";
+import type {
   QuickPromptSettings,
   QuickPromptPreferences,
 } from "./quick-prompt";
@@ -14,15 +18,9 @@ import type {
 export const IPC = {
   /** Window control channels (renderer → main) */
   WINDOW_MINIMIZE: "window:minimize",
-  WINDOW_MAXIMIZE: "window:maximize",
+  WINDOW_TOGGLE_WINDOW_MODE: "window:toggle-window-mode",
   WINDOW_CLOSE: "window:close",
   WINDOW_NATIVE_BUTTONS_VISIBILITY: "window:native-buttons-visibility",
-
-  /** Window state query (renderer ↔ main) */
-  WINDOW_IS_MAXIMIZED: "window:is-maximized",
-
-  /** Window state broadcast (main → renderer) */
-  WINDOW_MAXIMIZED_CHANGED: "window:maximized-changed",
 
   /** Inter-app message relay (renderer → main → renderer) */
   INTER_APP_SEND: "inter-app:send",
@@ -37,6 +35,8 @@ export const IPC = {
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
   IDENTITY_SETTINGS_GET: "identity:settings:get",
   IDENTITY_SSO_ENABLED_SET: "identity:sso-enabled:set",
+  IDENTITY_ENVIRONMENT_LANE_GET: "identity:environment-lane:get",
+  IDENTITY_ENVIRONMENT_LANE_SET: "identity:environment-lane:set",
   IDENTITY_APP_SESSION_ENSURE: "identity:app-session:ensure",
   IDENTITY_SIGN_IN: "identity:sign-in",
   IDENTITY_AUTHENTICATE: "identity:authenticate",
@@ -62,6 +62,8 @@ export const IPC = {
   DESKTOP_CHAT_GET_API_URL: "desktop-chat:get-api-url",
   /** Loopback relay for discovering a local app's PTY WebSocket */
   DESKTOP_CHAT_GET_TERMINAL_INFO_URL: "desktop-chat:get-terminal-info-url",
+  /** Local CLI MCP tool → renderer app-sidebar request */
+  DESKTOP_CHAT_OPEN_APP: "desktop-chat:open-app",
 
   /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
@@ -162,6 +164,12 @@ export const IPC = {
   QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
 
+export interface DesktopTerminalContext {
+  appId: string;
+  path?: string;
+  view?: string;
+}
+
 export type CodeAgentScheduleScope = "global" | "thread";
 export type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
 
@@ -214,6 +222,11 @@ export type UpdateStatus =
   | { state: "downloaded"; version: string; releaseNotes?: string }
   | { state: "error"; message: string };
 
+export type {
+  DesktopEnvironmentLane,
+  DesktopEnvironmentLanePreference,
+} from "./environment-lane";
+
 export type DesktopIdentityStatus =
   | "idle"
   | "signing-in"
@@ -223,6 +236,15 @@ export type DesktopIdentityStatus =
 
 export interface DesktopIdentitySettings {
   ssoEnabled: boolean;
+}
+
+export interface DesktopEnvironmentLaneState {
+  /** What the user chose. "auto" follows the signed-in email. */
+  preference: DesktopEnvironmentLanePreference;
+  /** What "auto" currently resolves to, and what webviews will load. */
+  lane: DesktopEnvironmentLane;
+  /** Whether the signed-in account is eligible for the automatic beta lane. */
+  eligible: boolean;
 }
 
 export interface ActiveWebviewTarget {
@@ -261,6 +283,13 @@ export interface DesktopAppCreationSettings {
   appsRoot: string;
 }
 
+/** `settings` always reflects the current on-disk value, so a rejected update still snaps the UI back to something real. */
+export interface DesktopAppCreationSettingsUpdateResult {
+  ok: boolean;
+  settings: DesktopAppCreationSettings;
+  error?: string;
+}
+
 export interface DesktopCreateAppRequest {
   prompt: string;
   appsRoot?: string;
@@ -295,6 +324,7 @@ export interface DesktopIdentityMagicLinkResult {
 export interface DesktopWorkspaceAppListResult {
   enabled: boolean;
   apps: import("@agent-native/shared-app-config").AppConfig[];
+  unavailable?: boolean;
 }
 
 export interface DesktopPrepareLocalCodeChangeRequest {
@@ -523,7 +553,7 @@ export type CodeAgentReasoningEffort =
 export interface CodeAgentModelSelection {
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
 }
 
 export interface CodeAgentModelOption {
@@ -612,7 +642,7 @@ export interface CodeAgentProjectSelectResult {
 export interface CodeAgentQueueMetadata {
   queued: boolean;
   queuedAt?: string;
-  queuedBy?: "desktop" | "cli" | "host" | string;
+  queuedBy?: "desktop" | "cli" | "host" | (string & {});
   queueId?: string;
   queuePosition?: number;
   attempt?: number;
@@ -625,7 +655,7 @@ export interface CodeAgentSteeringMetadata {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 }
 
@@ -719,7 +749,7 @@ export interface CodeAgentCreateRunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 }
@@ -802,7 +832,7 @@ export interface CodeAgentFollowUpRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 }
@@ -859,7 +889,7 @@ export interface CodeAgentUpdateRunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 }
 
@@ -1000,7 +1030,7 @@ export interface CodeAgentRerunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 }
@@ -1015,7 +1045,7 @@ export interface CodeAgentRetryRunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 }
 
@@ -1052,7 +1082,7 @@ export interface CodeAgentCodePackMetadata {
 
 export interface CodeAgentHostMetadata {
   status: "ok" | "unavailable";
-  platform: NodeJS.Platform | string;
+  platform: NodeJS.Platform | (string & {});
   desktopVersion?: string;
   storeRoot: string;
   runsDir: string;
@@ -1113,6 +1143,12 @@ export interface DesktopOpenRequest {
   runId?: string;
 }
 
+export interface DesktopChatOpenAppRequest {
+  app: string;
+  path?: string;
+  view?: string;
+}
+
 export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {
   requestId: string;
 }
@@ -1122,7 +1158,7 @@ export interface QuickPromptSubmitRequest {
   cwd?: string;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 }
 

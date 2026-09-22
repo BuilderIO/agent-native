@@ -14,6 +14,11 @@ const profileQueryState = vi.hoisted(() => ({
     | undefined,
 }));
 const updateProfileMock = vi.hoisted(() => vi.fn());
+const privacyRequestMock = vi.hoisted(() => vi.fn());
+const fetchMock = vi.hoisted(() => vi.fn());
+const localeOverrides = vi.hoisted(() => ({
+  settings: null as Record<string, unknown> | null,
+}));
 
 vi.mock("../use-action.js", () => ({
   useActionQuery: (name: string) =>
@@ -53,13 +58,39 @@ vi.mock("../use-action.js", () => ({
             mutationState.success = false;
           },
         }
-      : {
-          error: null,
-          isPending: false,
-          isSuccess: false,
-          mutate: vi.fn(),
-          reset: vi.fn(),
-        },
+      : name === "request-privacy-right"
+        ? {
+            error: null,
+            isPending: false,
+            isSuccess: false,
+            mutate: (
+              variables: { requestType: "access" | "deletion" },
+              options?: {
+                onSuccess?: (result: {
+                  requestType: "access" | "deletion";
+                  status: "pending";
+                  requestedAt: number;
+                }) => void;
+                onSettled?: () => void;
+              },
+            ) => {
+              privacyRequestMock(variables);
+              options?.onSuccess?.({
+                ...variables,
+                status: "pending",
+                requestedAt: 1,
+              });
+              options?.onSettled?.();
+            },
+            reset: vi.fn(),
+          }
+        : {
+            error: null,
+            isPending: false,
+            isSuccess: false,
+            mutate: vi.fn(),
+            reset: vi.fn(),
+          },
 }));
 
 vi.mock("../use-session.js", () => ({
@@ -78,7 +109,10 @@ vi.mock("../use-avatar.js", () => ({
 
 vi.mock("../i18n.js", () => ({
   useT: () => (key: string, options?: { defaultValue?: string }) =>
-    ({
+    (localeOverrides.settings?.[key.replace(/^settings\./, "")] as
+      | string
+      | undefined) ??
+    {
       "settings.profileChangePhoto": "Change photo",
       "settings.profileDescription":
         "Your name, profile photo, and signed-in identity.",
@@ -93,7 +127,36 @@ vi.mock("../i18n.js", () => ({
       "settings.profileSaving": "Saving...",
       "settings.profileSignedOut": "Signed out",
       "settings.profileTitle": "Account",
-    })[key] ??
+      "settings.emailTitle": "Email",
+      "settings.emailChange": "Change email",
+      "settings.emailChanging": "Sending...",
+      "settings.emailChangeSent":
+        "Check your email for instructions to confirm this change.",
+      "settings.emailChangeError": "Could not send confirmation.",
+      "settings.emailNewLabel": "New email",
+      "settings.emailNewPlaceholder": "Enter new email",
+      "settings.privacyTitle": "Privacy & data",
+      "settings.privacyDescription":
+        "Request a copy of your data or ask for your personal data to be deleted.",
+      "settings.privacyManage": "Manage",
+      "settings.privacyRightsTitle": "Your data rights",
+      "settings.privacyRightsDescription":
+        "Requests are recorded for review by a workspace administrator, who will verify your identity and follow up.",
+      "settings.privacyRequestCopy": "Request a copy",
+      "settings.privacyRequestDeletion": "Request deletion",
+      "settings.privacyRequesting": "Recording request...",
+      "settings.privacyRequestRecorded":
+        "Request recorded. An administrator will follow up.",
+      "settings.privacyRequestRecordedShort": "Request recorded",
+      "settings.privacyRequestError":
+        "Could not record your request. Please try again.",
+      "settings.privacyDeletionTitle": "Request deletion of your data?",
+      "settings.privacyDeletionDescription":
+        "This records a deletion request; it does not delete data immediately. An administrator will verify your identity and complete the request under the deployment's retention and legal obligations.",
+      "settings.privacyDocsLink": "Read privacy and data rights",
+      "common.cancel": "Cancel",
+      "agentChat.auth.logOut": "Log out",
+    }[key] ??
     options?.defaultValue ??
     key,
 }));
@@ -118,6 +181,14 @@ describe("AccountSettingsForm name editing", () => {
       name: "Steve",
     };
     updateProfileMock.mockClear();
+    privacyRequestMock.mockClear();
+    fetchMock.mockReset();
+    localeOverrides.settings = null;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -268,5 +339,129 @@ describe("AccountSettingsForm name editing", () => {
       container.querySelector<HTMLInputElement>("#agent-native-profile-name")
         ?.value,
     ).toBe("Draft Name");
+  });
+
+  it("requests a verified email change and shows neutral confirmation status", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    const changeButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).filter((button) => button.textContent?.trim() === "Change email");
+    await act(async () => {
+      changeButtons[0]?.click();
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      "#agent-native-new-email",
+    );
+    expect(input).not.toBeNull();
+    await act(async () => {
+      setInputValue(input!, "new@example.com");
+    });
+    const submit = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    )
+      .filter((button) => button.textContent?.trim() === "Change email")
+      .at(-1);
+    await act(async () => {
+      submit?.click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/auth/ba/change-email",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ newEmail: "new@example.com" }),
+      }),
+    );
+    expect(document.body.textContent).toContain(
+      "Check your email for instructions to confirm this change.",
+    );
+  });
+
+  it("renders the email-change controls from the de-DE app catalog", async () => {
+    const { default: deDE } =
+      await import("../../templates/default/app/i18n/de-DE.js");
+    localeOverrides.settings = deDE.settings;
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("E-Mail-Adresse ändern");
+  });
+
+  it("renders the sign-out action in account settings", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    const signOutRow = container.querySelector("#sign-out");
+    expect(signOutRow?.textContent).toContain("Log out");
+    expect(signOutRow?.querySelector("button")?.textContent?.trim()).toBe(
+      "Log out",
+    );
+  });
+
+  it("keeps privacy requests behind the Account settings UI confirmation", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.querySelector("#privacy-data")).not.toBeNull();
+    act(() => {
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>("#privacy-data button"),
+      )
+        .find((button) => button.textContent?.trim() === "Manage")
+        ?.click();
+    });
+    expect(document.body.textContent).toContain("Your data rights");
+
+    act(() => {
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent?.trim() === "Request a copy")
+        ?.click();
+    });
+    expect(privacyRequestMock).toHaveBeenCalledWith({ requestType: "access" });
+    expect(document.body.textContent).toContain("Request recorded");
+
+    act(() => {
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent?.trim() === "Request deletion")
+        ?.click();
+    });
+    expect(document.body.textContent).toContain(
+      "Request deletion of your data?",
+    );
+
+    const dialog = document.querySelector('[role="alertdialog"]');
+    act(() => {
+      Array.from(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .find((button) => button.textContent?.trim() === "Request deletion")
+        ?.click();
+    });
+    expect(privacyRequestMock).toHaveBeenLastCalledWith({
+      requestType: "deletion",
+    });
   });
 });

@@ -1,9 +1,14 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  FONT_FAMILY_OPTIONS,
+  VisualFontFamilyPicker,
   VisualColorPicker,
   VisualControlRow,
   VisualScrubInput,
   VisualSegmentedControl,
+  displayFontFamilyName,
+  resolveFontFamilySelectValue,
+  sortFontFamilyOptions,
 } from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
 import {
@@ -16,11 +21,13 @@ import {
   IconArrowsUpDown,
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
+  IconBoxMultiple,
   IconBorderRadius,
   IconBorderStyle,
   IconDots,
   IconGridDots,
   IconItalic,
+  IconMessageCircle,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -34,6 +41,8 @@ import {
   IconSpacingVertical,
   IconStackBack,
   IconStackFront,
+  IconUnlink,
+  IconBolt,
   IconUnderline,
   IconZoomIn,
   IconZoomOut,
@@ -63,6 +72,7 @@ import type { SlideListKind } from "./list-editing";
 import type {
   SlideObjectAlignment,
   SlideObjectDistribution,
+  SlideObjectZOrderTarget,
 } from "./slide-object-interactions";
 import {
   backgroundCssValue,
@@ -144,11 +154,20 @@ export function SlideContextToolbar({
   designSystem,
   className,
   leading,
+  animationsOpen = false,
+  hasSelectedElement = Boolean(snapshot),
+  onOpenAnimations,
+  canComment = false,
+  onComment,
   onChange,
   onBackgroundChange,
   onArrange,
+  onGroup,
+  onUngroup,
   onToggleList,
   objectSelectionCount = 0,
+  canGroup = false,
+  canUngroup = false,
   onAlignObjects,
   onDistributeObjects,
   zoomControls,
@@ -159,11 +178,25 @@ export function SlideContextToolbar({
   className?: string;
   /** Selection-independent actions pinned to the head of the row. */
   leading?: ReactNode;
+  /** Whether the canvas currently has an element selected. */
+  hasSelectedElement?: boolean;
+  /** Whether the selected-element transitions panel is open. */
+  animationsOpen?: boolean;
+  /** Open transitions for the current canvas selection. */
+  onOpenAnimations?: () => void;
+  /** Whether the current user can add comments to this deck. */
+  canComment?: boolean;
+  /** Start a comment anchored to the selected slide object. */
+  onComment?: () => void;
   onChange: (patch: SlideStylePatch) => void;
   onBackgroundChange: (background: string) => void;
-  onArrange?: (target: "front" | "back") => void;
+  onArrange?: (target: SlideObjectZOrderTarget) => void;
+  onGroup?: () => void;
+  onUngroup?: () => void;
   onToggleList?: (kind: SlideListKind) => void;
   objectSelectionCount?: number;
+  canGroup?: boolean;
+  canUngroup?: boolean;
   onAlignObjects?: (alignment: SlideObjectAlignment) => void;
   onDistributeObjects?: (distribution: SlideObjectDistribution) => void;
   zoomControls?: {
@@ -178,10 +211,37 @@ export function SlideContextToolbar({
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
   );
+  const baseFontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label:
+        option.label ??
+        (option.key
+          ? t(`styleInspector.fontFamilies.${option.key}`)
+          : displayFontFamilyName(option.value)),
+    })),
+  );
   const inlineEditSurfaceProps = {
     "data-slide-inline-edit-surface": "true",
   };
   const mixedTextStyles = snapshot?.mixedTextStyles ?? [];
+  const fontFamilyIsMixed = mixedTextStyles.includes("fontFamily");
+  const fontFamily = snapshot
+    ? resolveFontFamilySelectValue(snapshot.fontFamily)
+    : "sans-serif";
+  const fontFamilyOptions = sortFontFamilyOptions(
+    !snapshot ||
+      fontFamilyIsMixed ||
+      baseFontFamilyOptions.some((option) => option.value === fontFamily)
+      ? baseFontFamilyOptions
+      : [
+          {
+            value: fontFamily,
+            label: displayFontFamilyName(snapshot.fontFamily || fontFamily),
+          },
+          ...baseFontFamilyOptions,
+        ],
+  );
   // A mixed selection has no single state to reflect, so the toggle reads as
   // off and one click makes the whole selection consistent.
   const isItalic =
@@ -231,6 +291,89 @@ export function SlideContextToolbar({
       {leading && (
         <>
           {leading}
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {hasSelectedElement && onOpenAnimations && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  MENU_BUTTON_CLASS,
+                  animationsOpen && TOGGLE_ACTIVE_CLASS,
+                )}
+                aria-label={t("animations.title")}
+                aria-pressed={animationsOpen}
+                onClick={onOpenAnimations}
+              >
+                <IconBolt className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("animations.title")}</TooltipContent>
+          </Tooltip>
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {hasSelectedElement && canComment && onComment && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={MENU_BUTTON_CLASS}
+                aria-label={t("comments.addComment")}
+                onClick={onComment}
+              >
+                <IconMessageCircle className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("comments.addComment")}</TooltipContent>
+          </Tooltip>
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {(canGroup || canUngroup) && (
+        <>
+          {canGroup && onGroup && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={MENU_BUTTON_CLASS}
+                  aria-label={t("styleInspector.group")}
+                  onClick={onGroup}
+                >
+                  <IconBoxMultiple className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.group")}</TooltipContent>
+            </Tooltip>
+          )}
+          {canUngroup && onUngroup && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={MENU_BUTTON_CLASS}
+                  aria-label={t("styleInspector.ungroup")}
+                  onClick={onUngroup}
+                >
+                  <IconUnlink className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.ungroup")}</TooltipContent>
+            </Tooltip>
+          )}
           <div className={TOOLBAR_DIVIDER} />
         </>
       )}
@@ -345,6 +488,20 @@ export function SlideContextToolbar({
         <>
           {snapshot.isText ? (
             <>
+              <VisualFontFamilyPicker
+                label={t("styleInspector.fontFamily")}
+                value={fontFamily}
+                options={fontFamilyOptions}
+                mixed={fontFamilyIsMixed}
+                mixedLabel={t("styleInspector.mixed")}
+                className={cn(
+                  VALUE_MENU_CLASS,
+                  "w-32 border-0 bg-transparent px-1.5 shadow-none focus:ring-0 focus:ring-offset-0",
+                )}
+                contentProps={inlineEditSurfaceProps}
+                onChange={(value) => onChange({ fontFamily: value })}
+              />
+              <div className={TOOLBAR_DIVIDER} />
               <VisualScrubInput
                 label={t("styleInspector.size")}
                 icon={IconLetterCase}
@@ -386,7 +543,11 @@ export function SlideContextToolbar({
                   </TooltipTrigger>
                   <TooltipContent>{t("styleInspector.weight")}</TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent align="start" className="w-36">
+                <DropdownMenuContent
+                  align="start"
+                  className="w-36"
+                  {...inlineEditSurfaceProps}
+                >
                   {fontWeightOptions(t).map((option) => (
                     <DropdownMenuItem
                       key={option.value}
@@ -481,7 +642,11 @@ export function SlideContextToolbar({
                   </TooltipTrigger>
                   <TooltipContent>{t("styleInspector.align")}</TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent align="start" className="w-36">
+                <DropdownMenuContent
+                  align="start"
+                  className="w-36"
+                  {...inlineEditSurfaceProps}
+                >
                   {textAlignOptions(t).map((option) => (
                     <DropdownMenuItem
                       key={option.value}
@@ -681,7 +846,7 @@ export function SlideContextToolbar({
             </Popover>
           )}
 
-          {snapshot.isAbsolute && onArrange && (
+          {(snapshot.isAbsolute || objectSelectionCount >= 2) && onArrange && (
             <>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -707,6 +872,23 @@ export function SlideContextToolbar({
                     variant="ghost"
                     size="icon"
                     className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("backward")}
+                    aria-label={t("styleInspector.sendBackward")}
+                  >
+                    <IconStackBack className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.sendBackward")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
                     onClick={() => onArrange("front")}
                     aria-label={t("styleInspector.bringToFront")}
                   >
@@ -715,6 +897,23 @@ export function SlideContextToolbar({
                 </TooltipTrigger>
                 <TooltipContent>
                   {t("styleInspector.bringToFront")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("forward")}
+                    aria-label={t("styleInspector.bringForward")}
+                  >
+                    <IconStackFront className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.bringForward")}
                 </TooltipContent>
               </Tooltip>
             </>

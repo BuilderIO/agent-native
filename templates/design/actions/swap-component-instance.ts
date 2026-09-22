@@ -58,6 +58,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
@@ -72,6 +73,7 @@ import {
   componentNameFor,
   componentNodeIdMatches,
   extractProps,
+  isComponentInstanceForInstanceActions,
   propNameToDataAttribute,
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
@@ -128,6 +130,23 @@ export interface SwapOverrideResult {
   overriddenProps: string[];
   droppedProps: string[];
   defaultedProps: string[];
+}
+
+/**
+ * Return whether a projected node is safe to use as swap source markup.
+ * Canonical mains are definitions, not instance copies: inserting one would
+ * duplicate its component id unless a full linked materialization is performed.
+ */
+export function isSwapSourceCandidate(
+  node: CodeLayerNode,
+  targetComponentName: string,
+  excludedNode?: CodeLayerNode,
+): boolean {
+  return (
+    node.id !== excludedNode?.id &&
+    isComponentInstanceForInstanceActions(node) &&
+    componentNameFor(node) === targetComponentName
+  );
 }
 
 /**
@@ -290,7 +309,10 @@ export default defineAction({
       })
       .optional(),
   }),
-  run: async ({ designId, nodeId, fileId, targetComponentName, source }) => {
+  run: async (
+    { designId, nodeId, fileId, targetComponentName, source },
+    context,
+  ) => {
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
@@ -311,6 +333,7 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const db = getDb();
 
     const conditions = [
@@ -389,6 +412,11 @@ export default defineAction({
         `Node "${nodeId}" is not a component root (no data-agent-native-component attribute) — nothing to swap.`,
       );
     }
+    if (!isComponentInstanceForInstanceActions(node)) {
+      throw new Error(
+        `Node "${nodeId}" is the canonical component main; swap an instance reference instead.`,
+      );
+    }
 
     if (componentName === targetComponentName) {
       return {
@@ -447,8 +475,11 @@ export default defineAction({
             });
 
       const match = rowProjection.nodes.find((n) => {
-        if (row.id === file.id && n.id === node.id) return false;
-        return componentNameFor(n) === targetComponentName;
+        return isSwapSourceCandidate(
+          n,
+          targetComponentName,
+          row.id === file.id ? node : undefined,
+        );
       });
 
       if (match) {

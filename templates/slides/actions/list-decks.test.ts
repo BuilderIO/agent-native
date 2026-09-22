@@ -5,6 +5,8 @@ const deckRows = [
     id: "deck_123",
     title: "Roadmap",
     data: JSON.stringify({ slides: [{ id: "slide-1" }] }),
+    previewSlide: JSON.stringify({ id: "slide-1" }),
+    aspectRatio: "4:3",
     visibility: "private",
     designSystemId: null,
     ownerEmail: "Alice@Example.com",
@@ -14,8 +16,12 @@ const deckRows = [
 ];
 
 let requestUserEmail = "alice@example.com";
+let rowsForQuery = deckRows;
 
-const orderByFn = vi.fn(async () => deckRows);
+const limitFn = vi.fn(async (limit: number) => rowsForQuery.slice(0, limit));
+const orderByFn = vi.fn(() =>
+  Object.assign(Promise.resolve(rowsForQuery), { limit: limitFn }),
+);
 const whereFn = vi.fn(() => ({ orderBy: orderByFn }));
 const fromFn = vi.fn(() => ({ where: whereFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
@@ -32,6 +38,7 @@ vi.mock("../server/db/index.js", () => ({
       createdAt: "created_at_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
+      data: "data_col",
     },
     deckShares: {},
   },
@@ -57,6 +64,7 @@ import action from "./list-decks";
 beforeEach(() => {
   vi.clearAllMocks();
   requestUserEmail = "alice@example.com";
+  rowsForQuery = deckRows;
   vi.stubEnv("APP_URL", "https://slides.agent.test");
 });
 
@@ -122,6 +130,33 @@ describe("list-decks", () => {
     expect(result.count).toBe(1);
   });
 
+  it("can include only the first slide as a light-mode preview", async () => {
+    const result = await action.run({
+      light: "true",
+      includePreview: "true",
+    });
+
+    expect(selectFn).toHaveBeenCalledWith({
+      id: "id_col",
+      title: "title_col",
+      updatedAt: "updated_at_col",
+      visibility: "visibility_col",
+      ownerEmail: "owner_email_col",
+      previewSlide: expect.objectContaining({
+        strings: expect.arrayContaining(["::jsonb -> 'slides' -> 0)::text"]),
+      }),
+      aspectRatio: expect.objectContaining({
+        strings: expect.arrayContaining(["::jsonb ->> 'aspectRatio')"]),
+      }),
+    });
+    expect(result.decks[0]).toMatchObject({
+      id: "deck_123",
+      previewSlide: { id: "slide-1" },
+      aspectRatio: "4:3",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slides");
+  });
+
   it("can limit results to decks created by the current user", async () => {
     await action.run({ createdBy: "me" });
 
@@ -134,6 +169,52 @@ describe("list-decks", () => {
         },
       ],
     });
+  });
+
+  it("returns bounded metadata pages with an opaque cursor", async () => {
+    rowsForQuery = [
+      ...deckRows,
+      {
+        ...deckRows[0],
+        id: "deck_122",
+        title: "Earlier",
+        updatedAt: "2026-05-02T00:00:00.000Z",
+      },
+    ];
+
+    const result = await action.run({ limit: 1 });
+
+    expect(limitFn).toHaveBeenCalledWith(2);
+    expect(result).toMatchObject({
+      count: 1,
+      decks: [
+        { id: "deck_123", appUrl: "https://slides.agent.test/deck/deck_123" },
+      ],
+      nextCursor: Buffer.from(
+        JSON.stringify({
+          updatedAt: "2026-05-03T00:00:00.000Z",
+          id: "deck_123",
+        }),
+      ).toString("base64url"),
+    });
+  });
+
+  it("normalizes offset timestamps before incremental sync comparisons", async () => {
+    await action.run({
+      updatedSince: "2026-05-03T00:00:00-07:00",
+      limit: 1,
+    });
+
+    const pagedWhere = whereFn.mock.calls.at(-1)?.[0] as {
+      and?: Array<{ values?: unknown[] }>;
+    };
+    expect(pagedWhere.and).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          values: ["updated_at_col", "2026-05-03T07:00:00.000Z"],
+        }),
+      ]),
+    );
   });
 
   it("does not bypass Mine filtering for a whitespace-only identity", async () => {

@@ -1,11 +1,12 @@
-# Agent Native App
+# Agent-Native App
 
-Agent Native apps treat the UI and the AI agent as equal partners. Anything the
+Agent-Native apps treat the UI and the AI agent as equal partners. Anything the
 UI can do should be available through the same SQL data and action surface that
 the agent can use.
 
 ## Core Contract
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Data lives in SQL through Drizzle. Keep schemas provider agnostic.
 - Normal app data must flow through actions. Define operations in `actions/`
   with `defineAction`; mark reads with `http: { method: "GET" }`; call them
@@ -49,7 +50,7 @@ the agent can use.
 - Scale effort to the task. A small, well-specified change is a short read, the
   edit, and the app's existing checks — not a codebase survey, unrequested
   tests, or browser automation.
-- Before using non-trivial Agent Native APIs, read the version-matched package
+- Before using non-trivial Agent-Native APIs, read the version-matched package
   docs with `pnpm action docs-search --query "<topic>"` or
   `node_modules/@agent-native/core/docs`. When implementation examples or
   template patterns matter, use `pnpm action source-search --query "<pattern>"`

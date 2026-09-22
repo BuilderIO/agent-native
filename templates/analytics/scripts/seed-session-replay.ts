@@ -131,7 +131,7 @@ async function main() {
       app: "clips",
       path: "/record",
       title: "Record a Clip",
-      body: "A local seeded session replay representing another Agent Native app.",
+      body: "A local seeded session replay representing another Agent-Native app.",
       action: "Start recording",
     },
   ];

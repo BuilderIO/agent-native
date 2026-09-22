@@ -41,6 +41,7 @@ describe("client application-state helpers", () => {
       {
         method: "GET",
         cache: "no-store",
+        headers: { "X-Agent-Native-Browser-Tab": expect.any(String) },
         signal: undefined,
       },
     );
@@ -140,6 +141,7 @@ describe("client application-state helpers", () => {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
+          "X-Agent-Native-Browser-Tab": expect.any(String),
           "X-Request-Source": "tab-1",
         },
         body: JSON.stringify(value),

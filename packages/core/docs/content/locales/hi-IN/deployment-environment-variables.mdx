@@ -29,7 +29,7 @@ variables शामिल हैं, देखें [पर्यावरण �
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Preview-safe Builder authorization relay के लिए dedicated 32+ char shared HMAC secret। स्वीकृत corporate callback deployment और preview deployments पर वही value तभी सेट करें जब authorization को एक isolated preview database में जाना ज़रूरी हो।                                                                                                                                                  |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | केवल corporate callback के लिए, exact trusted preview origins की comma-separated allowlist (उदाहरण के लिए, `https://0123456789abcdef01234567--content.netlify.app`)। इसे केवल corporate callback deployment पर सेट करें। Netlify origins को एक immutable, deploy-specific 24-hex permalink उपयोग करना चाहिए। Mutable `deploy-preview-*` aliases, wildcards, और domain suffixes reject किए जाते हैं। |
 
-डेटाबेस connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<APP_NAME>_DATABASE_URL`) [डेटाबेस](/docs/server-database#production) में रहते हैं।
+डेटाबेस connection variables (`DATABASE_URL`, per-app `<APP_NAME>_DATABASE_URL`) [डेटाबेस](/docs/server-database#production) में रहती हैं।
 
 ## Production-sensitive configuration {#env-required-prod}
 

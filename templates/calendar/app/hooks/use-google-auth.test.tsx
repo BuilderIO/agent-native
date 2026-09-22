@@ -111,7 +111,14 @@ describe("useGoogleDesktopAuth", () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, _init?: RequestInit) => {
-        if (String(input).startsWith("/_agent-native/google/auth-url")) {
+        if (
+          (input instanceof Request
+            ? input.url
+            : input instanceof URL
+              ? input.href
+              : input
+          ).startsWith("/_agent-native/google/auth-url")
+        ) {
           return new Response(
             JSON.stringify({
               url: "https://accounts.google.com/o/oauth2/v2/auth?state=ok",
@@ -138,14 +145,24 @@ describe("useGoogleDesktopAuth", () => {
     });
 
     const authStartCall = fetchMock.mock.calls.find(([input]) =>
-      String(input).startsWith("/_agent-native/google/auth-url"),
+      (input instanceof Request
+        ? input.url
+        : input instanceof URL
+          ? input.href
+          : input
+      ).startsWith("/_agent-native/google/auth-url"),
     );
     expect(authStartCall).toBeDefined();
     const [authStartInput, authStartInit] = authStartCall!;
     expect(
-      new URL(String(authStartInput), "http://localhost").searchParams.has(
-        "verifier",
-      ),
+      new URL(
+        authStartInput instanceof Request
+          ? authStartInput.url
+          : authStartInput instanceof URL
+            ? authStartInput.href
+            : authStartInput,
+        "http://localhost",
+      ).searchParams.has("verifier"),
     ).toBe(false);
     expect(authStartInit).toEqual(
       expect.objectContaining({
@@ -175,7 +192,12 @@ describe("useGoogleDesktopAuth", () => {
     vi.spyOn(window, "open").mockImplementation(() => null);
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, _init?: RequestInit) => {
-        const url = String(input);
+        const url =
+          input instanceof Request
+            ? input.url
+            : input instanceof URL
+              ? input.href
+              : input;
         if (url.startsWith("/_agent-native/google/auth-url")) {
           return new Response(
             JSON.stringify({
@@ -218,10 +240,21 @@ describe("useGoogleDesktopAuth", () => {
       email: "owner@example.com",
     });
     const exchangeCall = fetchMock.mock.calls.find(([input]) =>
-      String(input).startsWith("/_agent-native/auth/desktop-exchange"),
+      (input instanceof Request
+        ? input.url
+        : input instanceof URL
+          ? input.href
+          : input
+      ).startsWith("/_agent-native/auth/desktop-exchange"),
     );
     expect(exchangeCall).toBeDefined();
-    expect(String(exchangeCall?.[0])).not.toContain("verifier");
+    expect(
+      exchangeCall?.[0] instanceof Request
+        ? exchangeCall[0].url
+        : exchangeCall?.[0] instanceof URL
+          ? exchangeCall[0].href
+          : exchangeCall?.[0],
+    ).not.toContain("verifier");
     expect(exchangeCall?.[1]).toEqual(
       expect.objectContaining({
         headers: {

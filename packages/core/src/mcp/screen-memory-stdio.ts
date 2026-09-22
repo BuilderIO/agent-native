@@ -541,21 +541,20 @@ export function searchScreenMemoryChapters(
         matchReasons: [
           ...(exactStrong || exactEvidence
             ? [
-                `exact phrase \"${exactPhrase}\" matched visible or accessibility evidence`,
+                `exact phrase "${exactPhrase}" matched visible or accessibility evidence`,
               ]
             : []),
           ...strongMatched.map(
-            (term) =>
-              `matched \"${term}\" in chapter or accessibility evidence`,
+            (term) => `matched "${term}" in chapter or accessibility evidence`,
           ),
           ...contextMatched.map(
-            (term) => `matched \"${term}\" in app or document context`,
+            (term) => `matched "${term}" in app or document context`,
           ),
           ...evidenceMatches.flatMap(({ ref, matchedTerms }) =>
             matchedTerms.map((term) =>
               isMicrophoneEvidence(ref) && !corroboratedTerms.has(term)
-                ? `ignored uncorroborated microphone match \"${term}\"`
-                : `matched \"${term}\" in ${ref.sourceType}${ref.sourceKind ? `/${ref.sourceKind}` : ""} evidence`,
+                ? `ignored uncorroborated microphone match "${term}"`
+                : `matched "${term}" in ${ref.sourceType}${ref.sourceKind ? `/${ref.sourceKind}` : ""} evidence`,
             ),
           ),
           ...(hintScore ? ["client hint weakly broke a close tie"] : []),
@@ -817,7 +816,7 @@ export function redactCredentialText(value: string): string {
       /\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})\b/g,
       "[REDACTED CREDENTIAL]",
     )
-    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{8,}/gi, "Bearer [REDACTED]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{8,}/gi, "Bearer [REDACTED]")
     .replace(
       /\b(api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*([^\s,;]{4,})/gi,
       "$1=[REDACTED]",

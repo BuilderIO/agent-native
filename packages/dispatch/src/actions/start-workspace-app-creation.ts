@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getWorkspaceAppIdValidationError,
   normalizeWorkspaceAppId,
@@ -6,6 +6,34 @@ import {
 import { z } from "zod";
 
 import { startWorkspaceAppCreation } from "../server/lib/app-creation-store.js";
+
+const attachmentSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("upload"),
+    contentType: z.enum([
+      "image/webp",
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "application/pdf",
+      "application/json",
+      "text/plain",
+    ]),
+    name: z.string().min(1),
+    dataUrl: z.string(),
+    text: z.string().optional(),
+    size: z.number().int().nonnegative(),
+    id: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("url"),
+    value: z.string().url(),
+  }),
+]);
+
+export type StartWorkspaceAppCreationAttachment = z.infer<
+  typeof attachmentSchema
+>;
 
 export default defineAction({
   description:
@@ -49,6 +77,12 @@ export default defineAction({
       .optional()
       .describe(
         "Dispatch workspace resource IDs or knowledge packs to grant to the app",
+      ),
+    attachments: z
+      .array(attachmentSchema)
+      .optional()
+      .describe(
+        "Optional Builder message attachments. Uploads use supported image, PDF, text, or JSON content; attachments are model context, not workspace files.",
       ),
   }),
   run: async (args) => startWorkspaceAppCreation(args),

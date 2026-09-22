@@ -7,7 +7,11 @@ export interface PickerChatHandoffInput {
   aspectRatio?: string | null;
   libraryId?: string | null;
   libraryTitle?: string | null;
+  templateId?: string | null;
+  templateTitle?: string | null;
+  /** @deprecated Use templateId. */
   presetId?: string | null;
+  /** @deprecated Use templateTitle. */
   presetTitle?: string | null;
   tier?: string | null;
   styleStrength?: string | null;
@@ -44,12 +48,12 @@ export function buildPickerChatHandoffPrompt(
     );
   }
 
-  const presetTitle = clean(input.presetTitle);
-  const presetId = clean(input.presetId);
-  if (presetTitle || presetId) {
+  const templateTitle = clean(input.templateTitle ?? input.presetTitle);
+  const templateId = clean(input.templateId ?? input.presetId);
+  if (templateTitle || templateId) {
     lines.push(
-      `Use the selected preset: ${presetTitle ?? "Untitled preset"}${
-        presetId ? ` (${presetId})` : ""
+      `Use the selected template: ${templateTitle ?? "Untitled template"}${
+        templateId ? ` (${templateId})` : ""
       }.`,
     );
   }

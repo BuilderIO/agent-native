@@ -99,7 +99,7 @@ export function useCreatePage(opts?: {
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
 
       if (shouldNavigate) {
-        navigate(`/page/${id}`, { flushSync: true });
+        void navigate(`/page/${id}`, { flushSync: true });
         onAfterNavigate?.();
       }
 
@@ -116,8 +116,8 @@ export function useCreatePage(opts?: {
         );
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
-        queryClient.invalidateQueries(documentQueryFilter(id));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(id));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       };
@@ -128,12 +128,12 @@ export function useCreatePage(opts?: {
           id,
           previousDocuments !== undefined,
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         queryClient.removeQueries(documentQueryFilter(id));
         if (shouldNavigate) {
-          navigate(previousPath, { replace: true, flushSync: true });
+          void navigate(previousPath, { replace: true, flushSync: true });
         }
         toast.error("Failed to create page", {
           description:

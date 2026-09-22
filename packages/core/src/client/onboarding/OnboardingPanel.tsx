@@ -28,9 +28,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "../settings/index.js";
 import { useDevMode } from "../use-dev-mode.js";
-import { useOnboarding } from "./use-onboarding.js";
+import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
@@ -58,7 +61,7 @@ export function OnboardingPanel({
     complete,
     dismiss,
   } = onboarding;
-  // `database` and `auth` steps only apply to local dev (SQLite default,
+  // `database` and `auth` steps only apply to local dev (PGlite default,
   // local-mode auth bypass). In production those are configured via env
   // vars / deployment config, so don't nag the user about them.
   const DEV_ONLY_STEP_IDS = new Set(["database", "auth"]);
@@ -73,11 +76,28 @@ export function OnboardingPanel({
     : (steps.find((s) => s.required && !s.complete)?.id ??
       steps.find((s) => !s.complete)?.id ??
       null);
+  const checklistVisible =
+    !loading && totalCount > 0 && (previewMode || (!dismissed && !allComplete));
   // Default expanded. (Older code used `useState(!allComplete)`, but the first
   // render fires with `steps === []` — `[].every()` is vacuously true, so
   // `allComplete` was true and `expanded` got locked to false even after the
   // real incomplete steps loaded.)
   const [expanded, setExpanded] = useState(true);
+
+  useEffect(() => {
+    if (!checklistVisible) return;
+    const activeStepIndex = steps.findIndex(
+      (step) => step.id === currentStepId,
+    );
+    const activeStep = steps[activeStepIndex];
+    trackOnboardingEvent("onboarding_started", { flow: "checklist" });
+    if (!activeStep) return;
+    trackOnboardingEvent("onboarding_step_viewed", {
+      flow: "checklist",
+      step_id: activeStep.id,
+      step_index: activeStepIndex,
+    });
+  }, [checklistVisible, currentStepId, previewMode, steps]);
 
   if (loading || totalCount === 0) return null;
   // Preview mode (dev overlay) bypasses the auto-hide so template authors
@@ -491,6 +511,15 @@ function MethodBody({
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
+  const trackMethodClick = () => {
+    trackOnboardingEvent("onboarding_method_clicked", {
+      flow: "checklist",
+      step_id: stepId,
+      method_id: method.id,
+      method_kind: method.kind,
+    });
+  };
+
   if (method.disabled) {
     return (
       <button
@@ -507,7 +536,11 @@ function MethodBody({
   switch (method.kind) {
     case "link":
       return (
-        <LinkMethod method={method} onMarkComplete={onMarkManualComplete} />
+        <LinkMethod
+          method={method}
+          onMarkComplete={onMarkManualComplete}
+          onClick={trackMethodClick}
+        />
       );
     case "form":
       return <FormMethod method={method} onCompleted={onCompleted} />;
@@ -516,10 +549,17 @@ function MethodBody({
         <BuilderCliAuthMethod
           onCompleted={onCompleted}
           primary={method.primary}
+          onClick={trackMethodClick}
         />
       );
     case "agent-task":
-      return <AgentTaskMethod method={method} stepId={stepId} />;
+      return (
+        <AgentTaskMethod
+          method={method}
+          stepId={stepId}
+          onClick={trackMethodClick}
+        />
+      );
   }
 }
 
@@ -528,9 +568,11 @@ function MethodBody({
 function LinkMethod({
   method,
   onMarkComplete,
+  onClick,
 }: {
   method: Extract<OnboardingMethod, { kind: "link" }>;
   onMarkComplete: () => void;
+  onClick: () => void;
 }) {
   const { url, external } = method.payload;
   const isNoop = !url || url === "#";
@@ -540,7 +582,10 @@ function LinkMethod({
       <button
         type="button"
         style={buttonPrimary(method.primary)}
-        onClick={onMarkComplete}
+        onClick={() => {
+          onClick();
+          onMarkComplete();
+        }}
       >
         Use this option
       </button>
@@ -551,6 +596,7 @@ function LinkMethod({
       href={url}
       target={external ? "_blank" : undefined}
       rel={external ? "noopener noreferrer" : undefined}
+      onClick={onClick}
       style={{ ...buttonPrimary(method.primary), textDecoration: "none" }}
     >
       Continue
@@ -674,36 +720,42 @@ function FormMethod({
 function BuilderCliAuthMethod({
   onCompleted,
   primary,
+  onClick,
 }: {
   onCompleted: () => Promise<void>;
   primary?: boolean;
+  onClick: () => void;
 }) {
-  const { connecting, error, start } = useBuilderConnectFlow({
+  const connectFlow = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "onboarding_builder_cli_auth",
     onConnected: onCompleted,
   });
+  const { connecting, error } = connectFlow;
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => start()}
-        disabled={connecting}
-        style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
-      >
-        {connecting ? (
-          <>
-            <IconLoader2
-              size={12}
-              style={{ marginInlineEnd: 4 }}
-              className="animate-spin"
-            />
-            Waiting for Builder...
-          </>
-        ) : (
-          "Connect Builder"
-        )}
-      </button>
+      <BuilderConnectPopover flow={connectFlow}>
+        <button
+          type="button"
+          disabled={connecting}
+          onClick={onClick}
+          style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
+        >
+          {connecting ? (
+            <>
+              <IconLoader2
+                size={12}
+                style={{ marginInlineEnd: 4 }}
+                className="animate-spin"
+              />
+              Waiting for Builder...
+            </>
+          ) : (
+            "Connect Builder"
+          )}
+        </button>
+      </BuilderConnectPopover>
       {connecting && (
         <p style={styles.methodHint}>
           A Builder tab opened. Choose your team or app space there; setup will
@@ -720,11 +772,14 @@ function BuilderCliAuthMethod({
 function AgentTaskMethod({
   method,
   stepId: _stepId,
+  onClick,
 }: {
   method: Extract<OnboardingMethod, { kind: "agent-task" }>;
   stepId: string;
+  onClick: () => void;
 }) {
   const handleClick = () => {
+    onClick();
     sendToAgentChat({ message: method.payload.prompt, submit: true });
   };
   return (

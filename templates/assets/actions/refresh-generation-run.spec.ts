@@ -4,6 +4,7 @@ const assertAccessMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 const completeVideoGenerationRunMock = vi.hoisted(() => vi.fn());
 const upsertVariantSlotMock = vi.hoisted(() => vi.fn());
+const trackMock = vi.hoisted(() => vi.fn());
 const updateSetCalls = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 
 const schemaMock = vi.hoisted(() => ({
@@ -15,17 +16,55 @@ const schemaMock = vi.hoisted(() => ({
     generationRunId: "assets.generationRunId",
   },
 }));
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: trackMock,
+}));
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
 }));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
+const unrestrictedScope = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
+}));
+
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
+  // The draft-input guards have their own tests; these specs exercise the
+  // surrounding behavior with an approver's unrestricted scope.
+  draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
+  resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
+  unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
+  assertCanUseAssets: vi.fn(),
+  assertCanUseRuns: vi.fn(),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+  draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
+}));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
+  ne: vi.fn((column, value) => ({ op: "ne", column, value })),
+  sql: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -67,9 +106,11 @@ import action from "./refresh-generation-run.js";
 function createDb({
   run,
   assets,
+  completionClaims = Number.POSITIVE_INFINITY,
 }: {
   run: Record<string, unknown>;
   assets: Array<Record<string, unknown>>;
+  completionClaims?: number;
 }) {
   const rowsForTable = (table: unknown) =>
     table === schemaMock.assetGenerationRuns ? [run] : assets;
@@ -90,8 +131,17 @@ function createDb({
     })),
     update: vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => ({
-        where: vi.fn(async () => {
+        where: vi.fn(() => {
           updateSetCalls.push(values);
+          return {
+            returning: vi.fn(async () => {
+              if (values.status !== "completed" || completionClaims <= 0) {
+                return [];
+              }
+              completionClaims -= 1;
+              return [{ ...run, ...values }];
+            }),
+          };
         }),
       })),
     })),
@@ -101,7 +151,9 @@ function createDb({
 describe("refresh-generation-run", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     updateSetCalls.length = 0;
+    trackMock.mockReset();
     assertAccessMock.mockResolvedValue(undefined);
     upsertVariantSlotMock.mockResolvedValue(undefined);
   });
@@ -116,6 +168,7 @@ describe("refresh-generation-run", () => {
         run: {
           id: "run-1",
           libraryId: "library-1",
+          ownerEmail: "author@example.test",
           collectionId: null,
           presetId: null,
           sessionId: null,
@@ -138,6 +191,13 @@ describe("refresh-generation-run", () => {
     vi.setSystemTime(new Date("2026-05-28T12:00:00.000Z"));
 
     const result = await action.run({ runId: "run-1" });
+
+    // Refreshing mutates the run row, so it is scoped to the run's author.
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "library-1",
+      "author@example.test",
+      "A generation run",
+    );
 
     expect(result.run.status).toBe("failed");
     expect(updateSetCalls[0]).toEqual(
@@ -191,6 +251,41 @@ describe("refresh-generation-run", () => {
         assetId: "asset-1",
         previewUrl: "/api/assets/asset-1/content",
       }),
+    );
+  });
+
+  it("emits image completion once when refreshes race", async () => {
+    getDbMock.mockReturnValue(
+      createDb({
+        run: {
+          id: "run-3",
+          libraryId: "library-1",
+          ownerEmail: "author@example.test",
+          collectionId: null,
+          presetId: null,
+          sessionId: null,
+          prompt: "Hero image",
+          mediaType: "image",
+          status: "pending",
+          error: null,
+          metadata: JSON.stringify({ slotId: "hero-slot" }),
+          createdAt: "2026-05-28T11:59:30.000Z",
+        },
+        assets: [{ id: "asset-1" }],
+        completionClaims: 1,
+      }),
+    );
+
+    await Promise.all([
+      action.run({ runId: "run-3" }),
+      action.run({ runId: "run-3" }),
+    ]);
+
+    expect(trackMock).toHaveBeenCalledOnce();
+    expect(trackMock).toHaveBeenCalledWith(
+      "media_generated",
+      expect.objectContaining({ output_id: "asset-1" }),
+      undefined,
     );
   });
 });

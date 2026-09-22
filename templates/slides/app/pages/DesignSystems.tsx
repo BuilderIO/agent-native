@@ -26,11 +26,26 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { mergeDesignSystemData } from "@/hooks/use-deck-design-system";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 
 import type { DesignSystemData } from "../../shared/api";
-import { missingDesignSystemDataFields } from "../../shared/design-system-validation";
+
+// DesignSystemCard reads colors.* / typography.* unconditionally, down to
+// nested fields like typography.headingFont. Rows written before
+// create/update validation existed can have `colors: {}`, which used to make
+// this page hide the row entirely — the card, its Delete menu item, and the
+// only UI path to remove it all disappeared with no error. Filling gaps with
+// the same defaults `useDeckDesignSystem` applies keeps the card (and its
+// delete affordance) visible instead.
+export function parseDesignSystemListData(dataStr: string): DesignSystemData {
+  try {
+    return mergeDesignSystemData(JSON.parse(dataStr));
+  } catch {
+    return mergeDesignSystemData(undefined);
+  }
+}
 
 export default function DesignSystems() {
   const t = useT();
@@ -56,7 +71,7 @@ export default function DesignSystems() {
   const handleSetDefault = async (id: string, isDefault: boolean) => {
     try {
       await callAction("set-default-design-system", { id, isDefault });
-      refetch();
+      void refetch();
     } catch (err) {
       console.error("Failed to set default design system:", err);
     }
@@ -72,7 +87,7 @@ export default function DesignSystems() {
           resourceId: ds.id,
           visibility: "org",
         });
-        refetch();
+        void refetch();
       }
       await callAction("set-workspace-defaults", { designSystemId: ds.id });
       await refetchWorkspaceDefaults();
@@ -120,7 +135,7 @@ export default function DesignSystems() {
   const handleComplete = () => {
     setShowSetup(false);
     setEditingId(null);
-    refetch();
+    void refetch();
   };
 
   const handleClose = () => {
@@ -143,21 +158,6 @@ export default function DesignSystems() {
     });
   };
 
-  const parseDesignData = (dataStr: string): DesignSystemData | null => {
-    try {
-      const parsed = JSON.parse(dataStr) as DesignSystemData;
-      // DesignSystemCard reads colors.* / typography.* unconditionally, down
-      // to nested fields like typography.headingFont. Rows written before
-      // create/update validation existed can have `colors: {}` and still
-      // pass a truthy check, so reuse the same nested-field validator the
-      // actions use rather than only checking the top-level objects exist.
-      if (missingDesignSystemDataFields(parsed).length > 0) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  };
-
   useSetPageTitle(t("header.designSystems"));
 
   useSetHeaderActions(
@@ -175,7 +175,7 @@ export default function DesignSystems() {
           {t("designSystems.new")}
         </Button>
       ),
-      [],
+      [t],
     ),
   );
 
@@ -185,8 +185,8 @@ export default function DesignSystems() {
         {isLoading ? (
           <>
             <div className="flex items-center justify-between mb-6">
-              <div className="h-5 w-40 rounded-md bg-muted animate-pulse" />
-              <div className="h-3 w-16 rounded bg-muted animate-pulse" />
+              <div className="skeleton-shimmer h-5 w-40 rounded-md bg-muted" />
+              <div className="skeleton-shimmer h-3 w-16 rounded bg-muted" />
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,320px))] gap-4">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -194,10 +194,10 @@ export default function DesignSystems() {
                   key={i}
                   className="rounded-xl border border-border bg-card overflow-hidden"
                 >
-                  <div className="aspect-video bg-muted/50 animate-pulse" />
+                  <div className="skeleton-shimmer aspect-video bg-muted/50" />
                   <div className="p-4 space-y-2">
-                    <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
-                    <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
+                    <div className="skeleton-shimmer h-4 w-3/4 rounded bg-muted" />
+                    <div className="skeleton-shimmer h-3 w-1/2 rounded bg-muted" />
                   </div>
                 </div>
               ))}
@@ -254,8 +254,7 @@ export default function DesignSystems() {
 
               {/* Design system cards */}
               {designSystems.map((ds) => {
-                const parsed = parseDesignData(ds.data);
-                if (!parsed) return null;
+                const parsed = parseDesignSystemListData(ds.data);
                 return (
                   <DesignSystemCard
                     key={ds.id}

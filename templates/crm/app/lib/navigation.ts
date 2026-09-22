@@ -1,6 +1,7 @@
 import {
   CRM_VIEW_PATHS,
   crmNavigationPath,
+  parseCrmNavigationSelection,
   viewFromPath,
   type CrmNavigationTarget,
   type CrmSettingsSection,
@@ -10,6 +11,7 @@ import {
 export {
   CRM_VIEW_PATHS,
   crmNavigationPath,
+  parseCrmNavigationSelection,
   viewFromPath,
   type CrmNavigationTarget,
   type CrmSettingsSection,

@@ -13,7 +13,7 @@ chrome-less contextual iframe beside the chat.
   wayfinding destinations; workspace app names remain in the Apps destination.
 - App discovery comes from list-workspace-apps; rendering always mints
   create_embed_session instead of loading a registry URL directly.
-- Agent-native app frames intentionally keep scripts, storage, and same-origin
+- Agent-Native app frames intentionally keep scripts, storage, and same-origin
   behavior; the server-minted embed ticket and registered app origin are the
   security boundary. Regular browser frames are visibly chrome-bearing and
   accept only HTTP(S) URLs, rather than masquerading as app panes.

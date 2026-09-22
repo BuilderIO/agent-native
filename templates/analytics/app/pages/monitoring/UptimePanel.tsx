@@ -122,9 +122,11 @@ export function UptimePanel() {
   // Refresh list + detail when a background sweep or agent edit records a
   // "monitors" change (useDbSync bumps the version this hook reads).
   useEffect(() => {
-    queryClient.invalidateQueries({ queryKey: ["action", "list-monitors"] });
-    queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "list-monitors"],
+    });
+    void queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
+    void queryClient.invalidateQueries({
       queryKey: ["action", "get-monitor-stats"],
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -302,9 +304,11 @@ export function UptimePanel() {
   };
 
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["action", "list-monitors"] });
-    queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "list-monitors"],
+    });
+    void queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
+    void queryClient.invalidateQueries({
       queryKey: ["action", "get-monitor-stats"],
     });
   };

@@ -9,7 +9,6 @@
     "starter.agent-native.com",
     "slides.agent-native.com",
     "mail.agent-native.com",
-    "macros.agent-native.com",
     "forms.agent-native.com",
     "plan.agent-native.com",
     "dispatch.agent-native.com",
@@ -31,11 +30,11 @@
     "beta.dispatch.agent-native.com",
     "beta.factory.agent-native.com",
     "beta.forms.agent-native.com",
-    "beta.macros.agent-native.com",
     "beta.mail.agent-native.com",
     "beta.plan.agent-native.com",
     "beta.slides.agent-native.com",
-    "beta.chat.agent-native.com"
+    "beta.chat.agent-native.com",
+    "beta.agent-native.com"
   ],
   "workspace": ["agent-workspace.builder.io", "beta.agent-workspace.builder.io"]
 }

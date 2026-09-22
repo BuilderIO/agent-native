@@ -6,6 +6,8 @@ const MIN_VISIBLE_MAX_LUMA = 28;
 const MIN_VISIBLE_PIXEL_RATIO = 0.005;
 const SEEK_TOLERANCE_SECONDS = 0.25;
 const DEFAULT_SEEK_TIMEOUT_MS = 5_000;
+const DEFAULT_UPLOAD_THUMBNAIL_TIME_MS = 350;
+const VIDEO_METADATA_TIMEOUT_MS = 10_000;
 
 function resolveAppUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -23,6 +25,17 @@ function canProbeImageUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+function thumbnailAbortError(signal?: AbortSignal): Error {
+  if (signal?.reason instanceof Error) return signal.reason;
+  const error = new Error("Thumbnail capture aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfThumbnailAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw thumbnailAbortError(signal);
 }
 
 export function canvasHasVisibleContent(canvas: HTMLCanvasElement): boolean {
@@ -124,11 +137,103 @@ export async function captureVideoThumbnailBlob(
   });
 }
 
+function waitForVideoMetadata(
+  video: HTMLVideoElement,
+  signal?: AbortSignal,
+): Promise<void> {
+  throwIfThumbnailAborted(signal);
+  if (video.readyState >= 1) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      finish(new Error("Thumbnail video metadata timed out"));
+    }, VIDEO_METADATA_TIMEOUT_MS);
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      video.removeEventListener("error", handleError);
+      signal?.removeEventListener("abort", handleAbort);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const handleLoadedMetadata = () => finish();
+    const handleError = () =>
+      finish(new Error("Thumbnail video could not load"));
+    const handleAbort = () => finish(thumbnailAbortError(signal));
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    video.addEventListener("error", handleError);
+    signal?.addEventListener("abort", handleAbort, { once: true });
+    if (signal?.aborted) {
+      handleAbort();
+      return;
+    }
+    video.load();
+  });
+}
+
+export async function captureVideoBlobThumbnail(
+  videoBlob: Blob,
+  timeMs = DEFAULT_UPLOAD_THUMBNAIL_TIME_MS,
+  signal?: AbortSignal,
+): Promise<Blob | null> {
+  if (!videoBlob.size) return null;
+  throwIfThumbnailAborted(signal);
+
+  const sourceUrl = URL.createObjectURL(videoBlob);
+  const video = document.createElement("video");
+  video.preload = "metadata";
+  video.muted = true;
+  video.playsInline = true;
+  video.src = sourceUrl;
+
+  try {
+    await waitForVideoMetadata(video, signal);
+
+    const durationMs =
+      Number.isFinite(video.duration) && video.duration > 0
+        ? video.duration * 1000
+        : null;
+    const targetMs = durationMs
+      ? Math.min(Math.max(0, timeMs), Math.max(0, durationMs - 1))
+      : Math.max(0, timeMs);
+    const candidates = [targetMs, 0].filter(
+      (candidate, index, values) => values.indexOf(candidate) === index,
+    );
+
+    for (const candidate of candidates) {
+      throwIfThumbnailAborted(signal);
+      try {
+        await seekVideoToTime(video, candidate, { signal });
+        const thumbnail = await captureVideoThumbnailBlob(video);
+        if (thumbnail) return thumbnail;
+        // coercion-ok: try the next frame candidate; null remains an absent thumbnail.
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        // Try the first frame when the short clip has no decodable 350ms frame.
+      }
+    }
+    return null;
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
+
 export function seekVideoToTime(
   video: HTMLVideoElement,
   timeMs: number,
-  options: { timeoutMs?: number } = {},
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<void> {
+  throwIfThumbnailAborted(options.signal);
   const targetSeconds = Math.max(0, timeMs) / 1000;
   if (!Number.isFinite(targetSeconds)) {
     return Promise.reject(new Error("Thumbnail time must be finite"));
@@ -149,6 +254,7 @@ export function seekVideoToTime(
       video.removeEventListener("loadedmetadata", requestSeek);
       video.removeEventListener("seeked", handleSeeked);
       video.removeEventListener("error", handleError);
+      options.signal?.removeEventListener("abort", handleAbort);
       if (timeout) clearTimeout(timeout);
     };
 
@@ -170,6 +276,7 @@ export function seekVideoToTime(
 
     const handleError = () =>
       finish(new Error("Thumbnail video could not seek"));
+    const handleAbort = () => finish(thumbnailAbortError(options.signal));
 
     const requestSeek = () => {
       if (settled) return;
@@ -184,19 +291,21 @@ export function seekVideoToTime(
     video.addEventListener("loadedmetadata", requestSeek);
     video.addEventListener("seeked", handleSeeked);
     video.addEventListener("error", handleError);
+    options.signal?.addEventListener("abort", handleAbort, { once: true });
     timeout = setTimeout(
       () => finish(new Error("Thumbnail seek timed out")),
       timeoutMs,
     );
 
-    if (video.readyState >= 1) requestSeek();
+    if (options.signal?.aborted) handleAbort();
+    else if (video.readyState >= 1) requestSeek();
   });
 }
 
 export async function uploadRecordingThumbnail(
   recordingId: string,
   blob: Blob,
-  options: { replaceAuto?: boolean } = {},
+  options: { replaceAuto?: boolean; signal?: AbortSignal } = {},
 ) {
   const suffix = options.replaceAuto ? "?replace=auto" : "";
   const response = await fetch(
@@ -205,6 +314,7 @@ export async function uploadRecordingThumbnail(
       method: "POST",
       headers: { "Content-Type": blob.type || "image/jpeg" },
       body: blob,
+      signal: options.signal,
     },
   );
 
@@ -213,4 +323,20 @@ export async function uploadRecordingThumbnail(
   }
 
   return response.json().catch(() => null);
+}
+
+export async function uploadVideoBlobThumbnail(
+  recordingId: string,
+  videoBlob: Blob,
+  options: { signal?: AbortSignal; timeMs?: number } = {},
+) {
+  const thumbnail = await captureVideoBlobThumbnail(
+    videoBlob,
+    options.timeMs,
+    options.signal,
+  );
+  if (!thumbnail) return null;
+  return uploadRecordingThumbnail(recordingId, thumbnail, {
+    signal: options.signal,
+  });
 }

@@ -12,11 +12,32 @@ export interface SkillResult {
   source: "codebase" | "resource";
 }
 
+export type MentionItemMedia =
+  | {
+      type: "text";
+      /** Short text shown inside the media frame, such as an emoji or initials. */
+      text: string;
+      /** Optional CSS color used behind the text. */
+      backgroundColor?: string;
+    }
+  | {
+      type: "image";
+      /** Image URL shown inside the media frame. Relative URLs are supported. */
+      src: string;
+      /** How the image fits the frame. Defaults to contain. */
+      fit?: "contain" | "cover";
+      /** Optional CSS color visible behind contained images. */
+      backgroundColor?: string;
+    }
+  | { type: "none" };
+
 export interface MentionItem {
   id: string;
   label: string;
   description?: string;
   icon?: string;
+  /** Optional presentation that takes precedence over the legacy icon. */
+  media?: MentionItemMedia;
   source: string;
   refType: string;
   refPath?: string;
@@ -44,6 +65,8 @@ export interface Reference {
 export interface MentionReferenceInsert {
   label: string;
   icon?: string;
+  /** Optional presentation that takes precedence over the legacy icon. */
+  media?: MentionItemMedia;
   source?: string;
   refType: string;
   refId?: string | null;

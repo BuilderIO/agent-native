@@ -11,7 +11,7 @@ describe("submitter email helpers", () => {
     expect(cleanSubmitterEmail(" user@example.com ")).toBe("user@example.com");
   });
 
-  it("drops synthetic Agent Native anonymous owner emails", () => {
+  it("drops synthetic Agent-Native anonymous owner emails", () => {
     expect(cleanSubmitterEmail("anon-abc123@agent-native.com")).toBeNull();
     expect(cleanSubmitterEmail(" ANON-owner@agent-native.com ")).toBeNull();
     expect(publicSubmitterEmail("anon-visitor@agent-native.com")).toBeNull();

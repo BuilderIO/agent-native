@@ -1,6 +1,6 @@
 # Content product knowledge
 
-This folder is the repository source of truth for Agent Native Content's accepted
+This folder is the repository source of truth for Agent-Native Content's accepted
 product direction. It gives contributors and coding agents enough context to
 change Content without relying on private conversations or a particular
 person's computer.

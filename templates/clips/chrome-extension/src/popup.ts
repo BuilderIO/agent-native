@@ -1,5 +1,13 @@
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 
+import {
+  MEDIA_PERMISSION_DEVICES,
+  hasGrantedDeviceLabels,
+  mediaPermissionRequirements,
+  permissionPageUrl,
+  readCachedMediaPermission,
+  writeCachedMediaPermission,
+} from "./media-permission";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("popup");
@@ -61,15 +69,22 @@ type NativeRecording = {
 type PopupStatusResponse = {
   ok?: boolean;
   activeRecording?: NativeRecording | null;
+  arming?: boolean;
   error?: string;
 };
 
 type AuthStatus = "checking" | "signed-in" | "signed-out";
 
-type CachedMediaPermission = {
-  camera?: boolean;
-  microphone?: boolean;
-};
+export function recordingControlVisibility(
+  recording: NativeRecording | null,
+  authStatus: AuthStatus,
+): { startHidden: boolean; signInHidden: boolean } {
+  const active = Boolean(recording);
+  return {
+    startHidden: active || authStatus !== "signed-in",
+    signInHidden: active || authStatus !== "signed-out",
+  };
+}
 
 type StoredAuth = {
   token: string;
@@ -99,7 +114,7 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
 };
 
 const SOURCE_LABELS: Record<Exclude<CaptureSurface, "camera">, string> = {
-  browser: "Current tab",
+  browser: "Browser tab",
   window: "Window",
   monitor: "Full screen",
 };
@@ -411,17 +426,6 @@ function createTab(url: string): Promise<void> {
   });
 }
 
-function permissionPageUrl(settings: ExtensionSettings): string {
-  const url = new URL(chrome.runtime.getURL("src/permission.html"));
-  url.searchParams.set("startAfterGrant", "1");
-  url.searchParams.set(
-    "needsCamera",
-    String(settings.captureSurface === "camera" || settings.includeCamera),
-  );
-  url.searchParams.set("needsMicrophone", String(settings.includeMicrophone));
-  return url.toString();
-}
-
 async function mediaPermissionState(
   name: "camera" | "microphone",
 ): Promise<PermissionState | "unknown"> {
@@ -435,35 +439,27 @@ async function mediaPermissionState(
   }
 }
 
-function readCachedMediaPermission(): Promise<CachedMediaPermission> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get("clipsMediaPermission", (value) => {
-      const cached = value.clipsMediaPermission as
-        | CachedMediaPermission
-        | undefined;
-      resolve(cached && typeof cached === "object" ? cached : {});
-    });
-  });
-}
-
 // True when every device the chosen mode needs is already granted to the
 // extension. If not, the caller routes the user to the permission page.
 async function ensureMediaPermission(
   settings: ExtensionSettings,
 ): Promise<boolean> {
-  const needsCamera =
-    settings.captureSurface === "camera" || settings.includeCamera;
-  const needsMic = settings.includeMicrophone;
+  const needs = mediaPermissionRequirements(settings);
   const cached = await readCachedMediaPermission();
-  if (needsCamera) {
-    const state = await mediaPermissionState("camera");
+  for (const device of MEDIA_PERMISSION_DEVICES) {
+    if (!needs[device]) continue;
+    const state = await mediaPermissionState(device);
+    if (state === "granted") continue;
     if (state === "denied") return false;
-    if (state !== "granted" && cached.camera !== true) return false;
-  }
-  if (needsMic) {
-    const state = await mediaPermissionState("microphone");
-    if (state === "denied") return false;
-    if (state !== "granted" && cached.microphone !== true) return false;
+    if (cached[device] !== true) return false;
+    // "prompt" plus a cached grant is the ambiguous case: Chrome reports
+    // "prompt" for some granted extension origins, but also after it revokes a
+    // grant it considers unused. Device labels tell those apart, and a cache
+    // Chrome no longer backs would otherwise send the recording into the
+    // offscreen document, where no prompt can ever be shown.
+    if (await hasGrantedDeviceLabels(device)) continue;
+    await writeCachedMediaPermission({ [device]: false });
+    return false;
   }
   return true;
 }
@@ -510,8 +506,10 @@ async function readVideoStorageConfigured(
     const body = response.ok
       ? ((await response.json().catch(() => null)) as {
           configured?: boolean;
+          builderReauthorizationRequired?: boolean;
         } | null)
       : null;
+    if (body?.builderReauthorizationRequired) return false;
     if (body?.configured) return true;
   } catch {
     // Fall through to the Builder status check.
@@ -700,7 +698,7 @@ function renderDevicePickers(settings: ExtensionSettings): void {
   cameraButton.hidden = !showCamera;
   if (showCamera) {
     const defaultCameraLabel = defaultDeviceLabel(
-      "System default",
+      "Default camera",
       inputDevices.defaultCameraName,
     );
     cameraLabel.textContent = deviceLabel(
@@ -725,7 +723,7 @@ function renderDevicePickers(settings: ExtensionSettings): void {
   micButton.hidden = !settings.includeMicrophone;
   if (settings.includeMicrophone) {
     const defaultMicrophoneLabel = defaultDeviceLabel(
-      "System default",
+      "Default microphone",
       inputDevices.defaultMicrophoneName,
     );
     micLabel.textContent = deviceLabel(
@@ -779,7 +777,11 @@ function formatDuration(startedAtMs: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function renderActiveRecording(recording: NativeRecording | null): void {
+function renderActiveRecording(
+  recording: NativeRecording | null,
+  arming = false,
+  authStatus: AuthStatus = "checking",
+): void {
   const idleContent = byId<HTMLDivElement>("idle-content");
   const activeContent = byId<HTMLDivElement>("active-content");
   const recordingTitle = byId<HTMLDivElement>("recording-title");
@@ -787,19 +789,30 @@ function renderActiveRecording(recording: NativeRecording | null): void {
   const recordingStatus = byId<HTMLDivElement>("recording-status");
   const start = byId<HTMLButtonElement>("start");
   const signIn = byId<HTMLButtonElement>("sign-in");
+  const stop = byId<HTMLButtonElement>("stop");
+  const discard = byId<HTMLButtonElement>("discard");
   const recordingActions =
     document.querySelector<HTMLDivElement>(".recording-actions");
 
   const active = Boolean(recording);
+  const controlVisibility = recordingControlVisibility(recording, authStatus);
   idleContent.hidden = active;
   activeContent.hidden = !active;
-  start.hidden = active;
-  signIn.hidden = true;
+  start.hidden = controlVisibility.startHidden;
+  start.disabled = arming;
+  signIn.hidden = controlVisibility.signInHidden;
   if (recordingActions) recordingActions.hidden = !active;
   if (!recording) {
     setStorageHelp(false);
     return;
   }
+
+  const settling =
+    arming ||
+    recording.status === "stopping" ||
+    recording.status === "uploading";
+  stop.disabled = settling;
+  discard.disabled = settling;
 
   recordingTitle.textContent = recording.targetTitle || "Current recording";
   const host = hostnameLabel(recording.targetUrl);
@@ -871,12 +884,13 @@ async function init(): Promise<void> {
   const feedbackHint = byId<HTMLDivElement>("feedback-hint");
   const feedbackSubmit = byId<HTMLButtonElement>("feedback-submit");
   const feedbackSuccess = byId<HTMLDivElement>("feedback-success");
+  const openDictate = byId<HTMLButtonElement>("open-dictate");
   const openLibrary = byId<HTMLButtonElement>("open-library");
   const openSettings = byId<HTMLButtonElement>("open-settings");
-  const openRecent = byId<HTMLButtonElement>("open-recent");
   const signIn = byId<HTMLButtonElement>("sign-in");
   const storageHelpOpen = byId<HTMLButtonElement>("storage-help-open");
   let activeRecording: NativeRecording | null = null;
+  let arming = false;
   let authStatus: AuthStatus = "checking";
   let feedbackOpenedAt = 0;
   let feedbackSchema: FeedbackFormSchema | null = null;
@@ -985,12 +999,16 @@ async function init(): Promise<void> {
       void refreshDevices();
     });
   }
-  const status =
-    await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
-  activeRecording = status.activeRecording ?? null;
-  renderActiveRecording(activeRecording);
-  if (activeRecording) {
-    window.setInterval(() => renderActiveRecording(activeRecording), 1000);
+  const refreshActiveRecording = async (): Promise<void> => {
+    const status =
+      await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
+    activeRecording = status.activeRecording ?? null;
+    arming = Boolean(status.arming);
+    renderActiveRecording(activeRecording, arming, authStatus);
+  };
+  await refreshActiveRecording();
+  if (activeRecording || arming) {
+    window.setInterval(() => void refreshActiveRecording(), 1000);
   }
 
   // No on-page pre-record preview. A Chrome action popup closes the instant you
@@ -1207,21 +1225,18 @@ async function init(): Promise<void> {
     window.close();
   });
 
-  openSettings.addEventListener("click", () => {
-    chrome.runtime.openOptionsPage();
-  });
-
-  openRecent.addEventListener("click", async () => {
-    await createTab(settings.clipsBaseUrl);
+  openDictate.addEventListener("click", async () => {
+    await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/dictate`);
     window.close();
   });
 
+  openSettings.addEventListener("click", () => {
+    void chrome.runtime.openOptionsPage();
+  });
+
   authStatus = await readAuthStatus(settings);
-  if (!activeRecording && authStatus === "signed-out") {
-    start.hidden = true;
-    signIn.hidden = false;
-    setStatus("");
-  }
+  renderActiveRecording(activeRecording, arming, authStatus);
+  if (authStatus === "signed-out") setStatus("");
 
   start.addEventListener("click", async () => {
     start.disabled = true;
@@ -1231,9 +1246,7 @@ async function init(): Promise<void> {
     try {
       authStatus = await readAuthStatus(settings);
       if (authStatus === "signed-out") {
-        start.disabled = false;
-        start.hidden = true;
-        signIn.hidden = false;
+        renderActiveRecording(activeRecording, arming, authStatus);
         setStatus("");
         return;
       }
@@ -1269,7 +1282,11 @@ async function init(): Promise<void> {
         }
         start.disabled = false;
         setStatus("Allow camera & microphone, then start recording.", "error");
-        await createTab(permissionPageUrl(settings));
+        await createTab(
+          permissionPageUrl(mediaPermissionRequirements(settings), {
+            startAfterGrant: true,
+          }),
+        );
         window.close();
         return;
       }
@@ -1366,8 +1383,7 @@ async function init(): Promise<void> {
       await sendSimpleMessage<PopupStartResponse>("CLIPS_POPUP_CANCEL");
     if (response.ok) {
       activeRecording = null;
-      renderActiveRecording(null);
-      if (authStatus === "signed-in") start.hidden = false;
+      renderActiveRecording(null, false, authStatus);
       setStatus("");
       stop.disabled = false;
       discard.disabled = false;
@@ -1389,12 +1405,14 @@ async function init(): Promise<void> {
   });
 }
 
-void init().catch((err) => {
-  captureExtensionError(err, {
-    tags: { surface: "popup", action: "init" },
+if (typeof document !== "undefined") {
+  void init().catch((err) => {
+    captureExtensionError(err, {
+      tags: { surface: "popup", action: "init" },
+    });
+    setStatus(
+      err instanceof Error ? err.message : "Could not load popup.",
+      "error",
+    );
   });
-  setStatus(
-    err instanceof Error ? err.message : "Could not load popup.",
-    "error",
-  );
-});
+}

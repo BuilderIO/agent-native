@@ -1,6 +1,8 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { emit } from "@agent-native/core/event-bus";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
@@ -146,7 +148,7 @@ export default defineAction({
         "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
       ),
   }),
-  run: async (args) => {
+  run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
 
@@ -216,10 +218,16 @@ export default defineAction({
     };
 
     let zoomMeetingLink: string | undefined;
+    let videoConferenceError: CalendarEvent["videoConferenceError"];
     if (args.addZoom) {
-      const zoom = await prepareZoomMeetingPatch(email, calEvent);
-      zoomMeetingLink = zoom.meetingLink;
-      Object.assign(calEvent, zoom.patch);
+      try {
+        const zoom = await prepareZoomMeetingPatch(email, calEvent);
+        zoomMeetingLink = zoom.meetingLink;
+        Object.assign(calEvent, zoom.patch);
+      } catch (error) {
+        videoConferenceError = "zoom";
+        console.error("[create-event] Zoom meeting provisioning failed", error);
+      }
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
@@ -238,6 +246,8 @@ export default defineAction({
     if (result.meetLink) calEvent.hangoutLink = result.meetLink;
     if (result.conferenceData) calEvent.conferenceData = result.conferenceData;
     if (zoomMeetingLink) calEvent.meetingLink = zoomMeetingLink;
+    if (videoConferenceError)
+      calEvent.videoConferenceError = videoConferenceError;
 
     try {
       emit(
@@ -255,6 +265,24 @@ export default defineAction({
     } catch {
       // best-effort — never block the main write
     }
+
+    track(
+      "event_created",
+      {
+        app_name: "calendar",
+        template_name: "calendar",
+        output_id: calEvent.id,
+        output_type: "calendar_event",
+        via: actionContext?.caller === "frontend" ? "manual" : "agent",
+        attendee_count: attendees?.length ?? 0,
+        has_video_conference: Boolean(
+          calEvent.hangoutLink ||
+          calEvent.meetingLink ||
+          calEvent.conferenceData,
+        ),
+      },
+      actionContext,
+    );
 
     return calEvent;
   },

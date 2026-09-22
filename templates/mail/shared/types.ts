@@ -93,6 +93,10 @@ export type ComposeState = {
   attachments?: ComposeAttachment[];
   /** ID of the persistent draft email (for updating existing drafts) */
   savedDraftId?: string;
+  /** Backend that owns savedDraftId, so deletion remains unambiguous after disconnects. */
+  savedDraftBackend?: "gmail" | "local";
+  /** Connected account that owns a Gmail savedDraftId. */
+  savedDraftAccountEmail?: string;
   /** Which connected account to send from (for multi-inbox reply) */
   accountEmail?: string;
   /** When true, render inline in the thread view instead of the popout composer */
@@ -115,18 +119,29 @@ export type MailboxView =
   | "all"
   | `label:${string}`;
 
+export type SavedMailFilter = {
+  id: string;
+  name: string;
+  query: string;
+};
+
 export type UserSettings = {
   name: string;
   email: string;
   avatar?: string;
   signature?: string;
   writingStyle?: string;
+  /** Show local common-phrase completions while composing on desktop. */
+  autocompleteEnabled?: boolean;
   theme: "light" | "dark" | "system";
   density: "compact" | "comfortable" | "spacious";
   previewPane: "right" | "bottom" | "off";
   sendAndArchive: boolean;
+  /** Show the whole inbox instead of splitting it into pinned triage tabs. */
+  combineInbox: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
+  savedFilters?: SavedMailFilter[];
   /** Display aliases for label tabs — maps label ID to custom short name */
   labelAliases?: Record<string, string>;
   /** "show" = load all images, "block-trackers" = block known trackers only, "block-all" = block all remote images */
@@ -155,6 +170,7 @@ export type EmailTrackingStats = {
 /** Identifiers for actions available in the mobile bottom bar */
 export type MobileActionId =
   | "archive"
+  | "aiFilter"
   | "trash"
   | "star"
   | "reply"
@@ -185,6 +201,7 @@ export type AutomationRule = {
   id: string;
   ownerEmail: string;
   domain: "mail" | "calendar";
+  kind?: "automation" | "ai-filter";
   name: string;
   condition: string;
   actions: AutomationAction[];

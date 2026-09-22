@@ -29,14 +29,9 @@ function renderWithProviders<P extends object>(
   props: P,
 ): string {
   return renderToStaticMarkup(
-    createElement(AgentNativeI18nProvider, {
-      catalog: { messages: CATALOG_MESSAGES },
-      children: createElement(
-        TooltipProvider,
-        null,
-        createElement(Component, props),
-      ),
-    }),
+    <AgentNativeI18nProvider catalog={{ messages: CATALOG_MESSAGES }}>
+      <TooltipProvider>{createElement(Component, props)}</TooltipProvider>
+    </AgentNativeI18nProvider>,
   );
 }
 

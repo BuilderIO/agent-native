@@ -52,6 +52,16 @@ describe("loadRunCodeToolEntries (code execution registration)", () => {
     });
   });
 
+  it("describes the production registry as the hardened Run evaluator", async () => {
+    const entries = await loadRunCodeToolEntries(() => ({}), {
+      evaluator: "run",
+    });
+    expect(entries["run-code"].tool?.description).toContain("hardened");
+    expect(entries["tool-orchestration"].tool?.description).toContain(
+      "QuickJS",
+    );
+  });
+
   it("registers get-code-execution as a read-only poll tool keyed on executionId", async () => {
     const entries = await loadRunCodeToolEntries(() => ({}));
     const entry = entries["get-code-execution"];

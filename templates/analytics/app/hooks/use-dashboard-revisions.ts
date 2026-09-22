@@ -19,12 +19,15 @@ export interface DashboardRevision {
   createdBy: string | null;
 }
 
-export function useDashboardRevisions(dashboardId: string | null) {
+export function useDashboardRevisions(
+  dashboardId: string | null,
+  options: { enabled?: boolean } = {},
+) {
   const { session } = useSession();
   const scope = dashboardCacheScope(session);
   return useQuery({
     queryKey: ["dashboard-revisions", dashboardId, scope],
-    enabled: !!dashboardId,
+    enabled: options.enabled ?? !!dashboardId,
     queryFn: async () => {
       if (!dashboardId) return [];
       const data = await callAction(
@@ -64,22 +67,22 @@ export function useRestoreDashboardRevision(dashboardId: string) {
     }
   >("restore-dashboard-revision", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["dashboard-revisions", dashboardId],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["dashboard", dashboardId],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId],
       });
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, scope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", scope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-palette", scope],
       });
     },

@@ -425,7 +425,7 @@ async function promptForHostedApps(
   const clack = await import("@clack/prompts");
   const result = await clack.multiselect({
     message:
-      "Which Agent Native apps do you want to connect?\n" +
+      "Which Agent-Native apps do you want to connect?\n" +
       "  (all are selected by default; space toggles, enter confirms)",
     options: context.apps.map((app) => ({
       value: app.name,
@@ -554,7 +554,7 @@ function clientsNotIn(
 }
 
 function displayMcpServerName(serverName: string | undefined): string {
-  if (!serverName) return "Agent Native MCP";
+  if (!serverName) return "Agent-Native MCP";
   if (serverName === "plan") return "Plan MCP";
   return `"${serverName}" MCP`;
 }
@@ -1912,7 +1912,7 @@ async function resolveReconnectTarget(
     );
 
     if (matches.length === 0) {
-      logErr(`  No existing Agent Native MCP entry found for ${mcpUrl}.`);
+      logErr(`  No existing Agent-Native MCP entry found for ${mcpUrl}.`);
       logErr(
         "  First-time setup still uses: npx @agent-native/core@latest connect <url> --client <client>",
       );
@@ -1992,7 +1992,7 @@ async function resolveReconnectTarget(
   }
 
   if (byUrl.size === 0) {
-    logErr("  No existing Agent Native MCP entry found to reconnect.");
+    logErr("  No existing Agent-Native MCP entry found to reconnect.");
     logErr(
       "  Pass a URL, or use --name <serverName> if the entry has a custom name.",
     );
@@ -2027,7 +2027,7 @@ async function resolveReconnectTarget(
       string
     >({
       message:
-        "Multiple Agent Native apps found. Which one do you want to reconnect?",
+        "Multiple Agent-Native apps found. Which one do you want to reconnect?",
       options: urlList.map((u) => {
         const representativeEntry = byUrl.get(u)![0];
         return {
@@ -2055,7 +2055,7 @@ async function resolveReconnectTarget(
     };
   }
 
-  logErr("  Found multiple Agent Native MCP entries:");
+  logErr("  Found multiple Agent-Native MCP entries:");
   for (const [u, bucket] of byUrl) {
     logErr(`    ${bucket[0].serverName} → ${u}`);
   }

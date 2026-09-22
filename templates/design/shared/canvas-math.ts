@@ -75,8 +75,10 @@ export interface CanvasSnapOptions {
 export type SpacingSnapOptions = CanvasSnapOptions;
 
 export interface DragSnapOptions extends CanvasSnapOptions {
-  /** Figma's "snap to pixel grid": land on whole canvas pixels. */
-  pixelGrid?: boolean;
+  /** Grid step to land on: `WHOLE_PIXEL_SNAP_STEP` for Figma's "snap to pixel
+   *  grid", the frame's layout grid size when it has one. Omitted means the
+   *  caller wants the raw snapped position and will quantize itself. */
+  snapStep?: number;
   /** How far a neighbour can be, in screen px, and still get a distance
    *  readout. Beyond this the measurement is noise stretched across empty
    *  canvas rather than something the user is positioning against. */
@@ -113,6 +115,11 @@ export interface ResizeSnapOptions extends CanvasSnapOptions {
    *  a snap near a sibling edge doesn't force-inflate a small shape. */
   minWidth?: number;
   minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  resizeFromCenter?: boolean;
+  /** The resize counterpart of `DragSnapOptions.snapStep`. */
+  snapStep?: number;
 }
 
 export interface ResizeFrameOptions {
@@ -120,6 +127,16 @@ export interface ResizeFrameOptions {
   resizeFromCenter?: boolean;
   minWidth?: number;
   minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  frameSizeBoundsById?: Record<string, FrameSizeBounds>;
+}
+
+export interface FrameSizeBounds {
+  minWidth?: number;
+  maxWidth?: number;
+  minHeight?: number;
+  maxHeight?: number;
 }
 
 export interface ResizeGroupResult {
@@ -221,6 +238,16 @@ export interface RulerTickOptions {
   maxTicks?: number;
 }
 
+/** Default spacing and snap interval for a frame's layout grid. */
+export const DEFAULT_GRID_STEP_PX = 8;
+
+/** Snapping's floor. A frame with no layout grid still lands on whole pixels,
+ *  so "no grid" is a size-1 grid and the snap stack needs no on/off branch. */
+export const WHOLE_PIXEL_SNAP_STEP = 1;
+
+export const DEFAULT_SMALL_NUDGE_PX = 1;
+export const DEFAULT_BIG_NUDGE_PX = 10;
+
 export type ArrowNudgeKey =
   | "ArrowUp"
   | "ArrowRight"
@@ -236,7 +263,7 @@ export interface NudgeModifiers {
 
 export interface NudgeOptions {
   baseStep?: number;
-  shiftMultiplier?: number;
+  bigStep?: number;
 }
 
 export interface NudgeDelta {
@@ -281,6 +308,16 @@ export const DEFAULT_ASSIGNED_REGION_MAX_COLUMNS = 3;
  */
 export const DEFAULT_CANVAS_MIN_ZOOM = 2;
 export const DEFAULT_CANVAS_MAX_ZOOM = 25600;
+
+/**
+ * Floor for the AUTOMATIC shrink-to-fit that runs on a screen-count change —
+ * never for an explicit Zoom to fit, which must be free to reach MIN_ZOOM or a
+ * board of more than ~9 screens in a row stops fitting.
+ */
+export const DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM = 10;
+
+/** Breathing room a fit leaves around the fitted bounds, in screen px. */
+export const CANVAS_FIT_PADDING_PX = 64;
 
 export function screenToCanvasPoint(
   point: CanvasPoint,
@@ -458,6 +495,27 @@ export function getFrameGroupBounds(
   });
 }
 
+/**
+ * Zoom-to-selection (Shift+2) must fit the selected element's own bounds when
+ * only an in-screen element is selected (no screen-frame selection) — Figma
+ * zooms tighter to just that element, not the whole design. `localRect` is
+ * the element's bounding rect in its owning screen's own document coordinate
+ * space (`ElementInfo.boundingRect`); `screenGeometry` is that screen's
+ * canvas/world-space frame. A screen renders its content 1:1 with its frame
+ * geometry, so translating one into the other is a plain offset.
+ */
+export function getElementWorldBoundsForZoomFit(
+  screenGeometry: FrameGeometry,
+  localRect: { x: number; y: number; width: number; height: number },
+): FrameBounds {
+  return getFrameBounds({
+    x: screenGeometry.x + localRect.x,
+    y: screenGeometry.y + localRect.y,
+    width: localRect.width,
+    height: localRect.height,
+  });
+}
+
 export function assignRegions(
   count: number,
   options: AssignRegionsOptions = {},
@@ -511,7 +569,7 @@ export function getCameraForBounds(
   bounds: FrameBounds | FrameGeometry | null,
   viewport: CanvasSize,
   {
-    paddingScreenPx = 48,
+    paddingScreenPx = CANVAS_FIT_PADDING_PX,
     canvasPadding = 0,
     minZoom = 10,
     maxZoom = 400,
@@ -564,9 +622,12 @@ export function shouldShowPixelGrid(
 export function getNudgeDelta(
   key: ArrowNudgeKey,
   modifiers: NudgeModifiers = {},
-  { baseStep = 1, shiftMultiplier = 10 }: NudgeOptions = {},
+  {
+    baseStep = DEFAULT_SMALL_NUDGE_PX,
+    bigStep = DEFAULT_BIG_NUDGE_PX,
+  }: NudgeOptions = {},
 ): NudgeDelta {
-  const step = baseStep * (modifiers.shiftKey ? shiftMultiplier : 1);
+  const step = modifiers.shiftKey ? bigStep : baseStep;
   const vector = getNudgeVector(key);
   const bypass = !!(modifiers.altKey || modifiers.metaKey || modifiers.ctrlKey);
 
@@ -578,6 +639,43 @@ export function getNudgeDelta(
       bypass,
       reason: bypass ? "modifier" : null,
     },
+  };
+}
+
+/** Nearest multiple of `step`, defaulting to the whole-pixel floor. Non-finite
+ *  input passes through unrounded so an upstream NaN stays visible rather than
+ *  reading as a real coordinate. */
+export function quantizeToStep(
+  value: number,
+  step: number = WHOLE_PIXEL_SNAP_STEP,
+): number {
+  if (!Number.isFinite(value)) return value;
+  if (!Number.isFinite(step) || step <= WHOLE_PIXEL_SNAP_STEP) {
+    return Math.round(value);
+  }
+  return Math.round(value / step) * step;
+}
+
+export function quantizeCanvasPoint(
+  point: CanvasPoint,
+  step: number = WHOLE_PIXEL_SNAP_STEP,
+): CanvasPoint {
+  return {
+    x: quantizeToStep(point.x, step),
+    y: quantizeToStep(point.y, step),
+  };
+}
+
+/** Whole-pixel x/y/width/height. Size rounds alongside position because a
+ *  fractional width puts the opposite edge back on a fraction, and the next
+ *  object aligned or resized against that edge inherits it. */
+function quantizeCanvasGeometry<T extends FrameGeometry>(geometry: T): T {
+  return {
+    ...geometry,
+    x: quantizeToStep(geometry.x),
+    y: quantizeToStep(geometry.y),
+    width: quantizeToStep(geometry.width),
+    height: quantizeToStep(geometry.height),
   };
 }
 
@@ -627,23 +725,23 @@ export function getDraftGeometryFromPoints(
   if (fromCenter) {
     // `start` is the shape's center — grow outward symmetrically in both
     // directions instead of anchoring one corner at `start`.
-    return {
+    return quantizeCanvasGeometry({
       x: start.x - width / 2,
       y: start.y - height / 2,
       width,
       height,
-    };
+    });
   }
 
   const drawingLeft = end.x < start.x;
   const drawingUp = end.y < start.y;
 
-  return {
+  return quantizeCanvasGeometry({
     x: drawingLeft ? start.x - width : start.x,
     y: drawingUp ? start.y - height : start.y,
     width,
     height,
-  };
+  });
 }
 
 export function appendPolylinePoint(
@@ -874,7 +972,8 @@ export function computeDragSnap(
   let dy = alignment.dy + spacing.dy;
 
   const anchor = moving[0];
-  if (options.pixelGrid && anchor && !options.bypass) {
+  const snapStep = options.snapStep ?? 0;
+  if (snapStep > 0 && anchor && !options.bypass) {
     // Keyed on what actually moved the frame, not on what got drawn: a
     // spacing snap that produced no chrome is still a position the user
     // chose, and rounding it away undoes the snap they just felt.
@@ -887,10 +986,10 @@ export function computeDragSnap(
     // Only the anchor rounds; the rest of a multi-select rides the same
     // delta, so a group keeps its internal fractional offsets.
     if (!claimed("vertical") && !options.lockedAxes?.x) {
-      dx = Math.round(anchor.geometry.x + dx) - anchor.geometry.x;
+      dx = quantizeToStep(anchor.geometry.x + dx, snapStep) - anchor.geometry.x;
     }
     if (!claimed("horizontal") && !options.lockedAxes?.y) {
-      dy = Math.round(anchor.geometry.y + dy) - anchor.geometry.y;
+      dy = quantizeToStep(anchor.geometry.y + dy, snapStep) - anchor.geometry.y;
     }
   }
 
@@ -1077,6 +1176,14 @@ export function resizeFrameFromDelta(
 
   const minWidth = options.minWidth ?? MIN_CANVAS_FRAME_WIDTH;
   const minHeight = options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT;
+  const maxWidth = Math.max(
+    minWidth,
+    options.maxWidth ?? Number.POSITIVE_INFINITY,
+  );
+  const maxHeight = Math.max(
+    minHeight,
+    options.maxHeight ?? Number.POSITIVE_INFINITY,
+  );
   // Real Figma flips a shape when a resize handle is dragged past its
   // opposite edge instead of pinning the size at the minimum: the handle's
   // role effectively swaps (e.g. dragging "e" left past the frame's own west
@@ -1118,18 +1225,19 @@ export function resizeFrameFromDelta(
     !options.resizeFromCenter &&
     rawHeight < 0;
 
-  width = Math.max(minWidth, widthMagnitude);
-  height = Math.max(minHeight, heightMagnitude);
+  width = Math.min(maxWidth, Math.max(minWidth, widthMagnitude));
+  height = Math.min(maxHeight, Math.max(minHeight, heightMagnitude));
 
   if (options.preserveAspectRatio) {
-    const widthAtMin = width > widthMagnitude;
-    const heightAtMin = height > heightMagnitude;
-    if (widthAtMin && !heightAtMin) {
-      height = width / ratio;
-    } else if (heightAtMin && !widthAtMin) {
-      width = height * ratio;
-    } else if (widthAtMin && heightAtMin) {
-      // Both axes hit their minimum; width wins as the primary authority
+    const widthAtLimit = width !== widthMagnitude;
+    const heightAtLimit = height !== heightMagnitude;
+    if (widthAtLimit && !heightAtLimit) {
+      height = Math.min(maxHeight, Math.max(minHeight, width / ratio));
+    } else if (heightAtLimit && !widthAtLimit) {
+      width = Math.min(maxWidth, Math.max(minWidth, height * ratio));
+    } else if (widthAtLimit && heightAtLimit) {
+      // If the requested ratio cannot satisfy both axes' limits, width remains
+      // the primary axis when both hit a bound at once.
       height = width / ratio;
     }
   }
@@ -1184,16 +1292,74 @@ export function resizeFrameGroupFromDelta(
   options: ResizeFrameOptions = {},
 ): ResizeGroupResult {
   const originGeometry = getBoundsGeometry(originBounds);
-  const minimums = getGroupMinimumBounds(frames, originGeometry, options);
+  const limits = getFrameGroupSizeBounds(frames, originGeometry, options);
   const bounds = resizeFrameFromDelta(originGeometry, handle, dx, dy, {
     ...options,
-    minWidth: minimums.width,
-    minHeight: minimums.height,
+    minWidth: limits.minWidth,
+    minHeight: limits.minHeight,
+    maxWidth: limits.maxWidth,
+    maxHeight: limits.maxHeight,
   });
 
   return {
     bounds,
     frames: resizeFrameGroupToBounds(frames, originGeometry, bounds),
+  };
+}
+
+export function getFrameGroupSizeBounds(
+  frames: FrameEntry[],
+  originBounds: FrameBounds | FrameGeometry,
+  options: ResizeFrameOptions = {},
+): Required<Pick<FrameSizeBounds, "minWidth" | "minHeight">> &
+  Pick<FrameSizeBounds, "maxWidth" | "maxHeight"> {
+  const originGeometry = getBoundsGeometry(originBounds);
+  const minimumWidth = frames.reduce((best, frame) => {
+    const minimum =
+      options.frameSizeBoundsById?.[frame.id]?.minWidth ??
+      options.minWidth ??
+      MIN_CANVAS_FRAME_WIDTH;
+    return Math.max(
+      best,
+      originGeometry.width * (minimum / Math.max(1, frame.geometry.width)),
+    );
+  }, options.minWidth ?? MIN_CANVAS_FRAME_WIDTH);
+  const minimumHeight = frames.reduce((best, frame) => {
+    const minimum =
+      options.frameSizeBoundsById?.[frame.id]?.minHeight ??
+      options.minHeight ??
+      MIN_CANVAS_FRAME_HEIGHT;
+    return Math.max(
+      best,
+      originGeometry.height * (minimum / Math.max(1, frame.geometry.height)),
+    );
+  }, options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT);
+  const maximumWidth = frames.reduce((best, frame) => {
+    const maximum =
+      options.frameSizeBoundsById?.[frame.id]?.maxWidth ?? options.maxWidth;
+    return maximum == null
+      ? best
+      : Math.min(
+          best,
+          originGeometry.width * (maximum / Math.max(1, frame.geometry.width)),
+        );
+  }, Number.POSITIVE_INFINITY);
+  const maximumHeight = frames.reduce((best, frame) => {
+    const maximum =
+      options.frameSizeBoundsById?.[frame.id]?.maxHeight ?? options.maxHeight;
+    return maximum == null
+      ? best
+      : Math.min(
+          best,
+          originGeometry.height *
+            (maximum / Math.max(1, frame.geometry.height)),
+        );
+  }, Number.POSITIVE_INFINITY);
+  return {
+    minWidth: minimumWidth,
+    minHeight: minimumHeight,
+    maxWidth: Math.max(minimumWidth, maximumWidth),
+    maxHeight: Math.max(minimumHeight, maximumHeight),
   };
 }
 
@@ -1652,6 +1818,8 @@ export function resizeRotatedFrameFromDeltaWithSnap(
           ...snapOptions,
           minWidth: snapOptions.minHeight,
           minHeight: snapOptions.minWidth,
+          maxWidth: snapOptions.maxHeight,
+          maxHeight: snapOptions.maxWidth,
         }
       : snapOptions;
 
@@ -1766,19 +1934,36 @@ export function computeResizeSnap(
   }
 
   const threshold = getCanvasSnapThreshold(options);
-  const minSize: MinFrameSize = {
+  const sizeLimits: FrameSizeLimits = {
     minWidth: options.minWidth ?? MIN_CANVAS_FRAME_WIDTH,
     minHeight: options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT,
+    maxWidth: options.maxWidth,
+    maxHeight: options.maxHeight,
+    resizeFromCenter: options.resizeFromCenter,
   };
 
   if (options.preserveAspectRatio) {
-    return computeAspectPreservingResizeSnap(
+    const aspect = computeAspectPreservingResizeSnap(
       frame,
       stationary,
       handle,
       threshold,
-      minSize,
+      sizeLimits,
     );
+    const snappedFrame = clampFrameSize(
+      applyResizeSnapStep(aspect.frame, aspect.guides, options, true),
+      handle,
+      maximumOnlyFrameSizeLimits(sizeLimits),
+    );
+    const guides = guidesMatchingResizedEdges(
+      snappedFrame,
+      handle,
+      aspect.guides,
+    );
+    return {
+      frame: snappedFrame,
+      guides,
+    };
   }
 
   let nextFrame = frame;
@@ -1798,7 +1983,7 @@ export function computeResizeSnap(
         handle,
         "x",
         candidate.offset,
-        minSize,
+        sizeLimits,
       );
       guides.push(candidate.guide);
     }
@@ -1818,13 +2003,79 @@ export function computeResizeSnap(
         handle,
         "y",
         candidate.offset,
-        minSize,
+        sizeLimits,
       );
       guides.push(candidate.guide);
     }
   }
 
-  return { frame: nextFrame, guides };
+  const snappedFrame = clampFrameSize(
+    applyResizeSnapStep(nextFrame, guides, options, false),
+    handle,
+    maximumOnlyFrameSizeLimits(sizeLimits),
+  );
+  return {
+    frame: snappedFrame,
+    guides: guidesMatchingResizedEdges(snappedFrame, handle, guides),
+  };
+}
+
+function maximumOnlyFrameSizeLimits(
+  sizeLimits: FrameSizeLimits,
+): FrameSizeLimits {
+  return {
+    minWidth: 0,
+    minHeight: 0,
+    maxWidth: sizeLimits.maxWidth,
+    maxHeight: sizeLimits.maxHeight,
+    resizeFromCenter: sizeLimits.resizeFromCenter,
+  };
+}
+
+function guidesMatchingResizedEdges(
+  frame: FrameGeometry,
+  handle: ResizeHandle,
+  guides: AlignmentGuide[],
+): AlignmentGuide[] {
+  return guides.filter((guide) => {
+    const edge =
+      guide.orientation === "vertical"
+        ? handleAffectsWest(handle)
+          ? frame.x
+          : frame.x + frame.width
+        : handleAffectsNorth(handle)
+          ? frame.y
+          : frame.y + frame.height;
+    return Math.abs(edge - guide.position) <= SNAP_ALIGN_EPSILON;
+  });
+}
+
+/** Skips any axis an alignment guide claimed, which would pull the edge off the
+ *  line the user is looking at. An aspect-locked resize quantizes only its
+ *  origin: rounding both sizes is what breaks the ratio it must hold. */
+function applyResizeSnapStep(
+  frame: FrameGeometry,
+  guides: readonly AlignmentGuide[],
+  options: ResizeSnapOptions,
+  aspectLocked: boolean,
+): FrameGeometry {
+  const step = options.snapStep ?? 0;
+  if (step <= 0) return frame;
+  const claimedX = guides.some((guide) => guide.orientation === "vertical");
+  const claimedY = guides.some((guide) => guide.orientation === "horizontal");
+  return {
+    ...frame,
+    x: claimedX ? frame.x : quantizeToStep(frame.x, step),
+    y: claimedY ? frame.y : quantizeToStep(frame.y, step),
+    width:
+      claimedX || aspectLocked
+        ? frame.width
+        : quantizeToStep(frame.width, step),
+    height:
+      claimedY || aspectLocked
+        ? frame.height
+        : quantizeToStep(frame.height, step),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2025,7 +2276,7 @@ function computeAspectPreservingResizeSnap(
   stationary: FrameEntry[],
   handle: ResizeHandle,
   threshold: number,
-  minSize: MinFrameSize,
+  sizeLimits: FrameSizeLimits,
 ) {
   const ratio = frame.width / Math.max(1, frame.height);
   const xCandidate =
@@ -2055,7 +2306,7 @@ function computeAspectPreservingResizeSnap(
       handle,
       "x",
       xCandidate.offset,
-      minSize,
+      sizeLimits,
     );
     const nextHeight = snappedX.width / ratio;
     // Matches resizeFrameFromDelta's own convention: when a handle that
@@ -2083,7 +2334,7 @@ function computeAspectPreservingResizeSnap(
       handle,
       "y",
       yCandidate.offset,
-      minSize,
+      sizeLimits,
     );
     const nextWidth = snappedY.height * ratio;
     const rescaled = {
@@ -2156,34 +2407,6 @@ function getFlippedAxisStart(
     return anchor < draggedEdge ? anchor - nextSize : anchor;
   }
   return start;
-}
-
-function getGroupMinimumBounds(
-  frames: FrameEntry[],
-  originBounds: FrameGeometry,
-  options: ResizeFrameOptions,
-): CanvasSize {
-  const minimumFrameWidth = options.minWidth ?? MIN_CANVAS_FRAME_WIDTH;
-  const minimumFrameHeight = options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT;
-  const minimumWidth = frames.reduce(
-    (best, frame) =>
-      Math.max(
-        best,
-        originBounds.width *
-          (minimumFrameWidth / Math.max(1, frame.geometry.width)),
-      ),
-    minimumFrameWidth,
-  );
-  const minimumHeight = frames.reduce(
-    (best, frame) =>
-      Math.max(
-        best,
-        originBounds.height *
-          (minimumFrameHeight / Math.max(1, frame.geometry.height)),
-      ),
-    minimumFrameHeight,
-  );
-  return { width: minimumWidth, height: minimumHeight };
 }
 
 function getCanvasSnapThreshold({
@@ -2522,9 +2745,12 @@ function getResizeSnapCandidate(
   }, null);
 }
 
-interface MinFrameSize {
+interface FrameSizeLimits {
   minWidth: number;
   minHeight: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  resizeFromCenter?: boolean;
 }
 
 function applyResizeSnapOffset(
@@ -2532,7 +2758,7 @@ function applyResizeSnapOffset(
   handle: ResizeHandle,
   axis: "x" | "y",
   offset: number,
-  minSize: MinFrameSize = {
+  sizeLimits: FrameSizeLimits = {
     minWidth: MIN_CANVAS_FRAME_WIDTH,
     minHeight: MIN_CANVAS_FRAME_HEIGHT,
   },
@@ -2543,7 +2769,7 @@ function applyResizeSnapOffset(
         ? { ...frame, x: frame.x + offset, width: frame.width - offset }
         : { ...frame, width: frame.width + offset },
       handle,
-      minSize,
+      sizeLimits,
     );
   }
 
@@ -2552,7 +2778,7 @@ function applyResizeSnapOffset(
       ? { ...frame, y: frame.y + offset, height: frame.height - offset }
       : { ...frame, height: frame.height + offset },
     handle,
-    minSize,
+    sizeLimits,
   );
 }
 
@@ -2562,23 +2788,49 @@ function clampFrameSize(
   {
     minWidth = MIN_CANVAS_FRAME_WIDTH,
     minHeight = MIN_CANVAS_FRAME_HEIGHT,
+    maxWidth,
+    maxHeight,
+    resizeFromCenter = false,
   }: {
     minWidth?: number;
     minHeight?: number;
+    maxWidth?: number;
+    maxHeight?: number;
+    resizeFromCenter?: boolean;
   } = {},
 ) {
   let next = { ...frame };
   if (next.width < minWidth) {
     if (handleAffectsWest(handle)) {
       next.x = next.x + next.width - minWidth;
+    } else if (resizeFromCenter) {
+      next.x -= (minWidth - next.width) / 2;
     }
     next.width = minWidth;
+  }
+  if (maxWidth != null && next.width > maxWidth) {
+    if (handleAffectsWest(handle)) {
+      next.x = next.x + next.width - maxWidth;
+    } else if (resizeFromCenter) {
+      next.x += (next.width - maxWidth) / 2;
+    }
+    next.width = maxWidth;
   }
   if (next.height < minHeight) {
     if (handleAffectsNorth(handle)) {
       next.y = next.y + next.height - minHeight;
+    } else if (resizeFromCenter) {
+      next.y -= (minHeight - next.height) / 2;
     }
     next.height = minHeight;
+  }
+  if (maxHeight != null && next.height > maxHeight) {
+    if (handleAffectsNorth(handle)) {
+      next.y = next.y + next.height - maxHeight;
+    } else if (resizeFromCenter) {
+      next.y += (next.height - maxHeight) / 2;
+    }
+    next.height = maxHeight;
   }
   return next;
 }

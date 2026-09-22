@@ -10,7 +10,7 @@
  *   pnpm action create-organization --name="Acme"
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { createOrganization } from "@agent-native/core/org";
 import { z } from "zod";

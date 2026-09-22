@@ -5,7 +5,7 @@
  * gets a shadcn Tooltip showing name/email. Used on both list cards and
  * detail headers.
  */
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ClipsAvatar } from "@/components/clips-avatar";
 import {
   Tooltip,
   TooltipContent,
@@ -58,14 +58,13 @@ export function AttendeeStack({
         {visible.map((p, i) => (
           <Tooltip key={`${p.email}-${i}`}>
             <TooltipTrigger asChild>
-              <Avatar
-                className={`${sizeClass} ring-2 ring-background cursor-default`}
-              >
-                <AvatarImage alt={p.name || p.email} />
-                <AvatarFallback className="font-medium">
-                  {attendeeInitials(p)}
-                </AvatarFallback>
-              </Avatar>
+              <ClipsAvatar
+                email={p.email}
+                alt={p.name || p.email}
+                fallback={attendeeInitials(p)}
+                fallbackClassName="font-medium"
+                className={`${sizeClass} ring-1 ring-background cursor-default`}
+              />
             </TooltipTrigger>
             <TooltipContent side="top" className="text-xs">
               <div className="font-medium">{p.name || p.email}</div>
@@ -79,7 +78,7 @@ export function AttendeeStack({
         ))}
         {extra > 0 && (
           <span
-            className={`relative z-10 inline-flex items-center justify-center rounded-full bg-muted text-muted-foreground ring-2 ring-background font-medium tabular-nums ${sizeClass}`}
+            className={`relative z-10 inline-flex items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-background font-medium tabular-nums ${sizeClass}`}
           >
             +{extra}
           </span>

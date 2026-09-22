@@ -1,15 +1,16 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
-import { isGoogleNotFoundError } from "../server/lib/google-api.js";
+import { isGoogleEventAbsentError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
-  normalizeGoogleEventId,
+  normalizeWritableGoogleEventId,
+  rawCliBoolean,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
@@ -49,6 +50,14 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
+  // Deleting the event is recoverable — Google keeps it in the calendar's trash
+  // — but the cancellation Google mails the guests, and the companion note this
+  // action sends alongside it, are not. So the gate is on the outward-facing
+  // send, not on the delete: a quiet "cancel my 3pm" still runs unattended.
+  // removeOnly forces sendUpdates to none, so it never reaches a guest.
+  needsApproval: ({ sendUpdates, notificationMessage, removeOnly }) =>
+    !rawCliBoolean(removeOnly) &&
+    (sendUpdates === "all" || !!notificationMessage?.trim()),
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {
@@ -57,7 +66,7 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeGoogleEventId(args.id);
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
       args.accountEmail,
       ownerEmail,
@@ -95,7 +104,7 @@ export default defineAction({
         );
       }
     } catch (error) {
-      if (!isGoogleNotFoundError(error)) throw error;
+      if (!isGoogleEventAbsentError(error)) throw error;
 
       return {
         success: true,

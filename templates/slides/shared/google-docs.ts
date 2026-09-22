@@ -1,4 +1,5 @@
 const GOOGLE_DOC_ID_RE = /^[a-zA-Z0-9_-]{20,}$/;
+const GOOGLE_SLIDES_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
 export function extractGoogleDocId(input: string): string | null {
   const trimmed = input.trim();
@@ -29,6 +30,31 @@ export function extractGoogleDocUrls(text: string): string[] {
   for (const match of text.matchAll(pattern)) {
     const url = match[0].replace(/[.,;:!?]+$/, "");
     if (extractGoogleDocId(url)) urls.add(url);
+  }
+  return [...urls];
+}
+
+export function extractGoogleSlidesUrls(text: string): string[] {
+  const urls = new Set<string>();
+  const pattern =
+    /https:\/\/docs\.google\.com\/presentation(?:\/u\/\d+)?\/d\/[^\s<>"'`),\]]+/gi;
+  for (const match of text.matchAll(pattern)) {
+    const url = match[0].replace(/[.,;:!?]+$/, "");
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      continue;
+    }
+
+    if (!/(\.|^)google\.com$/i.test(parsed.hostname)) continue;
+
+    const presentationMatch = parsed.pathname.match(
+      /\/presentation(?:\/u\/\d+)?\/d\/([a-zA-Z0-9_-]+)/,
+    );
+    if (presentationMatch && GOOGLE_SLIDES_ID_RE.test(presentationMatch[1])) {
+      urls.add(url);
+    }
   }
   return [...urls];
 }

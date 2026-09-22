@@ -46,6 +46,20 @@ interface Options {
 }
 
 const DEFAULT_STORAGE_KEY = "agent-native:chat-models:selection";
+
+/**
+ * `useChatModels` takes the raw localStorage key while `MultiTabAssistantChat`
+ * takes only the namespace suffix — a surface that hand-writes either one stops
+ * sharing the selection with the chat it sits next to.
+ */
+export function chatModelSelectionStorageKey(
+  namespace?: string | null,
+): string {
+  return namespace
+    ? `${DEFAULT_STORAGE_KEY}:${namespace}`
+    : DEFAULT_STORAGE_KEY;
+}
+
 export const CHAT_MODEL_SELECTION_CHANGED_EVENT =
   "agent-native:chat-model-selection-changed";
 const MODEL_DISCOVERY_RETRY_DELAYS_MS = [250, 1_000] as const;
@@ -301,10 +315,11 @@ export function useChatModels({
           // Default only to a CONFIGURED group, and to nothing when there is
           // none. `DEFAULT_MODEL` is a builder-gateway id that no group carries
           // unless Builder is connected, and unconfigured groups are kept in the
-          // list for their connect affordance — so both `?? DEFAULT_MODEL` and
-          // `?? groups[0]` yield a selection the app cannot route, which the
-          // server silently replaces with its own default. An empty selection
-          // hides the picker instead of showing a model that will not be used.
+          // list for their connect affordance where that is useful — so both
+          // `?? DEFAULT_MODEL` and `?? groups[0]` yield a selection the app
+          // cannot route, which the server silently replaces with its own
+          // default. An empty selection hides the picker instead of showing a
+          // model that will not be used.
           const configuredGroups = groups.filter((g) => g.configured);
           const resolveRoutableSelection = () => {
             const group =

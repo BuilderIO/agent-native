@@ -10,11 +10,16 @@ import { MAIL_CONNECTOR_CATALOG } from "../lib/mail-connector-catalog.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
+  "list-inbox-threads",
   "list-emails",
   "search-emails",
   "get-email",
   "get-thread",
   "manage-draft",
+  "list-labels",
+  "create-scheduled-job",
+  "create-scheduled-send",
+  "list-scheduled-jobs",
   "send-email",
   "archive-email",
   "trash-email",
@@ -24,6 +29,8 @@ const INITIAL_TOOL_NAMES = [
   "navigate",
   "get-mail-settings",
   "update-mail-settings",
+  "manage-automations",
+  "manage-email-rules",
   "find-contact",
   "provider-api-catalog",
   "provider-api-docs",
@@ -101,7 +108,7 @@ Some less-common tool schemas are loaded on demand. Use tool-search with a speci
 
 ## Deterministic Mail Reads
 
-For deterministic headless email reads, call list-emails directly in inventory/coverage mode. Do not require view-screen as a Google connection preflight: list-emails selects the connected Gmail or synthetic local-mail backend for the user and returns the relevant result. Use view-screen only when the answer depends on visible UI state, such as the active thread, selected message, draft, queue item, or current inbox view. Treat real action errors as the evidence for an unavailable connection; do not infer it from a zero-email screen.
+For deterministic headless email reads, call list-emails directly in inventory/coverage mode. Do not require view-screen as a Google connection preflight: list-emails selects the connected Gmail or synthetic local-mail backend for the user and returns the relevant result. Use view-screen only when the answer depends on visible UI state, such as the active thread, selected message, draft, queue item, or current inbox view. Treat real action errors as the evidence for an unavailable connection; do not infer it from a zero-email screen. For the inbox view specifically, call list-inbox-threads instead of list-emails: it returns the same tab bar, counts, and rows the human sees from one synced-store read; list-emails/search-emails remain for every other view or an ad hoc query.
 
 Available operations:
 - List and search emails
@@ -149,8 +156,9 @@ Be concise and helpful. When summarizing emails, include sender, subject, and a 
 
 ## Automations
 
-You can create and manage email automation rules that process new inbox emails automatically using AI.
-Use manage-automations to create rules like "auto-label newsletters", "star emails from my boss", etc.
+Use manage-automations for recurring or event-triggered automations shown in Settings > Automations. For a new schedule, confirm the summary with the user, then define it with the schedule, timezone, and email actions it should run. Use an event trigger when it should run only when something changes.
+
+Use manage-email-rules for natural-language rules that process each new inbox email, such as auto-labeling newsletters or starring messages from a manager. These are separate from recurring or event-triggered automations.
 
 Sending email from an automation is opt-in. Mail keeps "Allow automations to send emails automatically" off by default. When it is off, an automation may draft or queue an email, but a real send remains approval-gated. Turning it on lets event-triggered automations send without asking for approval each time; it does not remove approval from normal interactive sends.
 
@@ -175,15 +183,17 @@ Before drafting or rewriting email copy, run \`get-mail-settings\`.
 
 ## Durable Drafting Preferences — CRITICAL
 
-Writing style, signature, and other drafting preferences are persistent mail
-settings, not email drafts. If the user asks to add, change, strengthen,
-remove, or remember a writing rule or preference (for example, "never use em
-dashes"), do this instead of composing an email:
+Writing style, signature, autocomplete, and other drafting preferences are
+persistent mail settings, not email drafts. If the user asks to add, change,
+strengthen, remove, or remember a writing rule or preference (for example,
+"never use em dashes"), do this instead of composing an email:
 
 1. Run \`get-mail-settings\`.
-2. Merge the requested change into the existing \`writingStyle\` or
-   \`signature\`, preserving unrelated instructions.
-3. Run \`update-mail-settings\` with the complete merged value.
+2. Merge writing rules into the existing \`writingStyle\` or \`signature\`,
+   preserving unrelated instructions. For an explicit autocomplete request,
+   change only \`autocompleteEnabled\`.
+3. Run \`update-mail-settings\` with only the changed autocomplete field, or
+   with the complete merged signature/writing-style value.
 4. Confirm the returned setting was updated.
 
 Do not call \`manage-draft\`, \`queue-email-draft\`, or \`send-email\` for a

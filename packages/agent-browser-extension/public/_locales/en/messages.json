@@ -1,18 +1,18 @@
 {
   "extensionName": {
-    "message": "Agent Native for Chrome"
+    "message": "Agent-Native for Chrome"
   },
   "extensionShortName": {
-    "message": "Agent Native"
+    "message": "Agent-Native"
   },
   "extensionDescription": {
-    "message": "Chat with the page you choose and let Agent Native work alongside you."
+    "message": "Chat with the page you choose and let Agent-Native work alongside you."
   },
   "actionTitle": {
-    "message": "Open Agent Native"
+    "message": "Open Agent-Native"
   },
   "panelTitle": {
-    "message": "Agent Native"
+    "message": "Agent-Native"
   },
   "currentPage": {
     "message": "Current page"
@@ -36,7 +36,7 @@
     "message": "Could not capture this page."
   },
   "captureGrantNeeded": {
-    "message": "Allow access to this site to share the page with Agent Native."
+    "message": "Allow access to this site to share the page with Agent-Native."
   },
   "pageRestricted": {
     "message": "Chrome does not allow access to this page"
@@ -90,13 +90,13 @@
     "message": "Captured. Waiting for Dispatch to become ready."
   },
   "controlUnavailable": {
-    "message": "Connect Agent Native to enable browser control."
+    "message": "Connect Agent-Native to enable browser control."
   },
   "controlAvailable": {
-    "message": "Browser control is available through Agent Native Desktop."
+    "message": "Browser control is available through Agent-Native Desktop."
   },
   "controlActive": {
-    "message": "Agent Native is controlling an assigned browser tab."
+    "message": "Agent-Native is controlling an assigned browser tab."
   },
   "controlAvailableRelay": {
     "message": "Browser control is available through this extension."
@@ -105,7 +105,7 @@
     "message": "Enable browser relay"
   },
   "relayAccessNeeded": {
-    "message": "Allow the connected Agent Native relay to enable browser tools."
+    "message": "Allow the connected Agent-Native relay to enable browser tools."
   },
   "relayAccessReady": {
     "message": "Browser relay enabled."

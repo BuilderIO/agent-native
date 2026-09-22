@@ -8,8 +8,11 @@ import {
   findNetlifyReleaseMigrationIssues,
   validateBetaPrebuiltReleaseEnvironment,
   validateBetaSchemaOwnerRuntimeContract,
+  validateFrameworkOnlyReleaseScript,
+  validateManagedDrizzleMigrationOwnership,
   validateNetlifyReleaseMigrationConfig,
   validatePublishedNetlifyReleaseMigrationConfig,
+  validateReleaseMigrationLoadsEnv,
 } from "./guard-netlify-release-migrations.ts";
 
 describe("Netlify release migration guard", () => {
@@ -142,6 +145,68 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
 
   it("passes for every checked repository Netlify project", () => {
     assert.deepEqual(findNetlifyReleaseMigrationIssues(), []);
+  });
+
+  it("keeps managed app migrations out of framework release scripts", () => {
+    assert.deepEqual(validateManagedDrizzleMigrationOwnership(), []);
+  });
+
+  it("rejects any release entrypoint beyond the framework migration", () => {
+    const frameworkOnly = `
+import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
+import { loadEnv } from "@agent-native/core/scripts";
+import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+
+loadEnv();
+
+async function main(): Promise<void> {
+  await withMigrationRuntime(async () => {
+    await runFrameworkReleaseMigrations(null);
+  });
+}
+
+try {
+  await main();
+} finally {
+  await closeDbExec();
+}
+`;
+    assert.deepEqual(
+      validateFrameworkOnlyReleaseScript(
+        frameworkOnly,
+        "migrate-production.ts",
+      ),
+      [],
+    );
+    assert.notDeepEqual(
+      validateFrameworkOnlyReleaseScript(
+        `import { runMigrations } from "../server/plugins/db.ts";\n${frameworkOnly}`,
+        "migrate-production.ts",
+      ),
+      [],
+    );
+    assert.notDeepEqual(
+      validateFrameworkOnlyReleaseScript(
+        `${frameworkOnly}\nasync function runAppMigrations() { await main(); }`,
+        "migrate-production.ts",
+      ),
+      [],
+    );
+  });
+
+  it("requires release entrypoints to load workspace environment", () => {
+    const file = "templates/example/scripts/migrate-production.ts";
+    assert.deepEqual(
+      validateReleaseMigrationLoadsEnv(
+        'import { loadEnv } from "@agent-native/core/scripts";\nloadEnv();\n',
+        file,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      validateReleaseMigrationLoadsEnv("await migrate();", file),
+      [`${file}: must load app and workspace environment before migrating`],
+    );
   });
 
   it("requires the beta schema owner marker to reach runtime", () => {

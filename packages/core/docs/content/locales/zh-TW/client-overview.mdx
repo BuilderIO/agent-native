@@ -9,7 +9,7 @@ description: "app/ 與 public/ 目錄：您在此建置 agent-native 應用程�
 
 與典型前端唯一的架構差異：此層沒有屬於自己的 backend-for-frontend。它透過代理所呼叫的相同 actions 來讀取和寫入資料，因此在這裡連接的任何功能自動也是代理可以執行的功能。
 
-<Diagram id="doc-block-client-overview-1" title="傳統前端 vs. Agent Native" summary="傳統前端呼叫自己的 API 層，只有它自己能存取。在 Agent Native 中，app/ 和代理都呼叫相同的 actions，因此這裡建置的每項功能都能免費供代理呼叫。">
+<Diagram id="doc-block-client-overview-1" title="傳統前端 vs. Agent-Native" summary="傳統前端呼叫自己的 API 層，只有它自己能存取。在 Agent-Native 中，app/ 和代理都呼叫相同的 actions，因此這裡建置的每項功能都能免費供代理呼叫。">
 
 ```html
 <div class="diagram-cocmp">
@@ -26,7 +26,7 @@ description: "app/ 與 public/ 目錄：您在此建置 agent-native 應用程�
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/（React 前端）</div>
       <div class="diagram-node">代理</div>
@@ -177,7 +177,7 @@ public/
 }
 ```
 
-透過替換這些檔案並更新 `manifest.json`，以及 `root.tsx` 中引用它們的 `<link rel="icon">`/`<link rel="apple-touch-icon">` 標籤，即可為應用程式換牌 — 沒有另外的註冊步驟。若要從現有網站拉取完整的品牌系統（顏色、字型、favicon），而不是手動編輯這些檔案，請參閱[品牌系統與 Figma](/docs/template-design-brand-and-figma)。
+透過替換這些檔案並更新 `manifest.json`，以及 `root.tsx` 中引用它們的 `<link rel="icon">`/`<link rel="apple-touch-icon">` 標籤，即可為應用程式換牌 — 沒有另外的註冊步驟。若要從現有網站拉取完整的品牌系統（顏色、字體排印和標誌參照），而不是手動編輯這些檔案，請參閱[設計系統](/docs/template-design-features#new-design-system)。
 
 ## 實用工具：cn {#utilities}
 

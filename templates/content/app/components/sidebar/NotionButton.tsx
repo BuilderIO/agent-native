@@ -2,7 +2,9 @@ import {
   agentNativePath,
   appApiPath,
 } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import {
   IconExternalLink,
   IconCheck,
@@ -108,7 +110,7 @@ export function NotionButton() {
   }, []);
 
   useEffect(() => {
-    if (showWizard) fetchEnvStatus();
+    if (showWizard) void fetchEnvStatus();
   }, [showWizard, fetchEnvStatus]);
 
   const oauthConfigured =
@@ -142,7 +144,7 @@ export function NotionButton() {
       toast.error(t("sidebar.notionOAuthNotConfigured"));
       return;
     }
-    const popup = window.open("about:blank", "_blank");
+    const popup = openOAuthPopup();
     if (!popup) {
       toast.error(t("sidebar.notionOAuthNotConfigured"));
       return;
@@ -355,8 +357,15 @@ export function NotionButton() {
                           <button
                             className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent"
                             onClick={() => {
-                              navigator.clipboard.writeText(redirectUri);
-                              toast.success(t("sidebar.copied"));
+                              void writeClipboardText(redirectUri).then(
+                                (copied) => {
+                                  if (copied) {
+                                    toast.success(t("sidebar.copied"));
+                                    return;
+                                  }
+                                  toast.error(t("empty.genericError"));
+                                },
+                              );
                             }}
                           >
                             {t("sidebar.copy")}
@@ -377,7 +386,7 @@ export function NotionButton() {
                               className="hidden"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
-                                if (file) handleJsonUpload(file);
+                                if (file) void handleJsonUpload(file);
                               }}
                             />
                           </label>
@@ -501,7 +510,7 @@ export function NotionButton() {
             <div className="p-2 space-y-0.5">
               <button
                 onClick={() => {
-                  refetch();
+                  void refetch();
                   toast.success(t("sidebar.synced"));
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
@@ -511,7 +520,7 @@ export function NotionButton() {
               </button>
               <button
                 onClick={() => {
-                  handleDisconnect();
+                  void handleDisconnect();
                   setOpen(false);
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md"
@@ -539,7 +548,7 @@ export function NotionButton() {
                 if (needsCredentials) {
                   setShowWizard(true);
                 } else {
-                  handleConnect();
+                  void handleConnect();
                 }
               }}
             >

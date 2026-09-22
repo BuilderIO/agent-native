@@ -21,6 +21,15 @@ export type DesignCanvasEmbeddedFrame = {
   contentOffsetY?: number;
 };
 
+/**
+ * Whether a text commit actually reached a writable surface. The host-side
+ * fallback consumes this instead of re-reading the source: a live-snapshot
+ * write lands in `liveScreenSnapshotsById`, which `getScreenContent` does not
+ * read, so a readback classified an ACCEPTED write as lost and reported the
+ * user's text unrecoverable.
+ */
+export type TextCommitStatus = "accepted" | "refused";
+
 export interface LiveScreenSnapshot {
   url: string;
   html: string;
@@ -50,6 +59,7 @@ export interface PendingStructureVerificationSource {
 export interface PendingStructureVerificationSession {
   requestId: number;
   cancelled: boolean;
+  abortController: AbortController;
   edits: PendingLiveStructureEdit[];
   sources: PendingStructureVerificationSource[];
 }
@@ -69,8 +79,10 @@ export interface CodingHandoffResult {
 export interface CanvasLayerClipboardEntry {
   html: string;
   rootNodeId?: string;
+  sourceParentNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 

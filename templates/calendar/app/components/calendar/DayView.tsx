@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
+import { isCalendarEventOrganizer } from "@shared/event-permissions";
 import {
   IconAlertTriangleFilled,
   IconMapPin,
@@ -14,19 +15,24 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useEventDrag } from "@/hooks/use-event-drag";
+import {
+  useEventDrag,
+  type EventTimeChangeHandler,
+} from "@/hooks/use-event-drag";
 import { useGridCreateDrag } from "@/hooks/use-grid-create-drag";
 import {
   useViewPreferences,
   type ViewPreferences,
 } from "@/hooks/use-view-preferences";
 import { partitionAllDayEvents } from "@/lib/all-day-layout";
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import {
   dateToCalendarDateKey,
   getBrowserTimezone,
   getDateKeyInTimezone,
   getEventDateKey,
   getEventSegmentForCalendarDay,
+  isAllDayCalendarEvent,
 } from "@/lib/calendar-timezone";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
@@ -58,22 +64,18 @@ interface DayViewProps {
   events: CalendarEvent[];
   date: Date;
   timezone?: string;
-  onDeleteEvent: (eventId: string) => void;
-  onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
+  onDeleteEvent: (event: CalendarEvent) => void;
+  onEventTimeChange?: EventTimeChangeHandler;
   onClickTimeSlot?: (
     date: Date,
     startTime: string,
     endTime: string,
-    options?: { explicitDuration?: boolean },
+    options?: { allDay?: boolean; explicitDuration?: boolean },
   ) => void;
   onCreateWorkingLocation?: (date: Date) => void;
   quickEditEventId?: string | null;
-  onQuickEditSave?: (
-    eventId: string,
-    title: string,
-    accountEmail?: string,
-  ) => void;
-  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
+  onQuickEditSave?: (event: CalendarEvent, title: string) => void;
+  onQuickEditCancel?: (event: CalendarEvent) => void;
   draftEventIds?: string[];
   onDraftUpdate?: (
     eventId: string,
@@ -164,7 +166,7 @@ interface DayEventCardProps {
   layout: Map<string, TimedEventLayout>;
   now: Date;
   prefs: ViewPreferences;
-  focusedEventId: string | null;
+  focusedEventKey: string | null;
   isBeingDragged: boolean;
   isDragging: boolean;
   overrideTop: number | null;
@@ -175,18 +177,17 @@ interface DayEventCardProps {
     event: CalendarEvent,
     isStart: boolean,
   ) => void;
-  onResizeTopPointerDown: (e: React.PointerEvent, eventId: string) => void;
-  onResizeBottomPointerDown: (e: React.PointerEvent, eventId: string) => void;
+  onResizeTopPointerDown: (e: React.PointerEvent, event: CalendarEvent) => void;
+  onResizeBottomPointerDown: (
+    e: React.PointerEvent,
+    event: CalendarEvent,
+  ) => void;
   shouldSuppressClick: () => boolean;
-  onDeleteEvent: (eventId: string) => void;
+  onDeleteEvent: (event: CalendarEvent) => void;
   isDraft: boolean;
   defaultOpen: boolean;
-  onQuickEditSave?: (
-    eventId: string,
-    title: string,
-    accountEmail?: string,
-  ) => void;
-  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
+  onQuickEditSave?: (event: CalendarEvent, title: string) => void;
+  onQuickEditCancel?: (event: CalendarEvent) => void;
   onDraftUpdate?: DayViewProps["onDraftUpdate"];
   onDraftCreate?: DayViewProps["onDraftCreate"];
   onDraftDiscard?: DayViewProps["onDraftDiscard"];
@@ -206,7 +207,7 @@ const DayEventCard = memo(function DayEventCard({
   layout,
   now,
   prefs,
-  focusedEventId,
+  focusedEventKey,
   isBeingDragged,
   isDragging,
   overrideTop,
@@ -227,8 +228,9 @@ const DayEventCard = memo(function DayEventCard({
   onPopoverOpenChange,
 }: DayEventCardProps) {
   const t = useT();
+  const canManipulate = canDrag && isCalendarEventOrganizer(event);
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
-  const li = layout.get(event.id) ?? {
+  const li = layout.get(getCalendarEventRenderKey(event)) ?? {
     left: 0,
     width: 100,
     indent: 0,
@@ -283,7 +285,7 @@ const DayEventCard = memo(function DayEventCard({
         isDeclined && "saturate-[0.3]",
         isBeingDragged && isDragging && "shadow-lg z-[100]",
         isBeingDragged && isDragging && "ring-2 ring-primary/40",
-        canDrag && isStart && "cursor-grab",
+        canManipulate && isStart && "cursor-grab",
         isBeingDragged && isDragging && "cursor-grabbing",
         event.ownerColor && "pr-4",
       )}
@@ -297,11 +299,11 @@ const DayEventCard = memo(function DayEventCard({
       style={{
         ...posStyle,
         left: `calc(${li.left}% + ${li.indent}px)`,
-        width: `calc(${li.width}% - ${li.indent * 2 + 2}px)`,
+        width: `calc(${li.width}% - ${li.indent + 2}px)`,
         zIndex:
           isBeingDragged && isDragging
             ? 100
-            : focusedEventId === event.id
+            : focusedEventKey === getCalendarEventRenderKey(event)
               ? 50
               : li.stackOrder + 1,
         backgroundColor: color
@@ -403,24 +405,24 @@ const DayEventCard = memo(function DayEventCard({
         </>
       )}
       {/* Top resize handle — only on segments that start today */}
-      {canDrag && isStart && (
+      {canManipulate && isStart && (
         <div
           data-resize-handle="true"
           onPointerDown={(e) => {
             e.stopPropagation();
-            onResizeTopPointerDown(e, event.id);
+            onResizeTopPointerDown(e, event);
           }}
           className="absolute left-0 right-0 top-0 h-2.5 cursor-n-resize"
           style={{ touchAction: "none" }}
         />
       )}
       {/* Bottom resize handle — only when event both starts and ends today */}
-      {canDrag && isEnd && isStart && (
+      {canManipulate && isEnd && isStart && (
         <div
           data-resize-handle="true"
           onPointerDown={(e) => {
             e.stopPropagation();
-            onResizeBottomPointerDown(e, event.id);
+            onResizeBottomPointerDown(e, event);
           }}
           className="absolute bottom-0 left-0 right-0 h-2.5 cursor-s-resize"
           style={{ touchAction: "none" }}
@@ -504,8 +506,8 @@ export const DayView = memo(function DayView({
   const { setFocusedEvent } = useCalendarSetters();
   const { prefs } = useViewPreferences();
   const [now, setNow] = useState(new Date());
-  const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
-  const focusedEventIdRef = useRef<string | null>(null);
+  const [focusedEventKey, setFocusedEventKey] = useState<string | null>(null);
+  const focusedEventKeyRef = useRef<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -513,8 +515,8 @@ export const DayView = memo(function DayView({
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        focusedEventIdRef.current = null;
-        setFocusedEventId(null);
+        focusedEventKeyRef.current = null;
+        setFocusedEventKey(null);
         setFocusedEvent(null);
       }
     }
@@ -556,7 +558,9 @@ export const DayView = memo(function DayView({
   const allDayEvents = useMemo(
     () =>
       events.filter(
-        (event) => event.allDay || fullDayOutOfOfficeCoversDate(event, date),
+        (event) =>
+          isAllDayCalendarEvent(event) ||
+          fullDayOutOfOfficeCoversDate(event, date),
       ),
     [date, events],
   );
@@ -568,14 +572,17 @@ export const DayView = memo(function DayView({
     () =>
       events.filter(
         (event) =>
-          !event.allDay &&
+          !isAllDayCalendarEvent(event) &&
           isOutOfOfficeEvent(event) &&
           !isFullDayOutOfOfficeEvent(event),
       ),
     [events],
   );
   const timedEvents = useMemo(
-    () => events.filter((event) => !event.allDay && !isOutOfOfficeEvent(event)),
+    () =>
+      events.filter(
+        (event) => !isAllDayCalendarEvent(event) && !isOutOfOfficeEvent(event),
+      ),
     [events],
   );
   const layout = useMemo(
@@ -646,8 +653,8 @@ export const DayView = memo(function DayView({
 
   // Drag-to-move and drag-to-resize
   const handleEventTimeChange = useCallback(
-    (eventId: string, newStart: Date, newEnd: Date) => {
-      onEventTimeChange?.(eventId, newStart, newEnd);
+    (event: CalendarEvent, newStart: Date, newEnd: Date) => {
+      return onEventTimeChange?.(event, newStart, newEnd);
     },
     [onEventTimeChange],
   );
@@ -655,15 +662,14 @@ export const DayView = memo(function DayView({
   const {
     startDrag,
     getDragOverrides,
+    isDraggingEvent,
     isDragging,
-    dragEventId,
     shouldSuppressClick,
   } = useEventDrag({
     hourHeight: HOUR_HEIGHT,
     startHour: START_HOUR,
     scrollContainerRef,
     onEventTimeChange: handleEventTimeChange,
-    events,
     timezone,
   });
 
@@ -672,14 +678,16 @@ export const DayView = memo(function DayView({
   const handleEventPopoverOpenChange = useCallback(
     (event: CalendarEvent, open: boolean) => {
       if (open) {
-        focusedEventIdRef.current = event.id;
-        setFocusedEventId(event.id);
+        const eventKey = getCalendarEventRenderKey(event);
+        focusedEventKeyRef.current = eventKey;
+        setFocusedEventKey(eventKey);
         setFocusedEvent(event);
         return;
       }
-      if (focusedEventIdRef.current !== event.id) return;
-      focusedEventIdRef.current = null;
-      setFocusedEventId(null);
+      const eventKey = getCalendarEventRenderKey(event);
+      if (focusedEventKeyRef.current !== eventKey) return;
+      focusedEventKeyRef.current = null;
+      setFocusedEventKey(null);
       setFocusedEvent(null);
     },
     [setFocusedEvent],
@@ -687,30 +695,34 @@ export const DayView = memo(function DayView({
 
   const handleEventPointerDown = useCallback(
     (e: React.PointerEvent, event: CalendarEvent, isStart: boolean) => {
-      focusedEventIdRef.current = event.id;
-      setFocusedEventId(event.id);
+      if (!isCalendarEventOrganizer(event)) return;
+      const eventKey = getCalendarEventRenderKey(event);
+      focusedEventKeyRef.current = eventKey;
+      setFocusedEventKey(eventKey);
       setFocusedEvent(event);
       if (
         canDrag &&
         isStart &&
         !(e.target as HTMLElement).dataset.resizeHandle
       ) {
-        startDrag(e, event.id, "move", 0);
+        startDrag(e, event, "move", 0);
       }
     },
     [canDrag, setFocusedEvent, startDrag],
   );
 
   const handleResizeTopPointerDown = useCallback(
-    (e: React.PointerEvent, eventId: string) => {
-      startDrag(e, eventId, "resize-top", 0);
+    (e: React.PointerEvent, event: CalendarEvent) => {
+      if (!isCalendarEventOrganizer(event)) return;
+      startDrag(e, event, "resize-top", 0);
     },
     [startDrag],
   );
 
   const handleResizeBottomPointerDown = useCallback(
-    (e: React.PointerEvent, eventId: string) => {
-      startDrag(e, eventId, "resize", 0);
+    (e: React.PointerEvent, event: CalendarEvent) => {
+      if (!isCalendarEventOrganizer(event)) return;
+      startDrag(e, event, "resize", 0);
     },
     [startDrag],
   );
@@ -792,164 +804,193 @@ export const DayView = memo(function DayView({
       </div>
 
       {/* Working locations and ordinary all-day events */}
-      {allDayEvents.length > 0 && (
-        <div className="border-b border-border bg-card/50">
-          {workingLocations.length > 0 && (
-            <div data-working-location-lane className="px-4 py-1.5">
-              <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground">
-                <IconMapPin aria-hidden="true" className="size-3" />
-                {t("eventForm.workingLocation")}
-              </p>
-              <div className="grid gap-1 sm:grid-cols-2">
-                {workingLocations.map((event) => {
-                  const color = getEventDisplayColor(event, prefs);
-                  return (
-                    <EventDetailPopover
-                      key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
-                      event={event}
-                      timezone={timezone}
-                      onDelete={onDeleteEvent}
-                      isDraft={draftEventIds.includes(event.id)}
-                      defaultOpen={quickEditEventId === event.id}
-                      popoverSide="bottom"
-                      onTitleSave={onQuickEditSave}
-                      onDismissNew={onQuickEditCancel}
-                      onDraftUpdate={onDraftUpdate}
-                      onDraftCreate={onDraftCreate}
-                      onDraftDiscard={onDraftDiscard}
-                    >
-                      <button
-                        className={cn(
-                          "relative flex h-6 w-full items-center gap-1.5 truncate rounded-sm px-2 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80",
-                          event.ownerColor && "pr-5",
-                        )}
-                        aria-label={
-                          event.ownerName || event.overlayEmail
-                            ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
-                                event.ownerName || event.overlayEmail
-                              }'s calendar`
-                            : getWorkingLocationTitle(
-                                event,
-                                workingLocationLabels,
-                              )
-                        }
-                        style={{
-                          backgroundColor: color
-                            ? `${color}1f`
-                            : "hsl(var(--muted))",
-                          borderLeft: `2px solid ${
-                            color ?? "hsl(var(--muted-foreground))"
-                          }`,
-                        }}
-                      >
-                        <IconMapPin
-                          aria-hidden="true"
-                          className="size-3 shrink-0 opacity-70"
-                        />
-                        <span className="truncate">
-                          {getWorkingLocationChipLabel(
-                            event,
-                            workingLocationLabels,
-                          )}
-                        </span>
-                        {event.ownerColor && (
-                          <span
-                            aria-hidden="true"
-                            className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
-                            style={{ backgroundColor: event.ownerColor }}
-                          />
-                        )}
-                      </button>
-                    </EventDetailPopover>
-                  );
-                })}
-              </div>
+      {(allDayEvents.length > 0 || onClickTimeSlot) && (
+        <div className="flex max-h-[88px] flex-col overflow-hidden border-b border-border bg-card/50">
+          {onClickTimeSlot && (
+            <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-4 py-1">
+              <span className="text-[11px] font-medium uppercase text-muted-foreground">
+                {t("eventForm.allDay")}
+              </span>
+              <button
+                type="button"
+                data-calendar-create-surface="all-day"
+                aria-label={`${t("eventForm.createEvent")}: ${t("eventForm.allDay")}, ${format(date, "EEE, MMM d")}`}
+                className="min-h-6 min-w-0 flex-1 rounded-sm text-left hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                onClick={() =>
+                  onClickTimeSlot(date, "00:00", "00:00", {
+                    allDay: true,
+                  })
+                }
+              >
+                <span className="sr-only">{t("eventForm.allDay")}</span>
+              </button>
             </div>
           )}
 
-          {regularAllDayEvents.length > 0 && (
-            <div
-              data-all-day-event-lane
-              className={cn(
-                "px-4 py-2",
-                workingLocations.length > 0 && "border-t border-border/60",
-              )}
-            >
-              <p className="mb-1.5 text-[11px] font-medium uppercase text-muted-foreground">
-                {t("eventForm.allDay")}
-              </p>
-              <div className="flex flex-col gap-1">
-                {regularAllDayEvents.map((event) => {
-                  const color = getEventDisplayColor(event, prefs);
-                  return (
-                    <EventDetailPopover
-                      key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
-                      event={event}
-                      timezone={timezone}
-                      onDelete={onDeleteEvent}
-                      isDraft={draftEventIds.includes(event.id)}
-                      defaultOpen={quickEditEventId === event.id}
-                      popoverSide="bottom"
-                      onTitleSave={onQuickEditSave}
-                      onDismissNew={onQuickEditCancel}
-                      onDraftUpdate={onDraftUpdate}
-                      onDraftCreate={onDraftCreate}
-                      onDraftDiscard={onDraftDiscard}
-                    >
-                      <button
-                        className={cn(
-                          "relative flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110",
-                          event.ownerColor && "pr-5",
-                        )}
-                        aria-label={
-                          event.ownerName || event.overlayEmail
-                            ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
-                                event.ownerName || event.overlayEmail
-                              }'s calendar`
-                            : getWorkingLocationTitle(
-                                event,
-                                workingLocationLabels,
-                              )
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {workingLocations.length > 0 && (
+              <div data-working-location-lane className="px-4 py-1.5">
+                <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground">
+                  <IconMapPin aria-hidden="true" className="size-3" />
+                  {t("eventForm.workingLocation")}
+                </p>
+                <div className="grid gap-1 sm:grid-cols-2">
+                  {workingLocations.map((event) => {
+                    const color = getEventDisplayColor(event, prefs);
+                    return (
+                      <EventDetailPopover
+                        key={getCalendarEventRenderKey(event)}
+                        event={event}
+                        timezone={timezone}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={
+                          quickEditEventId === event.id ||
+                          quickEditEventId === getCalendarEventRenderKey(event)
                         }
-                        style={
-                          color
-                            ? {
-                                backgroundColor: `${color}30`,
-                                borderLeft: `3px solid ${color}`,
-                              }
-                            : {
-                                backgroundColor: "hsl(var(--primary) / 0.15)",
-                                borderLeft: "3px solid hsl(var(--primary))",
-                              }
-                        }
+                        popoverSide="bottom"
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
                       >
-                        {allOtherDeclined(event) && (
-                          <IconAlertTriangleFilled
-                            size={14}
-                            className="shrink-0 text-current opacity-70"
-                          />
-                        )}
-                        <EventStatusIcon event={event} className="shrink-0" />
-                        <span className="truncate">
-                          {getWorkingLocationChipLabel(
-                            event,
-                            workingLocationLabels,
+                        <button
+                          className={cn(
+                            "relative flex h-6 w-full items-center gap-1.5 truncate rounded-sm px-2 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80",
+                            event.ownerColor && "pr-5",
                           )}
-                        </span>
-                        {event.ownerColor && (
-                          <span
+                          aria-label={
+                            event.ownerName || event.overlayEmail
+                              ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
+                                  event.ownerName || event.overlayEmail
+                                }'s calendar`
+                              : getWorkingLocationTitle(
+                                  event,
+                                  workingLocationLabels,
+                                )
+                          }
+                          style={{
+                            backgroundColor: color
+                              ? `${color}1f`
+                              : "hsl(var(--muted))",
+                            borderLeft: `2px solid ${
+                              color ?? "hsl(var(--muted-foreground))"
+                            }`,
+                          }}
+                        >
+                          <IconMapPin
                             aria-hidden="true"
-                            className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
-                            style={{ backgroundColor: event.ownerColor }}
+                            className="size-3 shrink-0 opacity-70"
                           />
-                        )}
-                      </button>
-                    </EventDetailPopover>
-                  );
-                })}
+                          <span className="truncate">
+                            {getWorkingLocationChipLabel(
+                              event,
+                              workingLocationLabels,
+                            )}
+                          </span>
+                          {event.ownerColor && (
+                            <span
+                              aria-hidden="true"
+                              className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                              style={{ backgroundColor: event.ownerColor }}
+                            />
+                          )}
+                        </button>
+                      </EventDetailPopover>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {regularAllDayEvents.length > 0 && (
+              <div
+                data-all-day-event-lane
+                className={cn(
+                  "px-4 py-2",
+                  workingLocations.length > 0 && "border-t border-border/60",
+                )}
+              >
+                <p className="mb-1.5 text-[11px] font-medium uppercase text-muted-foreground">
+                  {t("eventForm.allDay")}
+                </p>
+                <div className="flex flex-col gap-1">
+                  {regularAllDayEvents.map((event) => {
+                    const color = getEventDisplayColor(event, prefs);
+                    return (
+                      <EventDetailPopover
+                        key={getCalendarEventRenderKey(event)}
+                        event={event}
+                        timezone={timezone}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={
+                          quickEditEventId === event.id ||
+                          quickEditEventId === getCalendarEventRenderKey(event)
+                        }
+                        popoverSide="bottom"
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                      >
+                        <button
+                          className={cn(
+                            "relative flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110",
+                            event.ownerColor && "pr-5",
+                          )}
+                          aria-label={
+                            event.ownerName || event.overlayEmail
+                              ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
+                                  event.ownerName || event.overlayEmail
+                                }'s calendar`
+                              : getWorkingLocationTitle(
+                                  event,
+                                  workingLocationLabels,
+                                )
+                          }
+                          style={
+                            color
+                              ? {
+                                  backgroundColor: `${color}30`,
+                                  borderLeft: `3px solid ${color}`,
+                                }
+                              : {
+                                  backgroundColor: "hsl(var(--primary) / 0.15)",
+                                  borderLeft: "3px solid hsl(var(--primary))",
+                                }
+                          }
+                        >
+                          {allOtherDeclined(event) && (
+                            <IconAlertTriangleFilled
+                              size={14}
+                              className="shrink-0 text-current opacity-70"
+                            />
+                          )}
+                          <EventStatusIcon event={event} className="shrink-0" />
+                          <span className="truncate">
+                            {getWorkingLocationChipLabel(
+                              event,
+                              workingLocationLabels,
+                            )}
+                          </span>
+                          {event.ownerColor && (
+                            <span
+                              aria-hidden="true"
+                              className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                              style={{ backgroundColor: event.ownerColor }}
+                            />
+                          )}
+                        </button>
+                      </EventDetailPopover>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1046,11 +1087,11 @@ export const DayView = memo(function DayView({
           {/* Native Google out-of-office context sits behind meetings. */}
           {!isLoading &&
             outOfOfficeEvents.map((event, markerIndex) => {
-              const isBeingDragged = dragEventId === event.id;
-              const overrides = getDragOverrides(event.id);
+              const isBeingDragged = isDraggingEvent(event);
+              const overrides = getDragOverrides(event);
               return (
                 <OutOfOfficeEvent
-                  key={event._tempId ?? event.id}
+                  key={getCalendarEventRenderKey(event)}
                   event={event}
                   day={date}
                   timezone={timezone}
@@ -1060,7 +1101,7 @@ export const DayView = memo(function DayView({
                   }
                   label={t("eventForm.outOfOffice")}
                   markerIndex={markerIndex}
-                  canDrag={canDrag}
+                  canDrag={canDrag && isCalendarEventOrganizer(event)}
                   isBeingDragged={isBeingDragged}
                   isDragging={isDragging}
                   isDragTargetDay={isBeingDragged}
@@ -1070,15 +1111,18 @@ export const DayView = memo(function DayView({
                     handleEventPointerDown(pointerEvent, event, startsOnDay)
                   }
                   onResizeTopPointerDown={(pointerEvent) =>
-                    handleResizeTopPointerDown(pointerEvent, event.id)
+                    handleResizeTopPointerDown(pointerEvent, event)
                   }
                   onResizeBottomPointerDown={(pointerEvent) =>
-                    handleResizeBottomPointerDown(pointerEvent, event.id)
+                    handleResizeBottomPointerDown(pointerEvent, event)
                   }
                   shouldSuppressClick={shouldSuppressClick}
                   onDelete={onDeleteEvent}
                   isDraft={draftEventIds.includes(event.id)}
-                  defaultOpen={quickEditEventId === event.id}
+                  defaultOpen={
+                    quickEditEventId === event.id ||
+                    quickEditEventId === getCalendarEventRenderKey(event)
+                  }
                   onTitleSave={onQuickEditSave}
                   onDismissNew={onQuickEditCancel}
                   onDraftUpdate={onDraftUpdate}
@@ -1117,18 +1161,18 @@ export const DayView = memo(function DayView({
           {/* Timed events */}
           {!isLoading &&
             timedEvents.map((event) => {
-              const isBeingDragged = dragEventId === event.id;
-              const overrides = getDragOverrides(event.id);
+              const isBeingDragged = isDraggingEvent(event);
+              const overrides = getDragOverrides(event);
               return (
                 <DayEventCard
-                  key={event._tempId ?? event.id}
+                  key={getCalendarEventRenderKey(event)}
                   event={event}
                   date={date}
                   timezone={timezone}
                   layout={layout}
                   now={now}
                   prefs={prefs}
-                  focusedEventId={focusedEventId}
+                  focusedEventKey={focusedEventKey}
                   isBeingDragged={isBeingDragged}
                   isDragging={isDragging}
                   overrideTop={overrides?.top ?? null}
@@ -1140,7 +1184,10 @@ export const DayView = memo(function DayView({
                   shouldSuppressClick={shouldSuppressClick}
                   onDeleteEvent={onDeleteEvent}
                   isDraft={draftEventIds.includes(event.id)}
-                  defaultOpen={quickEditEventId === event.id}
+                  defaultOpen={
+                    quickEditEventId === event.id ||
+                    quickEditEventId === getCalendarEventRenderKey(event)
+                  }
                   onQuickEditSave={onQuickEditSave}
                   onQuickEditCancel={onQuickEditCancel}
                   onDraftUpdate={onDraftUpdate}

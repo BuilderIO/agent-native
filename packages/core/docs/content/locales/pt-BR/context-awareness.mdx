@@ -403,6 +403,8 @@ export function useNavigationState() {
 }
 ```
 
+O `TAB_ID` importado de `app/lib/tab-id.ts` é o valor de `getBrowserTabId()` do framework. Chamadas WebMCP locais à página enviam o mesmo id em `X-Agent-Native-Browser-Tab`, de modo que o servidor resolve o estado `navigation`/`selection` por aba exatamente para a aba que o agente ou usuário está controlando — não há um segundo esquema de abas para manter sincronizado.
+
 | Você escreve                                                  | A estrutura lida com                                                                                             |
 | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `getNavigationState` — mapeie o URL para o estado semântico   | Gravações `navigation`, com escopo de guia e uma chave substituta global                                         |

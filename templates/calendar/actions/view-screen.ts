@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -6,11 +6,24 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
-import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
+import { readCalendarSettings } from "../server/lib/calendar-settings.js";
+import { listGoogleCalendars } from "../server/lib/google-calendar.js";
+import {
+  getCalendarAttendeeCount,
+  type CalendarEvent,
+  type CalendarEventDraft,
+} from "../shared/api.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
+  isEventVisibleForDeclinedPreference,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
+import { getWeekStartsOn } from "../shared/calendar-week.js";
+import {
+  getCalendarViewDateRange,
+  dateKeyInTimezone,
+  type CalendarViewMode,
+} from "../shared/timezone.js";
 import { extractVideoLink } from "./event-action-helpers.js";
 import { listCalendarEvents } from "./list-events.js";
 
@@ -18,9 +31,15 @@ function safeDraftId(id: unknown): string | null {
   return typeof id === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
 
+function isCalendarViewMode(value: unknown): value is CalendarViewMode {
+  return value === "month" || value === "week" || value === "day";
+}
+
 async function fetchEventsForRange(
   from: string,
   to: string,
+  timezone: string,
+  calendarSourceKeys?: string[],
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
@@ -28,7 +47,10 @@ async function fetchEventsForRange(
   range: { from: string; to: string; timezone: string; defaulted: boolean };
 }> {
   try {
-    return await listCalendarEvents({ from, to });
+    return await listCalendarEvents(
+      { from, to, calendarSourceKeys },
+      { timezone },
+    );
   } catch (error: any) {
     return {
       events: [],
@@ -42,7 +64,7 @@ async function fetchEventsForRange(
       range: {
         from,
         to,
-        timezone: "UTC",
+        timezone,
         defaulted: false,
       },
     };
@@ -54,7 +76,7 @@ export default defineAction({
     "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_args, ctx) => {
     const navigation = await readAppState("navigation");
     const visualPreferences = normalizeCalendarViewPreferences(
       (await readAppState(CALENDAR_VIEW_PREFERENCES_KEY)) as any,
@@ -67,22 +89,68 @@ export default defineAction({
     const nav = navigation as any;
 
     if (nav?.view === "calendar" || !nav?.view) {
-      const now = new Date();
-      const viewDate = nav?.date ? new Date(nav.date) : now;
+      const email = getRequestUserEmail();
+      if (!email) throw new Error("no authenticated user");
+      const settings = await readCalendarSettings(email);
+      const timezone = settings.timezone;
+      const viewMode = isCalendarViewMode(nav?.calendarViewMode)
+        ? nav.calendarViewMode
+        : "week";
+      const viewDay =
+        typeof nav?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(nav.date)
+          ? nav.date
+          : dateKeyInTimezone(new Date(), timezone);
+      const range = getCalendarViewDateRange(
+        viewMode,
+        viewDay,
+        timezone,
+        getWeekStartsOn(settings.weekStart),
+        visualPreferences.numberOfDays,
+      );
 
-      const from = new Date(viewDate);
-      from.setDate(from.getDate() - from.getDay());
-      from.setHours(0, 0, 0, 0);
-      const to = new Date(from);
-      to.setDate(to.getDate() + 7);
+      const calendarSourceResult = await listGoogleCalendars(email);
+      const calendarSources = calendarSourceResult.calendars;
+      const visibleCalendarSources = calendarSources.filter(
+        (source) =>
+          source.accessRole !== "freeBusyReader" &&
+          (source.primary ||
+            (visualPreferences.googleCalendarVisibility[source.canonicalKey] ??
+              source.selected)),
+      );
+
+      screen.googleCalendars = calendarSources.map((source) => ({
+        sourceKey: source.sourceKey,
+        accountEmail: source.accountEmail,
+        calendarId: source.calendarId,
+        name: source.name,
+        color: source.color,
+        visible:
+          source.primary ||
+          (visualPreferences.googleCalendarVisibility[source.canonicalKey] ??
+            source.selected),
+        primary: source.primary,
+        accessRole: source.accessRole,
+        readOnly: source.readOnly || !source.primary,
+      }));
+      if (calendarSourceResult.errors.length > 0) {
+        screen.googleCalendarErrors = calendarSourceResult.errors;
+      }
 
       const eventResult = await fetchEventsForRange(
-        from.toISOString(),
-        to.toISOString(),
+        range.from,
+        range.to,
+        timezone,
+        visibleCalendarSources.map((source) => source.sourceKey),
       );
       const { events } = eventResult;
+      const visibleEvents = events.filter((event) =>
+        isEventVisibleForDeclinedPreference(
+          event.responseStatus,
+          visualPreferences.showDeclinedEvents,
+        ),
+      );
 
-      const compact = events.slice(0, 50).map((e: CalendarEvent) => {
+      const compact = visibleEvents.slice(0, 50).map((e: CalendarEvent) => {
         return {
           id: e.id,
           title: e.title,
@@ -90,9 +158,17 @@ export default defineAction({
           end: e.end,
           source: e.source,
           accountEmail: e.accountEmail || undefined,
+          calendarSourceKey: e.calendarSourceKey || undefined,
+          calendarId: e.calendarId || undefined,
+          calendarName: e.calendarName || undefined,
+          calendarAccessRole: e.calendarAccessRole || undefined,
+          calendarPrimary: e.calendarPrimary,
+          calendarReadOnly: e.calendarReadOnly,
           location: e.location || undefined,
           allDay: e.allDay || undefined,
-          attendeeCount: e.attendees?.length ?? 0,
+          recurrence: e.recurrence || undefined,
+          recurringEventId: e.recurringEventId || undefined,
+          attendeeCount: getCalendarAttendeeCount(e.attendees),
           attendeeNames: e.attendees
             ?.filter((a: any) => !a.self)
             .slice(0, 8)
@@ -121,7 +197,7 @@ export default defineAction({
       }
 
       if (nav?.eventId) {
-        const match = events.find((e: any) => e.id === nav.eventId);
+        const match = visibleEvents.find((e: any) => e.id === nav.eventId);
         if (match) screen.selectedEvent = match;
       }
 

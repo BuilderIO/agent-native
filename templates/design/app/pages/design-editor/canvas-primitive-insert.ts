@@ -1,9 +1,18 @@
 import { isBoardFile } from "@shared/board-file";
+import { normalizedDesignFileType } from "@shared/design-files";
+import { isClosedPathData } from "@shared/pen-path";
+import {
+  vectorEndpointAttributesMarkup,
+  vectorEndpointDefsMarkup,
+  vectorEndpointPairForPrimitive,
+  vectorEndpointMarkerId,
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_START_ENDPOINT_PROPERTY,
+} from "@shared/vector-endpoints";
 
 import {
   canvasPrimitiveVisual,
-  DEFAULT_LINE_STROKE,
-  DEFAULT_LINE_STROKE_WIDTH_PX,
+  canvasVectorPaint,
 } from "@/components/design/canvas-primitive-style";
 import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/types";
 
@@ -15,10 +24,13 @@ import {
 import {
   BOARD_TEXT_AUTO_COLOR_MARKER,
   destinationBackgroundLightness,
+  resolveDestinationBackgroundLightnessOrNull,
 } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
 import type { DesignFile } from "./types";
+
+export { normalizedDesignFileType };
 
 export function nextDuplicatedFilename(
   files: DesignFile[],
@@ -35,17 +47,6 @@ export function nextDuplicatedFilename(
     index += 1;
   }
   return candidate;
-}
-
-export function normalizedDesignFileType(
-  fileType: string,
-): "html" | "css" | "jsx" | "asset" {
-  return fileType === "css" ||
-    fileType === "jsx" ||
-    fileType === "asset" ||
-    fileType === "html"
-    ? fileType
-    : "html";
 }
 
 export function nextBlankScreenFilename(files: DesignFile[]): string {
@@ -76,11 +77,15 @@ export function blankScreenHtml(title: string): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${safeTitle}</title>
+  <style data-agent-native-screen-default-height>body { min-height: 100vh; }</style>
   <style>
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      min-height: 100vh;
+      /* A screen is a page: content past its edge is out of frame, not
+         spilling onto the board. Frames stay unclipped by default so drawing
+         over their edge keeps working. */
+      overflow: hidden;
       background: var(--color-bg, #ffffff);
       color: var(--color-text, #111827);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -106,10 +111,60 @@ export function uniqueLayerId(prefix: string): string {
  * projection.
  */
 export function reassignDuplicatedNodeIds(content: string): string {
-  return content.replace(
-    /data-agent-native-node-id="[^"]*"/g,
-    () => `data-agent-native-node-id="${uniqueLayerId("copy")}"`,
+  const nodeIdMap = new Map<string, string>();
+  const withNewNodeIds = content.replace(
+    /data-agent-native-node-id=(['"])([^'"]*)\1/g,
+    (_match, quote: string, oldNodeId: string) => {
+      const nextNodeId = uniqueLayerId("copy");
+      nodeIdMap.set(oldNodeId, nextNodeId);
+      return `data-agent-native-node-id=${quote}${nextNodeId}${quote}`;
+    },
   );
+  if (nodeIdMap.size === 0) return withNewNodeIds;
+
+  const legacyVectorEndpointMarkerId = (
+    nodeId: string,
+    side: "start" | "end",
+  ): string => {
+    const safeNodeId = nodeId.replace(/[^A-Za-z0-9_-]/g, "-") || "vector";
+    return `${safeNodeId}-vector-marker-${side}`;
+  };
+
+  const rewriteReference = (id: string): string => {
+    for (const [oldNodeId, nextNodeId] of nodeIdMap) {
+      if (id === `${oldNodeId}-arrow`) return `${nextNodeId}-arrow`;
+      for (const side of ["start", "end"] as const) {
+        if (
+          id === vectorEndpointMarkerId(oldNodeId, side) ||
+          id === legacyVectorEndpointMarkerId(oldNodeId, side)
+        ) {
+          return vectorEndpointMarkerId(nextNodeId, side);
+        }
+      }
+    }
+    return id;
+  };
+  return withNewNodeIds
+    .replace(
+      /\bid=(['"])([^'"]*)\1/g,
+      (_match, quote: string, id: string) =>
+        `id=${quote}${rewriteReference(id)}${quote}`,
+    )
+    .replace(
+      /url\(#([^)]*)\)/g,
+      (_match, id: string) => `url(#${rewriteReference(id)})`,
+    );
+}
+
+/**
+ * Figma's default text-layer name IS its content. A freshly drawn text
+ * primitive is committed with no content yet (the draft is still empty), so
+ * this only produces the real name once the user's typed value is known —
+ * see `runTextContentChange`'s creation-finalizing commit, which re-derives
+ * the layer name from this same function once typing lands.
+ */
+export function defaultTextLayerName(text: string | undefined): string {
+  return text?.trim() || "Text";
 }
 
 export function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
@@ -129,7 +184,7 @@ export function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
     case "path":
       return "Vector";
     case "text":
-      return primitive.text?.trim() || "Text";
+      return defaultTextLayerName(primitive.text);
     case "rectangle":
     default:
       return "Rectangle";
@@ -274,10 +329,52 @@ function deepestFrameContaining(
     : null;
 }
 
+/**
+ * Return the stable authored identity of the exact frame the insertion helper
+ * will choose, a body marker when no frame contains the point, or `null` when
+ * the content/host cannot be resolved. The command uses this only to verify the
+ * host's computed layout in the target's live iframe before enabling flow
+ * positioning; the inert source document itself is never used as a layout
+ * oracle.
+ */
+export function canvasPrimitiveInsertionHostNodeId(
+  content: string,
+  primitive: CanvasPrimitiveInsert,
+  preserveNegativePosition = false,
+): { kind: "body" } | { kind: "frame"; nodeId: string } | null {
+  if (typeof window === "undefined" || isStandaloneHttpUrl(content))
+    return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    if (!doc.body) return null;
+    const left = preserveNegativePosition
+      ? Math.round(primitive.geometry.x)
+      : Math.max(0, Math.round(primitive.geometry.x));
+    const top = preserveNegativePosition
+      ? Math.round(primitive.geometry.y)
+      : Math.max(0, Math.round(primitive.geometry.y));
+    const host = deepestFrameContaining(doc.body, left, top)?.element;
+    if (!host) return { kind: "body" };
+    const id = host.getAttribute("data-agent-native-node-id");
+    return id ? { kind: "frame", nodeId: id } : null;
+  } catch {
+    // coercion-ok: null is failure; the caller refuses insertion.
+    return null;
+  }
+}
+
 export function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
-  options?: { preserveNegativePosition?: boolean; isBoardTarget?: boolean },
+  options?: {
+    preserveNegativePosition?: boolean;
+    isBoardTarget?: boolean;
+    /** Let a verified auto-layout parent place this primitive. */
+    positioning?: "absolute" | "flow";
+    /** The canvas colour behind the board. The board document is transparent
+     *  by design, so its surface can only be measured from the host. */
+    boardBackground?: string | null;
+  },
 ): string | null {
   if (typeof window === "undefined") return null;
   // A live/localhost screen stores its route URL here, not a document.
@@ -309,6 +406,29 @@ export function appendCanvasPrimitiveToHtml(
     const hostBorder = host ? inlineBorderInset(host.element) : { x: 0, y: 0 };
     const hostLeft = host ? left - host.x - hostBorder.x : left;
     const hostTop = host ? top - host.y - hostBorder.y : top;
+    const finishPrimitive = (element: Element): string => {
+      if (options?.positioning === "flow") {
+        // Keep a positioned containing block for Frame children, while
+        // forcing all authored primitive kinds into the parent's layout.
+        const style = (element as HTMLElement | SVGElement).style;
+        for (const property of [
+          "position",
+          "left",
+          "top",
+          "right",
+          "bottom",
+          "inset",
+        ] as const) {
+          style.setProperty(
+            property,
+            property === "position" ? "relative" : "auto",
+            "important",
+          );
+        }
+      }
+      hostOrBody.appendChild(element);
+      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    };
 
     if (
       primitive.kind === "path" ||
@@ -317,7 +437,6 @@ export function appendCanvasPrimitiveToHtml(
     ) {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-      const markerId = `${nodeId}-arrow`;
       const explicitPathData = primitive.pathData?.trim()
         ? primitive.pathData
         : null;
@@ -349,50 +468,67 @@ export function appendCanvasPrimitiveToHtml(
             })
             .join(" "),
       );
-      // P11: a CLOSED pen path (serializePenPath always ends a closed path's
-      // "d" string with a trailing "Z" — see shared/pen-path.ts) is a real
-      // fillable shape, not just a stroked line — Figma/Illustrator give a
-      // closed pen path a default fill. An open path (no trailing Z, or the
-      // points-based line/arrow fallback) keeps fill:none since there's no
-      // enclosed region to fill. The inspector's existing style-edit path
-      // can still override this fill like any other element style.
-      const isClosedPenPath = Boolean(
-        explicitPathData && /Z\s*$/i.test(explicitPathData.trim()),
-      );
-      path.setAttribute(
-        "fill",
-        isClosedPenPath ? (primitive.fill ?? "#D9D9D9") : "none",
-      );
-      path.setAttribute("stroke", primitive.stroke ?? DEFAULT_LINE_STROKE);
-      path.setAttribute(
-        "stroke-width",
-        String(primitive.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX),
-      );
+      const paint = canvasVectorPaint({
+        closed: isClosedPathData(explicitPathData),
+        fill: primitive.fill,
+        stroke: primitive.stroke,
+        strokeWidth: primitive.strokeWidth,
+      });
+      path.setAttribute("fill", paint.fill);
+      path.setAttribute("stroke", paint.stroke);
+      path.setAttribute("stroke-width", String(paint.strokeWidth));
       path.setAttribute("stroke-linecap", "round");
       path.setAttribute("stroke-linejoin", "round");
-      if (primitive.kind === "arrow") {
+      const endpoints = vectorEndpointPairForPrimitive(
+        primitive.kind,
+        primitive.startPoint,
+        primitive.endPoint,
+      );
+      const endpointDefs = vectorEndpointDefsMarkup(nodeId, endpoints);
+      if (endpointDefs) {
         const defs = doc.createElementNS("http://www.w3.org/2000/svg", "defs");
-        const marker = doc.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "marker",
-        );
-        const arrowHead = doc.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "path",
-        );
-        marker.setAttribute("id", markerId);
-        marker.setAttribute("markerWidth", "10");
-        marker.setAttribute("markerHeight", "10");
-        marker.setAttribute("refX", "8");
-        marker.setAttribute("refY", "5");
-        marker.setAttribute("orient", "auto");
-        marker.setAttribute("markerUnits", "strokeWidth");
-        arrowHead.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-        arrowHead.setAttribute("fill", primitive.stroke ?? DEFAULT_LINE_STROKE);
-        marker.appendChild(arrowHead);
-        defs.appendChild(marker);
-        svg.appendChild(defs);
-        path.setAttribute("marker-end", `url(#${markerId})`);
+        defs.setAttribute("data-an-vector-endpoints", "true");
+        for (const side of ["start", "end"] as const) {
+          const endpoint =
+            endpoints[side === "start" ? "startPoint" : "endPoint"];
+          const shape = endpoint === "none" ? null : endpoint;
+          if (!shape) continue;
+          const marker = doc.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "marker",
+          );
+          const markerMarkup = endpointDefs.match(
+            new RegExp(
+              `<marker[^>]*data-an-vector-endpoint-marker="${side}"[\\s\\S]*?</marker>`,
+            ),
+          )?.[0];
+          if (!markerMarkup) continue;
+          const markerDoc = new DOMParser().parseFromString(
+            `<svg xmlns="http://www.w3.org/2000/svg">${markerMarkup}</svg>`,
+            "image/svg+xml",
+          );
+          const parsedMarker = markerDoc.documentElement.firstElementChild;
+          if (!parsedMarker) continue;
+          for (const attribute of Array.from(parsedMarker.attributes)) {
+            marker.setAttribute(attribute.name, attribute.value);
+          }
+          for (const child of Array.from(parsedMarker.children)) {
+            marker.appendChild(doc.importNode(child, true));
+          }
+          defs.appendChild(marker);
+        }
+        if (defs.children.length > 0) svg.appendChild(defs);
+      }
+      const endpointAttributes = vectorEndpointAttributesMarkup(
+        nodeId,
+        endpoints,
+      );
+      if (endpointAttributes) {
+        for (const match of endpointAttributes.matchAll(
+          /([\w-]+)="([^"]*)"/g,
+        )) {
+          path.setAttribute(match[1]!, match[2]!);
+        }
       }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
@@ -422,14 +558,15 @@ export function appendCanvasPrimitiveToHtml(
           `width:${width}px`,
           `height:${height}px`,
           "overflow:visible",
+          `${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint}`,
+          `${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`,
           geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
         ]
           .filter(Boolean)
           .join(";"),
       );
       svg.appendChild(path);
-      hostOrBody.appendChild(svg);
-      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      return finishPrimitive(svg);
     }
 
     if (primitive.kind === "polygon" || primitive.kind === "star") {
@@ -442,12 +579,15 @@ export function appendCanvasPrimitiveToHtml(
         "points",
         polygonPointsForHtmlShape(primitive.kind, width, height),
       );
-      polygon.setAttribute("fill", primitive.fill ?? "rgba(37, 99, 235, 0.16)");
-      polygon.setAttribute("stroke", primitive.stroke ?? "rgb(37, 99, 235)");
-      polygon.setAttribute(
-        "stroke-width",
-        String(primitive.strokeWidth ?? 1.5),
-      );
+      const polygonPaint = canvasVectorPaint({
+        closed: true,
+        fill: primitive.fill,
+        stroke: primitive.stroke,
+        strokeWidth: primitive.strokeWidth,
+      });
+      polygon.setAttribute("fill", polygonPaint.fill);
+      polygon.setAttribute("stroke", polygonPaint.stroke);
+      polygon.setAttribute("stroke-width", String(polygonPaint.strokeWidth));
       polygon.setAttribute("stroke-linejoin", "round");
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
@@ -456,6 +596,17 @@ export function appendCanvasPrimitiveToHtml(
       // Read by treeTypeForNode in shared/code-layer.ts.
       svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      // Without this, resizing the shape non-uniformly (e.g. dragging only
+      // the height handle) letterboxes the polygon inside its viewBox
+      // (SVG's default preserveAspectRatio is "xMidYMid meet") instead of
+      // stretching it to fill the new box — the box's own width/height
+      // still resize correctly, but the visible shape stays centered at its
+      // creation-time aspect ratio, masking any later resize (including a
+      // flip-through-zero) since the rendered polygon barely changes. The
+      // path/pen-tool primitive right above already sets this for the same
+      // reason; polygon/star never did despite the comment there claiming it
+      // did.
+      svg.setAttribute("preserveAspectRatio", "none");
       svg.setAttribute(
         "style",
         [
@@ -471,8 +622,7 @@ export function appendCanvasPrimitiveToHtml(
           .join(";"),
       );
       svg.appendChild(polygon);
-      hostOrBody.appendChild(svg);
-      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      return finishPrimitive(svg);
     }
 
     const element = doc.createElement("div");
@@ -485,7 +635,14 @@ export function appendCanvasPrimitiveToHtml(
     element.style.position = "absolute";
     element.style.left = `${hostLeft}px`;
     element.style.top = `${hostTop}px`;
-    if (!(primitive.kind === "text" && primitive.autoSize)) {
+    if (primitive.kind === "text" && primitive.autoSize) {
+      // Point text grows to its intrinsic width, independent of how much room
+      // remains between the insertion point and the screen edge. Keeping the
+      // explicit auto dimensions also lets the inspector identify this as the
+      // same auto-width mode it applies to existing text layers.
+      element.style.width = "max-content";
+      element.style.height = "auto";
+    } else {
       element.style.width = `${width}px`;
       element.style.height = `${height}px`;
     }
@@ -523,18 +680,25 @@ export function appendCanvasPrimitiveToHtml(
         element.style.alignItems = "flex-start";
       }
       // "currentColor" inherits the unstyled document's black body text, so
-      // it is invisible on any dark surface — the always-dark board, and
-      // equally a screen whose own background is dark. Light screens keep
-      // "currentColor" so text still inherits their theme.
-      // Measure the frame the text actually lands in: a dark frame on a light
-      // page would otherwise keep currentColor and render invisible.
-      // isBoardTarget only says which surface is behind the text, and the
-      // board is not always dark — a measured background always wins.
-      const measuredLightness = destinationBackgroundLightness(hostOrBody);
+      // it is invisible on any dark surface. The board renderer forces its own
+      // document transparent, so a colour on that body is never painted and
+      // measuring it would judge a surface nobody sees — a frame inside the
+      // board still can be. The canvas behind it arrives from the host.
+      const boardSurfaceIsLight =
+        options?.isBoardTarget === true
+          ? resolveDestinationBackgroundLightnessOrNull([
+              { color: options.boardBackground ?? null },
+            ])
+          : null;
+      const measuredIsLight =
+        options?.isBoardTarget === true && hostOrBody === doc.body
+          ? null
+          : destinationBackgroundLightness(hostOrBody);
+      const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
       const autoTextNeedsLightFill =
-        measuredLightness === null
+        surfaceIsLight === null
           ? options?.isBoardTarget === true
-          : !measuredLightness;
+          : !surfaceIsLight;
       const resolvedTextColor =
         primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
       element.style.color = resolvedTextColor;
@@ -576,8 +740,7 @@ export function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
     }
 
-    hostOrBody.appendChild(element);
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    return finishPrimitive(element);
   } catch {
     return null;
   }
@@ -597,10 +760,11 @@ export function extractCanvasPrimitiveHtml(
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
-    return (
-      doc.querySelector(`[data-agent-native-node-id="${safeNodeId}"]`)
-        ?.outerHTML ?? null
+    const matches = doc.querySelectorAll(
+      `[data-agent-native-node-id="${safeNodeId}"]`,
     );
+    if (matches.length !== 1) return null;
+    return matches[0]?.outerHTML ?? null;
   } catch {
     return null;
   }

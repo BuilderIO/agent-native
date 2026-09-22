@@ -8,12 +8,14 @@ vi.mock("../a2a/client.js", () => ({
   A2AClient: class {
     constructor(readonly url: string) {}
     getAgentCard = getAgentCard;
+    resolveEndpointUrl = vi.fn(async () => `${this.url}/a2a`);
   },
   signA2AToken,
 }));
 
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => getRequestUserEmail(),
+  getRequestOrgId: () => undefined,
 }));
 
 const { loadAllCapabilities, loadCapabilities, _resetCapabilityCacheForTests } =
@@ -111,6 +113,17 @@ describe("peer capability card caching", () => {
     });
   });
 
+  it("supports an anonymous card probe without minting a caller token", async () => {
+    getRequestUserEmail.mockReturnValue("alice@example.com");
+
+    await loadCapabilities(PEER, { authenticate: false });
+
+    expect(signA2AToken).not.toHaveBeenCalled();
+    expect(getAgentCard).toHaveBeenCalledWith({
+      timeoutMs: expect.any(Number),
+    });
+  });
+
   it("strips an explicit A2A endpoint from the discovery audience", async () => {
     getRequestUserEmail.mockReturnValue("alice@example.com");
     const endpointPeer = {
@@ -129,5 +142,27 @@ describe("peer capability card caching", () => {
         audience: "https://workspace.example/slides",
       },
     );
+  });
+
+  it("does not probe hosted providers that have no inbound A2A card", async () => {
+    const managed = {
+      id: "anthropic-research",
+      name: "Anthropic Research",
+      description: "Research",
+      url: "https://api.anthropic.com",
+      color: "#2563eb",
+      kind: {
+        provider: "anthropic-managed-agents" as const,
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    };
+
+    const result = await loadCapabilities(managed);
+
+    expect(result.skills).toEqual([]);
+    expect(result.cardDescription).toContain("native adapter");
+    expect(getAgentCard).not.toHaveBeenCalled();
   });
 });

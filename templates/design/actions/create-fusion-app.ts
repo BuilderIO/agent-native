@@ -13,7 +13,7 @@
  * `migrate-inline-design-to-app` instead of throwing.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   runBuilderAgent,

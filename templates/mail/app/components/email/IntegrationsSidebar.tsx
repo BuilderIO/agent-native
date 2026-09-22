@@ -187,15 +187,18 @@ export function IntegrationsSidebar({
   email,
   displayName,
   recentEmails,
+  recentEmailsError,
   threadId,
   focusedEmailId,
 }: {
   email: string;
   displayName: string;
   recentEmails: { id: string; subject: string }[];
+  recentEmailsError?: boolean;
   threadId?: string;
   focusedEmailId?: string;
 }) {
+  const t = useT();
   const statuses = useAllIntegrations();
   const anyConnected =
     statuses.apollo || statuses.hubspot || statuses.gong || statuses.pylon;
@@ -226,7 +229,16 @@ export function IntegrationsSidebar({
       )}
 
       {/* Recent emails */}
-      {recentEmails.length > 0 && (
+      {recentEmailsError ? (
+        <div
+          className="mx-4 border-t border-border/30 px-0 py-3"
+          aria-live="polite"
+        >
+          <p className="text-[11px] text-muted-foreground/70">
+            {t("mail.error.loadTitle")}
+          </p>
+        </div>
+      ) : recentEmails.length > 0 ? (
         <>
           <div className="h-px bg-border/30 mx-4" />
           <div className="px-4 py-3">
@@ -245,7 +257,7 @@ export function IntegrationsSidebar({
             ))}
           </div>
         </>
-      )}
+      ) : null}
 
       {/* Tool extension-point slot — user-installed widgets render here */}
       <ExtensionSlot

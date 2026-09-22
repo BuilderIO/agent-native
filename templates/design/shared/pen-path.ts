@@ -52,6 +52,43 @@ export function createSmoothNode(
   };
 }
 
+/**
+ * Per-drag memory for Figma's Alt-breaks-the-handle-pair gesture on a new pen
+ * anchor. Owned by the drag state, not by a single move event.
+ */
+export interface PenCuspLatch {
+  broken: boolean;
+  handleIn?: PenPoint;
+}
+
+export function createPenCuspLatch(): PenCuspLatch {
+  return { broken: false };
+}
+
+/**
+ * Builds the anchor a new-anchor drag is currently describing.
+ *
+ * Alt is a one-way latch for the life of the drag: releasing it does not
+ * re-mirror the pair, and breaking it freezes `handleIn` at the tangent it
+ * had when Alt went down rather than deleting it, so the segment already
+ * drawn keeps its curve. Alt held from the first tick has no earlier tangent
+ * to keep, leaving the incoming side a corner.
+ */
+export function createPenDragNode(
+  anchor: PenPoint,
+  handleOut: PenPoint,
+  latch: PenCuspLatch,
+  altKey: boolean,
+): PenNode {
+  if (altKey) latch.broken = true;
+  if (!latch.broken) latch.handleIn = mirrorPoint(anchor, handleOut);
+  return {
+    point: { ...anchor },
+    handleIn: latch.handleIn ? { ...latch.handleIn } : undefined,
+    handleOut: { ...handleOut },
+  };
+}
+
 export function appendPenNode(path: PenPath | null, node: PenNode): PenPath {
   return {
     nodes: [...(path?.nodes ?? []), clonePenNode(node)],
@@ -608,6 +645,11 @@ export function serializePenPath(path: PenPath): string {
   }
 
   return commands.join(" ");
+}
+
+/** Reads back the trailing "Z" `serializePenPath` emits for a closed path. */
+export function isClosedPathData(data: string | null | undefined): boolean {
+  return Boolean(data && /Z\s*$/i.test(data.trim()));
 }
 
 export function translatePenPath(

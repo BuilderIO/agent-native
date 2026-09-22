@@ -13,6 +13,12 @@ import {
 } from "@agent-native/core/ingestion";
 
 import { normalizeWhitespace } from "./normalize.js";
+import {
+  chromiumPackUrl,
+  loadOptionalServerlessChromium,
+} from "./serverless-chromium.js";
+
+export { chromiumPackUrl } from "./serverless-chromium.js";
 
 export type RenderedPageMethod =
   | "builder-browser"
@@ -671,7 +677,8 @@ async function launchChromium(
   const serverlessChromium = await loadOptionalServerlessChromium();
   if (serverlessChromium) {
     try {
-      const executablePath = await serverlessChromium.executablePath();
+      const executablePath =
+        await serverlessChromium.executablePath(chromiumPackUrl());
       if (executablePath) {
         return await chromium.launch({
           ...launchOptions,
@@ -680,7 +687,6 @@ async function launchChromium(
         });
       }
     } catch (error) {
-      if (!isMissingBrowserError(error)) throw error;
       missingBrowserError = error;
     }
   }
@@ -699,27 +705,6 @@ async function launchChromium(
   throw new Error(
     "No Chromium executable is available for browser extraction.",
   );
-}
-
-interface ServerlessChromiumLike {
-  args?: string[];
-  executablePath(): Promise<string>;
-}
-
-async function loadOptionalServerlessChromium(): Promise<ServerlessChromiumLike | null> {
-  const specifier = "@sparticuz/chromium";
-  try {
-    const module = (await import(/* @vite-ignore */ specifier)) as unknown as {
-      default?: Partial<ServerlessChromiumLike>;
-    } & Partial<ServerlessChromiumLike>;
-    const chromium = module.default ?? module;
-    return typeof chromium.executablePath === "function"
-      ? (chromium as ServerlessChromiumLike)
-      : null;
-  } catch {
-    // coercion-ok: this optional capability is absent in non-serverless installs.
-    return null;
-  }
 }
 
 /*

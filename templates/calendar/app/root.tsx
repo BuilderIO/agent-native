@@ -3,6 +3,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
@@ -141,7 +142,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
+const TAB_ID = getBrowserTabId();
 
 function DbSyncSetup() {
   const qc = useQueryClient();
@@ -211,8 +212,15 @@ function isAgentNativeDesktop(): boolean {
 }
 
 function AppContent() {
+  const location = useLocation();
+  if (location.pathname === "/") return <Outlet />;
+  return <PrivateAppContent />;
+}
+
+function PrivateAppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
@@ -225,9 +233,17 @@ function AppContent() {
         changelogKey="calendar"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
-          </CommandMenu.Item>
+          {location.pathname === "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/booking-links")}>
+              {t("navigation.bookingLinks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/booking-links") ||
+          location.pathname.startsWith("/settings") ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.calendar")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[
@@ -272,7 +288,9 @@ export default function Root() {
   );
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  const isPublicPath = isPublicBookingPath(location.pathname);
+  const isMarketingHome = location.pathname === "/";
+  const isPublicPath =
+    isMarketingHome || isPublicBookingPath(location.pathname);
 
   return (
     <AppToolkitProvider>

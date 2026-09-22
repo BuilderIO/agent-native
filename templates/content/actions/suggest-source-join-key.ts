@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -21,10 +21,10 @@ import { readLocalTableEntries } from "./_local-table-source.js";
 
 export default defineAction({
   description:
-    "Suggest a canonical-key join (key field + normalization formula) between a database's existing source and a candidate second source, using a deterministic Jaccard-overlap heuristic. Read-only; no model call.",
+    "Suggest a canonical-key join (key field + normalization formula) between a collection's existing source and a candidate second source, using a deterministic Jaccard-overlap heuristic. Read-only; no model call.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     candidateSourceType: z.enum([
       "mock-local",
       "builder-cms",

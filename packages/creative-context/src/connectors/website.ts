@@ -355,7 +355,7 @@ function websiteAssetRank(asset: {
 }
 
 function isLogoLikeAsset(url: string): boolean {
-  return /(?:^|[\/_\-.])(logo|brand|wordmark|logomark|favicon|og[-_]?image|icon)(?:[\/_\-.]|$)/i.test(
+  return /(?:^|[/_\-.])(logo|brand|wordmark|logomark|favicon|og[-_]?image|icon)(?:[/_\-.]|$)/i.test(
     new URL(url).pathname,
   );
 }

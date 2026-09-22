@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
+  assertCreativeContextLabEnabled: vi.fn(),
   readAppState: vi.fn(),
   createContextPack: vi.fn(),
   deriveContextPack: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock("@agent-native/creative-context", () => ({
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
+  assertCreativeContextLabEnabled: mocks.assertCreativeContextLabEnabled,
   getGenerationCreativeContext: mocks.getGenerationCreativeContext,
   mergeCreativeContextReuseLabels: (existing: unknown[], added: unknown[]) => [
     ...existing,
@@ -65,13 +67,18 @@ vi.mock("@agent-native/creative-context/store", () => ({
   getCreativeContextItemByExternalId: mocks.getCreativeContextItemByExternalId,
 }));
 
-vi.mock("drizzle-orm", () => ({ eq: () => ({}) }));
+vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ and: conditions }),
+  eq: () => ({}),
+  isNull: () => ({}),
+}));
 
 vi.mock("../server/db/index.js", () => {
   const row = {
     id: "deck-1",
     title: "Target deck",
     ownerEmail: "owner@example.test",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     data: "",
   };
   const db = {
@@ -88,6 +95,7 @@ vi.mock("../server/db/index.js", () => {
           set: (values: { data: string }) => ({
             where: async () => {
               mocks.updatedDeck = JSON.parse(values.data);
+              return { rowsAffected: 1 };
             },
           }),
         }),
@@ -117,6 +125,7 @@ const html =
 describe("clone-context-slide pack integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.assertCreativeContextLabEnabled.mockResolvedValue(undefined);
     mocks.updatedDeck = { slides: [] };
     mocks.readAppState.mockResolvedValue({ contextMode: "auto" });
     mocks.assertAccess.mockResolvedValue({ role: "editor" });
@@ -163,6 +172,22 @@ describe("clone-context-slide pack integration", () => {
     });
     mocks.createContextPack.mockResolvedValue({ id: "pack-created" });
     mocks.deriveContextPack.mockResolvedValue({ id: "pack-derived" });
+  });
+
+  it("enforces the Labs gate before reading library code", async () => {
+    mocks.assertCreativeContextLabEnabled.mockRejectedValue(
+      new Error("Creative Context is disabled in Labs"),
+    );
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        itemId: "item-root",
+        itemVersionId: "version-root",
+      }),
+    ).rejects.toThrow("Creative Context is disabled in Labs");
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.getCreativeContextItem).not.toHaveBeenCalled();
   });
 
   it("creates an immutable evidence pack when the deck has none", async () => {

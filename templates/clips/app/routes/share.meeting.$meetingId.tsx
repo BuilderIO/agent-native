@@ -1,7 +1,7 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { PoweredByBadge } from "@agent-native/core/client/ui";
+import { DefaultSpinner, PoweredByBadge } from "@agent-native/core/client/ui";
 import {
   AGENT_ACCESS_PARAM,
   normalizeDocumentTitle,
@@ -33,7 +33,12 @@ import {
 } from "@/components/meetings/attendee-stack";
 import { TranscriptBubbles } from "@/components/meetings/transcript-bubbles";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import enMessages from "@/i18n/en-US";
 import {
   fetchPublicMeeting,
@@ -227,22 +232,19 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
 };
 
 export function HydrateFallback() {
-  return (
-    <div className="flex h-screen w-full items-center justify-center bg-background">
-      <Spinner className="size-8 text-muted-foreground" />
-    </div>
-  );
+  return <DefaultSpinner />;
 }
 
-function formatDateTime(iso?: string | null): string {
+function formatDateTime(iso?: string | null, stable = false): string {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString([], {
+    return new Date(iso).toLocaleString(stable ? "en-US" : [], {
       weekday: "short",
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
+      ...(stable ? { timeZone: "UTC" } : {}),
     });
   } catch {
     return "";
@@ -292,6 +294,7 @@ export default function ShareMeetingRoute() {
   const agentAccessToken = searchParams.get(AGENT_ACCESS_PARAM) ?? "";
   const pollingStartedAtRef = useRef<number | null>(null);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
   const initialMeetingResult: PublicMeetingResult | undefined =
     loaderData.meeting
       ? {
@@ -350,6 +353,8 @@ export default function ShareMeetingRoute() {
     );
     document.title = `${meetingTitle} · Clips`;
   }, [meeting?.title]);
+
+  useEffect(() => setHasHydrated(true), []);
 
   if (!meeting && (sessionLoading || meetingQuery.isLoading)) {
     return <HydrateFallback />;
@@ -419,7 +424,7 @@ export default function ShareMeetingRoute() {
           {meeting.scheduledStart && (
             <span className="inline-flex items-center gap-1">
               <IconCalendar className="size-3.5" />
-              {formatDateTime(meeting.scheduledStart)}
+              {formatDateTime(meeting.scheduledStart, !hasHydrated)}
             </span>
           )}
           {attendees.length > 0 && (
@@ -434,9 +439,16 @@ export default function ShareMeetingRoute() {
         </div>
 
         {!hasNotes ? (
-          <p className="text-sm italic text-muted-foreground">
-            {t("shareMeeting.noAiNotes")}
-          </p>
+          <Empty className="border py-12">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconNotes />
+              </EmptyMedia>
+              <EmptyTitle className="text-base">
+                {t("shareMeeting.noAiNotes")}
+              </EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="space-y-8">
             {meeting.summaryMd && (

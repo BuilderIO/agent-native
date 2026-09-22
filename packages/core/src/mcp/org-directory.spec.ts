@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetOrgDirectoryCache,
   fetchOrgApps,
+  fetchOrgAppsResult,
   resolveOrgDirectoryOrigin,
 } from "./org-directory.js";
 
@@ -110,6 +111,13 @@ describe("fetchOrgApps", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("distinguishes an unconfigured strict directory lookup", async () => {
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "not-configured",
+    });
+  });
+
   it("fetches the directory and normalizes the app list", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
@@ -148,6 +156,22 @@ describe("fetchOrgApps", () => {
         capabilities: ["events"],
       },
     ]);
+  });
+
+  it("passes the Vercel protection bypass to the configured directory", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_URL = "dispatch.acme.com";
+    process.env.VERCEL_AUTOMATION_BYPASS_SECRET = "test-vercel-bypass";
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("x-vercel-protection-bypass")).toBe(
+        "test-vercel-bypass",
+      );
+      return new Response(JSON.stringify({ apps: [] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
   });
 
   it("requests the directory app only when explicitly enabled", async () => {
@@ -234,6 +258,25 @@ describe("fetchOrgApps", () => {
     );
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
   });
+
+  it.each([
+    [404, "http-error"],
+    [429, "server-error"],
+    [503, "server-error"],
+  ] as const)(
+    "classifies strict directory HTTP %s as %s",
+    async (status, reason) => {
+      process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("unavailable", { status })),
+      );
+      await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+        status: "unavailable",
+        reason,
+      });
+    },
+  );
 
   it("retries the org directory with fallback bearer tokens on auth rejection", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
@@ -351,6 +394,29 @@ describe("fetchOrgApps", () => {
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
   });
 
+  it("reports a strict directory transport failure without caching it", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const fetchSpy = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("private timeout"), { name: "TimeoutError" }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ apps: [] }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "timeout",
+    });
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "available",
+      apps: [],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("returns [] silently on bad JSON (no throw)", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     vi.stubGlobal(
@@ -358,6 +424,131 @@ describe("fetchOrgApps", () => {
       vi.fn(async () => new Response("<<not json>>", { status: 200 })),
     );
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
+  });
+
+  it("distinguishes an invalid strict directory response", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ nope: true }))),
+    );
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
+    });
+  });
+
+  it("rejects and does not cache a partly malformed strict response", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              { id: "calendar", name: "Calendar", url: "https://cal.acme.com" },
+              { bogus: true },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              { id: "calendar", name: "Calendar", url: "https://cal.acme.com" },
+            ],
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
+    });
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "available",
+      apps: [expect.objectContaining({ id: "calendar" })],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects and does not cache a malformed strict a2aUrl", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              {
+                id: "calendar",
+                name: "Calendar",
+                url: "https://cal.acme.com",
+                a2aUrl: "/relative-a2a",
+              },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              {
+                id: "calendar",
+                name: "Calendar",
+                url: "https://cal.acme.com",
+                a2aUrl: "https://cal.acme.com/_agent-native/a2a",
+              },
+            ],
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
+    });
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "available",
+      apps: [expect.objectContaining({ id: "calendar" })],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts Dispatch's description-backed capabilities field", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            apps: [
+              {
+                id: "calendar",
+                name: "Calendar",
+                url: "https://cal.acme.com",
+                a2aUrl: "https://cal.acme.com/_agent-native/a2a",
+                capabilities: "Schedule and manage events",
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "available",
+      apps: [
+        expect.objectContaining({
+          id: "calendar",
+          capabilities: ["Schedule and manage events"],
+        }),
+      ],
+    });
   });
 
   it("caches a successful fetch (not re-fetched on every call)", async () => {

@@ -66,12 +66,21 @@ export interface AgentChatMcpOptions {
   builtinCrossAppTools?: boolean;
   /** Human-facing title. Defaults to the capitalized app id/name. */
   title?: string;
-  /** Host-facing description. Defaults to "Agent-native <app> agent". */
+  /** Host-facing description. Defaults to "Agent-Native <app> agent". */
   description?: string;
   /** Canonical app URL. Relative URLs are resolved against the request origin. */
   websiteUrl?: string;
   /** App icons. Relative `src` values are resolved against the request origin. */
   icons?: AgentChatMcpIcon[];
+  /** Additional host-facing guidance included in MCP initialization metadata. */
+  instructions?: string;
+  /**
+   * Key tools to name in the MCP/WebMCP instructions for external callers.
+   * Defaults to the app's own `initialToolNames` — the in-app agent's
+   * curated starter list is the one index unless a different subset should
+   * be shown to external connectors.
+   */
+  keyToolNames?: readonly string[];
 }
 
 /** The legacy top-level keys `mcp` replaces. */
@@ -84,11 +93,14 @@ export interface AgentChatMcpLegacyInput {
     description?: string;
     websiteUrl?: string;
     icons?: AgentChatMcpIcon[];
+    instructions?: string;
   };
   /** @deprecated Use `mcp.connectorCatalog`. */
   connectorCatalog?: string[];
   /** @deprecated Use `mcp.externalAgents`. */
   externalAgents?: ExternalAgentPolicy;
+  /** App's own curated starter tool list; the `mcp.keyToolNames` default. */
+  initialToolNames?: readonly string[];
   mcp?: AgentChatMcpOptions;
 }
 
@@ -102,6 +114,8 @@ export interface ResolvedAgentChatMcp {
   description: string | undefined;
   websiteUrl: string | undefined;
   icons: AgentChatMcpIcon[] | undefined;
+  instructions: string | undefined;
+  keyToolNames: readonly string[] | undefined;
 }
 
 function conflict(
@@ -215,5 +229,12 @@ export function resolveAgentChatMcpOptions(
       mcp.websiteUrl,
     ),
     icons: pick("icons", "mcpServerInfo.icons", legacyInfo?.icons, mcp.icons),
+    instructions: pick(
+      "instructions",
+      "mcpServerInfo.instructions",
+      legacyInfo?.instructions,
+      mcp.instructions,
+    ),
+    keyToolNames: mcp.keyToolNames ?? input?.initialToolNames,
   };
 }

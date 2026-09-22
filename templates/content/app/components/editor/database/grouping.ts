@@ -179,7 +179,7 @@ function databaseBoardItemGroupValues(
   item: ContentDatabaseItem,
   property: DocumentProperty,
   optionIds: Set<string>,
-): Array<DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE> {
+): DocumentPropertyValue[] {
   const value =
     item.properties.find(
       (candidate) => candidate.definition.id === property.definition.id,
@@ -205,14 +205,20 @@ function databaseBoardItemGroupValues(
 
 function databaseBoardGroupId(
   property: DocumentProperty,
-  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE,
+  value: DocumentPropertyValue,
 ) {
-  return `${property.definition.id}:${String(value)}`;
+  return `${property.definition.id}:${
+    typeof value === "string"
+      ? value
+      : typeof value === "number" || typeof value === "boolean"
+        ? String(value)
+        : (JSON.stringify(value) ?? "")
+  }`;
 }
 
 export function boardGroupValueForProperty(
   property: DocumentProperty,
-  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE,
+  value: DocumentPropertyValue,
 ): DocumentPropertyValue {
   if (value === BOARD_UNGROUPED_VALUE) {
     return property.definition.type === "multi_select" ? [] : null;

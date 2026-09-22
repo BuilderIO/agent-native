@@ -15,7 +15,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statfsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -25,12 +25,38 @@ const REPO_ROOT = path.resolve(
 );
 
 /** The only routine exclusions `.agents/skills/ship` allows. */
-const EXCLUDED = /(^|\/)(learnings\.md$|bridge\/|data\/)/;
+const EXCLUDED = /(^|\/)learnings\.md$|^(bridge|data)\//;
 
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
 const messageFlag = Math.max(argv.indexOf("-m"), argv.indexOf("--message"));
 const explicitMessage = messageFlag >= 0 ? argv[messageFlag + 1] : undefined;
+export const MIN_FREE_DISK_BYTES = 500 * 1024 * 1024;
+
+export function freeDiskBytes(root) {
+  const stats = statfsSync(root);
+  return Number(stats.bavail) * Number(stats.bsize);
+}
+
+export function assertFreeDisk(
+  root = REPO_ROOT,
+  minimumBytes = MIN_FREE_DISK_BYTES,
+) {
+  let freeBytes;
+  try {
+    freeBytes = freeDiskBytes(root);
+  } catch (error) {
+    throw new Error(
+      `could not read free disk space for ${root}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!Number.isFinite(freeBytes) || freeBytes < minimumBytes) {
+    throw new Error(
+      `only ${Math.round(freeBytes / 1024 / 1024)} MiB free on ${root}; need at least ${Math.round(minimumBytes / 1024 / 1024)} MiB before publishing`,
+    );
+  }
+  return freeBytes;
+}
 
 /**
  * Run git and let a failure be a failure — no `catch { return "" }` here.
@@ -54,7 +80,32 @@ function git(args, { allowFailure = false, raw = false } = {}) {
   }
 }
 
+/**
+ * Which dirty paths may be handed to `git add`.
+ *
+ * A deleted-but-tracked path MUST be included: `git add --all -- <path>` is
+ * how its removal gets staged. Filtering to paths present on disk is what
+ * silently dropped deletions and let a rename ship as an add. A path that is
+ * neither on disk nor tracked is skipped, because that pathspec aborts the
+ * whole `add` and would take the good paths down with it.
+ */
+export function selectStageablePaths(paths, { exists, isTracked }) {
+  return paths.filter((file) => exists(file) || isTracked(file));
+}
+
+export function isExcludedPath(file) {
+  return EXCLUDED.test(file);
+}
+
 function main() {
+  try {
+    assertFreeDisk();
+  } catch (error) {
+    console.error(
+      `ship-push: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  }
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch === "HEAD" || branch === "main" || branch === "master") {
     console.error(`ship-push: refusing to push from "${branch}".`);
@@ -62,7 +113,9 @@ function main() {
   }
 
   const dirtyPaths = parsePorcelain(
-    git(["status", "--porcelain", "-z"], { raw: true }),
+    git(["status", "--porcelain", "-z", "--untracked-files=all"], {
+      raw: true,
+    }),
   );
   // null = the remote branch does not exist yet, which also needs a push.
   const unpushed = git(["log", "--oneline", `origin/${branch}..HEAD`], {
@@ -75,8 +128,8 @@ function main() {
     return;
   }
 
-  const excluded = dirtyPaths.filter((file) => EXCLUDED.test(file));
-  const publishable = dirtyPaths.filter((file) => !EXCLUDED.test(file));
+  const excluded = dirtyPaths.filter(isExcludedPath);
+  const publishable = dirtyPaths.filter((file) => !isExcludedPath(file));
 
   if (dryRun) {
     console.log(
@@ -90,14 +143,30 @@ function main() {
   let committed = null;
   if (publishable.length > 0) {
     // Whole files only. `--` keeps a path that looks like a flag from being one.
-    // `--all` stages modified and newly-created files. Deleted paths are
-    // already staged by explicit cleanup commands; omitting absent paths
-    // avoids Git rejecting a pathspec that no longer exists on disk.
-    const existingPublishable = publishable.filter((file) =>
-      existsSync(path.join(REPO_ROOT, file)),
+    // `--all` stages modifications, additions AND deletions for the paths it
+    // is given. This used to filter to paths still present on disk, on the
+    // assumption that deletions were "already staged by explicit cleanup
+    // commands" — false for an ordinary `rm`, so every deletion was silently
+    // dropped and a rename shipped as an add with the old file still tracked.
+    // A helper whose contract is "publish the complete snapshot" must not
+    // quietly publish part of it. A path absent from disk is still stageable
+    // when Git tracks it; only a path that is neither is skipped, because
+    // that pathspec would abort the whole `add`.
+    // -z for the same reason `git status` is read with -z: without it Git
+    // C-quotes any path with non-ASCII or special characters, which would not
+    // match the raw path from the porcelain read and would silently drop that
+    // deletion — the exact failure this block was just fixed for.
+    const tracked = new Set(
+      git(["ls-files", "-z"], { raw: true }).split("\0").filter(Boolean),
     );
-    if (existingPublishable.length > 0) {
-      git(["add", "--all", "--", ...existingPublishable]);
+    const stageable = selectStageablePaths(publishable, {
+      exists: (file) => existsSync(path.join(REPO_ROOT, file)),
+      isTracked: (file) => tracked.has(file),
+    });
+    if (stageable.length > 0) {
+      // Tracked generated files may still match a parent ignore rule. These
+      // exact pathspecs came from Git's dirty-path list, so force-add is scoped.
+      git(["add", "--all", "-f", "--", ...stageable]);
     }
     const staged = git(["diff", "--cached", "--name-only"])
       .split("\n")
@@ -122,8 +191,10 @@ function main() {
   if (committed) console.log(`  committed ${committed}`);
   console.log(`  pushed    origin/${branch}@${remoteSha}`);
   const remainingExcluded = parsePorcelain(
-    git(["status", "--porcelain", "-z"], { raw: true }),
-  ).filter((file) => EXCLUDED.test(file));
+    git(["status", "--porcelain", "-z", "--untracked-files=all"], {
+      raw: true,
+    }),
+  ).filter(isExcludedPath);
   if (remainingExcluded.length > 0) {
     console.log(
       `  left behind (say so explicitly):\n    ${remainingExcluded.join("\n    ")}`,

@@ -14,7 +14,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `builder-source-review-gates-${process.pid}-${Date.now()}.sqlite`,
+  `builder-source-review-gates-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.com";
@@ -81,7 +81,7 @@ let realExecutionDeps: typeof import("./execute-builder-source-execution.js").re
 let builderReviewSourceValueTextProjection: typeof import("./_database-source-utils.js").builderReviewSourceValueTextProjection;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -100,9 +100,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -252,7 +250,7 @@ async function seedBuilderSource(args: {
 }
 
 describe("Builder source review execution gates", () => {
-  it("reads dotted Builder body keys on SQLite", async () => {
+  it("reads dotted Builder body keys on PGlite", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
     });

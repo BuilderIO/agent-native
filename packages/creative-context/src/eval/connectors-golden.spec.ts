@@ -346,7 +346,7 @@ describe("realistic connector acceptance corpus", () => {
         rendered: true,
         warnings: [],
         extraction: {
-          title: "Agent Native — Create with context",
+          title: "Agent-Native — Create with context",
           text: "Reusable context keeps creative work aligned.",
           assets: [],
           internalLinks: ["https://brand.example/start"],

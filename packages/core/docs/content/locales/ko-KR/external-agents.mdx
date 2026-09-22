@@ -1,7 +1,7 @@
 ---
-title: "외부 에이전트: Claude, ChatGPT, Codex, 커서, Cowork"
-description: "Claude, ChatGPT, Codex, Cursor, Claude Cowork 또는 MCP 호환 호스트를 호스팅된 에이전트 기본 앱에 연결한 다음 MCP 앱 및 딥 링크를 사용하여 아티팩트를 실행 중인 UI로 다시 왕복합니다."
-search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이전트 기본 연결 로컬 에이전트 도구 외부 에이전트"
+title: "외부 에이전트: Claude, ChatGPT, Codex, 커서, Cowork, Grok"
+description: "Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok 또는 MCP 호환 호스트를 호스팅된 에이전트 기본 앱에 연결한 다음 MCP 앱 및 딥 링크를 사용하여 아티팩트를 실행 중인 UI로 다시 왕복합니다."
+search: "Claude Anthropic ChatGPT OpenAI Claude 코드 Codex 커서 Claude Cowork Grok xAI MCP 앱 에이전트 기본 연결 로컬 에이전트 도구 외부 에이전트"
 ---
 
 # 외부 에이전트
@@ -93,7 +93,17 @@ search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이�
 
 ## 간편한 설정 {#easy-setup}
 
-Agent-Native를 사용하려는 호스트에 하나의 원격 MCP 커넥터를 추가하세요.
+모든 Agent-Native 앱은 표준 MCP URL을 제공합니다.
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+앱에서 **Settings → Integrations**를 열고 알고 있는 호스트 이름을 검색하세요.
+Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI, Codex, Grok,
+xAI 중 어떤 이름으로도 검색할 수 있습니다. 외부 호스트 결과 하나를 선택하면 가장 알맞은
+가이드가 선택된 **Settings → MCP**가 열립니다. **MCP server URL**을 복사해 AI
+호스트에 붙여넣으세요. URL은 배포된 앱의 기본 URL 뒤에 `/mcp`를 붙인 형식입니다.
 
 작업공간 또는 교차 앱 작업의 경우 Dispatch를 사용하세요.
 
@@ -115,16 +125,26 @@ https://<your-app>.agent-native.com/mcp
 
 호스팅된 모든 앱에는 다음 위치에 도우미 페이지도 있습니다.
 복사 가능한 URL가 있는 `https://&lt;app&gt;/mcp/connect` 및
-Claude, ChatGPT, 커서, Claude 코드, Codex 및 기타에 대한 호스트별 탭.
+Claude, ChatGPT, 커서, Claude 코드, Codex, Grok 및 기타에 대한 호스트별 탭.
 
-### 앱 내 Access 탭 {#access-tab}
+## 비공개 Content 링크 {#private-content-links}
 
-`AgentTabsPage`를 마운트하는 앱은 **Access** 탭에서 동일한 연결 흐름을
-제공합니다. MCP URL, 가능한 경우 A2A 에이전트 카드, Claude, ChatGPT, Cursor,
-Claude Code, Codex 및 기타 클라이언트를 위한 공통 설정 가이드를 보여줍니다.
-앱 안에서 시작점으로 사용하고 전체 흐름과 토큰 대체 경로는 `/mcp/connect`에서
-여세요. 이 탭은 연결 설정 UI이지 일반 접근 제어 콘솔이 아니며, grants, 범위
-편집, 취소는 아직 관리하지 않습니다.
+비공개 Content 공유 링크는 내용을 노출하지 않고 문서를 식별할 수 있습니다. 같은 Content 인스턴스의 `/mcp` URL을 에이전트의 원격 MCP 서버로 추가하고 Agent-Native 계정으로 인증한 다음 연결 또는 도구를 활성화하고 원래 문서 요청을 다시 시도하세요. `/mcp/connect` 페이지는 설정 옵션을 제공하지만, 페이지를 여는 것만으로 연결이 설치되지는 않습니다.
+
+이 흐름은 Claude, ChatGPT, Claude Code, Codex, Cursor, Antigravity, OpenCode, GitHub Copilot / VS Code 등 MCP 호스트에서 공통으로 사용할 수 있습니다. 설정 화면과 인증 방식은 호스트마다 다릅니다. Antigravity는 **Settings → Customizations → Installed MCP Servers** 또는 MCP 구성 파일에서 원격 서버를 관리하며, Agent-Native의 `connect` 명령은 현재 Antigravity를 구성하지 않습니다.
+
+인증은 연결된 계정을 식별할 뿐 문서 권한을 넓히지 않습니다. 공개 문서는 공유 페이지에서 계속 읽을 수 있습니다. 비공개 문서는 해당 계정에 기존 접근 권한이 있을 때만 MCP로 읽을 수 있습니다. 연결 후 `get-document`가 “찾을 수 없음”을 반환해도 권한 부족과 오래되었거나 삭제되었거나 잘못된 문서 ID를 구분할 수 없습니다. 권한을 변경하기 전에 링크와 연결된 계정의 접근 권한을 확인하세요.
+
+커넥터를 다시 설치하거나 공개 공유 링크를 변경해도 확인된 연결 계정의 권한 거부는 해결되지 않습니다.
+
+<a id="access-tab"></a>
+
+### 앱 내 MCP 설정 {#mcp-settings}
+
+표준 앱 Settings에는 **Integrations** 옆에 **MCP** 탭이 있습니다. 앱의 표준 MCP
+URL, 가능한 경우 A2A 에이전트 카드, 전체 연결 페이지와 같은 설정 가이드를 보여줍니다.
+앱에서 시작하려면 **Settings → MCP**를 사용하거나, 전체 흐름과 토큰 대체 경로를
+보려면 `/mcp/connect`를 직접 여세요.
 
 ### Claude 및 ChatGPT OAuth {#oauth}
 
@@ -133,10 +153,14 @@ Claude / Claude 데스크탑: 사용자 정의 커넥터를 추가하고 MCP URL
 채팅에서 커넥터를 활성화합니다. Claude 코드는 동일한 URL를 사용합니다.
 원격 HTTP MCP 서버에서 `/mcp`를 실행한 다음 **인증**을 선택하세요.
 
-ChatGPT: 맞춤 MCP 커넥터 또는 개발자 모드 앱이 있는 작업 공간을 사용하세요.
-활성화, 사용자 정의 커넥터/앱 생성, 동일한 MCP URL 붙여넣기, OAuth 선택,
-도구 검색/발견, Agent-Native로 로그인, 범위 승인 및 활성화
-채팅의 커넥터
+ChatGPT: 맞춤 MCP 앱에는 지원되는 ChatGPT web 작업 공간이 필요합니다. 액세스할 수
+있다면 **Settings → Apps → Advanced settings**를 열고, 필요한 경우 developer mode를
+활성화한 뒤 **Create app**을 선택하세요. 같은 MCP URL을 붙여넣고 OAuth를 선택하여
+도구를 스캔한 다음 Agent-Native에 로그인하고 요청된 범위를 승인한 뒤 채팅에서 앱을
+활성화하세요. Business, Enterprise, Edu 작업 공간은 쓰기 작업을 포함한 전체 MCP를
+지원하며, Pro는 developer mode에서 읽기와 가져오기를 지원합니다. **Apps** 또는
+**Create app**이 보이지 않으면 요금제나 작업 공간 정책에서 이 설정을 허용하지 않는
+것입니다.
 
 OAuth 부여는 호스트별 및 사용자별입니다. 호스트는 토큰을 저장하고
 도구/리소스 호출을 중재하므로 인라인 MCP 앱 미리보기는 원시 수신을 받지 않습니다.
@@ -204,7 +228,7 @@ Claude 코드, Claude 코드 CLI, 커서, OpenCode 및 GitHub Copilot/VS 코드�
 
 스크립트 또는 일회성 설치에 대한 선택기를 건너뛰려면 `--client codex`(또는 `--client claude-code`, `--client claude-code-cli`, `--client cursor`, `--client opencode`, `--client github-copilot`, `--client cowork`, `--client all`)를 사용하세요.
 
-자사 앱 skills는 지침과 호스팅된 MCP 커넥터를 Agent Native CLI와 함께 설치합니다.
+자사 앱 skills는 지침과 호스팅된 MCP 커넥터를 Agent-Native CLI와 함께 설치합니다.
 
 ```bash
 npx @agent-native/core@latest skills add assets              # alias: image-generation
@@ -417,7 +441,7 @@ Core `db-schema`와 `db-query`는 자동 외부 읽기로 공개되지 않습니
 
 `resolveExecutionContext`를 제공하는 앱은 이 기본 ID 확인 절차를 명시적으로 대체합니다. 해당 resolver는 principal을 반환하기 전에 검증되지 않은 호출자, 게스트, 외부 구성원, 연결되지 않은 workspace를 독립적으로 거부해야 합니다.
 
-검증된 Slack DM은 에이전트가 실행되기 전에 기존 Agent Native 조직 구성원과 연결되고 workspace/user ID 링크로 저장됩니다. 그 결과 생성된 사용자/조직 컨텍스트에는 해당 사용자의 리소스, 지침 및 skills가 로드됩니다. 기본적으로 프로필을 정상적으로 가져왔지만 이메일이 없거나 아직 조직 구성원이 아닌 workspace 구성원은 거부됩니다. 앱은 `allowAnonymousOrgScopedSlackDm: true`를 명시적으로 설정해 이러한 구성원을 조직 범위의 익명 service principal로 실행할 수 있습니다. 이는 공유 채널과 동일한 조직 전체 공개 수준이지만 사용자 비공개 데이터에는 절대 접근하지 않습니다. 에이전트에 표시되는 메모와 개인 액세스를 얻는 방법을 설명하는 일회성 Slack 안내가 함께 제공됩니다. 이 opt-in은 프로필 가져오기 실패, 검증되지 않은 호출자, 게스트, 외부(Slack Connect) 구성원 또는 조직에 연결되지 않은 workspace를 허용하지 않으며, 이들에게는 정중한 거절 응답을 보냅니다. Slack 공유 채널은 service principal을 사용하며 참여자의 개인 권한을 빌리지 않습니다. 관리형 OAuth와 생성된 Slack 앱 매니페스트는 모두 bot scope `users:read.email`을 요청합니다. 새로 추가된 scope를 부여하려면 기존 설치를 다시 연결/설치해야 하며, 이전 bot-token 설치는 Slack에서 scope를 수동으로 추가해야 합니다. 이 scope가 없으면 앱이 `allowAnonymousOrgScopedSlackDm`을 명시적으로 활성화하지 않는 한 DM은 거부됩니다.
+검증된 Slack DM은 에이전트가 실행되기 전에 기존 Agent-Native 조직 구성원과 연결되고 workspace/user ID 링크로 저장됩니다. 그 결과 생성된 사용자/조직 컨텍스트에는 해당 사용자의 리소스, 지침 및 skills가 로드됩니다. 기본적으로 프로필을 정상적으로 가져왔지만 이메일이 없거나 아직 조직 구성원이 아닌 workspace 구성원은 거부됩니다. 앱은 `allowAnonymousOrgScopedSlackDm: true`를 명시적으로 설정해 이러한 구성원을 조직 범위의 익명 service principal로 실행할 수 있습니다. 이는 공유 채널과 동일한 조직 전체 공개 수준이지만 사용자 비공개 데이터에는 절대 접근하지 않습니다. 에이전트에 표시되는 메모와 개인 액세스를 얻는 방법을 설명하는 일회성 Slack 안내가 함께 제공됩니다. 이 opt-in은 프로필 가져오기 실패, 검증되지 않은 호출자, 게스트, 외부(Slack Connect) 구성원 또는 조직에 연결되지 않은 workspace를 허용하지 않으며, 이들에게는 정중한 거절 응답을 보냅니다. Slack 공유 채널은 service principal을 사용하며 참여자의 개인 권한을 빌리지 않습니다. 관리형 OAuth와 생성된 Slack 앱 매니페스트는 모두 bot scope `users:read.email`을 요청합니다. 새로 추가된 scope를 부여하려면 기존 설치를 다시 연결/설치해야 하며, 이전 bot-token 설치는 Slack에서 scope를 수동으로 추가해야 합니다. 이 scope가 없으면 앱이 `allowAnonymousOrgScopedSlackDm`을 명시적으로 활성화하지 않는 한 DM은 거부됩니다.
 
 ### 전체 등급(명시적 선택만 해당) {#full-tier}
 
@@ -500,6 +524,8 @@ ChatGPT/Claude 스타일 OAuth 앱 호스트의 경우 검색 표면은 기본�
 이를 통해 클라이언트별 shim을 구축하는 대신 모든 호환 호스트에서 동일한 앱 표면을 사용할 수 있습니다. MCP 앱을 인라인으로 렌더링하는 호스트(및 메타데이터 변경 후 커넥터 캐시 정보)는 [MCP Apps → Client support and caching](/docs/mcp-apps#client-support)에 있습니다. 해당 페이지는 클라이언트 매트릭스의 단일 홈입니다.
 
 실제로 모든 에이전트 기반 앱은 지원 호스트에서 인라인 검토/편집을 위한 MCP 앱과 전체 앱으로의 범용 왕복을 위한 `link`를 모두 사용하여 작성되어야 합니다. iframe을 렌더링하지 않는 CLI/code-editor 클라이언트는 딥 링크로 대체됩니다. 인간 선택 도구는 해당 대체에 붙여넣기 단계를 추가할 수 있습니다. 예를 들어 자산 선택기가 대체 링크에서 열리고 사용자가 브라우저에서 미디어를 선택할 수 있도록 한 다음 사용자가 채팅에 다시 붙여넣는 핸드오프 요약을 복사합니다.
+
+외부 에이전트는 앱 내 에이전트가 호출하는 것과 동일한 이름의 실제 생성/수정 도구에 접근할 수 있습니다. 따라서 사용자가 새로운 콘텐츠(디자인, 덱, 폼, 문서 등)를 요청하면, 작업을 `ask_app`으로 위임하지 말고 직접 작성한 뒤 해당 도구로 저장하세요. `endsTurn: true`로 표시된 액션 ― 예를 들어 사용자의 답변을 해당 앱 자체의 채팅에서 기다리는 앱 내 질문 폼 ― 은 `mcpTool: true`가 아닌 한 MCP, WebMCP, A2A에서 숨겨집니다 ― [Actions 정의하기의 endsTurn](/docs/actions-defining)을 참고하세요. 도구 입력과 결과는 WebMCP에서 최대 500,000자까지 지원하므로, 화면, 덱, 문서 전체가 한 번의 쓰기에 담깁니다 ― [WebMCP](/docs/webmcp)를 참고하세요. 페이지 로컬 WebMCP 호출은 브라우저 탭 ID(UI가 사용하는 것과 동일한 `getBrowserTabId()` 값 ― [상황 인식](/docs/context-awareness) 참고)도 함께 전달하므로, 탭별 내비게이션과 선택 항목은 숨겨져 있더라도 에이전트가 조작 중인 탭으로 해석됩니다.
 
 ### 최고 수준의 MCP 앱 브리지 {#mcp-app-bridge}
 
@@ -817,6 +843,7 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 ## 관련 {#related}
 
 - [MCP Apps](/docs/mcp-apps) — MCP 앱 UI, 포함 브리지 및 호스트 브리지 API를 작성합니다.
+- [WebMCP](/docs/webmcp) — 페이지 로컬 도구, 입력/결과 500,000자 제한, 브라우저 탭 ID 헤더.
 - [MCP Protocol](/docs/mcp-protocol) — 자동 마운트된 MCP 서버 및 `ask-agent` 메타 도구.
 - [MCP Clients](/docs/mcp-clients) — 대칭 방향: 앱이 로컬/원격 MCP 서버를 사용합니다.
 - [A2A Protocol](/docs/a2a-protocol) — `ask-agent` 메타 도구 및 JSON-RPC 피어 호출.

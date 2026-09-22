@@ -80,7 +80,11 @@ test("the Builder shell canvas makes no agent-native requests", async ({
   page.on("request", (request) => {
     const url = request.url();
     if (!url.includes("/_agent-native/")) return;
-    requests.push(`${request.method()} ${url.replace(String(baseURL), "")}`);
+    const path = url.replace(String(baseURL), "");
+    // Registered as an auth-public path: with no session it serves only the
+    // explicitly-public read-only action list, never per-design data.
+    if (path.startsWith("/_agent-native/webmcp/manifest")) return;
+    requests.push(`${request.method()} ${path}`);
   });
 
   try {

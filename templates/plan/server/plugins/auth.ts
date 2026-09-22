@@ -1,5 +1,6 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
+import { PLAN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 import { isLocalPlanRuntime } from "../lib/local-identity.js";
 import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
 
@@ -48,18 +49,26 @@ export default createAuthPlugin({
   // auth so the UI does not create placeholder plans for signed-out visitors.
   workspaceAppPublicPaths: [
     "/",
+    "/chat",
     "/plans",
     "/plans/plan_",
     "/recaps",
     "/local-plans",
   ],
   publicPaths: [
+    // Agent-readable context link: fetched with no session cookie, so the
+    // gate must not 401 before the handler verifies its scoped token.
+    PLAN_AGENT_CONTEXT_ENDPOINT,
     ...PUBLIC_PLAN_ACTION_PATHS,
     ...LOCAL_MODE_ACTION_PATHS,
     ...PUBLIC_AGENT_CHAT_PATHS,
   ],
   marketing: {
     appName: "Plan",
+    screenshotPath: "/auth-marketing/plan.webp",
+    screenshotWidth: 914,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/plan",
     tagline:
       "Turn coding-agent plans into visual, annotatable HTML before code changes happen.",
     features: [

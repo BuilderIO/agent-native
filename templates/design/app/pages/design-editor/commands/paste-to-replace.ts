@@ -1,7 +1,4 @@
-import {
-  buildCodeLayerProjection,
-  removeCodeLayerNodeFromHtml,
-} from "@shared/code-layer";
+import { buildCodeLayerProjection, applyVisualEdit } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -13,7 +10,9 @@ import type { ClipboardContentMutationPublication } from "@/lib/clipboard-conten
 import {
   insertClonedHtmlLayers,
   prepareClonedHtmlLayersForLiveInsert,
+  portableStyleSnapshotForPasteTarget,
 } from "@/pages/design-editor/clone-and-pen-edit";
+import { codeLayerPatchMessage } from "@/pages/design-editor/code-layer-state";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
 import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -53,6 +52,17 @@ export interface PasteToReplaceArgs {
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
+/** Pixel lengths only: `10%` or `2rem` parsed loosely would be re-serialized
+ *  as `10px` and visibly move the replacement. */
+function pixelLength(value: string | undefined): number | null {
+  const raw = (value ?? "").trim();
+  if (raw === "0") return 0;
+  const match = /^(-?[\d.]+)px$/.exec(raw);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function runPasteToReplace({
   activeFile,
   applyLocalContentUpdate,
@@ -72,6 +82,16 @@ export function runPasteToReplace({
   const targetSelector = selectedElement?.selector;
   const targetPosition = selectedElement?.boundingRect;
   if (!targetSelector || !targetPosition) return;
+  const styleSnapshot = portableStyleSnapshotForPasteTarget(
+    entries[0]!,
+    activeFile.id,
+  );
+  if (styleSnapshot === null) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), {
+      duration: 4000,
+    });
+    return;
+  }
   const baseContent = getFreshActiveContent();
   const targetStoredContent = activeFile.content ?? baseContent;
   if (isStandaloneHttpUrl(targetStoredContent)) {
@@ -79,8 +99,10 @@ export function runPasteToReplace({
       targetStoredContent,
       [entries[0]!.html],
       {
-        positions: [{ x: targetPosition.x, y: targetPosition.y }],
-        styleSnapshots: [entries[0]!.portableStyleSnapshot],
+        positions: [
+          { x: targetPosition.x, y: targetPosition.y, space: "visual" },
+        ],
+        styleSnapshots: [styleSnapshot],
       },
     );
     const html = prepared?.htmlFragments[0];
@@ -110,22 +132,56 @@ export function runPasteToReplace({
     });
     return;
   }
-  const projection = buildCodeLayerProjection(baseContent);
+  const projection = buildCodeLayerProjection(baseContent, {
+    source: { kind: "design-file", fileId: activeFile.id },
+  });
   const targetNode = projection.nodes.find((node) =>
     node.selectors.includes(targetSelector),
   );
   if (!targetNode) return;
-  const contentWithoutTarget = removeCodeLayerNodeFromHtml(
+  const removal = applyVisualEdit(
     baseContent,
-    targetNode,
+    { kind: "deleteNode", target: { nodeId: targetNode.id } },
+    { source: projection.source },
   );
-  if (!contentWithoutTarget) return;
+  if (removal.result.status !== "applied") {
+    toast.error(
+      codeLayerPatchMessage(
+        removal.result.message,
+        t("designEditor.toasts.layerMoveFailed"),
+        t,
+      ),
+    );
+    return;
+  }
+  const contentWithoutTarget = removal.content;
+  // insertClonedHtmlLayers writes authored, parent-relative left/top, but
+  // targetPosition is iframe-document space. A board surface renders its
+  // content at ~4000,4000, so passing that through drops the copy thousands
+  // of pixels away from the layer it replaced. The target's own authored
+  // offsets are already in the space being written to; the parent-rect
+  // subtraction is the fallback for a target positioned by class or transform.
+  const authoredLeft = pixelLength(targetNode.style.left);
+  const authoredTop = pixelLength(targetNode.style.top);
+  const hasAuthoredPosition = authoredLeft !== null && authoredTop !== null;
+  const parentRect = selectedElement?.parentBoundingRect;
+  const position = hasAuthoredPosition
+    ? { x: authoredLeft, y: authoredTop }
+    : {
+        x: targetPosition.x - (parentRect?.x ?? 0),
+        y: targetPosition.y - (parentRect?.y ?? 0),
+      };
   const result = insertClonedHtmlLayers(
     contentWithoutTarget,
     [entries[0]!.html],
     {
-      positions: [{ x: targetPosition.x, y: targetPosition.y }],
-      styleSnapshots: [entries[0]!.portableStyleSnapshot],
+      positions: [
+        {
+          ...position,
+          space: hasAuthoredPosition ? "layout" : "visual",
+        },
+      ],
+      styleSnapshots: [styleSnapshot],
       managedStyleSnapshots: [entries[0]!.managedStyleSnapshot],
     },
   );

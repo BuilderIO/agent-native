@@ -32,7 +32,18 @@ export type LocalJsxLeafIntent =
       from?: string;
       to?: string;
     }
-  | { kind: "style"; property: string; value: string };
+  | { kind: "style"; property: string; value: string }
+  | {
+      kind: "attribute";
+      name: string;
+      value: string;
+      expectedValue?: string;
+    }
+  | {
+      kind: "attributes";
+      values: Record<string, string>;
+      expectedValues?: Record<string, string | undefined>;
+    };
 
 export interface LocalJsxVisualEditResult {
   content: string;
@@ -49,6 +60,23 @@ interface OpeningTag {
   end: number;
   name: string;
   selfClosing: boolean;
+}
+
+export interface LocalJsxLiteralProp {
+  name: string;
+  value: string;
+}
+
+function isEscaped(value: string, index: number): boolean {
+  let backslashes = 0;
+  for (
+    let cursor = index - 1;
+    cursor >= 0 && value[cursor] === "\\";
+    cursor--
+  ) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
 }
 
 function offsetAt(
@@ -108,7 +136,7 @@ function scanOpeningTags(content: string): OpeningTag[] {
     ) {
       const quote = content[start];
       for (start += 1; start < content.length; start += 1) {
-        if (content[start] === quote && content[start - 1] !== "\\") break;
+        if (content[start] === quote && !isEscaped(content, start)) break;
       }
       continue;
     }
@@ -127,7 +155,7 @@ function scanOpeningTags(content: string): OpeningTag[] {
     ) {
       const char = content[index] ?? "";
       if (quote) {
-        if (char === quote && content[index - 1] !== "\\") quote = "";
+        if (char === quote && !isEscaped(content, index)) quote = "";
         continue;
       }
       if (char === '"' || char === "'") {
@@ -151,6 +179,104 @@ function scanOpeningTags(content: string): OpeningTag[] {
     }
   }
   return tags;
+}
+
+/**
+ * Read quoted component props from the authored opening tag at a verified
+ * source anchor. Dynamic and shorthand attributes make the full literal prop
+ * set uncertain, so this reader fails closed; spreads can shadow every prop.
+ */
+export function readLiteralJsxPropsAtAnchor(args: {
+  content: string;
+  anchor: LocalJsxSourceAnchor;
+}): LocalJsxLiteralProp[] | undefined {
+  const { content, anchor } = args;
+  if (
+    anchor.positionPrecision !== "authored" ||
+    (anchor.runtimeMultiplicity ?? 1) !== 1 ||
+    anchor.scope === "repeated-render" ||
+    anchor.scope === "shared-component-definition"
+  ) {
+    return undefined;
+  }
+  if (offsetAt(content, anchor.line, anchor.column) === null) return undefined;
+  const candidates = scanOpeningTags(content).filter((tag) => {
+    const position = positionAt(content, tag.start);
+    return (
+      position.line === anchor.line &&
+      Math.abs(position.column - anchor.column) <= 1
+    );
+  });
+  if (candidates.length !== 1) return undefined;
+
+  const tag = candidates[0]!;
+  const opening = content.slice(tag.start, tag.end);
+  if (/\{\s*\.\.\./.test(opening)) return undefined;
+
+  const props: LocalJsxLiteralProp[] = [];
+  const reserved = new Set(["children", "key", "ref"]);
+  let sawUnsupported = false;
+  let index = 1 + tag.name.length;
+  while (index < opening.length - 1) {
+    while (/\s/.test(opening[index] ?? "")) index += 1;
+    if (opening[index] === ">" || opening.slice(index, index + 2) === "/>")
+      break;
+    if (opening[index] === "{") {
+      let depth = 0;
+      do {
+        const char = opening[index];
+        if (char === "{") depth += 1;
+        else if (char === "}") depth -= 1;
+        index += 1;
+      } while (index < opening.length && depth > 0);
+      if (depth > 0) return undefined;
+      sawUnsupported = true;
+      continue;
+    }
+
+    const nameMatch = /^[A-Za-z_:][A-Za-z0-9:_.-]*/.exec(opening.slice(index));
+    if (!nameMatch) return undefined;
+    const name = nameMatch[0]!;
+    index += name.length;
+    while (/\s/.test(opening[index] ?? "")) index += 1;
+    if (opening[index] !== "=") {
+      return undefined;
+    }
+    index += 1;
+    while (/\s/.test(opening[index] ?? "")) index += 1;
+    const quote = opening[index];
+    if (quote !== '"' && quote !== "'") {
+      let depth = 0;
+      if (opening[index] === "{") {
+        do {
+          const char = opening[index];
+          if (char === "{") depth += 1;
+          else if (char === "}") depth -= 1;
+          index += 1;
+        } while (index < opening.length && depth > 0);
+      }
+      if (depth > 0) return undefined;
+      sawUnsupported = true;
+      continue;
+    }
+    index += 1;
+    const valueStart = index;
+    while (
+      index < opening.length &&
+      (opening[index] !== quote || isEscaped(opening, index))
+    ) {
+      index += 1;
+    }
+    if (index >= opening.length) return undefined;
+    if (!reserved.has(name)) {
+      props.push({
+        name,
+        value: decodeJsxAttributeValue(opening.slice(valueStart, index)),
+      });
+    }
+    index += 1;
+  }
+  return sawUnsupported && props.length === 0 ? undefined : props;
 }
 
 function fail(
@@ -190,6 +316,32 @@ function jsxText(value: string): string {
     .join("&#125;");
 }
 
+function jsxAttributeValue(value: string): string {
+  return value
+    .split("&")
+    .join("&amp;")
+    .split('"')
+    .join("&quot;")
+    .split("<")
+    .join("&lt;")
+    .split(">")
+    .join("&gt;");
+}
+
+function decodeJsxAttributeValue(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function jsxAttributeName(name: string): string | null {
+  const normalized = name.trim();
+  return /^[A-Za-z_:][A-Za-z0-9:_.-]*$/.test(normalized) ? normalized : null;
+}
+
 function camelProperty(property: string): string | null {
   const value = property
     .trim()
@@ -203,11 +355,11 @@ export function planLocalJsxVisualEdit(args: {
   intent: LocalJsxLeafIntent;
 }): LocalJsxVisualEditResult {
   const { content, anchor, intent } = args;
-  if (anchor.positionPrecision === "transformed") {
+  if (anchor.positionPrecision !== "authored") {
     return fail(
       content,
       "needsAgent",
-      "The source anchor's line and column are the dev server's transformed coordinates (React 19 exposes no authored position), so they cannot be seeked in the authored file.",
+      "The source anchor does not have verified authored coordinates, so it cannot be seeked safely in the authored file.",
     );
   }
   if (
@@ -350,6 +502,80 @@ export function planLocalJsxVisualEdit(args: {
       tag.end,
       nextOpening,
       "Literal JSX classes updated.",
+    );
+  }
+
+  if (intent.kind === "attribute" || intent.kind === "attributes") {
+    const values =
+      intent.kind === "attribute"
+        ? { [intent.name]: intent.value }
+        : intent.values;
+    const entries = Object.entries(values);
+    if (entries.length === 0) {
+      return fail(
+        content,
+        "unsupported",
+        "At least one JSX attribute is required.",
+      );
+    }
+
+    let nextOpening = opening;
+    for (const [rawName, value] of entries) {
+      const name = jsxAttributeName(rawName);
+      if (!name) {
+        return fail(
+          content,
+          "unsupported",
+          `The JSX attribute name "${rawName}" is not a safe literal identifier.`,
+        );
+      }
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const literal = new RegExp(
+        `(\\s${escapedName}\\s*=\\s*)(["'])((?:\\\\.|(?!\\2)[\\s\\S])*)\\2`,
+        "s",
+      );
+      const literalMatch = literal.exec(nextOpening);
+      const expectedValue =
+        intent.kind === "attribute" && rawName === intent.name
+          ? intent.expectedValue
+          : intent.kind === "attributes"
+            ? intent.expectedValues?.[rawName]
+            : undefined;
+      if (expectedValue !== undefined) {
+        if (
+          !literalMatch ||
+          decodeJsxAttributeValue(literalMatch[3] ?? "") !== expectedValue
+        ) {
+          return fail(
+            content,
+            "conflict",
+            `The JSX prop "${name}" changed since the selected instance was read. Refresh and retry.`,
+          );
+        }
+      }
+      if (literalMatch) {
+        nextOpening = nextOpening.replace(
+          literal,
+          (_match, prefix: string) => `${prefix}"${jsxAttributeValue(value)}"`,
+        );
+        continue;
+      }
+      if (new RegExp(`\\s${escapedName}(?:\\s|=|/?>)`).test(nextOpening)) {
+        return fail(
+          content,
+          "needsAgent",
+          `The JSX attribute "${name}" is dynamic or shorthand and requires semantic source inspection.`,
+        );
+      }
+      const insertAt = nextOpening.lastIndexOf(tag.selfClosing ? "/>" : ">");
+      nextOpening = `${nextOpening.slice(0, insertAt)} ${name}="${jsxAttributeValue(value)}"${nextOpening.slice(insertAt)}`;
+    }
+    return replaceRange(
+      content,
+      tag.start,
+      tag.end,
+      nextOpening,
+      "Literal JSX attributes updated.",
     );
   }
 

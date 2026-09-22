@@ -254,4 +254,26 @@ describe("seedRegistryBlockRaw", () => {
     const noEmpty = { ...spec, empty: undefined };
     expect(seedRegistryBlockRaw(noEmpty as never, "x")).toBe("");
   });
+
+  // Regression: the `code` and `code-tabs` slash items were the only two
+  // block-placed specs with no `empty()` factory, so selecting either one
+  // stamped `__raw: ""` on the freshly inserted node. `RegistryBlockNodeView`
+  // can't hydrate an empty `__raw` (there is no element node to parse), so the
+  // block got stuck on "Loading code block…" — permanently, since the same
+  // empty `__raw` round-trips back on save/reload.
+  it("seeds real MDX for the code block (not the stuck-loading empty string)", () => {
+    const spec = contentBlockRegistry.get("code")!;
+    const raw = seedRegistryBlockRaw(spec, "code-1");
+    expect(raw).not.toBe("");
+    expect(raw).toContain("<Code");
+    expect(raw).toContain('id="code-1"');
+  });
+
+  it("seeds real MDX for the code-tabs block (not the stuck-loading empty string)", () => {
+    const spec = contentBlockRegistry.get("code-tabs")!;
+    const raw = seedRegistryBlockRaw(spec, "tabs-1");
+    expect(raw).not.toBe("");
+    expect(raw).toContain("<CodeTabs");
+    expect(raw).toContain('id="tabs-1"');
+  });
 });

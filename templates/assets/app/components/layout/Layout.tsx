@@ -14,7 +14,10 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
@@ -57,10 +60,11 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const imageModelMenu = useImageModelMenu();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isCreateRoute =
-    location.pathname === "/" || location.pathname.startsWith("/chat/");
+    location.pathname === "/home" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -71,7 +75,8 @@ export function Layout({ children }: LayoutProps) {
   );
   useAgentChatHomeHandoffLinks({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
-    isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
+    isChatPath: (pathname) =>
+      pathname === "/home" || pathname.startsWith("/chat/"),
     // Only preserve the transition when chat activity has recorded an active
     // handoff; an empty home chat should keep the destination sidebar closed.
     requireActiveHandoff: true,
@@ -151,7 +156,7 @@ export function Layout({ children }: LayoutProps) {
 
   function openCreateChatFullscreen() {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/home");
   }
 
   return (
@@ -175,7 +180,9 @@ export function Layout({ children }: LayoutProps) {
           <GenerationResults threadId={threadId} />
         )}
         imageModelMenu={imageModelMenu}
-        composerSlot={<CreativeContextComposerChip />}
+        composerSlot={
+          creativeContextEnabled ? <CreativeContextComposerChip /> : undefined
+        }
       >
         {appFrame}
       </AgentSidebar>

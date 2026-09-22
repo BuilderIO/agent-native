@@ -13,17 +13,42 @@ export interface AgentWebPage {
   lastmod?: string | Date;
 }
 
+export interface AgentWebResource {
+  title: string;
+  url: string;
+  description?: string;
+}
+
+export interface AgentWebOrganization {
+  name: string;
+  url?: string;
+  sameAs?: string[];
+  contactPoint?: {
+    "@type": "ContactPoint";
+    contactType: string;
+    email?: string;
+    telephone?: string;
+    url?: string;
+  };
+  address?: {
+    "@type": "PostalAddress";
+    streetAddress?: string;
+    addressLocality?: string;
+    addressRegion?: string;
+    postalCode?: string;
+    addressCountry?: string;
+  };
+}
+
 export interface BuildAgentWebStaticFilesOptions {
   siteName: string;
   siteUrl: string;
   description?: string;
   pages: AgentWebPage[];
   config: AgentWebConfig;
-  organization?: {
-    name: string;
-    url?: string;
-    sameAs?: string[];
-  };
+  developerResources?: AgentWebResource[];
+  whenToUse?: string[];
+  organization?: AgentWebOrganization;
 }
 
 export interface AgentWebStaticFile {
@@ -157,11 +182,27 @@ ${entries}
 export function buildLlmsTxt(
   options: Omit<BuildAgentWebStaticFilesOptions, "config">,
 ): string {
+  const developerResources = options.developerResources ?? [];
+  const whenToUse = options.whenToUse ?? [];
   const lines = [
     `# ${options.siteName}`,
     "",
     options.description ? `> ${options.description}` : undefined,
     options.description ? "" : undefined,
+    whenToUse.length ? "## When to use this" : undefined,
+    ...whenToUse.map((instruction) => `- ${instruction}`),
+    whenToUse.length ? "" : undefined,
+    developerResources.length ? "## Developer resources" : undefined,
+    ...developerResources.map((resource) => {
+      const description = resource.description
+        ? `: ${resource.description}`
+        : "";
+      return `- [${resource.title}](${absoluteResourceUrl(
+        options.siteUrl,
+        resource.url,
+      )})${description}`;
+    }),
+    developerResources.length ? "" : undefined,
     "## Pages",
     ...options.pages.map((page) => {
       const description = page.description ? `: ${page.description}` : "";
@@ -186,11 +227,27 @@ export function buildLlmsTxt(
 export function buildLlmsFullTxt(
   options: Omit<BuildAgentWebStaticFilesOptions, "config">,
 ): string {
+  const developerResources = options.developerResources ?? [];
+  const whenToUse = options.whenToUse ?? [];
   const lines = [
     `# ${options.siteName}`,
     "",
     options.description ?? "",
     "",
+    whenToUse.length ? "## When to use this" : undefined,
+    ...whenToUse.map((instruction) => `- ${instruction}`),
+    whenToUse.length ? "" : undefined,
+    developerResources.length ? "## Developer resources" : undefined,
+    ...developerResources.map((resource) => {
+      const description = resource.description
+        ? `: ${resource.description}`
+        : "";
+      return `- [${resource.title}](${absoluteResourceUrl(
+        options.siteUrl,
+        resource.url,
+      )})${description}`;
+    }),
+    developerResources.length ? "" : undefined,
     ...options.pages.flatMap((page) => [
       `## ${page.title}`,
       "",
@@ -215,11 +272,7 @@ export function buildBaseJsonLd(options: {
   siteName: string;
   siteUrl: string;
   description?: string;
-  organization?: {
-    name: string;
-    url?: string;
-    sameAs?: string[];
-  };
+  organization?: AgentWebOrganization;
 }) {
   const siteUrl = trimTrailingSlash(options.siteUrl);
   return [
@@ -230,6 +283,12 @@ export function buildBaseJsonLd(options: {
       url: options.organization?.url ?? siteUrl,
       ...(options.organization?.sameAs?.length
         ? { sameAs: options.organization.sameAs }
+        : {}),
+      ...(options.organization?.contactPoint
+        ? { contactPoint: options.organization.contactPoint }
+        : {}),
+      ...(options.organization?.address
+        ? { address: options.organization.address }
         : {}),
     },
     {
@@ -286,6 +345,7 @@ export function buildMarkdownResponseHeaders(
   return {
     "content-type": "text/markdown; charset=utf-8",
     "x-markdown-tokens": String(estimateMarkdownTokens(options.markdown)),
+    vary: "Accept, Accept-Encoding",
     link: `<${absoluteUrl(options.siteUrl, "/llms.txt")}>; rel="llms-txt", <${absoluteUrl(
       options.siteUrl,
       markdownUrlForPage(options.pagePath, options.markdownPath),
@@ -304,9 +364,10 @@ export function markdownUrlForPage(
   markdownPath?: string,
 ): string {
   if (markdownPath) return normalizePagePath(markdownPath);
-  const normalized = normalizePagePath(pagePath);
-  if (normalized === "/") return "/index.md";
-  return `${normalized}.md`;
+  // An asset path, not a route: the twin for `/about/` is `/about.md`.
+  const base = trimTrailingSlash(normalizePagePath(pagePath));
+  if (!base) return "/index.md";
+  return `${base}.md`;
 }
 
 export function markdownFilePathForPage(
@@ -322,12 +383,21 @@ export function absoluteUrl(siteUrl: string, pagePath: string): string {
   return `${base}${path}`;
 }
 
+function absoluteResourceUrl(siteUrl: string, resourceUrl: string): string {
+  return /^https?:\/\//i.test(resourceUrl)
+    ? resourceUrl
+    : absoluteUrl(siteUrl, resourceUrl);
+}
+
+/**
+ * Ensures a leading slash and otherwise leaves the path alone. A trailing
+ * slash is significant: a site whose canonical URLs carry one must advertise
+ * that exact form, or every sitemap entry and JSON-LD url points at a redirect
+ * instead of the page. Callers building an asset path from a route path strip
+ * it themselves -- see `markdownUrlForPage`.
+ */
 function normalizePagePath(pagePath: string): string {
-  const withSlash = pagePath.startsWith("/") ? pagePath : `/${pagePath}`;
-  if (withSlash.length > 1 && withSlash.endsWith("/")) {
-    return withSlash.slice(0, -1);
-  }
-  return withSlash;
+  return pagePath.startsWith("/") ? pagePath : `/${pagePath}`;
 }
 
 function trimTrailingSlash(value: string): string {
@@ -352,13 +422,17 @@ function breadcrumbItemsForPath(
   const normalized = normalizePagePath(pagePath);
   if (normalized === "/") return [{ name: "Home", path: "/" }];
   const segments = normalized.split("/").filter(Boolean);
+  // Every crumb is a page URL, so they carry the same trailing slash the page
+  // does. Emitting bare crumbs under a slash-terminated page points structured
+  // data at redirects.
+  const trailing = normalized.endsWith("/") ? "/" : "";
   const items = [{ name: "Home", path: "/" }];
   let current = "";
   for (const segment of segments) {
     current += `/${segment}`;
     items.push({
       name: titleFromSegment(segment),
-      path: current,
+      path: `${current}${trailing}`,
     });
   }
   return items;

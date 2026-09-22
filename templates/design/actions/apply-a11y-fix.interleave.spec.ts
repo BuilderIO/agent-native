@@ -66,6 +66,7 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
@@ -77,6 +78,42 @@ vi.mock("@agent-native/core/collab", () => ({
   seedFromText: async (docId: string, text: string) => {
     if (collabDocs.docs.has(docId)) return;
     getOrCreateDoc(docId).getText("content").insert(0, text);
+  },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => applyTextDiff(doc, text),
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const doc = new Y.Doc();
+    if (base) Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion: base ? 0 : null,
+        persist: async (_tx, _text) => {
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
   },
   agentEnterDocument: vi.fn(),
   agentLeaveDocument: vi.fn(),
@@ -180,6 +217,8 @@ vi.mock("../server/db/index.js", () => {
         },
       }),
     }),
+    execute: () => Promise.resolve({ rows: [] }),
+    transaction: async (fn: (tx: typeof db) => Promise<void>) => fn(db),
   };
   return { getDb: () => db, schema };
 });

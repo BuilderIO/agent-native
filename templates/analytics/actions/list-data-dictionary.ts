@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -81,18 +81,28 @@ export default defineAction({
           e.owner,
           e.sourceUrl,
         ]
-          .map((value) => String(value ?? "").toLowerCase())
+          .map((value) =>
+            (typeof value === "string" ? value : "").toLowerCase(),
+          )
           .join("\n");
         if (!searchable.includes(q)) return false;
       }
       if (dept) {
-        if (String(e.department ?? "").toLowerCase() !== dept) return false;
+        if (
+          (typeof e.department === "string"
+            ? e.department
+            : ""
+          ).toLowerCase() !== dept
+        )
+          return false;
       }
       return true;
     });
 
     filtered.sort((a, b) =>
-      String(a.metric ?? "").localeCompare(String(b.metric ?? "")),
+      (typeof a.metric === "string" ? a.metric : "").localeCompare(
+        typeof b.metric === "string" ? b.metric : "",
+      ),
     );
 
     return filtered;

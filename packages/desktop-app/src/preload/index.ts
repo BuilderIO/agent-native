@@ -37,6 +37,7 @@ import {
   type CodeAgentProjectListResult,
   type CodeAgentProjectSelectResult,
   type CodeAgentWorktreeListResult,
+  type DesktopTerminalContext,
   type CodeAgentRetryRunRequest,
   type CodeAgentRetryRunResult,
   type CodeAgentRerunRequest,
@@ -63,12 +64,16 @@ import {
   type DesktopOpenRequest,
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
+  type DesktopAppCreationSettingsUpdateResult,
   type DesktopAppRuntimeStatus,
+  type DesktopChatOpenAppRequest,
   type DesktopIdentityAuthRequest,
   type DesktopIdentityAuthResult,
   type DesktopIdentityMagicLinkRequest,
   type DesktopIdentityMagicLinkResult,
   type DesktopIdentityStatus,
+  type DesktopEnvironmentLaneState,
+  type DesktopEnvironmentLanePreference,
   type DesktopIdentitySettings,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
@@ -143,21 +148,10 @@ const electronAPI = {
   /** Window chrome controls */
   windowControls: {
     minimize: () => ipcRenderer.send(IPC.WINDOW_MINIMIZE),
-    maximize: () => ipcRenderer.send(IPC.WINDOW_MAXIMIZE),
+    toggleWindowMode: () => ipcRenderer.send(IPC.WINDOW_TOGGLE_WINDOW_MODE),
     close: () => ipcRenderer.send(IPC.WINDOW_CLOSE),
     setNativeTrafficLightsVisible: (visible: boolean): void =>
       ipcRenderer.send(IPC.WINDOW_NATIVE_BUTTONS_VISIBILITY, visible),
-    isMaximized: (): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.WINDOW_IS_MAXIMIZED),
-
-    /** Subscribe to maximize/restore state changes. Returns an unsubscribe fn. */
-    onMaximizedChange: (cb: (isMaximized: boolean) => void): (() => void) => {
-      const handler = (_: Electron.IpcRendererEvent, value: boolean) =>
-        cb(value);
-      ipcRenderer.on(IPC.WINDOW_MAXIMIZED_CHANGED, handler);
-      return () =>
-        ipcRenderer.removeListener(IPC.WINDOW_MAXIMIZED_CHANGED, handler);
-    },
   },
 
   /** Shortcuts forwarded from the main process */
@@ -237,7 +231,7 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.APPS_GET_CREATION_SETTINGS),
     updateCreationSettings: (
       settings: Partial<DesktopAppCreationSettings>,
-    ): Promise<DesktopAppCreationSettings> =>
+    ): Promise<DesktopAppCreationSettingsUpdateResult> =>
       ipcRenderer.invoke(IPC.APPS_UPDATE_CREATION_SETTINGS, settings),
     createFromPrompt: (
       request: DesktopCreateAppRequest,
@@ -265,8 +259,21 @@ const electronAPI = {
   desktopChat: {
     getApiUrl: (appId: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_API_URL, appId),
-    getTerminalInfoUrl: (appId: string): Promise<string | null> =>
-      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL, appId),
+    getTerminalInfoUrl: (
+      context?: DesktopTerminalContext | null,
+    ): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL, context),
+    onOpenApp: (
+      cb: (request: DesktopChatOpenAppRequest) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        request: DesktopChatOpenAppRequest,
+      ) => cb(request);
+      ipcRenderer.on(IPC.DESKTOP_CHAT_OPEN_APP, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.DESKTOP_CHAT_OPEN_APP, handler);
+    },
   },
 
   /** Workspace identity commands expose intent and status, never credentials. */
@@ -277,8 +284,19 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.IDENTITY_SETTINGS_GET),
     setSsoEnabled: (enabled: boolean): Promise<boolean> =>
       ipcRenderer.invoke(IPC.IDENTITY_SSO_ENABLED_SET, enabled),
-    ensureAppSession: (appId: string): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId),
+    getEnvironmentLane: (): Promise<DesktopEnvironmentLaneState> =>
+      ipcRenderer.invoke(IPC.IDENTITY_ENVIRONMENT_LANE_GET),
+    setEnvironmentLane: (
+      preference: DesktopEnvironmentLanePreference,
+    ): Promise<DesktopEnvironmentLaneState> =>
+      ipcRenderer.invoke(IPC.IDENTITY_ENVIRONMENT_LANE_SET, preference),
+    ensureAppSession: (
+      appId: string,
+      options?: { preserveExistingSession?: boolean },
+    ): Promise<boolean> =>
+      options
+        ? ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId, options)
+        : ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId),
     getAvailability: (): Promise<boolean> =>
       ipcRenderer.invoke(IPC.IDENTITY_AVAILABILITY_GET),
     signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),
@@ -381,7 +399,7 @@ const electronAPI = {
     download: (): Promise<UpdateStatus> =>
       ipcRenderer.invoke(IPC.UPDATE_DOWNLOAD),
     install: (): void => {
-      ipcRenderer.invoke(IPC.UPDATE_INSTALL);
+      void ipcRenderer.invoke(IPC.UPDATE_INSTALL);
     },
     getStatus: (): Promise<UpdateStatus> =>
       ipcRenderer.invoke(IPC.UPDATE_GET_STATUS),
@@ -412,8 +430,10 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.CODE_AGENTS_RUN_SCHEDULE_NOW, input),
     listWorktrees: (cwd?: string): Promise<CodeAgentWorktreeListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_WORKTREES, cwd),
-    listModels: (): Promise<CodeAgentModelListResult> =>
-      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MODELS),
+    listModels: (options?: {
+      refresh?: boolean;
+    }): Promise<CodeAgentModelListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MODELS, options),
     createRun: (
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult> =>

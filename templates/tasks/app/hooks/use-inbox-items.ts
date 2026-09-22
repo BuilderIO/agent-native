@@ -49,8 +49,8 @@ function restoreListInboxItemsQueries(
 }
 
 export function runMarkInboxItemReadyInvalidation(queryClient: QueryClient) {
-  invalidateInboxItems(queryClient);
-  invalidateTasks(queryClient);
+  void invalidateInboxItems(queryClient);
+  void invalidateTasks(queryClient);
 }
 
 export function useInboxItems() {
@@ -67,7 +67,7 @@ export function useCreateInboxItem() {
   const queryClient = useQueryClient();
   return useActionMutation<InboxItem, { title: string }>("create-inbox-item", {
     onSettled: () => {
-      invalidateInboxItems(queryClient);
+      void invalidateInboxItems(queryClient);
     },
   });
 }
@@ -78,7 +78,7 @@ export function useUpdateInboxItem() {
     "update-inbox-item",
     {
       onSettled: () => {
-        invalidateInboxItems(queryClient);
+        void invalidateInboxItems(queryClient);
       },
     },
   );
@@ -90,7 +90,7 @@ export function useDeleteInboxItem() {
     "delete-inbox-item",
     {
       onSettled: () => {
-        invalidateInboxItems(queryClient);
+        void invalidateInboxItems(queryClient);
       },
     },
   );
@@ -181,7 +181,7 @@ export function useBulkDeleteInboxItems() {
       );
     },
     onSettled: () => {
-      invalidateInboxItems(queryClient);
+      void invalidateInboxItems(queryClient);
     },
   });
 }
@@ -192,7 +192,7 @@ export function useReorderInboxItems() {
     "reorder-inbox-items",
     {
       onSettled: () => {
-        invalidateInboxItems(queryClient);
+        void invalidateInboxItems(queryClient);
       },
     },
   );

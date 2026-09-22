@@ -22,6 +22,7 @@ export default mergeConfig(
         "**/node_modules/**",
         "**/.git/**",
         "**/dist/**",
+        "**/.react-router/**",
         "shared/types.public-settings.spec.ts",
         "server/lib/submission-validation.spec.ts",
       ],

@@ -194,7 +194,7 @@ export function resolveDesktopChildComputerMcpServer(
       url,
       headers: { Authorization: `Bearer ${token}` },
       description:
-        "Authenticated computer control for this Agent Native desktop task",
+        "Authenticated computer control for this Agent-Native desktop task",
     },
   };
 }

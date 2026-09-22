@@ -161,7 +161,7 @@ export async function runCodeAgentConnector(
         "Agent-Native Code remote connector is not paired.",
         "",
         `Expected device config: ${configPath}`,
-        "Pair this device from Agent Native, or set AGENT_NATIVE_REMOTE_DEVICE_PATH to a JSON file containing a device token.",
+        "Pair this device from Agent-Native, or set AGENT_NATIVE_REMOTE_DEVICE_PATH to a JSON file containing a device token.",
         "Then run: agent-native code serve --relay-url <relay-url>",
         "",
       ].join("\n"),

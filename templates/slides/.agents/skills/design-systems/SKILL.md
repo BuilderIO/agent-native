@@ -87,6 +87,13 @@ Never create a duplicate local design system from raw Figma or code sources.
 Builder owns the indexed brand kit; a second local copy drifts from it and
 nothing records which one a deck was actually built from.
 
+That rule is about duplicates, not about failures. When
+`index-design-system-with-builder` fails there is nothing to duplicate, so
+never end a setup request with nothing created: build the design system with
+`create-design-system` from the same sources and say plainly that Builder
+indexing was unavailable and why. An indexing error the user cannot see, with
+no design system to select afterwards, reads as the request being dropped.
+
 ### Source: workspace default
 
 A workspace admin can flag one design system as the workspace default, used by
@@ -113,6 +120,14 @@ promoted to default so future deck creation doesn't silently drop to "no
 design system". Deletion does not remove an upstream Builder-indexed design
 system.
 
+The Design Systems page renders every row `list-design-systems` returns —
+including rows written before `data` validation existed, whose `colors` or
+`typography` sections may be empty or missing. `parseDesignSystemListData` in
+`app/pages/DesignSystems.tsx` fills gaps with the same defaults
+`useDeckDesignSystem` applies rather than hiding the row, so a legacy or
+malformed design system always keeps a visible card and a working Delete
+control.
+
 ## Applying to Slides
 
 Before creating or extending a system, read the `creative-context` skill and
@@ -124,18 +139,20 @@ immutable generation snapshot, not a mutable design system.
 
 When generating slides, read the hydrated system and write a compact deck-level
 visual direction before choosing a layout. Keep the system's tokens fixed while
-varying slide composition, hierarchy, and narrative to fit the source. Replace
-default values with design system tokens:
+varying slide composition, hierarchy, and narrative to fit the source. Treat
+the resulting theme contract as a consistency boundary: the background family,
+text/surface/accent roles, type pairing, spacing scale, radius, and image
+treatment stay fixed across the deck. Put the contract in semantic
+`--deck-*` custom properties on every wrapper, backed by the renderer's
+`--ds-*` variables when a system is linked. Do not hard-code a sample palette,
+font, logo treatment, or component language into individual slides. If no
+system or measured reference exists, choose a subject-appropriate direction
+once and repeat it; vary structure, not theme.
 
-- `#00E5FF` -> `colors.accent`
-- `Poppins` -> `typography.headingFont` / `typography.bodyFont`
-- `#000000` background -> `colors.background`
-- `rgba(255,255,255,0.55)` -> `colors.textMuted`
-
-The hardcoded values in the `create-deck` and `slide-editing` examples are
-fallbacks, not overrides. If a token is absent, use the nearest semantic token
-or a neutral fallback and record the gap; do not invent a new brand color or
-font without an explicit decision.
+Every deck read returns `designSystem` as a bounded summary; call
+`get-design-system` once for the full context before the first slide, and use
+`get-deck`'s `deckStyle` and `representativeSlideId` to match an existing deck
+(the actions skill documents the field).
 
 Before calling a deck ready, render the changed slides and perform one bounded
 review for system consistency, hierarchy, contrast, overflow, missing assets,

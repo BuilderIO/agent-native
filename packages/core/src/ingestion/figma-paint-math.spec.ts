@@ -4,6 +4,7 @@ import {
   cssBlendMode,
   gradientAngleDegrees,
   gradientAngleDegreesFromHandles,
+  gradientRayAngleDegreesFromHandles,
   handlePositionsFromArrayTransform,
   handlePositionsFromObjectTransform,
   invert2x3,
@@ -236,7 +237,13 @@ describe("gradientAngleDegrees", () => {
   });
 
   it("corrects for non-square box aspect ratio", () => {
-    // Tall narrow box: dx=50, dy=200 -> atan2(200,50) ~= 75.96 -> +90 ~= 165.96
+    // Tall narrow box. Figma's gradient parameter is linear in NORMALIZED
+    // coordinates, so the CSS angle follows the iso-line normal
+    // grad(t) = (du/w, dv/h), scaled to (du*h, dv*w) = (200, 50):
+    // atan2(50, 200) ~= 14.04 -> +90 ~= 104.04.
+    // Scaling the handle vector instead (du*w, dv*h) would give 165.96, which
+    // is what this mapper emitted until a plane fit of Figma's own render
+    // showed it 39deg off (see gradientAngleDegrees in figma-paint-math.ts).
     const angle = gradientAngleDegrees(
       {
         gradientHandlePositions: [
@@ -248,7 +255,23 @@ describe("gradientAngleDegrees", () => {
       { width: 50, height: 200 },
     );
     expect(angle).not.toBe(135);
-    expect(angle).toBeCloseTo(165.96, 1);
+    expect(angle).toBeCloseTo(104.04, 1);
+  });
+
+  it("matches the plane fit of Figma's own render of the fills-effects frame", () => {
+    // 180x90 rect, handles running diagonally up-right in normalized space.
+    // A least-squares fit of Figma's PNG render measures 27.0deg.
+    const angle = gradientAngleDegrees(
+      {
+        gradientHandlePositions: [
+          { x: 0.35355679414159913, y: 0.5605996593321734 },
+          { x: 1.0606703824247974, y: -0.14651392895102483 },
+          { x: 0.7071135882831983, y: 0.9141564534737725 },
+        ],
+      },
+      { width: 180, height: 90 },
+    );
+    expect(angle).toBeCloseTo(26.57, 1);
   });
 
   it("returns null when gradientHandlePositions is missing", () => {
@@ -269,6 +292,50 @@ describe("gradientAngleDegreesFromHandles", () => {
     };
     const box = { width: 200, height: 100 };
     expect(gradientAngleDegreesFromHandles(handles, box)).toBe(90);
+  });
+
+  it("is the inverse-scale twin of gradientRayAngleDegreesFromHandles", () => {
+    // Same handles, non-square box: the iso-line normal and the centre->end
+    // ray point in genuinely different directions, and conflating them is the
+    // bug this pair exists to keep separated.
+    const handles = {
+      start: { x: 0, y: 0 },
+      end: { x: 1, y: 1 },
+      width: { x: 1, y: 0 },
+    };
+    const box = { width: 50, height: 200 };
+    expect(gradientAngleDegreesFromHandles(handles, box)).toBeCloseTo(
+      104.04,
+      1,
+    );
+    expect(gradientRayAngleDegreesFromHandles(handles, box)).toBeCloseTo(
+      165.96,
+      1,
+    );
+  });
+
+  it("agrees with the ray angle for axis-aligned handles at any aspect ratio", () => {
+    for (const box of [
+      { width: 200, height: 100 },
+      { width: 40, height: 900 },
+    ]) {
+      const horizontal = {
+        start: { x: 0, y: 0.5 },
+        end: { x: 1, y: 0.5 },
+        width: { x: 1, y: 0 },
+      };
+      const vertical = {
+        start: { x: 0.5, y: 0 },
+        end: { x: 0.5, y: 1 },
+        width: { x: 1, y: 0 },
+      };
+      expect(gradientAngleDegreesFromHandles(horizontal, box)).toBe(
+        gradientRayAngleDegreesFromHandles(horizontal, box),
+      );
+      expect(gradientAngleDegreesFromHandles(vertical, box)).toBe(
+        gradientRayAngleDegreesFromHandles(vertical, box),
+      );
+    }
   });
 });
 

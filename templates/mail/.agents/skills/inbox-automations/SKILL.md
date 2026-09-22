@@ -1,7 +1,7 @@
 ---
 name: inbox-automations
 description: >-
-  Natural-language inbox automation rules (manage-automations,
+  Natural-language inbox automation rules (manage-email-rules,
   trigger-automations) and provider-native Gmail filters
   (manage-gmail-filters), including how the two differ. Use when the user asks
   to auto-label, auto-archive, auto-star, or otherwise handle incoming mail
@@ -10,9 +10,20 @@ description: >-
 
 # Inbox Automations and Gmail Filters
 
+## AI filter
+
+Use `apply-ai-filter` when the user manually marks mail as unwanted or keeps a
+message that was filtered. It adds or removes the reversible
+`agent-native-filtered` label, archives or restores the conversation, and
+records the feedback for future classification. User comments become editable
+natural-language AI filter instructions; the AI filter uses Luna when
+available, auto-filters only above its configured confidence threshold, and
+keeps lower-confidence matches in the review queue. It never claims the
+custom label is Gmail's provider-controlled Spam system label.
+
 ## Automation rules
 
-`manage-automations` rules match new inbound mail against a natural-language
+`manage-email-rules` rules match new inbound mail against a natural-language
 `condition` using AI, then apply `actions` (`label`, `archive`, `mark_read`,
 `star`, `trash`). Rules run on a per-minute cron automatically;
 `trigger-automations` forces immediate processing (debounced — a

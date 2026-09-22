@@ -60,6 +60,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   preset("context7"),
   preset("sentry"),
   preset("fullstory"),
+  preset("sigma"),
   preset("notion"),
   preset("granola"),
   preset("semgrep"),

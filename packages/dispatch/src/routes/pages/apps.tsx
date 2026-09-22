@@ -16,11 +16,12 @@ import {
   APP_LIST_GRID_ROW_CLASS,
   AppList,
 } from "../../components/app-list-row";
+import { AvailableAppsSection } from "../../components/available-apps-section";
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
 import {
+  filterOtherAppEntries,
   mergeOtherAppEntries,
-  otherAppEntryMatchesQuery,
   OtherAppsSection,
 } from "../../components/other-apps-section";
 import { Button } from "../../components/ui/button";
@@ -39,6 +40,7 @@ import type {
   CuratedWorkspaceTemplatesResult,
   WorkspaceTemplateLabels,
 } from "../../components/workspace-template-card";
+import { AVAILABLE_APPS } from "../../lib/available-apps";
 import type { ConnectedAppSummary } from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
 import {
@@ -101,19 +103,18 @@ function AppsRoute() {
   const curatedTemplates = curatedTemplatesQuery.data as
     | CuratedWorkspaceTemplatesResult
     | undefined;
-  const otherAppEntries = mergeOtherAppEntries({
-    templates: curatedTemplates,
-    connectedApps,
-    workspaceApps: allApps,
-  });
-  const otherAppsSearchReady =
-    !connectedAppsQuery.isLoading && !curatedTemplatesQuery.isLoading;
-  const otherAppsMatchSearch =
-    !searchQuery.trim() ||
-    !otherAppsSearchReady ||
-    otherAppEntries.some((entry) =>
-      otherAppEntryMatchesQuery(entry, searchQuery),
-    );
+  const filteredOtherApps = filterOtherAppEntries(
+    mergeOtherAppEntries({
+      templates: curatedTemplates,
+      connectedApps,
+      workspaceApps: allApps,
+    }),
+    searchQuery,
+  );
+  const otherAppsLoading =
+    curatedTemplatesQuery.isLoading || connectedAppsQuery.isLoading;
+  const otherAppsError =
+    curatedTemplatesQuery.error || connectedAppsQuery.error;
   const orderedActiveApps = orderWorkspaceApps(activeApps, layout);
   const orderedPendingApps = orderWorkspaceApps(pendingApps, layout);
   const orderedArchivedApps = orderWorkspaceApps(archivedApps, layout);
@@ -130,7 +131,13 @@ function AppsRoute() {
     filteredActiveApps.length > 0 ||
     filteredPendingApps.length > 0 ||
     filteredArchivedApps.length > 0 ||
-    otherAppsMatchSearch;
+    filteredOtherApps.length > 0 ||
+    AVAILABLE_APPS.some((app) => {
+      const query = searchQuery.trim().toLowerCase();
+      return (
+        !query || `${app.name} ${app.description}`.toLowerCase().includes(query)
+      );
+    });
   const showAppSkeletons = appsLoading && allApps.length === 0;
   const templateLabels: WorkspaceTemplateLabels = {
     appId: t("dispatch.pages.remixAppIdLabel"),
@@ -174,7 +181,7 @@ function AppsRoute() {
               </div>
             </div>
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-              {!showAppSkeletons && allApps.length > 0 ? (
+              {!showAppSkeletons ? (
                 <WorkspaceAppSearch
                   className="w-full sm:w-[250px]"
                   query={searchQuery}
@@ -216,7 +223,10 @@ function AppsRoute() {
             />
           ) : showAppSkeletons ? (
             <AppsSkeletonGrid />
-          ) : !hasSearchResults && searchQuery.trim() ? (
+          ) : !hasSearchResults &&
+            searchQuery.trim() &&
+            !otherAppsLoading &&
+            !otherAppsError ? (
             <WorkspaceAppSearchEmpty
               query={searchQuery}
               onClear={() => setSearchQuery("")}
@@ -316,6 +326,13 @@ function AppsRoute() {
             void appsQuery.refetch();
             void curatedTemplatesQuery.refetch();
           }}
+        />
+
+        <AvailableAppsSection
+          connectedApps={connectedApps}
+          workspaceApps={allApps}
+          query={searchQuery}
+          onConnected={() => void connectedAppsQuery.refetch()}
         />
 
         {archivedApps.length > 0 &&

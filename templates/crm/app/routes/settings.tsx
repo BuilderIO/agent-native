@@ -40,6 +40,7 @@ const SETTINGS_SECTIONS: readonly string[] = [
   "intelligence",
   "connection",
   "connections",
+  "mcp",
   "advanced",
 ];
 

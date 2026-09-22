@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -9,6 +9,7 @@ import { z } from "zod";
 import { isPrivateClip } from "../app/lib/rewind-visibility.js";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -55,6 +56,8 @@ export default defineAction({
     preRollRecordingId: z.string(),
     videoUrl: z.string().min(1),
     durationMs: z.number().int().positive(),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
     addedMs: z
       .number()
       .int()
@@ -134,7 +137,6 @@ export default defineAction({
     }));
     edits.rewindOriginalStartMs = args.addedMs;
     edits.mediaStorageLayout = "external";
-
     const [transcript] = await db
       .select()
       .from(schema.recordingTranscripts)
@@ -157,6 +159,8 @@ export default defineAction({
           videoUrl: args.videoUrl,
           videoFormat: "mp4",
           durationMs: args.durationMs,
+          ...(args.width !== undefined ? { width: args.width } : {}),
+          ...(args.height !== undefined ? { height: args.height } : {}),
           editsJson: serializeEdits(edits),
           chaptersJson: shiftedJsonArray(recording.chaptersJson, args.addedMs, [
             "startMs",
@@ -198,6 +202,11 @@ export default defineAction({
       updatedAt: now,
     };
     await writeAppState(key, applied);
+    await dispatchPostFinalizeJob({
+      recordingId: args.recordingId,
+      kind: "thumbnail",
+      requireAccepted: true,
+    });
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { recordingId: args.recordingId, request: applied };
   },

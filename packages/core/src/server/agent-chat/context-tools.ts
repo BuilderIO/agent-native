@@ -158,6 +158,11 @@ Use a natural-language \`message\` by default. The receiving app owns interpreta
 - Call your own app by name
 - Perform tasks you can accomplish with your own registered tools
 
+Written todo lists, checklists, summaries, action-item lists, and prose plans
+belong in the current chat. Do not route those ordinary outputs to Plan. Call
+Plan only when the user explicitly asks for a visual or structured
+Agent-Native Plan, a Plan artifact, or the Plans app.
+
 **ONLY use \`call-agent\` when:**
 - The user explicitly asks you to communicate with a different app
 - You need data that only another deployed app can provide
@@ -456,7 +461,7 @@ export function createUrlTools(): Record<string, ActionEntry> {
             allowFreeText: {
               type: "string",
               description:
-                'Whether the user may also type a free-text "Other" answer. "true" (default) or "false".',
+                'Whether the user may also type a free-text "Other" answer. Keep this "true" (the default) for preferences and clarifying questions. Use "false" only when the underlying workflow can accept one of the enumerated values and cannot handle a custom answer.',
               enum: ["true", "false"],
             },
             allowMultiple: {

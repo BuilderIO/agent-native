@@ -55,6 +55,7 @@ const ALLOWED_CSS_PROPERTIES = new Set([
   "line-height",
   "margin",
   "object-fit",
+  "object-position",
   "opacity",
   "overflow",
   "padding",

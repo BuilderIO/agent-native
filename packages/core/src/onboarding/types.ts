@@ -39,7 +39,7 @@ export type OnboardingMethod =
       kind: "form";
       payload: {
         fields: OnboardingFormField[];
-        writeScope?: "workspace" | "app";
+        writeScope?: "user" | "workspace" | "app";
         /**
          * Defaults to the compatibility env-vars route, which accepts
          * framework/template-declared keys and stores them as scoped secrets.
@@ -72,6 +72,10 @@ export interface OnboardingStep {
   /** Required steps block onboarding dismissal when incomplete. */
   required?: boolean;
   methods: OnboardingMethod[];
+  /** Hide the step when its backing capability is not configured. */
+  isAvailable?: (
+    context?: OnboardingResolveContext,
+  ) => boolean | Promise<boolean>;
   /** Resolver — called on every `GET /_agent-native/onboarding/steps` request. */
   isComplete: (
     context?: OnboardingResolveContext,
@@ -110,10 +114,21 @@ export interface OnboardingCapability {
   keySummary: string;
   /** Hover/focus explanation for why the capability exists. */
   why: string;
+  /** Optional localized display keys for the client onboarding catalog. */
+  labelKey?: string;
+  keySummaryKey?: string;
+  whyKey?: string;
 }
 
 export interface OnboardingAppProfile {
   appId: string;
   appName: string;
   capabilities: OnboardingCapability[];
+}
+
+/** Composed shape returned by `GET /_agent-native/onboarding/summary`. */
+export interface OnboardingSummary {
+  steps: OnboardingStepStatus[];
+  dismissed: boolean;
+  profile: OnboardingAppProfile;
 }

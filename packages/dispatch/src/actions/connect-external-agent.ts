@@ -1,12 +1,12 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
-  resourceGetByPath,
-  resourcePut,
+  resourcePutIfAbsent,
   sharedResourceOwner,
 } from "@agent-native/core/resources/store";
 import { z } from "zod";
 
+import { parseAgentEndpointUrl } from "../lib/agent-endpoint-url.js";
 import {
   currentOrgId,
   currentOwnerEmail,
@@ -27,14 +27,17 @@ async function assertCanManageSharedAgent() {
   if (!orgId) return;
   const actor = currentOwnerEmail().trim().toLowerCase();
   const result = await getDbExec().execute({
-    sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [orgId, actor],
   });
   const role = result.rows[0]?.role;
   if (role !== "owner" && role !== "admin") {
-    throw new Error(
-      "Only organization owners and admins can connect shared agents.",
-    );
+    fail("Only organization owners and admins can connect shared agents.", {
+      statusCode: 403,
+    });
   }
 }
 
@@ -51,12 +54,11 @@ export default defineAction({
       .describe("Share with the workspace or keep the connection personal"),
   }),
   run: async ({ url, name, description, scope }) => {
-    const parsed = new URL(url.trim());
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      throw new Error("Use an http:// or https:// endpoint URL.");
-    }
-    if (parsed.username || parsed.password) {
-      throw new Error("Do not include credentials in the endpoint URL.");
+    let parsed: URL;
+    try {
+      parsed = parseAgentEndpointUrl(url);
+    } catch (err) {
+      fail(err instanceof Error ? err.message : "Enter a valid URL.");
     }
 
     if (scope === "shared") await assertCanManageSharedAgent();
@@ -67,12 +69,6 @@ export default defineAction({
       scope === "shared"
         ? sharedResourceOwner(currentOrgId())
         : currentOwnerEmail();
-    const existing = await resourceGetByPath(owner, path);
-    if (existing) {
-      throw new Error(
-        `An external agent already exists at ${path}. Rename it before connecting again.`,
-      );
-    }
 
     const manifest = {
       id,
@@ -80,12 +76,22 @@ export default defineAction({
       ...(description?.trim() ? { description: description.trim() } : {}),
       url: parsed.toString(),
     };
-    const resource = await resourcePut(
+    // resourcePutIfAbsent makes the existence check and the write one atomic
+    // operation, so two concurrent connects for the same derived path cannot
+    // both pass a separate pre-check and have the second silently overwrite
+    // the first through resourcePut's upsert semantics.
+    const resource = await resourcePutIfAbsent(
       owner,
       path,
       JSON.stringify(manifest, null, 2),
       "application/json",
     );
+    if (!resource) {
+      fail(
+        `An external agent already exists at ${path}. Rename it before connecting again.`,
+        { statusCode: 409 },
+      );
+    }
 
     return { status: "created" as const, resource, agent: manifest, scope };
   },

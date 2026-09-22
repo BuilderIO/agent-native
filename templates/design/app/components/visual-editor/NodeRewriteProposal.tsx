@@ -419,8 +419,13 @@ export function NodeRewriteProposal({
   );
 
   const submitRefinement = useCallback(async () => {
-    const instruction = refinement.trim();
-    if (!proposal || !instruction || refining || resolveMutation.isPending)
+    const instruction = refinement;
+    if (
+      !proposal ||
+      !instruction.trim() ||
+      refining ||
+      resolveMutation.isPending
+    )
       return;
     const repromptId = crypto.randomUUID();
     const pending = {

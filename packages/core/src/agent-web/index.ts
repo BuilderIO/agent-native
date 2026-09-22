@@ -30,6 +30,8 @@ export {
   markdownFilePathForPage,
   markdownUrlForPage,
   type AgentWebPage,
+  type AgentWebOrganization,
+  type AgentWebResource,
   type AgentWebStaticFile,
   type BuildAgentWebStaticFilesOptions,
   type MarkdownResponseHeadersOptions,

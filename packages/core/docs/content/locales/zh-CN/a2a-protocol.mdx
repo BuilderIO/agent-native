@@ -356,6 +356,114 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## 托管代理连接 {#hosted-agent-connections}
+
+托管代理提供兼容的 A2A 端点后，就可以参与 A2A。单独的模型提供商或代理
+SDK 不是 A2A 对等端。将应用的界面、actions 和数据库保留在通常的应用主
+机上，再通过适配器或代理的 A2A 端点连接代理运行时。
+
+托管连接包含端点元数据和身份验证描述。将这些元数据与远程代理资源或连
+接记录一起保存。不要将令牌或客户端密钥放入清单：
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url` 是调用端点或基础 URL。当发现使用 `/.well-known/agent-card.json` 时，
+`cardUrl` 可以省略。提供商在其他路径发布代理卡时请使用它。客户端会从代
+理卡中读取协议版本。如果提供商的代理卡未包含版本，请将 `protocolVersion`
+直接传递给 `A2AClient`。`auth` 说明服务器端代码如何获取 bearer 令牌。
+支持的描述是使用保管库中 `credentialRef` 的
+`bearer`，或包含 `tokenUrl`、`clientId`、`clientSecretRef` 和 `scope` 的
+`oauth-client-credentials`。`credentialRef` 和 `clientSecretRef` 是机密
+引用，不是机密值。
+
+### 通用 bearer A2A {#generic-bearer-a2a}
+
+当对等端接受 `Authorization: Bearer ...`、提供兼容的代理卡并接受
+Agent-Native JSON-RPC 时，请使用标准客户端：
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+在服务器端通过工作区连接或保管库解析 `token`。不要从浏览器代码发送它，
+不要写入清单，也不要放入提示词。静态 API 密钥只是远程服务的传输凭据，
+不会建立 Agent-Native 调用者身份，也不会携带 `approvedActions`。
+
+### Microsoft Foundry {#microsoft-foundry}
+
+[Azure AI Foundry 托管代理](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+在托管端点、身份、伸缩、会话状态和可观测性之后运行你的代理代码或容器。
+这是一种代理运行时托管模式。将 Agent-Native 界面、actions 和 PostgreSQL
+部署保留在应用主机上，并从服务器端代码调用 Foundry 端点。
+
+Foundry 可以通过 [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint)
+公开 A2A 端点。它需要 Microsoft Entra 身份验证，调用者还需要 Foundry
+Agent Consumer 权限。当端点使用 Agent-Native JSON-RPC 时，请将提供商的
+v0.3 代理卡和端点与 `cardUrl`、`protocolVersion` 一起使用。令牌提供商
+必须获取并刷新 Entra 访问令牌。`A2A_SECRET` 和静态 API 密钥不能满足
+Foundry 身份验证要求。
+
+### Gemini Enterprise {#gemini-enterprise}
+
+[Gemini Enterprise 可以注册外部 A2A 代理](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent)，
+Agent Registry 还可以发布代理端点。它的 HTTP+JSON 绑定使用提供商专用的
+路径：发现使用 `GET {url}/v1/card`，调用使用 `POST {url}/v1/message:send`，
+流式调用使用 `POST {url}/v1/message:stream`。请求使用 Google OAuth 或 ADC
+bearer 令牌以及 Google Cloud IAM 权限。端点和权限要求请参阅[使用注册表 A2A 端点调用代理](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)。
+
+这些路径与 Agent-Native JSON-RPC 路径
+(`/.well-known/agent-card.json` 和 `/_agent-native/a2a`) 不同。只有在添加
+能够转换线协议格式并获取、刷新的 Google 凭据的服务器端适配器后，才注册
+此端点。如果目标另行公开标准 A2A 端点，请按照通用 bearer 指南使用它。
+Gemini Enterprise 的注册流量不会经过 Agent Gateway 策略，因此要应用目
+标自己的身份验证和授权策略。
+
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents 不提供入站 A2A 端点。当 Agent-Native 负责 A2A 表面、工作流状态和审批，而托管代理负责会话、上下文和工具时，请使用框架适配器。适配器会创建 Managed Agents 会话，发送 `user.message` 事件，并读取会话事件流。阻塞的 `agent.tool_use` 或 `agent.mcp_tool_use` 事件会转换为 A2A `input-required` 任务和 `approval-request` 运行时事件。使用返回元数据中的明确结构化确认来继续；不要从消息推断审批：
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` 是保存在 Vault 中的 Anthropic API 密钥引用。适配器会在调用方用户和组织范围内解析它，并发送必需的 `anthropic-beta: managed-agents-2026-04-01` 和 `anthropic-version: 2023-06-01` 标头。在工作区连接目录中注册 `anthropic-managed-agents`，即可为每个应用复用现有连接授权。适配器挂载在常规 `A2AConfig.handler` 接口上：
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## 编程工作区调用 {#programmatic-invoke}
 
 对于代理本机工作区，在代码或 a 时更喜欢 `agentNative` 帮助器
@@ -428,7 +536,7 @@ agent-native invoke analytics "Summarize signups" --json
 
 ## 委派代理活动 {#delegated-agent-activity}
 
-Agent Native 对等端可以在任务状态消息中附加可选的 `data` 部分，其中
+Agent-Native 对等端可以在任务状态消息中附加可选的 `data` 部分，其中
 `kind: "agent-native/agent-activity"`。它以受限快照的形式携带用户可见的
 推理摘要、工具名称和完成状态、已用时间以及渐进式响应文本。调用方应用会将
 这些更新呈现为嵌套的代理运行，并在委派任务完成后折叠工作历史。

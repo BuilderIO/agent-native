@@ -7,7 +7,7 @@
  *   pnpm action set-organization-branding --brandColor="#18181B" --brandLogoUrl=/api/media/abc.png
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { organizations } from "@agent-native/core/org";
 import { eq } from "drizzle-orm";
@@ -52,9 +52,8 @@ export default defineAction({
       ["admin"],
     );
 
-    // Ensure a settings row exists. Clips' own organization_settings table is
-    // dialect-agnostic — schema.ts declares created_at/updated_at as TEXT with
-    // an ISO default, so we use ISO strings on both PG and SQLite.
+    // Ensure a settings row exists. Clips' organization_settings table stores
+    // created_at/updated_at as ISO timestamp text.
     const db = getDb();
     const nowIso = new Date().toISOString();
     await db

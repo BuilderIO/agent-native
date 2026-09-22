@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- No identity or version keys here: the bundler merges this file over
+         the plist it generates, so a hardcoded identifier, executable, or
+         version would override the release values (every production bundle
+         reported 0.1.1 and the nightly channel failed its identity check).
+         build.rs adds them from tauri.conf.json for the dev binary only. -->
     <key>NSCameraUsageDescription</key>
     <string>Clips uses your camera for screen recordings with camera overlay.</string>
     <key>NSMicrophoneUsageDescription</key>

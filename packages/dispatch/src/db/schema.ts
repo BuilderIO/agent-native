@@ -1,4 +1,4 @@
-import { table, text, integer } from "@agent-native/core/db/schema";
+import { bigint, table, text, integer } from "@agent-native/core/db/schema";
 
 // Workspace app ownership/sharing lives in core so every mounted app can
 // enforce the same access record. Re-exporting these tables keeps Dispatch's
@@ -15,8 +15,8 @@ export const dispatchDestinations = table("dispatch_destinations", {
   threadRef: text("thread_ref"),
   notes: text("notes"),
   createdBy: text("created_by").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const dispatchIdentityLinks = table("dispatch_identity_links", {
@@ -27,8 +27,8 @@ export const dispatchIdentityLinks = table("dispatch_identity_links", {
   externalUserId: text("external_user_id").notNull(),
   externalUserName: text("external_user_name"),
   linkedBy: text("linked_by").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const dispatchLinkTokens = table("dispatch_link_tokens", {
@@ -38,12 +38,12 @@ export const dispatchLinkTokens = table("dispatch_link_tokens", {
   orgId: text("org_id"),
   platform: text("platform").notNull(),
   createdBy: text("created_by").notNull(),
-  expiresAt: integer("expires_at").notNull(),
-  claimedAt: integer("claimed_at"),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+  claimedAt: bigint("claimed_at", { mode: "number" }),
   claimedByExternalUserId: text("claimed_by_external_user_id"),
   claimedByExternalUserName: text("claimed_by_external_user_name"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const dispatchApprovalRequests = table("dispatch_approval_requests", {
@@ -60,9 +60,9 @@ export const dispatchApprovalRequests = table("dispatch_approval_requests", {
   afterValue: text("after_value"),
   requestedBy: text("requested_by").notNull(),
   reviewedBy: text("reviewed_by"),
-  reviewedAt: integer("reviewed_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  reviewedAt: bigint("reviewed_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const dispatchAuditEvents = table("dispatch_audit_events", {
@@ -75,7 +75,7 @@ export const dispatchAuditEvents = table("dispatch_audit_events", {
   targetId: text("target_id"),
   summary: text("summary").notNull(),
   metadata: text("metadata"),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
 export const dispatchDreams = table("dispatch_dreams", {
@@ -93,10 +93,10 @@ export const dispatchDreams = table("dispatch_dreams", {
   inspectedThreadCount: integer("inspected_thread_count").notNull(),
   createdBy: text("created_by").notNull(),
   error: text("error"),
-  startedAt: integer("started_at").notNull(),
-  completedAt: integer("completed_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  startedAt: bigint("started_at", { mode: "number" }).notNull(),
+  completedAt: bigint("completed_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const dispatchDreamProposals = table("dispatch_dream_proposals", {
@@ -115,11 +115,11 @@ export const dispatchDreamProposals = table("dispatch_dream_proposals", {
   risk: text("risk").notNull(),
   status: text("status").notNull(),
   appliedBy: text("applied_by"),
-  appliedAt: integer("applied_at"),
+  appliedAt: bigint("applied_at", { mode: "number" }),
   rejectedBy: text("rejected_by"),
-  rejectedAt: integer("rejected_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  rejectedAt: bigint("rejected_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 // ─── Vault: workspace-wide secret management ───────────────────────
@@ -134,8 +134,8 @@ export const vaultSecrets = table("vault_secrets", {
   provider: text("provider"),
   description: text("description"),
   createdBy: text("created_by").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const vaultGrants = table("vault_grants", {
@@ -146,9 +146,9 @@ export const vaultGrants = table("vault_grants", {
   appId: text("app_id").notNull(),
   grantedBy: text("granted_by").notNull(),
   status: text("status").notNull(),
-  syncedAt: integer("synced_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  syncedAt: bigint("synced_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const vaultRequests = table("vault_requests", {
@@ -161,9 +161,9 @@ export const vaultRequests = table("vault_requests", {
   requestedBy: text("requested_by").notNull(),
   status: text("status").notNull(),
   reviewedBy: text("reviewed_by"),
-  reviewedAt: integer("reviewed_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  reviewedAt: bigint("reviewed_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const vaultAuditLog = table("vault_audit_log", {
@@ -176,7 +176,7 @@ export const vaultAuditLog = table("vault_audit_log", {
   actor: text("actor").notNull(),
   summary: text("summary").notNull(),
   metadata: text("metadata"),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
 // ─── Workspace Resources: shared skills, instructions, agents, knowledge, MCP ─
@@ -192,8 +192,8 @@ export const workspaceResources = table("workspace_resources", {
   content: text("content").notNull(),
   scope: text("scope").notNull(), // "all" (runtime inherited) | "selected" (grant per-app)
   createdBy: text("created_by").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const workspaceResourceGrants = table("workspace_resource_grants", {
@@ -203,7 +203,7 @@ export const workspaceResourceGrants = table("workspace_resource_grants", {
   resourceId: text("resource_id").notNull(),
   appId: text("app_id").notNull(),
   status: text("status").notNull(), // "active" | "revoked"
-  syncedAt: integer("synced_at"), // legacy column retained for older rows
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  syncedAt: bigint("synced_at", { mode: "number" }), // legacy column retained for older rows
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });

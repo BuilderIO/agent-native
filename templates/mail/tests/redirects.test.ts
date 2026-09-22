@@ -1,11 +1,68 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { clientLoader, loader } from "../app/routes/_index";
+import { clientLoader, loader } from "../app/routes/home";
 
-function expectInboxRedirect(routeLoader: typeof loader | typeof clientLoader) {
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function mockPreferences(
+  result:
+    | {
+        ok: true;
+        pinnedLabels: string[] | undefined;
+        googleConnected?: boolean;
+      }
+    | { ok: false; reject?: false }
+    | { ok: false; reject: true },
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string | URL | Request) => {
+      const urlStr =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.toString()
+            : (url as Request).url;
+      if ("reject" in result && result.reject) {
+        throw new Error("request failed");
+      }
+      if (!result.ok) {
+        return new Response("fail", { status: 500 });
+      }
+      if (urlStr.includes("google/status")) {
+        return new Response(
+          JSON.stringify({ connected: result.googleConnected ?? true }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({ pinnedLabels: result.pinnedLabels }),
+        {
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }),
+  );
+}
+
+async function expectInboxRedirect(
+  routeLoader: typeof loader | typeof clientLoader,
+  fetchResult:
+    | {
+        ok: true;
+        pinnedLabels: string[] | undefined;
+        googleConnected?: boolean;
+      }
+    | { ok: false; reject?: false }
+    | { ok: false; reject: true },
+  expectedLocation: string,
+) {
+  mockPreferences(fetchResult);
   let thrown: unknown;
   try {
-    routeLoader({} as never);
+    await routeLoader({ request: new Request("https://mail.test/") } as never);
   } catch (error) {
     thrown = error;
   }
@@ -13,16 +70,89 @@ function expectInboxRedirect(routeLoader: typeof loader | typeof clientLoader) {
   expect(thrown).toBeInstanceOf(Response);
   const response = thrown as Response;
   expect(response.status).toBe(302);
-  expect(response.headers.get("location")).toBe("/inbox?label=important");
+  expect(response.headers.get("location")).toBe(expectedLocation);
   expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
 }
 
-describe("Mail root route", () => {
-  it("marks the server redirect as cacheable HTML", () => {
-    expectInboxRedirect(loader);
+describe("Mail private home route", () => {
+  it("keeps the private home server redirect preference-free", () => {
+    return expectInboxRedirect(
+      loader,
+      { ok: true, pinnedLabels: [] },
+      "/inbox",
+    );
   });
 
-  it("marks the client redirect as cacheable HTML", () => {
-    expectInboxRedirect(clientLoader);
+  it("keeps first-use Important selected on client navigation", () => {
+    return expectInboxRedirect(
+      clientLoader,
+      { ok: true, pinnedLabels: undefined },
+      "/inbox?label=important",
+    );
+  });
+
+  it("does not synthesize Important when Google status fails", () => {
+    return expectInboxRedirect(
+      clientLoader,
+      { ok: true, pinnedLabels: undefined, googleConnected: false },
+      "/inbox",
+    );
+  });
+
+  it("returns neutral /inbox when Google status request rejects", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : (url as Request).url;
+        if (urlStr.includes("google/status")) {
+          throw new Error("status service down");
+        }
+        return new Response(JSON.stringify({ pinnedLabels: undefined }), {
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    return expect(
+      clientLoader({ request: new Request("https://mail.test/") } as never),
+    ).rejects.toSatisfy((thrown: unknown) => {
+      expect(thrown).toBeInstanceOf(Response);
+      const res = thrown as Response;
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe("/inbox");
+      return true;
+    });
+  });
+
+  it("routes to the first top label on client navigation when pins exist", () => {
+    return expectInboxRedirect(
+      clientLoader,
+      { ok: true, pinnedLabels: ["important", "work"] },
+      "/inbox?label=important",
+    );
+  });
+
+  it("routes an explicitly saved empty pin list on the client", () => {
+    return expectInboxRedirect(
+      clientLoader,
+      { ok: true, pinnedLabels: [] },
+      "/inbox",
+    );
+  });
+
+  it("stays neutral on a non-2xx preference read", () => {
+    return expectInboxRedirect(clientLoader, { ok: false }, "/inbox");
+  });
+
+  it("stays neutral on a rejected preference read", () => {
+    return expectInboxRedirect(
+      clientLoader,
+      { ok: false, reject: true },
+      "/inbox",
+    );
   });
 });

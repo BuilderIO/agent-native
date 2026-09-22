@@ -1,15 +1,16 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
-import { callAction } from "@agent-native/core/client/hooks";
-import type { ComposeAttachment } from "@shared/types";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
   suppressThread,
-  unsuppressThread,
+  releaseSuppression,
   mapInfiniteEmails,
   flattenInfiniteEmails,
+  LABELS_QUERY_KEY,
   type InfiniteEmails,
 } from "./use-emails";
+import { invalidateInboxThreads } from "./use-inbox-threads";
 
 export interface ScheduledJob {
   id: string;
@@ -46,7 +47,7 @@ export function useCreateScheduledJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: {
-      type: "snooze" | "send_later";
+      type: "snooze";
       emailId?: string;
       payload?: Record<string, unknown>;
       runAt: number;
@@ -98,24 +99,26 @@ export function useSnoozeEmail() {
         .flatMap(([, d]) => flattenInfiniteEmails(d))
         .find((e) => e.id === data.emailId);
       const threadId = target?.threadId || data.emailId;
-      suppressThread(threadId, "snooze");
+      const suppressionId = suppressThread(threadId, "snooze");
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
           emails.filter((e) => (e.threadId || e.id) !== threadId),
         ),
       );
-      return { previous, threadId };
+      return { previous, threadId, suppressionId };
     },
     onError: (_err, _vars, context) => {
-      if (context?.threadId) unsuppressThread(context.threadId);
+      if (context?.threadId)
+        releaseSuppression(context.threadId, context.suppressionId);
       context?.previous?.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
       // Delay email/label refetch — Gmail eventual consistency
       setTimeout(() => {
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["labels"] });
+        void qc.invalidateQueries({ queryKey: ["emails"] });
+        void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+        void invalidateInboxThreads(qc);
       }, 3000);
     },
   });
@@ -123,34 +126,10 @@ export function useSnoozeEmail() {
 
 export function useScheduleEmail() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      to: string;
-      cc?: string;
-      bcc?: string;
-      subject: string;
-      body: string;
-      runAt: number;
-      accountEmail?: string;
-      from?: string;
-      replyToId?: string;
-      threadId?: string;
-      attachments?: ComposeAttachment[];
-    }) => {
-      const res = await fetch(appApiPath("/api/emails/schedule"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error || "Failed to schedule email");
-      }
-      return res.json() as Promise<ScheduledJob>;
-    },
+  return useActionMutation("create-scheduled-send", {
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-      qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
     },
   });
 }
@@ -176,8 +155,8 @@ export function useDeleteScheduledJob() {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-      qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
     },
   });
 }
@@ -202,8 +181,8 @@ export function useSendScheduledJobNow() {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-      qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
     },
   });
 }

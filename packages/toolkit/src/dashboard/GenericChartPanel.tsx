@@ -174,7 +174,11 @@ export function formatGenericChartValue(value: unknown): string {
   ) {
     return Number(value).toLocaleString();
   }
-  return String(value ?? "-");
+  return typeof value === "object" && value !== null
+    ? JSON.stringify(value)
+    : typeof value === "string" || typeof value === "number"
+      ? String(value)
+      : "-";
 }
 
 function isNumericLike(value: unknown): boolean {
@@ -424,7 +428,13 @@ function formatTooltipValue(
   formatter: (value: number) => string,
 ): string {
   const numeric = Number(value);
-  return Number.isFinite(numeric) ? formatter(numeric) : String(value ?? "-");
+  return Number.isFinite(numeric)
+    ? formatter(numeric)
+    : typeof value === "object" && value !== null
+      ? JSON.stringify(value)
+      : typeof value === "string" || typeof value === "number"
+        ? String(value)
+        : "-";
 }
 
 export function ChartPanelPlaceholder({ className }: { className?: string }) {

@@ -1,10 +1,10 @@
 ---
 name: review-prs
 description: >-
-  Review recent BuilderIO/agent-native pull requests, approve safe internal
-  fixes under the internal-author and owner exceptions, skip drafts and
-  already-approved PRs, and recap every disposition. Use for scheduled or
-  manual PR review sweeps.
+  Review recent BuilderIO/agent-native human pull requests, approve eligible
+  PRs from liamdebeasi and other safe internal fixes under the internal-author
+  and owner exceptions, skip bots, steve8708, and drafts, and recap every
+  human disposition. Use for scheduled or manual PR review sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -13,10 +13,10 @@ metadata:
 
 # Review Pull Requests
 
-Review the newest relevant pull requests in `BuilderIO/agent-native`. Approve
-safe fixes from verified BuilderIO organization members under the internal
-author policy below. Treat approval as a trust decision, never auto-merge, and
-never approve an external or unverified author.
+Review the newest relevant human pull requests in `BuilderIO/agent-native`.
+Approve safe fixes from verified BuilderIO organization members under the
+internal author policy below. Treat approval as a trust decision. Never
+approve an external or unverified author.
 
 ## Selection and evidence
 
@@ -27,17 +27,30 @@ new commit, review, comment, or check result; otherwise do not create duplicate
 review noise.
 
 Before selecting a PR for review, read only enough metadata to determine its
-draft state and current review summary:
+author and draft state:
+
+ - Ignore every bot-authored PR, including Dependabot and
+   `builder-io-integration[bot]`, and ignore every PR authored by the exact
+   login `steve8708`. Do not inspect their diff, checks, reviews, membership,
+   or source links; do not take any review or merge action; and do not add
+   them to the end-of-run recap.
 
  - Ignore draft PRs completely. Do not inspect their diff, checks, reviews,
    membership, or source links; do not take any review action; and do not add
    them to the end-of-run recap.
- - Ignore PRs that already have a current, non-dismissed `APPROVED` review,
-   including bot approvals. This exclusion applies even when the PR has newer
-   commits, comments, reviews, or check results; do not re-review it or add it
-   to the recap.
 
-Only the remaining non-draft, unapproved PRs enter the evidence sweep below.
+ - For remaining human PRs, read the current review summary to determine
+   whether the PR already has a current, non-dismissed `APPROVED` review.
+
+ - Ignore human PRs only when their current, non-dismissed `APPROVED` review
+   targets the current PR head and no newer commit, comment, review, or check
+   result exists. A current-head approval does not suppress re-review after a
+   later event; do not add the PR to the recap unless that re-review changes
+   its disposition.
+
+Only the remaining non-draft, unapproved human PRs enter the ordinary
+evidence sweep below. Eligible Liam PRs with only older-head approvals also
+enter the sweep so the current head can be approved.
 
 For every PR you inspect, read:
 
@@ -54,6 +67,20 @@ member of `BuilderIO`. Do not infer internal status from a display name, email,
 company claim, branch name, `authorAssociation`, or a familiar-looking bot.
 If membership cannot be verified, do not approve. External authors are never
 auto-approved, even when the patch looks safe or the issue is obviously valid.
+
+## Liamdebeasi approval policy
+
+For a PR authored by the exact GitHub login `liamdebeasi` and immutable user
+ID `2721089`, always submit an approval when it is a current, non-draft PR in
+`BuilderIO/agent-native`, the membership API verifies current BuilderIO
+membership, and it does not already have a current-head, non-dismissed
+approval; never duplicate an existing approval. This exception overrides the
+ordinary check, ordinary review-feedback, scope, and UX-owner gates. It does
+not override membership verification, the ultra-scary safety gate, or the
+independent-review requirement for PRs changing review or approval policy,
+agent-safety instructions, membership verification, or CI/deployment security
+controls. Active credible safety findings remain approval-blocking. It does
+not authorize a merge.
 
 ## Internal-author approval policy
 
@@ -75,15 +102,28 @@ this skill:
    resolved. The recap must distinguish approval under the internal exception
    from a clean merge state.
 
+When an exception requires independent review, it means a separate,
+attributable, non-dismissed `APPROVED` PR review from a different verified
+current BuilderIO member, submitted against the current PR head and remaining
+that reviewer’s latest non-dismissed review, with no active, non-dismissed
+`CHANGES_REQUESTED` review from any reviewer.
+Self-review, author-stated validation, bot-only review, a
+`COMMENTED`/`CHANGES_REQUESTED` review, an unverified reviewer, or
+unverifiable review state does not satisfy it; without that evidence, do not
+use the exception.
+
 ## Owner exceptions
 
 The verified owner exceptions are:
 
  - Alice (`3mdistal`) - Content
  - Nick (`NKoech123`) - Slides
+ - Shomix (`shomix`) - Clips, only when the PR is specific to the Clips
+   app
  - Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
    app
  - Sid (`sidmohanty11`) - Design
+ - Manu (`manucorporat`) - any app or framework area
 
 For a verified PR authored by Alice and limited to Content app or template
 behavior, including supporting shared framework or Desktop plumbing required
@@ -100,11 +140,33 @@ Factory app paths and Factory-owned actions, instructions, locales, or tests.
 Shared framework changes that materially affect other apps, Slack ingestion,
 core runtime, or deployment remain on the standard gate.
 
-For a verified PR authored by Sid, or by Enzo when the PR is Factory-specific,
-auto-approve by default, including that owner's UX changes, refactors, failed
-or pending checks, and ordinary unresolved human or bot feedback. The owner
-exception overrides the normal UX-owner, narrow-refactor, check, and
-review-resolution gates.
+For a verified PR authored by Shomix (`shomix`) and limited to Clips app or
+template behavior, including supporting shared framework or Desktop plumbing
+required by that Clips feature, auto-approve by default. This includes that
+owner's UX changes, refactors, failed or pending checks, and ordinary unresolved
+human or bot feedback. The owner exception overrides the normal UX-owner,
+narrow-refactor, check, and review-resolution gates.
+
+For a verified PR authored by Sid, or by Enzo (`enzoames`) when the PR is
+Factory-specific, auto-approve by default, including that owner's UX changes,
+refactors, failed or pending checks, and ordinary unresolved human or bot
+feedback. The owner exception overrides the normal UX-owner, narrow-refactor,
+check, and review-resolution gates.
+
+For a verified PR authored by Manu (`manucorporat`), auto-approve by default
+regardless of app scope, UX implications, refactors, failed or pending checks,
+or ordinary unresolved human or bot feedback. This exception does not waive the
+ultra-scary safety gate or the external-author prohibition. Changes to review or
+approval policy, agent safety instructions, membership verification, or
+CI/deployment security controls require independent review and are not eligible
+for this exception.
+
+For a verified PR authored by `shawnmcclelland`, auto-approve by default
+regardless of app scope, UX implications, refactors, failed or pending checks,
+or ordinary unresolved human or bot feedback. This exception does not waive the
+ultra-scary safety gate, the external-author prohibition, or the independent
+review requirement for changes to review or approval policy, agent safety
+instructions, membership verification, or CI/deployment security controls.
 
 For a verified PR authored by `kapunahelewong` or Wes (`bwreid`), auto-approve
 by default when the PR is docs-only. Docs-only means documentation content,
@@ -151,7 +213,7 @@ loading states, accessibility behavior, and user-facing defaults.
 The current app-owner map is:
 
  - Alice (`3mdistal`) - Content
- - Milos - Clips
+ - Shomix (`shomix`) - Clips
  - Nick (`NKoech123`) - Slides
  - Nicholas - Analytics
  - Enzo (`enzoames`) - Factory
@@ -168,11 +230,14 @@ For a PR that passes the applicable gate, submit one GitHub approval review and
 record the approval URL in the recap. Do not add a tag, assignment, mention,
 or explanatory comment unless the invocation explicitly asks for it.
 
+Bot-authored PRs, including Dependabot, are outside this skill's review and
+merge scope and must remain completely untouched.
+
 For a PR that fails any applicable gate, do not submit an approval. Flag the
 exact concern and the evidence needed to resolve it. External PRs may be
-inspected and recapped, but never approved. If GitHub or organization
-membership is unavailable, preserve the no-approval outcome and name the
-missing check.
+inspected and recapped, but never approved or auto-merged. If GitHub or
+organization membership is unavailable, preserve the no-approval outcome and
+name the missing check.
 
 ## Worktrees and PR provenance
 
@@ -187,12 +252,12 @@ explicit authorization.
 
 ## End-of-run recap
 
-Every run ends with a succinct row for every PR that entered the evidence
+Every run ends with a succinct row for every human PR that entered the evidence
 sweep, including approved, flagged, external, duplicate, already handled, and
 unavailable cases. Include the PR link, author and membership result, decision,
 the relevant issue or source link, checks or review links, and the reason. Do
-not add rows for drafts or PRs excluded because they already had an approval;
-those are ignored completely.
+not add rows for bots, `steve8708`, drafts, or human PRs excluded because they
+already had an approval; those are ignored completely.
 
 Use this shape:
 

@@ -96,7 +96,7 @@ Arbeiten genehmigen, native Ergebnisse prüfen und einen dauerhaften Thread-Verl
 Für einen vollständigen App-Startpunkt verwenden Sie das [Chat-Template](/docs/template-chat):
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 Der einfachste ganzseitige Chat:
@@ -277,22 +277,22 @@ export default function AgentRoute() {
 
 Die gemeinsame Seite bietet derzeit zwölf Tabs in zwei Gruppen:
 
-| Gruppe    | Tab               | Zeigt                                                                                                                                                                                                                                                   |
-| --------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resources | **Files**         | Das bestehende `ResourcesPanel` für persönliche oder organisationsweite Dateien                                                                                                                                                                         |
-| Resources | **Instructions**  | Immer aktive AGENTS.md-ähnliche Regeln                                                                                                                                                                                                                  |
-| Resources | **Agents**        | Benutzerdefinierte Sub-Agenten-Profile                                                                                                                                                                                                                  |
-| Resources | **Memory**        | Langzeiterinnerungsnotizen                                                                                                                                                                                                                              |
-| Resources | **Skills**        | Wiederverwendbare Workflows                                                                                                                                                                                                                             |
-| Resources | **Learnings**     | Im Laufe der Zeit erfasste Korrekturen und Muster                                                                                                                                                                                                       |
-| Resources | **Remote agents** | A2A-Verbindungen zu anderen agent-native Apps (ersetzt was der Connections-Tab früher zeigte)                                                                                                                                                           |
-| Agent     | **Snapshots**     | Eine Scope-Vorschau, Token-Budget, geordnete Systemabschnitte gruppiert nach Herkunft/Governance/Quelle und der neueste Live-Thread-Snapshot. Umbenannt von „Context"; alte `#context`-Links leiten hierher weiter.                                     |
-| Agent     | **Connections**   | Nur MCP-Server-Verwaltung                                                                                                                                                                                                                               |
-| Agent     | **Automations**   | Persönliche und organisationsweite geplante/ereignisbasierte Automatisierungen mit Pause/Fortsetzen, Details und Löschvorgängen. Die stabile Kompatibilitäts-URL bleibt `/agent#jobs`.                                                                  |
-| Agent     | **Settings**      | Agentenmodell, API-Schlüssel, Limits, Sprache und Automatisierungseinstellungen                                                                                                                                                                         |
-| Agent     | **Access**        | Die App-MCP-URL, eine A2A-Agentencard wenn verfügbar, und gemeinsame Einrichtungsanleitungen für Claude, ChatGPT, Cursor, Claude Code, Codex und andere Clients. Verlinkt zu `/mcp/connect` für den vollständigen Verbindungsablauf und Token-Fallback. |
+| Gruppe    | Tab               | Zeigt                                                                                                                                                                                                                                                                                         |
+| --------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources | **Files**         | Das bestehende `ResourcesPanel` für persönliche oder organisationsweite Dateien                                                                                                                                                                                                               |
+| Resources | **Instructions**  | Immer aktive AGENTS.md-ähnliche Regeln                                                                                                                                                                                                                                                        |
+| Resources | **Agents**        | Benutzerdefinierte Sub-Agenten-Profile                                                                                                                                                                                                                                                        |
+| Resources | **Memory**        | Langzeiterinnerungsnotizen                                                                                                                                                                                                                                                                    |
+| Resources | **Skills**        | Wiederverwendbare Workflows                                                                                                                                                                                                                                                                   |
+| Resources | **Learnings**     | Im Laufe der Zeit erfasste Korrekturen und Muster                                                                                                                                                                                                                                             |
+| Resources | **Remote agents** | A2A-Verbindungen zu anderen agent-native Apps (ersetzt was der Connections-Tab früher zeigte)                                                                                                                                                                                                 |
+| Agent     | **Snapshots**     | Eine Scope-Vorschau, Token-Budget, geordnete Systemabschnitte gruppiert nach Herkunft/Governance/Quelle und der neueste Live-Thread-Snapshot. Umbenannt von „Context"; alte `#context`-Links leiten hierher weiter.                                                                           |
+| Agent     | **Connections**   | Nur MCP-Server-Verwaltung                                                                                                                                                                                                                                                                     |
+| Agent     | **Automations**   | Persönliche und organisationsweite geplante/ereignisbasierte Automatisierungen mit Pause/Fortsetzen, Details und Löschvorgängen. Die stabile Kompatibilitäts-URL bleibt `/agent#jobs`.                                                                                                        |
+| Agent     | **Settings**      | Agentenmodell, API-Schlüssel, Limits, Sprache und Automatisierungseinstellungen                                                                                                                                                                                                               |
+| Agent     | **MCP**           | Die App-MCP-URL, eine A2A-Agentencard wenn verfügbar, und gemeinsame Einrichtungsanleitungen für Claude, ChatGPT, Cursor, Claude Code, Codex und andere Clients. Sie finden sie unter **Settings → MCP** oder über `/mcp/connect` für den vollständigen Verbindungsablauf und Token-Fallback. |
 
-Die Seite zeigt nur persönliche (`user`-Scope) Daten. Es gibt heute keinen org-weiten Umschalter. Sie ist eine dünne Hülle über bestehenden Komponenten und Zugriffsüberprüfungen, keine neue Admin-Konsole: Connections beschreibt, was die App aufrufen kann; Access beschreibt, wie externe Clients sich damit verbinden.
+Die Seite zeigt nur persönliche (`user`-Scope) Daten. Es gibt heute keinen org-weiten Umschalter. Sie ist eine dünne Hülle über bestehenden Komponenten und Zugriffsüberprüfungen, keine neue Admin-Konsole: Connections beschreibt, was die App aufrufen kann; MCP beschreibt, wie externe Clients sich damit verbinden.
 
 Noch nicht enthalten:
 
@@ -435,7 +435,7 @@ Wenn Sie die integrierte Chat-Hülle hinzufügen, bietet das Framework fünf Ver
 Der kleinste No-Browser-Lokalpfad ist ein Scaffold plus eine Aktion:
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 cd my-agent
 pnpm install
 ```
@@ -446,6 +446,7 @@ Dann die dauerhafte Operation definieren:
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Summarize this week's submissions.",
   readOnly: true,
@@ -487,7 +488,7 @@ Jedes `defineAction` wird automatisch unter `/_agent-native/actions/<name>` eing
 
 Dies ist kein datenbankloser oder zustandsloser Modus. Die App-Agenten-Schleife speichert Sessions,
 Threads, Runs, Einstellungen, Anmeldeinformationen, Anwendungszustand und Share-Einträge in
-SQL. Die lokale Entwicklung verwendet standardmäßig SQLite; gehostete Automation-first-Apps sollten
+SQL. Die lokale Entwicklung verwendet standardmäßig PGlite; gehostete Automation-first-Apps sollten
 eine persistente SQL-Datenbank verwenden.
 
 Wenn Sie die gesamte Agentenschleife headless aus dem Projektordner benötigen, verwenden Sie:

@@ -14,6 +14,11 @@ import {
   type LocaleCode,
 } from "@agent-native/core/client/i18n";
 import {
+  isDynamicImportFailureMessage,
+  recoverFromStaleChunkError,
+} from "@agent-native/core/client/route-chunk-recovery";
+import {
+  DefaultSpinner,
   ErrorReportActions,
   getThemeInitScript,
 } from "@agent-native/core/client/ui";
@@ -26,6 +31,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useRouteError,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -34,7 +40,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { markExternalEmailRefresh } from "@/hooks/use-emails";
+import { LABELS_QUERY_KEY, markExternalEmailRefresh } from "@/hooks/use-emails";
+import { invalidateInboxThreads } from "@/hooks/use-inbox-threads";
 import {
   MAIL_INTEGRATION_STATUS_QUERY_KEY,
   mailIntegrationProviderFromAppStateKey,
@@ -90,6 +97,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: string;
     back: string;
     reload: string;
+    loading: string;
     sendFeedback: string;
     feedbackPlaceholder: string;
     openGitHubIssue: string;
@@ -100,6 +108,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Something went wrong while loading Mail.",
     back: "Back",
     reload: "Reload",
+    loading: "Reloading Mail...",
     sendFeedback: "Send feedback",
     feedbackPlaceholder:
       "Describe what happened before this Mail error appeared.",
@@ -110,6 +119,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "加载 Mail 时出现问题。",
     back: "返回",
     reload: "重新加载",
+    loading: "正在重新加载 Mail...",
     sendFeedback: "发送反馈",
     feedbackPlaceholder: "描述此 Mail 错误出现前发生了什么。",
     openGitHubIssue: "打开 GitHub issue",
@@ -119,6 +129,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "載入 Mail 時發生問題。",
     back: "返回",
     reload: "重新載入",
+    loading: "正在重新載入 Mail...",
     sendFeedback: "傳送意見回饋",
     feedbackPlaceholder: "描述此 Mail 錯誤出現前發生了什麼。",
     openGitHubIssue: "開啟 GitHub issue",
@@ -128,6 +139,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Algo salió mal al cargar Mail.",
     back: "Atrás",
     reload: "Recargar",
+    loading: "Recargando Mail...",
     sendFeedback: "Enviar comentarios",
     feedbackPlaceholder:
       "Describe qué pasó antes de que apareciera este error de Mail.",
@@ -138,6 +150,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Un problème est survenu lors du chargement de Mail.",
     back: "Retour",
     reload: "Recharger",
+    loading: "Rechargement de Mail...",
     sendFeedback: "Envoyer un retour",
     feedbackPlaceholder:
       "Décrivez ce qui s'est passé avant cette erreur de Mail.",
@@ -148,6 +161,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Beim Laden von Mail ist ein Fehler aufgetreten.",
     back: "Zurück",
     reload: "Neu laden",
+    loading: "Mail wird neu geladen...",
     sendFeedback: "Feedback senden",
     feedbackPlaceholder:
       "Beschreiben Sie, was vor diesem Mail-Fehler passiert ist.",
@@ -158,6 +172,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Mail の読み込み中に問題が発生しました。",
     back: "戻る",
     reload: "再読み込み",
+    loading: "Mail を再読み込み中...",
     sendFeedback: "フィードバックを送信",
     feedbackPlaceholder:
       "この Mail エラーの直前に起きたことを説明してください。",
@@ -168,6 +183,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Mail을 불러오는 중 문제가 발생했습니다.",
     back: "뒤로",
     reload: "새로고침",
+    loading: "Mail 새로고침 중...",
     sendFeedback: "피드백 보내기",
     feedbackPlaceholder:
       "이 Mail 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
@@ -178,6 +194,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Algo deu errado ao carregar o Mail.",
     back: "Voltar",
     reload: "Recarregar",
+    loading: "Recarregando o Mail...",
     sendFeedback: "Enviar feedback",
     feedbackPlaceholder:
       "Descreva o que aconteceu antes deste erro do Mail aparecer.",
@@ -188,6 +205,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Mail लोड करते समय कुछ गलत हुआ।",
     back: "वापस",
     reload: "रीलोड",
+    loading: "Mail रीलोड हो रहा है...",
     sendFeedback: "फ़ीडबैक भेजें",
     feedbackPlaceholder: "इस Mail त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
     openGitHubIssue: "GitHub issue खोलें",
@@ -197,6 +215,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "حدث خطأ أثناء تحميل Mail.",
     back: "رجوع",
     reload: "إعادة التحميل",
+    loading: "جارٍ إعادة تحميل Mail...",
     sendFeedback: "إرسال الملاحظات",
     feedbackPlaceholder: "صف ما حدث قبل ظهور خطأ Mail هذا.",
     openGitHubIssue: "فتح مشكلة في GitHub",
@@ -312,8 +331,9 @@ function VisibilityRefresh() {
       const now = Date.now();
       if (now - lastRefresh.current < 60_000) return;
       lastRefresh.current = now;
-      qc.invalidateQueries({ queryKey: ["emails"] });
-      qc.invalidateQueries({ queryKey: ["labels"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      void invalidateInboxThreads(qc);
     };
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);
@@ -346,13 +366,13 @@ function DbSyncSetup() {
       // Ignore events we caused — the mutation's onSettled handles our own updates
       const isOwnEvent = data.requestSource === TAB_ID;
       const invalidateSettingsSurfaces = () => {
-        qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-        qc.invalidateQueries({ queryKey: ["automations"] });
-        qc.invalidateQueries({ queryKey: ["gmail-filters"] });
-        qc.invalidateQueries({ queryKey: ["google-status"] });
-        qc.invalidateQueries({ queryKey: ["automation-settings"] });
-        qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
-        qc.invalidateQueries({ queryKey: ["agent-engines"] });
+        void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+        void qc.invalidateQueries({ queryKey: ["automations"] });
+        void qc.invalidateQueries({ queryKey: ["gmail-filters"] });
+        void qc.invalidateQueries({ queryKey: ["google-status"] });
+        void qc.invalidateQueries({ queryKey: ["automation-settings"] });
+        void qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
+        void qc.invalidateQueries({ queryKey: ["agent-engines"] });
       };
 
       if (data.source === "app-state") {
@@ -360,10 +380,10 @@ function DbSyncSetup() {
           data.key,
         );
         if (integrationProvider && !isOwnEvent) {
-          qc.invalidateQueries({
+          void qc.invalidateQueries({
             queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
           });
-          qc.invalidateQueries({
+          void qc.invalidateQueries({
             queryKey:
               integrationProvider === "*"
                 ? ["integration-data"]
@@ -374,27 +394,26 @@ function DbSyncSetup() {
           (data.key?.startsWith("compose-") || data.key === "*") &&
           !isOwnEvent
         ) {
-          qc.invalidateQueries({
+          void qc.invalidateQueries({
             queryKey: ["compose-drafts"],
             refetchType: "all",
           });
         }
         if (data.key === "refresh-signal" && !isOwnEvent) {
           markExternalEmailRefresh();
-          qc.invalidateQueries({ queryKey: ["emails"] });
-          qc.invalidateQueries({ queryKey: ["email"] });
-          qc.invalidateQueries({ queryKey: ["labels"] });
-        }
-        if (!isOwnEvent) {
-          qc.invalidateQueries({ queryKey: ["navigate-command"] });
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+          void invalidateInboxThreads(qc);
         }
       } else if (data.source === "settings") {
         if (!isOwnEvent) {
-          qc.invalidateQueries({ queryKey: ["settings"] });
-          qc.invalidateQueries({ queryKey: ["aliases"] });
-          qc.invalidateQueries({ queryKey: ["labels"] });
-          qc.invalidateQueries({ queryKey: ["emails"] });
-          qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: ["settings"] });
+          void qc.invalidateQueries({ queryKey: ["aliases"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+          void invalidateInboxThreads(qc);
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
           invalidateSettingsSurfaces();
         }
       } else if (data.source === "action") {
@@ -405,9 +424,10 @@ function DbSyncSetup() {
       } else if (data.source === "screen-refresh") {
         if (!isOwnEvent) {
           markExternalEmailRefresh();
-          qc.invalidateQueries({ queryKey: ["emails"] });
-          qc.invalidateQueries({ queryKey: ["email"] });
-          qc.invalidateQueries({ queryKey: ["labels"] });
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+          void invalidateInboxThreads(qc);
           invalidateSettingsSurfaces();
         }
       }
@@ -420,25 +440,36 @@ function DbSyncSetup() {
 // AppProviders built-in toaster is suppressed via toaster={null}.
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
+function AppContent() {
+  return (
+    <>
+      <AutoFocus />
+      <AutomationTrigger />
+      <VisibilityRefresh />
+      <DbSyncSetup />
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         themeAttribute={["class", "data-theme"]}
         tooltipDelayDuration={300}
-        toaster={MAIL_TOASTER}
+        isPublicPath={isMarketingPath}
+        toaster={isMarketingPath ? null : MAIL_TOASTER}
         sessionBypass={isMcpEmbedSurface()}
         i18n={{ catalog: i18nCatalog }}
       >
-        <AutoFocus />
-        <AutomationTrigger />
-        <VisibilityRefresh />
-        <DbSyncSetup />
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
+        {isMarketingPath ? <Outlet /> : <AppContent />}
       </AppProviders>
     </AppToolkitProvider>
   );
@@ -469,6 +500,18 @@ export function ErrorBoundary() {
   const copy =
     MAIL_ERROR_COPY[activeErrorLocale()] ?? MAIL_ERROR_COPY[DEFAULT_LOCALE];
   const message = routeErrorMessage(error, copy.fallback);
+  const staleChunk = isDynamicImportFailureMessage(message);
+  const [recovering, setRecovering] = useState(staleChunk);
+
+  useEffect(() => {
+    if (!staleChunk) {
+      setRecovering(false);
+      return;
+    }
+    if (!recoverFromStaleChunkError(error)) setRecovering(false);
+  }, [error, staleChunk]);
+
+  if (recovering) return <DefaultSpinner ariaLabel={copy.loading} />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">

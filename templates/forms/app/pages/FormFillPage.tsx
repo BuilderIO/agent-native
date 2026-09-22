@@ -1,7 +1,16 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
+import {
+  normalizeDocumentTitle,
+  testUserRegex,
+} from "@agent-native/core/shared";
 import { isConditionalFieldVisible } from "@shared/conditional";
-import type { FormField, FormSettings } from "@shared/types";
+import {
+  getFormCompletionMode,
+  getFormCompletionRefreshSeconds,
+  type FormField,
+  type FormSettings,
+} from "@shared/types";
 import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
 import { useState, useMemo, useEffect } from "react";
 import { useParams } from "react-router";
@@ -40,6 +49,15 @@ export function FormFillPage() {
   const { data: form, isLoading, error } = usePublicForm(slug);
   const submitForm = useSubmitForm();
 
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(form?.title, "Form")} — Forms`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [form?.title]);
+
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [captchaToken, setCaptchaToken] = useState<string | undefined>();
   const [submitted, setSubmitted] = useState(false);
@@ -62,6 +80,19 @@ export function FormFillPage() {
     [form?.fields],
   );
   const settings: FormSettings = form?.settings || {};
+  const completionMode = getFormCompletionMode(settings);
+  const completionRefreshSeconds = getFormCompletionRefreshSeconds(
+    settings.completionRefreshSeconds,
+  );
+
+  useEffect(() => {
+    if (!submitted || completionMode !== "message_then_refresh") return;
+    const timeout = window.setTimeout(
+      () => window.location.reload(),
+      completionRefreshSeconds * 1000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [submitted, completionMode, completionRefreshSeconds]);
 
   // Scale fields render the slider at their minimum even before the user
   // interacts, so seed that displayed default into form state. Otherwise a
@@ -100,7 +131,12 @@ export function FormFillPage() {
     for (const field of visibleFields) {
       if (field.required) {
         const val = values[field.id];
-        if (val === undefined || val === null || val === "") {
+        if (
+          val === undefined ||
+          val === null ||
+          val === "" ||
+          (Array.isArray(val) && val.length === 0)
+        ) {
           return `${field.label} is required`;
         }
       }
@@ -131,9 +167,15 @@ export function FormFillPage() {
             `${field.label} must be at most ${field.validation.max}`
           );
         }
-        if (field.validation.pattern && typeof val === "string") {
-          const regex = new RegExp(field.validation.pattern);
-          if (!regex.test(val)) {
+        // An empty value is the required check's business. The submit handler
+        // has always skipped pattern checks for one, so running it here only
+        // blocks a submission the server would accept.
+        if (field.validation.pattern && typeof val === "string" && val !== "") {
+          const result = testUserRegex(field.validation.pattern, val);
+          if (result.status === "unevaluated") {
+            return t("publicForm.uncheckablePattern", { label: field.label });
+          }
+          if (result.status === "no-match") {
             return field.validation.message || `${field.label} is invalid`;
           }
         }
@@ -164,11 +206,18 @@ export function FormFillPage() {
       },
       {
         onSuccess: () => {
-          setSubmitted(true);
-          if (settings.redirectUrl) {
+          if (completionMode === "redirect" && settings.redirectUrl) {
             const redirectUrl = safeRedirectUrl(settings.redirectUrl);
-            if (redirectUrl) window.location.assign(redirectUrl);
+            if (redirectUrl) {
+              window.location.assign(redirectUrl);
+              return;
+            }
           }
+          if (completionMode === "refresh") {
+            window.location.reload();
+            return;
+          }
+          setSubmitted(true);
         },
         onError: (err: any) => {
           toast.error(err?.error || t("publicForm.failedSubmit"));

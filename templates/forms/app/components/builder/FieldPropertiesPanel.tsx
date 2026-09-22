@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { ConditionalRule, FormField, FormFieldType } from "@shared/types";
+import type { ConditionalRule, FormField } from "@shared/types";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -16,15 +16,20 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  isFileField,
+  type AppFormField,
+  type AppFormFieldType,
+} from "@/lib/form-field-types";
 
 interface FieldPropertiesPanelProps {
-  field: FormField;
-  fields: FormField[];
+  field: AppFormField;
+  fields: AppFormField[];
   onChange: (field: FormField) => void;
   onDelete: () => void;
 }
 
-const fieldTypeLabels: Record<FormFieldType, string> = {
+const fieldTypeLabels: Record<AppFormFieldType, string> = {
   text: "fieldProperties.fieldTypes.text", // i18n-ignore stable catalog key
   email: "fieldProperties.fieldTypes.email", // i18n-ignore stable catalog key
   number: "fieldProperties.fieldTypes.number", // i18n-ignore stable catalog key
@@ -36,11 +41,12 @@ const fieldTypeLabels: Record<FormFieldType, string> = {
   date: "fieldProperties.fieldTypes.date", // i18n-ignore stable catalog key
   rating: "fieldProperties.fieldTypes.rating", // i18n-ignore stable catalog key
   scale: "fieldProperties.fieldTypes.scale", // i18n-ignore stable catalog key
+  file: "fieldProperties.fieldTypes.file", // i18n-ignore stable catalog key
 };
 
-const hasOptions: FormFieldType[] = ["select", "multiselect", "radio"];
+const hasOptions: AppFormFieldType[] = ["select", "multiselect", "radio"];
 
-function conditionValueOptions(source: FormField | undefined): string[] {
+function conditionValueOptions(source: AppFormField | undefined): string[] {
   if (!source) return [];
   if (hasOptions.includes(source.type)) {
     return (source.options || []).filter(
@@ -54,7 +60,7 @@ function conditionValueOptions(source: FormField | undefined): string[] {
 }
 
 function defaultConditionOperator(
-  source: FormField,
+  source: AppFormField,
 ): ConditionalRule["operator"] {
   return source.type === "multiselect" ? "contains" : "equals";
 }
@@ -83,8 +89,8 @@ export function FieldPropertiesPanel({
     (conditionSource ? defaultConditionOperator(conditionSource) : "equals");
   const conditionValue = field.conditional?.value || conditionOptions[0] || "";
 
-  function update(partial: Partial<FormField>) {
-    onChange({ ...field, ...partial });
+  function update(partial: Partial<AppFormField>) {
+    onChange({ ...field, ...partial } as FormField);
   }
 
   function addOption() {
@@ -119,7 +125,17 @@ export function FieldPropertiesPanel({
           <Label className="text-xs">{t("fieldProperties.type")}</Label>
           <Select
             value={field.type}
-            onValueChange={(v) => update({ type: v as FormFieldType })}
+            onValueChange={(v) => {
+              const nextType = v as AppFormFieldType;
+              const nextField = { ...field, type: nextType } as FormField;
+              if (nextType !== "file") {
+                delete nextField.multiple;
+                delete nextField.accept;
+                delete nextField.maxSizeBytes;
+                delete nextField.maxFiles;
+              }
+              onChange(nextField);
+            }}
           >
             <SelectTrigger className="h-8 text-xs">
               <SelectValue />
@@ -196,6 +212,32 @@ export function FieldPropertiesPanel({
             </SelectContent>
           </Select>
         </div>
+
+        {isFileField(field) && (
+          <>
+            <Separator />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <Label className="text-xs">
+                  {t("fieldProperties.allowMultiple")}
+                </Label>
+                <Switch
+                  checked={field.multiple === true}
+                  onCheckedChange={(checked) => update({ multiple: checked })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t("fieldProperties.accept")}</Label>
+                <Input
+                  value={field.accept || ""}
+                  onChange={(event) => update({ accept: event.target.value })}
+                  placeholder={t("fieldProperties.acceptPlaceholder")}
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+          </>
+        )}
 
         {availableFields.length > 0 && (
           <>

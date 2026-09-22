@@ -1,30 +1,38 @@
-export const SLACK_MENTION_GUARD =
-  "Never post Slack messages, reactions, or plaintext @handles yourself. Call start-builder-for-item; that action pings Builder with a Slack user id. Plaintext @builder.io does not notify anyone.";
+export const SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS = `Classify risk and confidence on every item, including ones you skip — this
+data is read later even when Builder is never tagged.
 
-export const SLACK_HANDOFF_INSTRUCTION = `Do not post to Slack, add reactions, or type @handles yourself. Call
-start-builder-for-item; that action adds 👀 and pings Builder with a Slack
-user id so it runs /address-feedback. The posted reply points Builder at the
-relevant repository skills, the representative source, every related source,
-and the need to fix the underlying boundary across the whole cluster. Never
-call that action for owner-managed Clips, Design, or Content work, or for a
-non-bug report.`;
+Risk is how bad it is if this item is mishandled, not how likely it is to be
+real: negligible (cosmetic noise, barely a bug), low (a clear, narrowly
+scoped defect you would be comfortable seeing fixed with no further review),
+medium (ambiguous scope, or touches shared or critical code), high (serious
+functional or data breakage), or critical (security, auth, tenant isolation,
+payments, or data loss). When in doubt, pick the higher tier.
 
-const OBSOLETE_SLACK_TAG_PARAGRAPH =
-  /The Builder reply must tag @builder\.io[\s\S]*?non-bug\s+report\.\s*/;
+Confidence is how sure you are this can be correctly diagnosed and fixed as
+a code or test change from the evidence already gathered, without
+reproducing it in a browser: high (the thread pins down a specific failing
+path — an error message, stack trace, log line, or a concrete reproducible
+input and output — and correctness does not depend on rendering or manually
+interacting with the UI), medium (a plausible cause but real uncertainty:
+one thin report, no stack trace, or more than one reasonable fix), or low
+(needs visual or browser reproduction to confirm, or the root cause is
+genuinely unclear). A visual/UI defect is still a clear bug, but rarely
+earns confidence high — mark it medium or low unless the thread already
+shows the exact broken state and the fix is obvious from that alone.
 
-export function repairSlackFeedbackPrompt(content: string): string {
-  let next = content.replace(
-    OBSOLETE_SLACK_TAG_PARAGRAPH,
-    `${SLACK_HANDOFF_INSTRUCTION}\n\n`,
-  );
-  if (/tag @builder\.io/i.test(next)) {
-    next = next
-      .split("\n")
-      .filter((line) => !/tag @builder\.io/i.test(line))
-      .join("\n");
-  }
-  if (!next.includes(SLACK_MENTION_GUARD)) {
-    next = `${next.trimEnd()}\n\n${SLACK_MENTION_GUARD}\n`;
-  }
-  return next;
-}
+Look at the parent message reactions from get-slack-feedback-context. If the
+parent already has eyes 👀, it has already been looked at: call
+dispatch-factory-item with alreadyClaimed true (clearBug may be omitted or
+false), your risk and confidence classification, omit reaction, and a short
+reason that names the existing 👀 marker. Do not start Builder work on it.
+
+For every other item, call dispatch-factory-item with clearBug true or
+false, risk, confidence, productUxImplications false unless it is a pure
+product or design decision with no single correct fix, and a short reason.
+The action only tags Builder when clearBug is true, risk is low, and
+confidence is high — everything else is recorded as a skip no matter what
+reaction you pass. When those three hold and the parent has no eyes 👀, you
+MUST pass reaction eyes 👀 — never call dispatch-factory-item for a
+dispatch-eligible item without reaction eyes. The action adds 👀 on Slack;
+omit reaction on every skip (clearBug false, risk above low, confidence
+below high, or alreadyClaimed true).`;

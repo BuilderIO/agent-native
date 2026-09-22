@@ -9,7 +9,7 @@
  *   pnpm action trim-recording --recordingId=<id> --startMs=12000 --endMs=15000
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";

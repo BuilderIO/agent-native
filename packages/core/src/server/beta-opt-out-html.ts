@@ -1,9 +1,25 @@
+import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
+import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
+  BETA_REDIRECT_STORAGE_KEY,
   ENVIRONMENT_BETA_HOSTS,
 } from "../shared/environment-lanes.js";
+import {
+  getSsrBetaRedirectScript,
+  SSR_BETA_REDIRECT_MARKER,
+} from "../shared/ssr-beta-redirect.js";
+import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+import { resolvePublicAppOriginConfig } from "./app-origin-config.js";
+import {
+  getFrameworkRoutePrefix,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
+import { workspaceBasePathFromRequest } from "./onboarding-html.js";
 
 export const BETA_OPT_OUT_PERSISTENCE_MARKER =
   "Persist the beta opt-out before authentication";
@@ -26,18 +42,35 @@ function insertBeforeClosingTag(
   return html.slice(0, closeIndex) + fragment + html.slice(closeIndex);
 }
 
+function betaRedirectBasePath(requestPath?: string): string {
+  const configuredBasePath = getAppBasePathFromViteEnv();
+  const requestWorkspaceBasePath = workspaceBasePathFromRequest(requestPath);
+  if (!requestWorkspaceBasePath) return configuredBasePath;
+
+  const workspaceMounts =
+    resolvePublicAppOriginConfig()?.workspaceAppMountPaths;
+  return workspaceMounts?.includes(requestWorkspaceBasePath)
+    ? requestWorkspaceBasePath
+    : configuredBasePath;
+}
+
 const environmentSwitcherMarkup = `<div class="environment-switcher" id="environment-switcher" ${ENVIRONMENT_SWITCHER_MARKER} hidden>
-  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
+  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover"></button>
   <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
-    <div class="environment-popover-title" id="environment-popover-title">You're on Agent Native Beta</div>
-    <div class="environment-popover-copy">Choose where you want to continue.</div>
-    <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
+    <div class="environment-popover-title" id="environment-popover-title"></div>
+    <div class="environment-popover-copy"></div>
+    <a class="environment-production-link" id="environment-production-link" href=""></a>
+    <button type="button" class="environment-hide-badge" id="environment-hide-badge"></button>
   </div>
 </div>`;
 
 const environmentSwitcherStyles = `<style ${ENVIRONMENT_SWITCHER_STYLE_MARKER}>
-  color-scheme: dark;
   .environment-switcher {
+    /* Must stay inside a rule. A bare declaration at stylesheet top level does
+       not end at its semicolon: the next qualified rule's prelude swallows it,
+       taking this selector with it, so the badge loses position/left/bottom and
+       drops into normal flow at the bottom of the page. */
+    color-scheme: dark;
     position: fixed;
     left: max(0.75rem, env(safe-area-inset-left));
     bottom: max(0.75rem, env(safe-area-inset-bottom));
@@ -70,7 +103,8 @@ const environmentSwitcherStyles = `<style ${ENVIRONMENT_SWITCHER_STYLE_MARKER}>
     background: color-mix(in srgb, CanvasText 85%, Canvas);
   }
   .environment-badge:focus-visible,
-  .environment-production-link:focus-visible {
+  .environment-production-link:focus-visible,
+  .environment-hide-badge:focus-visible {
     outline: 2px solid LinkText;
     outline-offset: 2px;
   }
@@ -104,6 +138,23 @@ const environmentSwitcherStyles = `<style ${ENVIRONMENT_SWITCHER_STYLE_MARKER}>
   .environment-production-link:hover {
     background: color-mix(in srgb, CanvasText 12%, Canvas);
   }
+  .environment-hide-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 2rem;
+    margin-top: 0.5rem;
+    margin-bottom: -0.5rem;
+    padding: 0.375rem 0.75rem;
+    color: GrayText;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+  .environment-hide-badge:hover { color: CanvasText; }
 </style>`;
 
 const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}>
@@ -111,9 +162,21 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
   var switcher = document.getElementById('environment-switcher');
   var button = document.getElementById('environment-badge');
   var popover = document.getElementById('environment-popover');
+  var titleNode = document.getElementById('environment-popover-title');
+  var copyNode = document.querySelector('.environment-popover-copy');
   var productionLink = document.getElementById('environment-production-link');
-  if (!switcher || !button || !popover || !productionLink) return;
+  var hideButton = document.getElementById('environment-hide-badge');
+  if (!switcher || !button || !popover || !titleNode || !copyNode || !productionLink || !hideButton) return;
   if (window.parent !== window) return;
+
+  try {
+    var forceUrl = new URL(window.location.href);
+    if (forceUrl.searchParams.get(${JSON.stringify(BETA_FORCE_QUERY_PARAM)}) === 'true') {
+      window.sessionStorage.setItem(${JSON.stringify(BETA_FORCE_SESSION_STORAGE_KEY)}, '1');
+    }
+  } catch (error) {
+    void error;
+  }
 
   var betaHosts = ${JSON.stringify(ENVIRONMENT_BETA_HOSTS)};
   var hostname = (window.location.hostname || '').toLowerCase().replace(/\\.$/, '');
@@ -140,6 +203,72 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
     button.setAttribute('aria-expanded', String(open));
   }
 
+  var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};
+  var root = document.documentElement;
+  function messagesForLocale(locale) {
+    if (typeof locale !== 'string' || !locale || locale === 'system') return null;
+    var normalized = locale.trim().replace(/_/g, '-').toLowerCase();
+    var locales = Object.keys(messagesByLocale);
+    for (var i = 0; i < locales.length; i++) {
+      if (locales[i].toLowerCase() === normalized) return messagesByLocale[locales[i]];
+    }
+    var language = normalized.split('-')[0];
+    if (language === 'zh') {
+      var parts = normalized.split('-');
+      if (
+        parts.indexOf('hant') !== -1 ||
+        parts.indexOf('tw') !== -1 ||
+        parts.indexOf('hk') !== -1 ||
+        parts.indexOf('mo') !== -1
+      ) {
+        return messagesByLocale['zh-TW'];
+      }
+      if (
+        parts.indexOf('hans') !== -1 ||
+        parts.indexOf('cn') !== -1 ||
+        parts.indexOf('sg') !== -1
+      ) {
+        return messagesByLocale['zh-CN'];
+      }
+    }
+    for (var j = 0; j < locales.length; j++) {
+      if (locales[j].split('-')[0].toLowerCase() === language) return messagesByLocale[locales[j]];
+    }
+    return null;
+  }
+  function updateCopy() {
+    var candidates = [];
+    try {
+      candidates.push(window.localStorage.getItem(${JSON.stringify(LOCALE_STORAGE_KEY)}));
+    } catch (error) {
+      void error;
+    }
+    candidates.push(root.getAttribute('data-locale'));
+    candidates.push(root.getAttribute('lang'));
+    var browserLocales = navigator.languages && navigator.languages.length
+      ? navigator.languages
+      : [navigator.language];
+    candidates = candidates.concat(browserLocales);
+    var messages = null;
+    for (var i = 0; i < candidates.length && !messages; i++) {
+      messages = messagesForLocale(candidates[i]);
+    }
+    messages = messages || messagesByLocale['en-US'];
+    button.textContent = messages.betaLabel;
+    titleNode.textContent = messages.betaTitle.replace(
+      '{{label}}',
+      messages.betaLabel.charAt(0).toUpperCase() + messages.betaLabel.slice(1),
+    );
+    copyNode.textContent = messages.continuePrompt;
+    productionLink.textContent = messages.switchToProduction;
+    hideButton.textContent = messages.hideBadge;
+  }
+  updateCopy();
+  new MutationObserver(updateCopy).observe(root, {
+    attributes: true,
+    attributeFilter: ['data-locale', 'lang'],
+  });
+
   switcher.hidden = false;
   button.addEventListener('click', function() {
     setOpen(popover.hidden);
@@ -150,6 +279,10 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
   document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') setOpen(false);
   });
+  hideButton.addEventListener('click', function() {
+    setOpen(false);
+    switcher.hidden = true;
+  });
 })();
 </script>`;
 
@@ -157,6 +290,10 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
 // ${BETA_OPT_OUT_PERSISTENCE_MARKER}.
 (function __anPersistBetaOptOut() {
   try {
+    var forceUrl = new URL(window.location.href);
+    if (forceUrl.searchParams.get(${JSON.stringify(BETA_FORCE_QUERY_PARAM)}) === 'true') {
+      window.sessionStorage.setItem(${JSON.stringify(BETA_FORCE_SESSION_STORAGE_KEY)}, '1');
+    }
     var optOutUrl = new URL(window.location.href);
     var optOutValue = optOutUrl.searchParams.get(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
     if (optOutValue === null) return;
@@ -168,6 +305,7 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
           ${JSON.stringify(BETA_OPT_OUT_STORAGE_KEY)},
           String(optOutExpiry),
         );
+        window.localStorage.removeItem(${JSON.stringify(BETA_REDIRECT_STORAGE_KEY)});
       }
       optOutStorageReady = true;
     } catch (error) {
@@ -188,8 +326,22 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
  * Keep the production switcher's one-time opt-out behavior at the shared auth
  * response boundary so those pages cannot drop the handoff before sign-in.
  */
-export function injectBetaOptOutPersistence(loginHtml: string): string {
+export function injectBetaOptOutPersistence(
+  loginHtml: string,
+  requestPath?: string,
+): string {
   let html = loginHtml;
+  if (!html.includes(SSR_BETA_REDIRECT_MARKER)) {
+    const appBasePath = betaRedirectBasePath(requestPath);
+    html = insertBeforeClosingTag(
+      html,
+      getSsrBetaRedirectScript(
+        `${appBasePath}${publicFrameworkPath("/_agent-native/auth/session")}`,
+        getFrameworkRoutePrefix(),
+      ),
+      "</head>",
+    );
+  }
   if (!html.includes(BETA_OPT_OUT_PERSISTENCE_MARKER)) {
     html = insertBeforeClosingTag(html, betaOptOutPersistenceScript, "</body>");
   }

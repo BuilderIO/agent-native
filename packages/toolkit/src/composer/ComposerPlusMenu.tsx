@@ -32,6 +32,7 @@ import {
   isExternalAssetPickerUrl,
   standaloneAssetPickerUrl,
 } from "./asset-picker-url.js";
+import { formatAttachmentError } from "./attachment-accept.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { ComposerMode } from "./types.js";
 
@@ -43,7 +44,9 @@ export interface ComposerTerminalModeControl {
 
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
+  addAttachment?: (file: File) => Promise<unknown>;
   onAttachmentError?: (message: string) => void;
+  attachmentAccept?: string;
   /**
    * Show the "Create Extension" entry. Extensions are optional and hidden
    * unless the host explicitly enables their agent tool surface.
@@ -203,10 +206,6 @@ function slugifyName(value: string): string {
   );
 }
 
-function formatAttachmentError(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
-
 function MenuItemHelp({
   label,
   description,
@@ -241,8 +240,13 @@ function MenuItemHelp({
 }
 
 function UploadOnlyAttachButton({
+  addAttachment,
   onAttachmentError,
-}: Pick<ComposerPlusMenuProps, "onAttachmentError">) {
+  attachmentAccept,
+}: Pick<
+  ComposerPlusMenuProps,
+  "addAttachment" | "onAttachmentError" | "attachmentAccept"
+>) {
   const composerRuntime = useComposerRuntime();
   const t = useComposerRuntimeAdapters().translate!;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -250,7 +254,9 @@ function UploadOnlyAttachButton({
     if (!files || files.length === 0) return;
     try {
       await Promise.all(
-        Array.from(files).map((file) => composerRuntime.addAttachment(file)),
+        Array.from(files).map((file) =>
+          (addAttachment ?? composerRuntime.addAttachment)(file),
+        ),
       );
     } catch (error) {
       onAttachmentError?.(
@@ -270,6 +276,7 @@ function UploadOnlyAttachButton({
         ref={inputRef}
         type="file"
         multiple
+        accept={attachmentAccept}
         className="hidden"
         onChange={(event) => {
           void handleFilesSelected(event.target.files);
@@ -301,13 +308,21 @@ function UploadOnlyAttachButton({
 
 export function ComposerPlusMenu({
   onSelectMode,
+  addAttachment,
   onAttachmentError,
+  attachmentAccept,
   extensionTools = false,
   mode = "full",
   terminalModeControl,
 }: ComposerPlusMenuProps) {
   if (mode === "upload-only") {
-    return <UploadOnlyAttachButton onAttachmentError={onAttachmentError} />;
+    return (
+      <UploadOnlyAttachButton
+        addAttachment={addAttachment}
+        onAttachmentError={onAttachmentError}
+        attachmentAccept={attachmentAccept}
+      />
+    );
   }
   if (mode === "terminal" && terminalModeControl) {
     return (
@@ -317,7 +332,9 @@ export function ComposerPlusMenu({
   return (
     <ComposerPlusMenuFull
       onSelectMode={onSelectMode}
+      addAttachment={addAttachment}
       onAttachmentError={onAttachmentError}
+      attachmentAccept={attachmentAccept}
       extensionTools={extensionTools}
     />
   );
@@ -392,11 +409,17 @@ function ComposerPlusMenuTerminal({
 
 function ComposerPlusMenuFull({
   onSelectMode,
+  addAttachment,
   onAttachmentError,
+  attachmentAccept,
   extensionTools,
 }: Pick<
   ComposerPlusMenuProps,
-  "onSelectMode" | "onAttachmentError" | "extensionTools"
+  | "addAttachment"
+  | "onSelectMode"
+  | "onAttachmentError"
+  | "attachmentAccept"
+  | "extensionTools"
 >) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
@@ -417,7 +440,7 @@ function ComposerPlusMenuFull({
   const hasOrg = !!org?.orgId;
   // Composer connections belong to the person asking for them. Organization
   // sharing remains an explicit choice for owners and admins in the dialog.
-  const defaultMcpScope: "user" = "user";
+  const defaultMcpScope = "user" as const;
   const createMcp = resources.useCreateMcpServer!();
   const McpIntegrationDialog = resources.McpIntegrationDialog;
 
@@ -490,7 +513,9 @@ function ComposerPlusMenuFull({
     if (!files || files.length === 0) return;
     try {
       await Promise.all(
-        Array.from(files).map((file) => composerRuntime.addAttachment(file)),
+        Array.from(files).map((file) =>
+          (addAttachment ?? composerRuntime.addAttachment)(file),
+        ),
       );
     } catch (error) {
       onAttachmentError?.(
@@ -671,6 +696,7 @@ function ComposerPlusMenuFull({
         ref={fileUploadRef}
         type="file"
         multiple
+        accept={attachmentAccept}
         className="hidden"
         onChange={(event) => {
           void handleFilesSelected(event.target.files);
@@ -695,6 +721,7 @@ function ComposerPlusMenuFull({
               <PopoverTrigger asChild>
                 <button
                   type="button"
+                  data-agent-composer-slot="plus-button"
                   aria-label={t("agentChat.composer.add", {
                     defaultValue: "Add...",
                   })}

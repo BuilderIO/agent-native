@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { ActionContractError, defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -499,7 +499,15 @@ function accountLabel(account: ConnectedAccount) {
 async function allAccounts(): Promise<ConnectedAccount[]> {
   const accounts = await getAccessTokens();
   if (accounts.length === 0) {
-    throw new Error("No Google account connected. Connect Gmail first.");
+    // A plain Error has no statusCode, so action-routes.ts can't tell this
+    // deterministic, caller-correctable precondition apart from a real server
+    // fault — it collapses to a 500 and the specific message never reaches
+    // the UI. ActionContractError carries an explicit sub-500 statusCode the
+    // route treats as user-facing and echoes as-is.
+    throw new ActionContractError(
+      "No Google account connected. Connect Gmail first.",
+      { errorCode: "GOOGLE_ACCOUNT_NOT_CONNECTED", statusCode: 400 },
+    );
   }
   return accounts;
 }
@@ -695,6 +703,6 @@ export default defineAction({
       };
     }
 
-    throw new Error(`Unknown operation ${args.operation}.`);
+    throw new Error(`Unknown operation ${String(args.operation)}.`);
   },
 });

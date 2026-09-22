@@ -67,8 +67,8 @@ class AgentNativeController {
     const raw =
       input ??
       (await vscode.window.showInputBox({
-        title: "Open Agent Native URL",
-        prompt: "Paste an Agent Native app or handoff URL.",
+        title: "Open Agent-Native URL",
+        prompt: "Paste an Agent-Native app or handoff URL.",
         value: DEFAULT_APP_URL,
       }));
     if (!raw) return undefined;
@@ -76,7 +76,7 @@ class AgentNativeController {
     const normalized = normalizeOpenUrl(raw);
     if (!normalized) {
       await vscode.window.showErrorMessage(
-        "Agent Native can open http(s) app URLs or vscode://builder.agent-native/open links.",
+        "Agent-Native can open http(s) app URLs or vscode://builder.agent-native/open links.",
       );
       return undefined;
     }
@@ -95,9 +95,9 @@ class AgentNativeController {
     const appUrl =
       input ??
       (await vscode.window.showInputBox({
-        title: "Connect Workspace to Agent Native MCP",
+        title: "Connect Workspace to Agent-Native MCP",
         prompt:
-          "Agent Native app URL to connect to VS Code / GitHub Copilot MCP.",
+          "Agent-Native app URL to connect to VS Code / GitHub Copilot MCP.",
         value: DEFAULT_APP_URL,
       }));
     if (!appUrl) return undefined;
@@ -105,7 +105,7 @@ class AgentNativeController {
     const normalized = normalizeOpenUrl(appUrl);
     if (!normalized) {
       await vscode.window.showErrorMessage(
-        "Enter an http(s) Agent Native app URL.",
+        "Enter an http(s) Agent-Native app URL.",
       );
       return undefined;
     }
@@ -119,7 +119,7 @@ class AgentNativeController {
     if (!scope) return undefined;
 
     const command = buildConnectCommand({ appUrl: normalized, scope });
-    const terminal = vscode.window.createTerminal("Agent Native MCP");
+    const terminal = vscode.window.createTerminal("Agent-Native MCP");
     terminal.show();
     terminal.sendText(command);
     return command;
@@ -159,12 +159,12 @@ class AgentNativeController {
       rootPath: workspaceFolder.uri.fsPath,
       port: bridgePortInput,
     });
-    const terminal = vscode.window.createTerminal("Agent Native Design");
+    const terminal = vscode.window.createTerminal("Agent-Native Design");
     terminal.show();
     terminal.sendText(command);
     this.openWebview(DESIGN_APP_URL);
     await vscode.window.showInformationMessage(
-      "Agent Native Design bridge is starting. Design is opening in a side panel; choose Localhost to connect.",
+      "Agent-Native Design bridge is starting. Design is opening in a side panel; choose Localhost to connect.",
     );
     return command;
   }

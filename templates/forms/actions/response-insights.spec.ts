@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => {
   let results: unknown[][] = [];
+  const selectCalls: unknown[] = [];
 
   function query() {
     const result = results.shift() ?? [];
@@ -21,11 +22,18 @@ const dbMock = vi.hoisted(() => {
   }
 
   return {
+    selectCalls,
     setResults(next: unknown[][]) {
       results = [...next];
     },
+    clearSelectCalls() {
+      selectCalls.length = 0;
+    },
     getDb: () => ({
-      select: vi.fn(() => query()),
+      select: vi.fn((projection: unknown) => {
+        selectCalls.push(projection);
+        return query();
+      }),
     }),
   };
 });
@@ -100,6 +108,7 @@ async function runInsights(
 describe("response-insights action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    dbMock.clearSelectCalls();
     sharingMock.assertAccess.mockResolvedValue({ resource: form });
   });
 
@@ -132,6 +141,24 @@ describe("response-insights action", () => {
     expect(result.widget).toBe(DATA_CHART_WIDGET);
     expect(result.chartSeries).toBeDefined();
     expect("table" in result).toBe(false);
+  });
+
+  it("does not load unused delivery or request metadata for insights", async () => {
+    await runInsights("chart");
+
+    expect(dbMock.selectCalls[0]).toEqual({
+      id: expect.anything(),
+      formId: expect.anything(),
+      data: expect.anything(),
+      submittedAt: expect.anything(),
+      submitterEmail: expect.anything(),
+    });
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("deliverySnapshot");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("deliveryStatus");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("idempotencyKey");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("pageUrl");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("clientSurface");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("ip");
   });
 
   it("returns only a table widget for table requests", async () => {

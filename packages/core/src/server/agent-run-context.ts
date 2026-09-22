@@ -1,16 +1,30 @@
 import { createError, getHeader, type H3Event } from "h3";
 
-import { resolveOrgIdForEmail, getOrgContext } from "../org/context.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
-import { getSession } from "./auth.js";
+import {
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "../shared/test-traffic.js";
 import {
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
+
+const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
+  (...args) =>
+    import("../org/context.js").then(({ resolveOrgIdForEmail }) =>
+      resolveOrgIdForEmail(...args),
+    );
+const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
+  ...args
+) =>
+  import("../org/context.js").then(({ getOrgContext }) =>
+    getOrgContext(...args),
+  );
 
 export type AgentRunOwnerContext = {
   owner: string;
@@ -101,11 +115,19 @@ export function readAgentRunTimezone(event: H3Event): string | undefined {
 export function readBrowserSessionIdHeader(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-agent-native-session-id");
   const value = Array.isArray(raw) ? raw[0] : raw;
-  return typeof value === "string" &&
-    value.trim().length > 0 &&
-    value.trim().length < 128
-    ? value.trim()
-    : undefined;
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return /^[!-~]{1,127}$/.test(trimmed) ? trimmed : undefined;
+}
+
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+/** Stable browser-tab context used to scope ambient application state. */
+export function readBrowserTabIdHeader(event: H3Event): string | undefined {
+  const raw = readHeaderValue(event, "x-agent-native-browser-tab");
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
 }
 
 export function readAnalyticsClientPlatformHeader(
@@ -122,6 +144,12 @@ export function readAnalyticsClientPlatformHeader(
         ANALYTICS_CLIENT_PLATFORM_BODY_FIELD
       ],
     )
+  );
+}
+
+export function readSyntheticTrafficHeader(event: H3Event): boolean {
+  return isSyntheticTrafficValue(
+    readHeaderValue(event, SYNTHETIC_TRAFFIC_HEADER),
   );
 }
 
@@ -163,6 +191,7 @@ export async function resolveAgentRunOwnerContext(
     | undefined;
   if (seeded) return seeded;
 
+  const { getSession } = await import("./auth.js");
   const session = await getSession(event);
   if (session?.email) {
     return seedAgentRunOwnerContext(event, {
@@ -201,6 +230,7 @@ export async function resolveAgentRunOrgId(options: {
     resolvedOrgId = normalizeId(await options.resolveOrgId(options.event));
   } else {
     try {
+      const { getSession } = await import("./auth.js");
       const session = await getSession(options.event);
       resolvedOrgId = normalizeId(session?.orgId);
     } catch {
@@ -243,7 +273,9 @@ export async function resolveAgentRunRequestContext(options: {
   const orgId = await resolveAgentRunOrgId(options);
   const timezone = readAgentRunTimezone(options.event);
   const browserSessionId = readBrowserSessionIdHeader(options.event);
+  const browserTabId = readBrowserTabIdHeader(options.event);
   const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
+  const isSyntheticTraffic = readSyntheticTrafficHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
@@ -256,7 +288,9 @@ export async function resolveAgentRunRequestContext(options: {
     timezone,
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
-    ...(Object.keys(run).length > 0 ? { run } : {}),
+    ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
+    ...(browserTabId ? { run: { ...run, browserTabId } } : {}),
+    ...(!browserTabId && Object.keys(run).length > 0 ? { run } : {}),
   };
 }
 

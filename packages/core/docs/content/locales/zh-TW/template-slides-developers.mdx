@@ -1,0 +1,492 @@
+---
+title: "幻燈片：開發者指南"
+description: "幻燈片的資料模型、持久化模型、完整的 action 清單、路由，以及自訂或擴充這個範本時常見的修改位置。"
+---
+
+# 開發者指南
+
+本頁面適用於任何要自訂或擴充幻燈片範本的人：SQL 資料模型、如何確保並行寫入的安全性、每一個代理可呼叫的 action、路由對照表，以及常見的修改位置。
+
+## 快速入門
+
+```bash
+npx @agent-native/core@latest create my-slides --standalone --template slides
+```
+
+其餘的設定步驟（`cd`、`pnpm install`、`pnpm dev`）與框架的基本概念，請參閱[開始使用](/docs/getting-started)。
+
+## 持久化模型
+
+每一份簡報都是 `decks.data` 中的一個 JSON 區塊。每一次寫入都會透過一個持有單一簡報鎖定的伺服器端讀取-修改-寫入 action，因此並行寫入者，無論是一個人和代理，還是兩個人，同時碰觸同一份簡報的不同投影片時，絕不會互相覆寫彼此的工作。
+
+- **代理 actions**（`add-slide`、`update-slide`）使用各自專屬的細粒度 action，並共用同一個鎖定。
+- **瀏覽器編輯器**會透過 `patch-deck` 把細粒度操作（`patch-slide`、`delete-slide`、`reorder-slides`、`add-slide`、`patch-deck-fields`）加入佇列，而不是使用整份簡報的 PUT。
+
+<Callout id="doc-block-slides10" tone="warning">
+
+如果您要擴充編輯器的儲存路徑，請透過 `patch-deck` 加入一個新的操作到佇列中。請不要新增一個新的整份簡報 PUT，那會重新引入這個鎖定原本要防止的「後寫入者覆蓋前者」競態問題。
+
+</Callout>
+
+## 資料模型
+
+所有簡報資料都透過 Drizzle ORM 儲存在 SQL 中。結構定義：`templates/slides/server/db/schema.ts`。
+
+<DataModel
+  id="doc-block-slides7"
+  title="幻燈片資料模型"
+  summary={
+    "一份簡報把自己的投影片以 JSON 形式擁有在 decks.data 中。評論、版本、共用授權和設計系統都掛在它上面。"
+  }
+  entities={[
+    {
+      id: "decks",
+      name: "decks",
+      note: "投影片以 JSON 形式存在於 data 中，並帶有 ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          note: "例如 deck-1712345-abc",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "JSON: { title, slides: [{ id, content, layout }] }",
+        },
+        {
+          name: "design_system_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "slide_comments",
+      name: "slide_comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "slide_id",
+          type: "text",
+          note: "評論所屬的投影片",
+        },
+        {
+          name: "thread_id",
+          type: "text",
+          note: "討論串",
+        },
+        {
+          name: "parent_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "quoted_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "author_email",
+          type: "text",
+        },
+        {
+          name: "author_name",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "resolved",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_versions",
+      name: "deck_versions",
+      note: "用於恢復的時間點快照",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "完整的簡報 JSON",
+        },
+        {
+          name: "change_label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "可重複使用的品牌標記，並帶有 ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "顏色／字型／間距",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_share_links",
+      name: "deck_share_links",
+      note: "持久化的公開分享連結快照",
+      fields: [
+        {
+          name: "token",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "slides",
+          type: "text",
+          note: "JSON 投影片快照",
+        },
+        {
+          name: "aspect_ratio",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "decks",
+      to: "slide_comments",
+      kind: "1-n",
+      label: "評論",
+    },
+    {
+      from: "decks",
+      to: "deck_versions",
+      kind: "1-n",
+      label: "快照",
+    },
+    {
+      from: "design_systems",
+      to: "decks",
+      kind: "1-n",
+      label: "套用於",
+    },
+  ]}
+/>
+
+框架的共用表（`deck_shares`、`design_system_shares`）會把主體，也就是使用者或組織，對應到每個資源的檢視者／編輯者／管理員角色，並且是透過共用的 `createSharesTable` 輔助函式建立，而不是手動寫成的。
+
+#### 投影片結構
+
+`decks.data` 內的每一張投影片為：
+
+```json
+{
+  "id": "slide-1",
+  "layout": "title",
+  "content": "<div class=\"fmd-slide\" style=\"...\">...</div>"
+}
+```
+
+`content` 是原始的 HTML。渲染器提供固定的長寬比和背景，而 HTML 提供裡面的所有內容。也支援豐富的嵌入內容：手繪圖表和即時渲染的圖表可以和一般 HTML 一起放在投影片內。
+
+## Action 清單
+
+### 簡報生命週期
+
+- `create-deck` — 建立新簡報，可選擇預先填入投影片，或對現有簡報的投影片進行原子式的整批替換。省略 `slides` 或傳入 `[]` 即可建立空白簡報。這個 action 會透過 application state 開啟這份新簡報。
+- `get-deck` — 讀取完整的簡報 JSON，或一個精簡的投影片摘要檢視
+- `list-decks` — 列出呼叫者可見的每一份簡報，提供輕量／精簡／完整投影片三種投影，方便低成本輪詢
+- `duplicate-deck` — 複製一份簡報，並產生全新的投影片 id
+- `update-deck-aspect-ratio` — 設定為 16:9、1:1、9:16 或 4:5
+
+`add-deck`、`save-deck` 和 `delete-deck` 支撐著瀏覽器編輯器的樂觀式建立、復原／重做和刪除流程。代理則改用 `create-deck`、`add-slide`／`update-slide`／`patch-deck`，以及框架自身的共用 actions。
+
+### 存取請求
+
+- `request-deck-access`、`approve-deck-access-request`、`get-deck-access-status` — 私人簡報的存取請求流程：沒有存取權限的訪客提出請求，擁有者從應用程式或 `/access-request/approve` 路由核准或拒絕，雙方都可以輪詢目前的狀態
+
+### 投影片編輯
+
+- `add-slide` — 附加（或插入到指定位置）一張投影片。在一個空白的 `create-deck` 之後依序呼叫它，讓編輯器能顯示進度。
+- `update-slide` — 外科手術式的尋找/取代，或完整內容的投影片編輯
+- `patch-deck` — 瀏覽器編輯器用來取代整份簡報 PUT 的細粒度操作佇列
+- `get-layout-overflows` — 讀取瀏覽器量測出的投影片適配結果，讓不再符合版面配置的編輯能被偵測並修正
+
+### 歷史記錄
+
+- `list-deck-versions`、`get-deck-version`、`restore-deck-version` — 每一次寫入都會先建立快照，因此任何時間點都可以列出並恢復
+
+### 評論
+
+- `list-slide-comments`、`add-slide-comment`、`update-slide-comment`、`delete-slide-comment`
+
+### 匯入
+
+- `import-pptx`、`import-docx`、`import-google-doc` — 專用的單一格式匯入工具
+- `import-google-slides-reference` — 把一份 Google 簡報匯入成一份可重複使用的參考簡報，而不是把它的內容拉進目前正在編輯的簡報中
+- `import-file` — PPTX、DOCX 或 PDF 的單一進入點，也可以是 Figma `.fig` 檔案（這會被導向 Builder 的設計系統索引，而不是投影片匯入）
+- `extract-pdf` — 只能透過 CLI 使用的 PDF 原始文字傾印，主要用於本機偵錯
+
+### 匯出
+
+- `export-pptx` — 原生、可編輯的 PowerPoint
+- `export-google-slides` — 生成相同的 PPTX，並附上一個現成的 Google 簡報匯入連結
+- `export-html` — 一個獨立、自帶內容的 HTML 檔案，內建鍵盤導覽功能
+
+### 設計系統
+
+- `create-design-system`、`update-design-system`、`delete-design-system`、`get-design-system`、`list-design-systems`、`set-default-design-system`、`apply-design-system`（將某一個設計系統連結到一份簡報）
+- `get-workspace-defaults`、`set-workspace-defaults` — 整個工作區的預設簡報和設計系統。設定它們僅限管理員
+- `analyze-brand-assets`、`import-document`、`import-from-url`、`import-code` — 收集原始的品牌訊號（網站的 CSS／字型、上傳文件或程式碼檔案的內容），用於**本機**、由代理草擬的設計系統
+- `index-design-system-with-builder`、`sync-design-system-with-builder`、`import-design-project` — 針對 Figma 檔案、已連結的程式碼／GitHub 儲存庫，以及 `design.md` 的 Builder 索引路徑。`import-design-project` 是從一個既有的設計系統開始，而不是從原始來源開始
+
+### Creative Context
+
+- `clone-context-slide` — 把一張已釘選的 Library 投影片原樣插入到一份簡報中，不重新生成它的 HTML/CSS
+- `clone-creative-context-deck` — 重新建立一個精確的、受管治的簡報版本
+- `get-deck-reference-context` — 把一份既有簡報的視覺語言提取成一個可重複使用的樣式庫
+- 檢索與 Library 提交（搜尋、取得一個 context 項目、管理 Library 成員）是共用的框架 actions，代理在每一個支援 Creative Context 的應用程式中，都用相同的方式呼叫它們。檢索流程和重複使用階梯請參閱 `creative-context` skill。
+
+### 升級呼叫與暫存資料
+
+- `provider-api-catalog`、`provider-api-docs`、`provider-api-request` — 當現有的匯入/匯出 action 範圍太窄時，用於直接存取原始的 Google Drive API。幻燈片會從使用者已連結的 Google 文件帳戶解析驗證資訊
+- `list-staged-datasets`、`query-staged-dataset`、`delete-staged-dataset` — 對一個已暫存的大型提供者結果進行彙總，而不必重新擷取它
+
+### 導覽與情境
+
+- `view-screen` — 使用者目前正在看的內容：開啟的簡報、目前的投影片，以及任何正在進行的視覺化選取範圍
+- `navigate` — 把 UI 移動到某份簡報、某張投影片或某個檢視畫面
+
+## 路由參考
+
+| 路由                             | 渲染內容                                                |
+| -------------------------------- | ------------------------------------------------------- |
+| `/`                              | 公開的行銷/SEO 到達頁面                                 |
+| `/home`                          | 簡報清單，私人的應用程式首頁                            |
+| `/deck/:id`                      | 編輯器                                                  |
+| `/deck/:id/present`              | 全螢幕呈現                                              |
+| `/p/:id`                         | 公開／代理可讀取的即時簡報預覽，與 `/share/:token` 不同 |
+| `/share/:token`                  | 公開唯讀快照，於分享當下凝結                            |
+| `/slide`                         | 用於聊天預覽的單張投影片嵌入畫面                        |
+| `/design-systems`                | 管理已儲存的設計系統                                    |
+| `/access-request/approve`        | 核准對私人簡報的存取請求                                |
+| `/agent`、`/extensions`、`/team` | 重新導向到相應的 `/settings` 分頁                       |
+
+## 自訂它
+
+幻燈片範本是完全可自訂的。擴充功能時，值得留意的關鍵位置：
+
+#### Actions — `templates/slides/actions/`
+
+每一個可供代理呼叫的操作都以 TypeScript 檔案的形式存在於這裡，會自動掛載到 `POST /_agent-native/actions/:name`，也可以從 CLI 以 `pnpm action <name>` 呼叫。在這裡新增一個檔案，就能賦予代理一項新的能力。
+
+<AnnotatedCode
+  id="doc-block-slides9"
+  title="投影片編輯 action 的解剖"
+  filename="actions/update-slide.ts (simplified)"
+  language="ts"
+  code={
+    'import { defineAction, fail } from "@agent-native/core/action";\nimport { assertAccess } from "@agent-native/core/sharing";\nimport { eq } from "drizzle-orm";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { notifyClients } from "../server/handlers/decks.js";\nimport { withDeckLock } from "./patch-deck.js";\n\nexport default defineAction({\n  description:\n    "Surgically edit a slide\'s content using search-replace or full replacement. " +\n    "Syncs live to open editors. Prefer this over full deck rewrites.",\n  schema: z.object({\n    deckId: z.string(),\n    slideId: z.string(),\n    find: z.string().optional(),\n    replace: z.string().optional(),\n    fullContent: z.string().optional(),\n  }),\n  run: async ({ deckId, slideId, find, replace, fullContent }) => {\n    await assertAccess("deck", deckId, "editor");\n    return withDeckLock(deckId, async () => {\n      const db = getDb();\n      const [row] = await db\n        .select()\n        .from(schema.decks)\n        .where(eq(schema.decks.id, deckId));\n      if (!row) {\n        fail(`Deck ${deckId} not found`, { errorCode: "deck_not_found", statusCode: 404 });\n      }\n\n      const deck = JSON.parse(row.data);\n      const slide = deck.slides.find((s: { id: string }) => s.id === slideId);\n      if (!slide) {\n        fail(`Slide ${slideId} not found`, { errorCode: "slide_not_found", statusCode: 404 });\n      }\n\n      if (fullContent) {\n        slide.content = fullContent;\n      } else if (find) {\n        const idx = slide.content.indexOf(find);\n        if (idx === -1) {\n          fail("Text not found", { errorCode: "slide_find_no_match" });\n        }\n        slide.content =\n          slide.content.slice(0, idx) +\n          (replace ?? "") +\n          slide.content.slice(idx + find.length);\n      }\n\n      deck.updatedAt = new Date().toISOString();\n      await db\n        .update(schema.decks)\n        .set({ data: JSON.stringify(deck), updatedAt: deck.updatedAt })\n        .where(eq(schema.decks.id, deckId));\n\n      notifyClients(deckId, { slideId, actor: "agent" });\n      return { ok: true, deckId, slideId };\n    });\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "22",
+      label: "存取檢查",
+      note: "如果呼叫者對這份簡報的權限不到編輯者，`assertAccess` 會在其他任何程式碼執行之前就先丟出錯誤。",
+    },
+    {
+      lines: "23",
+      label: "單一簡報鎖定",
+      note: "`withDeckLock` 會把這次寫入和對同一份簡報的其他每一次寫入序列化。`add-slide` 和瀏覽器的 `patch-deck` 共用同一個鎖定，因此兩個寫入者碰觸不同投影片時，絕不會互相覆蓋。",
+    },
+    {
+      lines: "29-37",
+      label: "大聲失敗，不要悄悄回傳",
+      note: '`fail(...)` 會丟出一個結構化的錯誤，而不是回傳一個普通的值。這個 action 過去在比對失敗時會回傳 `{ ok: false, message: "Text not found" }`，呼叫者很容易把這誤讀成成功。丟出例外是唯一能可靠地表示這份簡報並未被修改的管道。',
+    },
+    {
+      lines: "39-51",
+      label: "外科手術式編輯",
+      note: "一組 `find`／`replace` 只會變更比對到的文字，現在在沒有比對到的時候也會大聲失敗。`fullContent` 會整張替換投影片。實際編輯時，請優先使用範圍較窄的形式。",
+    },
+    {
+      lines: "53-57",
+      label: "SQL 是唯一真實來源",
+      note: "整份簡報是 `decks.data` 中的一個 JSON 區塊。沒有獨立的 `slides` 資料表，因此每一次寫入都會讀取、編輯並重寫這一個資料欄。",
+    },
+    {
+      lines: "59",
+      label: "即時同步",
+      note: "`notifyClients` 會立即把變更推送到任何開啟中的編輯器。輪詢是備援路徑。請參閱[即時協作](/docs/real-time-collaboration)。",
+    },
+  ]}
+/>
+
+實際的這個 action 還會驗證是否只提供了一種編輯模式、在寫入之前先建立一個版本快照，並以樂觀並行控制檢查來寫入，讓一次過時的讀取絕不會悄悄覆蓋一個較新的版本，此外還會記錄 Creative Context 的重複使用來源，並短暫等待編輯器回報版面配置溢出的量測結果。這個範例把以上這些全部精簡成核心的存取、鎖定、讀取-修改-寫入、通知的形狀。
+
+#### 版面配置
+
+<FileTree
+  id="doc-block-slides8"
+  title="templates/slides/ 的結構"
+  entries={[
+    {
+      path: "actions/create-deck.ts",
+      note: "建立新簡報，可選擇預先填入投影片，或進行原子式的整批替換",
+    },
+    {
+      path: "actions/add-slide.ts",
+      note: "附加一張投影片，用於串流生成",
+    },
+    {
+      path: "actions/update-slide.ts",
+      note: "尋找/取代，或完整內容的投影片編輯",
+    },
+    {
+      path: "actions/patch-deck.ts",
+      note: "瀏覽器編輯器用來取代整份簡報 PUT 的細粒度操作",
+    },
+    {
+      path: "actions/index-design-system-with-builder.ts",
+      note: "從 Figma、GitHub 或程式碼開始進行 Builder 設計系統索引",
+    },
+    {
+      path: "app/routes/deck.$id.tsx",
+      note: "簡報編輯器",
+    },
+    {
+      path: "app/routes/deck.$id_.present.tsx",
+      note: "全螢幕呈現模式",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "全頁 Agent 分頁",
+    },
+    {
+      path: "app/routes/p.$id.tsx",
+      note: "公開／代理可讀取的單一簡報預覽",
+    },
+    {
+      path: "app/routes/share.$token.tsx",
+      note: "公開唯讀快照頁面",
+    },
+    {
+      path: "app/components/editor/",
+      note: "投影片畫布、工具列、側邊欄和面板",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "decks, slide_comments, deck_versions, design_systems, deck_share_links",
+    },
+    {
+      path: ".agents/skills/create-deck/SKILL.md",
+      note: "每種版面配置的精確投影片 HTML 範本",
+    },
+    {
+      path: ".agents/skills/creative-context/SKILL.md",
+      note: "重複使用階梯與檢索流程",
+    },
+  ]}
+/>
+
+大部分的編輯器 UI 自訂都發生在 `app/components/editor/` 底下：投影片畫布、工具列、側邊欄、氣泡選單、斜線選單，以及歷史紀錄面板。
+
+#### Skills — `templates/slides/.agents/skills/`
+
+當代理需要修改程式碼時，用來解釋模式的代理 skills：
+
+- `create-deck` — 如何建立新的簡報，附上每種版面配置的精確投影片 HTML 範本
+- `slide-editing` — 如何編輯個別投影片
+- `deck-management` — 簡報如何被儲存和存取
+- `design-systems` — 設計系統的資料結構，以及標記如何套用到生成的投影片
+- `creative-context` — 重複使用階梯、檢索流程，以及 Library 提交
+
+#### AGENTS.md
+
+`templates/slides/AGENTS.md` 是代理在每次對話中都會讀取的簡短路由器。它指向 `.agents/skills/` 底下的各個 skill，並列出核心規則、持久化模型，以及 application state 的契約。每當您新增或變更投影片版面配置或設計系統來源時，請更新相應的 skill。
+
+## 接下來
+
+- [**功能**](/docs/template-slides-features) — 這個資料模型所支撐的使用者端編輯、呈現、分享、設計系統與匯入/匯出流程
+- [**與 Agent 對話**](/docs/template-slides-agent) — 依任務分類的提示，以及代理看到的內容
+- [**幻燈片的跨應用使用**](/docs/template-slides-integrations) — 這些 actions 如何從幻燈片外部被呼叫
+- [**共用**](/docs/sharing) — `deck_shares` 和 `design_system_shares` 所建立的共用授權模型
+- [**即時協作**](/docs/real-time-collaboration) — 簡報與其他協作介面共用的 Yjs 流程
+- [**幻燈片總覽**](/docs/template-slides) — 回到應用程式總覽

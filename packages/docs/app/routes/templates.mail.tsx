@@ -1,55 +1,47 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconCheck,
-  IconCode,
-  IconKeyboard,
-  IconMailAi,
-  IconSearch,
-} from "@tabler/icons-react";
+import { IconArrowUpRight } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { SectionDivider } from "../components/SectionDivider";
-import {
-  TemplateCapabilityGrid,
-  TemplateComparisonTable,
-  TemplateFinalCta,
-  TemplateHero,
-  TemplateLandingFaq,
-  TemplateLandingShell,
-  TemplateSplitFeature,
-  TemplateStatOrStepsGrid,
-  TemplateStatOrStepsGridItem,
-} from "../components/template-landing";
+import { TemplateHero } from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
+import { Button } from "../components/website-redesign/ds/button";
+import { ContentCard } from "../components/website-redesign/ds/content-card";
+import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title:
-          "Agent-Native Mail — Open Source Alternative to Gmail & Superhuman",
+        title: "Free AI Email Assistant for Gmail | Agent-Native Mail",
       },
       {
         name: "description",
         content:
-          "Build an AI-powered email client you own. Superhuman-style keyboard shortcuts, AI triage, smart search, and a fully customizable interface. Open source alternative to Gmail and Superhuman.",
+          "Search Gmail, summarize threads, draft replies, and organize your inbox with your AI agent. Mail is a free and open-source email client for multiple Gmail accounts.",
       },
       {
         property: "og:title",
-        content:
-          "Agent-Native Mail — Open Source Alternative to Gmail & Superhuman",
+        content: "Free AI Email Assistant for Gmail | Agent-Native Mail",
       },
       {
         property: "og:description",
         content:
-          "Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable interface. Own your inbox workflow.",
+          "Search Gmail, summarize threads, draft replies, and organize your inbox with your AI agent. Mail is a free and open-source email client for multiple Gmail accounts.",
       },
       {
         name: "keywords",
         content:
-          "AI email client, open source email, Gmail alternative, Superhuman alternative, AI inbox, keyboard shortcuts email, agent-native mail, AI email triage, smart inbox, natural language email",
+          "AI email assistant, Gmail AI agent, open source email client, Gmail alternative, AI email drafting, inbox automation, multi-account Gmail search, agent-native mail, AI thread summaries, keyboard shortcuts email",
       },
     ],
     "Mail",
@@ -57,389 +49,232 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "mail")!;
 
-const primaryLinkClassName = "primary-button";
+const USE_CASES = [
+  {
+    id: "catch-up-on-conversations",
+    titleKey: "useCase1Title",
+    bodyKey: "useCase1Body",
+  },
+  {
+    id: "reply-to-customers-and-colleagues",
+    titleKey: "useCase2Title",
+    bodyKey: "useCase2Body",
+  },
+  {
+    id: "sort-through-your-inbox",
+    titleKey: "useCase3Title",
+    bodyKey: "useCase3Body",
+  },
+] as const;
+
+const KEY_FEATURES = [
+  {
+    id: "ai-thread-summaries",
+    titleKey: "feature1Title",
+    bodyKey: "feature1Body",
+  },
+  {
+    id: "ai-email-drafting",
+    titleKey: "feature2Title",
+    bodyKey: "feature2Body",
+  },
+  {
+    id: "multi-account-search",
+    titleKey: "feature3Title",
+    bodyKey: "feature3Body",
+  },
+  {
+    id: "inbox-automations",
+    titleKey: "feature4Title",
+    bodyKey: "feature4Body",
+  },
+  {
+    id: "keyboard-shortcuts",
+    titleKey: "feature5Title",
+    bodyKey: "feature5Body",
+  },
+  {
+    id: "scheduled-sends-and-snooze",
+    titleKey: "feature6Title",
+    bodyKey: "feature6Body",
+  },
+] as const;
+
+const FAQ_ITEMS = [
+  { id: "what-is-mail", question: "question1", answer: "answer1" },
+  { id: "existing-gmail-account", question: "question2", answer: "answer2" },
+  { id: "send-without-approval", question: "question3", answer: "answer3" },
+  { id: "auto-organize-inbox", question: "question4", answer: "answer4" },
+  { id: "teammate-prepare-email", question: "question5", answer: "answer5" },
+] as const;
+
+// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
+// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
+// below draws its grid lines flush to that same max-w-site edge, so this
+// wrapper must match exactly (no px-* here) or the hero's border-x box ends
+// up narrower than the rest of the page.
+const HERO_WRAPPER_CLASS =
+  "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
 export default function MailTemplate() {
   const t = useT();
-  const capabilities = [
-    {
-      icon: IconKeyboard,
-      title: t("templateLanding.mail.s012"),
-      body: (
-        <>
-          Superhuman-style bindings for compose, archive, reply, and navigation.
-          Zero mouse required.
-        </>
-      ),
-    },
-    {
-      icon: IconMailAi,
-      title: t("templateLanding.mail.s013"),
-      body: t("templateLanding.mail.s014"),
-    },
-    {
-      icon: IconSearch,
-      title: t("templateLanding.mail.s015"),
-      body: t("templateLanding.mail.s016"),
-    },
-    {
-      icon: IconCode,
-      title: t("templateLanding.mail.s017"),
-      body: t("templateLanding.mail.s018"),
-    },
-  ];
-  const faqItems = Array.from({ length: 5 }, (_, index) => {
-    const itemNumber = index + 1;
-    return {
-      id: `mail-question-${itemNumber}`,
-      question: t(`templateLanding.mail.faq.question${itemNumber}`),
-      answer: (
-        <p className="m-0">
-          {t(`templateLanding.mail.faq.answer${itemNumber}`)}
-        </p>
-      ),
-    };
-  });
 
   return (
-    <TemplateLandingShell>
-      <TemplateHero
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={
-          <>
-            <span className="text-[var(--fg)] lg:whitespace-nowrap">
-              {t("templateLanding.mail.s007Primary")}{" "}
+    <div className="builder-brand-tokens">
+      {/* Hero — copy and layout updated to match Slides/Clips; existing hero
+          screenshot kept since there's no newer Mail asset yet. */}
+      <div className={HERO_WRAPPER_CLASS}>
+        <TemplateHero
+          title={t("templateLanding.mail.heroTitle")}
+          eyebrow={
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-[20px] font-bold tracking-tight">
+                {t("templateLanding.mail.heroEyebrow")}
+              </span>
+              <AppStatusBadge appId="mail" />
             </span>
-            <span className="text-[var(--fg-secondary)] lg:block">
-              {t("templateLanding.mail.s007Secondary")}
-            </span>
-          </>
-        }
-        description={
-          <p className="m-0">
-            Superhuman-style keyboard shortcuts, AI triage, smart search, and
-            multi-account support — built on an agent you own. No subscription
-            fees, no vendor lock-in.
+          }
+          customizeTemplate={template}
+          headingAction={
+            <a
+              href={firstPartyAppUrl("https://mail.agent-native.com")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{ gap: "4px" }}
+              onClick={(event) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("try live demo", {
+                  template: template.slug,
+                  location: "landing_page_hero",
+                });
+              }}
+            >
+              {t("templateLanding.mail.heroCta")}
+              <IconArrowUpRight size={16} />
+            </a>
+          }
+          description={<p>{t("templateLanding.mail.heroDescription")}</p>}
+          descriptionPlacement="below-title"
+          mediaOverlapsHeader
+          media={
+            <BuilderImage
+              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F22d9ae0ae42849a489bd5a572c79fdb8"
+              crossOrigin="anonymous"
+              alt={t("templateLanding.mail.s001")}
+              loading="lazy"
+              decoding="async"
+              className="h-auto max-h-[536px] w-full object-cover object-top"
+            />
+          }
+        />
+      </div>
+
+      {/* What can you do with Mail? — three use-case cards */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.mail.useCasesHeading")}
+          </h2>
+          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.mail.useCasesBody")}
           </p>
-        }
-        headingAction={
-          <a
-            href="https://mail.agent-native.com"
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
+            {USE_CASES.map((useCase) => (
+              <ContentCard
+                key={useCase.id}
+                title={t(`templateLanding.mail.${useCase.titleKey}`)}
+                body={t(`templateLanding.mail.${useCase.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* Key features — six cards, same layout as builder.io/platform/code
+          and the Slides/Clips key-features grid, so all three apps read as
+          one system. */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
+            {t("templateLanding.mail.keyFeaturesEyebrow")}
+          </p>
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.mail.keyFeaturesHeading")}
+          </h2>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
+            {KEY_FEATURES.map((feature) => (
+              <ContentCard
+                key={feature.id}
+                title={t(`templateLanding.mail.${feature.titleKey}`)}
+                body={t(`templateLanding.mail.${feature.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* FAQs — Mail has no "see it in action" section in between, so add the
+          same pt-20 rhythm directly here instead of landing the FAQ flush
+          against the feature grid above it. */}
+      <PageSection>
+        <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
+          <FaqAccordion
+            idPrefix="mail-faq"
+            eyebrow={t("templateLanding.faq.eyebrow")}
+            title={t("templateLanding.faq.title")}
+            items={FAQ_ITEMS.map((item) => ({
+              id: item.id,
+              question: t(`templateLanding.mail.faq.${item.question}`),
+              answer: (
+                <p className="m-0">
+                  {t(`templateLanding.mail.faq.${item.answer}`)}
+                </p>
+              ),
+            }))}
+          />
+        </GridInner>
+      </PageSection>
+
+      {/* Final CTA */}
+      <PageSection>
+        <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.mail.finalCtaHeading")}
+          </h2>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.mail.finalCtaBody")}
+          </p>
+          <Button
+            variant="cta"
+            href={firstPartyAppUrl("https://mail.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            className={primaryLinkClassName}
-            onClick={(event) => {
+            // The shared cta variant renders at 14px in sentence case, but
+            // the hero's .primary-button (uppercase 12px mono, via the
+            // .template-detail-page CSS rule) only applies inside the hero
+            // wrapper. Match it explicitly here so both CTAs on the page
+            // read as the same button style.
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
+            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("try live demo", {
-                template: "mail",
-                location: "landing_page_hero",
+                template: template.slug,
+                location: "landing_page_final_cta",
               });
             }}
           >
-            {t("common.getStarted")}
-          </a>
-        }
-        media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F22d9ae0ae42849a489bd5a572c79fdb8"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.mail.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[536px] w-full object-cover object-top"
-          />
-        }
-      />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-b border-[var(--docs-border)] px-6 py-8 sm:px-8 lg:px-10">
-          <h2 className="mb-2 text-lg font-medium text-[var(--fg)]">
-            {t("templateLanding.mail.s060")}
-          </h2>
-          <p className="m-0 max-w-3xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            {t("templateLanding.mail.s009")}
-          </p>
-        </div>
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <TemplateStatOrStepsGrid className="sm:!grid-cols-4">
-          {[
-            {
-              number: (
-                <IconKeyboard
-                  aria-hidden="true"
-                  className="size-9"
-                  stroke={1.75}
-                />
-              ),
-              label: t("templateLanding.mail.s002"),
-            },
-            { number: "AI", label: t("templateLanding.mail.s003") },
-            { number: "3", label: t("templateLanding.mail.s004") },
-            { number: "∞", label: t("templateLanding.mail.s005") },
-          ].map((stat) => (
-            <TemplateStatOrStepsGridItem key={stat.label}>
-              <div
-                className="text-3xl font-medium tracking-tight sm:text-4xl"
-                style={{ color: template.color }}
-              >
-                {stat.number}
-              </div>
-              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
-                {stat.label}
-              </div>
-            </TemplateStatOrStepsGridItem>
-          ))}
-        </TemplateStatOrStepsGrid>
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateCapabilityGrid
-        intro={
-          <>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {t("templateLanding.mail.s010")}
-            </h2>
-            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.mail.s011")}
-            </p>
-          </>
-        }
-      >
-        {capabilities.map(({ icon: Icon, title, body }) => (
-          <div
-            key={title}
-            className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0"
-          >
-            <div
-              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
-              style={{ color: template.color }}
-            >
-              <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
-                {title}
-              </h3>
-              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-                {body}
-              </p>
-            </div>
-          </div>
-        ))}
-      </TemplateCapabilityGrid>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.mail.s019")}
-            </h3>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.mail.s020")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s021", "s022", "s023"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
-                    stroke={2}
-                    style={{ color: template.color }}
-                  />
-                  {t(`templateLanding.mail.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.mail.s024")}
-            </h3>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.mail.s025")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s026", "s027", "s028"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
-                    stroke={2}
-                    style={{ color: template.color }}
-                  />
-                  {t(`templateLanding.mail.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col justify-center px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.mail.s029")}
-            </h2>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.mail.s030")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s031", "s032", "s033", "s034"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
-                    stroke={2}
-                    style={{ color: template.color }}
-                  />
-                  {t(`templateLanding.mail.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
-            <div className="w-full min-w-0 border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
-              <div className="mb-4 text-[var(--fg-secondary)]">
-                {"// Available agent actions"}
-              </div>
-              <div className="grid min-w-0 gap-3 break-words text-[var(--fg)]">
-                <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  sync-inbox --since 7d
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  triage --label priority
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  draft-reply --thread "RE: Q2 update"
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  summarize --unread
-                </div>
-              </div>
-            </div>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
-            {t("templateLanding.mail.s035")}
-          </h2>
-        </div>
-        <TemplateComparisonTable
-          caption={t("templateLanding.mail.s035")}
-          featureHeader={t("templateLanding.mail.s035")}
-          columns={[
-            { id: "gmail", header: "Gmail" },
-            { id: "superhuman", header: "Superhuman" },
-            {
-              id: "agent-native",
-              emphasized: true,
-              agentNative: { color: template.color, name: template.name },
-            },
-          ]}
-          rows={[
-            {
-              id: "keyboard-shortcuts",
-              label: t("templateLanding.mail.s036"),
-              cells: {
-                gmail: t("templateLanding.mail.s037"),
-                superhuman: t("templateLanding.mail.s038"),
-                "agent-native": t("templateLanding.mail.s039"),
-              },
-            },
-            {
-              id: "ai-assistance",
-              label: t("templateLanding.mail.s040"),
-              cells: {
-                gmail: t("templateLanding.mail.s041"),
-                superhuman: t("templateLanding.mail.s042"),
-                "agent-native": t("templateLanding.mail.s043"),
-              },
-            },
-            {
-              id: "customization",
-              label: t("templateLanding.mail.s044"),
-              cells: {
-                gmail: t("templateLanding.mail.s045"),
-                superhuman: t("templateLanding.mail.s046"),
-                "agent-native": t("templateLanding.mail.s047"),
-              },
-            },
-            {
-              id: "data-ownership",
-              label: t("templateLanding.mail.s048"),
-              cells: {
-                gmail: t("templateLanding.mail.s049"),
-                superhuman: t("templateLanding.mail.s050"),
-                "agent-native": t("templateLanding.mail.s051"),
-              },
-            },
-            {
-              id: "pricing",
-              label: t("templateLanding.mail.s052"),
-              cells: {
-                gmail: t("templateLanding.mail.s053"),
-                superhuman: t("templateLanding.mail.s054"),
-                "agent-native": t("templateLanding.mail.s055"),
-              },
-            },
-          ]}
-        />
-      </section>
-
-      <TemplateFinalCta
-        eyebrow={
-          <span
-            className="font-mono text-sm font-semibold tracking-[0.14em]"
-            style={{ color: template.color }}
-          >
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={t("templateLanding.mail.s056")}
-        template={template}
-      >
-        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
-          {t("templateLanding.mail.s057")}
-        </p>
-      </TemplateFinalCta>
-
-      <TemplateLandingFaq
-        idPrefix="mail-faq"
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("templateLanding.faq.eyebrow")}
-          </span>
-        }
-        title={t("templateLanding.faq.title")}
-        items={faqItems}
-      />
-    </TemplateLandingShell>
+            {t("templateLanding.mail.finalCtaButton")}
+          </Button>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

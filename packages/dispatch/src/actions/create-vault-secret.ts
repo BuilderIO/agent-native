@@ -1,7 +1,10 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { createSecret } from "../server/lib/vault-store.js";
+import {
+  createSecret,
+  toVaultSecretMetadata,
+} from "../server/lib/vault-store.js";
 
 export default defineAction({
   description:
@@ -24,5 +27,5 @@ export default defineAction({
   // the value. Opt out of input capture so the trail can't become a second
   // durable credential store.
   audit: { recordInputs: false },
-  run: async (args) => createSecret(args),
+  run: async (args) => toVaultSecretMetadata(await createSecret(args)),
 });

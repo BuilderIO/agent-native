@@ -1,6 +1,6 @@
 import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
 
-import { getGlobalMcpManager } from "../server/agent-chat/mcp-glue.js";
+import { waitForGlobalMcpManager } from "../server/agent-chat/mcp-glue.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   buildMcpToolName,
@@ -48,7 +48,7 @@ export async function listVisibleMcpTools(
   options: ListVisibleMcpToolsOptions = {},
 ): Promise<AppMcpTool[]> {
   const context = requireAuthenticatedRequest();
-  const manager = requireMcpManager();
+  const manager = await requireMcpManager();
   const tools = options.serverId
     ? manager.getToolsForServer(options.serverId)
     : manager.getTools();
@@ -69,7 +69,7 @@ export async function callMcpTool(
   args: Record<string, unknown> = {},
 ): Promise<unknown> {
   const context = requireAuthenticatedRequest();
-  const manager = requireMcpManager();
+  const manager = await requireMcpManager();
   const tool = manager
     .getToolsForServer(serverId)
     .find((candidate) => candidate.originalName === originalToolName);
@@ -92,8 +92,8 @@ function requireAuthenticatedRequest() {
   return context;
 }
 
-function requireMcpManager(): McpClientManager {
-  const manager = getGlobalMcpManager();
+async function requireMcpManager(): Promise<McpClientManager> {
+  const manager = await waitForGlobalMcpManager();
   if (!manager) {
     throw new McpAppApiError("MCP client is not configured.", 503);
   }

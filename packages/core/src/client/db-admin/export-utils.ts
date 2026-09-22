@@ -9,12 +9,12 @@ function cellToCSV(value: unknown): string {
   let str: string;
   if (typeof value === "object") {
     try {
-      str = JSON.stringify(value);
+      str = JSON.stringify(value) ?? "";
     } catch {
-      str = String(value);
+      str = "";
     }
   } else {
-    str = String(value);
+    str = String(value as string | number | bigint | boolean | symbol);
   }
   // Spreadsheet apps treat leading =, +, -, and @ as formulas. Prefix with an
   // apostrophe so exported CSV opens as literal text instead of executing.

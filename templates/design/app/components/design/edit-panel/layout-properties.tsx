@@ -8,6 +8,12 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -24,15 +30,17 @@ import {
   type AutoLayoutMatrixValue,
   type ScrubInputChangeMeta,
 } from "../inspector";
+import { IconLayoutSettings } from "../inspector/design-icons";
 import type { ElementInfo } from "../types";
 import {
   autoLayoutAlignmentFromStyles,
   availableSizingForElement,
+  commitFixedElementSizes,
   commitElementMinMax,
   commitElementSizing,
-  cssElementSize,
   horizontalToJustify,
   inferElementSizing,
+  measuredElementSize,
   isContainerElement,
   isParentFlex,
   isParentGrid,
@@ -48,6 +56,11 @@ import { FieldTrailer } from "./field-primitives";
 import { joinCssLayers, splitCssLayers } from "./fill-gradient-helpers";
 import { SectionIconButton } from "./inspector-controls";
 import {
+  INSPECTOR_GRID_ACTION_GUTTER_SPAN,
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_ACTION_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
   PanelSection,
   PropInput,
   PropSelect,
@@ -58,6 +71,7 @@ import { isMixedValue } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
+  ApplyLayoutFlowHandler,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
@@ -89,12 +103,27 @@ export function justifyContentForGapMode(
 export function autoLayoutStylesForFlow(
   flow: AutoLayoutFlow,
   currentStyles: Record<string, string> = {},
+  // True when the element is already a grid (see elementIsGrid). Nothing
+  // about `currentStyles` is trustworthy to write back in that case: the
+  // caller merges computed styles under inline ones, so an unauthored (or
+  // stylesheet/class-authored) template reads as its computed, browser-
+  // resolved px list, and a multi-selection's differing values read as the
+  // MIXED_VALUE sentinel — either would serialize a fabricated or literally
+  // invalid value into an inline style. Re-committing Grid on an existing
+  // grid is therefore a pure no-op (see the `isExistingGrid` branch below);
+  // only a genuine conversion needs the full defaults.
+  isExistingGrid = false,
 ): Record<string, string> {
   if (flow === "normal") return { display: "block" };
   if (flow === "vertical") {
     return { display: "flex", flexDirection: "column", flexWrap: "nowrap" };
   }
   if (flow === "grid") {
+    // isExistingGrid (see above) is already true for an inline-grid
+    // element — the call site's isGrid check treats display:inline-grid as
+    // "already a grid" — so this branch is only ever reached converting a
+    // non-grid element, where display is always "grid" (never inline-grid).
+    if (isExistingGrid) return {};
     const authoredColumns = currentStyles.gridTemplateColumns;
     const authoredRows = currentStyles.gridTemplateRows;
     return {
@@ -107,7 +136,7 @@ export function autoLayoutStylesForFlow(
         authoredRows && authoredRows !== "none"
           ? authoredRows
           : "repeat(1, max-content)",
-      gridAutoFlow: currentStyles.gridAutoFlow || "row",
+      gridAutoFlow: "row",
     };
   }
   return { display: "flex", flexDirection: "row", flexWrap: "nowrap" };
@@ -175,20 +204,149 @@ export function gridTemplateForTracks(
   return `repeat(${safeCount}, minmax(0, 1fr))`;
 }
 
-function authoredGridTemplate(
-  element: ElementInfo,
-  property: "gridTemplateColumns" | "gridTemplateRows",
-): string {
+/**
+ * Template properties to write for a grid change. An axis the user did not
+ * touch is left out: a stylesheet rule has no inline template to read back,
+ * so rewriting it would replace hug/fixed/custom tracks with the fill default.
+ */
+export function gridTemplatePatchForChange(
+  previous: AutoLayoutGridValue | undefined,
+  next: AutoLayoutGridValue,
+): Partial<Record<"gridTemplateColumns" | "gridTemplateRows", string>> {
+  const patch: Partial<
+    Record<"gridTemplateColumns" | "gridTemplateRows", string>
+  > = {};
+  const changed = (axis: "column" | "row") =>
+    !previous ||
+    previous[axis === "column" ? "columns" : "rows"] !==
+      next[axis === "column" ? "columns" : "rows"] ||
+    previous[`${axis}Sizing`] !== next[`${axis}Sizing`] ||
+    previous[`${axis}Size`] !== next[`${axis}Size`];
+  // A *mixed* axis (differing templates across a multi-selection — see
+  // gridAxisValue's `mixed`) is refused unconditionally, even with an
+  // explicit sizing pick: the track count is unknowable per element, so any
+  // write would fabricate one repeat(N, …) template over every selected
+  // element regardless of what each already has.
+  //
+  // A "custom" axis staying "custom" — whether unknown (stylesheet/class
+  // authored, no inline template to read) or a KNOWN non-uniform inline
+  // template ("96px 1fr minmax(0, 200px)") — has no formula to regenerate a
+  // new track count from: gridTemplateForTracks falls back to a fabricated
+  // repeat(N, minmax(0, 1fr)) default, discarding whatever tracks are
+  // really authored. Refuse a bare count edit on it. Picking a sizing
+  // (fill/hug/fixed) is explicit user intent and writes as usual.
+  const skipAxis = (axis: "column" | "row") => {
+    if (previous?.[axis === "column" ? "columnsMixed" : "rowsMixed"]) {
+      return true;
+    }
+    const countKey = axis === "column" ? "columns" : "rows";
+    return (
+      previous?.[`${axis}Sizing`] === "custom" &&
+      next[`${axis}Sizing`] === "custom" &&
+      previous?.[countKey] !== next[countKey]
+    );
+  };
+  if (changed("column") && !skipAxis("column")) {
+    patch.gridTemplateColumns = gridTemplateForTracks(
+      next.columns,
+      next.columnSizing,
+      next.columnSize,
+      next.columnSizing === "custom" && previous?.columns === next.columns
+        ? next.columnTemplate
+        : undefined,
+    );
+  }
+  if (changed("row") && !skipAxis("row")) {
+    patch.gridTemplateRows = gridTemplateForTracks(
+      next.rows,
+      next.rowSizing,
+      next.rowSize,
+      next.rowSizing === "custom" && previous?.rows === next.rows
+        ? next.rowTemplate
+        : undefined,
+    );
+  }
+  return patch;
+}
+
+// The bridge sets `isGridContainer` off the element's own computed display,
+// which stays trustworthy even where `computedStyles.display` itself is
+// absent or the MIXED_VALUE sentinel (a multi-selection where display
+// differs per element) — so it's checked first, ahead of the string.
+function elementIsGrid(element: ElementInfo): boolean {
+  const display = (element.computedStyles.display || "").toLowerCase();
   return (
-    element.inlineStyles?.[property] || element.computedStyles[property] || ""
+    element.isGridContainer === true ||
+    display === "grid" ||
+    display === "inline-grid"
   );
 }
 
+// A computed grid template is the browser's resolved px list ("50px 50px"),
+// so it can only say how many tracks exist, never how they were sized.
+// Treating it as authored turned fill/hug tracks into fixed px the moment a
+// matrix or sizing change committed against a stale inline snapshot. When
+// nothing is inline but the element already renders as a grid, tracks are
+// authored somewhere this inspector cannot read (a stylesheet rule, a
+// class) — only the computed track COUNT is browser-resolved fact, so the
+// sizing is reported "custom" + `unknown` rather than guessed as "fill".
+function gridAxisValue(
+  element: ElementInfo,
+  property: "gridTemplateColumns" | "gridTemplateRows",
+): ReturnType<typeof parseGridTemplate> & {
+  template: string;
+  unknown?: boolean;
+  mixed?: boolean;
+} {
+  const authored = element.inlineStyles?.[property] || "";
+  const computed = element.computedStyles[property] || "";
+  // mixedElementFromSelection puts the MIXED_VALUE sentinel ("Mixed") in
+  // inlineStyles when a multi-selection's AUTHORED templates differ.
+  // Parsing that string as a template would fabricate a bogus single-track
+  // custom grid, so it's reported unknown+mixed instead — the count is
+  // unknowable per element too, so it falls back to 1 unless the computed
+  // template alone (not itself mixed) still gives a real count.
+  if (isMixedValue(authored)) {
+    const count =
+      !isMixedValue(computed) && computed
+        ? parseGridTemplate(computed).count
+        : 1;
+    return {
+      count,
+      sizing: "custom",
+      template: "",
+      unknown: true,
+      mixed: true,
+    };
+  }
+  // A shared, non-Mixed inline template is trusted first — even across a
+  // multi-selection whose COMPUTED templates differ (the same authored
+  // "repeat(2, minmax(0, 1fr))" resolves to a different px list at a
+  // different width). That per-element resolved difference doesn't make the
+  // AUTHORED template mixed, so computed is only consulted once there is no
+  // inline template to trust.
+  if (authored) return { ...parseGridTemplate(authored), template: authored };
+  if (isMixedValue(computed)) {
+    return {
+      count: 1,
+      sizing: "custom",
+      template: "",
+      unknown: true,
+      mixed: true,
+    };
+  }
+  const count = computed ? parseGridTemplate(computed).count : 1;
+  if (elementIsGrid(element)) {
+    return { count, sizing: "custom", template: "", unknown: true };
+  }
+  // Not yet a grid — nothing authored exists to preserve, and "fill" is the
+  // same default autoLayoutStylesForFlow writes for a brand-new grid.
+  return { count, sizing: "fill", template: "" };
+}
+
 export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
-  const columnsTemplate = authoredGridTemplate(element, "gridTemplateColumns");
-  const rowsTemplate = authoredGridTemplate(element, "gridTemplateRows");
-  const columns = parseGridTemplate(columnsTemplate);
-  const rows = parseGridTemplate(rowsTemplate);
+  const columns = gridAxisValue(element, "gridTemplateColumns");
+  const rows = gridAxisValue(element, "gridTemplateRows");
   return {
     columns: columns.count,
     rows: rows.count,
@@ -196,14 +354,38 @@ export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
     rowSizing: rows.sizing,
     columnSize: columns.fixedSize,
     rowSize: rows.fixedSize,
-    columnTemplate: columnsTemplate,
-    rowTemplate: rowsTemplate,
+    columnSizingUnknown: columns.unknown,
+    rowSizingUnknown: rows.unknown,
+    columnTemplate: columns.template,
+    rowTemplate: rows.template,
     columnGap: parseNumericValue(element.computedStyles.columnGap || "0"),
     rowGap: parseNumericValue(element.computedStyles.rowGap || "0"),
-    columnsMixed: isMixedValue(columnsTemplate),
-    rowsMixed: isMixedValue(rowsTemplate),
+    columnsMixed: columns.mixed,
+    rowsMixed: rows.mixed,
     columnGapMixed: isMixedValue(element.computedStyles.columnGap),
     rowGapMixed: isMixedValue(element.computedStyles.rowGap),
+  };
+}
+
+/**
+ * Style patch for a Grid-control change: template writes plus gap, with
+ * `gridAutoFlow: "row"` included only when converting a non-grid element
+ * into a grid for the first time. An element that is already a grid may
+ * have an authored gridAutoFlow (e.g. "dense") that a track/gap edit must
+ * not clobber.
+ */
+export function gridChangePatch(
+  element: ElementInfo,
+  previous: AutoLayoutGridValue | undefined,
+  next: AutoLayoutGridValue,
+): Record<string, string> {
+  const isGrid = elementIsGrid(element);
+  return {
+    ...(isGrid ? {} : { display: "grid" }),
+    ...gridTemplatePatchForChange(previous, next),
+    ...(isGrid ? {} : { gridAutoFlow: "row" }),
+    columnGap: `${next.columnGap}px`,
+    rowGap: `${next.rowGap}px`,
   };
 }
 
@@ -213,11 +395,15 @@ function FlexContainerControls({
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
+  showSizingControls,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
+  showSizingControls: boolean;
 }) {
   const styles = element.computedStyles;
   // The element's CURRENT layout flow as authored in code, read from its own
@@ -233,13 +419,26 @@ function FlexContainerControls({
     : isFlex
       ? "flex"
       : "block";
-  const flowMixed = [
-    styles.display,
-    styles.flexDirection,
-    styles.flexWrap,
-    styles.gridTemplateColumns,
-    styles.gridTemplateRows,
-  ].some(isMixedValue);
+  // Grid-track and gap mixedness are tracked per-axis on
+  // gridValueForElement's own columnsMixed/rowsMixed/*GapMixed — they must
+  // not also gate the FLOW bucket itself. Two multi-selected grids with the
+  // SAME authored template at different widths resolve to different
+  // computed px lists (sameOrMixed collapses that to the MIXED_VALUE
+  // sentinel), which is not a flow mismatch, so gridTemplateColumns/Rows are
+  // never compared here.
+  //
+  // `isGrid` above already trusts the selection's aggregated
+  // isGridContainer (mixedElementFromSelection: true only when EVERY
+  // selected element is a grid container) over the raw `display` string.
+  // Once isGrid says every element is a grid, flow IS "grid" — full stop.
+  // An unrelated property that happens to differ per element (a leftover
+  // inline flexDirection/flexWrap from before conversion, or `display`
+  // itself reading Mixed for a reason that has nothing to do with layout)
+  // must not fall through to a "mixed" flow bucket once grid-ness is
+  // already settled; only consult those when isGrid could NOT resolve it.
+  const flowMixed =
+    !isGrid &&
+    [styles.display, styles.flexDirection, styles.flexWrap].some(isMixedValue);
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
   // `justifyContent` is always the main-axis property in flexbox regardless
@@ -354,8 +553,8 @@ function FlexContainerControls({
     clipContent: styles.overflow === "hidden",
     clipContentMixed: isMixedValue(styles.overflow),
     resolvedSize: {
-      horizontal: cssElementSize(element, "horizontal"),
-      vertical: cssElementSize(element, "vertical"),
+      horizontal: measuredElementSize(element, "horizontal"),
+      vertical: measuredElementSize(element, "vertical"),
     },
     mixedSize: {
       horizontal: isMixedValue(styles.width),
@@ -379,10 +578,29 @@ function FlexContainerControls({
             onDisableAutoLayout(nodeId);
             return;
           }
-          const patch = autoLayoutStylesForFlow(flow, {
-            ...styles,
-            ...element.inlineStyles,
-          });
+          // Re-selecting Grid on an element that's already a grid is a
+          // no-op at the style level (autoLayoutStylesForFlow returns {}
+          // for isExistingGrid — see its comment), but an EMPTY patch is
+          // not itself a safe no-op to hand to a command: apply-layout-flow
+          // forwards it to applyVisualEdit, and the code-layer patcher
+          // treats an empty style declaration as unresolvable
+          // ("needsAgent"), surfacing an error toast for what should be a
+          // silent click. Stop before invoking any command at all.
+          if (flow === "grid" && isGrid) return;
+          const patch = autoLayoutStylesForFlow(
+            flow,
+            { ...styles, ...element.inlineStyles },
+            isGrid,
+          );
+          // Children drawn on canvas are absolutely positioned, so the
+          // container styles alone would render no layout at all — only a
+          // selection this editor cannot rewrite falls through to them.
+          if (
+            onApplyLayoutFlow &&
+            onApplyLayoutFlow(nodeId ?? null, patch) !== "unsupported"
+          ) {
+            return;
+          }
           if (onStylesChange) {
             onStylesChange(patch);
             return;
@@ -404,33 +622,11 @@ function FlexContainerControls({
           onStyleChange("flexWrap", wrap);
         }}
         onGridChange={(nextGrid, meta) => {
-          const previousGrid = autoLayoutValue.grid;
-          const columnTemplate = gridTemplateForTracks(
-            nextGrid.columns,
-            nextGrid.columnSizing,
-            nextGrid.columnSize,
-            nextGrid.columnSizing === "custom" &&
-              previousGrid?.columns === nextGrid.columns
-              ? nextGrid.columnTemplate
-              : undefined,
+          const patch = gridChangePatch(
+            element,
+            autoLayoutValue.grid,
+            nextGrid,
           );
-          const rowTemplate = gridTemplateForTracks(
-            nextGrid.rows,
-            nextGrid.rowSizing,
-            nextGrid.rowSize,
-            nextGrid.rowSizing === "custom" &&
-              previousGrid?.rows === nextGrid.rows
-              ? nextGrid.rowTemplate
-              : undefined,
-          );
-          const patch = {
-            display: "grid",
-            gridTemplateColumns: columnTemplate,
-            gridTemplateRows: rowTemplate,
-            gridAutoFlow: "row",
-            columnGap: `${nextGrid.columnGap}px`,
-            rowGap: `${nextGrid.rowGap}px`,
-          };
           if (onStylesChange) {
             onStylesChange(patch, meta);
             return;
@@ -501,6 +697,14 @@ function FlexContainerControls({
         onClipContentChange={(clipContent) =>
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
         }
+        // Only containers own clipping: a drawn frame, or the screen's own
+        // document. Do not widen this to `isContainerElement`: board-drawn
+        // primitives reach this panel with no `primitiveKind`, so every drawn
+        // rectangle reads as a plain container `div` and gets the control back.
+        clipContentSupported={
+          element.primitiveKind === "frame" ||
+          element.tagName?.toLowerCase() === "body"
+        }
         onDistribute={
           displayMode === "grid"
             ? undefined
@@ -521,6 +725,7 @@ function FlexContainerControls({
           );
         }}
         availableChildSizing={availableSizingForElement(element)}
+        showSizingControls={showSizingControls}
         onChildSizingChange={(axis, sizing) => {
           commitElementSizing(
             element,
@@ -531,9 +736,11 @@ function FlexContainerControls({
           );
         }}
         onChildSizeChange={(axis, px, meta) =>
-          onStyleChange(
-            axis === "horizontal" ? "width" : "height",
-            `${px}px`,
+          commitFixedElementSizes(
+            element,
+            { [axis]: px },
+            onStyleChange,
+            onStylesChange,
             meta,
           )
         }
@@ -566,39 +773,41 @@ function FlexChildControls({
   }));
 
   return (
-    <div className="space-y-2">
+    <div className="design-sidebar-property-group">
       <SubsectionLabel>{t("editPanel.layoutContext.child")}</SubsectionLabel>
-      <PropInput
-        label={t("editPanel.labels.flexGrow")}
-        value={styles.flexGrow || ""}
-        onChange={(v) => onStyleChange("flexGrow", v)}
-        placeholder="0"
-      />
-      <PropInput
-        label={t("editPanel.labels.flexShrink")}
-        value={styles.flexShrink || ""}
-        onChange={(v) => onStyleChange("flexShrink", v)}
-        placeholder="1"
-      />
-      <PropInput
-        label={t("editPanel.labels.flexBasis")}
-        value={styles.flexBasis || ""}
-        onChange={(v) => onStyleChange("flexBasis", v)}
-        placeholder="auto"
-        defaultUnit="px"
-      />
-      <PropInput
-        label={t("editPanel.labels.order")}
-        value={styles.order || ""}
-        onChange={(v) => onStyleChange("order", v)}
-        placeholder="0"
-      />
-      <PropSelect
-        label={t("editPanel.labels.alignSelf")}
-        value={optionValue(ALIGN_SELF_OPTIONS, styles.alignSelf, "auto")}
-        onChange={(v) => onStyleChange("alignSelf", v)}
-        options={alignSelfOptions}
-      />
+      <div className="flex flex-col gap-2">
+        <PropInput
+          label={t("editPanel.labels.flexGrow")}
+          value={styles.flexGrow || ""}
+          onChange={(v) => onStyleChange("flexGrow", v)}
+          placeholder="0"
+        />
+        <PropInput
+          label={t("editPanel.labels.flexShrink")}
+          value={styles.flexShrink || ""}
+          onChange={(v) => onStyleChange("flexShrink", v)}
+          placeholder="1"
+        />
+        <PropInput
+          label={t("editPanel.labels.flexBasis")}
+          value={styles.flexBasis || ""}
+          onChange={(v) => onStyleChange("flexBasis", v)}
+          placeholder="auto"
+          defaultUnit="px"
+        />
+        <PropInput
+          label={t("editPanel.labels.order")}
+          value={styles.order || ""}
+          onChange={(v) => onStyleChange("order", v)}
+          placeholder="0"
+        />
+        <PropSelect
+          label={t("editPanel.labels.alignSelf")}
+          value={optionValue(ALIGN_SELF_OPTIONS, styles.alignSelf, "auto")}
+          onChange={(v) => onStyleChange("alignSelf", v)}
+          options={alignSelfOptions}
+        />
+      </div>
     </div>
   );
 }
@@ -618,29 +827,85 @@ function GridChildControls({
   }));
 
   return (
-    <div className="space-y-2">
+    <div className="design-sidebar-property-group">
       <SubsectionLabel>
         {t("editPanel.layoutContext.gridChild")}
       </SubsectionLabel>
-      <PropInput
-        label={t("editPanel.labels.gridColumn")}
-        value={styles.gridColumn || ""}
-        onChange={(v) => onStyleChange("gridColumn", v)}
-        placeholder="auto"
-      />
-      <PropInput
-        label={t("editPanel.labels.gridRow")}
-        value={styles.gridRow || ""}
-        onChange={(v) => onStyleChange("gridRow", v)}
-        placeholder="auto"
-      />
-      <PropSelect
-        label={t("editPanel.labels.alignSelf")}
-        value={optionValue(ALIGN_SELF_OPTIONS, styles.alignSelf, "auto")}
-        onChange={(v) => onStyleChange("alignSelf", v)}
-        options={alignSelfOptions}
-      />
+      <div className="flex flex-col gap-2">
+        <PropInput
+          label={t("editPanel.labels.gridColumn")}
+          value={styles.gridColumn || ""}
+          onChange={(v) => onStyleChange("gridColumn", v)}
+          placeholder="auto"
+        />
+        <PropInput
+          label={t("editPanel.labels.gridRow")}
+          value={styles.gridRow || ""}
+          onChange={(v) => onStyleChange("gridRow", v)}
+          placeholder="auto"
+        />
+        <PropSelect
+          label={t("editPanel.labels.alignSelf")}
+          value={optionValue(ALIGN_SELF_OPTIONS, styles.alignSelf, "auto")}
+          onChange={(v) => onStyleChange("alignSelf", v)}
+          options={alignSelfOptions}
+        />
+      </div>
     </div>
+  );
+}
+
+function LayoutAdvancedPopover({
+  element,
+  onStyleChange,
+  flexChild,
+  gridChild,
+}: {
+  element: ElementInfo;
+  onStyleChange: StyleChangeHandler;
+  flexChild: boolean;
+  gridChild: boolean;
+}) {
+  const t = useT();
+  const label = t(
+    flexChild
+      ? "editPanel.layoutContext.flexChild"
+      : "editPanel.layoutContext.gridChild",
+  );
+
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={label}
+              className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+            >
+              <IconLayoutSettings className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        side="left"
+        align="end"
+        sideOffset={8}
+        data-design-chrome-region="right-panel"
+        className="w-72 space-y-3 p-3 !text-[11px]"
+      >
+        {flexChild ? (
+          <FlexChildControls element={element} onStyleChange={onStyleChange} />
+        ) : null}
+        {gridChild ? (
+          <GridChildControls element={element} onStyleChange={onStyleChange} />
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -649,6 +914,8 @@ export function LayoutContextProperties({
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
+  showContainerSizing = true,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -656,6 +923,8 @@ export function LayoutContextProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
+  showContainerSizing?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -666,20 +935,15 @@ export function LayoutContextProperties({
   const isContainer = isContainerElement(element);
   const aspectLock = useAspectRatioLock(element);
 
-  const childControls = (
-    <>
-      {flexChild ? (
-        <div className="border-t border-border/70 pt-2">
-          <FlexChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
-      {gridChild ? (
-        <div className="border-t border-border/70 pt-2">
-          <GridChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
-    </>
-  );
+  const childActions =
+    flexChild || gridChild ? (
+      <LayoutAdvancedPopover
+        element={element}
+        onStyleChange={onStyleChange}
+        flexChild={flexChild}
+        gridChild={gridChild}
+      />
+    ) : undefined;
 
   // Leaf elements (text, img, svg, etc.) never get auto layout — show the plain
   // design W/H sizing block instead.
@@ -690,15 +954,21 @@ export function LayoutContextProperties({
     // hug/fill don't have an independent px value to scale. Match Figma: the
     // toggle is disabled (not hidden) otherwise, so its state/affordance stays
     // visible but inert.
-    const canLockAspect = widthSizing === "fixed" && heightSizing === "fixed";
-    const resolvedWidth = cssElementSize(element, "horizontal");
-    const resolvedHeight = cssElementSize(element, "vertical");
+    const resolvedWidth = measuredElementSize(element, "horizontal");
+    const resolvedHeight = measuredElementSize(element, "vertical");
+    const canLockAspect =
+      widthSizing === "fixed" &&
+      heightSizing === "fixed" &&
+      resolvedWidth != null &&
+      resolvedHeight != null;
 
     const toggleAspectLock = () => {
       if (!canLockAspect) return;
       aspectLock.setLocked(
         !aspectLock.locked,
-        resolvedHeight > 0 ? resolvedWidth / resolvedHeight : undefined,
+        resolvedWidth != null && resolvedHeight != null && resolvedHeight > 0
+          ? resolvedWidth / resolvedHeight
+          : undefined,
       );
     };
 
@@ -720,15 +990,22 @@ export function LayoutContextProperties({
           px,
           aspectLock.ratio,
         );
-        const patch = { width: `${px}px`, height: `${nextHeight}px` };
-        if (onStylesChange) onStylesChange(patch, meta);
-        else {
-          onStyleChange("width", patch.width, meta);
-          onStyleChange("height", patch.height, meta);
-        }
+        commitFixedElementSizes(
+          element,
+          { horizontal: px, vertical: nextHeight },
+          onStyleChange,
+          onStylesChange,
+          meta,
+        );
         return;
       }
-      onStyleChange("width", `${px}px`, meta);
+      commitFixedElementSizes(
+        element,
+        { horizontal: px },
+        onStyleChange,
+        onStylesChange,
+        meta,
+      );
     };
     const commitHeight = (px: number, meta?: ScrubInputChangeMeta) => {
       if (aspectLock.locked && canLockAspect && aspectLock.ratio) {
@@ -737,124 +1014,162 @@ export function LayoutContextProperties({
           px,
           aspectLock.ratio,
         );
-        const patch = { width: `${nextWidth}px`, height: `${px}px` };
-        if (onStylesChange) onStylesChange(patch, meta);
-        else {
-          onStyleChange("width", patch.width, meta);
-          onStyleChange("height", patch.height, meta);
-        }
+        commitFixedElementSizes(
+          element,
+          { horizontal: nextWidth, vertical: px },
+          onStyleChange,
+          onStylesChange,
+          meta,
+        );
         return;
       }
-      onStyleChange("height", `${px}px`, meta);
+      commitFixedElementSizes(
+        element,
+        { vertical: px },
+        onStyleChange,
+        onStylesChange,
+        meta,
+      );
     };
 
     return (
-      <PanelSection title={t("editPanel.sections.layout")}>
+      <PanelSection
+        title={t("editPanel.sections.layout")}
+        actions={childActions}
+      >
         {/* design-editor single-row-per-axis: [W | value | Fixed/Hug/Fill ▾]
             with the full sizing menu (modes + min/max + variable) per axis,
             plus a chain-link aspect-ratio lock at the FAR RIGHT of the row
             (Figma parity — the constrain-proportions link sits after both W
             and H, not between them). */}
-        <div className="grid grid-cols-[1fr_1fr_auto] items-start gap-1.5">
-          <div className="group/field relative min-w-0">
-            <SizingField
-              axis="W"
-              sizingAxis="horizontal"
-              value={widthSizing}
-              resolvedSize={resolvedWidth}
-              mixed={isMixedValue(element.computedStyles.width)}
-              minMax={readElementMinMax(element, "horizontal")}
-              options={availableSizing.horizontal ?? ["fixed"]}
-              disabled={false}
-              onChange={(mode) =>
-                commitElementSizing(
-                  element,
-                  "horizontal",
-                  mode,
-                  onStyleChange,
-                  onStylesChange,
-                )
-              }
-              onSizeChange={commitWidth}
-              onMinMaxChange={(axis, kind, val, meta) =>
-                commitElementMinMax(axis, kind, val, onStyleChange, meta)
-              }
-            />
-            <FieldTrailer
-              element={element}
-              overrideProperty="width"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-            />
-          </div>
-          <div className="group/field relative min-w-0">
-            <SizingField
-              axis="H"
-              sizingAxis="vertical"
-              value={heightSizing}
-              resolvedSize={resolvedHeight}
-              mixed={isMixedValue(element.computedStyles.height)}
-              minMax={readElementMinMax(element, "vertical")}
-              options={availableSizing.vertical ?? ["fixed"]}
-              disabled={false}
-              onChange={(mode) =>
-                commitElementSizing(
-                  element,
-                  "vertical",
-                  mode,
-                  onStyleChange,
-                  onStylesChange,
-                )
-              }
-              onSizeChange={commitHeight}
-              onMinMaxChange={(axis, kind, val, meta) =>
-                commitElementMinMax(axis, kind, val, onStyleChange, meta)
-              }
-            />
-            <FieldTrailer
-              element={element}
-              overrideProperty="height"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-            />
-          </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={
-                  aspectLock.locked
-                    ? t("editPanel.labels.unlockAspectRatio")
-                    : t("editPanel.labels.lockAspectRatio")
+        <InspectorGrid className="items-start" layout="action-pair">
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+            className="group/field relative"
+          >
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex h-4 items-center justify-between gap-1">
+                <SubsectionLabel>{t("editPanel.labels.width")}</SubsectionLabel>
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="width"
+                  motionKeyframeContext={motionKeyframeContext}
+                  breakpointOverrideContext={breakpointOverrideContext}
+                />
+              </div>
+              <SizingField
+                axis="W"
+                sizingAxis="horizontal"
+                value={widthSizing}
+                resolvedSize={resolvedWidth}
+                mixed={isMixedValue(element.computedStyles.width)}
+                minMax={readElementMinMax(element, "horizontal")}
+                options={availableSizing.horizontal ?? ["fixed"]}
+                disabled={false}
+                onChange={(mode) =>
+                  commitElementSizing(
+                    element,
+                    "horizontal",
+                    mode,
+                    onStyleChange,
+                    onStylesChange,
+                  )
                 }
-                aria-pressed={aspectLock.locked}
-                disabled={!canLockAspect}
-                onClick={toggleAspectLock}
-                className={cn(
-                  "mt-0.5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
-                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                  aspectLock.locked &&
-                    "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
-                  !canLockAspect && "pointer-events-none opacity-40",
-                )}
-              >
-                {aspectLock.locked ? (
-                  <IconLink className="size-3.5" />
-                ) : (
-                  <IconLinkOff className="size-3.5" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {aspectLock.locked
-                ? t("editPanel.labels.unlockAspectRatio")
-                : t("editPanel.labels.lockAspectRatio")}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-        {childControls}
+                onSizeChange={commitWidth}
+                onMinMaxChange={(axis, kind, val, meta) =>
+                  commitElementMinMax(axis, kind, val, onStyleChange, meta)
+                }
+              />
+            </div>
+          </InspectorGridCell>
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+            ariaHidden
+          />
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+            className="group/field relative"
+          >
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex h-4 items-center justify-between gap-1">
+                <SubsectionLabel>
+                  {t("editPanel.labels.height")}
+                </SubsectionLabel>
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="height"
+                  motionKeyframeContext={motionKeyframeContext}
+                  breakpointOverrideContext={breakpointOverrideContext}
+                />
+              </div>
+              <SizingField
+                axis="H"
+                sizingAxis="vertical"
+                value={heightSizing}
+                resolvedSize={resolvedHeight}
+                mixed={isMixedValue(element.computedStyles.height)}
+                minMax={readElementMinMax(element, "vertical")}
+                options={availableSizing.vertical ?? ["fixed"]}
+                disabled={false}
+                onChange={(mode) =>
+                  commitElementSizing(
+                    element,
+                    "vertical",
+                    mode,
+                    onStyleChange,
+                    onStylesChange,
+                  )
+                }
+                onSizeChange={commitHeight}
+                onMinMaxChange={(axis, kind, val, meta) =>
+                  commitElementMinMax(axis, kind, val, onStyleChange, meta)
+                }
+              />
+            </div>
+          </InspectorGridCell>
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+            ariaHidden
+          />
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_SPAN}
+            className="flex items-center justify-center"
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={
+                    aspectLock.locked
+                      ? t("editPanel.labels.unlockAspectRatio")
+                      : t("editPanel.labels.lockAspectRatio")
+                  }
+                  aria-pressed={aspectLock.locked}
+                  disabled={!canLockAspect}
+                  onClick={toggleAspectLock}
+                  className={cn(
+                    "mt-5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
+                    "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                    aspectLock.locked &&
+                      "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+                    !canLockAspect && "pointer-events-none opacity-40",
+                  )}
+                >
+                  {aspectLock.locked ? (
+                    <IconLink className="size-3.5" />
+                  ) : (
+                    <IconLinkOff className="size-3.5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {aspectLock.locked
+                  ? t("editPanel.labels.unlockAspectRatio")
+                  : t("editPanel.labels.lockAspectRatio")}
+              </TooltipContent>
+            </Tooltip>
+          </InspectorGridCell>
+        </InspectorGrid>
       </PanelSection>
     );
   }
@@ -866,7 +1181,10 @@ export function LayoutContextProperties({
   // horizontal/vertical/wrap/grid flow applies `display:flex`; choosing the
   // normal-flow option resets to `display:block`.
   return (
-    <PanelSection title={t("editPanel.sections.autoLayout")}>
+    <PanelSection
+      title={t("editPanel.sections.autoLayout")}
+      actions={childActions}
+    >
       {/* Selection-stable key so per-selection UI state (paddingLinked, which
           must not silently flip while the user is mid-scrub — see the
           FlexContainerControls comment) resets on selection change instead of
@@ -885,8 +1203,9 @@ export function LayoutContextProperties({
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
         onDisableAutoLayout={onDisableAutoLayout}
+        onApplyLayoutFlow={onApplyLayoutFlow}
+        showSizingControls={showContainerSizing}
       />
-      {childControls}
     </PanelSection>
   );
 }
@@ -938,7 +1257,6 @@ export function LayoutGuideProperties({
   return (
     <PanelSection
       title={"Layout guide" /* i18n-ignore design inspector label */}
-      defaultCollapsed
       actions={
         <SectionIconButton
           label={
@@ -957,18 +1275,20 @@ export function LayoutGuideProperties({
       }
     >
       {active ? (
-        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 !text-[11px] text-muted-foreground">
-          <IconLayoutGrid className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-foreground">
-            {"Columns" /* i18n-ignore design inspector label */}
-          </span>
-          <span className="shrink-0 tabular-nums">12</span>
-        </div>
-      ) : (
-        <p className="!text-[11px] text-muted-foreground">
-          {"No layout guides" /* i18n-ignore design inspector empty state */}
-        </p>
-      )}
+        <InspectorGrid layout="paint-row">
+          <InspectorGridCell span={20}>
+            <div className="flex h-6 items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 !text-[11px] text-muted-foreground">
+              <IconLayoutGrid className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-foreground">
+                {"Columns" /* i18n-ignore design inspector label */}
+              </span>
+              <span className="shrink-0 tabular-nums">12</span>
+            </div>
+          </InspectorGridCell>
+          <InspectorGridCell span={4} ariaHidden />
+          <InspectorGridCell span={4} ariaHidden />
+        </InspectorGrid>
+      ) : null}
     </PanelSection>
   );
 }

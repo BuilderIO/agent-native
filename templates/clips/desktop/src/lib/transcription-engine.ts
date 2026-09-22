@@ -52,6 +52,8 @@ export interface AudioLevelEvent {
   /** 0..1 peak level. */
   level: number;
   source: TranscriptSource;
+  /** Renderer-only fallback pulse, not a native capture buffer. */
+  synthetic?: boolean;
 }
 
 interface MicSelection {
@@ -494,9 +496,12 @@ export async function stopTranscriptionEngine(
 
 export async function resetTranscriptionTimeline(
   engine: TranscriptionEngine,
+  offsetMs: number = 0,
 ): Promise<void> {
   if (engine !== "whisper") return;
-  await invoke("audio_transcription_reset_timeline");
+  await invoke("audio_transcription_reset_timeline", {
+    offsetMs: Math.max(0, Math.round(offsetMs)),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -550,13 +555,15 @@ export function onSpeechError(
 export function onAudioLevel(
   cb: (event: AudioLevelEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<{ level?: number; source?: TranscriptSource }>(
-    "voice:audio-level",
-    (event) => {
-      cb({
-        level: event.payload?.level ?? 0,
-        source: normalizeSource(event.payload?.source),
-      });
-    },
-  );
+  return listen<{
+    level?: number;
+    source?: TranscriptSource;
+    synthetic?: boolean;
+  }>("voice:audio-level", (event) => {
+    cb({
+      level: event.payload?.level ?? 0,
+      source: normalizeSource(event.payload?.source),
+      synthetic: event.payload?.synthetic === true,
+    });
+  });
 }

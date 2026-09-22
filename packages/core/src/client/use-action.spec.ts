@@ -5,9 +5,16 @@ const analyticsMocks = vi.hoisted(() => ({
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
+const sessionMocks = vi.hoisted(() => ({
+  recheckSessionAfterUnauthorized: vi.fn(),
+}));
+vi.mock("./use-session.js", () => sessionMocks);
+
 import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
+  actionErrorMessage,
   callAction,
+  callActionWithRetry,
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
   serializeActionQueryParams,
@@ -80,6 +87,33 @@ describe("serializeActionQueryParams", () => {
 });
 
 describe("callAction", () => {
+  it("preserves safe structured action error metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            error: "Verification timed out",
+            errorCode: "workspace_feature_flag_verification_timeout",
+            details: { phase: "verification-timeout" },
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    const error = await callAction("set-workspace-feature-flag", {}).catch(
+      (caught) => caught,
+    );
+
+    expect(error).toMatchObject({
+      status: 500,
+      errorCode: "workspace_feature_flag_verification_timeout",
+      details: { phase: "verification-timeout" },
+    });
+    expect(error.message).toContain("Verification timed out");
+  });
+
   it("sends build compatibility and hard-refreshes once on a mismatch", async () => {
     Object.assign(globalThis, {
       __AGENT_NATIVE_BUILD_ID__: "client-build",
@@ -150,6 +184,9 @@ describe("callAction", () => {
       expect.objectContaining({
         action: "list-plans",
         request_id: "request-123",
+        sample_rate: 1,
+        sample_weight: 1,
+        sampled: false,
         status_code: 200,
         outcome: "success",
         server_duration_ms: 120,
@@ -191,11 +228,84 @@ describe("callAction", () => {
       expect.objectContaining({
         action: "get-visual-plan",
         request_id: "request-forbidden",
+        sample_rate: 1,
+        sample_weight: 1,
+        sampled: false,
         status_code: 403,
         status_class: "4xx",
         outcome: "http-error",
       }),
     );
+  });
+
+  it("records the inclusion rate and weight for sampled fast successes", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "0.25");
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ ok: true }, { status: 200 })),
+    );
+
+    try {
+      await expect(
+        callAction("list-plans", {}, { method: "GET" }),
+      ).resolves.toEqual({ ok: true });
+
+      expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+        "action.response",
+        expect.objectContaining({
+          action: "list-plans",
+          sample_rate: 0.25,
+          sample_weight: 4,
+          sampled: true,
+        }),
+      );
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  it("re-resolves the session when an action is refused as unauthenticated", async () => {
+    // 401 means the server stopped recognising this browser. Without telling
+    // the session gate, the shell stays mounted on its last "authenticated"
+    // read and this failure surfaces as a generic load error instead of a
+    // redirect to sign-in - the screen reported after the logout race.
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: "Unauthorized" }, { status: 401 }),
+        ),
+    );
+
+    await expect(
+      callAction("list-designs", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 401 });
+
+    expect(sessionMocks.recheckSessionAfterUnauthorized).toHaveBeenCalledTimes(
+      1,
+    );
+  });
+
+  it("leaves the session alone when an action is refused as forbidden", async () => {
+    // 403 is an authenticated caller being refused one thing. Re-reading the
+    // session here would be noise, and treating it as signed-out would sign a
+    // working session out.
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: "Forbidden" }, { status: 403 }),
+        ),
+    );
+
+    await expect(
+      callAction("list-designs", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(sessionMocks.recheckSessionAfterUnauthorized).not.toHaveBeenCalled();
   });
 
   it("calls mutating actions through the framework action transport", async () => {
@@ -225,6 +335,30 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
       "X-Request-Source",
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
+  });
+
+  it("passes scoped capability headers through imperative action calls", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAction(
+      "open-visual-edit",
+      { devServerUrl: "http://localhost:5173" },
+      {
+        headers: {
+          Authorization: "Bearer capability-token",
+          "X-Agent-Native-Embed-Target": "/visual-edit",
+        },
+      },
+    );
+
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer capability-token",
+      "X-Agent-Native-Embed-Target": "/visual-edit",
+    });
   });
 
   it("sends the browser session id so actions share the agent run's session", async () => {
@@ -276,6 +410,9 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
       "X-Request-Source",
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
   });
 
   it("times out hung requests with a typed, non-retryable error", async () => {
@@ -377,6 +514,17 @@ describe("callAction", () => {
     // React Query relies on recognizing the original cancellation.
     const error = await promise.catch((err) => err);
     expect(String(error.message)).not.toContain("Action any-action failed");
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        action: "any-action",
+        outcome: "cancelled",
+        sample_rate: 1,
+        sample_weight: 1,
+        sampled: false,
+        success: false,
+      }),
+    );
   });
 
   it("surfaces a transport-level abort as a retryable error, not a cancellation", async () => {
@@ -487,6 +635,114 @@ describe("callAction", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("callActionWithRetry", () => {
+  it("spends the transient budget on a gateway failure instead of surfacing it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.useFakeTimers();
+    try {
+      const promise = callActionWithRetry("list-things", {}, { method: "GET" });
+      await vi.advanceTimersByTimeAsync(600);
+      await expect(promise).resolves.toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces a deterministic refusal on the first attempt", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: "Nope" }, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry("read-thing", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a write method instead of risking a duplicated mutation", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry("send-thing", {}, {
+        method: "POST",
+      } as Parameters<typeof callActionWithRetry>[2]),
+    ).rejects.toThrow(/refuses POST/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends GET even when the caller passes no method", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callActionWithRetry("read-thing");
+
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  });
+
+  it("stops the backoff as soon as the caller aborts", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.useFakeTimers();
+    try {
+      const promise = callActionWithRetry(
+        "read-thing",
+        {},
+        { method: "GET", signal: controller.signal },
+      );
+      const assertion = expect(promise).rejects.toMatchObject({ status: 503 });
+
+      // Flush only microtasks: the first 503 lands and the 500ms backoff is
+      // armed, but no timer has fired.
+      for (let tick = 0; tick < 10; tick++) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Settling this without advancing the backoff timer is the whole point:
+      // an uncancellable delay leaves the call pending for the full 500ms and
+      // then spends another attempt on a dead signal.
+      controller.abort();
+      await assertion;
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry an aborted call", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(() => {
+      controller.abort();
+      const error = new Error("The operation was aborted.");
+      error.name = "AbortError";
+      return Promise.reject(error);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry(
+        "read-thing",
+        {},
+        { method: "GET", signal: controller.signal },
+      ),
+    ).rejects.toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -627,6 +883,55 @@ describe("tryCallActionKeepalive", () => {
   });
 });
 
+describe("actionErrorMessage", () => {
+  it("returns the action's own text without the console framing", async () => {
+    vi.stubGlobal("fetch", async () =>
+      jsonResponse(
+        { error: "No such meeting", errorCode: "not_found" },
+        { status: 404 },
+      ),
+    );
+
+    const error: any = await callAction("get-meeting").catch((err) => err);
+
+    // The framing stays on `message` for the console.
+    expect(error.message).toBe("Action get-meeting failed: No such meeting");
+    // A toast wants only what the action wrote.
+    expect(actionErrorMessage(error)).toBe("No such meeting");
+    expect(error.errorCode).toBe("not_found");
+  });
+
+  it("returns undefined when nothing authored a message", async () => {
+    // An HTML error page from a proxy is transport noise, not copy a UI can
+    // show. Absent must stay distinguishable from "the action said this".
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response("<html><body>502 Bad Gateway</body></html>", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+    );
+
+    const error: any = await callAction("get-meeting").catch((err) => err);
+
+    expect(actionErrorMessage(error)).toBeUndefined();
+    expect(error.status).toBe(502);
+  });
+
+  it("returns undefined for a network failure and for a non-error value", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    const error = await callAction("get-meeting").catch((err) => err);
+
+    expect(actionErrorMessage(error)).toBeUndefined();
+    expect(actionErrorMessage(undefined)).toBeUndefined();
+    expect(actionErrorMessage("boom")).toBeUndefined();
+  });
+});
+
 describe("action query retry defaults", () => {
   it("does not retry auth failures or timeouts, retries other errors up to 3 times", () => {
     const authError = Object.assign(new Error("nope"), { status: 401 });
@@ -638,6 +943,32 @@ describe("action query retry defaults", () => {
     expect(defaultActionQueryRetry(0, flakyError)).toBe(true);
     expect(defaultActionQueryRetry(2, flakyError)).toBe(true);
     expect(defaultActionQueryRetry(3, flakyError)).toBe(false);
+  });
+
+  it("does not retry deterministic failures, 500 included", () => {
+    // The old deny-list retried every status nobody had listed, so an action
+    // refusing a read cost four executions for one unchanging answer — and a
+    // 500 cost four error-tracking reports on top.
+    for (const status of [400, 404, 405, 409, 422, 500, 501]) {
+      const refusal = Object.assign(new Error("nope"), { status });
+      expect(defaultActionQueryRetry(0, refusal)).toBe(false);
+    }
+  });
+
+  it("retries only statuses a second identical request can resolve", () => {
+    const rateLimited = Object.assign(new Error("slow down"), { status: 429 });
+
+    expect(defaultActionQueryRetry(0, rateLimited)).toBe(true);
+    expect(defaultActionQueryRetry(2, rateLimited)).toBe(true);
+    expect(defaultActionQueryRetry(3, rateLimited)).toBe(false);
+
+    // Gateway/infrastructure 5xx — the origin can be healthy on the next try.
+    for (const status of [502, 503, 504]) {
+      const transient = Object.assign(new Error("down"), { status });
+      expect(defaultActionQueryRetry(0, transient)).toBe(true);
+      expect(defaultActionQueryRetry(2, transient)).toBe(true);
+      expect(defaultActionQueryRetry(3, transient)).toBe(false);
+    }
   });
 
   it("caps retry backoff at 2s so real failures surface fast", () => {
@@ -668,13 +999,22 @@ describe("shouldRetryActionQueryForError", () => {
     expect(shouldRetryActionQueryForError(1, networkError)).toBe(false);
   });
 
-  it("keeps three retries for HTTP errors that reached the server", () => {
-    const httpError = Object.assign(
+  it("keeps three retries for transient errors that reached the server", () => {
+    // Contrast with the network-level case above: reaching the server earns
+    // the full budget, but only for a status a retry can actually change. A
+    // 500 is the action's own throw, so it gets none.
+    const gatewayError = Object.assign(
+      new Error("Action list-documents failed: HTTP 503"),
+      { status: 503 },
+    );
+    expect(shouldRetryActionQueryForError(2, gatewayError)).toBe(true);
+    expect(shouldRetryActionQueryForError(3, gatewayError)).toBe(false);
+
+    const appError = Object.assign(
       new Error("Action list-documents failed: HTTP 500"),
       { status: 500 },
     );
-    expect(shouldRetryActionQueryForError(2, httpError)).toBe(true);
-    expect(shouldRetryActionQueryForError(3, httpError)).toBe(false);
+    expect(shouldRetryActionQueryForError(0, appError)).toBe(false);
   });
 
   it("does not retry auth failures", () => {

@@ -22,6 +22,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const migrateProductionTsSource = readFileSync(
+  new URL("../../scripts/migrate-production.ts", import.meta.url),
+  "utf8",
+);
 const analyticsRollupsTsSource = readFileSync(
   new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
   "utf8",
@@ -301,7 +305,21 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
   });
 
-  it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {
+  it("adds nullable dashboard creator provenance without rewriting existing rows", () => {
+    const migrationStart = dbTsSource.indexOf("version: 147,");
+    const migrationEnd = dbTsSource.indexOf("\n    },", migrationStart);
+    const migration = dbTsSource.slice(migrationStart, migrationEnd);
+
+    expect(migrationStart).toBeGreaterThan(-1);
+    expect(migrationEnd).toBeGreaterThan(migrationStart);
+    expect(migration).toContain('name: "analytics-dashboard-created-by"');
+    expect(migration).toContain("run: ensureAnalyticsDashboardCreatedByColumn");
+    expect(migration).toContain(
+      "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
+    );
+  });
+
+  it("stores BigQuery backfill progress in additive PostgreSQL shard tables", () => {
     const shardStart = dbTsSource.indexOf("version: 142,");
     const shardEnd = dbTsSource.indexOf("\n    },", shardStart);
     const shardEntry = dbTsSource.slice(shardStart, shardEnd);
@@ -310,7 +328,6 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(shardEnd).toBeGreaterThan(shardStart);
     expect(shardEntry).toContain('name: "analytics-bigquery-backfill-shards"');
     expect(shardEntry).toContain("postgres:");
-    expect(shardEntry).toContain("sqlite:");
     for (const column of [
       "shard_id",
       "job_id",
@@ -425,5 +442,13 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "Skipping Analytics migrations in production serverless runtime",
     );
     expect(pluginSource).not.toContain("ANALYTICS_SKIP_BOOT_MIGRATIONS");
+  });
+});
+
+describe("Analytics release migrations repair persisted first-party dashboards", () => {
+  it("runs the bounded dashboard repair after both release migration sets", () => {
+    expect(migrateProductionTsSource).toMatch(
+      /await runFrameworkReleaseMigrations\(null\);[\s\S]*?await runAnalyticsMigrations\(null\);[\s\S]*?await repairPersistedFirstPartyDashboardQueries\(\);/,
+    );
   });
 });

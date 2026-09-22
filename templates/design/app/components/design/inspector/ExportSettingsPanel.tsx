@@ -243,10 +243,10 @@ export function ExportSettingsPanel({
   }
 
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={cn("space-y-2", className)}>
       {/* Section header: title left, "+" right — matches the design editor export header */}
       <div className="flex h-6 items-center justify-between">
-        <span className="!text-[11px] font-medium text-muted-foreground">
+        <span className="design-sidebar-field-label text-muted-foreground">
           {copy.title}
         </span>
         <button

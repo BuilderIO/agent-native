@@ -1,3 +1,7 @@
+import {
+  parseScrubRelativeExpression,
+  type ScrubRelativeExpression,
+} from "@agent-native/toolkit/design-tweaks";
 import { isStandaloneHttpUrl } from "@shared/html-content";
 
 import { trace } from "@/components/design/design-trace";
@@ -89,22 +93,58 @@ export function resolveLocalhostSourceWriteContent(args: {
  * updatedAt stamp (when present) records it as the acked base for the next
  * guarded update-file save rather than re-queueing a redundant save.
  */
+export type PersistedContentHostSyncOptions = {
+  forcePreviewFullDocument: boolean;
+  persist: false;
+  shaderWriteCompletion?: true;
+  updatedAt?: string;
+};
+
+export type PersistedContentHostSyncWriter = (
+  fileId: string,
+  content: string,
+  options: PersistedContentHostSyncOptions,
+) => void;
+
+export type PersistedContentHostSyncHandler = (
+  fileId: string,
+  content: string,
+  updatedAt?: string,
+) => void;
+
 export function getPersistedContentHostSyncOptions(args: {
   fileId: string;
   activeFileId: string | null | undefined;
   updatedAt?: string;
-}): {
-  forcePreviewFullDocument: boolean;
-  persist: false;
-  updatedAt?: string;
-} {
+  shaderWriteCompletion?: true;
+}): PersistedContentHostSyncOptions {
   return {
     forcePreviewFullDocument:
       args.activeFileId !== null &&
       args.activeFileId !== undefined &&
       args.fileId === args.activeFileId,
     persist: false,
+    ...(args.shaderWriteCompletion ? { shaderWriteCompletion: true } : {}),
     updatedAt: args.updatedAt,
+  };
+}
+
+export function createPersistedContentHostSyncHandler(args: {
+  activeFileIdRef: { current: string | null | undefined };
+  applyFileContentUpdateRef: { current: PersistedContentHostSyncWriter };
+  shaderWriteCompletion?: true;
+}): PersistedContentHostSyncHandler {
+  return (fileId, content, updatedAt) => {
+    args.applyFileContentUpdateRef.current(
+      fileId,
+      content,
+      getPersistedContentHostSyncOptions({
+        fileId,
+        activeFileId: args.activeFileIdRef.current,
+        updatedAt,
+        shaderWriteCompletion: args.shaderWriteCompletion,
+      }),
+    );
   };
 }
 
@@ -137,9 +177,21 @@ export function getDesignEditorStateUrlSearch(args: {
   tool?: DesignTool | null;
   mode?: EditorMode | null;
 }) {
-  const params = new URLSearchParams(args.currentSearch);
+  const currentParams = new URLSearchParams(args.currentSearch);
+  const params = new URLSearchParams();
+  let editorViewWritten = false;
+  for (const [key, value] of currentParams) {
+    if (key === "view" || key === "editorView") {
+      if (!editorViewWritten) {
+        params.set("editorView", args.viewMode);
+        editorViewWritten = true;
+      }
+      continue;
+    }
+    params.append(key, value);
+  }
+  if (!editorViewWritten) params.set("editorView", args.viewMode);
   const leftPanel = normalizeDesignLeftPanel(args.leftPanel) ?? null;
-  params.set("view", args.viewMode);
   if (leftPanel && leftPanel !== "file") {
     params.set("panel", leftPanel);
   } else {
@@ -228,10 +280,16 @@ export function getLayerMoveSourceContent(args: {
 
 export function getFreshActiveFileContent(args: {
   activeContent: string;
+  pendingContent?: string | null;
   latestContent?: string | null;
   lastLocalContent?: string | null;
 }) {
-  return args.latestContent ?? args.lastLocalContent ?? args.activeContent;
+  return (
+    args.pendingContent ??
+    args.latestContent ??
+    args.lastLocalContent ??
+    args.activeContent
+  );
 }
 
 export function getFreshScreenContent(args: {
@@ -368,6 +426,29 @@ export function applyRelativeDeltaToStyleValue(
   return `${Object.is(rounded, -0) ? 0 : rounded}${unit ?? ""}`;
 }
 
+export function applyRelativeExpressionToStyleValue(
+  currentValue: string | undefined,
+  relativeExpression: ScrubRelativeExpression,
+): string | null {
+  if (typeof currentValue !== "string") return null;
+  const match = currentValue.trim().match(/^(-?\d*\.?\d+)(.*)$/);
+  if (!match) return null;
+  const base = Number(match[1]);
+  if (!Number.isFinite(base)) return null;
+  const unit = relativeExpression.unit ?? match[2]?.trim() ?? undefined;
+  const parsed = parseScrubRelativeExpression(
+    relativeExpression.expression,
+    base,
+    {
+      unit: unit || undefined,
+      min: relativeExpression.min,
+      max: relativeExpression.max,
+      precision: relativeExpression.precision,
+    },
+  );
+  return parsed?.normalized ?? null;
+}
+
 export function getLayerMoveIterationOrder<T>(
   orderedIds: readonly T[],
   placement: "before" | "after" | "inside",
@@ -386,12 +467,16 @@ export type UndoRedoOrderKind =
   | "content"
   | "file-content"
   | "geometry"
+  | "clipboard-paste"
   | "file-created"
-  | "file-deleted";
+  | "file-deleted"
+  | "pending-style"
+  | "pending-live";
 
 export function getUndoRedoPriorityOrder(
   preferred: UndoRedoOrderKind | undefined,
 ): UndoRedoOrderKind[] {
+  if (preferred === "clipboard-paste") return ["clipboard-paste"];
   if (preferred === "file-deleted")
     return [
       "file-deleted",
@@ -414,7 +499,114 @@ export function getUndoRedoPriorityOrder(
   return ["content", "file-content", "geometry"];
 }
 
+export interface PendingLocalFileContent {
+  content: string;
+  startedAt: number;
+  baseUpdatedAt?: string | null;
+  baseContent?: string;
+  /** An identity-only migration yields to a newer peer or agent snapshot. */
+  identityMigrationSourceContent?: string;
+  identityMigrationStoredContent?: string;
+  identityMigrationStoredUpdatedAt?: string | null;
+}
+
+export function createPendingLocalFileContent(args: {
+  current?: PendingLocalFileContent;
+  file?: { content?: string | null; updatedAt?: string | null };
+  content: string;
+  baseUpdatedAt?: string | null;
+  identityMigrationSourceContent?: string;
+}): PendingLocalFileContent {
+  const {
+    current,
+    file,
+    content,
+    baseUpdatedAt,
+    identityMigrationSourceContent,
+  } = args;
+  const sameContent = current?.content === content;
+  const sameMigration =
+    current?.identityMigrationSourceContent === identityMigrationSourceContent;
+  return {
+    content,
+    startedAt: sameContent ? current.startedAt : Date.now(),
+    baseUpdatedAt:
+      current?.baseUpdatedAt !== undefined
+        ? current.baseUpdatedAt
+        : baseUpdatedAt !== undefined
+          ? baseUpdatedAt
+          : file?.updatedAt,
+    baseContent: current
+      ? current.baseContent
+      : file
+        ? (file.content ?? "")
+        : undefined,
+    identityMigrationSourceContent,
+    identityMigrationStoredContent:
+      identityMigrationSourceContent === undefined
+        ? undefined
+        : sameContent && sameMigration
+          ? current.identityMigrationStoredContent
+          : (file?.content ?? ""),
+    identityMigrationStoredUpdatedAt:
+      identityMigrationSourceContent === undefined
+        ? undefined
+        : sameContent && sameMigration
+          ? current.identityMigrationStoredUpdatedAt
+          : (file?.updatedAt ?? null),
+  };
+}
+
+export function restorePendingFileContent<
+  T extends {
+    files?: Array<{
+      id: string;
+      content?: string | null;
+      updatedAt?: string | null;
+    }>;
+  },
+>(
+  design: T,
+  fileId: string,
+  pending: PendingLocalFileContent,
+  expectedContent: string,
+): T {
+  if (
+    pending.content !== expectedContent ||
+    pending.baseContent === undefined ||
+    !Array.isArray(design.files)
+  ) {
+    return design;
+  }
+  return {
+    ...design,
+    files: design.files.map((file) => {
+      if (file.id !== fileId || file.content !== expectedContent) return file;
+      if (
+        pending.baseUpdatedAt !== undefined &&
+        file.updatedAt !== pending.baseUpdatedAt
+      ) {
+        return file;
+      }
+      return {
+        ...file,
+        content: pending.baseContent,
+        ...(pending.baseUpdatedAt !== undefined
+          ? { updatedAt: pending.baseUpdatedAt }
+          : {}),
+      };
+    }),
+  };
+}
+
 export interface FileContentSaveRequest {
+  identityMigrationSourceContent?: string;
+  /**
+   * CAS base for the durable latest-content replay. Normal saves keep their
+   * per-edit base so the serialized chain remains strict; the outbox needs the
+   * oldest unacknowledged base so a pagehide can replay the full snapshot.
+   */
+  unloadExpectedVersionHash?: string;
   id: string;
   content: string;
   syncCollab: boolean;
@@ -422,14 +614,35 @@ export interface FileContentSaveRequest {
   operationSource: string;
   /** Monotonic per-file sequence allocated when the edit enters the queue. */
   operationRevision: number;
-  /**
-   * Optimistic-concurrency guard forwarded to update-file's
-   * `expectedVersionHash` param — the last content hash this client knows
-   * the server/collab doc holds for this file. Populated by callers when
-   * known (lastAckedFileContentHashRef); omitted when unknown so update-file
-   * keeps its legacy unguarded-write behavior.
-   */
-  expectedVersionHash?: string;
+  /** Hash of the source content this edit was computed from. */
+  expectedVersionHash: string;
+}
+
+/**
+ * A pagehide request must retain its own CAS base. The durable outbox may fold
+ * later edits onto the oldest base, but a direct keepalive can race that
+ * predecessor and must remain replayable in operation order.
+ */
+export function prepareFileContentSaveKeepalive(
+  pending: FileContentSaveRequest,
+): FileContentSaveRequest {
+  return pending.unloadExpectedVersionHash === undefined
+    ? pending
+    : { ...pending, unloadExpectedVersionHash: undefined };
+}
+
+export function coalescePendingFileContentSave(
+  next: FileContentSaveRequest,
+  pending: FileContentSaveRequest | undefined,
+): FileContentSaveRequest {
+  return pending &&
+    !(
+      next.identityMigrationSourceContent !== undefined &&
+      next.identityMigrationSourceContent !==
+        pending.identityMigrationSourceContent
+    )
+    ? { ...next, expectedVersionHash: pending.expectedVersionHash }
+    : next;
 }
 
 type FileContentSaveRequestsById = Readonly<
@@ -445,16 +658,58 @@ type FileContentSaveRequestsById = Readonly<
 export function shouldClearLatestUnloadSave(
   latest: FileContentSaveRequest | undefined,
   completed: FileContentSaveRequest,
-  skippedStaleMirror = false,
 ): boolean {
   return Boolean(
-    !skippedStaleMirror &&
     latest &&
     latest.id === completed.id &&
     latest.content === completed.content &&
     latest.syncCollab === completed.syncCollab &&
     latest.operationSource === completed.operationSource &&
     latest.operationRevision === completed.operationRevision,
+  );
+}
+
+/**
+ * A completed predecessor advances a newer unload replay from its old CAS
+ * base. Mutate the request in place so debounce slots and save chains keep the
+ * same request object, then let the caller re-journal its updated payload.
+ */
+export function advanceLatestUnloadSaveBase(
+  latest: FileContentSaveRequest | undefined,
+  completed: FileContentSaveRequest,
+  persistedVersionHash: string,
+): boolean {
+  const completedBase =
+    completed.unloadExpectedVersionHash ?? completed.expectedVersionHash;
+  const latestBase =
+    latest?.unloadExpectedVersionHash ?? latest?.expectedVersionHash;
+  if (
+    !latest ||
+    latest === completed ||
+    latest.id !== completed.id ||
+    latest.operationSource !== completed.operationSource ||
+    latest.operationRevision <= completed.operationRevision ||
+    latestBase !== completedBase
+  ) {
+    return false;
+  }
+  latest.unloadExpectedVersionHash = persistedVersionHash;
+  return true;
+}
+
+export function shouldClearLatestUnloadSaveForOutboxEntry(
+  latest: FileContentSaveRequest | undefined,
+  entry: {
+    resourceId: string;
+    operationSource: string;
+    operationRevision: number;
+  },
+): boolean {
+  return Boolean(
+    latest &&
+    latest.id === entry.resourceId &&
+    latest.operationSource === entry.operationSource &&
+    latest.operationRevision === entry.operationRevision,
   );
 }
 
@@ -505,13 +760,9 @@ export function flushFileContentSavesOnBackground(
  * keepalive: should it be sent at all?
  *
  * The keepalive posts a full-document `content` write with `keepalive: true`.
- * Its operation source/revision prevents older same-tab requests from
- * overwriting it, but there is no round trip to recover from a cross-writer
- * hash rejection. When collab is live (this pending save's `syncCollab` is
- * false) and we don't have a known acked hash, skip it: the Yjs document
- * already holds the current content, while an unguarded full replacement
- * could still conflict with a different writer. Every other combination
- * (collab not live, or a hash IS known) sends the versioned keepalive.
+ * Its source hash protects it from overwriting edits that were not part of
+ * this queued update. Legacy requests without a source hash are skipped while
+ * collab is live because they have no safe version to send.
  */
 export function shouldSendKeepalive(
   hashKnown: boolean,

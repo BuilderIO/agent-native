@@ -14,6 +14,7 @@ import { CHAT_STOP_DEBOUNCE_MS } from "@/hooks/use-agent-generating";
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   focusAgentChat: vi.fn(),
+  SIDEBAR_STATE_CHANGE_EVENT: "agent-panel:state-change",
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -46,11 +47,15 @@ function setVisibleRect(element: HTMLElement) {
     }) as DOMRect;
 }
 
-function dispatchRunning(isRunning: boolean) {
+function dispatchRunning(
+  isRunning: boolean,
+  reason?: string,
+  tabId = "slides-chat",
+) {
   act(() => {
     window.dispatchEvent(
       new CustomEvent("agentNative.chatRunning", {
-        detail: { isRunning },
+        detail: { isRunning, tabId, ...(reason ? { reason } : {}) },
       }),
     );
   });
@@ -103,6 +108,22 @@ describe("AgentWorkIndicator", () => {
     });
   });
 
+  it("uses the authoritative sidebar state while the panel is mounting", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:state-change", {
+          detail: { open: true, source: "app", mode: "app" },
+        }),
+      );
+    });
+
+    expect(screen.queryByText("Agent is working")).toBeNull();
+  });
+
   it("hides when the portal wrapper becomes inaccessible", async () => {
     render(<AgentWorkIndicator />);
     dispatchRunning(true);
@@ -141,6 +162,33 @@ describe("AgentWorkIndicator", () => {
     window.removeEventListener("agent-panel:set-mode", modeListener);
   });
 
+  it("hides immediately when the user explicitly stops the run", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    dispatchRunning(false, "stopped");
+
+    expect(screen.queryByText("Agent is working")).toBeNull();
+  });
+
+  it("does not let another chat stop the active indicator", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true, undefined, "slides-chat");
+    dispatchRunning(true, undefined, "other-chat");
+
+    dispatchRunning(false, "stopped", "other-chat");
+
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+  });
+
+  it("ignores an unscoped stop while a scoped chat is active", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true, undefined, "slides-chat");
+    dispatchRunning(false, "stopped", "");
+
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+  });
   it("stays visible across brief continuation gaps", () => {
     vi.useFakeTimers();
     render(<AgentWorkIndicator />);

@@ -131,11 +131,20 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
+  background: hsl(var(--muted-foreground) / 0.22);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
+  background: hsl(var(--muted-foreground) / 0.34);
+}
+
+/* Referenced by the top tab bar and compose toolbar to scroll without a
+   visible scrollbar; was previously used but never defined. */
+.hide-scrollbar {
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Email body prose reset */
@@ -338,6 +347,13 @@
   color: hsl(var(--foreground));
   line-height: 1.65;
   font-size: 0.875rem;
+}
+
+.compose-autocomplete-ghost {
+  color: hsl(var(--muted-foreground));
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
 }
 
 .compose-editor > *:first-child {

@@ -55,6 +55,21 @@ describe("agent chat startup", () => {
     ).toContain("await ensureMcpInitialized();");
   });
 
+  it("keeps transient database failures structured on the stream route", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const streamRoute = source.slice(
+      source.indexOf("if (streamingRuntime)"),
+      source.indexOf("// ─── Durable background agent-chat run processor"),
+    );
+
+    expect(streamRoute).toMatch(
+      /withTransientDatabaseFallback\(\s*AGENT_CHAT_STREAM_PATH/,
+    );
+  });
+
   it("keeps trigger subscription registration behind route readiness", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),
@@ -67,6 +82,19 @@ describe("agent chat startup", () => {
 
     expect(triggerSetup).toContain("await initTriggerDispatcher");
     expect(triggerSetup).not.toContain("void (async () =>");
+  });
+
+  it("keeps webhook and event dispatch independent from the cron scheduler gate", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const triggerSetup = source.slice(
+      source.indexOf("// ─── Trigger Dispatcher"),
+      source.indexOf("})().catch((err)"),
+    );
+
+    expect(triggerSetup).not.toContain("disableRecurringJobsRuntime");
   });
 
   /**
@@ -89,6 +117,9 @@ describe("agent chat startup", () => {
     );
 
     expect(sweepRoute).toContain("reapAllStaleRuns()");
+    expect(sweepRoute).toContain("sweepUnclaimedBackgroundRuns");
+    expect(sweepRoute).toContain("reapExpired: true");
+    expect(sweepRoute).toContain("jobsSkippedReason");
     // Ahead of the open-ended job sweep, which can spend the platform wall.
     expect(sweepRoute.indexOf("reapAllStaleRuns()")).toBeLessThan(
       sweepRoute.indexOf("processRecurringJobs(schedulerDeps)"),

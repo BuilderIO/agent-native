@@ -34,14 +34,27 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 
-export default defineEventHandler(async (event: H3Event) => {
-  const recordingId = getRouterParam(event, "recordingId");
+export async function handleAbortRecordingUpload(
+  event: H3Event,
+  override?: {
+    recordingId?: string;
+    ownerEmail?: string;
+    orgId?: string;
+  },
+) {
+  const recordingId =
+    override?.recordingId ?? getRouterParam(event, "recordingId");
   if (!recordingId) {
     setResponseStatus(event, 400);
     return { error: "Missing recordingId" };
   }
 
-  const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
+  const { ownerEmail, orgId } = override?.ownerEmail
+    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
+    : await getEventOwnerContext(event).then((context) => ({
+        ownerEmail: context.userEmail,
+        orgId: context.orgId,
+      }));
   const body = (await readBody(event).catch(() => null)) as {
     reason?: unknown;
     attemptId?: unknown;
@@ -93,7 +106,8 @@ export default defineEventHandler(async (event: H3Event) => {
     const existingGenerationId = existing.uploadGenerationId ?? null;
     if (
       requestedAttemptId !== existingAttemptId ||
-      requestedGenerationId !== existingGenerationId
+      (requestedAttemptId === null &&
+        requestedGenerationId !== existingGenerationId)
     ) {
       setResponseStatus(event, 409);
       return {
@@ -146,6 +160,29 @@ export default defineEventHandler(async (event: H3Event) => {
       : await getResumableSession(recordingId, existingGenerationId);
 
     const now = new Date().toISOString();
+    const abortedUploadState = {
+      ...existingUploadState,
+      recordingId,
+      status: "failed",
+      aborted: true,
+      failureReason,
+      updatedAt: now,
+    };
+    const uploadStateClaimed = await compareAndSetManyAppState([
+      {
+        key: uploadStateKey,
+        expectedValue: existingUploadStateSnapshot,
+        nextValue: abortedUploadState,
+      },
+    ]);
+    if (!uploadStateClaimed) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+
     const aborted = await db
       .update(schema.recordings)
       .set({
@@ -161,14 +198,31 @@ export default defineEventHandler(async (event: H3Event) => {
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
-          existingGenerationId === null
-            ? isNull(schema.recordings.uploadGenerationId)
-            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
+          existingAttemptId === null
+            ? existingGenerationId === null
+              ? isNull(schema.recordings.uploadGenerationId)
+              : eq(schema.recordings.uploadGenerationId, existingGenerationId)
+            : undefined,
         ),
       )
-      .returning({ id: schema.recordings.id });
+      .returning({
+        id: schema.recordings.id,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
+      });
 
     if (aborted.length !== 1) {
+      const uploadStateRestored = await compareAndSetManyAppState([
+        {
+          key: uploadStateKey,
+          expectedValue: abortedUploadState,
+          nextValue: existingUploadStateSnapshot,
+        },
+      ]);
+      if (!uploadStateRestored) {
+        console.info(
+          `[abort] upload state changed while rolling back stale abort for ${recordingId}`,
+        );
+      }
       setResponseStatus(event, 409);
       return {
         error: "A newer upload retry is already active.",
@@ -176,42 +230,34 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
 
-    const auxiliaryStateUpdated = await compareAndSetManyAppState([
-      {
-        key: uploadStateKey,
-        expectedValue: existingUploadStateSnapshot,
-        nextValue: {
-          ...existingUploadState,
-          recordingId,
-          status: "failed",
-          failureReason,
-          updatedAt: now,
+    const abortedGenerationId =
+      typeof aborted[0]?.uploadGenerationId === "string"
+        ? aborted[0].uploadGenerationId
+        : existingGenerationId;
+
+    if (
+      existingVerificationStateSnapshot &&
+      !(await compareAndSetManyAppState([
+        {
+          key: verificationStateKey,
+          expectedValue: existingVerificationStateSnapshot,
+          nextValue: null,
         },
-      },
-      ...(existingVerificationStateSnapshot
-        ? [
-            {
-              key: verificationStateKey,
-              expectedValue: existingVerificationStateSnapshot,
-              nextValue: null,
-            },
-          ]
-        : []),
-    ]);
-    if (!auxiliaryStateUpdated) {
+      ]))
+    ) {
       console.info(
-        `[abort] upload state changed after abort claim; preserving replacement state for ${recordingId}`,
+        `[abort] verification state changed after abort claim; preserving replacement state for ${recordingId}`,
       );
     }
 
-    // Reset may have started this exact generation's provider session after
-    // our preflight read but before the abort claim. Re-read after the row CAS
-    // so either abort observes the late handle or reset observes the lost row
-    // claim and compensates it.
+    // Reset may have created a new provider session between our preflight
+    // read and the attempt-fenced abort claim. Re-read the claimed generation
+    // so cancellation cleans up that replacement session instead of leaving it
+    // active after the client has gone idle.
     if (!preserveRecoveryState) {
       resumableSession = await getResumableSession(
         recordingId,
-        existingGenerationId,
+        abortedGenerationId,
       );
     }
 
@@ -220,7 +266,7 @@ export default defineEventHandler(async (event: H3Event) => {
       : await deleteRecordingChunks(
           ownerEmail,
           recordingId,
-          existingGenerationId,
+          abortedGenerationId,
         );
     if (!preserveRecoveryState) {
       if (resumableSession) {
@@ -249,12 +295,12 @@ export default defineEventHandler(async (event: H3Event) => {
         // retry can still address the multipart upload. Deleting it here would
         // permanently orphan the provider-side session.
         if (providerCleanupSucceeded) {
-          await deleteResumableSession(recordingId, existingGenerationId).catch(
+          await deleteResumableSession(recordingId, abortedGenerationId).catch(
             () => {},
           );
         }
       } else {
-        await deleteResumableSession(recordingId, existingGenerationId).catch(
+        await deleteResumableSession(recordingId, abortedGenerationId).catch(
           () => {},
         );
       }
@@ -263,4 +309,6 @@ export default defineEventHandler(async (event: H3Event) => {
 
     return { ok: true, recordingId, chunksCleared: cleared };
   });
-});
+}
+
+export default defineEventHandler((event) => handleAbortRecordingUpload(event));

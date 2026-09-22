@@ -93,7 +93,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
 }));
 
 const { default: composeDashboard } = await import("./compose-dashboard");
-const { buildPanel, FIRST_PARTY_TEMPLATE_NAMES } =
+const { buildPanel, FIRST_PARTY_TEMPLATE_NAMES, listMetricKeys } =
   await import("../server/lib/first-party-metric-catalog");
 
 const LARGE_METRICS = [
@@ -184,6 +184,7 @@ describe("compose-dashboard", () => {
         id: "emailFilter",
         default: "exclude_builder",
       }),
+      expect.objectContaining({ id: "appFilter", default: "all" }),
     ]);
 
     // Each panel has the canonical first-party shape.
@@ -284,6 +285,42 @@ describe("compose-dashboard", () => {
     }
   });
 
+  it("builds the Agent-Native funnel panels with shared filters", () => {
+    for (const metric of [
+      "activation-funnel",
+      "signup-method-conversion",
+      "onboarding-step-dropoff",
+      "sharing-actions-by-app",
+    ]) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("analytics_events");
+      expect(panel.sql).toContain("{{timeRange}}");
+      expect(panel.sql).toContain("{{emailFilter}}");
+      expect(panel.sql).toContain("{{appFilter}}");
+    }
+  });
+
+  it("applies the shared App filter to every catalog panel", () => {
+    for (const metric of listMetricKeys()) {
+      expect(buildPanel(metric)?.sql).toContain("{{appFilter}}");
+    }
+  });
+
+  it("keeps pre-signup and standalone panels outside the signup cohort", () => {
+    const activationSql = buildPanel("activation-funnel")!.sql;
+    expect(activationSql).toContain("FROM funnel_users");
+    expect(activationSql).toContain("FROM funnel_events e");
+    expect(activationSql).toContain("FROM cohort_events e");
+
+    for (const metric of [
+      "signup-method-conversion",
+      "onboarding-step-dropoff",
+      "sharing-actions-by-app",
+    ]) {
+      expect(buildPanel(metric)!.sql).toContain("FROM funnel_events");
+    }
+  });
+
   it("groups the recurring bar panel into Monday-based weekly buckets", () => {
     const panel = buildPanel("recurring-users-by-template-bar")!;
     expect(panel.sql).toContain("date_trunc('week', event_date::date)");
@@ -354,12 +391,15 @@ describe("compose-dashboard", () => {
   it("counts retention and active-user panels from signed-in session activity", () => {
     for (const metric of SIGNED_IN_ACTIVITY_METRICS) {
       const panel = buildPanel(metric)!;
-      expect(panel.sql).toContain("event_name = 'session status'");
+      expect(panel.sql).toContain(
+        "event_name IN ('session status', 'session_status')",
+      );
+      expect(panel.sql).toContain("event_name = 'app_entered'");
       expect(panel.sql).toContain("signed_in = 'true'");
       expect(panel.sql).not.toContain(
         "COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))",
       );
-      expect(panel.sql).not.toContain("NULLIF(user_id, '') IS NOT NULL");
+      expect(panel.sql).toContain("NULLIF(user_id, '') IS NOT NULL");
       expect(panel.sql).toContain("NULLIF(user_key");
       expect(panel.sql).toContain("lower(COALESCE");
       expect(panel.sql).toContain("<> 'docs'");
@@ -420,6 +460,7 @@ describe("compose-dashboard", () => {
       { id: "region", label: "Region", type: "text" },
       expect.objectContaining({ id: "timeRange" }),
       expect.objectContaining({ id: "emailFilter" }),
+      expect.objectContaining({ id: "appFilter" }),
     ]);
   });
 

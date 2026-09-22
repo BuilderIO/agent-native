@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * e2e-mcp-test.ts — exhaustive end-to-end MCP behavior test against a remote
- * Agent Native MCP server (typically https://*.agent-native.com or an ngrok dev URL).
+ * Agent-Native MCP server (typically https://*.agent-native.com or an ngrok dev URL).
  *
  * # Usage
  *

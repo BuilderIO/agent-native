@@ -117,17 +117,25 @@ export const BACKGROUND_SOFT_TIMEOUT_CEILING_MS = 13 * 60_000;
 export const RUN_NO_PROGRESS_HARD_TIMEOUT_MS = 150_000;
 
 /**
- * Default in-loop watchdog for silence while an action's arguments stream in.
- * Read through `resolveActionPreparationNoProgressTimeoutMs`, never directly:
- * a host diagnosing a timeout has to be able to see and change this number.
+ * THE IN-LOOP NO-PROGRESS WATCHDOGS ARE GONE, and their absence is the design.
+ *
+ * Two 90s bounds used to live here — one on silence between engine frames,
+ * one on a tool input whose byte count stopped growing. Both inferred a dead
+ * stream from the absence of a particular event, and on the Anthropic
+ * transport that inference cannot be made: the SDK drops the provider's `ping`
+ * keepalives before any consumer sees them (`core/streaming.js`), so a model
+ * composing a large tool argument is indistinguishable from a wedged socket.
+ * Only a tool declared for eager input streaming emits anything at all while
+ * its arguments are generated, so the silent case is ORDINARY, not
+ * exceptional.
+ *
+ * They were added to make runs more reliable and did the opposite: of 27
+ * one-shot analyst runs in production, 2 completed. Deleting them leaves the
+ * bounds that key off evidence rather than absence — the engine's own
+ * first-event abort, the run-manager backstop outside the stream, the per-tool
+ * execution timeout, the chunk budget, and the stale reaper. Reintroducing a
+ * clock here needs a liveness signal this process can actually observe.
  */
-export const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
-
-/**
- * Default in-loop watchdog for silence between engine stream frames. Read
- * through `resolveModelStreamNoProgressTimeoutMs`, never directly.
- */
-export const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
 
 /**
  * Consecutive chunks allowed to end on the SAME terminal error code having
@@ -276,9 +284,6 @@ export function assertRunLifecycleInvariants(agent: AppConfig["agent"]): void {
   // the relationship below extended to cover it.
   const { backgroundNoProgressTimeoutMs, backgroundRunHardTimeoutMs } = agent;
   const backgroundSoftTimeoutCeilingMs = BACKGROUND_SOFT_TIMEOUT_CEILING_MS;
-  const modelStreamNoProgressTimeoutMs = MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
-  const actionPreparationNoProgressTimeoutMs =
-    ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS;
   const maxBackgroundRunContinuations = MAX_BACKGROUND_RUN_CONTINUATIONS;
   const maxConsecutiveNoProgressContinuations =
     MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS;
@@ -306,20 +311,6 @@ export function assertRunLifecycleInvariants(agent: AppConfig["agent"]): void {
 
   // A disabled backstop (0) has no ordering to satisfy — it never fires.
   if (backgroundNoProgressTimeoutMs > 0) {
-    require("in-loop watchdog before the run-manager backstop", {
-      key: "agent.modelStreamNoProgressTimeoutMs",
-      value: modelStreamNoProgressTimeoutMs,
-    }, {
-      key: "agent.backgroundNoProgressTimeoutMs",
-      value: backgroundNoProgressTimeoutMs,
-    }, "the in-loop watchdog emits a boundary the agent loop itself recovers; the run-manager backstop is the coarser one above it");
-    require("action-preparation watchdog before the run-manager backstop", {
-      key: "agent.actionPreparationNoProgressTimeoutMs",
-      value: actionPreparationNoProgressTimeoutMs,
-    }, {
-      key: "agent.backgroundNoProgressTimeoutMs",
-      value: backgroundNoProgressTimeoutMs,
-    }, "a stalled argument stream must be caught by the watchdog that knows which tool stalled");
     require("background backstop inside the background chunk budget", {
       key: "agent.backgroundNoProgressTimeoutMs",
       value: backgroundNoProgressTimeoutMs,

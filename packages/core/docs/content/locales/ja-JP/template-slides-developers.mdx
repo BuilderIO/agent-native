@@ -1,0 +1,492 @@
+---
+title: "スライド: 開発者ガイド"
+description: "スライドのデータモデル、永続化モデル、完全な action 一覧、ルート、そしてテンプレートをカスタマイズまたは拡張する際によく変更する場所。"
+---
+
+# 開発者ガイド
+
+このページは、スライド テンプレートをカスタマイズしたり拡張したりする人のためのものです。SQL データモデル、同時に書き込む相手を安全に保つ方法、エージェントが呼び出せるすべての action、ルート マップ、そしてよく変更する場所を扱います。
+
+## クイックスタート
+
+```bash
+npx @agent-native/core@latest create my-slides --standalone --template slides
+```
+
+残りのセットアップ (`cd`、`pnpm install`、`pnpm dev`) とフレームワークの基礎については、[はじめに](/docs/getting-started) を参照してください。
+
+## 永続化モデル
+
+各デッキは `decks.data` の中の 1 つの JSON ブロブです。すべての書き込みは、デッキごとのロックを保持するサーバー側の read-modify-write action を経由します。そのため、同じデッキの異なるスライドに触れる複数の書き込み者、つまり人間とエージェント、あるいは 2 人の人間が、互いの作業を上書きすることはありません。
+
+- **エージェントの actions** (`add-slide`、`update-slide`) は、それぞれ専用の細粒度の action を使い、同じロックを共有します。
+- **ブラウザ エディター** は、デッキ全体を PUT する代わりに、`patch-deck` を通じて細粒度の操作 (`patch-slide`、`delete-slide`、`reorder-slides`、`add-slide`、`patch-deck-fields`) をキューに入れます。
+
+<Callout id="doc-block-slides10" tone="warning">
+
+エディターの保存パスを拡張する場合は、`patch-deck` を通じて新しい操作をキューに入れてください。デッキ全体の新しい PUT を追加しないでください。それでは、このロックが防いでいる「最後に書いた者が勝つ」競合を再び持ち込んでしまいます。
+
+</Callout>
+
+## データモデル
+
+すべてのデッキ データは、Drizzle ORM を介して SQL に存在します。スキーマ: `templates/slides/server/db/schema.ts`。
+
+<DataModel
+  id="doc-block-slides7"
+  title="スライドのデータモデル"
+  summary={
+    "デッキは decks.data の中に JSON としてスライドを保持します。コメント、バージョン、共有、デザイン システムはそれに付随します。"
+  }
+  entities={[
+    {
+      id: "decks",
+      name: "decks",
+      note: "スライドは data の中に JSON として存在し、ownableColumns を持つ",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          note: "例: deck-1712345-abc",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "JSON: { title, slides: [{ id, content, layout }] }",
+        },
+        {
+          name: "design_system_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "slide_comments",
+      name: "slide_comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "slide_id",
+          type: "text",
+          note: "コメントが存在するスライド",
+        },
+        {
+          name: "thread_id",
+          type: "text",
+          note: "スレッド化",
+        },
+        {
+          name: "parent_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "quoted_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "author_email",
+          type: "text",
+        },
+        {
+          name: "author_name",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "resolved",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_versions",
+      name: "deck_versions",
+      note: "復元用の特定時点のスナップショット",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "デッキ全体の JSON",
+        },
+        {
+          name: "change_label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "再利用可能なブランド トークン。ownableColumns を持つ",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "色 / タイポグラフィ / 間隔",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_share_links",
+      name: "deck_share_links",
+      note: "永続化された公開共有リンクのスナップショット",
+      fields: [
+        {
+          name: "token",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "slides",
+          type: "text",
+          note: "JSON スライドのスナップショット",
+        },
+        {
+          name: "aspect_ratio",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "decks",
+      to: "slide_comments",
+      kind: "1-n",
+      label: "コメント",
+    },
+    {
+      from: "decks",
+      to: "deck_versions",
+      kind: "1-n",
+      label: "スナップショット",
+    },
+    {
+      from: "design_systems",
+      to: "decks",
+      kind: "1-n",
+      label: "適用先",
+    },
+  ]}
+/>
+
+フレームワークの共有テーブル (`deck_shares`、`design_system_shares`) は、リソースごとにプリンシパル (ユーザーまたは組織) を閲覧者/編集者/管理者の役割にマッピングし、手書きではなく共有の `createSharesTable` ヘルパーを通じて作成されます。
+
+#### スライドの構造
+
+`decks.data` の中の各スライドは次のとおりです。
+
+```json
+{
+  "id": "slide-1",
+  "layout": "title",
+  "content": "<div class=\"fmd-slide\" style=\"...\">...</div>"
+}
+```
+
+`content` は生の HTML です。レンダラーは固定のアスペクト比と背景を提供し、HTML はその内側のすべてを提供します。豊富な埋め込みもサポートされています。手描きの図やライブでレンダリングされるチャートを、通常の HTML と並べてスライドの中に置くことができます。
+
+## Action 一覧
+
+### デッキのライフサイクル
+
+- `create-deck` — 新しいデッキ。任意でスライドを事前に入れておくことも、既存デッキのスライドをアトミックに一括置換することもできます。空のデッキにするには `slides` を省略するか `[]` を渡します。この action はアプリケーション状態を通じて新しいデッキを開きます。
+- `get-deck` — デッキ全体の JSON、またはコンパクトなスライド概要ビュー
+- `list-decks` — 呼び出し元が見られるすべてのデッキ。安価なポーリングのための light/compact/full-slide の射影付き
+- `duplicate-deck` — 新しいスライド id でデッキを複製する
+- `update-deck-aspect-ratio` — 16:9、1:1、9:16、または 4:5
+
+`add-deck`、`save-deck`、`delete-deck` は、ブラウザ エディターの楽観的な作成、取り消し/やり直し、削除のフローを支えています。エージェントは代わりに `create-deck`、`add-slide`/`update-slide`/`patch-deck`、そしてフレームワーク自体の共有 actions を使います。
+
+### アクセス リクエスト
+
+- `request-deck-access`、`approve-deck-access-request`、`get-deck-access-status` — 非公開デッキへのアクセス リクエスト フローです。アクセス権のない訪問者がリクエストし、所有者がアプリまたは `/access-request/approve` ルートから承認または拒否し、どちらの側からも現在の状態をポーリングできます。
+
+### スライドの編集
+
+- `add-slide` — 1 つのスライドを末尾に追加する (または指定した位置に挿入する)。エディターが進行状況を表示できるように、空の `create-deck` の後に順番に呼び出します。
+- `update-slide` — 外科的な検索/置換、またはスライド全体のコンテンツ編集
+- `patch-deck` — デッキ全体の PUT の代わりにブラウザ エディターが使う、細粒度の操作キュー
+- `get-layout-overflows` — ブラウザで計測されたスライドの収まり具合の結果を読み取り、レイアウトに収まらなくなった編集を検知して修正できるようにする
+
+### 履歴
+
+- `list-deck-versions`、`get-deck-version`、`restore-deck-version` — すべての書き込みは先にスナップショットを取るので、どの時点でも一覧表示し、復元できます
+
+### コメント
+
+- `list-slide-comments`、`add-slide-comment`、`update-slide-comment`、`delete-slide-comment`
+
+### インポート
+
+- `import-pptx`、`import-docx`、`import-google-doc` — 単一形式専用のインポーター
+- `import-google-slides-reference` — Google Slides のデッキを、作業中のデッキにコンテンツを取り込むのではなく、再利用可能な参照デッキとしてインポートする
+- `import-file` — PPTX、DOCX、PDF、または Figma の `.fig` ファイル (これはスライドのインポートではなく Builder のデザイン システム インデックス作成に振り分けられます) のための単一のエントリ ポイント
+- `extract-pdf` — PDF の生テキストを取り出す CLI 専用の機能で、主にローカルでのデバッグ用
+
+### エクスポート
+
+- `export-pptx` — ネイティブで編集可能な PowerPoint
+- `export-google-slides` — 同じ PPTX と、すぐに使える Google Slides インポート用リンクを生成する
+- `export-html` — キーボード ナビゲーションを内蔵した、スタンドアロンの自己完結型 HTML ファイル
+
+### デザイン システム
+
+- `create-design-system`、`update-design-system`、`delete-design-system`、`get-design-system`、`list-design-systems`、`set-default-design-system`、`apply-design-system` (デッキに 1 つをリンクする)
+- `get-workspace-defaults`、`set-workspace-defaults` — ワークスペース全体の既定デッキと既定デザイン システム。設定できるのは管理者だけです
+- `analyze-brand-assets`、`import-document`、`import-from-url`、`import-code` — **ローカル** で、エージェントが草案を作るデザイン システムのために、生のブランド情報 (Web サイトの CSS/フォント、アップロードされたドキュメントやコード ファイルの内容) を収集する
+- `index-design-system-with-builder`、`sync-design-system-with-builder`、`import-design-project` — Figma ファイル、接続されたコード/GitHub リポジトリ、`design.md` のための Builder インデックス化パス。`import-design-project` は、生のソースではなく既存のデザイン システムから始まります
+
+### Creative Context
+
+- `clone-context-slide` — Creative Context ライブラリに固定された 1 枚のスライドを、HTML/CSS を再生成せずにそのままデッキに挿入する
+- `clone-creative-context-deck` — 統制された正確な 1 つのデッキ バージョンを再現する
+- `get-deck-reference-context` — 既存デッキのビジュアル言語を、再利用可能なパターン ライブラリとして抽出する
+- 検索や、Creative Context ライブラリへの提出 (検索、コンテキスト項目の取得、ライブラリ メンバーシップの管理) は、Creative Context をサポートするすべてのアプリでエージェントが同じ方法で呼び出す、フレームワーク共有の actions です。検索手順と再利用のはしごについては `creative-context` skill を参照してください。
+
+### エスカレーションとステージング済みデータ
+
+- `provider-api-catalog`、`provider-api-docs`、`provider-api-request` — 用意された import/export の action では狭すぎる場合の、生の Google Drive API アクセス。スライドは、ユーザーが接続した Google ドキュメント アカウントから認証を解決します
+- `list-staged-datasets`、`query-staged-dataset`、`delete-staged-dataset` — 大きなプロバイダーの結果を再取得せずに集計する、ステージング機能
+
+### ナビゲーションとコンテキスト
+
+- `view-screen` — ユーザーが現在見ているもの。開いているデッキ、現在のスライド、アクティブな視覚的選択
+- `navigate` — UI をデッキ、スライド、またはビューに移動する
+
+## ルート リファレンス
+
+| ルート                           | レンダリングされるもの                                                           |
+| -------------------------------- | -------------------------------------------------------------------------------- |
+| `/`                              | 公開のマーケティング/SEO ランディング ページ                                     |
+| `/home`                          | デッキ一覧、非公開のアプリ ホーム                                                |
+| `/deck/:id`                      | エディター                                                                       |
+| `/deck/:id/present`              | 全画面のプレゼンテーション                                                       |
+| `/p/:id`                         | 公開/エージェントが読み取れるライブのデッキ プレビュー。`/share/:token` とは別物 |
+| `/share/:token`                  | 公開の読み取り専用スナップショット。共有時点で固定                               |
+| `/slide`                         | チャット プレビューで使われる単一スライドの埋め込み                              |
+| `/design-systems`                | 保存済みデザイン システムの管理                                                  |
+| `/access-request/approve`        | 非公開デッキへのアクセス リクエストを承認                                        |
+| `/agent`、`/extensions`、`/team` | 対応する `/settings` タブへリダイレクト                                          |
+
+## カスタマイズする
+
+スライド テンプレートは完全にカスタマイズ可能です。拡張するときに確認すべき主な場所は次のとおりです。
+
+#### Actions — `templates/slides/actions/`
+
+エージェントが呼び出し可能なすべての操作は、TypeScript ファイルとしてここに存在します。`POST /_agent-native/actions/:name` に自動的にマウントされ、CLI から `pnpm action <name>` として呼び出せます。ここに新しいファイルを追加して、エージェントに新しい機能を与えます。
+
+<AnnotatedCode
+  id="doc-block-slides9"
+  title="スライド編集 action の構造"
+  filename="actions/update-slide.ts (simplified)"
+  language="ts"
+  code={
+    'import { defineAction, fail } from "@agent-native/core/action";\nimport { assertAccess } from "@agent-native/core/sharing";\nimport { eq } from "drizzle-orm";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { notifyClients } from "../server/handlers/decks.js";\nimport { withDeckLock } from "./patch-deck.js";\n\nexport default defineAction({\n  description:\n    "Surgically edit a slide\'s content using search-replace or full replacement. " +\n    "Syncs live to open editors. Prefer this over full deck rewrites.",\n  schema: z.object({\n    deckId: z.string(),\n    slideId: z.string(),\n    find: z.string().optional(),\n    replace: z.string().optional(),\n    fullContent: z.string().optional(),\n  }),\n  run: async ({ deckId, slideId, find, replace, fullContent }) => {\n    await assertAccess("deck", deckId, "editor");\n    return withDeckLock(deckId, async () => {\n      const db = getDb();\n      const [row] = await db\n        .select()\n        .from(schema.decks)\n        .where(eq(schema.decks.id, deckId));\n      if (!row) {\n        fail(`Deck ${deckId} not found`, { errorCode: "deck_not_found", statusCode: 404 });\n      }\n\n      const deck = JSON.parse(row.data);\n      const slide = deck.slides.find((s: { id: string }) => s.id === slideId);\n      if (!slide) {\n        fail(`Slide ${slideId} not found`, { errorCode: "slide_not_found", statusCode: 404 });\n      }\n\n      if (fullContent) {\n        slide.content = fullContent;\n      } else if (find) {\n        const idx = slide.content.indexOf(find);\n        if (idx === -1) {\n          fail("Text not found", { errorCode: "slide_find_no_match" });\n        }\n        slide.content =\n          slide.content.slice(0, idx) +\n          (replace ?? "") +\n          slide.content.slice(idx + find.length);\n      }\n\n      deck.updatedAt = new Date().toISOString();\n      await db\n        .update(schema.decks)\n        .set({ data: JSON.stringify(deck), updatedAt: deck.updatedAt })\n        .where(eq(schema.decks.id, deckId));\n\n      notifyClients(deckId, { slideId, actor: "agent" });\n      return { ok: true, deckId, slideId };\n    });\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "22",
+      label: "アクセス チェック",
+      note: "呼び出し元がこのデッキの少なくとも編集者でない場合、`assertAccess` は他の何かが実行される前に例外を投げます。",
+    },
+    {
+      lines: "23",
+      label: "デッキごとのロック",
+      note: "`withDeckLock` は、これを同じデッキへの他のすべての書き込みと直列化します。`add-slide` とブラウザの `patch-deck` は同じロックを共有するので、異なるスライドに触れる 2 つの書き込み者が互いを上書きすることはありません。",
+    },
+    {
+      lines: "29-37",
+      label: "大声で失敗する。黙って返さない",
+      note: '`fail(...)` は、単純な値を返す代わりに構造化されたエラーを投げます。この action は以前、一致しなかった場合に `{ ok: false, message: "Text not found" }` を返していましたが、呼び出し元はこれを成功として読み取ってしまいやすいものでした。デッキが変更されなかったことを確実に伝えられる唯一の経路は、例外を投げることです。',
+    },
+    {
+      lines: "39-51",
+      label: "外科的な編集",
+      note: "`find`/`replace` の組は、一致したテキストだけを変更し、一致しない場合も今では大声で失敗するようになっています。`fullContent` はスライド全体を入れ替えます。実際の編集には、より狭い形式を優先してください。",
+    },
+    {
+      lines: "53-57",
+      label: "SQL が信頼できる情報源",
+      note: "デッキ全体は `decks.data` の中の 1 つの JSON ブロブです。別の `slides` テーブルはないので、すべての書き込みはその 1 つの列を読み取り、編集し、書き直します。",
+    },
+    {
+      lines: "59",
+      label: "ライブ同期",
+      note: "`notifyClients` は、開いているすべてのエディターに変更を即座にプッシュします。ポーリングはフォールバック パスです。[リアルタイム コラボレーション](/docs/real-time-collaboration) を参照してください。",
+    },
+  ]}
+/>
+
+実際の action は、編集モードがちょうど 1 つだけ指定されていることを検証し、書き込み前にバージョンをスナップショットし、古い読み取りが新しいものを黙って上書きすることのないよう楽観的並行性チェックを行いながら書き込みます。さらに、Creative Context の再利用の出自を記録し、エディターがレイアウトのオーバーフロー計測を報告するのを短時間待つことも行います。この例は、それらすべてを、アクセス、ロック、read-modify-write、通知という中核の形に切り詰めたものです。
+
+#### レイアウト
+
+<FileTree
+  id="doc-block-slides8"
+  title="templates/slides/ の構造"
+  entries={[
+    {
+      path: "actions/create-deck.ts",
+      note: "新しいデッキ。任意でスライドを事前に入れておくことも、アトミックな一括置換もできる",
+    },
+    {
+      path: "actions/add-slide.ts",
+      note: "1 つのスライドを末尾に追加する。ストリーミング生成に使われる",
+    },
+    {
+      path: "actions/update-slide.ts",
+      note: "検索/置換、またはスライド全体のコンテンツ編集",
+    },
+    {
+      path: "actions/patch-deck.ts",
+      note: "デッキ全体の PUT の代わりにブラウザ エディターが使う細粒度の操作",
+    },
+    {
+      path: "actions/index-design-system-with-builder.ts",
+      note: "Figma、GitHub、またはコードから Builder のデザイン システム インデックス作成を開始する",
+    },
+    {
+      path: "app/routes/deck.$id.tsx",
+      note: "デッキ エディター",
+    },
+    {
+      path: "app/routes/deck.$id_.present.tsx",
+      note: "全画面のプレゼンテーション モード",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "フルページの Agent タブ",
+    },
+    {
+      path: "app/routes/p.$id.tsx",
+      note: "公開/エージェントが読み取れる単一デッキのプレビュー",
+    },
+    {
+      path: "app/routes/share.$token.tsx",
+      note: "公開の読み取り専用スナップショット ページ",
+    },
+    {
+      path: "app/components/editor/",
+      note: "スライド キャンバス、ツールバー、サイドバー、各パネル",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "decks, slide_comments, deck_versions, design_systems, deck_share_links",
+    },
+    {
+      path: ".agents/skills/create-deck/SKILL.md",
+      note: "すべてのレイアウトの正確なスライド HTML テンプレート",
+    },
+    {
+      path: ".agents/skills/creative-context/SKILL.md",
+      note: "再利用のはしごと検索手順",
+    },
+  ]}
+/>
+
+エディターの UI カスタマイズの大部分は `app/components/editor/` の下で行われます。スライド キャンバス、ツールバー、サイドバー、バブル メニュー、スラッシュ メニュー、履歴パネルです。
+
+#### Skills — `templates/slides/.agents/skills/`
+
+エージェントがコードを変更する必要があるときにパターンを説明する、エージェント skills です。
+
+- `create-deck` — 新しいデッキの作成方法。すべてのレイアウトの正確なスライド HTML テンプレート付き
+- `slide-editing` — 個々のスライドの編集方法
+- `deck-management` — デッキの保存方法とアクセス方法
+- `design-systems` — デザイン システムのデータ形式と、トークンが生成されたスライドにどのように適用されるか
+- `creative-context` — 再利用のはしご、検索手順、Creative Context ライブラリへの提出
+
+#### AGENTS.md
+
+`templates/slides/AGENTS.md` は、エージェントがすべての会話で読み取る短いルーターです。これは `.agents/skills/` の下の skills を指し、コア ルール、永続化モデル、アプリケーション状態のコントラクトをレイアウトします。スライドのレイアウトやデザイン システムのソースを追加または変更するたびに、関連する skill を更新してください。
+
+## 次は何ですか
+
+- [**機能**](/docs/template-slides-features) — このデータモデルが支える、ユーザー向けの編集、プレゼン、共有、デザイン システム、インポート/エクスポートのフロー
+- [**Agent との対話**](/docs/template-slides-agent) — タスク別のプロンプトと、エージェントが見ているもの
+- [**マルチアプリ ワークスペースでのスライドのクロスアプリ利用**](/docs/template-slides-integrations) — これらの actions がスライドの外部にどのように公開されるか
+- [**共有**](/docs/sharing) — `deck_shares` と `design_system_shares` が基盤とする共有権限モデル
+- [**リアルタイム コラボレーション**](/docs/real-time-collaboration) — デッキが他の共同編集サーフェスと共有する Yjs パイプライン
+- [**スライド概要**](/docs/template-slides) — アプリの概要に戻る

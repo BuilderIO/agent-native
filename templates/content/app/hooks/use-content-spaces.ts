@@ -18,12 +18,36 @@ export type ContentSpaceSummary = {
 };
 
 export type ListContentSpacesResponse = {
+  sourceMode: "database" | "local-files";
   catalogDatabaseId: string;
   catalogDocumentId: string;
   favoritesDatabaseId: string | null;
   favoritesDocumentId: string | null;
+  needsReconciliation: boolean;
+  reconciliationKey: string;
   spaces: ContentSpaceSummary[];
 };
+
+export function shouldAutoEnsureContentSpaces({
+  querySucceeded,
+  reconciliationNeeded,
+  reconciliationKey,
+  attemptedReconciliationKey,
+  provisioningPending,
+}: {
+  querySucceeded: boolean;
+  reconciliationNeeded: boolean;
+  reconciliationKey: string;
+  attemptedReconciliationKey: string | null;
+  provisioningPending: boolean;
+}) {
+  return (
+    querySucceeded &&
+    reconciliationNeeded &&
+    reconciliationKey !== attemptedReconciliationKey &&
+    !provisioningPending
+  );
+}
 
 export function useContentSpaces() {
   return useActionQuery<ListContentSpacesResponse>(
@@ -38,6 +62,7 @@ export function useContentSpaces() {
 export function useEnsureContentSpaces() {
   const queryClient = useQueryClient();
   return useActionMutation("ensure-content-spaces", {
+    skipActionQueryInvalidation: true,
     onSuccess: async () => {
       await queryClient.refetchQueries({
         queryKey: ["action", "list-content-spaces"],

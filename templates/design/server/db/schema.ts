@@ -6,6 +6,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const designs = table("designs", {
   id: text("id").primaryKey(),
@@ -26,6 +27,16 @@ export const designs = table("designs", {
 });
 
 export const designShares = createSharesTable("design_shares");
+
+export const designAccessRequests = table("design_access_requests", {
+  id: text("id").primaryKey(),
+  designId: text("design_id").notNull(),
+  requesterEmail: text("requester_email").notNull(),
+  requesterName: text("requester_name").notNull(),
+  requestedAt: text("requested_at").notNull().default(now()),
+  notifiedAt: text("notified_at"),
+  notificationClaimedAt: text("notification_claimed_at"),
+});
 
 /**
  * Reusable starting points captured from a Design project. Template metadata
@@ -78,9 +89,7 @@ export const designSystems = table("design_systems", {
   data: text("data").notNull(),
   assets: text("assets"),
   customInstructions: text("custom_instructions").notNull().default(""),
-  isDefault: integer("is_default", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  isDefault: boolean("is_default").notNull().default(false),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
@@ -109,6 +118,8 @@ export const designVersions = table("design_versions", {
   designId: text("design_id").notNull(),
   label: text("label"),
   snapshot: text("snapshot").notNull(),
+  chatContext: text("chat_context"),
+  fileCount: integer("file_count"),
   createdAt: text("created_at").default(now()),
 });
 

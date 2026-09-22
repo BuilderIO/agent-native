@@ -130,6 +130,7 @@ body {
   min-height: 0;
   height: auto;
   overflow: hidden;
+  position: relative;
 }
 
 /* ─── Windows/Linux custom window controls ───────────────────── */
@@ -238,7 +239,7 @@ body {
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
-  --agent-native-lower-surface: hsl(var(--sidebar-background));
+  --agent-native-lower-surface: var(--agent-kit-nav-surface);
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -248,31 +249,27 @@ body {
   background: var(--shell-bg);
 }
 
-/* Keep the chat composer aligned with the desktop rail, not the darker app
-   sidebar surface that contains it. */
+/* Keep the light chat composer distinct from the rail while preserving the
+   stronger focus ring for keyboard and pointer focus. */
 .light
   .desktop-chat-first-hub
   [data-chat-first-app-pane]
   .agent-sidebar-panel
   .agent-composer-root {
-  background: hsl(var(--sidebar-background));
+  background: hsl(var(--card));
+}
+
+.light
+  .desktop-chat-first-hub
+  [data-chat-first-app-pane]
+  .agent-sidebar-panel
+  .agent-composer-root:not(:focus-within) {
+  border-color: hsl(var(--border));
 }
 
 @supports (background: color-mix(in srgb, white, black)) {
   .desktop-chat-first-hub {
-    --agent-native-lower-surface: color-mix(
-      in srgb,
-      hsl(var(--sidebar-background)) 98%,
-      hsl(var(--code-agents-dark-shadow)) 2%
-    );
-  }
-
-  .dark .desktop-chat-first-hub {
-    --agent-native-lower-surface: color-mix(
-      in srgb,
-      hsl(var(--sidebar-background)) 94%,
-      hsl(var(--code-agents-dark-shadow)) 6%
-    );
+    --agent-native-lower-surface: var(--agent-kit-nav-surface);
   }
 }
 
@@ -286,7 +283,6 @@ body {
 .desktop-chat-first-hub > .code-agents-surface {
   min-width: 0;
   min-height: 0;
-  transition: grid-template-columns 200ms var(--ease-collapse);
 }
 
 .desktop-chat-first-hub
@@ -341,9 +337,9 @@ body {
   -webkit-app-region: drag;
 }
 
-/* Collapsed macOS rails use a fixed-width custom cluster because native
-   traffic lights cannot expose only two buttons. Keep it at shell level so it
-   remains above the settings surface. */
+/* Collapsed macOS rails use a fixed-width custom cluster while the native
+   traffic lights are hidden. Keep it at shell level so it remains above the
+   settings surface. */
 .desktop-chat-first-mac-window-controls {
   display: none;
 }
@@ -359,87 +355,30 @@ body {
   position: absolute;
   z-index: 20;
   top: 8px;
-  left: 10px;
-  width: 76px;
+  left: 8px;
+  width: 48px;
   height: 28px;
   -webkit-app-region: no-drag;
 }
 
-.collapsed-mac-window-controls::before {
-  position: absolute;
-  z-index: 0;
-  top: -3px;
-  left: -5px;
-  width: 78px;
-  height: 28px;
-  border: 1px solid hsl(var(--sidebar-foreground) / 0.14);
-  border-radius: 999px;
-  background-color: hsl(var(--sidebar-background));
-  box-shadow: 0 4px 14px hsl(var(--sidebar-background) / 0.42);
-  content: "";
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--ease-collapse);
-}
-
 .collapsed-mac-window-controls .win-btn {
   position: absolute;
-  z-index: 1;
   top: 5px;
   width: 12px;
   height: 12px;
   padding: 0;
-  transition:
-    opacity var(--ease-collapse),
-    transform var(--ease-collapse);
 }
 
 .collapsed-mac-window-controls .win-btn--close {
-  left: 4px;
+  left: 2px;
 }
 
 .collapsed-mac-window-controls .win-btn--minimize {
-  left: 27px;
+  left: 18px;
 }
 
 .collapsed-mac-window-controls .win-btn--maximize {
-  left: 50px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-7px) scale(0.86);
-}
-
-.collapsed-mac-window-controls:hover::before,
-.collapsed-mac-window-controls:focus-within::before {
-  opacity: 1;
-}
-
-.collapsed-mac-window-controls:hover .win-btn--maximize,
-.collapsed-mac-window-controls:focus-within .win-btn--maximize {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0) scale(1);
-}
-
-.platform-darwin
-  .shell:has(.settings-overlay)
-  .collapsed-mac-window-controls::before,
-.platform-darwin
-  .shell:has(.settings-overlay)
-  .collapsed-mac-window-controls:hover::before,
-.platform-darwin
-  .shell:has(.settings-overlay)
-  .collapsed-mac-window-controls:focus-within::before {
-  opacity: 0;
-}
-
-.platform-darwin
-  .shell:has(.settings-overlay)
-  .collapsed-mac-window-controls
-  .win-btn--maximize {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0) scale(1);
+  left: 34px;
 }
 
 .collapsed-mac-window-controls .win-btn:focus-visible {
@@ -477,6 +416,14 @@ body {
   span,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
+  .desktop-chat-first-rail-chat
+  span,
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  .desktop-chat-first-rail-settings
+  span,
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
   .code-agents-rail-footer
   > .update-indicator
   > span {
@@ -507,8 +454,11 @@ body {
 }
 
 .desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-run-list {
-  visibility: hidden;
-  pointer-events: none;
+  display: none;
+}
+
+.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-rail-scroll {
+  scrollbar-gutter: auto;
 }
 
 .desktop-chat-first-hub .code-agents-rail--collapsed [data-chat-first-notice] {
@@ -950,7 +900,8 @@ body {
 }
 
 .code-agents-rail-footer {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 1px;
   border-top: 1px solid hsl(var(--sidebar-border));
   padding: 8px;
@@ -1016,6 +967,22 @@ body {
 
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
+  .desktop-chat-first-rail-settings {
+  width: 40px;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  .desktop-chat-first-rail-chat {
+  width: 40px;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
   [data-chat-first-rail-collapse] {
   background: hsl(var(--sidebar-accent));
   color: hsl(var(--sidebar-accent-foreground));
@@ -1028,20 +995,23 @@ body {
   color: hsl(var(--sidebar-accent-foreground));
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .desktop-chat-first-hub > .code-agents-surface {
-    transition: none;
-  }
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-app][data-app-id] {
+  background-color: transparent;
+}
 
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-app][data-app-id]:hover {
+  background-color: hsl(var(--sidebar-accent));
+}
+
+@media (prefers-reduced-motion: reduce) {
   .desktop-chat-first-mac-window-controls,
   .collapsed-mac-window-controls,
-  .collapsed-mac-window-controls::before,
   .collapsed-mac-window-controls .win-btn {
     transition: none;
-  }
-
-  .collapsed-mac-window-controls .win-btn--maximize {
-    transform: none;
   }
 }
 
@@ -1065,6 +1035,14 @@ body {
   overflow: hidden;
   isolation: isolate;
   background: var(--shell-bg);
+}
+
+.desktop-app-webview-surface,
+.code-agents-embedded-app-surface {
+  border-radius: var(--agent-native-raised-radius, 8px) 0 0
+    var(--agent-native-raised-radius, 8px);
+  border-left: 0;
+  box-shadow: 0 0 0 1px hsl(var(--border));
 }
 
 .code-agents-primary-app-surface {
@@ -1159,16 +1137,6 @@ body {
 
 .desktop-identity-gate__heading {
   margin-bottom: 24px;
-}
-
-.desktop-identity-gate__app-name {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--label-inactive);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .desktop-identity-gate__heading h1 {

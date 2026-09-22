@@ -12,6 +12,24 @@ export function isLunaModel(model: string): boolean {
   return model.toLowerCase().includes("luna");
 }
 
+export function isClaudeModelId(model: string): boolean {
+  return model.toLowerCase().startsWith("claude-");
+}
+
+export function filterModelGroupsForAgent<T extends ComposerModelGroupLike>(
+  agentId: string | undefined,
+  groups: readonly T[],
+): T[] {
+  if (!isClaudeCodeAgentId(agentId)) return [...groups];
+  return groups
+    .filter((group) => group.engine === "claude-cli")
+    .map((group) => ({
+      ...group,
+      models: group.models.filter(isClaudeModelId),
+    }))
+    .filter((group) => group.models.length > 0);
+}
+
 export function resolvePreferredAgentModel(
   agentId: string | undefined,
   groups: readonly ComposerModelGroupLike[],

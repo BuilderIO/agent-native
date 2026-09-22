@@ -82,8 +82,8 @@ export function useToggleBuiltinCapability() {
       return body;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: BUILTIN_CAPABILITIES_KEY });
-      qc.invalidateQueries({ queryKey: ["mcp-servers"] });
+      void qc.invalidateQueries({ queryKey: BUILTIN_CAPABILITIES_KEY });
+      void qc.invalidateQueries({ queryKey: ["mcp-servers"] });
     },
   });
 }

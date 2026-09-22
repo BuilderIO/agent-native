@@ -20,7 +20,6 @@ import {
   normalizeOrigin,
   rewriteRedirectLocation,
 } from "../packages/core/src/cli/gateway-helpers.ts";
-import { ensureNativeDependencies } from "../packages/core/src/cli/native-dependencies.ts";
 
 interface TemplateApp {
   id: string;
@@ -1056,7 +1055,7 @@ function appDatabaseEnv(app: TemplateApp): NodeJS.ProcessEnv {
   if (process.env[databaseUrlKey]) return {};
 
   return {
-    [databaseUrlKey]: `file:${path.join(app.dir, "data", "app.db")}`,
+    [databaseUrlKey]: `pglite:${path.join(app.dir, "data", "pglite")}`,
   };
 }
 
@@ -1114,53 +1113,69 @@ function startApp(app: TemplateApp): void {
   app.openSockets ??= 0;
 
   const basePath = `/${app.id}`;
-  const child = spawn(
-    "pnpm",
-    [
-      "--dir",
-      app.dir,
-      "exec",
-      "vite",
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(app.port),
-      "--strictPort",
-    ],
-    {
-      cwd: ROOT,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-      env: devWatcherEnv({
-        ...process.env,
-        ...appDatabaseEnv(app),
-        // Vite loads these files for import.meta.env, but Nitro server code
-        // reads process.env. Bridge only app-scoped values into the child;
-        // generic DATABASE_URL/BETTER_AUTH_SECRET remain workspace-owned so
-        // one template cannot silently change shared local auth or storage.
-        ...appLocalEnv(app),
-        ...appGoogleOAuthEnv(app),
-        // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
-        // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's
-        // stdout is a TTY, so ANSI codes pass straight through to the user.
-        FORCE_COLOR: "1",
-        APP_NAME: app.id,
-        AGENT_NATIVE_WORKSPACE: "1",
-        AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
-        APP_BASE_PATH: basePath,
-        VITE_AGENT_NATIVE_WORKSPACE: "1",
-        VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
-        VITE_APP_BASE_PATH: basePath,
-        VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(
-          process.env,
-          gatewayUrl,
-        ),
-        VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
-        PORT: String(app.port),
-        WORKSPACE_GATEWAY_URL: gatewayUrl,
-      }),
-    },
-  );
+  // spawn can throw synchronously (EBADF/EMFILE when the parent is out of
+  // descriptors) and can emit "error" asynchronously (ENOENT). Either one
+  // escaping this function kills the gateway process itself, which takes down
+  // every other template — including apps the user never touched. Keep the
+  // failure scoped to this app so one bad template cannot black out the
+  // workspace.
+  let child: ChildProcess;
+  try {
+    child = spawn(
+      "pnpm",
+      [
+        "--dir",
+        app.dir,
+        "exec",
+        "vite",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(app.port),
+        "--strictPort",
+      ],
+      {
+        cwd: ROOT,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
+        env: devWatcherEnv({
+          ...process.env,
+          ...appDatabaseEnv(app),
+          // Vite loads these files for import.meta.env, but Nitro server code
+          // reads process.env. Bridge only app-scoped values into the child;
+          // generic DATABASE_URL/BETTER_AUTH_SECRET remain workspace-owned so
+          // one template cannot silently change shared local auth or storage.
+          ...appLocalEnv(app),
+          ...appGoogleOAuthEnv(app),
+          // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
+          // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's
+          // stdout is a TTY, so ANSI codes pass straight through to the user.
+          FORCE_COLOR: "1",
+          APP_NAME: app.id,
+          AGENT_NATIVE_WORKSPACE: "1",
+          AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          APP_BASE_PATH: basePath,
+          VITE_AGENT_NATIVE_WORKSPACE: "1",
+          VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          VITE_APP_BASE_PATH: basePath,
+          VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(
+            process.env,
+            gatewayUrl,
+          ),
+          VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
+          PORT: String(app.port),
+          WORKSPACE_GATEWAY_URL: gatewayUrl,
+        }),
+      },
+    );
+  } catch (error) {
+    scheduleAppRestart(app, {
+      code: null,
+      output: app.outputTail ?? "",
+      logMessage: `failed to spawn dev server: ${(error as Error).message}`,
+    });
+    return;
+  }
 
   app.process = child;
   const prefix = colorPrefix(app.id);
@@ -1181,6 +1196,18 @@ function startApp(app: TemplateApp): void {
         !app.ready,
       ),
     );
+  });
+  child.on("error", (error) => {
+    app.process = undefined;
+    app.ready = false;
+    app.readinessProbe = undefined;
+    app.evicting = false;
+    if (shuttingDown) return;
+    scheduleAppRestart(app, {
+      code: null,
+      output: app.outputTail ?? "",
+      logMessage: `dev server process error: ${error.message}`,
+    });
   });
   child.on("exit", (code) => {
     const wasEvicting = app.evicting;
@@ -1790,14 +1817,6 @@ function ensureElectronBinary() {
   }
 }
 
-function runNativeBindingPreflight(): void {
-  ensureNativeDependencies({
-    fromDirectory: ROOT,
-    label: "dev-lazy",
-    repair: true,
-  });
-}
-
 function electronLazyEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
@@ -1886,8 +1905,6 @@ async function main(): Promise<void> {
     }
     return;
   }
-
-  runNativeBindingPreflight();
 
   if (includeElectron) {
     ensureElectronBinary();

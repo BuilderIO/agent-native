@@ -19,6 +19,17 @@ export interface CalendarEvent {
   /** Absolute Google Calendar web URL for Google events */
   htmlLink?: string;
   accountEmail?: string;
+  /** Provenance for a discovered Google calendar source. */
+  calendarSourceKey?: string;
+  /** Opaque stable identity for the provider calendar across account paths. */
+  canonicalKey?: string;
+  calendarId?: string;
+  calendarName?: string;
+  /** Provider color inherited from the event's calendar. */
+  calendarColor?: string;
+  calendarAccessRole?: GoogleCalendarSource["accessRole"];
+  calendarPrimary?: boolean;
+  calendarReadOnly?: boolean;
   /** Set when this event belongs to an overlaid person's calendar */
   overlayEmail?: string;
   /** Client-only marker for overlaid calendar ownership */
@@ -51,6 +62,8 @@ export interface CalendarEvent {
     self?: boolean;
     /** When true, the attendee is optional (Google Calendar `optional`). */
     optional?: boolean;
+    /** Number of additional guests represented by this attendee (Google Calendar `additionalGuests`). */
+    additionalGuests?: number;
     /**
      * Optional IANA timezone for this attendee (e.g. America/New_York).
      * Used to show their local time for the event start when known.
@@ -66,6 +79,8 @@ export interface CalendarEvent {
   hangoutLink?: string; // Google Meet link
   /** Meeting URL stored in location/description for non-Google providers such as Zoom */
   meetingLink?: string;
+  /** Action-result warning when optional video conferencing could not be provisioned. */
+  videoConferenceError?: "zoom";
   conferenceData?: {
     entryPoints?: Array<{
       entryPointType: string;
@@ -128,6 +143,49 @@ export interface CalendarEvent {
   _tempId?: string;
   /** Client-only: prior provider id retained while open UI state rebinds after replacement */
   _replacedId?: string;
+}
+
+type CalendarAttendee = NonNullable<CalendarEvent["attendees"]>[number];
+
+function additionalGuestCount(attendee: CalendarAttendee): number {
+  return typeof attendee.additionalGuests === "number" &&
+    Number.isFinite(attendee.additionalGuests) &&
+    attendee.additionalGuests > 0
+    ? Math.floor(attendee.additionalGuests)
+    : 0;
+}
+
+export function getCalendarAttendeeCount(
+  attendees: CalendarEvent["attendees"],
+): number {
+  return (attendees ?? []).reduce(
+    (count, attendee) => count + 1 + additionalGuestCount(attendee),
+    0,
+  );
+}
+
+export function getCalendarGuestCount(
+  attendees: CalendarEvent["attendees"],
+): number {
+  return (attendees ?? []).reduce(
+    (count, attendee) =>
+      count + (attendee.self ? 0 : 1) + additionalGuestCount(attendee),
+    0,
+  );
+}
+
+export function getCalendarAttendeeStatusCounts(
+  attendees: CalendarEvent["attendees"],
+): Record<string, number> {
+  return (attendees ?? []).reduce<Record<string, number>>(
+    (counts, attendee) => {
+      const status = attendee.responseStatus ?? "unknown";
+      counts[status] =
+        (counts[status] ?? 0) + 1 + additionalGuestCount(attendee);
+      return counts;
+    },
+    {},
+  );
 }
 
 export interface CalendarEventDraft {
@@ -271,10 +329,67 @@ export interface BookingHost {
   displayName?: string;
 }
 
+/**
+ * Whether one booking-link host's real working hours are being applied.
+ *
+ * Deliberately omits the server helper's `isOverlaidByOwner`: every row the
+ * action returns is overlaid by the owner by construction, so shipping the
+ * flag would only invite a redundant client-side check.
+ *
+ * There is no row for a manual raw-email host. Those are never in the owner's
+ * overlay list, and reporting on arbitrary addresses would make the action an
+ * probing oracle — the editor derives that state locally instead.
+ */
+export interface HostOverlayStatusResult {
+  email: string;
+  reciprocal: boolean;
+  hasWorkingHours: boolean;
+  timezone?: string;
+  displayName?: string;
+  /** ISO timestamp of the last overlay-access request sent to this host. */
+  requestSentAt?: string;
+}
+
+/**
+ * Whether an overlaid peer has added the owner back. Carries no
+ * `hasWorkingHours` field on purpose — this read never evaluates the peer's
+ * schedule, and an absent field cannot be mistaken for an evaluated `false`.
+ */
+export interface OverlayReciprocityResult {
+  email: string;
+  reciprocal: boolean;
+  displayName?: string;
+}
+
+export interface SendOverlayRequestResult {
+  email: string;
+  /**
+   * `null` means nothing was sent and nothing was recorded. It must stay
+   * distinguishable from a real timestamp — defaulting it to "now" would
+   * report a send that never happened.
+   */
+  requestSentAt: string | null;
+  emailSent: boolean;
+  skippedReason?: "email-not-configured" | "send-in-progress";
+}
+
+/**
+ * A required co-host as shown to anonymous visitors of the public booking
+ * page: a display label derived from their email/displayName, never the raw
+ * address, plus their time zone when eligible for hard-filtering.
+ */
+export interface PublicBookingHost {
+  id: string;
+  label: string;
+  timezone?: string;
+}
+
 export interface Booking {
   id: string;
   name: string;
   email: string;
+  /** Additional invitees included on the booking */
+  additionalGuestEmails?: string[];
   eventTitle: string;
   start: string; // ISO 8601
   end: string; // ISO 8601
@@ -302,6 +417,12 @@ export interface BookingLink {
   durations?: number[];
   /** Required co-hosts in addition to the booking link owner */
   hosts?: BookingHost[];
+  /**
+   * Sanitized co-host labels for anonymous visitors. Only populated on the
+   * public booking-link read response, in place of `hosts`, which carries
+   * raw emails and is never sent publicly.
+   */
+  publicHosts?: PublicBookingHost[];
   /** Custom fields shown on the booking form */
   customFields?: CustomField[];
   /** Video conferencing configuration */
@@ -310,13 +431,57 @@ export interface BookingLink {
   isActive: boolean;
   /** Sharing visibility: private (default), org, or public */
   visibility?: "private" | "org" | "public";
+  /**
+   * The owner's booking time zone. Only populated on the public booking-link
+   * read response, for display in a multi-time-zone grid.
+   */
+  ownerTimezone?: string;
+  /**
+   * The owner's public display name, derived from their username/email
+   * without exposing the raw address. Only populated on the public
+   * booking-link read response, so anonymous visitors can identify who
+   * they're booking with.
+   */
+  ownerName?: string;
+  /** Effective management role for the current caller, when loaded from a list. */
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   createdAt: string;
   updatedAt: string;
 }
 
 export interface GoogleAuthStatus {
+  configured?: boolean;
   connected: boolean;
-  accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
+  accounts: Array<{
+    email: string;
+    expiresAt?: string;
+    photoUrl?: string;
+    shared?: boolean;
+  }>;
+}
+
+export interface GoogleCalendarSource {
+  /** Opaque selected account-backed fetch path. */
+  sourceKey: string;
+  /** Opaque stable identity for this provider calendar across account paths. */
+  canonicalKey: string;
+  /** Deterministically selected connected account path used for provider reads. */
+  accountEmail: string;
+  calendarId: string;
+  name: string;
+  color?: string;
+  selected: boolean;
+  primary: boolean;
+  accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
+  /** Sources without event detail access are discoverable but cannot be read. */
+  readOnly: boolean;
+  /** Every connected-account path that can reach this canonical source. */
+  sourcePaths?: Array<{
+    sourceKey: string;
+    accountEmail: string;
+    accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
+    primary: boolean;
+  }>;
 }
 
 export interface ExternalCalendar {

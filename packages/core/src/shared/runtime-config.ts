@@ -340,7 +340,7 @@ export function getRuntimeConfigReport(
           {
             code: "missing-database-url",
             title: "Production has no persistent database URL",
-            message: `Set ${dbKeys.join(", ")} to a persistent SQL database. Local SQLite is a development fallback and is not safe for a serverless production deploy.`,
+            message: `Set ${dbKeys.join(", ")} to a persistent Postgres database. Local PGlite is development-only and is not safe for a serverless production deploy.`,
             envKeys: dbKeys,
           },
           environment,

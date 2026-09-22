@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   AGENT_ACCESS_PARAM,
@@ -14,7 +15,7 @@ import {
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildPublicDocumentDescription } from "@shared/og-description";
-import { IconLock, IconMessageCircle } from "@tabler/icons-react";
+import { IconLayoutSidebarRight, IconLock } from "@tabler/icons-react";
 import { eq } from "drizzle-orm";
 import { useEffect, useState } from "react";
 import type {
@@ -29,6 +30,7 @@ import { VisualEditor } from "@/components/editor/VisualEditor";
 import { getDb, schema } from "../../server/db";
 import {
   buildContentDocumentAgentDiscovery,
+  contentDocumentMcpInstructionText,
   buildContentPublicDocumentUrl,
   DOCUMENT_AGENT_RESOURCE_KIND,
 } from "../../shared/agent-readable";
@@ -44,12 +46,14 @@ type PublicDocumentLoaderData =
       };
       agentAccessToken: string | null;
       basePath: string;
+      origin: string;
       unavailable?: undefined;
     }
   | {
       document: null;
       agentAccessToken: null;
       basePath: string;
+      origin: string;
       unavailable: { reason: "private"; id: string; basePath: string };
     };
 
@@ -78,6 +82,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const agentAccessToken = new URL(request.url).searchParams.get(
     AGENT_ACCESS_PARAM,
   );
+  const origin = new URL(request.url).origin;
 
   // This is a server loader; use the server-side base-path helper
   // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
@@ -117,6 +122,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
         document: doc,
         agentAccessToken: tokenAccess ? agentAccessToken : null,
         basePath,
+        origin,
       },
       tokenAccess,
     );
@@ -135,6 +141,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     document: null,
     agentAccessToken: null,
     basePath,
+    origin,
     unavailable: { reason: "private" as const, id, basePath },
   });
 }
@@ -145,6 +152,23 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
     title,
     content: loaderData?.document?.content,
   });
+  const documentId = loaderData?.document?.id ?? loaderData?.unavailable?.id;
+  const discovery = documentId
+    ? buildContentDocumentAgentDiscovery({
+        document: {
+          id: documentId,
+          title: loaderData?.document?.title,
+        },
+        token: loaderData?.agentAccessToken,
+        basePath: loaderData?.basePath,
+        origin: loaderData?.origin,
+        accessState: loaderData?.unavailable
+          ? "authentication-required"
+          : loaderData?.document?.visibility === "public"
+            ? "public"
+            : "authorized",
+      })
+    : null;
   return [
     { title },
     {
@@ -167,6 +191,17 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
       name: "twitter:description",
       content: description,
     },
+    ...(discovery
+      ? [
+          {
+            tagName: "link" as const,
+            rel: "alternate",
+            type: "application/agent-native+json",
+            href: discovery.contextUrl,
+            title: "Agent-readable Content document", // i18n-ignore -- machine-readable alternate-link metadata, not UI copy.
+          },
+        ]
+      : []),
   ];
 };
 
@@ -227,17 +262,22 @@ function PublicDocumentContextSync({
   basePath?: string;
 }) {
   useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        view: "public-document",
-        documentId: document.id,
-        title: document.title,
-        publicUrl: buildContentPublicDocumentUrl(document.id, { basePath }),
-      }),
-    }).catch(() => {});
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          view: "public-document",
+          documentId: document.id,
+          title: document.title,
+          publicUrl: buildContentPublicDocumentUrl(document.id, { basePath }),
+        }),
+      },
+    ).catch(() => {});
   }, [basePath, document.id, document.title]);
 
   return null;
@@ -257,34 +297,51 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
   );
 }
 
-function AgentReadableDocumentDiscovery({
+export function AgentReadableDocumentDiscovery({
   document,
   token,
   basePath,
+  origin,
+  accessState,
 }: {
-  document: { id: string; title: string };
+  document: { id: string; title?: string };
   token?: string | null;
   basePath?: string;
+  origin?: string;
+  accessState: "public" | "authorized" | "authentication-required";
 }) {
   const discovery = buildContentDocumentAgentDiscovery({
     document,
     token,
     basePath,
+    origin,
+    accessState,
   });
   return (
-    <script
-      type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
-      dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
-    />
+    <>
+      <script
+        type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
+        dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
+      />
+      <div className="hidden" aria-hidden="true">
+        {contentDocumentMcpInstructionText(document.id, {
+          basePath,
+          origin,
+          accessState,
+        })}
+      </div>
+    </>
   );
 }
 
 function PrivateDocumentNotice({
   id,
   basePath,
+  origin,
 }: {
   id?: string;
   basePath?: string;
+  origin?: string;
 }) {
   const t = useT();
   useEffect(() => {
@@ -300,6 +357,14 @@ function PrivateDocumentNotice({
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      {id ? (
+        <AgentReadableDocumentDiscovery
+          document={{ id }}
+          basePath={basePath}
+          origin={origin}
+          accessState="authentication-required"
+        />
+      ) : null}
       <section className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
         <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
           <IconLock size={22} />
@@ -325,6 +390,7 @@ export default function PublicDocumentPage() {
       <PrivateDocumentNotice
         id={data.unavailable?.id}
         basePath={data.unavailable?.basePath}
+        origin={data.origin}
       />
     );
   }
@@ -336,6 +402,8 @@ export default function PublicDocumentPage() {
         document={document}
         token={data.agentAccessToken}
         basePath={data.basePath}
+        origin={data.origin}
+        accessState={document.visibility === "public" ? "public" : "authorized"}
       />
       <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
         <button
@@ -343,7 +411,7 @@ export default function PublicDocumentPage() {
           onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
           className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
         >
-          <IconMessageCircle size={16} />
+          <IconLayoutSidebarRight size={16} />
           {t("publicDocument.chat")}
         </button>
       </div>

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
+import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
 /**
  * Findings worth surfacing that should not block a promotion.
@@ -16,6 +17,10 @@ import { mustRespond, parseJson } from "../lib/http";
  */
 
 const sites = selectedSites();
+
+test.beforeEach(async ({ page }) => {
+  await installBetaE2ETrafficMarker(page.context());
+});
 
 test.describe.configure({ mode: "parallel" });
 
@@ -77,7 +82,7 @@ for (const site of sites) {
     });
 
     test("does not report ok while its database is unreachable", async () => {
-      // Measured on beta.macros: {"ok":true,"ready":false,"db":false,
+      // A host can report {"ok":true,"ready":false,"db":false,
       // "dbTimedOut":true}. A caller that trusts `ok` — a monitor, a load
       // balancer, a status page — reads a host with no database as healthy.
       // The suite's own gating check therefore ignores `ok` and asserts `db`,

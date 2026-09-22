@@ -4,6 +4,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconItalic,
+  IconUnderline,
   IconStrikethrough,
   IconCode,
   IconLink,
@@ -33,6 +34,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
+import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 
 export type CommentRange = { from: number; to: number };
 
@@ -86,8 +88,8 @@ const COLOR_NAMES: ColorName[] = [
 
 export function getSelectionNotionSpanAttribute(
   editor: Editor,
-  attribute: ColorAttribute,
-): string | null | "mixed" {
+  attribute: ColorAttribute | "underline",
+): "mixed" | (string & {}) | null {
   const { from, to } = editor.state.selection;
   const markType = editor.state.schema.marks.notionSpan;
   if (!markType) return null;
@@ -127,17 +129,29 @@ export function selectionHasColorableText(
   return hasText;
 }
 
+function toolbarEditChain(editor: Editor) {
+  if (!editor.isEditable) return null;
+  return editor.chain().command(({ tr }) => {
+    tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+    return true;
+  });
+}
+
 export function setSelectionNotionSpanAttribute(
   editor: Editor,
-  attribute: ColorAttribute,
+  attribute: ColorAttribute | "underline",
   value: string | null,
 ) {
+  if (!editor.isEditable) return false;
   const { state } = editor;
   const { from, to } = state.selection;
   const markType = state.schema.marks.notionSpan;
   if (!markType || from === to) return false;
 
   const transaction = state.tr;
+  if (attribute === "underline" && state.schema.marks.underline) {
+    transaction.removeMark(from, to, state.schema.marks.underline);
+  }
   state.doc.nodesBetween(from, to, (node, position, parent) => {
     if (!node.isText || !parent?.type.allowsMarkType(markType)) return;
     const start = Math.max(from, position);
@@ -159,6 +173,7 @@ export function setSelectionNotionSpanAttribute(
   });
 
   if (!transaction.docChanged) return false;
+  transaction.setMeta(LOCAL_FILE_USER_EDIT_META, true);
   editor.view.dispatch(transaction);
   editor.commands.focus();
   return true;
@@ -219,6 +234,7 @@ export function shouldShowBubbleToolbar({
 
 export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const t = useT();
+  const [bubbleMenuKey] = useState(() => new PluginKey("contentBubbleToolbar"));
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [textStyleOpen, setTextStyleOpen] = useState(false);
@@ -236,6 +252,75 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const [textStyle, setTextStyle] = useState<TextStyle>(() =>
     activeTextStyle(editor),
   );
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const target = editor.view.dom;
+    let previousSize: { width: number; height: number } | undefined;
+    let frame: number | undefined;
+    let disposed = false;
+    const observer = new ResizeObserver((entries) => {
+      if (disposed) return;
+      const entry = entries.find((candidate) => candidate.target === target);
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (previousSize?.width === width && previousSize.height === height)
+        return;
+      previousSize = { width, height };
+      if (frame !== undefined) return;
+      // A rail can resize the editor without a selection or window-resize event.
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        if (disposed || editor.isDestroyed) return;
+        editor.view.dispatch(
+          editor.state.tr.setMeta(bubbleMenuKey, "updatePosition"),
+        );
+      });
+    });
+    observer.observe(target);
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, [editor, bubbleMenuKey]);
+
+  const createCommentFromSelection = useCallback(() => {
+    if (!onComment) return false;
+    const { from, to } = editor.state.selection;
+    const text = editor.state.doc.textBetween(from, to, " ");
+    if (!text.trim()) return false;
+    const anchor = captureAnchor(editor.state.doc, from, to);
+    const coords = editor.view.coordsAtPos(from);
+    const scrollContainer = editor.view.dom.closest(
+      ".flex-1.min-h-0.overflow-auto",
+    );
+    const containerTop = scrollContainer
+      ? scrollContainer.getBoundingClientRect().top
+      : 0;
+    const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+    const offsetTop = coords.top - containerTop + scrollTop;
+    editor.commands.setTextSelection(from);
+    onComment(text.trim(), offsetTop, anchor, { from, to });
+    return true;
+  }, [editor, onComment]);
+
+  useEffect(() => {
+    if (!onComment) return;
+    const dom = editor.view.dom;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() !== "m" ||
+        !event.shiftKey ||
+        (!event.metaKey && !event.ctrlKey)
+      ) {
+        return;
+      }
+      if (createCommentFromSelection()) event.preventDefault();
+    };
+    dom.addEventListener("keydown", handleKeyDown);
+    return () => dom.removeEventListener("keydown", handleKeyDown);
+  }, [createCommentFromSelection, editor, onComment]);
 
   useEffect(() => {
     const syncTextStyle = () => {
@@ -300,12 +385,13 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       : textStyles[0]);
 
   const applyTextStyle = (style: TextStyle) => {
-    const chain = editor.chain();
+    const chain = toolbarEditChain(editor);
+    if (!chain) return;
     if (textStyleSelection.current) {
       chain.setTextSelection(textStyleSelection.current);
     }
     if (style === "paragraph") {
-      chain.setParagraph().focus().run();
+      chain.setNode("paragraph").focus().run();
     } else {
       chain.setHeading({ level: style }).focus().run();
     }
@@ -315,6 +401,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   };
 
   const applyColor = (attribute: ColorAttribute, value: string | null) => {
+    if (!editor.isEditable) return;
     if (colorSelection.current) {
       editor.commands.setTextSelection(colorSelection.current);
     }
@@ -486,25 +573,22 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   }, [editor, openLinkInput]);
 
   const handleSetLink = () => {
+    const chain = toolbarEditChain(editor);
+    if (!chain) return;
     if (linkUrl.trim()) {
-      editor
-        .chain()
+      chain
         .focus()
         .extendMarkRange("link")
         .setLink({ href: linkUrl.trim() })
         .run();
     } else {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+      chain.focus().extendMarkRange("link").unsetLink().run();
     }
     setShowLinkInput(false);
     setLinkUrl("");
   };
 
   const toggleLink = () => {
-    if (editor.isActive("link")) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
     openLinkInput();
   };
 
@@ -521,25 +605,44 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     {
       icon: IconBold,
       title: t("editor.bold"),
-      action: () => editor.chain().focus().toggleBold().run(),
+      action: () => toolbarEditChain(editor)?.focus().toggleBold().run(),
       isActive: () => editor.isActive("bold"),
     },
     {
       icon: IconItalic,
       title: t("editor.italic"),
-      action: () => editor.chain().focus().toggleItalic().run(),
+      action: () => toolbarEditChain(editor)?.focus().toggleItalic().run(),
       isActive: () => editor.isActive("italic"),
+    },
+    {
+      icon: IconUnderline,
+      title: t("editor.underline"),
+      action: () => {
+        if (!editor.isEditable) return;
+        const active =
+          editor.isActive("underline") ||
+          getSelectionNotionSpanAttribute(editor, "underline") === "true";
+        editor.commands.focus();
+        setSelectionNotionSpanAttribute(
+          editor,
+          "underline",
+          active ? null : "true",
+        );
+      },
+      isActive: () =>
+        editor.isActive("underline") ||
+        getSelectionNotionSpanAttribute(editor, "underline") === "true",
     },
     {
       icon: IconStrikethrough,
       title: t("editor.strikethrough"),
-      action: () => editor.chain().focus().toggleStrike().run(),
+      action: () => toolbarEditChain(editor)?.focus().toggleStrike().run(),
       isActive: () => editor.isActive("strike"),
     },
     {
       icon: IconCode,
       title: t("editor.code"),
-      action: () => editor.chain().focus().toggleCode().run(),
+      action: () => toolbarEditChain(editor)?.focus().toggleCode().run(),
       isActive: () => editor.isActive("code"),
     },
     { type: "divider" as const },
@@ -555,29 +658,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           {
             icon: IconMessageCircle,
             title: t("editor.comment"),
-            action: () => {
-              const { from, to } = editor.state.selection;
-              const text = editor.state.doc.textBetween(from, to, " ");
-              if (!text.trim()) return;
-              // Capture a robust anchor (quote + surrounding context + offset)
-              // for the exact selection before we collapse it.
-              const anchor = captureAnchor(editor.state.doc, from, to);
-              // Get the Y position of the selection relative to the scroll container
-              const coords = editor.view.coordsAtPos(from);
-              const scrollContainer = editor.view.dom.closest(
-                ".flex-1.min-h-0.overflow-auto",
-              );
-              const containerTop = scrollContainer
-                ? scrollContainer.getBoundingClientRect().top
-                : 0;
-              const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
-              const offsetTop = coords.top - containerTop + scrollTop;
-              // Collapse the selection so the bubble toolbar hides — the pending
-              // highlight (rendered by the CommentHighlight plugin) keeps the
-              // range visible while the comment is composed.
-              editor.commands.setTextSelection(from);
-              onComment(text.trim(), offsetTop, anchor, { from, to });
-            },
+            action: createCommentFromSelection,
             isActive: () => false,
           },
         ]
@@ -587,6 +668,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   return (
     <BubbleMenu
       editor={editor}
+      pluginKey={bubbleMenuKey}
       className="bubble-toolbar"
       updateDelay={0}
       shouldShow={shouldShowBubbleToolbar}
@@ -618,6 +700,23 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           >
             {t("editor.apply")}
           </button>
+          {editor.isActive("link") ? (
+            <button
+              type="button"
+              onClick={() => {
+                toolbarEditChain(editor)
+                  ?.focus()
+                  .extendMarkRange("link")
+                  .unsetLink()
+                  .run();
+                setShowLinkInput(false);
+                setLinkUrl("");
+              }}
+              className="px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {t("editor.removeLink")}
+            </button>
+          ) : null}
         </div>
       ) : (
         <div

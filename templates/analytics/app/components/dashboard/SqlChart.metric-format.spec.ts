@@ -3,10 +3,8 @@ import { describe, it, expect } from "vitest";
 import {
   detectMetricValueColumn,
   formatMetricValue,
-  hasChartSizeChanged,
   safeDashboardLinkHref,
   sessionReplayHref,
-  shouldDisableChartAnimation,
   shouldSplitCurrentDayTimeSeries,
   sortTooltipPayloadItems,
   splitCurrentDayTimeSeriesRows,
@@ -14,59 +12,8 @@ import {
   toSqlChartDateKey,
 } from "./SqlChart";
 
-describe("chart resize animation policy", () => {
-  it("keeps the initial measurement stable and detects later size changes", () => {
-    expect(hasChartSizeChanged(null, { width: 640, height: 250 })).toBe(false);
-    expect(
-      hasChartSizeChanged(
-        { width: 640, height: 250 },
-        { width: 640, height: 250 },
-      ),
-    ).toBe(false);
-    expect(
-      hasChartSizeChanged(
-        { width: 640, height: 250 },
-        { width: 520, height: 250 },
-      ),
-    ).toBe(true);
-  });
-
-  // Disabling the animation while it is still running freezes the line's
-  // stroke-dasharray partway, so the series never becomes visible. Lazy-loaded
-  // panels always reflow just after mounting, which used to trip exactly this.
-  it("ignores a resize that lands before the entry animation has settled", () => {
-    expect(
-      shouldDisableChartAnimation(
-        false,
-        { width: 640, height: 250 },
-        { width: 520, height: 250 },
-      ),
-    ).toBe(false);
-  });
-
-  it("disables the animation for a resize after the entry animation settles", () => {
-    expect(
-      shouldDisableChartAnimation(
-        true,
-        { width: 640, height: 250 },
-        { width: 520, height: 250 },
-      ),
-    ).toBe(true);
-  });
-
-  it("keeps animating when a settled resize reports the same size", () => {
-    expect(
-      shouldDisableChartAnimation(
-        true,
-        { width: 640, height: 250 },
-        { width: 640, height: 250 },
-      ),
-    ).toBe(false);
-  });
-});
-
-// Postgres/Neon returns numeric & bigint columns as STRINGS (SQLite returns JS
-// numbers). The metric renderer used to only format `typeof raw === "number"`,
+// Postgres/Neon returns numeric and bigint columns as strings. The metric
+// renderer used to only format `typeof raw === "number"`,
 // so a Postgres rate like "0.00000000000000000000" was dumped verbatim instead
 // of being shown as "0.00%". formatMetricValue coerces numeric strings first.
 describe("formatMetricValue", () => {
@@ -87,7 +34,7 @@ describe("formatMetricValue", () => {
     expect(formatMetricValue("2", "number")).toBe("2");
   });
 
-  it("still formats plain JS numbers (SQLite path) unchanged", () => {
+  it("still formats plain JS numbers unchanged", () => {
     expect(formatMetricValue(0, "percent")).toBe("0.00%");
     expect(formatMetricValue(42, "number")).toBe("42");
   });

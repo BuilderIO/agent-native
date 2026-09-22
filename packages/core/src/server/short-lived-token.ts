@@ -10,7 +10,7 @@
  *   payload = base64url(JSON.stringify({ resourceId, viewerEmail?, exp }))
  *   sig     = base64url(HMAC-SHA256(payload, key))
  *
- * Key resolution mirrors `google-oauth.ts:getStateSigningKey`:
+ * Key resolution mirrors `google-oauth.ts:getOAuthStateSigningKey`:
  *   1. OAUTH_STATE_SECRET (preferred — dedicated to short-lived signing)
  *   2. BETTER_AUTH_SECRET (already used as a server secret)
  *   3. Hosted workspace deploys derive a per-purpose key from A2A_SECRET

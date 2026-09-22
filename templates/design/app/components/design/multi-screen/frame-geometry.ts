@@ -1,9 +1,12 @@
 import {
   BREAKPOINT_FRAME_GAP,
+  deviceViewportFloorForWidth,
+  getResponsiveGroupHeight,
+  getResponsiveGroupRotatedBounds,
   getResponsiveGroupWidth,
+  getScreenPreviewViewport,
   visibleBreakpointWidths,
-} from "@shared/responsive-frame-layout";
-
+} from "../../../../shared/responsive-frame-layout";
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
 import { SURFACE_PADDING } from "./overview-layout";
 import type { FrameGeometry, FrameGeometryById, Point } from "./types";
@@ -12,7 +15,12 @@ const SCREEN_WIDTH = 320;
 const SCREEN_GAP = 56;
 const FRAME_LABEL_HEIGHT = 28;
 
-export { BREAKPOINT_FRAME_GAP, visibleBreakpointWidths };
+export {
+  BREAKPOINT_FRAME_GAP,
+  deviceViewportFloorForWidth,
+  getScreenPreviewViewport,
+  visibleBreakpointWidths,
+};
 
 export interface BoundsRect {
   left: number;
@@ -33,15 +41,6 @@ type ResponsiveLayoutScreen = {
   layoutGroupId?: string;
 };
 
-/** Minimum height for a frame of the given width — one device viewport tall
- * before it grows to content. Keep in sync with deviceViewportHeight in
- * content-size-report.ts. */
-export function deviceViewportFloorForWidth(widthPx: number): number {
-  if (!Number.isFinite(widthPx) || widthPx <= 640) return 844;
-  if (widthPx <= 1024) return 1024;
-  return 900;
-}
-
 export function getResponsiveScreenGroupSize(
   screen: ResponsiveLayoutScreen,
   primaryGeometry?: Partial<FrameGeometry>,
@@ -58,29 +57,30 @@ export function getResponsiveScreenGroupSize(
   );
   const sourceWidth = Math.max(1, screen.metadata?.width ?? 1280);
   const sourceHeight = Math.max(1, screen.metadata?.height ?? 2560);
-  const scale = baseWidth / sourceWidth;
+  const scale = getScreenPreviewViewport(
+    { width: sourceWidth, height: sourceHeight },
+    { width: baseWidth, height: baseHeight },
+  ).scale;
   const breakpoints = visibleBreakpointWidths(
     screen.breakpointWidths,
     // The immutable device width, not the resizable on-canvas box width — a
     // primary resized to a breakpoint width must not hide that breakpoint.
     screen.metadata?.width ?? primaryGeometry?.width,
   );
-  const breakpointNaturalHeight = (width: number) => {
-    const measured = resolveBreakpointHeightPx?.(width);
-    return measured && measured > 0
-      ? Math.max(deviceViewportFloorForWidth(width), measured)
-      : (width * sourceHeight) / sourceWidth;
-  };
   return {
     width: getResponsiveGroupWidth({
       primaryWidth: baseWidth,
       scale,
       visibleWidths: breakpoints,
     }),
-    height: Math.max(
-      baseHeight,
-      ...breakpoints.map((width) => breakpointNaturalHeight(width) * scale),
-    ),
+    height: getResponsiveGroupHeight({
+      primaryHeight: baseHeight,
+      scale,
+      sourceWidth,
+      sourceHeight,
+      visibleWidths: breakpoints,
+      resolveBreakpointHeightPx,
+    }),
   };
 }
 
@@ -113,40 +113,17 @@ export function getResponsiveScreenCullGeometry(
     };
   }
 
-  const radians = (rotation * Math.PI) / 180;
-  const cosine = Math.cos(radians);
-  const sine = Math.sin(radians);
-  const pivot = {
-    x: primaryGeometry.x + primaryGeometry.width / 2,
-    y: primaryGeometry.y + primaryGeometry.height / 2,
-  };
-  const corners = [
-    { x: primaryGeometry.x, y: primaryGeometry.y },
-    { x: primaryGeometry.x + size.width, y: primaryGeometry.y },
-    { x: primaryGeometry.x, y: primaryGeometry.y + size.height },
-    {
-      x: primaryGeometry.x + size.width,
-      y: primaryGeometry.y + size.height,
-    },
-  ].map((point) => {
-    const dx = point.x - pivot.x;
-    const dy = point.y - pivot.y;
-    return {
-      x: pivot.x + dx * cosine - dy * sine,
-      y: pivot.y + dx * sine + dy * cosine,
-    };
+  const bounds = getResponsiveGroupRotatedBounds({
+    x: primaryGeometry.x,
+    y: primaryGeometry.y,
+    primaryWidth: primaryGeometry.width,
+    primaryHeight: primaryGeometry.height,
+    groupWidth: size.width,
+    groupHeight: size.height,
+    rotation,
   });
-  const xs = corners.map((point) => point.x);
-  const ys = corners.map((point) => point.y);
-  const left = Math.min(...xs);
-  const right = Math.max(...xs);
-  const top = Math.min(...ys);
-  const bottom = Math.max(...ys);
   return {
-    x: left,
-    y: top,
-    width: right - left,
-    height: bottom - top,
+    ...bounds,
     rotation: undefined,
     z: primaryGeometry.z,
   };
@@ -419,12 +396,22 @@ export function resolveFrameGeometrySync(args: {
   persistedGeometryById:
     | Record<string, Partial<FrameGeometry> | undefined>
     | undefined;
+  geometryOverridesById?: Record<string, FrameGeometry | undefined>;
 }): {
   next: FrameGeometryById;
   changed: boolean;
   shouldNotifyParent: boolean;
 } {
-  const { screens, currentGeometryById, persistedGeometryById } = args;
+  const {
+    screens,
+    currentGeometryById,
+    persistedGeometryById,
+    geometryOverridesById,
+  } = args;
+  const effectivePersistedGeometryById = { ...persistedGeometryById };
+  for (const [id, geometry] of Object.entries(geometryOverridesById ?? {})) {
+    if (geometry) effectivePersistedGeometryById[id] = geometry;
+  }
   const currentIds = new Set(screens.map((screen) => screen.id));
   let shouldNotifyParent = Object.keys(currentGeometryById).some(
     (id) => !currentIds.has(id),
@@ -435,13 +422,14 @@ export function resolveFrameGeometrySync(args: {
   const baseGeometryById = Object.fromEntries(
     screens.map((screen) => [
       screen.id,
-      persistedGeometryById?.[screen.id] ?? currentGeometryById[screen.id],
+      effectivePersistedGeometryById[screen.id] ??
+        currentGeometryById[screen.id],
     ]),
   );
 
   screens.forEach((screen, index) => {
     const existing = currentGeometryById[screen.id];
-    const persisted = persistedGeometryById?.[screen.id];
+    const persisted = effectivePersistedGeometryById[screen.id];
     const legacyInitial = getInitialFrameGeometry(index, screen.metadata);
     const layoutGroupScreens = screen.layoutGroupId
       ? screens.filter(
@@ -458,7 +446,7 @@ export function resolveFrameGeometrySync(args: {
           layoutGroupScreens,
         );
         const candidateGeometry =
-          persistedGeometryById?.[candidate.id] ??
+          effectivePersistedGeometryById[candidate.id] ??
           currentGeometryById[candidate.id];
         return (
           candidateGeometry?.x === baseline.x &&
@@ -554,7 +542,6 @@ export function resolveFrameGeometrySync(args: {
     }
     if (persisted && !sameFrameGeometry(existing ?? resolved, resolved)) {
       changed = true;
-      shouldNotifyParent = true;
     }
   });
 
@@ -581,41 +568,6 @@ export function getPreviewDeviceFrameGeometry({
     ...currentGeometry,
     width: Math.max(1, Math.round(metadata?.width ?? viewport.width)),
     height: Math.max(1, Math.round(metadata?.height ?? viewport.height)),
-  };
-}
-
-export function getScreenPreviewViewport(
-  metadata: ScreenViewportSize,
-  geometry: ScreenViewportSize,
-) {
-  const metadataWidth = Math.max(1, Math.round(metadata.width));
-  const metadataHeight = Math.max(1, Math.round(metadata.height));
-  const geometryWidth = Math.max(1, Math.round(geometry.width));
-  const geometryHeight = Math.max(1, Math.round(geometry.height));
-  const metadataAspect = metadataWidth / metadataHeight;
-  const geometryAspect = geometryWidth / geometryHeight;
-  const aspectMatches = Math.abs(metadataAspect - geometryAspect) < 0.005;
-
-  if (aspectMatches) {
-    return {
-      viewportWidth: metadataWidth,
-      viewportHeight: metadataHeight,
-      displayWidth: metadataWidth,
-      displayHeight: metadataHeight,
-      scale:
-        Math.abs(metadataWidth - geometryWidth) < 0.5 &&
-        Math.abs(metadataHeight - geometryHeight) < 0.5
-          ? 1
-          : geometryWidth / metadataWidth,
-    };
-  }
-
-  return {
-    viewportWidth: geometryWidth,
-    viewportHeight: geometryHeight,
-    displayWidth: geometryWidth,
-    displayHeight: geometryHeight,
-    scale: 1,
   };
 }
 
@@ -744,6 +696,29 @@ export function geometryContainsGeometry(
   return geometryCorners(inner).every((point) =>
     geometryContainsPoint(outer, point),
   );
+}
+
+/** Decides which screen wins a hit-test tie for `findTopFrameEntryAtPoint`'s
+ *  `foregroundId`. Must mirror `topScreenId` in MultiScreenCanvas exactly —
+ *  that's the id the canvas gives an additive z-index boost when painting
+ *  (selected screen, else the sticky `activeId`, else the first screen), so
+ *  whichever screen is visually on top of an overlapping neighbour is also
+ *  the one a mousedown/draw at that point resolves to. Do not special-case
+ *  "fresh gesture" callers with a different fallback — that desyncs hit
+ *  testing from paint order and routes a gesture into the frame *under* the
+ *  one the user is actually looking at. */
+export function resolveHitTestForegroundId(options: {
+  selectedIds: readonly string[];
+  hasGeometry: (id: string) => boolean;
+  activeId: string | null | undefined;
+  firstScreenId: string | undefined;
+}): string | undefined {
+  const selected = options.selectedIds.find((id) => options.hasGeometry(id));
+  if (selected !== undefined) return selected;
+  if (options.activeId && options.hasGeometry(options.activeId)) {
+    return options.activeId;
+  }
+  return options.firstScreenId;
 }
 
 export function findTopFrameEntryAtPoint<

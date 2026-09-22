@@ -8,6 +8,7 @@ import {
   useCalendarContext,
   type ViewMode,
 } from "@/components/layout/AppLayout";
+import { dateToCalendarDateKey } from "@/lib/calendar-timezone";
 
 interface NavigationState {
   view: string;
@@ -18,6 +19,7 @@ interface NavigationState {
   calendarDraft?: string;
   bookingLinkId?: string;
   extensionId?: string;
+  addPersonEmail?: string;
 }
 
 const EVENT_DRAFT_ID = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -85,6 +87,7 @@ export function useNavigationState() {
     sidebarEvent,
     eventDraft,
     setEventDraft,
+    openAddPersonPrefilled,
   } = useCalendarContext();
 
   // Capture setters in refs so the onNavigate callback always closes over current values.
@@ -98,12 +101,14 @@ export function useNavigationState() {
   setSidebarEventRef.current = setSidebarEvent;
   const setEventDraftRef = useRef(setEventDraft);
   setEventDraftRef.current = setEventDraft;
+  const openAddPersonPrefilledRef = useRef(openAddPersonPrefilled);
+  openAddPersonPrefilledRef.current = openAddPersonPrefilled;
 
   useAgentRouteState<NavigationState>({
     getNavigationState: ({ pathname }) => {
       const state: NavigationState = { view: "calendar" };
 
-      if (pathname === "/" || pathname === "") {
+      if (pathname === "/home" || pathname === "") {
         state.view = "calendar";
       } else if (pathname.startsWith("/availability")) {
         state.view = "availability";
@@ -126,7 +131,7 @@ export function useNavigationState() {
 
       // Include the currently selected date
       if (selectedDate) {
-        state.date = selectedDate.toISOString().split("T")[0];
+        state.date = dateToCalendarDateKey(selectedDate);
       }
 
       // Include the selected event if one is open
@@ -141,7 +146,7 @@ export function useNavigationState() {
       return state;
     },
     getCommandPath: (cmd) => {
-      let path = "/";
+      let path = "/home";
       if (cmd.view === "availability") {
         path = "/availability";
       } else if (cmd.view === "booking-links") {
@@ -156,7 +161,7 @@ export function useNavigationState() {
           ? `/extensions/${encodeURIComponent(cmd.extensionId)}`
           : "/extensions";
       } else {
-        path = "/";
+        path = "/home";
       }
       return path;
     },
@@ -178,7 +183,7 @@ export function useNavigationState() {
       // the calendar to its start date so the user lands on the event.
       if (cmd.eventId) {
         const eventId = cmd.eventId;
-        (async () => {
+        void (async () => {
           try {
             const evt = await callAction<CalendarEvent & { error?: string }>(
               "get-event",
@@ -200,12 +205,19 @@ export function useNavigationState() {
         })();
       }
 
+      // A deep link can carry a peer to add — typically from the overlay
+      // access request email. This only opens the dialog prefilled; the
+      // recipient still confirms, so opening an email never writes.
+      if (cmd.addPersonEmail) {
+        openAddPersonPrefilledRef.current(cmd.addPersonEmail);
+      }
+
       // A deep link can also carry an unsent event draft. The draft lives in
       // app-state and opens as a visible calendar placeholder with the native
       // event detail editor; nothing is written to Google Calendar until the
       // user creates it.
       if (cmd.eventDraftId || cmd.calendarDraft) {
-        (async () => {
+        void (async () => {
           const draft = await loadEventDraft(cmd);
           if (!draft) return;
           if (draft.start) {

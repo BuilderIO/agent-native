@@ -188,11 +188,7 @@ function parseSpec(raw: string): ParseResult {
 }
 
 /** Resolve a local `$ref` (e.g. `#/components/schemas/User`) against the root. */
-function resolveRef(
-  root: JsonObject,
-  ref: string,
-  seen: Set<string>,
-): Json | undefined {
+function resolveRef(root: JsonObject, ref: string, seen: Set<string>): Json {
   if (!ref.startsWith("#/")) return undefined;
   if (seen.has(ref)) return undefined; // cycle guard
   seen.add(ref);

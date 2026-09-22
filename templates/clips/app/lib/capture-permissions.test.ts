@@ -22,10 +22,10 @@ function env(overrides: Partial<CaptureHostEnv> = {}): CaptureHostEnv {
 }
 
 describe("detectCaptureHostApp", () => {
-  it("names the Agent Native desktop shell", () => {
+  it("names the Agent-Native desktop shell", () => {
     expect(
       detectCaptureHostApp(env({ userAgent: `${CHROME_UA} Electron/41.2.2` })),
-    ).toEqual({ name: "Agent Native", kind: "desktop" });
+    ).toEqual({ name: "Agent-Native", kind: "desktop" });
   });
 
   it("names the Clips desktop app", () => {
@@ -92,10 +92,10 @@ describe("macPermissionGuidanceFor", () => {
 
   it("names the desktop app itself when the recorder runs in it", () => {
     const guidance = macPermissionGuidanceFor("screen", {
-      name: "Agent Native",
+      name: "Agent-Native",
       kind: "desktop",
     });
-    expect(guidance).toContain("Turn on Agent Native");
+    expect(guidance).toContain("Turn on Agent-Native");
     expect(guidance).not.toContain("your browser");
   });
 

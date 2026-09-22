@@ -31,8 +31,6 @@ import {
   type H3Event,
 } from "h3";
 
-import { getOrgContext } from "../org/context.js";
-import { getSession } from "../server/auth.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -78,6 +76,13 @@ import {
 } from "./remote-store.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 import { loadWorkspaceMcpServers } from "./workspace-servers.js";
+
+const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
+  ...args
+) =>
+  import("../org/context.js").then(({ getOrgContext }) =>
+    getOrgContext(...args),
+  );
 
 export { formatMcpConnectError } from "./errors.js";
 
@@ -414,6 +419,7 @@ async function resolveContextForRequest(event: H3Event): Promise<{
 }> {
   let email: string | null = null;
   try {
+    const { getSession } = await import("../server/auth.js");
     const session = await getSession(event);
     email = session?.email ?? null;
   } catch {
@@ -454,9 +460,10 @@ export function mountMcpServersRoutes(
   mountedApps.add(nitroApp);
 
   mountMcpOAuthRoutes(nitroApp, {
-    reconfigure: async () => {
+    reconfigure: async ({ scope, scopeId, server }) => {
       await options.waitUntilReady?.();
       await reconfigureManager(manager);
+      return manager.hasServer(mergedConfigKey(scope, server, scopeId));
     },
   });
 

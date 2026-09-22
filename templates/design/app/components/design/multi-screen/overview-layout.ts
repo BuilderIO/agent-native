@@ -1,3 +1,4 @@
+import { getRotatedFrameAABB, type FrameBounds } from "@shared/canvas-math";
 import type { CSSProperties } from "react";
 
 import type { FrameGeometry } from "./types";
@@ -80,7 +81,7 @@ export function getBoardSurfaceLayerStyle(args: {
     top: SURFACE_PADDING + args.geometry.y,
     width: args.geometry.width,
     height: args.geometry.height,
-    overflow: "hidden",
+    overflow: "clip",
     pointerEvents: args.interactive ? "auto" : "none",
     background: "transparent",
     zIndex: 0,
@@ -103,16 +104,11 @@ export function shouldRenderBoardSurfaceStaticPreview(args: {
   // The replica is opaque. Backing a layer that is not rendering just slabs the
   // board in its own colour, which reads as a themed background gone wrong.
   if (!args.hasSurfaceContent) return false;
-  if (args.viewportGeometry) {
-    return (
-      args.viewportGeometry.width > args.renderGeometry.width ||
-      args.viewportGeometry.height > args.renderGeometry.height
-    );
-  }
-  // ResizeObserver has not reported yet. The 5% fallback matches a 1229px
-  // viewport against the 24,576-world-pixel live cap and avoids one blank
-  // first paint at the minimum 2% zoom.
-  return args.zoom <= 5;
+  if (!args.viewportGeometry) return false;
+  return (
+    args.viewportGeometry.width > args.renderGeometry.width ||
+    args.viewportGeometry.height > args.renderGeometry.height
+  );
 }
 
 export function getBoardSurfaceStaticPreviewViewport(
@@ -128,6 +124,57 @@ export function getBoardSurfaceStaticPreviewViewport(
     width: Math.max(1, logicalGeometry.width * scale),
     height: Math.max(1, logicalGeometry.height * scale),
   };
+}
+
+/** Clip the inert 4k board replica to the camera window before the world scale. */
+export function getBoardSurfaceStaticPreviewClip(args: {
+  logicalGeometry: FrameGeometry;
+  viewportGeometry?: FrameGeometry | null;
+}) {
+  const { logicalGeometry, viewportGeometry } = args;
+  if (!viewportGeometry) return undefined;
+
+  const width = Math.max(1, logicalGeometry.width);
+  const height = Math.max(1, logicalGeometry.height);
+  const left = Math.min(
+    width,
+    Math.max(0, viewportGeometry.x - logicalGeometry.x),
+  );
+  const top = Math.min(
+    height,
+    Math.max(0, viewportGeometry.y - logicalGeometry.y),
+  );
+  const right = Math.min(
+    width,
+    Math.max(
+      0,
+      logicalGeometry.x + width - (viewportGeometry.x + viewportGeometry.width),
+    ),
+  );
+  const bottom = Math.min(
+    height,
+    Math.max(
+      0,
+      logicalGeometry.y +
+        height -
+        (viewportGeometry.y + viewportGeometry.height),
+    ),
+  );
+
+  return `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+}
+
+export function getBoardSurfaceStaticPreviewTransform(args: {
+  logicalGeometry: FrameGeometry;
+  viewport: { width: number; height: number };
+  pan: Point;
+  zoom: number;
+}) {
+  const { logicalGeometry, viewport, pan, zoom } = args;
+  const scale = zoom / 100;
+  const x = pan.x + (SURFACE_PADDING + logicalGeometry.x) * scale;
+  const y = pan.y + (SURFACE_PADDING + logicalGeometry.y) * scale;
+  return `translate(${x}px, ${y}px) scale(${(logicalGeometry.width / viewport.width) * scale}, ${(logicalGeometry.height / viewport.height) * scale})`;
 }
 
 function geometryExtent(geometry: FrameGeometry) {
@@ -196,6 +243,18 @@ export function getBoardSurfaceRenderGeometry(args: {
   screenGeometries?: readonly FrameGeometry[];
   focus?: { x: number; y: number };
 }): FrameGeometry {
+  const [onlyVisibleGeometry] = args.screenGeometries ?? [];
+  if (
+    !args.contentBounds &&
+    args.screenGeometries?.length === 1 &&
+    args.focus &&
+    onlyVisibleGeometry &&
+    args.focus.x === onlyVisibleGeometry.x + onlyVisibleGeometry.width / 2 &&
+    args.focus.y === onlyVisibleGeometry.y + onlyVisibleGeometry.height / 2
+  ) {
+    return onlyVisibleGeometry;
+  }
+
   const candidates = [
     ...(args.contentBounds ? [args.contentBounds] : []),
     ...(args.screenGeometries ?? []),
@@ -260,4 +319,84 @@ export function boardSurfaceLocalPointToBoardPoint(
     x: renderGeometry.x + point.x,
     y: renderGeometry.y + point.y,
   };
+}
+
+/** Converts the board bridge's iframe-local selection box into world-space
+ * bounds using the current finite board render window. */
+export function getBoardSelectionWorldBounds(args: {
+  rect: { left: number; top: number; width: number; height: number };
+  rotationDeg?: number;
+  contentOffsetX: number;
+  contentOffsetY: number;
+}): FrameBounds {
+  const origin = boardSurfaceLocalPointToBoardPoint(
+    { x: args.rect.left, y: args.rect.top },
+    {
+      x: -args.contentOffsetX,
+      y: -args.contentOffsetY,
+      width: args.rect.width,
+      height: args.rect.height,
+    },
+  );
+  return getRotatedFrameAABB({
+    ...origin,
+    width: args.rect.width,
+    height: args.rect.height,
+    rotation: args.rotationDeg ?? 0,
+  });
+}
+
+/** Returns cached Board geometry only while the current layer selection still
+ * owns the screen and selector that produced it. */
+export function getCurrentBoardSelectionWorldBounds(args: {
+  selection: {
+    screenId: string;
+    selector: string;
+    memberSelectors?: readonly string[];
+    memberSourceIds?: readonly string[];
+    worldBounds: FrameBounds;
+  } | null;
+  boardFileId?: string | null;
+  ownerFileId?: string | null;
+  selectedLayerId?: string;
+  sourceLayerIdentity?: { screenId: string; nodeId: string };
+  currentSelectors: readonly string[];
+  currentSourceIds?: readonly string[];
+}): FrameBounds | null {
+  const { selection, boardFileId, ownerFileId, selectedLayerId } = args;
+  if (
+    !selection ||
+    !boardFileId ||
+    ownerFileId !== boardFileId ||
+    selection.screenId !== ownerFileId ||
+    args.sourceLayerIdentity?.screenId !== ownerFileId ||
+    !selectedLayerId ||
+    args.sourceLayerIdentity.nodeId !== selectedLayerId
+  ) {
+    return null;
+  }
+  if (selection.memberSourceIds) {
+    const currentSourceIds = args.currentSourceIds ?? [];
+    const unmatched = [...selection.memberSourceIds];
+    if (
+      currentSourceIds.length !== unmatched.length ||
+      new Set(unmatched).size !== unmatched.length ||
+      new Set(currentSourceIds).size !== currentSourceIds.length
+    ) {
+      return null;
+    }
+    for (const sourceId of currentSourceIds) {
+      const match = unmatched.indexOf(sourceId);
+      if (match === -1) return null;
+      unmatched.splice(match, 1);
+    }
+    return unmatched.length === 0 ? selection.worldBounds : null;
+  }
+  if (
+    (args.currentSourceIds?.length ?? 0) > 1 ||
+    !args.currentSelectors.includes(selection.selector)
+  ) {
+    return null;
+  }
+  return selection.worldBounds;
 }

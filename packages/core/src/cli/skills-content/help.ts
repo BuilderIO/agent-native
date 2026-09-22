@@ -73,7 +73,7 @@ Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
 run "npx @agent-native/core@latest recap setup" / "npx @agent-native/core@latest recap doctor" to configure and
 verify GitHub Actions. Docs: ${docsUrl("pr-visual-recap")}.
 
-The status/update commands inspect copied Agent Native skill folders and refresh
+The status/update commands inspect copied Agent-Native skill folders and refresh
 their instruction files from the current @agent-native/core package. In a
 standalone generated app, "skills update scaffold --project" refreshes the
 framework skill copies. In a generated workspace, it refreshes workspace-core,

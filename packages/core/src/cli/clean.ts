@@ -7,7 +7,7 @@
  * `PROTECTED_NAMES` and `isSafeTarget`), every target is a real directory
  * entry read from disk and re-verified immediately before the delete (see
  * `addTarget` and `verifyTargetUnchanged`), the root has to be a confirmed
- * Agent Native project root (see `checkProjectRoot`), and under `apps/` each
+ * Agent-Native project root (see `checkProjectRoot`), and under `apps/` each
  * app has to confirm the same thing for itself (see `splitAppDirs`). Those
  * checks are the whole safety contract, not a nicety.
  *
@@ -412,7 +412,7 @@ interface ScanContext {
   realRoot: string;
   /** Device the root lives on. The walk and the delete never leave it. */
   rootDev: number;
-  /** Directories under `apps/` that are not Agent Native apps: never descended
+  /** Directories under `apps/` that are not Agent-Native apps: never descended
    * into, never selected. */
   excluded: Set<string>;
   targets: CleanTarget[];
@@ -606,7 +606,7 @@ export interface CleanScan {
 }
 
 interface AppDirs {
-  /** Directly under `apps/`, and confirmed Agent Native. */
+  /** Directly under `apps/`, and confirmed Agent-Native. */
   agentNative: string[];
   /** Directly under `apps/`, and not. */
   foreign: string[];
@@ -615,7 +615,7 @@ interface AppDirs {
 /**
  * Splits `apps/` into the apps this command may clean and the ones it may not.
  *
- * One Agent Native app under `apps/` authorizes cleaning *that app*, not its
+ * One Agent-Native app under `apps/` authorizes cleaning *that app*, not its
  * neighbours: `build/`, `dist/` and `.output/` are ordinary directory names,
  * and a workspace can hold a Rust project or a personal folder beside the app.
  * This is `checkProjectRoot`'s question asked one level down, and the reason
@@ -636,7 +636,7 @@ function splitAppDirs(root: string, failures: CleanFailure[]): AppDirs {
     if (marker.kind === "unreadable") {
       addFailure(failures, {
         path: marker.path,
-        message: `could not be read (${marker.message}), so ${dir} is not treated as an Agent Native app`,
+        message: `could not be read (${marker.message}), so ${dir} is not treated as an Agent-Native app`,
       });
     }
     dirs.foreign.push(dir);
@@ -979,7 +979,7 @@ type MarkerCheck =
   | { kind: "unreadable"; path: string; message: string };
 
 /**
- * Is `dir` an Agent Native app root? Three answers, never two: the manifest
+ * Is `dir` an Agent-Native app root? Three answers, never two: the manifest
  * says yes, the manifest says no, or nobody could read the manifest.
  */
 function readAgentNativeMarker(dir: string): MarkerCheck {
@@ -1027,7 +1027,7 @@ function readAgentNativeMarker(dir: string): MarkerCheck {
  * outside a project is still a plausible personal folder, and every npm, pnpm
  * or yarn monorepo on the machine — `$HOME` included, if its `package.json`
  * has a `workspaces` key — carries a workspace marker. A workspace root is
- * accepted only when an app under `apps/` actually is Agent Native, which is
+ * accepted only when an app under `apps/` actually is Agent-Native, which is
  * also the only part of a workspace this command ever cleans.
  */
 function checkProjectRoot(
@@ -1037,7 +1037,7 @@ function checkProjectRoot(
   if (marker.kind === "unreadable") {
     return {
       ok: false,
-      reason: `${marker.path} could not be read (${marker.message}), so this cannot be confirmed as an Agent Native project.`,
+      reason: `${marker.path} could not be read (${marker.message}), so this cannot be confirmed as an Agent-Native project.`,
     };
   }
   if (marker.kind === "agent-native") return { ok: true };
@@ -1047,7 +1047,7 @@ function checkProjectRoot(
   return {
     ok: false,
     reason:
-      "no package.json depending on @agent-native/core, no agent-native.json, and no apps/* with either, so this is not the root of an Agent Native project.",
+      "no package.json depending on @agent-native/core, no agent-native.json, and no apps/* with either, so this is not the root of an Agent-Native project.",
   };
 }
 

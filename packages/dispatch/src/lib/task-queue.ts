@@ -46,9 +46,21 @@ export function normalizeTaskQueueStats(value: unknown): TaskQueueStats {
               ? (failure as Record<string, unknown>)
               : {};
           return {
-            id: String(row.id ?? `failure-${index}`),
-            platform: String(row.platform ?? ""),
-            error: String(row.error ?? ""),
+            id:
+              typeof row.id === "string" || typeof row.id === "number"
+                ? String(row.id)
+                : `failure-${index}`,
+            platform:
+              typeof row.platform === "string" ||
+              typeof row.platform === "number"
+                ? String(row.platform)
+                : "",
+            error:
+              typeof row.error === "string" || typeof row.error === "number"
+                ? String(row.error)
+                : row.error == null
+                  ? ""
+                  : JSON.stringify(row.error),
             attempts: asNumber(row.attempts),
           };
         })

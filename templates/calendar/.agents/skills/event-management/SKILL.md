@@ -27,6 +27,12 @@ slot does not inject per-row UI.
 
 Query events from Google Calendar within a date range.
 
+Use `list-google-calendars` first when the user wants events from calendars
+shared with any connected account. Pass the returned opaque `sourceKey` values
+as `calendarSourceKeys`; never construct or decode them. Non-primary calendars
+are view-only in Calendar, even when Google reports an editable access role,
+and are excluded from booking availability.
+
 ```bash
 # Today's events (--to is exclusive, so use tomorrow)
 pnpm action list-events --from 2026-04-03 --to 2026-04-04

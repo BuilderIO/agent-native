@@ -33,7 +33,7 @@ free the moment an app adopts the shared page.
 | `useAgentSettingsTabs()` | Framework-provided agent, model, key, automation, and voice tabs that apps can mount.              |
 | `SettingsSearchEntry`    | A deep-link target (label, keywords, tab, and hash) that makes a control findable.                 |
 | `<LanguagePicker>`       | Standard language selector for app settings.                                                       |
-| `openAgentSettings()`    | Compatibility escape hatch for opening the sidebar settings tab when needed.                       |
+| `openAgentSettings()`    | Opens the canonical `/settings` page at the requested section.                                     |
 | Deep links               | Stable links such as `/settings/integrations/secrets/OPENAI_API_KEY` and `/settings/integrations`. |
 
 ## Page Contract {#page-contract}
@@ -111,8 +111,8 @@ on so settings stay findable everywhere.
   control so users can find settings by name instead of scanning tabs.
 - Link to tabs by hash so setup prompts can send users to the exact missing
   credential.
-- Use the agent sidebar settings only as a compact access point, not as the
-  primary home for every setting.
+- Keep settings in the canonical `/settings` pages. Agent chat should remain
+  focused on conversation and never render settings inline.
 
 ## What's next
 

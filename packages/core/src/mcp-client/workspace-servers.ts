@@ -228,7 +228,7 @@ async function normalizeWorkspaceMcpConfig(
 
 function isMissingWorkspaceResourceTable(error: unknown): boolean {
   const message = String((error as { message?: unknown })?.message ?? error);
-  return /workspace_resources|workspace_resource_grants|no such table|does not exist/i.test(
+  return /workspace_resources|workspace_resource_grants|relation .* does not exist|undefined_table/i.test(
     message,
   );
 }
@@ -351,7 +351,7 @@ export async function loadWorkspaceMcpServers(options?: {
     if (!isMissingWorkspaceResourceTable(error)) {
       console.warn(
         `[mcp-client] Failed to load workspace MCP server resources: ${
-          (error as { message?: string })?.message ?? error
+          (error as { message?: string })?.message ?? String(error)
         }`,
       );
     }
@@ -369,7 +369,7 @@ export async function loadWorkspaceMcpServers(options?: {
     } catch (error) {
       console.warn(
         `[mcp-client] Skipping workspace MCP server resource ${row.path}: ${
-          (error as { message?: string })?.message ?? error
+          (error as { message?: string })?.message ?? String(error)
         }`,
       );
     }

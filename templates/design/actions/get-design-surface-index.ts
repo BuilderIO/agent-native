@@ -1,10 +1,15 @@
-import { defineAction } from "@agent-native/core";
-import { getText, hasCollabState } from "@agent-native/core/collab";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { defineAction } from "@agent-native/core/action";
+import {
+  accessFilter,
+  assertAccess,
+  roleSatisfies,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readLiveSourceFile } from "../server/source-workspace.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import {
@@ -33,15 +38,17 @@ async function liveContent(
   fileId: string,
   storedContent: string,
 ): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Collab reads are best-effort; SQL content is the deterministic fallback.
-  }
-  return storedContent;
+  return (
+    await readLiveSourceFile({
+      id: fileId,
+      designId: "",
+      filename: "index.html",
+      fileType: "html",
+      content: storedContent,
+      createdAt: null,
+      updatedAt: null,
+    })
+  ).content;
 }
 
 /** Lightweight hash for change detection — djb2 over the UTF-16 code units. */
@@ -445,6 +452,9 @@ export default defineAction({
     if (!access) {
       throw new Error("Design not found");
     }
+    if (includeReview) {
+      await assertAccess("design", designId, "editor");
+    }
 
     const db = getDb();
 
@@ -458,7 +468,9 @@ export default defineAction({
 
     // ── Resolve HTML file ────────────────────────────────────────────────────
     const fileConditions = [
-      accessFilter(schema.designs, schema.designShares),
+      accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+        includePublic: true,
+      }),
       fileId
         ? eq(schema.designFiles.id, fileId)
         : eq(schema.designFiles.designId, designId),
@@ -501,9 +513,12 @@ export default defineAction({
     };
 
     // ── Build sections in parallel ───────────────────────────────────────────
+    // Captured routes and preview refs are editor data even when the design is public.
     const [motionTimelines, designStates, review] = await Promise.all([
       fetchMotionTimelines(db, designId, file.id),
-      fetchDesignStates(db, designId),
+      roleSatisfies(access.role, "editor")
+        ? fetchDesignStates(db, designId)
+        : Promise.resolve([]),
       includeReview
         ? fetchLatestReview(db, designId)
         : Promise.resolve(undefined),

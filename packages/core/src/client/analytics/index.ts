@@ -22,6 +22,7 @@ export {
   stopSessionReplay,
   trackAgentChatLifecycle,
   trackEvent,
+  trackLifecycleEvent,
   trackSessionStatus,
   type AgentChatLifecycleEvent,
   type CaptureExceptionContext,

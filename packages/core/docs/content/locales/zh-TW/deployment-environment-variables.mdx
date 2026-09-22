@@ -28,7 +28,7 @@ description: "建置、執行時期、密鑰與託管行為的正式環境環境
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 專用的 32 字元以上共用 HMAC 密鑰，用於預覽安全的 Builder 授權轉發。只有在授權必須落在獨立的預覽資料庫中時，才在已核准的企業回呼部署和預覽部署上設定相同的值。                                                                                                                      |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 僅限企業回呼使用、以逗號分隔的可信任預覽來源精確允許清單（例如 `https://0123456789abcdef01234567--content.netlify.app`）。只在企業回呼部署上設定它。Netlify 來源必須使用不可變、特定部署的 24 位十六進位永久連結。可變動的 `deploy-preview-*` 別名、萬用字元和網域字尾都會被拒絕。 |
 
-資料庫連線變數（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、逐應用程式的 `<APP_NAME>_DATABASE_URL`）記載於 [Database](/docs/server-database#production)。
+資料庫連線變數（`DATABASE_URL`、逐應用程式的 `<APP_NAME>_DATABASE_URL`）記載於 [Database](/docs/server-database#production)。
 
 ## 正式環境敏感設定 {#env-required-prod}
 

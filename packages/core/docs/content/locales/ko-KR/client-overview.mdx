@@ -9,7 +9,7 @@ description: "app/ 및 public/ 디렉터리: 에이전트 네이티브 앱의 �
 
 일반적인 프런트엔드와의 유일한 아키텍처상 차이점은 이 레이어에는 자체적인 backend-for-frontend가 없다는 것입니다. 이 레이어는 에이전트가 호출하는 것과 동일한 actions를 통해 데이터를 읽고 쓰므로, 여기서 연결한 모든 것은 자동으로 에이전트도 수행할 수 있는 작업이 됩니다.
 
-<Diagram id="doc-block-client-overview-1" title={"전통적인 프런트엔드 vs. Agent Native"} summary={"전통적인 프런트엔드는 자신만 접근할 수 있는 자체 API 레이어를 호출합니다. Agent Native에서는 app/과 에이전트가 동일한 actions를 호출하므로, 여기서 만든 모든 기능이 별도의 작업 없이 에이전트도 호출할 수 있게 됩니다."}>
+<Diagram id="doc-block-client-overview-1" title={"전통적인 프런트엔드 vs. Agent-Native"} summary={"전통적인 프런트엔드는 자신만 접근할 수 있는 자체 API 레이어를 호출합니다. Agent-Native에서는 app/과 에이전트가 동일한 actions를 호출하므로, 여기서 만든 모든 기능이 별도의 작업 없이 에이전트도 호출할 수 있게 됩니다."}>
 
 ```html
 <div class="diagram-cocmp">
@@ -26,7 +26,7 @@ description: "app/ 및 public/ 디렉터리: 에이전트 네이티브 앱의 �
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React 프런트엔드)</div>
       <div class="diagram-node">에이전트</div>
@@ -177,7 +177,7 @@ public/
 }
 ```
 
-이 파일들을 교체하고 `manifest.json`과 `root.tsx`에서 이를 참조하는 `<link rel="icon">`/`<link rel="apple-touch-icon">` 태그를 업데이트하는 것으로 앱을 리브랜딩할 수 있습니다. 별도의 등록 절차는 없습니다. 이런 파일들을 직접 편집하는 대신 기존 사이트에서 전체 브랜드 시스템(색상, 폰트, 파비콘)을 가져오려면 [브랜드 시스템과 Figma](/docs/template-design-brand-and-figma)를 참조하세요.
+이 파일들을 교체하고 `manifest.json`과 `root.tsx`에서 이를 참조하는 `<link rel="icon">`/`<link rel="apple-touch-icon">` 태그를 업데이트하는 것으로 앱을 리브랜딩할 수 있습니다. 별도의 등록 절차는 없습니다. 이런 파일들을 직접 편집하는 대신 기존 사이트에서 전체 브랜드 시스템(색상, 타이포그래피, 로고 참조)을 가져오려면 [디자인 시스템](/docs/template-design-features#new-design-system)을 참조하세요.
 
 ## 유틸리티: cn {#utilities}
 

@@ -42,6 +42,7 @@ interface InsightsResponse {
   };
   topCreators: {
     email: string;
+    name?: string | null;
     recordings: number;
     views: number;
     engagement: number;

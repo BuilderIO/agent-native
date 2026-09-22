@@ -35,12 +35,12 @@ Cada app tiene su propia documentación sobre su arquitectura, actions y persona
 
 ## Plantillas de la comunidad {#community-templates}
 
-Las plantillas con nombre del selector de CLI son **oficiales**: Agent Native
+Las plantillas con nombre del selector de CLI son **oficiales**: Agent-Native
 las mantiene, prueba, documenta y publica junto con el framework. Una
 **plantilla de la comunidad** es mantenida y versionada por el propietario de
 su repositorio. Puede usar la misma superficie del framework, pero aparecer en
 la lista de la comunidad no supone una recomendación ni una promesa de soporte
-por parte de Agent Native.
+por parte de Agent-Native.
 
 Ejecute `create`, elija **Plantilla de la comunidad** y pegue una URL sencilla
 de un repositorio público de GitHub:
@@ -49,8 +49,8 @@ de un repositorio público de GitHub:
 https://github.com/owner/repo
 ```
 
-Si la raíz del repositorio contiene una sola app Agent Native, la CLI la instala
-directamente sin otro selector. Si es un espacio de trabajo Agent Native, la CLI
+Si la raíz del repositorio contiene una sola app Agent-Native, la CLI la instala
+directamente sin otro selector. Si es un espacio de trabajo Agent-Native, la CLI
 descubre los hijos directos válidos de `apps/*`, excluye `dispatch` y pregunta
 qué app quiere instalar.
 
@@ -64,8 +64,8 @@ un punto de partida reproducible. Sin una referencia, la CLI prueba primero
 `main` y después `master`:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 Para elegir la app de origen de un repositorio de espacio de trabajo sin
@@ -74,8 +74,8 @@ Mantenga todo el valor entre comillas porque shells como zsh interpretan `?`
 como un glob:
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 Fuera de un espacio de trabajo, `create` convierte la app de origen seleccionada
@@ -141,7 +141,7 @@ completa de requisitos de la app, actions, estado, seguridad y publicación.
 
 > **Revise el código de la comunidad antes de instalar dependencias o
 > ejecutarlo.** Las plantillas de la comunidad se descargan desde repositorios
-> de terceros; Agent Native no las aísla, audita ni mantiene. La CLI solo
+> de terceros; Agent-Native no las aísla, audita ni mantiene. La CLI solo
 > descarga el código fuente; no instala dependencias ni ejecuta scripts de la
 > plantilla. Revise el código fuente, la licencia, las dependencias y los
 > scripts de instalación de paquetes, y prefiera una referencia confiable
@@ -164,7 +164,7 @@ Cada app de ejemplo incluye:
 
 - **Un agente en funcionamiento**: conectado a la app, capaz de realizar actions sobre sus datos y consciente de lo que está viendo. Consulte [Messaging the agent](/docs/messaging).
 - **Auth**: inicio de sesión, sesiones, organizaciones y aislamiento multiinquilino.
-- **Una base de datos**: esquema, consultas y migraciones, listos para usar. Traiga su propia base de datos SQL (Postgres, SQLite, Turso, D1); el framework se adapta.
+- **Una base de datos**: esquema, consultas y migraciones listas para usar. Usa PGlite local durante el desarrollo y PostgreSQL alojado en los entornos desplegados.
 - **Una UI en tiempo real**: la pantalla permanece sincronizada con el agente. Por ejemplo, redactar un correo en el chat actualiza la bandeja de entrada de inmediato.
 - **Listo para implementar**: impleméntelo en Netlify, Vercel, Cloudflare, AWS o cualquier host que ejecute Node.
 - **Ganchos de marca**: cambie el nombre, los colores, el logotipo y el texto.
@@ -225,7 +225,7 @@ Cuatro pasos lo llevan de la plantilla a la app implementada:
 
 1. **Elija una app.** Utilice el selector de la CLI o explore los documentos.
 2. **Marca.** Cambia el nombre, los colores, el logotipo y el texto. La mayoría de las apps de ejemplo exponen esto en un único archivo de configuración.
-3. **Personalízalo.** Haz cambios de código fuente en tu repositorio y flujo de desarrollo. Un agente puede ayudar cuando su frame recibe intencionalmente herramientas de workspace y escritura; de lo contrario, el agente integrado opera la app mediante actions, datos e integraciones configuradas.
+3. **Personalízalo.** Haz cambios de código fuente en tu repositorio y flujo de desarrollo: "añade un campo de prioridad a los formularios", "conéctanos a nuestra instancia de Salesforce", "cambia la combinación de colores para que coincida con nuestra marca". Un agente puede ayudar cuando su frame recibe intencionalmente herramientas de workspace y escritura; de lo contrario, el agente integrado opera la app mediante actions, datos e integraciones configuradas.
 4. **Envíelo.** Ejecute el comando de implementación. Ahora tiene una app de producción en su propio dominio.
 
 Los pasos 2 a 4 suelen tardar unos días. El paso 3 no tiene un punto final fijo: la app es suya para evolucionarla, mientras el agente integrado sigue disponible para operar el producto desplegado y puede ayudar con cambios de código fuente cuando se habilita explícitamente el acceso al código.
@@ -305,13 +305,13 @@ Puede agregar capacidades nativas del agente a un agente de codificación que ya
 Para hacer scaffolding de una nueva app:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-La CLI pregunta primero **¿Cómo quieres empezar?** Elige **Chat** para un espacio de trabajo mínimo con Chat y Dispatch, o **First-party template(s)** para abrir el selector múltiple. Community y Headless son los accesos para una app independiente. Las apps del espacio de trabajo comparten autenticación, marca, configuración del agente y base de datos; cada app se estructura en `apps/<name>/` con todos los archivos necesarios. Para una automatización sin UI de navegador en lugar de una UI de app, use `npx @agent-native/core@latest create my-agent --headless`.
+La CLI pregunta primero **¿Cómo quieres empezar?** Elige **Chat** para un espacio de trabajo mínimo con Chat y Dispatch, o **First-party template(s)** para abrir el selector múltiple. Community y Headless son los accesos para una app independiente. Las apps del espacio de trabajo comparten autenticación, marca, configuración del agente y base de datos; cada app se estructura en `apps/<name>/` con todos los archivos necesarios. Para una automatización sin UI de navegador en lugar de una UI de app, use `npx --yes @agent-native/core@latest create my-agent --headless`.
 
 Complete `.env` (`ANTHROPIC_API_KEY` y `DATABASE_URL`), luego ejecute `pnpm install` y `pnpm dev`. No hay que implementar el inicio de sesión ni rutas de marcador de posición.
 
-Destinos de implementación: cualquier host compatible con Nitro (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) y cualquier base de datos SQL compatible con Drizzle (SQLite, Postgres, Turso, D1, Supabase, Neon). Para los espacios de trabajo, `npx @agent-native/core@latest deploy` crea todas las aplicaciones a la vez y las envía detrás de un único origen. Ver [Deployment](/docs/deployment).
+Destinos de implementación: cualquier host compatible con Nitro y una base de datos PostgreSQL alojada. Para los espacios de trabajo, `npx @agent-native/core@latest deploy` crea todas las aplicaciones a la vez y las envía detrás de un único origen. Ver [Deployment](/docs/deployment).
 
 Para crear y publicar su propia plantilla de app, consulte [Creating Templates](/docs/creating-templates).

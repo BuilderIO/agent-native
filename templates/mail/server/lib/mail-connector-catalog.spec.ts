@@ -6,33 +6,35 @@ import { describe, expect, it } from "vitest";
 import { MAIL_CONNECTOR_CATALOG } from "./mail-connector-catalog";
 
 describe("Mail MCP connector catalog", () => {
-  it("exposes inventory reads and bounded attachment upload capabilities", () => {
+  it("exposes bounded inventory, exact body reads, and attachment uploads", () => {
     expect(MAIL_CONNECTOR_CATALOG).toEqual([
       "list-emails",
+      "get-email",
+      "get-thread",
       "create-attachment-upload",
     ]);
     expect(MAIL_CONNECTOR_CATALOG).not.toContain("search-emails");
-    expect(MAIL_CONNECTOR_CATALOG).not.toContain("get-email");
     expect(MAIL_CONNECTOR_CATALOG).not.toContain("send-email");
   });
 
-  it("wires the catalog into MCP and keeps email inventory authenticated read-only", () => {
+  it("wires the catalog into MCP and keeps every email read authenticated read-only", () => {
     const root = process.cwd();
     const plugin = readFileSync(
       join(root, "server", "plugins", "agent-chat.ts"),
       "utf8",
     );
-    const action = readFileSync(
-      join(root, "actions", "list-emails.ts"),
-      "utf8",
-    );
-
     expect(plugin).toContain("connectorCatalog: [");
     expect(plugin).toContain("...MAIL_CONNECTOR_CATALOG");
-    expect(action).toContain("readOnly: true");
-    expect(action).toContain(
-      "publicAgent: { expose: true, readOnly: true, requiresAuth: true }",
-    );
+    for (const actionName of ["list-emails", "get-email", "get-thread"]) {
+      const action = readFileSync(
+        join(root, "actions", `${actionName}.ts`),
+        "utf8",
+      );
+      expect(action).toContain("readOnly: true");
+      expect(action).toContain(
+        "publicAgent: { expose: true, readOnly: true, requiresAuth: true }",
+      );
+    }
   });
   it("keeps send-email outside the direct connector surface", () => {
     const uploadAction = readFileSync(

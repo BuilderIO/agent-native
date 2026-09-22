@@ -230,24 +230,30 @@ function FindingRow({
     }
   };
 
+  const handleActivate = () => {
+    if (hasDetail) setExpanded((value) => !value);
+    onClick?.(finding);
+  };
+
   return (
     <div
       className={cn(
         "group rounded-[5px] px-2 py-1.5 transition-colors",
-        onClick
+        hasDetail || onClick
           ? "cursor-pointer hover:bg-[var(--design-editor-layer-hover-color)]"
           : "cursor-default",
       )}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onClick={() => onClick?.(finding)}
+      role={hasDetail || onClick ? "button" : undefined}
+      tabIndex={hasDetail || onClick ? 0 : undefined}
+      aria-expanded={hasDetail ? expanded : undefined}
+      onClick={handleActivate}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           // This is a `role="button"` div, not a native <button>, so the
           // browser's default Space behavior (page scroll) isn't suppressed
           // automatically — prevent it before activating.
           e.preventDefault();
-          onClick?.(finding);
+          handleActivate();
         }
       }}
       aria-label={finding.message}
@@ -260,13 +266,13 @@ function FindingRow({
 
         <div className="min-w-0 flex-1">
           <div className="flex min-h-5 items-center gap-1">
-            <span className="truncate !text-[11px] font-medium leading-snug text-foreground">
+            <span className="design-sidebar-control-text truncate font-medium text-foreground">
               {finding.message}
             </span>
             {hasDetail && (
               <button
                 type="button"
-                className="ml-auto shrink-0 text-muted-foreground/50 hover:text-foreground"
+                className="ml-auto inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
                 onClick={(e) => {
                   e.stopPropagation();
                   setExpanded((v) => !v);
@@ -379,18 +385,18 @@ function A11ySection({
 
   return (
     <section aria-labelledby="review-a11y-heading">
-      <div className="flex h-7 items-center justify-between gap-2">
+      <div className="flex min-h-[var(--design-row-height)] items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <IconShieldCheck className="size-3.5 text-muted-foreground" />
           <span
             id="review-a11y-heading"
-            className="!text-[11px] font-semibold text-foreground"
+            className="design-sidebar-section-title text-foreground"
           >
             Accessibility
           </span>
           <span
             className={cn(
-              "rounded px-1 py-0.5 text-[10px] font-medium text-muted-foreground/65",
+              "design-sidebar-field-label rounded px-1 py-0.5 font-medium text-muted-foreground/65",
               !loading && !auditError && !notRun && !hasFindings
                 ? "text-emerald-500"
                 : "",
@@ -572,7 +578,7 @@ function VisualDiffSection({
         <IconArrowsLeftRight className="size-3.5 text-muted-foreground" />
         <span
           id="review-diff-heading"
-          className="!text-[11px] font-semibold text-foreground"
+          className="design-sidebar-section-title text-foreground"
         >
           Visual diff
         </span>

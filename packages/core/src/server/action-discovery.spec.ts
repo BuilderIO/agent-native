@@ -4,7 +4,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveFrameworkTools } from "../framework-tools.js";
+import {
+  filterFrameworkToolGroups,
+  resolveFrameworkTools,
+} from "../framework-tools.js";
 import {
   ALWAYS_ON_CORE_ACTIONS,
   autoDiscoverActions,
@@ -68,6 +71,29 @@ describe("action discovery", () => {
     expect(registry["mutating-read"].readOnly).toBe(false);
   });
 
+  it(
+    "makes audit reads available with a static registry while respecting disabled groups",
+    async () => {
+      const registry = loadActionsFromStaticRegistry({});
+      await mergeCoreSharingActions(registry);
+      const enabled = filterFrameworkToolGroups(
+        registry,
+        resolveFrameworkTools({}).disabledGroups,
+      );
+      const disabled = filterFrameworkToolGroups(
+        registry,
+        resolveFrameworkTools({ frameworkTools: { audit: false } })
+          .disabledGroups,
+      );
+      for (const name of ["list-audit-events", "get-audit-event"]) {
+        expect(enabled[name]?.readOnly).toBe(true);
+        expect(disabled[name]).toBeUndefined();
+        expect(registry[name]).toBeDefined();
+      }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("preserves grounding metadata from static action entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "grounded-query": {
@@ -113,6 +139,20 @@ describe("action discovery", () => {
     });
 
     expect(registry["safe-write"].parallelSafe).toBe(true);
+  });
+
+  it("preserves explicit endsTurn metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "show-questions": {
+        default: {
+          tool: { description: "Show questions", parameters: {} },
+          endsTurn: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["show-questions"].endsTurn).toBe(true);
   });
 
   it("preserves explicit duplicate-read opt-out metadata", () => {
@@ -291,6 +331,21 @@ describe("action discovery", () => {
     expect(registry["send-email-named"].needsApproval).toBe(gate);
   });
 
+  it("preserves a per-call-only approval policy through discovery", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "send-email": {
+        default: {
+          tool: { description: "Send email", parameters: {} },
+          needsApproval: true,
+          allowPersistentApproval: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["send-email"].allowPersistentApproval).toBe(false);
+  });
+
   it("threads the http config through named and default static entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "named-get": {
@@ -379,6 +434,7 @@ describe("action discovery", () => {
         "share-resource",
         "unshare-resource",
         "set-resource-visibility",
+        "offboard-member",
       ]) {
         expect(registry[name], `${name} should be merged`).toBeDefined();
         expect(
@@ -386,9 +442,33 @@ describe("action discovery", () => {
           `${name} must keep toolCallable:false`,
         ).toBe(false);
       }
+      expect(registry["offboard-member"].agentTool).toBe(false);
+      expect(registry["offboard-member"].mcpTool).toBe(false);
+      await expect(
+        registry["offboard-member"].run(
+          { email: "alice@example.com", transferTo: "bob@example.com" },
+          { caller: "tool", userEmail: "alice@example.com" },
+        ),
+      ).rejects.toThrow(
+        "This action can only be called from the signed-in app UI.",
+      );
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
+
+  it("preserves WebMCP capability scopes in the action registry", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "visual-edit": {
+        default: {
+          tool: { description: "Visual edit", parameters: {} },
+          capabilityScopes: ["visual-edit"],
+          run: async () => ({}),
+        },
+      },
+    });
+
+    expect(registry["visual-edit"].capabilityScopes).toEqual(["visual-edit"]);
+  });
 
   it(
     "merges app-facing MCP actions without exposing them as agent tools",
@@ -438,6 +518,22 @@ describe("action discovery", () => {
     expect(registry["set-localization-preference"]).toBeDefined();
   });
 
+  it("merges Labs actions and their legacy experiment aliases", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "get-labs",
+      "set-lab",
+      "get-experiments",
+      "set-experiment",
+    ]) {
+      expect(registry[name], `${name} should be merged`).toBeDefined();
+      expect(registry[name].frameworkGroup).toBe("labs");
+    }
+    expect(registry["get-experiments"].http).toEqual({ method: "GET" });
+  });
+
   it("merges toolkit history and review actions", async () => {
     const registry: Record<string, any> = {};
     await mergeCoreSharingActions(registry);
@@ -453,10 +549,12 @@ describe("action discovery", () => {
       "reply-review-comment",
       "resolve-review-thread",
       "delete-review-comment",
+      "update-review-comment",
       "consume-review-feedback",
       "get-review-feedback",
       "set-review-status",
       "send-review-thread-to-agent",
+      "set-review-threads-unread",
     ]) {
       expect(registry[name], `${name} should be merged`).toBeDefined();
     }
@@ -516,6 +614,7 @@ describe("action discovery", () => {
         "list-transactional-emails",
         "render-transactional-email-preview",
         "list-email-log",
+        "get-email-log-body",
         "list-email-activity",
         "list-email-engagement",
       ],

@@ -1,10 +1,5 @@
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-  safeJsonParse,
-} from "../db/client.js";
+import type { AgentNativeWebMcpTool } from "../client/webmcp.js";
+import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type {
   AgentNativeBrowserSession,
@@ -24,6 +19,8 @@ export const DEFAULT_BROWSER_SESSION_REQUEST_POLL_MS = 250;
 const SESSION_TABLE = "agent_native_browser_sessions";
 const REQUEST_TABLE = "agent_native_browser_session_requests";
 const SAFE_ID_RE = /^[A-Za-z0-9._:-]{1,160}$/;
+const MAX_WEBMCP_TOOL_COUNT = 100;
+const MAX_WEBMCP_MANIFEST_CHARS = 500_000;
 
 let initPromise: Promise<void> | undefined;
 
@@ -38,7 +35,6 @@ function sleep(ms: number): Promise<void> {
 export async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      const client = getDbExec();
       const createSessionsSql = `
           CREATE TABLE IF NOT EXISTS ${SESSION_TABLE} (
             owner_email TEXT NOT NULL,
@@ -48,9 +44,9 @@ export async function ensureTables(): Promise<void> {
             session_json TEXT NOT NULL,
             context_json TEXT,
             actions_json TEXT,
-            connected_at ${intType()} NOT NULL,
-            last_seen_at ${intType()} NOT NULL,
-            expires_at ${intType()} NOT NULL,
+            connected_at BIGINT NOT NULL,
+            last_seen_at BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
             PRIMARY KEY (owner_email, session_id)
           )
         `;
@@ -64,17 +60,17 @@ export async function ensureTables(): Promise<void> {
             command TEXT,
             payload_json TEXT,
             status TEXT NOT NULL,
-            created_at ${intType()} NOT NULL,
-            claimed_at ${intType()},
-            completed_at ${intType()},
-            expires_at ${intType()} NOT NULL,
+            created_at BIGINT NOT NULL,
+            claimed_at BIGINT,
+            completed_at BIGINT,
+            expires_at BIGINT NOT NULL,
             result_json TEXT,
             error TEXT,
             PRIMARY KEY (owner_email, request_id)
           )
         `;
 
-      if (isPostgres()) {
+      {
         // PG-guard: probe information_schema / pg_indexes first (no lock) and
         // only issue DDL when the table/index is actually missing, wrapped in
         // a transaction-scoped lock_timeout so a contended lock fails fast.
@@ -90,23 +86,6 @@ export async function ensureTables(): Promise<void> {
         );
         return;
       }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
-      // retryOnDdlRace behaviour.
-      await retryOnDdlRace(() => client.execute(createSessionsSql));
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE INDEX IF NOT EXISTS agent_native_browser_sessions_owner_seen_idx
-          ON ${SESSION_TABLE} (owner_email, last_seen_at)
-        `),
-      );
-      await retryOnDdlRace(() => client.execute(createRequestsSql));
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE INDEX IF NOT EXISTS agent_native_browser_session_requests_pending_idx
-          ON ${REQUEST_TABLE} (owner_email, session_id, status, created_at)
-        `),
-      );
     })().catch((err) => {
       // Don't cache a transient init failure — otherwise every browser-session
       // call re-awaits the same rejected promise until the process restarts.
@@ -161,6 +140,71 @@ function parseActions(value: unknown): AgentNativeBrowserSessionAction[] {
           typeof (action as { name?: unknown }).name === "string",
       ) as AgentNativeBrowserSessionAction[])
     : [];
+}
+
+function isWebMcpAction(action: AgentNativeBrowserSessionAction): boolean {
+  return action.source === "webmcp";
+}
+
+function normalizeWebMcpTools(value: unknown): AgentNativeWebMcpTool[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("webmcpTools must be an array");
+  }
+  if (value.length > MAX_WEBMCP_TOOL_COUNT) {
+    throw new Error(
+      `WebMCP returned more than the ${MAX_WEBMCP_TOOL_COUNT}-tool limit`,
+    );
+  }
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw new Error("WebMCP tool manifest must be JSON-serializable");
+  }
+  if (serialized === undefined) {
+    throw new Error("WebMCP tool manifest must be JSON-serializable");
+  }
+  if (serialized.length > MAX_WEBMCP_MANIFEST_CHARS) {
+    throw new Error(
+      `WebMCP tool manifest exceeds the ${MAX_WEBMCP_MANIFEST_CHARS}-character limit`,
+    );
+  }
+  return value as AgentNativeWebMcpTool[];
+}
+
+function toWebMcpAction(
+  tool: AgentNativeWebMcpTool,
+): AgentNativeBrowserSessionAction {
+  return {
+    name: tool.name,
+    description: tool.description,
+    ...(tool.title ? { title: tool.title } : {}),
+    ...(tool.inputSchema ? { schema: tool.inputSchema } : {}),
+    ...(tool.origin ? { origin: tool.origin } : {}),
+    ...(tool.annotations ? { annotations: tool.annotations } : {}),
+    source: "webmcp",
+    availability: "browser-session",
+  };
+}
+
+function fromWebMcpAction(
+  action: AgentNativeBrowserSessionAction,
+): AgentNativeWebMcpTool {
+  const schema = action.schema ?? action.parameters;
+  return {
+    name: action.name,
+    description: action.description,
+    ...(typeof action.title === "string" ? { title: action.title } : {}),
+    ...(schema ? { inputSchema: schema } : {}),
+    ...(typeof action.origin === "string" ? { origin: action.origin } : {}),
+    ...(action.annotations && typeof action.annotations === "object"
+      ? {
+          annotations:
+            action.annotations as AgentNativeWebMcpTool["annotations"],
+        }
+      : {}),
+  };
 }
 
 function parseSession(
@@ -223,6 +267,7 @@ function normalizeSessionInput(input: RegisterAgentNativeBrowserSessionInput): {
     connectedAt: new Date(connectedAt).toISOString(),
     ...(url ? { url } : {}),
   };
+  const webmcpTools = normalizeWebMcpTools(input.webmcpTools);
   return {
     sessionId,
     session,
@@ -234,7 +279,10 @@ function normalizeSessionInput(input: RegisterAgentNativeBrowserSessionInput): {
       !Array.isArray(input.context)
         ? input.context
         : undefined,
-    actions: Array.isArray(input.actions) ? input.actions : [],
+    actions: [
+      ...(Array.isArray(input.actions) ? input.actions : []),
+      ...webmcpTools.map(toWebMcpAction),
+    ],
     connectedAt,
     ttlMs:
       typeof input.ttlMs === "number" && input.ttlMs > 0
@@ -247,15 +295,17 @@ function rowToSession(
   row: Record<string, unknown>,
   now = nowMs(),
 ): AgentNativeBrowserSessionRecord {
-  const sessionId = String(row.session_id ?? "");
+  const sessionId = stringifyValue(row.session_id ?? "");
   const expiresAt = Number(row.expires_at ?? 0);
+  const parsedActions = parseActions(row.actions_json);
   return {
     sessionId,
     session: parseSession(row.session_json, sessionId),
     label: typeof row.label === "string" ? row.label : undefined,
     url: typeof row.url === "string" ? row.url : undefined,
     context: parseOptionalObject(row.context_json),
-    actions: parseActions(row.actions_json),
+    actions: parsedActions.filter((action) => !isWebMcpAction(action)),
+    webmcpTools: parsedActions.filter(isWebMcpAction).map(fromWebMcpAction),
     connectedAt: Number(row.connected_at ?? 0),
     lastSeenAt: Number(row.last_seen_at ?? 0),
     expiresAt,
@@ -272,8 +322,8 @@ function rowToRequest(
   const payload = safeJsonParse<unknown>(row.payload_json, undefined);
   const result = safeJsonParse<unknown>(row.result_json, undefined);
   const request: AgentNativeBrowserSessionRequest = {
-    id: String(row.request_id ?? ""),
-    sessionId: String(row.session_id ?? ""),
+    id: stringifyValue(row.request_id ?? ""),
+    sessionId: stringifyValue(row.session_id ?? ""),
     type,
     status: String(
       row.status ?? "pending",
@@ -288,11 +338,29 @@ function rowToRequest(
     ...(row.completed_at != null
       ? { completedAt: Number(row.completed_at) }
       : {}),
-    ...(row.error ? { error: String(row.error) } : {}),
+    ...(row.error
+      ? {
+          error: stringifyValue(row.error),
+        }
+      : {}),
     ...(row.result_json != null ? { result } : {}),
   };
   if (type === "run-action") request.args = payload;
-  else request.payload = payload;
+  else if (type === "run-webmcp-tool") {
+    const envelope =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as { args?: unknown; origin?: unknown })
+        : undefined;
+    request.args =
+      envelope && "args" in envelope
+        ? envelope.args
+        : typeof envelope?.origin === "string" && envelope.origin
+          ? {}
+          : payload;
+    if (typeof envelope?.origin === "string" && envelope.origin) {
+      request.origin = envelope.origin;
+    }
+  } else request.payload = payload;
   return request;
 }
 
@@ -329,8 +397,7 @@ export async function registerBrowserSession(
   const expiresAt = now + normalized.ttlMs;
 
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO ${SESSION_TABLE}
+    sql: `INSERT INTO ${SESSION_TABLE}
           (owner_email, session_id, label, url, session_json, context_json, actions_json, connected_at, last_seen_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (owner_email, session_id) DO UPDATE SET
@@ -340,10 +407,7 @@ export async function registerBrowserSession(
           context_json = EXCLUDED.context_json,
           actions_json = EXCLUDED.actions_json,
           last_seen_at = EXCLUDED.last_seen_at,
-          expires_at = EXCLUDED.expires_at`
-      : `INSERT OR REPLACE INTO ${SESSION_TABLE}
-          (owner_email, session_id, label, url, session_json, context_json, actions_json, connected_at, last_seen_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          expires_at = EXCLUDED.expires_at`,
     args: [
       ownerEmail,
       normalized.sessionId,
@@ -435,6 +499,7 @@ function normalizeRequestInput(
 ): {
   type: AgentNativeBrowserSessionRequestType;
   name?: string;
+  origin?: string;
   command?: string;
   payload?: unknown;
   timeoutMs: number;
@@ -443,18 +508,23 @@ function normalizeRequestInput(
     input.type !== "get-context" &&
     input.type !== "list-actions" &&
     input.type !== "run-action" &&
+    input.type !== "list-webmcp-tools" &&
+    input.type !== "run-webmcp-tool" &&
     input.type !== "command"
   ) {
     throw new Error(
-      "request type must be get-context, list-actions, run-action, or command",
+      "request type must be get-context, list-actions, run-action, list-webmcp-tools, run-webmcp-tool, or command",
     );
   }
   const name =
     typeof input.name === "string" && input.name.trim()
       ? input.name.trim()
       : undefined;
-  if (input.type === "run-action" && !name) {
-    throw new Error("name is required for run-action requests");
+  if (
+    (input.type === "run-action" || input.type === "run-webmcp-tool") &&
+    !name
+  ) {
+    throw new Error("name is required for tool execution requests");
   }
   const command =
     typeof input.command === "string" && input.command.trim()
@@ -465,8 +535,14 @@ function normalizeRequestInput(
   return {
     type: input.type,
     name,
+    ...(input.origin ? { origin: input.origin } : {}),
     command,
-    payload: input.type === "run-action" ? input.args : input.payload,
+    payload:
+      input.type === "run-action"
+        ? input.args
+        : input.type === "run-webmcp-tool"
+          ? { args: input.args, origin: input.origin }
+          : input.payload,
     timeoutMs:
       typeof input.timeoutMs === "number" && input.timeoutMs > 0
         ? Math.min(input.timeoutMs, 2 * 60 * 1000)
@@ -492,14 +568,10 @@ export async function createBrowserSessionRequest(
   const requestId = generateId("browser-request");
   const expiresAt = createdAt + normalized.timeoutMs + 15_000;
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO ${REQUEST_TABLE}
+    sql: `INSERT INTO ${REQUEST_TABLE}
           (owner_email, session_id, request_id, type, name, command, payload_json, status, created_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-         ON CONFLICT (owner_email, request_id) DO NOTHING`
-      : `INSERT OR IGNORE INTO ${REQUEST_TABLE}
-          (owner_email, session_id, request_id, type, name, command, payload_json, status, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+         ON CONFLICT (owner_email, request_id) DO NOTHING`,
     args: [
       ownerEmail,
       sessionId,
@@ -676,4 +748,14 @@ export async function callBrowserSession(
     timeoutMs: options.timeoutMs ?? input.timeoutMs,
     pollMs: options.pollMs,
   });
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

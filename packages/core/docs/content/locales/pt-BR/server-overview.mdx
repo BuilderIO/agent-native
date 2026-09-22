@@ -87,7 +87,7 @@ O diretório `server/` é a camada de infraestrutura de um aplicativo nativo do 
 
 Em um aplicativo web tradicional, o servidor é onde reside a maior parte da lógica. Regras de negócio, acesso a dados e apresentação acontecem todos dentro dos manipuladores de rota. Aplicativos nativos do agente funcionam de forma diferente. A lógica reside nas actions, que o agente e a UI compartilham como parceiros iguais. O trabalho do servidor é de coordenação: executar migrações de banco de dados, configurar a autenticação, montar o loop do agente e cuidar do conjunto restrito de questões HTTP que as actions não conseguem expressar sozinhas.
 
-<Diagram id="doc-block-server-overview-2" title="Servidor tradicional vs. Agent Native">
+<Diagram id="doc-block-server-overview-2" title="Servidor tradicional vs. Agent-Native">
 
 ```html
 <div class="diagram-cmp">
@@ -109,7 +109,7 @@ Em um aplicativo web tradicional, o servidor é onde reside a maior parte da ló
   </div>
   <div class="cmp-vs diagram-muted">vs</div>
   <div class="cmp-col">
-    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-label diagram-muted">Agent-Native</div>
     <div class="cmp-callers">
       <div class="diagram-node">Navegador / UI</div>
       <div class="diagram-node">Agente</div>
@@ -215,7 +215,7 @@ A API de requisição/resposta subjacente é o [H3](https://h3.unjs.io). Quando 
 
 ## Prefira Actions primeiro {#actions-first}
 
-A arquitetura do Agent Native é diferente. Sempre que pensar em um novo recurso para o seu aplicativo, considere primeiro se ele pode ser uma action. Por exemplo, se a UI e o agente precisam fazer a mesma coisa, defina uma action em vez de uma rota de API personalizada. As actions se tornam automaticamente:
+A arquitetura do Agent-Native é diferente. Sempre que pensar em um novo recurso para o seu aplicativo, considere primeiro se ele pode ser uma action. Por exemplo, se a UI e o agente precisam fazer a mesma coisa, defina uma action em vez de uma rota de API personalizada. As actions se tornam automaticamente:
 
 - Ferramentas do agente.
 - Ganchos tipados de frontend.

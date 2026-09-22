@@ -102,11 +102,9 @@ export function resolveGoogleSignInCredentials(): GoogleOAuthCredentials | null 
     "GOOGLE_CLIENT_SECRET",
   );
 
-  // Both pairs configured for different clients means one of them is dead
-  // config that nothing will ever read. Silence here cost a fleet-wide beta
-  // sign-in outage: GOOGLE_CLIENT_SECRET was repaired and verified while the
-  // callback kept using a stale GOOGLE_SIGN_IN_CLIENT_SECRET, so the repaired
-  // variable looked correct and changed nothing. Name the loser explicitly.
+  // Different clients can be intentional: sign-in uses GOOGLE_SIGN_IN_* while
+  // provider API flows use GOOGLE_CLIENT_*. Keep the warning because editing
+  // the provider pair cannot repair a sign-in pair that is actually active.
   if (signIn && provider && signIn.clientId !== provider.clientId) {
     console.warn(
       "[agent-native][google-oauth] GOOGLE_SIGN_IN_CLIENT_ID and GOOGLE_CLIENT_ID " +
@@ -165,9 +163,10 @@ export function getActiveGoogleSignInCredentials(): {
 /**
  * Which sign-in credential pairs are configured, and whether they disagree.
  *
- * `mismatched` is the state that hid the 2026-08-20 outage: two pairs naming
- * different Google clients, where only the winner is ever read. Callers report
- * it; the resolver only warns.
+ * `mismatched` is diagnostic only. Two pairs may name different clients when
+ * identity sign-in and provider APIs intentionally have separate OAuth apps.
+ * Callers must compare the pair used by their specific flow, not delete one
+ * based on this flag alone.
  */
 export function describeGoogleSignInCredentialPairs(): {
   signInClientId: string | null;

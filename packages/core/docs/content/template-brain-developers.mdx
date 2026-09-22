@@ -10,7 +10,7 @@ This page is for anyone customizing the Brain template, running it as a service,
 ## Quick start
 
 ```bash
-npx @agent-native/core@latest create my-brain --standalone --template brain
+npx --yes @agent-native/core@latest create my-brain --standalone --template brain
 ```
 
 See [Getting Started](/docs/getting-started) for `cd`/install/dev steps. Open the app and choose **Start demo** to see cited memory with a seeded product-decision corpus before connecting a real workspace.
@@ -19,7 +19,7 @@ See [Getting Started](/docs/getting-started) for `cd`/install/dev steps. Open th
 
 All data lives in SQL via Drizzle. Brain's schema is `templates/brain/server/db/schema.ts` — **23 tables**, not the nine you'd guess from the core ingest-to-answer flow. The extra tables back three subsystems that don't show up in casual use: per-conversation audience scoping (who is allowed to see a given capture or knowledge entry), a hybrid full-text-plus-semantic search index, and lightweight source grouping ("projects").
 
-Retrieval itself has no vector-database dependency to run or pay for. Full-text search runs on every deployment target (SQLite, Postgres, Neon, D1, Turso). When the deployment is Postgres, Brain also builds a pgvector-backed semantic index automatically and blends its ranking with full-text results — no separate service, no extra configuration flag, and no vectors leave the same `brain_search_embeddings` table everything else lives in.
+Retrieval itself has no vector-database dependency to run or pay for. Full-text search runs in local PGlite and hosted Postgres. Hosted Postgres can also build a pgvector-backed semantic index automatically and blend its ranking with full-text results - no separate service or configuration flag is required.
 
 <DataModel
   id="doc-block-qwo0b1"
@@ -287,7 +287,7 @@ A few worth calling out specifically:
 - **`get-brain-health`** backs the [Ops page](/docs/template-brain-sources#ops) and answers "why isn't X in Brain yet" cheaper than inspecting sources by hand: the same per-source health value shown there, plus distillation queue counts, pending proposals, and ordered next setup steps.
 - **`get-pilot-report`** summarizes one source's sync health, capture counts, queue state, published knowledge, and pending proposals without returning raw capture bodies — call it after a Slack safe-pilot sample sync.
 - **`rotate-source-ingest-token`** is reachable from the Sources UI ("Rotate ingest token" on a source card) but is not agent-callable (`agentTool: false`) — it's a deliberately human-only control since the new token is shown once and can't be recovered.
-- **Staged-dataset actions** (`list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset`) let the agent stage a large provider pull with `provider-api-request`'s `stageAs`, then filter/aggregate it without re-fetching — the same pattern used across Agent Native's provider-API surface.
+- **Staged-dataset actions** (`list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset`) let the agent stage a large provider pull with `provider-api-request`'s `stageAs`, then filter/aggregate it without re-fetching — the same pattern used across Agent-Native's provider-API surface.
 
 ## Connecting sources
 

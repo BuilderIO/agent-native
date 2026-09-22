@@ -1,54 +1,37 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
-  IconApps,
   IconArrowUpRight,
-  IconBrain,
-  IconBrandJira,
-  IconBrush,
-  IconCalendar,
-  IconCalendarTime,
-  IconChartBar,
+  IconBriefcase,
   IconCheck,
-  IconChevronRight,
-  IconClipboardList,
-  IconCode,
   IconExternalLink,
-  IconFileText,
   IconKey,
-  IconLayoutBoard,
-  IconListCheck,
   IconLoader2,
   IconLogout,
-  IconMail,
-  IconMessageCircle,
-  IconMicrophone,
-  IconNote,
-  IconPhone,
-  IconPhoto,
   IconPlus,
   IconPresentation,
-  IconRoute,
-  IconScreenShare,
   IconSelector,
   IconSettings,
-  IconStack2,
   IconUser,
   IconUserCircle,
   IconUserPlus,
-  IconUsers,
   IconUsersGroup,
-  IconWorld,
 } from "@tabler/icons-react";
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
+import { canInviteOrgMembers } from "../../org/permissions.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
-import { agentNativePath } from "../api-path.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { buildSignInReturnHref } from "../require-session.js";
+import { signOut } from "../sign-out.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
-import { notifySessionInvalidated, useSession } from "../use-session.js";
+import { useSession } from "../use-session.js";
 import {
   useOrg,
   useSwitchOrg,
@@ -57,12 +40,14 @@ import {
   useAcceptInvitation,
   useJoinByDomain,
 } from "./hooks.js";
-import {
-  ORG_SWITCHER_MAX_APP_LINKS,
-  useOrgSwitcherAppLinks,
-  visibleOrgAppLinks,
-  type OrgSwitcherAppLink,
-} from "./workspace-app-links.js";
+
+export interface OrgSwitcherUtilityLink {
+  id: string;
+  label: string;
+  href: string;
+  icon?: ReactNode;
+  external?: boolean;
+}
 
 export interface OrgSwitcherProps {
   className?: string;
@@ -86,15 +71,12 @@ export interface OrgSwitcherProps {
   settingsPath?: string | null;
   /** Path to navigate to when the user clicks "Profile". Defaults to the shared Account settings section. */
   profilePath?: string | null;
-  /**
-   * Path to the Manage agent page. Settings links here too, but the switcher
-   * is the only always-visible surface, so omitting it leaves Files,
-   * Instructions, Memory, Skills and Automations reachable only from Settings.
-   * Pass `null` for apps that do not mount the Agent page.
-   */
+  /** @deprecated Manage agent is available in Settings and is not shown here. */
   agentPath?: string | null;
-  /** Omit the link to the app that currently owns this switcher. */
+  /** @deprecated The switcher no longer renders an app list. */
   currentAppId?: string;
+  /** App-owned, low-frequency utilities rendered before sign out. */
+  utilityLinks?: readonly OrgSwitcherUtilityLink[];
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -120,9 +102,6 @@ const ITEM_CLASS =
 const SECTION_LABEL_CLASS =
   "px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground";
 
-const APP_SUBMENU_CONTENT_CLASS =
-  "z-50 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
-
 const SWITCHER_BUTTON_CLASS =
   "flex w-full items-center gap-2 rounded-md border-0 bg-accent/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
 
@@ -131,177 +110,10 @@ const COMPACT_SWITCHER_BUTTON_CLASS =
 
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings/organization";
 const DEFAULT_PROFILE_PATH = "/settings/account";
-const DEFAULT_AGENT_PATH = "/settings/agent";
-
-const APP_ICON_MAP: Record<string, typeof IconApps> = {
-  Mail: IconMail,
-  CalendarDays: IconCalendar,
-  FileText: IconFileText,
-  LayoutBoard: IconLayoutBoard,
-  BarChart2: IconChartBar,
-  GalleryHorizontal: IconPresentation,
-  BrandJira: IconBrandJira,
-  ClipboardList: IconClipboardList,
-  Users: IconUsers,
-  Code: IconCode,
-  MessageCircle: IconMessageCircle,
-  Route: IconRoute,
-  ScreenShare: IconScreenShare,
-  Brush: IconBrush,
-  Brain: IconBrain,
-  Phone: IconPhone,
-  Note: IconNote,
-  Microphone: IconMicrophone,
-  CalendarTime: IconCalendarTime,
-  Globe: IconWorld,
-  Photo: IconPhoto,
-  ListCheck: IconListCheck,
-};
-
-function appMenuIcon(app: OrgSwitcherAppLink): typeof IconApps {
-  if (app.icon) return APP_ICON_MAP[app.icon] ?? IconStack2;
-  return app.isDispatch ? IconMessageCircle : IconStack2;
-}
-
 function organizationSettingsPath(path: string): string {
   if (path.includes("#")) return path;
   const pathname = path.split("?")[0]?.replace(/\/+$/, "");
   return pathname === "/settings" ? `${path}#organization` : path;
-}
-
-function AppMenuLink({
-  app,
-  onNavigate,
-}: {
-  app: OrgSwitcherAppLink;
-  onNavigate: () => void;
-}) {
-  const Icon = appMenuIcon(app);
-  const description =
-    app.status === "pending"
-      ? "Building"
-      : app.description?.trim() ||
-        (app.isDispatch ? "Workspace hub" : `${app.name} workspace`);
-  return (
-    <a
-      href={app.href}
-      onClick={onNavigate}
-      className="flex items-center gap-2 rounded-sm px-2.5 py-2 text-xs outline-none hover:bg-accent focus:bg-accent"
-    >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium text-foreground">
-          {app.name}
-        </span>
-        <span
-          className="block truncate text-[11px] text-muted-foreground"
-          title={description}
-        >
-          {description}
-        </span>
-      </span>
-      <IconArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-    </a>
-  );
-}
-
-function AppsSubmenu({
-  apps,
-  isLoading,
-  dispatchHref,
-  dispatchAllAppsHref,
-  currentAppId,
-  onNavigate,
-}: {
-  apps: OrgSwitcherAppLink[];
-  isLoading: boolean;
-  dispatchHref: string;
-  dispatchAllAppsHref: string;
-  currentAppId?: string;
-  onNavigate: () => void;
-}) {
-  const appsForMenu = currentAppId
-    ? apps.filter((app) => app.id !== currentAppId)
-    : apps;
-  const { links, overflowCount } = visibleOrgAppLinks(appsForMenu);
-  const visibleDispatchApp = links.find((app) => app.isDispatch);
-  const dispatchApp =
-    currentAppId === "dispatch"
-      ? null
-      : (visibleDispatchApp ??
-        ({
-          id: "dispatch",
-          name: "Dispatch",
-          href: dispatchHref,
-          isDispatch: true,
-          status: "ready",
-        } satisfies OrgSwitcherAppLink));
-  const visibleNonDispatch = links
-    .filter((app) => !app.isDispatch)
-    .slice(0, dispatchApp ? undefined : ORG_SWITCHER_MAX_APP_LINKS);
-  const shownCount = (dispatchApp ? 1 : 0) + visibleNonDispatch.length;
-  const remainingCount = Math.max(
-    overflowCount,
-    appsForMenu.length - shownCount,
-  );
-
-  return (
-    <PopoverPrimitive.Root>
-      <PopoverPrimitive.Trigger asChild>
-        <button type="button" className={`${ITEM_CLASS} cursor-pointer`}>
-          <IconApps className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="flex-1 text-start">Apps</span>
-          <span className="text-[11px] text-muted-foreground">
-            {isLoading ? (
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              appsForMenu.length
-            )}
-          </span>
-          <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-        </button>
-      </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          side="right"
-          align="start"
-          sideOffset={8}
-          collisionPadding={12}
-          className={APP_SUBMENU_CONTENT_CLASS}
-        >
-          {dispatchApp && (
-            <AppMenuLink app={dispatchApp} onNavigate={onNavigate} />
-          )}
-
-          {dispatchApp && visibleNonDispatch.length > 0 && (
-            <div className="my-1 h-px bg-border" />
-          )}
-          {visibleNonDispatch.map((app) => (
-            <AppMenuLink key={app.id} app={app} onNavigate={onNavigate} />
-          ))}
-
-          {remainingCount > 0 && (
-            <>
-              <div className="my-1 h-px bg-border" />
-              <a
-                href={dispatchAllAppsHref}
-                onClick={onNavigate}
-                className="flex items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs text-foreground outline-none hover:bg-accent focus:bg-accent"
-              >
-                <IconApps className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex-1">
-                  {`View ${remainingCount} more in Dispatch`}
-                </span>
-                <IconArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              </a>
-            </>
-          )}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
-  );
 }
 
 function ReservedOrgSwitcherSpace({ className }: { className?: string }) {
@@ -316,7 +128,7 @@ function OrgSwitcherLoadingPlaceholder({ className }: { className?: string }) {
       aria-label="Loading organization"
       className={`${SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
     >
-      <IconUsersGroup className="h-3.5 w-3.5 shrink-0 opacity-60" />
+      <IconBriefcase className="h-3.5 w-3.5 shrink-0 opacity-60" />
       <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
       <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
     </button>
@@ -336,8 +148,7 @@ export function OrgSwitcher({
   compact,
   settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
   profilePath = DEFAULT_PROFILE_PATH,
-  agentPath = DEFAULT_AGENT_PATH,
-  currentAppId,
+  utilityLinks,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const { session } = useSession();
@@ -355,7 +166,6 @@ export function OrgSwitcher({
   const [inviteEmail, setInviteEmail] = useState("");
   const [signingOut, setSigningOut] = useState(false);
   const [joiningOrgId, setJoiningOrgId] = useState<string | null>(null);
-  const appLinks = useOrgSwitcherAppLinks(open);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -369,25 +179,7 @@ export function OrgSwitcher({
   const handleSignOut = async () => {
     if (signingOut) return;
     setSigningOut(true);
-    try {
-      const response = await fetch(
-        agentNativePath("/_agent-native/auth/logout"),
-        {
-          method: "POST",
-          credentials: "include",
-        },
-      );
-      if (!response.ok) {
-        console.warn(
-          "Logout request returned an error before sign-in",
-          response.status,
-        );
-      }
-    } catch (error) {
-      console.warn("Unable to complete logout request before sign-in", error);
-    }
-    notifySessionInvalidated();
-    window.location.replace(buildSignInReturnHref());
+    await signOut();
   };
 
   if (!org) {
@@ -419,7 +211,7 @@ export function OrgSwitcher({
   }
 
   const canInvite =
-    !!org.orgId && (org.role === "owner" || org.role === "admin");
+    !!org.orgId && canInviteOrgMembers(org.role, org.emailConfigured);
 
   const personalLabel = session?.name || personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;
@@ -427,24 +219,35 @@ export function OrgSwitcher({
   const triggerLabel = demoModeEnabled
     ? `${buttonLabel}, Demo mode`
     : buttonLabel;
-  const ButtonIcon = inOrg ? IconUsersGroup : IconUser;
+  const ButtonIcon = inOrg ? IconBriefcase : IconUser;
   const organizationSettingsHref = settingsPath
     ? organizationSettingsPath(settingsPath)
     : null;
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      <PopoverPrimitive.Trigger asChild>
-        {compact ? (
-          <button
-            type="button"
-            title={triggerLabel}
-            aria-label={triggerLabel}
-            className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-          >
-            <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
-          </button>
-        ) : (
+      {compact ? (
+        // The popover trigger has to sit directly on the button: both Radix
+        // slots merge their props into the same DOM node, and a provider
+        // between them would swallow the click that opens the switcher.
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverPrimitive.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label={triggerLabel}
+                  className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+                >
+                  <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+                </button>
+              </PopoverPrimitive.Trigger>
+            </TooltipTrigger>
+            <TooltipContent side="right">{triggerLabel}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <PopoverPrimitive.Trigger asChild>
           <button
             type="button"
             aria-label={triggerLabel}
@@ -460,15 +263,15 @@ export function OrgSwitcher({
             )}
             <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
           </button>
-        )}
-      </PopoverPrimitive.Trigger>
+        </PopoverPrimitive.Trigger>
+      )}
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           side="top"
           align="start"
           sideOffset={6}
           collisionPadding={12}
-          className={`${POPOVER_CONTENT_CLASS} ${mode === "list" ? "" : "w-64"}`}
+          className={`${POPOVER_CONTENT_CLASS} w-64 max-w-[calc(100vw-1.5rem)]`}
           onOpenAutoFocus={(e) => {
             // Don't auto-focus the first item — feels heavy on a switcher.
             if (mode === "list") e.preventDefault();
@@ -528,14 +331,12 @@ export function OrgSwitcher({
                   aria-disabled="true"
                 >
                   <IconUser className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate flex-1 text-start">
+                  <span className="min-w-0 truncate flex-1 text-start">
                     Personal ({personalLabel})
                   </span>
                 </div>
               )}
-              {orgs.length > 0 && (
-                <div className={SECTION_LABEL_CLASS}>Organizations</div>
-              )}
+              <div className={SECTION_LABEL_CLASS}>Organizations</div>
               {orgs.map((o) => (
                 <button
                   key={o.orgId}
@@ -555,8 +356,8 @@ export function OrgSwitcher({
                   disabled={switchOrg.isPending}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
-                  <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate flex-1 text-start">
+                  <IconBriefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate flex-1 text-start">
                     {o.orgName}
                   </span>
                   {o.orgId === org.orgId && (
@@ -573,7 +374,7 @@ export function OrgSwitcher({
                     <div key={inv.id} className="px-2.5 py-1.5 text-xs">
                       <div className="flex items-center gap-2">
                         <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate flex-1 text-foreground">
+                        <span className="min-w-0 truncate flex-1 text-foreground">
                           {inv.orgName}
                         </span>
                         <button
@@ -626,7 +427,7 @@ export function OrgSwitcher({
                         className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
                       >
                         <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate flex-1 text-foreground">
+                        <span className="min-w-0 truncate flex-1 text-foreground">
                           {match.orgName}
                         </span>
                         <button
@@ -657,45 +458,20 @@ export function OrgSwitcher({
                 </>
               )}
 
-              <div className="my-1 h-px bg-border" />
-              <AppsSubmenu
-                apps={appLinks.apps}
-                isLoading={appLinks.isLoading}
-                dispatchHref={appLinks.dispatchHref}
-                dispatchAllAppsHref={appLinks.dispatchAllAppsHref}
-                currentAppId={currentAppId}
-                onNavigate={() => setOpen(false)}
-              />
-              {profilePath && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    navigate(profilePath);
-                  }}
-                  className={`${ITEM_CLASS} cursor-pointer`}
-                >
-                  <IconUserCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-start">
-                    {t("settings.profileMenuItem")}
-                  </span>
-                </button>
+              {(pendingInvitations.length > 0 || domainMatches.length > 0) && (
+                <div className="my-1 h-px bg-border" />
               )}
-              {agentPath && (
+              {canInvite && (
                 <button
                   type="button"
                   onClick={() => {
-                    setOpen(false);
-                    navigate(agentPath);
+                    setInviteEmail("");
+                    setMode("invite");
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
-                  <IconBrain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-start">
-                    {t("settings.manageAgentMenuItem", {
-                      defaultValue: "Manage agent",
-                    })}
-                  </span>
+                  <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 text-start">Invite member</span>
                 </button>
               )}
               {inOrg && (
@@ -704,7 +480,7 @@ export function OrgSwitcher({
                   onClick={() => {
                     setOpen(false);
                     if (organizationSettingsHref) {
-                      navigate(organizationSettingsHref);
+                      void navigate(organizationSettingsHref);
                     } else {
                       window.dispatchEvent(new CustomEvent("agent-panel:open"));
                       window.dispatchEvent(
@@ -736,18 +512,72 @@ export function OrgSwitcher({
                 <IconPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="flex-1 text-start">Create organization</span>
               </button>
-              {canInvite && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInviteEmail("");
-                    setMode("invite");
-                  }}
-                  className={`${ITEM_CLASS} cursor-pointer`}
-                >
-                  <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-start">Invite member</span>
-                </button>
+
+              {profilePath && (
+                <>
+                  <div className="my-1 h-px bg-border" />
+                  <div className={SECTION_LABEL_CLASS}>
+                    {t("settings.profileTitle")}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      void navigate(profilePath);
+                    }}
+                    className={`${ITEM_CLASS} cursor-pointer`}
+                  >
+                    <IconUserCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 text-start">
+                      {t("settings.profileMenuItem")}
+                    </span>
+                  </button>
+                </>
+              )}
+              {utilityLinks && utilityLinks.length > 0 && (
+                <>
+                  <div className="my-1 h-px bg-border" />
+                  <div className={SECTION_LABEL_CLASS}>
+                    {t("contextXray.provenance.tools", {
+                      defaultValue: "Tools",
+                    })}
+                  </div>
+                  {utilityLinks.map((link) => {
+                    const content = (
+                      <>
+                        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
+                          {link.icon ?? <IconExternalLink />}
+                        </span>
+                        <span className="flex-1 text-start">{link.label}</span>
+                        {link.external && (
+                          <IconArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                      </>
+                    );
+
+                    return link.external ? (
+                      <a
+                        key={link.id}
+                        href={link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setOpen(false)}
+                        className={ITEM_CLASS}
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      <Link
+                        key={link.id}
+                        to={link.href}
+                        onClick={() => setOpen(false)}
+                        className={ITEM_CLASS}
+                      >
+                        {content}
+                      </Link>
+                    );
+                  })}
+                </>
               )}
 
               <div className="my-1 h-px bg-border" />

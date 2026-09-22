@@ -437,4 +437,5 @@ export const codeBlock = defineBlock<CodeData>({
   icon: IconCode,
   description:
     "A single syntax-highlighted code snippet, Notion-style: one border, a hover language switcher + copy, and collapse-to-N lines. Put several in a `tabs` block for a file rail.",
+  empty: () => ({ code: "" }),
 });

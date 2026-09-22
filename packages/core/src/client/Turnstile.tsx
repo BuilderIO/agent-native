@@ -87,7 +87,7 @@ export function Turnstile({
 
   useEffect(() => {
     if (!resolvedKey) return;
-    loadTurnstileScript().then(() => setReady(true));
+    void loadTurnstileScript().then(() => setReady(true));
   }, [resolvedKey]);
 
   const renderWidget = useCallback(() => {

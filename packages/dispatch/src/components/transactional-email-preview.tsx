@@ -7,6 +7,7 @@ import {
   fetchEmailPreview,
   type EmailPreview,
 } from "../client/transactional-emails";
+import { resolveEmailPreviewAssets } from "../lib/transactional-email-preview";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Skeleton } from "./ui/skeleton";
 
@@ -79,7 +80,7 @@ export function EmailPreviewPane({
       <iframe
         title={t("dispatch.transactionalEmail.previewFrameTitle", { name })}
         sandbox=""
-        srcDoc={preview.data.html}
+        srcDoc={resolveEmailPreviewAssets(preview.data.html)}
         // guard:allow-raw-color — the frame previews email HTML, which renders on white in mail clients regardless of app theme.
         className="h-96 w-full rounded-xl border bg-white"
       />

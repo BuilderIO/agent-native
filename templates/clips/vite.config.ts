@@ -46,7 +46,9 @@ function copyMediapipeWasm(): Plugin {
         }
       } catch (err) {
         // Don't fail the build — camera blur degrades to recording un-blurred.
-        this.warn(`could not copy MediaPipe WASM assets: ${err}`);
+        this.warn(
+          `could not copy MediaPipe WASM assets: ${err instanceof Error ? err.message : (JSON.stringify(err) ?? "")}`,
+        );
       }
     },
   };

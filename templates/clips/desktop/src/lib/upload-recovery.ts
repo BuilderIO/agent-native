@@ -17,7 +17,24 @@ export type UploadResumeResponse =
       videoUrl?: string | null;
       reason?: string;
       attemptId?: string;
+      uploadGenerationId?: string;
+      retryAfterMs?: number;
     };
+
+export function retryConflictDelay(
+  response: UploadResumeResponse,
+): number | null {
+  if (
+    response.resumable ||
+    response.recoveryEnabled !== true ||
+    response.reason !== "retry_already_active" ||
+    !Number.isSafeInteger(response.retryAfterMs) ||
+    (response.retryAfterMs ?? 0) <= 0
+  ) {
+    return null;
+  }
+  return Math.min(Math.max(response.retryAfterMs!, 250), 30_000);
+}
 
 export type StreamingRecoveryPlan =
   | {
@@ -38,15 +55,16 @@ export interface StreamingReplayRequest {
 
 export function retryAttemptIdAfterRestartSignal(
   attemptId: string | undefined,
-  recoveryEnabled: unknown,
+  _recoveryEnabled: unknown,
 ): string | undefined {
-  return recoveryEnabled === false ? undefined : attemptId;
+  return attemptId;
 }
 
 export function retryAttemptIdAfterResumeResponse(
   attemptId: string | undefined,
   response: UploadResumeResponse,
 ): string | undefined {
+  if (response.recoveryEnabled === false) return response.attemptId;
   return response.resumable && response.attemptId === attemptId
     ? attemptId
     : undefined;

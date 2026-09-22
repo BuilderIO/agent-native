@@ -39,7 +39,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
-  const isAskRoute = location.pathname === "/";
+  const isAskRoute = location.pathname === "/home";
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "brain",
     activePath: location.pathname,
@@ -48,7 +48,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("brain");
   useAgentChatHomeHandoffLinks({
     storageKey: "brain",
-    chatPath: "/",
+    chatPath: "/home",
     requireActiveHandoff: true,
   });
 
@@ -122,7 +122,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   function openAskAgentFullscreen() {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/home");
   }
 
   return (

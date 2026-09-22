@@ -74,8 +74,8 @@ function readFileAsDataUrl(file: File): Promise<string> {
 // guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
 const CHECKER_A = "#e5e5e5";
 // guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
-const CHECKER_B = "#f5f5f5";
-const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
+const CHECKER_B = "#ffffff";
+const CHECKERBOARD_IMAGE = `conic-gradient(${CHECKER_A} 25%, ${CHECKER_B} 0 50%, ${CHECKER_A} 0 75%, ${CHECKER_B} 0)`;
 const FIT_MARKER_RE =
   /\/\*\s*agent-native-image-fit:(fill|fit|crop|tile)\s*\*\//i;
 
@@ -355,7 +355,7 @@ export function ImageFillControls({
               : value.fit === "tile"
                 ? "auto"
                 : "cover"
-            : "8px 8px, 8px 8px, 8px 8px, 8px 8px",
+            : "8px 8px",
           backgroundRepeat: value.fit === "tile" ? "repeat" : "no-repeat",
           backgroundPosition: value.fit === "tile" ? "top left" : "center",
         }}

@@ -5,7 +5,12 @@ export function conditionalValue(value: unknown): string {
   if (value === true) return "true";
   if (value === false) return "false";
   if (value == null) return "";
-  return String(value);
+  return typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+    ? String(value)
+    : JSON.stringify(value);
 }
 
 export function isConditionalFieldVisible(

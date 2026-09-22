@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -8,6 +8,7 @@ import {
   normalizeImportedAgent,
   validateImportedAgentTools,
 } from "../lib/simple-agent-profile.js";
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import {
   createWorkspaceResource,
   listWorkspaceResources,
@@ -16,6 +17,7 @@ import {
 export default defineAction({
   description:
     "Import a Claude-style Markdown agent or a generic JSON agent definition into a reusable Dispatch agent profile. Credentials, shell commands, hooks, and local environment settings are never imported. Use connect-external-agent for an HTTP/A2A endpoint.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     source: z
       .string()
@@ -33,7 +35,16 @@ export default defineAction({
       .describe("Make the profile available to all apps or selected apps"),
   }),
   run: async ({ source, fileName, scope }) => {
-    const normalized = normalizeImportedAgent(source, fileName);
+    let normalized: ReturnType<typeof normalizeImportedAgent>;
+    try {
+      normalized = normalizeImportedAgent(source, fileName);
+    } catch (err) {
+      fail(
+        err instanceof Error
+          ? err.message
+          : "That agent definition could not be parsed.",
+      );
+    }
     const { dispatchActions } = await import("./index.js");
     const availableToolNames = new Set([
       ...Object.keys(dispatchActions),
@@ -78,8 +89,9 @@ export default defineAction({
           warnings,
         };
       }
-      throw new Error(
+      fail(
         `An agent already exists at ${path}. Rename the source before importing it.`,
+        { statusCode: 409 },
       );
     }
 

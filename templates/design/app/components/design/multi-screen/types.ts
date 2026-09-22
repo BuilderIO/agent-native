@@ -1,9 +1,15 @@
+import type { ReviewThread } from "@agent-native/core/client/review";
+import type { ReviewComment } from "@agent-native/core/review";
 import type {
   DistanceGuideBand,
   EqualGapGuide,
   FrameBounds,
 } from "@shared/canvas-math";
-import type { PenPath } from "@shared/pen-path";
+import type { CodeLayerProjection, CodeLayerSource } from "@shared/code-layer";
+import type { LayoutGridById } from "@shared/layout-grid";
+import type { PenCuspLatch, PenPath } from "@shared/pen-path";
+import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
+import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode } from "react";
 
 import type {
@@ -18,6 +24,7 @@ import type {
   ElementSelectionIntent,
   PortableStyleSnapshot,
 } from "../types";
+import type { ScreenHeightMode } from "./screen-height";
 
 export interface ScreenFile {
   id: string;
@@ -34,9 +41,13 @@ export interface ScreenFile {
   height?: number;
   /** A height the user dragged; auto-fit must not grow past it. */
   heightPinned?: boolean;
+  /** Explicit sizing choice; absent metadata keeps the legacy auto/fixed behavior. */
+  heightMode?: ScreenHeightMode;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  /** Exact projection namespace used by the host for this authored screen. */
+  codeLayerSource?: CodeLayerSource;
   /** Stable persisted connection scope for URL-backed local/Fusion screens. */
   connectionId?: string;
   /** Read-only localhost preview credential. Never a filesystem token. */
@@ -47,11 +58,34 @@ export interface ScreenFile {
    * edit scope (Tailwind prefix: base / md: / lg: / xl:).
    */
   breakpointWidths?: number[];
+  breakpointHeights?: Record<string, number>;
   /** Id of the currently active breakpoint frame for this screen. */
   activeBreakpointWidth?: number;
   /** Generated variation-set membership. Used only to preserve/reflow the
    * action-authored lineup when responsive preview rows are introduced. */
   layoutGroupId?: string;
+}
+
+export interface ScreenProjectionNodeIdentity {
+  projection: CodeLayerProjection;
+  nodeId: string;
+  authoredNodeId: string;
+}
+
+export interface PreparedPrimitiveCreateResult {
+  nodeId: string;
+  preparedTargetNodeId: string;
+  preparedTargetIdentity: ScreenProjectionNodeIdentity;
+}
+
+export type PrimitiveCreateResult =
+  | boolean
+  | string
+  | PreparedPrimitiveCreateResult;
+
+export interface PrimitiveCreateOptions {
+  nextTool?: "move" | "pen";
+  reparentTargetIdentity?: ScreenProjectionNodeIdentity;
 }
 
 export type ScreenSourceType = "localhost" | "fusion" | "inline";
@@ -77,6 +111,8 @@ export interface CanvasToolProps {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   text?: string;
 }
 
@@ -90,12 +126,16 @@ export interface CanvasPrimitiveInsert {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
 export interface PersistedDraftPrimitive {
   frameId: string;
   nodeId: string;
+  preparedTargetNodeId?: string;
+  preparedTargetIdentity?: ScreenProjectionNodeIdentity;
 }
 
 export interface ScreenMetadata {
@@ -108,6 +148,8 @@ export interface ScreenMetadata {
   width?: number;
   height?: number;
   heightPinned?: boolean;
+  heightMode?: Exclude<ScreenHeightMode, "auto">;
+  breakpointHeights?: Record<string, number>;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -120,6 +162,14 @@ export interface DuplicateRequest {
   canvasPosition: { x: number; y: number };
   canvasOffset?: { x: number; y: number };
   dropCanvasPosition?: { x: number; y: number };
+  preserveCamera?: boolean;
+  historyBatchId?: string;
+  duplicateStackIndex?: number;
+}
+
+export interface ScreenContentRenderOptions {
+  onBootStart?: () => void;
+  onBootReady?: () => void;
 }
 
 export interface MultiScreenCanvasProps {
@@ -127,6 +177,9 @@ export interface MultiScreenCanvasProps {
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
+  /** One screen whose preview is mounted temporarily for export while the
+   *  overview camera and selection stay unchanged. */
+  exportPreviewScreenId?: string | null;
   /** Screen id whose active selection is a specific element INSIDE the
    * screen (a Layers-panel row, an in-canvas click) rather than the screen
    * frame itself. The frame's own SelectionBox is suppressed for this
@@ -148,30 +201,80 @@ export interface MultiScreenCanvasProps {
   /** Lets every live frame receive native pointer interaction while the
    * overview camera and frame chrome remain available. */
   interactMode?: boolean;
+  /** One overview screen may temporarily pass pointer input through its
+   * mounted live editor without remounting or changing the global view. */
+  interactScreenId?: string | null;
   /** Viewer mode keeps selection/inspection available without edit chrome. */
   readOnly?: boolean;
+  /** Live localhost screens whose DOM editor may receive pointer input. */
+  editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;
   previewDeviceFrame?: DeviceFrameType;
   activeTool?: MultiScreenCanvasTool;
+  /** Review overlays shared by screen frames and the overview board. */
+  reviewResourceId?: string;
+  reviewPinMode?: boolean;
+  reviewCommentsHidden?: boolean;
+  reviewCanPost?: boolean;
+  reviewCanResolve?: boolean;
+  /** Optional review target override; null scopes comments to the board. */
+  reviewTargetId?: string | null;
+  reviewFocusRequest?: {
+    nonce: number;
+    anchor: unknown;
+    targetId?: string | null;
+    threadId?: string;
+  } | null;
+  reviewCurrentUserEmail?: string | null;
+  onExitReviewPinMode?: () => void;
+  onDispatchCommentToAgent?: (comment: ReviewComment) => void;
+  onSendThreadToAgent?: (thread: ReviewThread) => void;
+  reviewSendingThreadId?: string | null;
+  reviewDesignTitle?: string;
   toolProps?: CanvasToolProps;
   onActiveToolChange?: (tool: MultiScreenCanvasTool) => void;
+  /** Routes empty-board clicks to the active overview comment composer. */
+  onCommentPin?: (point: Point) => void;
   onPick: (id: string) => void;
   onEdit?: (id: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;
+  /** Computed <body> styles from each live screen, used to make its board
+   *  chrome transparent and clip root corner radii to the rendered surface. */
+  screenRootComputedStylesById?: Record<string, Record<string, string>>;
   getScreenMetadata?: (screen: ScreenFile) => ScreenMetadata | undefined;
-  onDuplicate?: (id: string, request: DuplicateRequest) => void;
+  onDuplicate?: (
+    id: string,
+    request: DuplicateRequest,
+  ) => void | Promise<string | undefined>;
   geometryById?: Record<string, Partial<FrameGeometry> | undefined>;
+  geometryOverridesById?: Record<string, FrameGeometry | undefined>;
   onGeometryChange?: (geometryById: FrameGeometryById) => void;
   onGeometryCommit?: (
     before: FrameGeometryById,
     after: FrameGeometryById,
+    options?: {
+      source?: "pointer" | "keyboard";
+      kScaleStyleChangesByFrameId?: KScaleStyleChangesByFrameId;
+    },
+  ) => boolean | void;
+  onBreakpointContentHeightChange?: (
+    screenId: string,
+    widthPx: number,
+    heightPx: number,
+  ) => void;
+  /** Reports the stable, accepted primary iframe height for camera fitting. */
+  onPrimaryContentHeightChange?: (screenId: string, heightPx: number) => void;
+  onScreenContentNaturalHeightChange?: (
+    screenId: string,
+    heightPx: number | null,
   ) => void;
   onCreatePrimitive?: (
     screenId: string,
     primitive: CanvasPrimitiveInsert,
-  ) => boolean | string;
+    options?: PrimitiveCreateOptions,
+  ) => PrimitiveCreateResult;
   onPrimitiveCreated?: (
     screenId: string,
     nodeId: string,
@@ -189,6 +292,8 @@ export interface MultiScreenCanvasProps {
      */
     targetNodeId: string;
     targetScreenId: string;
+    targetIdentity?: ScreenProjectionNodeIdentity;
+    preparedTargetNodeId?: string;
     /**
      * "inside" appends into the target container (absolute-drop parity with
      * the historic behavior). "before"/"after" flow-inserts next to
@@ -205,12 +310,22 @@ export interface MultiScreenCanvasProps {
    * element inside a screen, and this canvas still lists that screen in
    * `selectedIds`. Same veto `onDeleteSelection` uses. */
   onNudgeSelection?: (ids: string[]) => boolean | void;
+  /** The editor's configured small/big arrow-key steps. Board frames and
+   *  in-screen elements must nudge by the same amounts, so this comes from the
+   *  one preference rather than a second default living out here. */
+  nudgeAmounts?: { small: number; big: number };
+  /** Per-frame layout grids, keyed by frame id. A frame with no entry keeps the
+   *  whole-pixel floor. Absent entirely means the host has not loaded them. */
+  layoutGrids?: LayoutGridById;
   onZoomChange?: (zoom: number) => void;
   renderScreenContent?: (
     screen: ScreenFile,
     metadata: ResolvedScreenMetadata,
     geometry: FrameGeometry,
+    options?: ScreenContentRenderOptions,
   ) => ReactNode;
+  /** Cached inert HTML used while a live screen is waiting for a boot slot. */
+  screenSnapshotsById?: Record<string, { html: string } | undefined>;
   /**
    * Renders the fully editable runtime for one responsive sub-frame. Keeping
    * this separate from `renderScreenContent` prevents a breakpoint preview
@@ -225,6 +340,8 @@ export interface MultiScreenCanvasProps {
       displayWidth: number;
       displayHeight: number;
       active: boolean;
+      onBootStart?: () => void;
+      onBootReady?: () => void;
     },
   ) => ReactNode;
   onScreenSelectionChange?: (ids: string[]) => void;
@@ -239,6 +356,9 @@ export interface MultiScreenCanvasProps {
    *  the same widths, and a per-screen parameter here only ever promised
    *  scoping the action cannot deliver. */
   onAddBreakpoint?: (widthPx: number) => void;
+  /** True while an add/remove breakpoint mutation is in flight — disables the
+   *  "+" affordance and shows a brief spinner so the click is acknowledged. */
+  breakpointMutationPending?: boolean;
   /**
    * Called when the user clicks a breakpoint frame header to make it the
    * active edit scope.
@@ -277,7 +397,11 @@ export interface MultiScreenCanvasProps {
   onSelectionChange?: (selectedIds: string[]) => void;
   onLayerMarqueeSelectionChange?: (
     selection: CanvasLayerMarqueeSelection[],
-    intent: ElementSelectionIntent,
+    // `final` is true only for the one report each marquee gesture sends at
+    // mouseup (every mousemove tick omits it) — see
+    // coalesceMarqueeSelectionHistory's doc comment for why the host needs
+    // it to record one undo step per drag instead of one per tick.
+    intent: ElementSelectionIntent & { final?: boolean },
   ) => void;
   selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
   /**
@@ -291,6 +415,8 @@ export interface MultiScreenCanvasProps {
   onCrossScreenElementDrop?: (args: {
     sourceSelector: string;
     sourceNodeId?: string;
+    sourceProvenance?: SourceNodeProvenance;
+    targetAnchorProvenance?: SourceNodeProvenance;
     sourceScreenId: string;
     targetScreenId: string;
     /** data-agent-native-node-id of the deepest container at the drop point
@@ -316,8 +442,18 @@ export interface MultiScreenCanvasProps {
     sourcePointerOffset?: Point;
     /** Host-captured HTML for a board root, including its current DOM subtree. */
     sourceHtmlSnapshot?: string;
+    /** True when the source bridge is carrying an Alt-drag copy. */
+    duplicate?: boolean;
+    /** Runtime HTML for an Alt-drag copy whose source must remain in place. */
+    sourceCloneHtml?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
+    /** True when the source bridge could not measure the bare-tag probe
+     *  (portableStyleTagDefaults returned null) — distinct from a legitimately
+     *  absent snapshot (`styleSnapshot === undefined`, nothing to carry). The
+     *  drop command must refuse the move rather than silently drop a
+     *  class-only appearance it never got a chance to carry. */
+    styleSnapshotCaptureFailed?: boolean;
   }) => void;
   // ── Board file (new model) ───────────────────────────────────────────────
   /**
@@ -326,11 +462,15 @@ export interface MultiScreenCanvasProps {
    * the screen iframes so board elements are editable through the bridge.
    */
   boardFileId?: string;
+  /** Host CSS vars do not reach the board iframe; omit this and coverage stays themed. */
+  canvasBackground?: string | null;
   /**
    * The current HTML content of the board file.
    * Passed as `content` to the board <DesignCanvas> instance.
    */
   boardFileContent?: string;
+  /** Canonical source identity used when the Board participates in layer hit testing. */
+  boardCodeLayerSource?: CodeLayerSource;
   /**
    * The logical geometry of the board iframe in canvas coordinates.
    * Should be { x:0, y:0, width:totalSurfaceWidth, height:totalSurfaceHeight }.
@@ -344,7 +484,10 @@ export interface MultiScreenCanvasProps {
    *
    * Replaces the legacy onCreateBoardObject.
    */
-  onBoardDrawPrimitive?: (primitive: CanvasPrimitiveInsert) => boolean | string;
+  onBoardDrawPrimitive?: (
+    primitive: CanvasPrimitiveInsert,
+    options?: PrimitiveCreateOptions,
+  ) => PrimitiveCreateResult;
   // ── Board edit callbacks (active-target model) ───────────────────────────
   /**
    * When true the board <DesignCanvas> is in edit mode.
@@ -372,6 +515,17 @@ export interface MultiScreenCanvasProps {
     info: ElementInfo,
     intent?: ElementSelectionIntent,
   ) => void;
+  /** Reports the selected board element's world-space bounds separately from
+   * ElementInfo.boundingRect, whose contract remains iframe-local. */
+  onBoardSelectionWorldBoundsChange?: (
+    selection: {
+      screenId: string;
+      selector: string;
+      memberSelectors?: readonly string[];
+      memberSourceIds?: readonly string[];
+      worldBounds: FrameBounds;
+    } | null,
+  ) => void;
   onBoardElementMarqueeSelect?: (
     infos: ElementInfo[],
     intent?: ElementSelectionIntent,
@@ -396,6 +550,7 @@ export interface MultiScreenCanvasProps {
   boardClearSelectionRequest?: number;
   boardSelectedSelector?: string | null;
   boardSelectedSelectorCandidates?: string[];
+  boardSelectedSourceId?: string | null;
   boardHoveredSelector?: string | null;
   boardHoveredSelectorCandidates?: string[];
   boardLockedSelectors?: string[];
@@ -420,13 +575,27 @@ export interface MultiScreenCanvasProps {
   ) => boolean | "pending" | void;
   /**
    * Called when a style property changes on a board element.
-   * Target file is boardFileId.
+   * Target file is boardFileId. `metadata` must mirror DesignCanvas's own
+   * `onVisualStyleChange` signature exactly — this callback is wired
+   * straight through from that event (see MultiScreenCanvas's board
+   * DesignCanvas) — or a resize/drag commit's `phase`/`originalStyles`
+   * silently drops before it reaches undo history, leaving one Cmd+Z
+   * unable to restore the pre-drag geometry.
    */
   onBoardVisualStyleChange?: (
     selector: string,
     styles: Record<string, string>,
     info?: ElementInfo,
+    metadata?: {
+      phase?: "preview" | "commit";
+      originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
+    },
   ) => void;
+  /** Called when K-scale commits a board selection as one style batch. */
+  onBoardVisualStyleBatchChange?: (
+    changes: KScaleStyleChange[],
+  ) => boolean | void;
   /**
    * Called when an alt-drag clone is created on the board surface.
    * Target file is boardFileId.
@@ -437,11 +606,18 @@ export interface MultiScreenCanvasProps {
     info?: ElementInfo,
     details?: {
       sourceId?: string;
+      sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
       anchorSelector?: string;
       anchorSourceId?: string;
+      anchorElementInfo?: ElementInfo;
+      requestId?: string;
+      dropMode?: "flow-insert" | "absolute-container";
+      forceFlowPositionOverride?: boolean;
+      sourceRect?: { x: number; y: number; width: number; height: number };
+      anchorRect?: { x: number; y: number; width: number; height: number };
       placement?: "before" | "after" | "inside";
     },
-  ) => boolean | void;
+  ) => boolean | "pending" | void;
   /**
    * Called when inline text is edited on a board element.
    * Target file is boardFileId.
@@ -517,6 +693,30 @@ export interface MultiScreenCanvasProps {
     paddingScreenPx?: number;
     nonce: number;
   } | null;
+  /** Suppresses the automatic lineup fit for a history replay that restores a
+   * deliberately placed screen while keeping the current camera. */
+  suppressLineupRecenter?: {
+    fromCount: number;
+    addedCount: number;
+    nonce: number;
+  } | null;
+  /** Keeps an explicitly chosen overview zoom from triggering an automatic
+   * lineup fit when screen data arrives after a direct URL navigation. */
+  preserveCameraOnScreenCountChange?: boolean;
+  /** Lets the initial URL zoom apply after the first lineup centers the canvas. */
+  deferLineupZoomChange?: boolean;
+  /**
+   * Screen-px width of fixed chrome the caller renders OVER this canvas's
+   * left/right edges (e.g. the left workspace rail+panel shell, the right
+   * inspector panel) — both are absolutely-positioned overlays, not flex
+   * siblings, so this component's own measured surface rect never shrinks
+   * for them. Every camera-fit computation (the default overview lineup
+   * recenter and the explicit `cameraCommand` fit) must center content in
+   * the space actually free of that chrome, or the first screen and its
+   * frame label render unreachable underneath it. Defaults to 0.
+   */
+  chromeInsetLeft?: number;
+  chromeInsetRight?: number;
 }
 
 export interface FrameGeometry {
@@ -658,6 +858,8 @@ export interface DraftPrimitive {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
@@ -689,6 +891,17 @@ export interface MarqueeRect {
 
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
+export interface KScaleStyleChange {
+  selector: string;
+  sourceId?: string;
+  elementInfo?: ElementInfo;
+  styles: Record<string, string>;
+  originalStyles?: Record<string, string>;
+  preserveSelection?: boolean;
+}
+
+export type KScaleStyleChangesByFrameId = Record<string, KScaleStyleChange[]>;
+
 export interface AlignmentGuide {
   orientation: "vertical" | "horizontal";
   position: number;
@@ -712,6 +925,7 @@ export interface ResizeDragState {
   originBounds: FrameGeometry;
   targetIds: string[];
   handle: ResizeHandle;
+  scaleContents: boolean;
   hasMoved: boolean;
 }
 
@@ -799,6 +1013,7 @@ export interface PenNodeDragState {
    * being an instant, undraggable straight-line close.
    */
   closing?: boolean;
+  cuspLatch: PenCuspLatch;
 }
 
 /** Dragging an anchor square of a `vectorEdit` overlay path (P-VE1). Anchor
@@ -825,6 +1040,9 @@ export interface VectorEditHandleDragState {
   which: "in" | "out";
   pathBefore: PenPath;
   hasMoved: boolean;
+  /** Alt is a one-way latch for the drag: releasing it must not re-mirror the
+   *  pair the user just broke. */
+  symmetryBroken: boolean;
 }
 
 export interface DraftCreationPreview {
@@ -850,10 +1068,9 @@ export type DragState =
 export type PendingWheelGesture =
   | {
       mode: "zoom";
-      deltaY: number;
-      /** Trackpad pinch rather than a discrete mouse notch — the two use
-       *  different sensitivities, so accumulation must not mix them. */
-      pinch: boolean;
+      /** Already-curved multiplier, not a raw delta: the two devices' curves
+       *  differ, so only the factor is safe to accumulate across events. */
+      factor: number;
       cursor: Point;
       clientX: number;
       clientY: number;
@@ -878,6 +1095,7 @@ export interface CrossScreenHitTestAnchorRect {
 }
 
 export interface CrossScreenHitTestResult {
+  targetAnchorProvenance?: SourceNodeProvenance;
   anchorNodeId?: string;
   /**
    * Minted by the hit-test bridge when the resolved anchor has no stable id
@@ -978,6 +1196,7 @@ export interface ResolvedScreenMetadata {
   height: number;
   /** A height the user dragged; auto-fit must not grow past it. */
   heightPinned?: boolean;
+  heightMode?: ScreenHeightMode;
   previewUrl?: string;
 }
 

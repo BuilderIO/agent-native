@@ -51,7 +51,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       return number;
     }
     function stopNativeInteraction(e) {
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     }
@@ -72,7 +72,8 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       }
     }
     function onWheel(e) {
-      if (!wheelEnabled) return;
+      var zoomIntent = !!(e.ctrlKey || e.metaKey);
+      if (!wheelEnabled && !zoomIntent) return;
       stopNativeInteraction(e);
       postToParent({
         type: "embedded-canvas-wheel",
@@ -108,6 +109,8 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         buttons: phase === "end" || phase === "cancel" ? 0 : e.buttons,
         clientX: lastClientX,
         clientY: lastClientY,
+        movementX: clamp(e.movementX, 1e5),
+        movementY: clamp(e.movementY, 1e5),
         ctrlKey: lastCtrlKey,
         metaKey: lastMetaKey,
         shiftKey: lastShiftKey,
@@ -240,6 +243,8 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         buttons: 0,
         clientX: lastClientX,
         clientY: lastClientY,
+        movementX: 0,
+        movementY: 0,
         ctrlKey: lastCtrlKey,
         metaKey: lastMetaKey,
         shiftKey: lastShiftKey,

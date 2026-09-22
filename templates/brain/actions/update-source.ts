@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -21,6 +21,7 @@ import {
   optionalJsonRecordSchema,
   sourceAnswerPolicySchema,
 } from "./_schemas.js";
+import { assertValidSourceConfig } from "./_source-config.js";
 
 export default defineAction({
   description:
@@ -40,6 +41,9 @@ export default defineAction({
   run: async (args) => {
     const access = await assertAccess("brain-source", args.id, "editor");
     const existing = access.resource;
+    if (args.config !== undefined) {
+      assertValidSourceConfig(existing.provider, args.config);
+    }
     const updates: Record<string, unknown> = { updatedAt: nowIso() };
     if (args.title !== undefined) updates.title = args.title;
     if (args.status !== undefined) updates.status = args.status;

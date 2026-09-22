@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { isDuplicateColumnError } from "../db/migrations.js";
 import type { IncomingMessage } from "./types.js";
 
 let initPromise: Promise<void> | undefined;
@@ -47,11 +46,11 @@ export async function ensureTable(): Promise<void> {
         approval_key TEXT,
         incoming_json TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
-        expires_at ${intType()} NOT NULL,
-        created_at ${intType()} NOT NULL,
-        claimed_at ${intType()}
+        expires_at BIGINT NOT NULL,
+        created_at BIGINT NOT NULL,
+        claimed_at BIGINT
       )`;
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_controls", sql);
         await ensureColumnExists(
           "integration_controls",
@@ -60,18 +59,6 @@ export async function ensureTable(): Promise<void> {
         );
         await ensureIndexExists(
           "idx_integration_controls_expiry",
-          "CREATE INDEX IF NOT EXISTS idx_integration_controls_expiry ON integration_controls(status, expires_at)",
-        );
-      } else {
-        await getDbExec().execute(sql);
-        try {
-          await getDbExec().execute(
-            "ALTER TABLE integration_controls ADD COLUMN api_app_id TEXT",
-          );
-        } catch (error) {
-          if (!isDuplicateColumnError(error)) throw error;
-        }
-        await getDbExec().execute(
           "CREATE INDEX IF NOT EXISTS idx_integration_controls_expiry ON integration_controls(status, expires_at)",
         );
       }
@@ -89,18 +76,19 @@ export function _resetIntegrationControlsStoreForTests(): void {
 
 function rowToControl(row: Record<string, unknown>): IntegrationControl {
   return {
-    id: String(row.id),
+    id: stringifyValue(row.id),
     action: row.action as IntegrationControlAction,
-    ownerEmail: String(row.owner_email),
-    orgId: row.org_id == null ? null : String(row.org_id),
-    requesterId: String(row.requester_id),
-    teamId: String(row.team_id),
-    apiAppId: row.api_app_id == null ? null : String(row.api_app_id),
-    channelId: String(row.channel_id),
-    messageTs: String(row.message_ts),
-    runId: row.run_id == null ? null : String(row.run_id),
-    approvalKey: row.approval_key == null ? null : String(row.approval_key),
-    incoming: JSON.parse(String(row.incoming_json)) as IncomingMessage,
+    ownerEmail: stringifyValue(row.owner_email),
+    orgId: row.org_id == null ? null : stringifyValue(row.org_id),
+    requesterId: stringifyValue(row.requester_id),
+    teamId: stringifyValue(row.team_id),
+    apiAppId: row.api_app_id == null ? null : stringifyValue(row.api_app_id),
+    channelId: stringifyValue(row.channel_id),
+    messageTs: stringifyValue(row.message_ts),
+    runId: row.run_id == null ? null : stringifyValue(row.run_id),
+    approvalKey:
+      row.approval_key == null ? null : stringifyValue(row.approval_key),
+    incoming: JSON.parse(stringifyValue(row.incoming_json)) as IncomingMessage,
     status: row.status as IntegrationControl["status"],
     expiresAt: Number(row.expires_at),
   };
@@ -184,4 +172,14 @@ export async function claimIntegrationControl(input: {
     args: [input.id],
   });
   return rows[0] ? rowToControl(rows[0] as Record<string, unknown>) : null;
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

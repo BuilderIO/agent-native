@@ -62,7 +62,7 @@ export default function AssetLibraryPanel({
   }, []);
 
   useEffect(() => {
-    if (open) fetchAssets();
+    if (open) void fetchAssets();
   }, [open, fetchAssets]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -187,7 +187,7 @@ export default function AssetLibraryPanel({
           </span>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,.svg"
             multiple
             onChange={handleUpload}
             className="hidden"
@@ -227,7 +227,7 @@ export default function AssetLibraryPanel({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDelete(asset.id);
+                    void handleDelete(asset.id);
                   }}
                   className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 text-white/70 hover:text-red-400 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                   aria-label={`Delete ${asset.filename}`}

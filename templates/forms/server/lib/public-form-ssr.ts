@@ -2,9 +2,13 @@ import { getAppBasePath } from "@agent-native/core/server";
 import { resolveSsrCacheHeaders } from "@agent-native/core/server/ssr-handler";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  MAX_USER_REGEX_INPUT_LENGTH,
+  SSR_QUERY_CACHE_KEY_HEADER,
+  compileUserRegex,
   withAgentNativeSocialImageCacheBuster,
 } from "@agent-native/core/shared";
 import { eq } from "drizzle-orm";
@@ -13,6 +17,8 @@ import { getMethod, getRequestURL, type H3Event } from "h3";
 import { isConditionalFieldVisible } from "../../shared/conditional.js";
 import { SENSITIVE_QUERY_PARAMS } from "../../shared/page-url.js";
 import {
+  getFormCompletionMode,
+  getFormCompletionRefreshSeconds,
   toPublicFormSettings,
   type FormField,
   type FormSettings,
@@ -112,7 +118,11 @@ function toSafeString(value: unknown): string {
     if (typeof v.value === "string") return v.value;
     return "";
   }
-  return String(value);
+  return typeof value === "string"
+    ? value
+    : value == null
+      ? ""
+      : JSON.stringify(value);
 }
 
 function escapeHtml(value: unknown): string {
@@ -159,15 +169,104 @@ function normalizeOptions(options: unknown): string[] {
 }
 
 /**
- * Validate a form-author-supplied post-submit redirect URL. Returns the
- * value verbatim only if it parses as `http:` or `https:` — falls back to
- * an empty string otherwise (caller treats empty as "no redirect").
+ * Validate a form-author-supplied post-submit redirect URL. Returns a
+ * root-relative path or the value verbatim when it parses as `http:` or
+ * `https:`. Falls back to an empty string otherwise (caller treats empty as
+ * "no redirect").
  *
  * Form publishers control `settings.redirectUrl` and the rendered page
  * assigns it to `window.location.href`. Without scheme validation a
  * `javascript:fetch(...)` redirectUrl would execute attacker JS in the
  * form-publisher origin against any anonymous submitter.
  */
+/** Field validation as shipped to the public page: an unsafe `pattern` is
+ * removed and replaced by `unsafePattern` so the runtime can say so. */
+type PublicFieldValidation = Omit<
+  NonNullable<FormField["validation"]>,
+  "pattern"
+> & { pattern?: string; unsafePattern?: true };
+
+const PUBLIC_FORM_PATTERN_MESSAGES = {
+  "en-US": {
+    uncheckable:
+      "This form's rule for {label} can't be checked. Ask the form owner to fix it.",
+    tooLong:
+      "The value for {label} is too long to check against this form's rule.",
+  },
+  "zh-CN": {
+    uncheckable: "此表单中“{label}”的规则无法校验。请联系表单所有者修复。",
+    tooLong: "字段“{label}”的值过长，无法使用此表单规则校验。",
+  },
+  "zh-TW": {
+    uncheckable: "此表單中「{label}」的規則無法檢核。請聯絡表單擁有者修正。",
+    tooLong: "欄位「{label}」的值過長，無法使用此表單規則檢核。",
+  },
+  "es-ES": {
+    uncheckable:
+      "La regla de este formulario para {label} no se puede comprobar. Pide al propietario del formulario que la corrija.",
+    tooLong:
+      "El valor de {label} es demasiado largo para comprobarlo con la regla de este formulario.",
+  },
+  "fr-FR": {
+    uncheckable:
+      "La règle de ce formulaire pour {label} ne peut pas être vérifiée. Demandez au propriétaire du formulaire de la corriger.",
+    tooLong:
+      "La valeur de {label} est trop longue pour être vérifiée avec la règle de ce formulaire.",
+  },
+  "de-DE": {
+    uncheckable:
+      "Die Regel dieses Formulars für {label} kann nicht geprüft werden. Bitten Sie den Formularbesitzer, sie zu korrigieren.",
+    tooLong:
+      "Der Wert für {label} ist zu lang, um mit der Regel dieses Formulars geprüft zu werden.",
+  },
+  "ja-JP": {
+    uncheckable:
+      "このフォームの「{label}」のルールは検証できません。フォームの所有者に修正を依頼してください。",
+    tooLong:
+      "「{label}」の値が長すぎて、このフォームのルールを検証できません。",
+  },
+  "ko-KR": {
+    uncheckable:
+      "이 양식의 {label} 규칙을 확인할 수 없습니다. 양식 소유자에게 수정을 요청하세요.",
+    tooLong: "{label} 값이 너무 길어 이 양식의 규칙을 확인할 수 없습니다.",
+  },
+  "pt-BR": {
+    uncheckable:
+      "A regra deste formulário para {label} não pode ser verificada. Peça ao proprietário do formulário para corrigi-la.",
+    tooLong:
+      "O valor de {label} é longo demais para ser verificado pela regra deste formulário.",
+  },
+  "hi-IN": {
+    uncheckable:
+      "इस फ़ॉर्म में {label} का नियम जाँचा नहीं जा सकता। कृपया फ़ॉर्म स्वामी से इसे ठीक करने को कहें।",
+    tooLong:
+      "{label} का मान बहुत लंबा है, इसलिए इस फ़ॉर्म के नियम से जाँचा नहीं जा सकता।",
+  },
+  "ar-SA": {
+    uncheckable:
+      "تعذّر التحقق من قاعدة هذا النموذج الخاصة بـ {label}. يرجى الطلب من مالك النموذج إصلاحها.",
+    tooLong:
+      "قيمة {label} طويلة جدًا بحيث يتعذر التحقق منها باستخدام قاعدة هذا النموذج.",
+  },
+} as const;
+
+/**
+ * The inline runtime re-checks `validation.pattern` in the respondent browser,
+ * where nothing can abort a regex that backtracks exponentially. Decide safety
+ * here, where the analyzer lives, and ship the respondent either a pattern that
+ * is safe to run or an explicit "cannot check" marker, never a pattern that
+ * freezes their tab.
+ */
+export function publicValidation(
+  validation: FormField["validation"],
+): PublicFieldValidation | undefined {
+  if (!validation) return undefined;
+  if (!validation.pattern) return validation;
+  if (compileUserRegex(validation.pattern).status === "ok") return validation;
+  const { pattern: _unsafe, ...rest } = validation;
+  return { ...rest, unsafePattern: true };
+}
+
 export function safeRedirectUrl(value: unknown): string {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
@@ -175,6 +274,7 @@ export function safeRedirectUrl(value: unknown): string {
   // Reject control characters and protocol-relative URLs outright.
   if (/[\x00-\x1f]/.test(trimmed)) return "";
   if (trimmed.startsWith("//")) return "";
+  if (trimmed.startsWith("/")) return trimmed.includes("\\") ? "" : trimmed;
   try {
     const parsed = new URL(trimmed);
     return parsed.protocol === "http:" || parsed.protocol === "https:"
@@ -221,6 +321,9 @@ function renderField(field: FormField): string {
       break;
     case "textarea":
       input = `<textarea name="${id}" class="fi fi-ta" rows="4"${ph || ' placeholder="Type your answer..."'}${req}></textarea>`;
+      break;
+    case "file":
+      input = `<input type="file" name="${id}" class="fi fi-file"${field.accept ? ` accept="${escapeHtml(field.accept)}"` : ""}${field.multiple ? " multiple" : ""}${req}>`;
       break;
     case "date":
       input = `<input type="date" name="${id}" class="fi"${req}>`;
@@ -321,6 +424,7 @@ export async function renderPublicForm(event: H3Event) {
     // short-fresh/long-SWR policy as React Router SSR. Keep all cache headers
     // here; relying on provider config would make templates perform differently.
     Object.assign(headers, resolveSsrCacheHeaders());
+    headers[SSR_QUERY_CACHE_KEY_HEADER] = "query";
   }
   return new Response(getMethod(event) === "HEAD" ? null : html, {
     status,
@@ -347,13 +451,21 @@ function renderFormPage(
 ): string {
   const settings: PublicFormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
+  const completionMode = getFormCompletionMode(settings);
+  const completionRefreshMilliseconds =
+    getFormCompletionRefreshSeconds(settings.completionRefreshSeconds) * 1000;
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
   const appBasePath = getAppBasePath();
   const submitPath = `${appBasePath}/api/submit/`;
+  const uploadPath = `${appBasePath}/api/upload/`;
   const faviconPath = `${appBasePath}/favicon.svg`;
   const ogImagePath = `${appBasePath}/api/forms/og/${encodeURIComponent(
     form.slug || form.id,
-  )}/og.png${form.updatedAt ? `?v=${encodeURIComponent(form.updatedAt)}` : ""}`;
+  )}/og.png?v=${encodeURIComponent(
+    [form.updatedAt, AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER]
+      .filter(Boolean)
+      .join("-") || AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  )}`;
   const ogImageUrl = origin
     ? new URL(ogImagePath, origin).toString()
     : ogImagePath;
@@ -427,7 +539,7 @@ function renderFormPage(
 
   <a href="https://agent-native.com" target="_blank" rel="noopener noreferrer" class="powered-badge">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-    Built with Agent Native
+    Built with Agent-Native
   </a>
 </div>
 
@@ -438,10 +550,43 @@ function renderFormPage(
   var FORM_ID = ${JSON.stringify(form.id)};
   var FORM_VERSION = ${JSON.stringify(form.updatedAt || "")};
   var PUBLIC_FORM_API = ${JSON.stringify(`${appBasePath}/api/forms/public/${encodeURIComponent(form.slug || form.id)}`)};
+  var UPLOAD_PATH = ${JSON.stringify(uploadPath)};
+  var COMPLETION_MODE = ${JSON.stringify(completionMode)};
+  var COMPLETION_REFRESH_MS = ${completionRefreshMilliseconds};
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
-  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
+  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: publicValidation(f.validation), label: f.label, conditional: f.conditional, multiple: f.multiple, accept: f.accept, maxSizeBytes: f.maxSizeBytes, maxFiles: f.maxFiles })))};
+  var PATTERN_MESSAGES = ${JSON.stringify(PUBLIC_FORM_PATTERN_MESSAGES)};
   var SENSITIVE_QUERY_PARAMS = ${JSON.stringify(SENSITIVE_QUERY_PARAMS)};
+
+  function localizedPatternMessage(kind, label) {
+    var locales = typeof navigator !== "undefined" && navigator.languages && navigator.languages.length
+      ? navigator.languages
+      : [typeof navigator !== "undefined" ? navigator.language : "en-US"];
+    var keys = Object.keys(PATTERN_MESSAGES);
+    for (var i = 0; i < locales.length; i++) {
+      var locale = String(locales[i] || "").replace(/_/g, "-").toLowerCase();
+      for (var j = 0; j < keys.length; j++) {
+        var key = keys[j].toLowerCase();
+        if (key === locale)
+          return PATTERN_MESSAGES[keys[j]][kind].replace("{label}", label);
+      }
+      for (var j = 0; j < keys.length; j++) {
+        var key = keys[j].toLowerCase();
+        if (key.split("-")[0] === locale.split("-")[0])
+          return PATTERN_MESSAGES[keys[j]][kind].replace("{label}", label);
+      }
+    }
+    return PATTERN_MESSAGES["en-US"][kind].replace("{label}", label);
+  }
+
+  function localizedUncheckablePattern(label) {
+    return localizedPatternMessage("uncheckable", label);
+  }
+
+  function localizedTooLongPattern(label) {
+    return localizedPatternMessage("tooLong", label);
+  }
 
   function scrubPageUrl(value) {
     try {
@@ -472,7 +617,15 @@ function renderFormPage(
 
   function revalidateFormVersion() {
     fetch(PUBLIC_FORM_API, { cache: "no-store" })
-      .then(function(response) { return response.ok ? response.json() : null; })
+      .then(function(response) {
+        if (response.status === 404) {
+          var currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.set("v", String(Date.now()));
+          window.location.replace(currentUrl.toString());
+          return null;
+        }
+        return response.ok ? response.json() : null;
+      })
       .then(function(latest) {
         if (!latest || typeof latest.updatedAt !== "string" || !latest.updatedAt || latest.updatedAt === FORM_VERSION) return;
         var currentUrl = new URL(window.location.href);
@@ -590,6 +743,7 @@ function renderFormPage(
     FIELDS.forEach(function(f) {
       var el = document.querySelector('[data-field-id="' + f.id + '"]');
       if (!el || el.dataset.hidden === "1") return;
+      if (f.type === "file") return;
       if (f.type === "multiselect") {
         var checked = [];
         el.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb) { checked.push(cb.value); });
@@ -612,12 +766,50 @@ function renderFormPage(
     return data;
   }
 
+  function collectFiles() {
+    var files = {};
+    FIELDS.forEach(function(f) {
+      if (f.type !== "file") return;
+      var el = document.querySelector('[data-field-id="' + f.id + '"]');
+      if (!el || el.dataset.hidden === "1") return;
+      var input = el.querySelector('input[type="file"]');
+      if (input && input.files && input.files.length) {
+        files[f.id] = Array.prototype.slice.call(input.files);
+      }
+    });
+    return files;
+  }
+
+  function acceptsFile(f, file) {
+    if (!f.accept) return true;
+    var mime = (file.type || "").toLowerCase();
+    var name = (file.name || "").toLowerCase();
+    return f.accept.split(",").some(function(raw) {
+      var token = raw.trim().toLowerCase();
+      if (!token || token === "*/*" || token === mime) return true;
+      if (token.slice(-2) === "/*") return mime.indexOf(token.slice(0, -1)) === 0;
+      return token.charAt(0) === "." && name.slice(-token.length) === token;
+    });
+  }
+
   // Validation
-  function validate(data) {
+  function validate(data, filesByField) {
     for (var i = 0; i < FIELDS.length; i++) {
       var f = FIELDS[i];
       var el = document.querySelector('[data-field-id="' + f.id + '"]');
       if (!el || el.dataset.hidden === "1") continue;
+      if (f.type === "file") {
+        var files = filesByField[f.id] || [];
+        if (f.required && files.length === 0) return f.label + " is required";
+        var maxFiles = f.multiple ? (f.maxFiles || 5) : 1;
+        if (files.length > maxFiles) return f.label + " accepts up to " + maxFiles + " file" + (maxFiles === 1 ? "" : "s");
+        var maxBytes = f.maxSizeBytes || 10485760;
+        for (var fileIndex = 0; fileIndex < files.length; fileIndex++) {
+          if (files[fileIndex].size > maxBytes) return files[fileIndex].name + " is larger than the " + Math.round(maxBytes / 1048576) + " MB limit";
+          if (!acceptsFile(f, files[fileIndex])) return files[fileIndex].name + " is not an accepted file type";
+        }
+        continue;
+      }
       if (f.required) {
         var val = data[f.id];
         if (val === undefined || val === null || val === "" || (Array.isArray(val) && val.length === 0)) {
@@ -630,11 +822,57 @@ function renderFormPage(
           return (f.validation.message || f.label + " must be at least " + f.validation.min);
         if (f.validation.max != null && Number(v) > f.validation.max)
           return (f.validation.message || f.label + " must be at most " + f.validation.max);
-        if (f.validation.pattern && typeof v === "string" && !new RegExp(f.validation.pattern).test(v))
-          return (f.validation.message || f.label + " is invalid");
+        // An absent value never reaches a pattern check in the React client or
+        // the submit handler, so an untouched optional field must not fail here
+        // just because the owner's stored rule is unrunnable.
+        var hasValue = typeof v === "string" ? v !== "" : v !== undefined && v !== null;
+        if (f.validation.unsafePattern && hasValue)
+          return localizedUncheckablePattern(f.label);
+        if (f.validation.pattern && typeof v === "string" && hasValue) {
+          if (v.length > ${MAX_USER_REGEX_INPUT_LENGTH})
+            return localizedTooLongPattern(f.label);
+          if (!new RegExp(f.validation.pattern).test(v))
+            return (f.validation.message || f.label + " is invalid");
+        }
       }
     }
     return null;
+  }
+
+  function uploadFiles(filesByField) {
+    var uploaded = {};
+    var requests = [];
+    FIELDS.forEach(function(f) {
+      if (f.type !== "file") return;
+      var files = filesByField[f.id] || [];
+      files.forEach(function(file) {
+        var body = new FormData();
+        body.append("fieldId", f.id);
+        body.append("file", file, file.name);
+        requests.push(fetch(UPLOAD_PATH + encodeURIComponent(FORM_ID), {
+          method: "POST",
+          body: body,
+        }).then(function(r) {
+          return r.json().then(function(d) {
+            if (!r.ok) throw new Error(d.error || "Failed to upload file");
+            return d;
+          }, function() {
+            throw new Error("File upload returned an invalid response");
+          });
+        }).then(function(fileValue) {
+          if (!uploaded[f.id]) uploaded[f.id] = [];
+          uploaded[f.id].push(fileValue);
+        }));
+      });
+    });
+    return Promise.all(requests).then(function() {
+      FIELDS.forEach(function(f) {
+        if (f.type === "file" && f.multiple !== true && uploaded[f.id]) {
+          uploaded[f.id] = uploaded[f.id][0];
+        }
+      });
+      return uploaded;
+    });
   }
 
   // Turnstile
@@ -661,27 +899,36 @@ function renderFormPage(
     e.preventDefault();
     if (submitting) return;
     var data = collectData();
-    var err = validate(data);
+    var filesByField = collectFiles();
+    var err = validate(data, filesByField);
     if (err) { showToast(err); return; }
     submitting = true;
     var btn = document.getElementById("submitBtn");
-    btn.textContent = "Submitting...";
+    btn.textContent = "Uploading...";
     btn.disabled = true;
     var hp = (document.getElementById("_hp") || {}).value || "";
     var pageUrl = scrubPageUrl(window.location.href);
 
-    fetch(${JSON.stringify(submitPath)} + FORM_ID, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T, _meta: { pageUrl: pageUrl } }),
+    uploadFiles(filesByField).then(function(uploaded) {
+      Object.keys(uploaded).forEach(function(fieldId) { data[fieldId] = uploaded[fieldId]; });
+      btn.textContent = "Submitting...";
+      return fetch(${JSON.stringify(submitPath)} + FORM_ID, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T, _meta: { pageUrl: pageUrl } }),
+      });
     })
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
     .then(function(res) {
       if (!res.ok) { throw new Error(res.data.error || "Failed to submit"); }
-      if (REDIRECT) { window.location.href = REDIRECT; return; }
+      if (COMPLETION_MODE === "redirect" && REDIRECT) { window.location.href = REDIRECT; return; }
+      if (COMPLETION_MODE === "refresh") { window.location.reload(); return; }
       document.querySelector(".container").style.display = "none";
       document.getElementById("successView").style.display = "flex";
-      if (html.classList.contains("embedded") && window.parent !== window) {
+      if (COMPLETION_MODE === "message_then_refresh") {
+        window.setTimeout(function() { window.location.reload(); }, COMPLETION_REFRESH_MS);
+      }
+      if ((COMPLETION_MODE === "message" || COMPLETION_MODE === "message_then_refresh") && html.classList.contains("embedded") && window.parent !== window) {
         try { window.parent.postMessage({ type: "agent-native-feedback-submitted" }, "*"); } catch (_) {}
       }
     })

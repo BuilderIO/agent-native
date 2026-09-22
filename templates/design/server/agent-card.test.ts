@@ -37,7 +37,7 @@ describe("design agent card", () => {
       const card = generateAgentCard(
         {
           name: "Design",
-          description: "Agent-native design agent",
+          description: "Agent-Native design agent",
           skills: Object.entries(actions).map(([name, entry]) => ({
             id: name,
             name,
@@ -49,7 +49,7 @@ describe("design agent card", () => {
       );
 
       expect(card.name).toBe("Design");
-      expect(card.description).toBe("Agent-native design agent");
+      expect(card.description).toBe("Agent-Native design agent");
       expect(card.skills.map((skill) => skill.id)).toEqual(
         expect.arrayContaining(REQUIRED_DESIGN_ACTIONS),
       );

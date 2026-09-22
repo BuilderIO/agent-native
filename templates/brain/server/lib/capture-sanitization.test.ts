@@ -244,7 +244,7 @@ describe("capture sanitization", () => {
       },
       content: [
         "Summary",
-        "- Decision: position Agent Native around enterprise workflow applications.",
+        "- Decision: position Agent-Native around enterprise workflow applications.",
         "- Action: update the product narrative and sales enablement docs.",
         "Transcript",
         "[Speaker 1] This raw transcript detail is not retained by the outage fallback.",
@@ -256,7 +256,7 @@ describe("capture sanitization", () => {
       classifier: "deterministic",
       confidenceBand: "deterministic",
     });
-    expect(result.content).toContain("position Agent Native");
+    expect(result.content).toContain("position Agent-Native");
     expect(result.content).toContain("sales enablement docs");
     expect(result.content).not.toContain("raw transcript detail");
     expect(

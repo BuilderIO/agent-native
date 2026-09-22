@@ -3,7 +3,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import type { DesignSystemComponentName } from "./types.js";
 
 interface DesignSystemErrorBoundaryProps {
-  component: DesignSystemComponentName | string;
+  component: DesignSystemComponentName | (string & {});
   fallback: ReactNode;
   children: ReactNode;
 }

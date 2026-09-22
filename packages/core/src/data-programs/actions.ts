@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
 import { hashDataProgramParams, runDataProgram } from "./execute.js";
 import {
   archiveDataProgram,
@@ -38,12 +39,13 @@ function compactColumns(
 export interface CreateDataProgramActionsOptions {
   appId: string;
   getActions: () => Record<string, ActionEntry>;
+  evaluator?: SandboxCodeEvaluator;
 }
 
 export function createDataProgramActions(
   options: CreateDataProgramActionsOptions,
 ): Record<string, ActionEntry> {
-  const { appId } = options;
+  const { appId, evaluator } = options;
 
   const saveDataProgram = defineAction({
     description:
@@ -94,6 +96,7 @@ export function createDataProgramActions(
         params: args.defaultParams ?? {},
         ctx: { userEmail, orgId: ctx?.orgId ?? null },
         triggeredBy: "preview",
+        evaluator,
       });
       if (!dryRun.ok) {
         throw new Error(
@@ -144,6 +147,7 @@ export function createDataProgramActions(
         params: args.params ?? {},
         ctx: { userEmail: ctx?.userEmail, orgId: ctx?.orgId ?? null },
         triggeredBy: "preview",
+        evaluator,
       });
       if (!result.ok) {
         return {
@@ -178,6 +182,7 @@ export function createDataProgramActions(
         ctx: { userEmail: ctx?.userEmail, orgId: ctx?.orgId ?? null },
         triggeredBy: "agent",
         forceRefresh: args.forceRefresh,
+        evaluator,
       });
       if (!result.ok) {
         return {

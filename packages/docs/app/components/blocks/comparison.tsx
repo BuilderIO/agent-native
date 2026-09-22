@@ -6,21 +6,34 @@ import {
   comparisonSchema,
   comparisonMdx,
   type ComparisonData,
+  type ComparisonSide,
 } from "./comparison.config";
 
 export type { ComparisonData };
 
-const ACCENT_CLASSES: Record<string, string> = {
-  before: "docs-comparison-col--before",
-  after: "docs-comparison-col--after",
-  old: "docs-comparison-col--before",
-  new: "docs-comparison-col--after",
-  without: "docs-comparison-col--before",
-  with: "docs-comparison-col--after",
+/** Curated accent keys, matching Badge's color naming so authors reach for
+ * the same word everywhere on the site. Each maps to a real theme token in
+ * global.css (docs-comparison-col[data-accent-color]), not a raw hex, so it
+ * stays correct in both themes. */
+const ACCENT_COLOR_KEYS = new Set(["blue", "green", "red", "yellow"]);
+
+/** Legacy heuristic: a bare "Before"/"After"-style label still gets an
+ * accent with no explicit `color`, so every pre-existing Comparison in the
+ * docs corpus keeps rendering exactly as before. */
+const LEGACY_LABEL_ACCENT: Record<string, string> = {
+  before: "red",
+  old: "red",
+  without: "red",
+  after: "green",
+  new: "green",
+  with: "green",
 };
 
-function accentClass(label: string): string {
-  return ACCENT_CLASSES[label.toLowerCase().trim()] ?? "";
+function resolveAccentColor(side: ComparisonSide): string | undefined {
+  if (side.color) {
+    return ACCENT_COLOR_KEYS.has(side.color) ? side.color : undefined;
+  }
+  return LEGACY_LABEL_ACCENT[side.label.toLowerCase().trim()];
 }
 
 export function ComparisonBlock({ data, ctx }: BlockReadProps<ComparisonData>) {
@@ -32,7 +45,8 @@ export function ComparisonBlock({ data, ctx }: BlockReadProps<ComparisonData>) {
       {data.sides.map((side, i) => (
         <div
           key={i}
-          className={`docs-comparison-col ${accentClass(side.label)}`}
+          className="docs-comparison-col"
+          data-accent-color={resolveAccentColor(side)}
         >
           <p className="docs-comparison-label">{side.label}</p>
           <div className="docs-comparison-body">

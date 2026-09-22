@@ -1847,4 +1847,387 @@ describe("appendA2AArtifactLinks", () => {
       "Image: https://assets.agent-native.com/image/asset_real",
     );
   });
+
+  it("allows the canonical Assets detail URL in downstream artifact blocks", () => {
+    const text = appendA2AArtifactLinks(
+      "Image: https://assets.agent-native.com/asset/asset_real",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Image: https://assets.agent-native.com/asset/asset_real (ID: asset_real, Run: run_real)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Image: https://assets.agent-native.com/asset/asset_real",
+    );
+  });
+
+  it("detects image artifacts structurally without a tool-name allow-list", () => {
+    const text = appendA2AArtifactLinks(
+      "Image: https://assets.agent-native.com/asset/asset_structural",
+      [
+        {
+          tool: "generate-asset",
+          result: JSON.stringify({
+            id: "asset_structural",
+            artifactType: "image",
+            url: "/asset/asset_structural",
+          }),
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(text).not.toContain("could not verify");
+  });
+
+  it.each([
+    ["intact", JSON.stringify({ count: 1, images: [] })],
+    [
+      "ledger recovered",
+      '(Recovered from prior interrupted chunk — action already completed.)\n\n{\n  "count": 3\n...[ledger truncated at 8000 chars]',
+    ],
+    [
+      "delegated cap",
+      '{\n  "count": 6\n\n...[truncated — full result was 24,000 chars; only first 20,000 shown]',
+    ],
+  ])("verifies %s image results from typed receipts", (_label, result) => {
+    const guarded = guardA2AArtifactResponse(
+      "Images: https://assets.agent-native.com/asset/asset_receipt",
+      [
+        {
+          tool: "generate-image-batch",
+          result,
+          completedSideEffect: true,
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_receipt",
+              url: "/asset/asset_receipt",
+              runId: "run_receipt",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(false);
+    expect(guarded.text).not.toContain("no successful artifact action");
+  });
+
+  it("distinguishes unreadable truncated evidence from absent artifacts", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Images: https://assets.agent-native.com/asset/asset_unreadable",
+      [
+        {
+          tool: "generate-image-batch",
+          result:
+            '(Recovered from prior interrupted chunk — action already completed.)\n\n{\n  "count": 3\n...[ledger truncated at 8000 chars]',
+          completedSideEffect: true,
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(true);
+    expect(guarded.text).toContain(
+      "generate-image-batch completed, but its result was truncated",
+    );
+    expect(guarded.text).not.toContain("successful artifact action");
+  });
+
+  it.each([
+    ["document", "doc_roundtrip", "/page/doc_roundtrip"],
+    ["deck", "deck_roundtrip", "/deck/deck_roundtrip"],
+    ["dashboard", "dashboard_roundtrip", "/adhoc/dashboard_roundtrip"],
+    ["analysis", "analysis_roundtrip", "/analyses/analysis_roundtrip"],
+    ["image", "image_roundtrip", "/asset/image_roundtrip"],
+    ["design", "design_roundtrip", "/design/design_roundtrip"],
+  ] as const)(
+    "round-trips a formatted %s artifact through downstream verification",
+    (kind, id, path) => {
+      const origin = "https://artifacts.agent-native.com";
+      const downstream = appendA2AArtifactLinks(
+        "Saved the artifact.",
+        [
+          {
+            tool: "write-artifact",
+            result: "result body intentionally irrelevant",
+            artifacts: [{ kind, id, url: path, title: "Round trip" }],
+          },
+        ],
+        { baseUrl: origin },
+      );
+      const guarded = guardA2AArtifactResponse(
+        `Artifact: ${origin}${path}`,
+        [{ tool: "call-agent", result: downstream }],
+        { baseUrl: "https://caller.agent-native.com" },
+      );
+
+      expect(guarded.rejectedUnverifiedArtifactReferences).toBe(false);
+      expect(guarded.text).toContain(`${origin}${path}`);
+    },
+  );
+
+  it("parses complete wrapped JSON before treating sentinel text as truncation", () => {
+    const text = appendA2AArtifactLinks(
+      "Generated it.",
+      [
+        {
+          tool: "generate-image",
+          result: [
+            "action output:",
+            JSON.stringify({
+              id: "asset_complete",
+              title: "...[ledger truncated at is literal title text",
+            }),
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://assets.agent.test" },
+    );
+
+    expect(text).toContain("/image/asset_complete");
+    expect(text).not.toContain("result was truncated");
+  });
+
+  it("attributes truncation only when the tool can produce the referenced kind", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Document: https://content.agent-native.com/page/doc_unverified",
+      [
+        {
+          tool: "generate-image-batch",
+          result:
+            '{\n  "images": [\n...[truncated — full result was 24,000 chars]',
+        },
+      ],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(guarded.text).toContain("successful artifact action");
+    expect(guarded.text).not.toContain("result was truncated");
+  });
+
+  it("retains verified artifact lines in a truncation rejection", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Images: https://assets.agent-native.com/asset/asset_unverified",
+      [
+        {
+          tool: "generate-image",
+          result: JSON.stringify({ id: "asset_verified" }),
+        },
+        {
+          tool: "generate-image-batch",
+          result:
+            '{\n  "images": [\n...[truncated — full result was 24,000 chars]',
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.text).toContain("result was truncated");
+    expect(guarded.text).toContain("get-asset");
+    expect(guarded.text).toContain("Artifacts:");
+    expect(guarded.text).toContain("/image/asset_verified");
+  });
+
+  it("revalidates typed document receipts at the Content origin", () => {
+    const rejected = guardA2AArtifactResponse(
+      "Document: https://content.agent-native.com/page/doc_generic",
+      [
+        {
+          tool: "read-workspace-document",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "document",
+              id: "doc_generic",
+              url: "https://attacker.example/page/doc_generic",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+    expect(rejected.rejectedUnverifiedArtifactReferences).toBe(true);
+
+    const accepted = appendA2AArtifactLinks(
+      "Read it.",
+      [
+        {
+          tool: "get-document",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "document",
+              id: "doc_known",
+              url: "https://attacker.example/page/doc_known",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+    expect(accepted).toContain(
+      "https://content.agent-native.com/page/doc_known",
+    );
+    expect(accepted).not.toContain("attacker.example");
+  });
+
+  it("rejects typed receipts whose canonical URL names another artifact", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Image: https://assets.agent-native.com/asset/asset_expected",
+      [
+        {
+          tool: "generate-asset",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_expected",
+              url: "/asset/asset_other",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(true);
+  });
+
+  it("keeps a known producer's artifact ID when its URL is non-canonical", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Image: https://assets.agent-native.com/asset/asset_cdn",
+      [
+        {
+          tool: "generate-asset",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_cdn",
+              url: "https://cdn.example.com/generated.png",
+            },
+          ],
+        },
+      ],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(false);
+    expect(guarded.text).not.toContain("cdn.example.com");
+  });
+
+  it("does not emit attacker-hosted URLs from typed artifact receipts", () => {
+    const text = appendA2AArtifactLinks(
+      "Generated it.",
+      [
+        {
+          tool: "generate-asset",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_hostile",
+              url: "https://attacker.example/asset/asset_hostile",
+            },
+          ],
+        },
+      ],
+      {
+        baseUrl: "https://assets.agent-native.com",
+        includeReferencedArtifacts: true,
+      },
+    );
+
+    expect(text).toContain(
+      "https://assets.agent-native.com/image/asset_hostile",
+    );
+    expect(text).not.toContain("attacker.example");
+  });
+
+  it("does not demand artifact verification for Assets API collection routes", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Search with https://assets.agent-native.com/api/assets/search",
+      [],
+      { baseUrl: "https://assets.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(false);
+  });
+
+  it("formats the real design file count carried by a typed receipt", () => {
+    const text = appendA2AArtifactLinks(
+      "Generated the design.",
+      [
+        {
+          tool: "generate-design",
+          result: "truncated",
+          artifacts: [{ kind: "design", id: "design_two", fileCount: 2 }],
+        },
+      ],
+      { baseUrl: "https://design.agent.test" },
+    );
+
+    expect(text).toContain("(ID: design_two, 2 files)");
+  });
+
+  it("round-trips a structurally detected generate-asset identity through a signed marker", () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-generate-asset");
+    const downstream = appendA2AArtifactLinks(
+      "Generated it.",
+      [
+        {
+          tool: "generate-asset",
+          result: JSON.stringify({
+            id: "asset_signed",
+            pageUrl: "/assets/asset_signed",
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://assets.agent-native.com",
+        includePersistedArtifactMarker: true,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        resourceType: "image",
+        id: "asset_signed",
+        sourceAction: "call-agent",
+        url: "/assets/asset_signed",
+      }),
+    ]);
+  });
+
+  it("does not sign artifact identities from unknown producer tools", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "echo-user-payload",
+          result: "opaque",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_echoed",
+              url: "/asset/asset_echoed",
+            },
+          ],
+        },
+      ]),
+    ).toEqual([]);
+  });
 });

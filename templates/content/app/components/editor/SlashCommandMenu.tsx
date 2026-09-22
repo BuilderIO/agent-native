@@ -1,5 +1,4 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import { renderMathToHtml } from "@shared/math-rendering";
@@ -32,9 +31,22 @@ import {
   IconSquareRoot2,
 } from "@tabler/icons-react";
 import { Editor } from "@tiptap/react";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+
+// The composer bundle is heavy; only load it when the generate prompt opens.
+const PromptComposer = React.lazy(() =>
+  import("@agent-native/core/client/composer").then((m) => ({
+    default: m.PromptComposer,
+  })),
+);
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { Button } from "@/components/ui/button";
@@ -60,6 +72,8 @@ import { buildRegistrySlashItems } from "./registrySlashItems";
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
+  /** Restrict the menu to block operations supported by suggestion capture. */
+  suggesting?: boolean;
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   /**
@@ -156,6 +170,8 @@ export interface CommandItem {
   searchText?: string;
   shortcut?: string;
   icon: React.ElementType;
+  /** The suggestion operation model can represent this command losslessly. */
+  suggestionSafe?: boolean;
   preserveSlashRange?: boolean;
   action: (
     editor: Editor,
@@ -173,6 +189,31 @@ export function excludeCommandsWithDuplicateTitles<T extends { title: string }>(
   return candidateCommands.filter(
     (command) => !primaryTitles.has(command.title.trim().toLocaleLowerCase()),
   );
+}
+
+export function slashCommandsForMode<T extends { suggestionSafe?: boolean }>(
+  commands: readonly T[],
+  suggesting: boolean,
+): T[] {
+  return suggesting
+    ? commands.filter((command) => command.suggestionSafe === true)
+    : [...commands];
+}
+
+export function slashCommandAllowedInMode(
+  command: Pick<CommandItem, "suggestionSafe">,
+  suggesting: boolean,
+): boolean {
+  return !suggesting || command.suggestionSafe === true;
+}
+
+export function runGeneratePromptIfAllowed(
+  suggesting: boolean,
+  submit: () => void,
+): boolean {
+  if (suggesting) return false;
+  submit();
+  return true;
 }
 
 export type MediaPlaceholderType = "image" | "video" | "audio";
@@ -280,6 +321,7 @@ export function buildHeadingCommands(
 ): CommandTemplate[] {
   return headingCommandMetadata.map((heading) => ({
     ...heading,
+    suggestionSafe: true,
     action: (editor) => {
       const chain = editor.chain().focus();
       return behavior === "toggle"
@@ -413,6 +455,7 @@ const commands: CommandTemplate[] = [
     titleKey: "editor.slash.text",
     descriptionKey: "editor.slash.textDescription",
     icon: IconTypography,
+    suggestionSafe: true,
     action: setPlainTextBlock,
   },
   ...buildHeadingCommands("toggle"),
@@ -421,6 +464,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.bulletedListDescription",
     shortcut: "-",
     icon: IconList,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
@@ -428,6 +472,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.numberedListDescription",
     shortcut: "1.",
     icon: IconListNumbers,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
@@ -435,6 +480,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.todoListDescription",
     shortcut: "[]",
     icon: IconSquareCheck,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
@@ -461,6 +507,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
+    suggestionSafe: true,
     preserveSlashRange: true,
     action: (editor, { slashRange }) =>
       setCodeBlockFromSlashCommand(editor, slashRange),
@@ -470,6 +517,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.quoteDescription",
     shortcut: '"',
     icon: QuoteCommandIcon,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
@@ -492,6 +540,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.dividerDescription",
     shortcut: "---",
     icon: IconMinus,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().setHorizontalRule().run(),
   },
   {
@@ -513,6 +562,7 @@ const turnIntoCommands: CommandTemplate[] = [
     titleKey: "editor.slash.text",
     descriptionKey: "editor.slash.textDescription",
     icon: IconTypography,
+    suggestionSafe: true,
     action: setPlainTextBlock,
   },
   ...buildHeadingCommands("set"),
@@ -521,6 +571,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.bulletedListDescription",
     shortcut: "-",
     icon: IconList,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
@@ -528,6 +579,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.numberedListDescription",
     shortcut: "1.",
     icon: IconListNumbers,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
@@ -535,6 +587,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.todoListDescription",
     shortcut: "[]",
     icon: IconSquareCheck,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
@@ -567,6 +620,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
+    suggestionSafe: true,
     preserveSlashRange: true,
     action: (editor, { slashRange }) =>
       setCodeBlockFromSlashCommand(editor, slashRange),
@@ -576,6 +630,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.quoteDescription",
     shortcut: '"',
     icon: QuoteCommandIcon,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
@@ -607,6 +662,7 @@ const turnIntoCommands: CommandTemplate[] = [
 export function SlashCommandMenu({
   editor,
   documentId,
+  suggesting = false,
   notionPageId,
   onDraftCommitted,
   onDraftPersisted,
@@ -628,6 +684,8 @@ export function SlashCommandMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
   const slashPosRef = useRef<number | null>(null);
+  const suggestingRef = useRef(suggesting);
+  suggestingRef.current = suggesting;
 
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -649,17 +707,22 @@ export function SlashCommandMenu({
     (prompt: string) => {
       const trimmed = prompt.trim();
       if (!trimmed) return;
-      if (!documentId) {
-        toast.error(t("editor.noDocumentSelected"));
-        return;
-      }
-      setGenerateOpen(false);
-      const content = (editor.storage as any).markdown.getMarkdown();
-      send({
-        message: trimmed,
-        context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL - use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
-        submit: true,
+      const allowed = runGeneratePromptIfAllowed(suggestingRef.current, () => {
+        if (!documentId) {
+          toast.error(t("editor.noDocumentSelected"));
+          return;
+        }
+        setGenerateOpen(false);
+        const content = (editor.storage as any).markdown.getMarkdown();
+        send({
+          message: trimmed,
+          context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL - use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
+          submit: true,
+        });
       });
+      if (!allowed) {
+        setGenerateOpen(false);
+      }
     },
     [documentId, editor, send, t],
   );
@@ -798,7 +861,7 @@ export function SlashCommandMenu({
         });
         return;
       }
-      navigate(`/page/${pageId}`, { flushSync: true });
+      void navigate(`/page/${pageId}`, { flushSync: true });
     },
   };
 
@@ -1029,21 +1092,42 @@ export function SlashCommandMenu({
     cmd.title.toLowerCase().includes(normalizedQuery) ||
     cmd.description.toLowerCase().includes(normalizedQuery) ||
     cmd.searchText?.toLowerCase().includes(normalizedQuery);
-  const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
-  const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
+  const availableAiCommands = slashCommandsForMode(aiCommands, suggesting);
+  const availableBlockCommands = slashCommandsForMode(
+    blockCommands,
+    suggesting,
+  );
+  const availableRegistryCommands = slashCommandsForMode(
+    uniqueRegistryCommands,
+    suggesting,
+  );
+  const availableLocalComponentCommands = slashCommandsForMode(
+    localComponentCommands,
+    suggesting,
+  );
+  const availablePageCommands = slashCommandsForMode(pageCommands, suggesting);
+  const availableMediaCommands = slashCommandsForMode(
+    mediaCommands,
+    suggesting,
+  );
+  const filteredAiCommands = availableAiCommands.filter(commandMatchesQuery);
+  const filteredBlockCommands =
+    availableBlockCommands.filter(commandMatchesQuery);
   const filteredRegistryCommands =
-    uniqueRegistryCommands.filter(commandMatchesQuery);
+    availableRegistryCommands.filter(commandMatchesQuery);
   const filteredLocalComponentCommands =
-    localComponentCommands.filter(commandMatchesQuery);
-  const filteredPageCommands = pageCommands.filter(commandMatchesQuery);
-  const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
+    availableLocalComponentCommands.filter(commandMatchesQuery);
+  const filteredPageCommands =
+    availablePageCommands.filter(commandMatchesQuery);
+  const filteredMediaCommands =
+    availableMediaCommands.filter(commandMatchesQuery);
   const allCommands = [
-    ...aiCommands,
-    ...blockCommands,
-    ...uniqueRegistryCommands,
-    ...localComponentCommands,
-    ...mediaCommands,
-    ...pageCommands,
+    ...availableAiCommands,
+    ...availableBlockCommands,
+    ...availableRegistryCommands,
+    ...availableLocalComponentCommands,
+    ...availableMediaCommands,
+    ...availablePageCommands,
   ];
   const filteredCommands = [
     ...filteredAiCommands,
@@ -1074,6 +1158,10 @@ export function SlashCommandMenu({
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
       if (editor.isDestroyed) return;
+      // A mode transition can leave a pointer callback queued from the prior
+      // render. Recheck the command at execution time before deleting the slash
+      // or invoking any upload, navigation, action, or external callback.
+      if (!slashCommandAllowedInMode(cmd, suggestingRef.current)) return;
       const beforeDoc = editor.state.doc;
       const slashRange =
         getActiveSlashCommandRange(editor) ??
@@ -1144,17 +1232,22 @@ export function SlashCommandMenu({
           !e.altKey
         ) {
           const inlineGenerate = readInlineGenerateCommand();
-          if (inlineGenerate) {
-            e.preventDefault();
-            editor
-              .chain()
-              .focus()
-              .deleteRange({
-                from: inlineGenerate.from,
-                to: inlineGenerate.to,
-              })
-              .run();
-            submitGeneratePrompt(inlineGenerate.prompt);
+          if (
+            inlineGenerate &&
+            runGeneratePromptIfAllowed(suggestingRef.current, () => {
+              e.preventDefault();
+              editor
+                .chain()
+                .focus()
+                .deleteRange({
+                  from: inlineGenerate.from,
+                  to: inlineGenerate.to,
+                })
+                .run();
+              submitGeneratePrompt(inlineGenerate.prompt);
+            })
+          ) {
+            return;
           }
         }
         return;
@@ -1176,7 +1269,7 @@ export function SlashCommandMenu({
         e.preventDefault();
         e.stopPropagation();
         if (filteredCommands[selectedIndex]) {
-          executeCommand(filteredCommands[selectedIndex]);
+          void executeCommand(filteredCommands[selectedIndex]);
         }
       } else if (e.key === "Escape") {
         e.stopPropagation();
@@ -1184,7 +1277,7 @@ export function SlashCommandMenu({
         setIsTurnInto(false);
         setQuery("");
         slashPosRef.current = null;
-        onDraftCommitted?.();
+        void onDraftCommitted?.();
       }
     };
 
@@ -1397,18 +1490,24 @@ export function SlashCommandMenu({
           <PopoverContent
             align="start"
             side="bottom"
-            className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
+            className="relative w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
           >
             <p className="px-1 pb-2 text-sm font-semibold text-foreground">
               {t("editor.generateWithAi")}
             </p>
-            <PromptComposer
-              autoFocus
-              disabled={isGenerating}
-              placeholder={t("editor.describeWhatToGenerate")}
-              draftScope={`content:generate:${documentId ?? "document"}`}
-              onSubmit={submitGeneratePrompt}
-            />
+            <React.Suspense
+              fallback={
+                <div className="flex h-[72px] items-center rounded-md border border-input px-3 text-sm text-muted-foreground" />
+              }
+            >
+              <PromptComposer
+                autoFocus
+                disabled={isGenerating}
+                placeholder={t("editor.describeWhatToGenerate")}
+                draftScope={`content:generate:${documentId ?? "document"}`}
+                onSubmit={submitGeneratePrompt}
+              />
+            </React.Suspense>
           </PopoverContent>
         </Popover>
       )}

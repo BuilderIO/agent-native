@@ -1,11 +1,14 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -17,13 +20,13 @@ import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Duplicate exactly one page row in a content database, including stored property values. For two or more rows, use duplicate-database-items once instead of looping this action.",
+    "Duplicate exactly one page row in a content collection, including stored property values. For two or more rows, use duplicate-database-items once instead of looping this action.",
   schema: z.object({
-    itemId: z.string().optional().describe("Database item ID"),
-    documentId: z.string().optional().describe("Database row document ID"),
+    itemId: z.string().optional().describe("Collection item ID"),
+    documentId: z.string().optional().describe("Collection row document ID"),
     title: z.string().optional().describe("Optional title for the duplicate"),
   }),
-  run: async ({ itemId, documentId, title }) => {
+  run: async ({ itemId, documentId, title }, ctx) => {
     if (!itemId && !documentId) {
       throw new Error("Either itemId or documentId is required.");
     }
@@ -71,6 +74,7 @@ export default defineAction({
     );
 
     const now = new Date().toISOString();
+    const actor = requireDocumentRequestActor(ctx);
     const nextDocumentId = nanoid();
     const nextItemId = nanoid();
     const inheritedShares = await db
@@ -187,6 +191,7 @@ export default defineAction({
         isFavorite: 0,
         hideFromSearch: lockedRow.document.hideFromSearch,
         visibility: lockedRow.document.visibility,
+        ...documentCreationAttribution(actor),
         createdAt: now,
         updatedAt: now,
       });
@@ -210,7 +215,7 @@ export default defineAction({
             principalType: share.principalType,
             principalId: share.principalId,
             role: share.role,
-            createdBy: getRequestUserEmail() ?? lockedRow.document.ownerEmail,
+            createdBy: actor,
             createdAt: now,
           })),
         );

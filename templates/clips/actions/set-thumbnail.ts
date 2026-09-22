@@ -18,7 +18,7 @@
  *   pnpm action set-thumbnail --recordingId=<id> --kind=frame --timeMs=12000
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { assertAccess } from "@agent-native/core/sharing";

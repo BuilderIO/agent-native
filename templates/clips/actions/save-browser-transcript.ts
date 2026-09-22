@@ -14,8 +14,10 @@
  *   pnpm action save-browser-transcript --recordingId=<id> --fullText="..."
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -24,6 +26,7 @@ import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
+import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
 
 // web-speech and macos-native are both mic-only engines — see
@@ -102,7 +105,8 @@ export default defineAction({
       .optional()
       .describe("Why native speech recognition could not save text"),
   }),
-  run: async (args) => {
+  run: async (args, context) => {
+    await assertAccess("recording", args.recordingId, "editor");
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
@@ -226,6 +230,9 @@ export default defineAction({
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+    if (savedStatus === "ready") {
+      await finalizeEndedMeetingsForRecording(db, args.recordingId);
+    }
 
     const [rec] = await db
       .select({
@@ -233,10 +240,27 @@ export default defineAction({
         titleSource: schema.recordings.titleSource,
         description: schema.recordings.description,
         status: schema.recordings.status,
+        durationMs: schema.recordings.durationMs,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
+
+    if (!hasReadyTranscript && savedStatus === "ready") {
+      track(
+        "recording_completed",
+        {
+          app_name: "clips",
+          template_name: "clips",
+          output_id: args.recordingId,
+          output_type: "clip",
+          duration_s: Math.round((rec?.durationMs ?? 0) / 1000),
+          has_transcript: true,
+          transcription_source: args.source ?? "native",
+        },
+        context,
+      );
+    }
 
     const titleQueued = !!(
       rec && isAutoTitleReplaceable(rec.title, rec.titleSource)

@@ -85,6 +85,9 @@ describe("capture install options", () => {
     expect(
       supportsPublishedClipsChromeExtensionHost("clips.agent-native.com"),
     ).toBe(true);
+    expect(
+      supportsPublishedClipsChromeExtensionHost("beta.clips.agent-native.com"),
+    ).toBe(true);
     expect(supportsPublishedClipsChromeExtensionHost("localhost")).toBe(true);
     expect(supportsPublishedClipsChromeExtensionHost("127.0.0.1")).toBe(true);
   });

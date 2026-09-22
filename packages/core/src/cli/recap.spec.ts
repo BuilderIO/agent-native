@@ -2220,7 +2220,9 @@ describe("recap image public readiness", () => {
 });
 
 describe("recap usage parsing", () => {
-  it("reads Claude Code's usage + reported cost (input already cache-exclusive)", () => {
+  // Anthropic reports input_tokens EXCLUDING cache; the parser adds them back
+  // so inputTokens is the whole prompt, matching every other usage source.
+  it("reads Claude Code's usage + reported cost, folding cache into the prompt", () => {
     const stdout = JSON.stringify({
       type: "result",
       model: "claude-opus-4",
@@ -2233,7 +2235,7 @@ describe("recap usage parsing", () => {
       },
     });
     expect(parseClaudeUsage(stdout)).toEqual({
-      inputTokens: 1000,
+      inputTokens: 6300, // 1000 fresh + 5000 read + 300 written
       outputTokens: 200,
       cacheReadTokens: 5000,
       cacheWriteTokens: 300,
@@ -2255,9 +2257,10 @@ describe("recap usage parsing", () => {
     });
   });
 
-  it("strips Codex cached tokens out of input and folds reasoning into output", () => {
-    // OpenAI input_tokens INCLUDES cached_input_tokens, and reasoning is billed
-    // separately — both must be normalized so calculateCost is not double-billed.
+  it("keeps Codex cached tokens inside input and folds reasoning into output", () => {
+    // OpenAI's input_tokens INCLUDES cached_input_tokens, which is already the
+    // shared convention — `calculateCost` subtracts to price each token once.
+    // Reasoning is billed at the output rate and would otherwise be dropped.
     const jsonl = [
       JSON.stringify({ type: "turn.started" }),
       JSON.stringify({
@@ -2271,7 +2274,7 @@ describe("recap usage parsing", () => {
       }),
     ].join("\n");
     expect(parseCodexUsage(jsonl)).toEqual({
-      inputTokens: 2000, // 8000 - 6000 cached
+      inputTokens: 8000, // the whole prompt; 6000 of it served from cache
       outputTokens: 1900, // 400 + 1500 reasoning
       cacheReadTokens: 6000,
       cacheWriteTokens: 0,

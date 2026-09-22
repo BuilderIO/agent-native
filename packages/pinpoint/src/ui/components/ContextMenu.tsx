@@ -15,7 +15,7 @@ interface ContextMenuProps {
 }
 
 export const ContextMenu: Component<ContextMenuProps> = (props) => {
-  let menuRef: HTMLDivElement | undefined;
+  let menuRef: HTMLDivElement | undefined = undefined;
 
   // Close on click outside
   onMount(() => {

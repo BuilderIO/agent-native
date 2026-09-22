@@ -26,6 +26,7 @@ export interface MeetingHistoryItem {
   actualEnd?: string | null;
   createdAt?: string | null;
   participants?: AttendeeStackParticipant[];
+  ownerEmail?: string | null;
 }
 
 function formatTime(iso?: string | null): string {
@@ -56,6 +57,28 @@ export function formatParticipantNames(
   return `${names.slice(0, 2).join(", ")} & ${names.length - 2} others`;
 }
 
+/**
+ * A meeting's owner — who actually recorded it in Clips — isn't necessarily
+ * on the attendee list (an ad-hoc note has none at all), and two attendees on
+ * the same call can each hold their own copy. Unlike the attendee subtitle,
+ * this is shown unconditionally, including the viewer's own meetings, so
+ * ownership is never ambiguous once a meeting is shared.
+ */
+export function formatOwnerHint(
+  ownerEmail: string | null | undefined,
+  viewerEmail: string | null | undefined,
+  t: ReturnType<typeof useT>,
+): string {
+  const owner = ownerEmail?.trim();
+  if (!owner) return "";
+  const viewer = viewerEmail?.trim().toLowerCase();
+  const name =
+    viewer && owner.toLowerCase() === viewer
+      ? t("meetingDetail.me")
+      : owner.replace(/@.*$/, "");
+  return t("meetingDetail.recordedBy", { name });
+}
+
 export function MeetingHistoryRow({
   meeting,
   snippet,
@@ -66,11 +89,17 @@ export function MeetingHistoryRow({
   const t = useT();
   const { session } = useSession();
   const participants = meeting.participants ?? [];
-  const subtitle =
+  const ownerHint = formatOwnerHint(meeting.ownerEmail, session?.email, t);
+  const primaryText =
     snippet?.trim() || formatParticipantNames(participants, session?.email);
+  const subtitle = [primaryText, ownerHint].filter(Boolean).join(" · ");
   const time = formatTime(
     meeting.actualStart ?? meeting.scheduledStart ?? meeting.createdAt,
   );
+  const soloOwnerAvatar: AttendeeStackParticipant[] =
+    participants.length === 0 && ownerHint && meeting.ownerEmail
+      ? [{ email: meeting.ownerEmail }]
+      : [];
 
   return (
     <NavLink
@@ -79,6 +108,8 @@ export function MeetingHistoryRow({
     >
       {participants.length > 0 ? (
         <AttendeeStack participants={participants} size="md" max={2} />
+      ) : soloOwnerAvatar.length > 0 ? (
+        <AttendeeStack participants={soloOwnerAvatar} size="md" max={1} />
       ) : (
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
           <IconFileText className="h-3.5 w-3.5" />

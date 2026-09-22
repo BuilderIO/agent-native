@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BETA_OPT_OUT_DURATION_MS,
+  buildAutomaticBetaRedirectUrl,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   isBetaOptOutActive,
@@ -20,9 +21,23 @@ describe("EnvironmentBadge", () => {
       betaHost: "beta.agent-workspace.builder.io",
       productionHost: "agent-workspace.builder.io",
     });
+    expect(
+      resolveEnvironmentTargets("builder-agent-native-workspace.netlify.app"),
+    ).toEqual({
+      betaHost: "beta.agent-workspace.builder.io",
+      productionHost: "builder-agent-native-workspace.netlify.app",
+    });
     expect(resolveEnvironmentTargets("chat.agent-native.com")).toEqual({
       betaHost: "beta.chat.agent-native.com",
       productionHost: "chat.agent-native.com",
+    });
+    // Regression pin for the Design template's reported broken beta
+    // Google sign-in: the automatic lane redirect only fires for a host
+    // resolved here, so Design falling out of this map would silently
+    // disable the fix that returns a signed-out beta arrival to production.
+    expect(resolveEnvironmentTargets("design.agent-native.com")).toEqual({
+      betaHost: "beta.design.agent-native.com",
+      productionHost: "design.agent-native.com",
     });
     expect(resolveEnvironmentTargets("starter.agent-native.com")).toBeNull();
     expect(resolveEnvironmentTargets("www.agent-native.com")).toBeNull();
@@ -56,8 +71,28 @@ describe("EnvironmentBadge", () => {
     ).toBe("https://plan.agent-native.com/projects/42?tab=activity#runs");
   });
 
-  it("adds a 24-hour opt-out when switching back to production", () => {
+  it("marks an automatic beta redirect but leaves a manual switch unmarked", () => {
+    // Beta can only undo a redirect nobody asked for if the two are told
+    // apart at the source.
+    expect(
+      buildAutomaticBetaRedirectUrl(
+        "https://plan.agent-native.com/projects/42?tab=activity#runs",
+        "beta.plan.agent-native.com",
+      ),
+    ).toBe(
+      "https://beta.plan.agent-native.com/projects/42?tab=activity&agentNativeLaneRedirect=1#runs",
+    );
+    expect(
+      buildEnvironmentUrl(
+        "https://plan.agent-native.com/projects/42?tab=activity#runs",
+        "beta.plan.agent-native.com",
+      ),
+    ).toBe("https://beta.plan.agent-native.com/projects/42?tab=activity#runs");
+  });
+
+  it("adds an 8-hour opt-out when switching back to production", () => {
     const now = 1_700_000_000_000;
+    expect(BETA_OPT_OUT_DURATION_MS).toBe(8 * 60 * 60 * 1000);
     expect(
       buildEnvironmentOptOutUrl(
         "https://beta.plan.agent-native.com/projects/42?tab=activity#runs",

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { organizations } from "@agent-native/core/org";
 import {
   getRequestUserEmail,

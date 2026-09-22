@@ -37,6 +37,64 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it("persists the resource scope used by the chat turn", () => {
+    const message = buildAssistantMessage(
+      [{ seq: 0, event: { type: "text", text: "Saved." } }],
+      "run-scoped",
+      { scope: { type: "deck", id: "deck-1" } },
+    );
+
+    expect(message?.metadata).toMatchObject({
+      custom: { chatScope: { type: "deck", id: "deck-1" } },
+    });
+  });
+
+  it("persists typed artifact receipts with the completed tool part", () => {
+    const artifacts = [
+      {
+        kind: "image" as const,
+        id: "asset-1",
+        url: "/asset/asset-1",
+        title: "Launch illustration",
+        runId: "generation-1",
+      },
+    ];
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "call_generate",
+            tool: "generate-image",
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "call_generate",
+            tool: "generate-image",
+            result: "...[truncated]",
+            completedSideEffect: true,
+            artifacts,
+          },
+        },
+      ],
+      "run-artifact-receipt",
+    );
+
+    expect(message?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-image",
+        result: "...[truncated]",
+        completedSideEffect: true,
+        artifacts,
+      }),
+    );
+  });
+
   it("folds a replayed tool_start onto the original card instead of persisting a second one", () => {
     // Journal / zombie-ledger recovery re-emits tool_start + tool_done for a
     // call that already ran in an interrupted chunk. The live client coalesces
@@ -448,6 +506,44 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("persists per-call-only approval policy when rebuilding thread history", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-email-call",
+            tool: "send-email",
+            input: { to: "person@example.com" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "send-email-call",
+            approvalKey: "send-email:approval",
+            allowPersistentApproval: false,
+          },
+        },
+      ],
+      "run-send-email-approval",
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "send-email",
+        approval: {
+          approvalKey: "send-email:approval",
+          allowPersistentApproval: false,
+        },
+      }),
+    ]);
+  });
+
   it("falls back to legacy name matching when a done id has no matching start", () => {
     const message = buildAssistantMessage(
       [
@@ -505,6 +601,37 @@ describe("buildAssistantMessage", () => {
         result: "Interrupted before this tool returned a result.",
       }),
     ]);
+  });
+
+  it("keeps a user-stopped rebuilt message neutral", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            tool: "save-analysis",
+            input: { id: "stopped-analysis" },
+          },
+        },
+        { seq: 1, event: { type: "done", reason: "user" } },
+      ],
+      "run-user-stop",
+      { turnId: "turn-user-stop" },
+    );
+
+    expect(message).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "save-analysis",
+        result: "",
+      }),
+    ]);
+    expect(message?.content[0]).not.toHaveProperty("outcome");
   });
 
   it("keeps unresolved tool calls pending at internal continuation boundaries", () => {
@@ -948,6 +1075,85 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("preserves an explicit root parent when appending an assistant message", () => {
+    const finalMessage = buildAssistantMessage(
+      [{ seq: 0, event: { type: "text", text: "Root answer." } }],
+      "run-root",
+    );
+    expect(finalMessage).not.toBeNull();
+
+    const updated = upsertAssistantMessage(
+      {
+        messages: [
+          {
+            id: "assistant-old",
+            role: "assistant",
+            content: [{ type: "text", text: "Old answer." }],
+            status: { type: "complete", reason: "stop" },
+          },
+        ],
+      },
+      finalMessage!,
+      null,
+    );
+
+    expect(updated.messages).toHaveLength(2);
+    expect(updated.messages[1].parentId).toBeNull();
+  });
+
+  it("keeps the prior answer when a regeneration targets the same user branch", () => {
+    const regenerated = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Regenerated answer." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-regenerated",
+      { turnId: "turn-regenerated" },
+    );
+    expect(regenerated).not.toBeNull();
+
+    const updated = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-1",
+              role: "user",
+              content: [{ type: "text", text: "try again" }],
+            },
+            parentId: null,
+          },
+          {
+            message: {
+              id: "assistant-original",
+              role: "assistant",
+              content: [{ type: "text", text: "Original answer." }],
+              status: { type: "complete", reason: "stop" },
+            },
+            parentId: "user-1",
+          },
+        ],
+      },
+      regenerated!,
+      {
+        turnId: "turn-regenerated",
+        runId: "run-regenerated",
+        parentId: "user-1",
+      },
+    );
+
+    expect(updated.messages).toHaveLength(3);
+    expect(updated.messages[1].message.content).toEqual([
+      { type: "text", text: "Original answer." },
+    ]);
+    expect(updated.messages[2]).toMatchObject({
+      parentId: "user-1",
+      message: {
+        content: [{ type: "text", text: "Regenerated answer." }],
+      },
+    });
+  });
+
   it("does not replace a completed different-run answer with a prefix-matching recovery answer", () => {
     const finalMessage = buildAssistantMessage(
       [
@@ -1125,6 +1331,49 @@ describe("buildAssistantMessage", () => {
   });
 });
 
+describe("buildUserMessage", () => {
+  it("persists display-only file and pasted-text chips without binary data", () => {
+    const message = buildUserMessage({
+      text: "make a deck from the reference",
+      runId: "run-attachments",
+      attachments: [
+        {
+          type: "file",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          displayOnly: true,
+        },
+        {
+          type: "file",
+          name: "pasted-text-1.txt",
+          contentType: "text/plain",
+          displayOnly: true,
+          text: "outline",
+        },
+      ],
+    });
+
+    expect(message.attachments).toEqual([
+      expect.objectContaining({
+        name: "reference.pdf",
+        content: [],
+        metadata: { displayOnly: true },
+      }),
+      expect.objectContaining({
+        name: "pasted-text-1.txt",
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("outline"),
+          },
+        ],
+        metadata: { displayOnly: true },
+      }),
+    ]);
+    expect(JSON.stringify(message.attachments)).not.toContain("data:");
+  });
+});
+
 describe("mergeThreadDataForClientSave", () => {
   it("preserves a saved run duration when a later client copy omits it", () => {
     const existing = {
@@ -1203,6 +1452,56 @@ describe("mergeThreadDataForClientSave", () => {
     ]);
     expect(merged.messages[0].parentId).toBeNull();
     expect(merged.messages[1].parentId).toBe("user-1");
+    expect(merged.headId).toBe("server-run-1");
+  });
+
+  it("keeps the newest server branch active when a stale branch is merged", () => {
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            createdAt: "2026-05-17T12:00:00.000Z",
+            content: [{ type: "text", text: "start" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "assistant-server",
+            role: "assistant",
+            createdAt: "2026-05-17T12:00:01.000Z",
+            content: [{ type: "text", text: "server answer" }],
+            status: { type: "complete", reason: "stop" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      headId: "assistant-server",
+    };
+    const staleIncoming = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            createdAt: "2026-05-17T12:00:00.000Z",
+            content: [{ type: "text", text: "start" }],
+          },
+          parentId: null,
+        },
+      ],
+      headId: "user-1",
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, staleIncoming);
+
+    expect(merged.headId).toBe("assistant-server");
+    expect(merged.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "assistant-server",
+    ]);
   });
 
   it("drops empty assistant placeholders when the real server answer arrives", () => {
@@ -1579,6 +1878,117 @@ describe("mergeThreadDataForClientSave", () => {
       "server-run-1",
     ]);
     expect(merged.messages[1].parentId).toBe("client-user-1");
+  });
+
+  it("does not rewrite a child's parentId onto the wrong twin when two structurally identical messages are merged", () => {
+    // `a1` and `a2` are two DIFFERENT assistant turns (different ids,
+    // different runId) that happen to render identical text ("identical
+    // reply") — e.g. two regenerated answers to the same prompt. Their
+    // incoming twins (regenerated ids, same runId, no other incoming
+    // counterpart yet reachable via id) are listed with run-2's twin FIRST.
+    // A pure content fingerprint (role+content+attachments) can't tell `a1`
+    // and `a2` apart, so if a fingerprint-only match is allowed to win over
+    // an available runId match, the scan pairs existing `a1` (run-1) with
+    // incoming `ca2` (run-2) — the first unused array slot sharing ANY key —
+    // and vice versa. `followup` only exists on the existing side and still
+    // points at the OLD id `a1`; the merge's final pass must rewrite that
+    // reference onto whichever incoming id actually replaced `a1`. A wrong
+    // pairing rewrites it onto `ca2` instead — silently reparenting a reply
+    // onto an unrelated answer.
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "u1",
+            role: "user",
+            content: [{ type: "text", text: "the prompt" }],
+            metadata: { custom: {} },
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "a1",
+            role: "assistant",
+            content: [{ type: "text", text: "identical reply" }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1", custom: { label: "first" } },
+          },
+          parentId: "u1",
+        },
+        {
+          message: {
+            id: "a2",
+            role: "assistant",
+            content: [{ type: "text", text: "identical reply" }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-2", custom: { label: "second" } },
+          },
+          parentId: "u1",
+        },
+        {
+          // Only exists on the existing side (e.g. not yet round-tripped to
+          // the client) and still names the OLD id `a1` as its parent.
+          message: {
+            id: "followup",
+            role: "user",
+            content: [{ type: "text", text: "thanks!" }],
+            metadata: { custom: {} },
+          },
+          parentId: "a1",
+        },
+      ],
+    };
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "u1",
+            role: "user",
+            content: [{ type: "text", text: "the prompt" }],
+            metadata: { custom: {} },
+          },
+          parentId: null,
+        },
+        // run-2's incoming twin is listed BEFORE run-1's.
+        {
+          message: {
+            id: "ca2",
+            role: "assistant",
+            content: [{ type: "text", text: "identical reply" }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-2", custom: { label: "second" } },
+          },
+          parentId: "u1",
+        },
+        {
+          message: {
+            id: "ca1",
+            role: "assistant",
+            content: [{ type: "text", text: "identical reply" }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1", custom: { label: "first" } },
+          },
+          parentId: "u1",
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    expect(merged.messages).toHaveLength(4);
+    const byRunId = (runId: string) =>
+      merged.messages.find(
+        (entry: any) => entry.message.metadata?.runId === runId,
+      );
+    const followup = merged.messages.find(
+      (entry: any) => entry.message.id === "followup",
+    );
+    expect(byRunId("run-1").message.metadata.custom.label).toBe("first");
+    expect(byRunId("run-2").message.metadata.custom.label).toBe("second");
+    // `followup` replied to run-1's answer — its parent must resolve to
+    // whichever id now carries run-1, not run-2's unrelated twin.
+    expect(followup.parentId).toBe(byRunId("run-1").message.id);
   });
 });
 
@@ -1997,6 +2407,37 @@ describe("upsertUserMessage", () => {
       id: "server-user-run-repeat",
       role: "user",
     });
+  });
+
+  it("parents a submitted message to the repository head, not an array sibling", () => {
+    const message = buildUserMessage({
+      text: "latest request",
+      runId: "run-latest",
+    });
+    const repo = {
+      messages: [
+        {
+          message: buildUserMessage({
+            text: "active request",
+            runId: "run-active",
+          }),
+          parentId: null,
+        },
+        {
+          message: buildUserMessage({
+            text: "stale sibling",
+            runId: "run-stale",
+          }),
+          parentId: "server-user-run-active",
+        },
+      ],
+      headId: "server-user-run-active",
+    };
+
+    const updated = upsertUserMessage(repo, message);
+
+    expect(updated.messages.at(-1)?.parentId).toBe("server-user-run-active");
+    expect(updated.headId).toBe("server-user-run-latest");
   });
 
   it("stores image attachments as URL references when a hosted URL exists", () => {

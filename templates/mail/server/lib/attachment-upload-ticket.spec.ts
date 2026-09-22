@@ -10,7 +10,7 @@ const execute = vi.hoisted(() =>
         rowsAffected: 0,
       };
     }
-    if (sql.startsWith("INSERT OR IGNORE")) {
+    if (sql.startsWith("INSERT INTO")) {
       const [key, value] = args as [string, string];
       if (settings.has(key)) return { rows: [], rowsAffected: 0 };
       settings.set(key, value);
@@ -30,7 +30,6 @@ const execute = vi.hoisted(() =>
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute }),
-  isPostgres: () => false,
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -56,6 +55,7 @@ describe("attachment upload tickets", () => {
     const created = await createAttachmentUploadTicket(
       "owner@example.com",
       "quarterly report.pdf",
+      "org-1",
     );
     const stored = JSON.parse(settings.get(storageKey)!) as {
       tickets: Record<string, Record<string, unknown>>;
@@ -69,7 +69,7 @@ describe("attachment upload tickets", () => {
       verifyAttachmentUploadTicket(created.uploadId, created.token),
     ).resolves.toMatchObject({
       ownerEmail: "owner@example.com",
-      ticket: { originalName: "quarterly report.pdf" },
+      ticket: { originalName: "quarterly report.pdf", orgId: "org-1" },
     });
   });
 

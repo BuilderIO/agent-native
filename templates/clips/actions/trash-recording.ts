@@ -5,7 +5,7 @@
  *   pnpm action trash-recording --id=<id>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, ne } from "drizzle-orm";
@@ -54,9 +54,8 @@ export default defineAction({
           : eq(schema.recordings.id, args.id),
       );
 
-    // Re-select to report whether the trash actually applied — portable
-    // across Postgres/SQLite without relying on driver-specific affected-row
-    // counts.
+    // Re-select to report the resulting row state instead of relying on
+    // mutation metadata.
     const [after] = await db
       .select({
         status: schema.recordings.status,

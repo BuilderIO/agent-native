@@ -26,6 +26,7 @@ describe("get-design-system", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockResolveAccess.mockResolvedValue({
+      role: "owner",
       resource: {
         id: "builder-ds-1",
         title: "Acme System",
@@ -146,6 +147,37 @@ describe("get-design-system", () => {
 
     expect(result.agentContext).toContain("no usable docs or token values");
     expect(result.agentContext).toContain("Core design-system tokens:");
+  });
+
+  it("does not ask viewers to call the editor-only refresh action", async () => {
+    mockResolveAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: {
+        id: "builder-ds-1",
+        title: "Acme System",
+        data: JSON.stringify({
+          source: "builder",
+          builderDesignSystemId: "ds-1",
+          builderJobId: "job-1",
+          builderStatus: "in-progress",
+        }),
+        assets: "[]",
+        customInstructions: "",
+        isDefault: false,
+        visibility: "org",
+        createdAt: "2026-07-08T00:00:00.000Z",
+        updatedAt: "2026-07-08T00:00:00.000Z",
+      },
+    });
+
+    const result = await action.run({ id: "builder-ds-1" });
+
+    expect(result.agentContext).toContain(
+      "refreshing the shared system requires editor access",
+    );
+    expect(result.agentContext).not.toContain(
+      "call refresh-design-system-with-builder once",
+    );
   });
 
   it("returns a client-safe not-found error when the design system is unavailable", async () => {

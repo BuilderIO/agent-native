@@ -8,6 +8,7 @@ const requestContextMock = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => requestContextMock.orgId,
 }));
@@ -15,6 +16,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 type ExistingConnection = {
   ownerEmail: string;
   orgId: string | null;
+  bridgeUrl?: string | null;
   bridgeToken: string | null;
   previewToken?: string | null;
 };
@@ -76,12 +78,14 @@ vi.mock("../server/db/index.js", () => ({
       id: "id",
       previewToken: "previewToken",
       bridgeToken: "bridgeToken",
+      bridgeUrl: "bridgeUrl",
       ownerEmail: "ownerEmail",
       orgId: "orgId",
     },
   },
 }));
 
+import { makeLocalhostRouteId } from "../shared/source-mode.js";
 import action, { derivePreviewToken } from "./connect-localhost.js";
 
 beforeEach(() => {
@@ -94,6 +98,66 @@ beforeEach(() => {
 });
 
 describe("connect-localhost", () => {
+  it("defaults new connections to the standard bridge and preserves a custom port", async () => {
+    await action.run({
+      id: "conn_new",
+      devServerUrl: "http://localhost:5173",
+    });
+    expect(insertedValues?.bridgeUrl).toBe("http://127.0.0.1:7331");
+
+    existingConnection = {
+      ownerEmail: "user@example.com",
+      orgId: "org_1",
+      bridgeUrl: "http://127.0.0.1:7666",
+      bridgeToken: "existing_bridge_token",
+    };
+    insertedValues = null;
+    selectCallCount = 0;
+    await action.run({
+      id: "conn_existing",
+      devServerUrl: "http://localhost:5173",
+    });
+    expect(insertedValues?.bridgeUrl).toBe("http://127.0.0.1:7666");
+  });
+
+  it("keeps fallback ids unique for routes on another loopback origin", async () => {
+    const result = await action.run({
+      id: "conn_primary",
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      routes: [
+        {
+          path: "/settings",
+          url: "http://127.0.0.2:5173/settings#tab",
+        },
+      ],
+    });
+
+    expect(result.routes[0]?.id).toBe(
+      makeLocalhostRouteId("http://127.0.0.2:5173/settings"),
+    );
+    expect(result.routes[0]?.id).not.toBe(makeLocalhostRouteId("/settings"));
+  });
+
+  it("keeps fallback ids connection-scoped for same-origin secondary routes", async () => {
+    const result = await action.run({
+      id: "conn_primary",
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      routes: [
+        {
+          connectionId: "conn_secondary",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      ],
+    });
+
+    expect(result.routes[0]?.id).toBe(
+      makeLocalhostRouteId("conn_secondary:/settings"),
+    );
+  });
+
   it("derives the stable per-user connection id when id is omitted", async () => {
     await action.run({
       devServerUrl: "http://localhost:5173/",
@@ -239,24 +303,20 @@ describe("connect-localhost", () => {
     expect(result.previewToken).toBe(derivePreviewToken("our_token"));
   });
 
-  it("stores an explicit read-only preview token separately", async () => {
-    rereadRow = {
-      bridgeToken: "example-write-token",
-      previewToken: "example-preview-token",
-    };
+  it("rejects a preview token that is not derived from the bridge token", async () => {
+    await expect(
+      action.run({
+        id: "conn_preview",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "example-write-token",
+        previewToken: "example-preview-token",
+      }),
+    ).rejects.toThrow(
+      "previewToken must match the deterministic token derived from bridgeToken",
+    );
 
-    const result = await action.run({
-      id: "conn_preview",
-      devServerUrl: "http://localhost:5173",
-      rootPath: "/tmp/app",
-      bridgeToken: "example-write-token",
-      previewToken: "example-preview-token",
-    });
-
-    expect(insertedValues?.bridgeToken).toBe("example-write-token");
-    expect(insertedValues?.previewToken).toBe("example-preview-token");
-    expect(result.previewToken).toBe("example-preview-token");
-    expect(result.previewToken).not.toBe(result.bridgeToken);
+    expect(insertedValues).toBeNull();
   });
 
   it("writes through a single upsert guarded by ownerEmail (no check-then-insert race)", async () => {

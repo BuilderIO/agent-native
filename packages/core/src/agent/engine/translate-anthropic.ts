@@ -15,6 +15,12 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 
+import {
+  createProviderToolNameMap,
+  toEngineToolName,
+  toProviderToolName,
+  type ProviderToolNameMap,
+} from "./tool-name.js";
 import type {
   EngineTool,
   EngineMessage,
@@ -90,16 +96,23 @@ function normalizeAnthropicInputSchema(
   return normalized as Anthropic.Tool["input_schema"];
 }
 
-export function engineToolToAnthropic(tool: EngineTool): Anthropic.Tool {
+export function engineToolToAnthropic(
+  tool: EngineTool,
+  toolNameMap?: ProviderToolNameMap,
+): Anthropic.Tool {
+  const providerName = toProviderToolName(tool.name, toolNameMap);
   return {
-    name: tool.name,
+    name: providerName,
     description: tool.description,
     input_schema: normalizeAnthropicInputSchema(tool.name, tool.inputSchema),
   };
 }
 
-export function engineToolsToAnthropic(tools: EngineTool[]): Anthropic.Tool[] {
-  return tools.map(engineToolToAnthropic);
+export function engineToolsToAnthropic(
+  tools: EngineTool[],
+  toolNameMap = createProviderToolNameMap(tools),
+): Anthropic.Tool[] {
+  return tools.map((tool) => engineToolToAnthropic(tool, toolNameMap));
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +358,10 @@ function replayableAnthropicPart(part: EngineContentPart): boolean {
 
 export function engineMessageToAnthropic(
   msg: EngineMessage,
-  opts?: { builderGateway?: boolean },
+  opts?: {
+    builderGateway?: boolean;
+    toolNameMap?: ProviderToolNameMap;
+  },
 ): Anthropic.MessageParam {
   const builderGateway = opts?.builderGateway === true;
   const content = builderGateway
@@ -353,17 +369,20 @@ export function engineMessageToAnthropic(
     : msg.content.filter(replayableAnthropicPart);
   return {
     role: msg.role,
-    content: content.map((p) => enginePartToAnthropic(p, builderGateway)),
+    content: content.map((p) =>
+      enginePartToAnthropic(p, builderGateway, opts?.toolNameMap),
+    ),
   };
 }
 
 /** Messages for the Anthropic HTTP API (strict schema — no extra tool_result fields). */
 export function engineMessagesToAnthropic(
   messages: EngineMessage[],
+  toolNameMap = createProviderToolNameMap([], messages),
 ): Anthropic.MessageParam[] {
   const normalized = backfillEngineMessagesToolResults(messages);
   return normalized.flatMap((m) => {
-    const translated = engineMessageToAnthropic(m);
+    const translated = engineMessageToAnthropic(m, { toolNameMap });
     return translated.content.length > 0 ? [translated] : [];
   });
 }
@@ -374,16 +393,18 @@ export function engineMessagesToAnthropic(
  */
 export function engineMessagesToBuilderGatewayAnthropic(
   messages: EngineMessage[],
+  toolNameMap = createProviderToolNameMap([], messages),
 ): Anthropic.MessageParam[] {
   const normalized = backfillEngineMessagesToolResults(messages);
   return normalized.map((m) =>
-    engineMessageToAnthropic(m, { builderGateway: true }),
+    engineMessageToAnthropic(m, { builderGateway: true, toolNameMap }),
   );
 }
 
 function enginePartToAnthropic(
   part: EngineContentPart,
   builderGateway: boolean,
+  toolNameMap?: ProviderToolNameMap,
 ): Anthropic.ContentBlockParam {
   switch (part.type) {
     case "text":
@@ -420,25 +441,20 @@ function enginePartToAnthropic(
       return {
         type: "tool_use",
         id: part.id,
-        name: part.name,
+        name: toProviderToolName(part.name, toolNameMap),
         input: part.input as Record<string, unknown>,
       } as any; // tool_use is a ContentBlockParam in Anthropic SDK
 
     case "tool-result": {
       if (builderGateway) {
-        const tool_name = part.toolName.trim();
+        const tool_name = toProviderToolName(part.toolName.trim(), toolNameMap);
         const tool_input = part.toolInput;
-        // Gateway degrade: the Builder gateway multiplexes to non-Anthropic
-        // models whose tool_result handling is string-only, so images are
-        // dropped here. The content string already carries a `[image: …]`
-        // note per image (appended by runToolCall), so the model still knows
-        // an image existed and any https URL survives.
         return {
           type: "tool_result",
           tool_use_id: part.toolCallId,
           tool_name,
           tool_input,
-          content: part.content,
+          content: toolResultContentToAnthropic(part),
           ...(part.isError ? { is_error: true } : {}),
         } as any;
       }
@@ -505,6 +521,7 @@ function toolResultContentToAnthropic(
 
 export function anthropicContentToEngine(
   content: Anthropic.ContentBlock[],
+  toolNameMap?: ProviderToolNameMap,
 ): EngineContentPart[] {
   return content
     .map((block) => {
@@ -515,7 +532,7 @@ export function anthropicContentToEngine(
         return {
           type: "tool-call" as const,
           id: block.id,
-          name: block.name,
+          name: toEngineToolName(block.name, toolNameMap),
           input: block.input,
         };
       }
@@ -582,6 +599,7 @@ export function createAnthropicChunkStreamState(): AnthropicChunkStreamState {
 export function anthropicChunkToEngineEvents(
   chunk: any,
   state?: AnthropicChunkStreamState,
+  toolNameMap?: ProviderToolNameMap,
 ): EngineEvent[] {
   const events: EngineEvent[] = [];
 
@@ -589,7 +607,10 @@ export function anthropicChunkToEngineEvents(
     const block = chunk.content_block;
     if (block?.type === "tool_use") {
       const id = typeof block.id === "string" ? block.id : undefined;
-      const name = typeof block.name === "string" ? block.name : undefined;
+      const name =
+        typeof block.name === "string"
+          ? toEngineToolName(block.name, toolNameMap)
+          : undefined;
       if (state && typeof chunk.index === "number" && id && name) {
         state.toolUseByIndex.set(chunk.index, { id, name });
       }

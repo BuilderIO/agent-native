@@ -1,5 +1,13 @@
 import englishMessages from "./core-messages/en-US.js";
-import type { LocaleCode } from "./shared.js";
+import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
+import { mcpSettingsMessagesForLocale } from "./mcp-settings-messages.js";
+import { privacySettingsMessagesForLocale } from "./privacy-settings-messages.js";
+import {
+  DEFAULT_LOCALE,
+  isLocaleCode,
+  type BuiltinLocaleCode,
+  type LocaleCode,
+} from "./shared.js";
 
 export type CoreLocaleMessages = Record<string, unknown>;
 
@@ -14,6 +22,13 @@ type RequiredAgentChatKey = Exclude<
 export type AgentChatTranslation = Record<string, string> & {
   [K in RequiredAgentChatKey]: string;
 };
+
+function settingsMessagesForLocale(locale: LocaleCode) {
+  return {
+    ...mcpSettingsMessagesForLocale(locale),
+    ...privacySettingsMessagesForLocale(locale),
+  };
+}
 
 const legacyAgentChatAliases = [
   ["agentPanel.addOwnKeys", "composer.addOwnKeys"],
@@ -153,25 +168,38 @@ const coreMessageLoaders = {
   "hi-IN": () => import("./core-messages/hi-IN.js"),
   "ar-SA": () => import("./core-messages/ar-SA.js"),
 } satisfies Record<
-  LocaleCode,
+  BuiltinLocaleCode,
   () => Promise<{ default: AgentChatTranslation }>
 >;
 
 export async function loadAgentChatMessagesForLocale(
   locale: LocaleCode,
 ): Promise<AgentChatTranslation> {
-  return (await coreMessageLoaders[locale]()).default;
+  const loader = isLocaleCode(locale)
+    ? coreMessageLoaders[locale]
+    : coreMessageLoaders[DEFAULT_LOCALE];
+  return (await loader()).default;
 }
 
 export async function loadCoreMessagesForLocale(
   locale: LocaleCode,
 ): Promise<CoreLocaleMessages> {
-  return nestAgentChatMessages(await loadAgentChatMessagesForLocale(locale));
+  return {
+    ...nestAgentChatMessages(await loadAgentChatMessagesForLocale(locale)),
+    environmentBadge: environmentBadgeMessagesForLocale(locale),
+    settings: settingsMessagesForLocale(locale),
+  };
 }
 
 const englishCoreMessages = nestAgentChatMessages(englishAgentChatMessages);
 
 // Only English is eager. Non-English Core catalogs load with the app catalog.
 export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
-  return locale === "en-US" ? englishCoreMessages : {};
+  return {
+    ...(locale === DEFAULT_LOCALE || !isLocaleCode(locale)
+      ? englishCoreMessages
+      : {}),
+    environmentBadge: environmentBadgeMessagesForLocale(locale),
+    settings: settingsMessagesForLocale(locale),
+  };
 }

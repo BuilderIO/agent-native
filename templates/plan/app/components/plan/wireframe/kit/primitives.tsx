@@ -112,7 +112,7 @@ export function Screen({
   void sketch;
   return (
     <div
-      className="plan-wf"
+      className={isSkeleton ? "plan-wf skeleton-shimmer" : "plan-wf"}
       data-density={density ?? "regular"}
       data-theme={wfTheme}
       data-skeleton={isSkeleton ? "true" : undefined}
@@ -121,7 +121,7 @@ export function Screen({
         position: "relative",
         width: "100%",
         height: "100%",
-        background: V.paper,
+        backgroundColor: V.paper,
         color: V.ink,
         fontFamily: V.hand,
         fontSize: V.fs,

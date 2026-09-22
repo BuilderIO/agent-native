@@ -5,6 +5,7 @@
 // the grant for the whole chrome-extension:// origin — so the offscreen recorder
 // (mic) and the camera-bubble iframe both work afterward.
 
+import { writeCachedMediaPermission } from "./media-permission";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("permission");
@@ -96,23 +97,9 @@ function requiredPermissionsReady(camOk: boolean, micOk: boolean): boolean {
 }
 
 function writePermissionCache(camOk: boolean, micOk: boolean): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get("clipsMediaPermission", (value) => {
-      const current =
-        value.clipsMediaPermission &&
-        typeof value.clipsMediaPermission === "object"
-          ? (value.clipsMediaPermission as {
-              camera?: boolean;
-              microphone?: boolean;
-            })
-          : {};
-      const next = {
-        ...current,
-        ...(shouldRequestCamera ? { camera: camOk } : {}),
-        ...(shouldRequestMicrophone ? { microphone: micOk } : {}),
-      };
-      chrome.storage.local.set({ clipsMediaPermission: next }, () => resolve());
-    });
+  return writeCachedMediaPermission({
+    ...(shouldRequestCamera ? { camera: camOk } : {}),
+    ...(shouldRequestMicrophone ? { microphone: micOk } : {}),
   });
 }
 

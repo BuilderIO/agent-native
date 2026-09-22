@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -6,7 +6,7 @@ import { readSettings } from "../server/lib/mail-settings.js";
 
 export default defineAction({
   description:
-    "Read the full mail preferences object backing the Settings UI (appearance, reading, tracking, and drafting fields). Agents should use get-mail-settings for signature and writing style.",
+    "Read the full mail preferences object backing the Settings UI (appearance, reading, tracking, and drafting fields). Agents should use get-mail-settings for drafting and Send + Mark Done preferences.",
   schema: z.object({}),
   http: { method: "GET" },
   agentTool: false,

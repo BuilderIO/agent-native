@@ -138,6 +138,12 @@ El marco calcula un índice de frustración (0-100) a partir de señales de conv
 
 Interpretación de la puntuación: 0-20 = saludable, 20-40 = fricción, 40-60 = insatisfecho, 60+ = sesión interrumpida.
 
+### Comentarios en PostHog {#posthog-feedback}
+
+Los pulgares, las categorías y el texto libre emiten todos `$ai_feedback`. En cambio, la vista de comentarios del análisis de LLM de PostHog lee un evento `survey sent`, así que asigna a `POSTHOG_AI_FEEDBACK_SURVEY_ID` la encuesta que PostHog crea desde la pestaña **Feedback** de un seguimiento. Ese único id es toda la configuración; sin él no se envía ningún evento de encuesta.
+
+Un voto con el pulgar responde a la primera pregunta de la encuesta con el índice de opción de PostHog (`1` arriba, `2` abajo), y el texto libre tras un pulgar hacia abajo responde a la repregunta, de modo que el texto nunca cae donde va la valoración. Ambos llevan un mismo id de envío por mensaje valorado, que es como PostHog los une en una sola respuesta, y un pulgar hacia abajo queda marcado como incompleto hasta que llega su repregunta.
+
 ## Evaluaciones automatizadas {#evals}
 
 Cinco puntuadores deterministas se ejecutan después de cada ejecución del agente:
@@ -155,11 +161,14 @@ Cinco puntuadores deterministas se ejecutan después de cada ejecución del agen
 Habilite la evaluación basada en LLM de muestra configurando `evalSampleRate`:
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -251,17 +260,21 @@ Utilice los identificadores de modelo reales que acepta su motor en lugar de `<y
 
 ## Configuración {#config}
 
-Todas las configuraciones se almacenan en la clave `observability-config`:
+Se establece desde un complemento de servidor con `defineAppConfig()`. Cada campo también tiene un alias de variable de entorno de despliegue: consulta la referencia de configuración declarada.
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -296,26 +309,13 @@ Todos los puntos finales admiten los parámetros de consulta `?since=N` (marca d
 
 ## Exportar a plataformas externas {#export}
 
-Envíe seguimientos a Langfuse, Datadog, Grafana o cualquier backend compatible con OTel:
+Envíe seguimientos a Langfuse, Datadog, Grafana o cualquier backend compatible con OTel registrando un proveedor de OpenTelemetry en su propia aplicación: consulte [Extensiones de OpenTelemetry](#otel) más abajo.
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-El marco emite convenciones semánticas `gen_ai.*` compatibles con la especificación OpenTelemetry GenAI.
+El núcleo no incluye ningún exportador ni almacena un punto final o token de exportación, por lo que las credenciales del backend viven en la configuración de su proveedor (y en la bóveda), nunca en la configuración del marco.
 
 ## Extensiones de OpenTelemetry {#otel}
 
-Aparte de la configuración `exporters` anterior (que envía los seguimientos internos a un punto final OTLP), el bucle del agente también puede emitir **intervalos de OpenTelemetry en vivo** para cada ejecución, llamada de modelo y llamada de herramienta, de modo que un host que ya ejecuta un recopilador OTel ve la actividad del agente junto con el resto de sus seguimientos distribuidos.
+El bucle del agente emite **intervalos de OpenTelemetry en vivo** para cada ejecución, llamada de modelo y llamada de herramienta, de modo que un host que ya ejecuta un recopilador OTel ve la actividad del agente junto con el resto de sus seguimientos distribuidos.
 
 Esta capa es **opcional y no operativa de forma predeterminada**:
 

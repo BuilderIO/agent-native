@@ -42,7 +42,6 @@ import {
 const ORIGINAL_ENV = {
   APP_NAME: process.env.APP_NAME,
   DATABASE_URL: process.env.DATABASE_URL,
-  DATABASE_AUTH_TOKEN: process.env.DATABASE_AUTH_TOKEN,
 };
 
 function restoreEnv() {
@@ -134,6 +133,7 @@ describe("embedded Agent-Native helpers", () => {
     expect(
       normalizeAgentNativeEmbeddedSession({
         email: "ada@example.com",
+        emailVerified: true,
         userId: "user-1",
         name: "Ada",
         organizationId: "org-1",
@@ -141,6 +141,7 @@ describe("embedded Agent-Native helpers", () => {
       }),
     ).toEqual({
       email: "ada@example.com",
+      emailVerified: true,
       userId: "user-1",
       token: undefined,
       name: "Ada",
@@ -180,11 +181,9 @@ describe("embedded Agent-Native helpers", () => {
     configureAgentNativeEmbeddedEnvironment({
       appName: "builder",
       databaseUrl: "postgres://example/db",
-      databaseAuthToken: "secret",
     });
 
     expect(process.env.APP_NAME).toBe("builder");
     expect(process.env.DATABASE_URL).toBe("postgres://example/db");
-    expect(process.env.DATABASE_AUTH_TOKEN).toBe("secret");
   });
 });

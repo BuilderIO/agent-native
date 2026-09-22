@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -8,6 +8,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { repairDeckSlideReferences } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 
 export default defineAction({
@@ -34,6 +35,7 @@ export default defineAction({
         "Optional client-supplied ids for the copied slides, in slide order. Same purpose as `newId`: when the UI opens an optimistic copy the user can edit immediately, its slide ids must match the persisted copy or those edits address slides the server never had.",
       ),
   }),
+  http: { method: "POST" },
   run: async ({ deckId, title, newId: clientNewId, slideIds }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
@@ -48,6 +50,9 @@ export default defineAction({
     // original. A caller that already rendered an optimistic copy supplies the
     // ids it used; anything it did not cover still gets a fresh one.
     const slides = deckData.slides || [];
+    const originalSlideIds = slides.map((slide: { id?: unknown }) =>
+      typeof slide.id === "string" ? slide.id : null,
+    );
     for (const [index, slide] of slides.entries()) {
       slide.id = slideIds?.[index] ?? `slide-${nanoid(8)}`;
     }
@@ -58,6 +63,10 @@ export default defineAction({
     }
 
     const newTitle = title || `Copy of ${source.title}`;
+    Object.assign(
+      deckData,
+      repairDeckSlideReferences(deckData, slides, originalSlideIds),
+    );
     deckData.title = newTitle;
     deckData.createdAt = now;
     deckData.updatedAt = now;
@@ -83,6 +92,7 @@ export default defineAction({
       title: newTitle,
       slideCount: (deckData.slides || []).length,
       url: getDeckUrl(newId),
+      appUrl: getDeckUrl(newId),
     };
   },
 });

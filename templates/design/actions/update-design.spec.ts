@@ -82,6 +82,7 @@ vi.mock("drizzle-orm", () => ({
     kind: "and",
     conditions,
   }),
+  sql: vi.fn(),
   isNull: (value: unknown): Predicate => ({ kind: "isNull", value }),
 }));
 
@@ -201,6 +202,15 @@ describe("update-design data concurrency", () => {
     mocks.assertAccess.mockResolvedValue(undefined);
   });
 
+  it("rejects an ID-only update instead of reporting a content change", async () => {
+    const previousUpdatedAt = mocks.state.row.updatedAt;
+
+    await expect(action.run({ id: "design-1" } as never)).rejects.toThrow(
+      "At least one design field or data operation is required.",
+    );
+    expect(mocks.state.row.updatedAt).toBe(previousUpdatedAt);
+  });
+
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {
     mocks.resetReadGate(2);
     const moveA = {
@@ -301,7 +311,7 @@ describe("update-design data concurrency", () => {
       operationRevision: 1,
     } as never);
 
-    expect(newer).toEqual({ id: "design-1", updated: true });
+    expect(newer).toEqual({ id: "design-1", updated: true, changed: true });
     expect(stale).toEqual({ id: "design-1", updated: true, stale: true });
     expect(
       (JSON.parse(mocks.state.row.data!) as typeof BASE_DATA).canvasFrames[
@@ -398,6 +408,99 @@ describe("update-design data concurrency", () => {
         }),
       } as never),
     ).rejects.toThrow(/must be a finite JSON number/);
+  });
+
+  it("rejects nested operations that leave empty or unknown-only frames", async () => {
+    const nestedUnknown = {
+      id: "design-1",
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "missing-frame", "label"],
+          value: "Home",
+        },
+      ],
+    };
+    expect(action.schema.safeParse(nestedUnknown).success).toBe(true);
+    await expect(action.run(nestedUnknown as never)).rejects.toThrow(
+      /at least one geometry field/,
+    );
+
+    const nestedDelete = {
+      id: "design-1",
+      dataOperations: [
+        { op: "set", path: ["canvasFrames", "new-frame"], value: { x: 1 } },
+        { op: "delete", path: ["canvasFrames", "new-frame", "x"] },
+      ],
+    };
+    await expect(action.run(nestedDelete as never)).rejects.toThrow(
+      /at least one geometry field/,
+    );
+  });
+
+  it("preserves legacy empty frames during unrelated map updates", async () => {
+    mocks.state.row.data = JSON.stringify({
+      canvasFrames: { "legacy-frame": {} },
+      lastPrompt: "old",
+    });
+
+    await action.run({
+      id: "design-1",
+      dataOperations: [{ op: "set", path: ["lastPrompt"], value: "new" }],
+    } as never);
+
+    const persisted = JSON.parse(mocks.state.row.data!);
+    expect(persisted.canvasFrames["legacy-frame"]).toEqual({});
+    expect(persisted.lastPrompt).toBe("new");
+  });
+
+  it("preserves a legacy empty sibling during a valid frame edit", async () => {
+    mocks.state.row.data = JSON.stringify({
+      canvasFrames: {
+        "valid-frame": { x: 0, y: 0, width: 400, height: 300 },
+        "legacy-frame": {},
+      },
+    });
+
+    await action.run({
+      id: "design-1",
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "valid-frame", "x"],
+          value: 40,
+        },
+      ],
+    } as never);
+
+    const persisted = JSON.parse(mocks.state.row.data!);
+    expect(persisted.canvasFrames["valid-frame"].x).toBe(40);
+    expect(persisted.canvasFrames["legacy-frame"]).toEqual({});
+  });
+
+  it("rejects array frames through the action schema and legacy snapshots without writing", async () => {
+    const before = { ...mocks.state.row };
+    const input = {
+      id: "design-1",
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "frame-a"],
+          value: ["390", "auto"],
+        },
+      ],
+    };
+    expect(action.schema.safeParse(input).success).toBe(false);
+    await expect(action.run(input as never)).rejects.toThrow(
+      /must be an object/,
+    );
+    await expect(
+      action.run({
+        id: "design-1",
+        data: JSON.stringify({ canvasFrames: { "frame-a": ["390", "auto"] } }),
+      } as never),
+    ).rejects.toThrow(/must be an object/);
+    expect(mocks.state.row).toEqual(before);
   });
 
   it("CAS-matches a legacy null data row", async () => {

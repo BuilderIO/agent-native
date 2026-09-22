@@ -42,6 +42,11 @@ vi.mock("drizzle-orm", () => ({
     column: column.name,
     value,
   }),
+  inArray: (column: { name: string }, values: unknown[]) => ({
+    type: "inArray",
+    column: column.name,
+    values,
+  }),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -51,7 +56,12 @@ vi.mock("../db/index.js", () => ({
 
 import {
   DEPLOYED_NEW_VS_RECURRING_USERS_SQL,
+  FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+  FIRST_PARTY_BIGQUERY_WAU_SQL,
+  FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+  LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
+  repairFirstPartyBigQueryDashboardQueries,
 } from "./canonical-first-party-dashboard-repair";
 import {
   repairPersistedFirstPartyDashboardQueries,
@@ -60,6 +70,7 @@ import {
 import {
   DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL,
   DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+  DAU_BY_TEMPLATE_SQL,
   FIRST_PARTY_DASHBOARD_ID,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
@@ -271,6 +282,37 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     });
   });
 
+  it("normalizes nested panel fields before applying the canonical repair", async () => {
+    const daily = requiredFirstPartyPanel("recurring-users-by-template");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            ...daily,
+            sql: "SELECT stale_top_level_sql()",
+            config: {
+              ...(daily.config ?? {}),
+              sql: LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
+            },
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
+    expect(panel.sql).toBe(daily.sql);
+    expect(panel.config?.sql).toBeUndefined();
+  });
+
   it("repairs the previously deployed bounded monolithic recurring SQL", async () => {
     const daily = requiredFirstPartyPanel("recurring-users-by-template");
     const row = legacyRow({
@@ -356,6 +398,235 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
     expect(panel.sql.match(/FROM analytics_events/g)).toHaveLength(1);
     expect(panel.sql).toContain("MIN(event_date) OVER");
+  });
+
+  it("repairs a wau panel that was persisted with the dau SQL", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            sql: DAU_BY_TEMPLATE_SQL,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      weekly.sql,
+    );
+  });
+
+  it("repairs blank canonical panels on the known BigQuery dashboard from the catalog", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const retention = requiredFirstPartyPanel("retention-over-time");
+    const bigQueryWau = { ...weekly, source: "bigquery" as const, sql: "" };
+    const bigQueryRetention = {
+      ...retention,
+      source: "bigquery" as const,
+      sql: "",
+    };
+    const row = legacyRow({
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config: JSON.stringify({
+        panels: [
+          bigQueryWau,
+          bigQueryRetention,
+          { ...requiredFirstPartyPanel("dau-over-time"), sql: "" },
+          { id: "custom", source: "first-party", sql: "" },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    const panels = JSON.parse(updateCalls[0]![0].config).panels;
+    expect(panels[0].sql).toBe(FIRST_PARTY_BIGQUERY_WAU_SQL);
+    expect(panels[1].sql).toBe(FIRST_PARTY_BIGQUERY_RETENTION_SQL);
+    expect(panels[1].sql).toContain("coverage_dates AS");
+    expect(panels[1].sql).toContain(
+      "coverage.observed_days = coverage.expected_days",
+    );
+    expect(panels[0].source).toBe("bigquery");
+    expect(panels[0].sql).toContain(
+      "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw_query`",
+    );
+    expect(panels[0].sql).toContain("org_id = 'PlRt3bfcpJNnOyF_Wfgsh'");
+    expect(panels[0].sql).toContain(
+      "LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')",
+    );
+    expect(panels[0].sql).toContain("INTERVAL 13 DAY");
+    expect(panels[0].sql).toContain("INTERVAL 6 DAY");
+    expect(panels[0].sql).toContain("INTERVAL 96 DAY");
+    expect(panels[0].sql).toContain("GENERATE_DATE_ARRAY");
+    expect(panels[0].sql).toContain("CURRENT_DATE()");
+    expect(panels[0].sql).toContain(
+      "b.event_date BETWEEN DATE_SUB(d.date, INTERVAL 6 DAY) AND d.date",
+    );
+    expect(panels[0].sql).toMatch(
+      /\{\{(?:timeRange|emailFilter|appFilter)\}\}/,
+    );
+    expect(panels[0].sql).not.toMatch(/::|to_char\(|date_trunc\(/i);
+    expect(panels[0].sql).not.toMatch(/\bFROM\s+analytics_events\b/i);
+    expect(panels[2].sql).toBe("");
+    expect(panels[3].sql).toBe("");
+  });
+
+  it("repairs a stale BigQuery daily activity filter", () => {
+    const repaired = repairFirstPartyBigQueryDashboardQueries({
+      panels: [
+        {
+          ...requiredFirstPartyPanel("dau-over-time"),
+          source: "bigquery",
+          sql: "SELECT event_date FROM `events` WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL",
+        },
+      ],
+    });
+
+    expect(repaired.changed).toBe(true);
+    const panel = (repaired.config.panels as Array<{ sql: string }>)[0]!;
+    expect(panel.sql).toContain(
+      "event_name IN ('session status', 'session_status')",
+    );
+    expect(panel.sql).toContain("event_name = 'app_entered'");
+  });
+
+  it("repairs the persisted BigQuery retention query after a data gap", async () => {
+    const retention = requiredFirstPartyPanel("retention-over-time");
+    const row = legacyRow({
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config: JSON.stringify({
+        panels: [
+          {
+            ...retention,
+            source: "bigquery",
+            sql: LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+              /\n/g,
+              "\n\n",
+            ),
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    );
+  });
+
+  it("repairs the malformed non-empty BigQuery wau query", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const malformedSql = FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+      "WHEN '{{timeRange}}' = '7d'",
+      "WHEN '{{timeRange}}' = '{{timeRange}}'",
+    );
+    const row = legacyRow({
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            source: "bigquery",
+            sql: malformedSql,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      FIRST_PARTY_BIGQUERY_WAU_SQL,
+    );
+  });
+
+  it("preserves a customized malformed-looking BigQuery wau query", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const customizedSql = FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+      "WHEN '{{timeRange}}' = '7d'",
+      "WHEN '{{timeRange}}' = '{{timeRange}}'",
+    ).replace("ORDER BY date, template", "ORDER BY template, date");
+    const row = legacyRow({
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            source: "bigquery",
+            sql: customizedSql,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      false,
+    );
+
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("preserves a malformed-looking query when a SQL literal changes", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const customizedSql = FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+      "WHEN '{{timeRange}}' = '7d'",
+      "WHEN '{{timeRange}}' = '{{timeRange}}'",
+    ).replace("'session status'", "'session  status'");
+    const row = legacyRow({
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            source: "bigquery",
+            sql: customizedSql,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      false,
+    );
+
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 
   it("repairs the deployed materialized one-day retention panel during startup", async () => {
@@ -562,9 +833,9 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     );
 
     expect(mocks.dashboardSelectWhere).toHaveBeenCalledWith({
-      type: "eq",
+      type: "inArray",
       column: "id",
-      value: FIRST_PARTY_DASHBOARD_ID,
+      values: [FIRST_PARTY_DASHBOARD_ID, FIRST_PARTY_BIGQUERY_DASHBOARD_ID],
     });
     expect(mocks.update).not.toHaveBeenCalled();
   });

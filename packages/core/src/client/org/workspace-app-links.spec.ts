@@ -6,6 +6,7 @@ import {
   isWorkspaceAppEnvironment,
   parseWorkspaceAppLinks,
   visibleOrgAppLinks,
+  workspaceAppFetchUrls,
 } from "./workspace-app-links.js";
 
 describe("org switcher app links", () => {
@@ -61,9 +62,32 @@ describe("org switcher app links", () => {
     expect(apps?.map((app) => app.id)).toEqual(["dispatch", "mail"]);
     expect(apps?.map((app) => app.icon)).toEqual(["MessageCircle", "Mail"]);
     expect(apps?.[0]?.href).toBe("http://127.0.0.1:8080/dispatch/overview");
-    expect(apps?.[1]?.href).toBe("http://127.0.0.1:8080/mail");
+    expect(apps?.[1]?.href).toBe("http://127.0.0.1:8080/mail/home");
     expect(dispatchAppsHref(apps ?? [])).toBe(
       "http://127.0.0.1:8080/dispatch/apps",
+    );
+  });
+
+  it("uses a published custom home path for workspace app links", () => {
+    const apps = parseWorkspaceAppLinks({
+      apps: [{ id: "mail", path: "/mail", homePath: "/inbox" }],
+    });
+    expect(apps?.[0]?.href).toBe("/mail/inbox");
+  });
+
+  it("preserves legacy hosted URLs when no home path is published", () => {
+    const apps = parseWorkspaceAppLinks({
+      apps: [
+        {
+          id: "mail",
+          path: "/mail",
+          url: "https://mail.example.test/inbox?tenant=acme#today",
+        },
+      ],
+    });
+
+    expect(apps?.[0]?.href).toBe(
+      "https://mail.example.test/inbox?tenant=acme#today",
     );
   });
 
@@ -90,5 +114,21 @@ describe("org switcher app links", () => {
     expect(visible.links).toHaveLength(9);
     expect(visible.links[0]?.id).toBe("dispatch");
     expect(visible.overflowCount).toBe(4);
+  });
+
+  it("uses the authenticated action before any local workspace manifest", () => {
+    const actionUrl =
+      "/_agent-native/actions/list-workspace-apps?includeAgentCards=false";
+
+    expect(
+      workspaceAppFetchUrls({
+        VITE_WORKSPACE_GATEWAY_URL: "https://workspace.example.test",
+      }),
+    ).toEqual([actionUrl]);
+    expect(
+      workspaceAppFetchUrls({
+        VITE_WORKSPACE_GATEWAY_URL: "http://127.0.0.1:8080",
+      }),
+    ).toEqual([actionUrl, "http://127.0.0.1:8080/_workspace/apps"]);
   });
 });

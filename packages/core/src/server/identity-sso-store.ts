@@ -20,9 +20,7 @@ import { randomBytes } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
   isConnectionError,
-  isPostgres,
   isProductionServerlessFunctionRuntime,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
@@ -33,6 +31,8 @@ const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
 export const CANONICAL_IDENTITY_SSO_HUB_URL =
   "https://dispatch.agent-native.com";
+export const NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL =
+  "https://beta.dispatch.agent-native.com";
 const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
   "https://analytics.agent-native.com",
   "https://assets.agent-native.com",
@@ -44,8 +44,8 @@ const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
   "https://crm.agent-native.com",
   "https://design.agent-native.com",
   "https://dispatch.agent-native.com",
+  "https://factory.agent-native.com",
   "https://forms.agent-native.com",
-  "https://macros.agent-native.com",
   "https://mail.agent-native.com",
   "https://plan.agent-native.com",
   "https://slides.agent-native.com",
@@ -66,6 +66,17 @@ const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 const CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS = new Set(
   [...CANONICAL_IDENTITY_SSO_APP_ORIGINS].filter(
     (origin) => origin !== CANONICAL_IDENTITY_SSO_HUB_URL,
+  ),
+);
+const NETLIFY_PREVIEW_SITE_NAMES = new Set(
+  [...CANONICAL_IDENTITY_SSO_APP_ORIGINS].map((origin) => {
+    const appId = new URL(origin).hostname.split(".")[0];
+    return appId === "chat" ? "agent-native-starter" : `agent-native-${appId}`;
+  }),
+);
+const NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES = new Set(
+  [...NETLIFY_PREVIEW_SITE_NAMES].filter(
+    (siteName) => siteName !== "agent-native-dispatch",
   ),
 );
 
@@ -170,6 +181,10 @@ export function isCanonicalIdentitySsoClientOrigin(
   return Boolean(origin && CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS.has(origin));
 }
 
+export function isCanonicalIdentitySsoClientConfigured(): boolean {
+  return isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+}
+
 export function isCanonicalAgentNativeAppRequest(
   host: string | undefined,
   forwardedProtocol: string | undefined,
@@ -186,28 +201,127 @@ export function isCanonicalIdentitySsoClientRequest(
   return isCanonicalIdentitySsoClientOrigin(`https://${host}`);
 }
 
-/**
- * The conditional login entry is the only browser UI this feature adds. It
- * stays byte-for-byte absent on canonical hosted apps, even though those
- * origins may use the backend flow for packaged Desktop. Explicitly
- * configured noncanonical deployments may opt in to the browser entry.
- */
-export function identitySsoLoginButtonHtml(): string {
-  if (
-    isCanonicalIdentitySsoClientOrigin(configuredAppOrigin()) ||
-    !isIdentitySsoExplicitlyEnabled()
-  ) {
-    return "";
-  }
-  return (
-    `\n  <a class="btn-identity-sso" id="identity-sso-btn" ` +
-    `href="/_agent-native/identity/login" ` +
-    `style="display:flex;align-items:center;justify-content:center;gap:0.5rem;` +
-    `width:100%;padding:0.7rem 1rem;margin-bottom:0.75rem;border-radius:8px;` +
-    `border:1px solid rgba(255,255,255,0.18);background:transparent;` +
-    `color:inherit;font:inherit;font-weight:600;text-decoration:none;` +
-    `cursor:pointer">Sign in with Agent-Native</a>\n`
+export function isNetlifyDeployPermalinkIdentitySsoClientRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkRequestForSites(
+    host,
+    forwardedProtocol,
+    NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES,
   );
+}
+
+export function isNetlifyDeployPermalinkGoogleOAuthClientRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkRequestForSites(
+    host,
+    forwardedProtocol,
+    NETLIFY_PREVIEW_SITE_NAMES,
+  );
+}
+
+function isNetlifyDeployPermalinkRequestForSites(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+  allowedSiteNames: Set<string>,
+): boolean {
+  // Netlify exposes the site identity under either name at runtime; accept the
+  // immutable deploy URL, not DEPLOY_PRIME_URL's movable Deploy Preview alias.
+  const requestProtocol = forwardedProtocol?.trim().toLowerCase() || "https";
+  const configuredSiteName = (
+    process.env.SITE_NAME?.trim() || process.env.NETLIFY_SITE_NAME?.trim()
+  )?.toLowerCase();
+  if (
+    !host ||
+    requestProtocol !== "https" ||
+    (configuredSiteName && !allowedSiteNames.has(configuredSiteName))
+  ) {
+    return false;
+  }
+  return isNetlifyDeployPermalinkHost(
+    host,
+    configuredSiteName,
+    allowedSiteNames,
+  );
+}
+
+function isNetlifyDeployPermalinkHost(
+  host: string,
+  siteName?: string,
+  allowedSiteNames: Set<string> = NETLIFY_PREVIEW_SITE_NAMES,
+): boolean {
+  const normalizedHost = host.toLowerCase();
+  const siteNames = siteName ? [siteName] : [...allowedSiteNames];
+  return siteNames.some((name) =>
+    new RegExp(`^[a-f0-9]{24}--${name}\\.netlify\\.app$`).test(normalizedHost),
+  );
+}
+
+export function isNetlifyDeployPermalinkIdentitySsoClientOrigin(
+  origin: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkOriginForSites(
+    origin,
+    NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES,
+  );
+}
+
+export function isNetlifyDeployPermalinkGoogleOAuthClientOrigin(
+  origin: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkOriginForSites(
+    origin,
+    NETLIFY_PREVIEW_SITE_NAMES,
+  );
+}
+
+function isNetlifyDeployPermalinkOriginForSites(
+  origin: string | undefined,
+  allowedSiteNames: Set<string>,
+): boolean {
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    return (
+      url.origin === origin &&
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash &&
+      isNetlifyDeployPermalinkHost(url.hostname, undefined, allowedSiteNames)
+    );
+  } catch {
+    // coercion-ok: malformed origins are rejected as invalid input.
+    return false;
+  }
+}
+
+/** Silent federation and post-login bootstrap remain limited to canonical or explicitly configured clients. */
+export function isIdentitySsoAvailableForRequest(
+  options: {
+    requestHost?: string;
+    requestProtocol?: string;
+  } = {},
+): boolean {
+  const canonicalRequest = options.requestHost
+    ? isCanonicalIdentitySsoClientRequest(
+        options.requestHost,
+        options.requestProtocol ?? "https",
+      )
+    : isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+  return canonicalRequest || isIdentitySsoExplicitlyEnabled();
+}
+
+/** @deprecated Browser sign-in with Agent-Native was removed. */
+export function identitySsoLoginButtonHtml(
+  _options: { requestHost?: string } = {},
+): string {
+  return "";
 }
 
 export interface CreateSsoStateInput {
@@ -242,9 +356,9 @@ function buildIdentitySsoFlowStateCreateSql(): string {
           redirect_uri TEXT NOT NULL,
           authority TEXT NOT NULL,
           code_challenge TEXT NOT NULL,
-          created_at ${intType()},
-          expires_at ${intType()},
-          consumed_at ${intType()}
+          created_at BIGINT,
+          expires_at BIGINT,
+          consumed_at BIGINT
         )
       `;
 }
@@ -253,7 +367,7 @@ function buildIdentitySsoJtiCreateSql(): string {
   return `
         CREATE TABLE IF NOT EXISTS identity_sso_jti (
           jti TEXT PRIMARY KEY,
-          seen_at ${intType()}
+          seen_at BIGINT
         )
       `;
 }
@@ -266,7 +380,7 @@ export async function ensureTable(): Promise<void> {
     _initPromise = (async () => {
       const flowStateSql = buildIdentitySsoFlowStateCreateSql();
       const jtiSql = buildIdentitySsoJtiCreateSql();
-      if (isPostgres()) {
+      {
         await ensureTableExists("identity_sso_flow_state", flowStateSql);
         await ensureTableExists("identity_sso_jti", jtiSql);
         return;

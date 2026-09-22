@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import {
@@ -13,17 +14,21 @@ import type {
   ConferencingConfig,
   CustomField,
   DaySchedule,
+  OverlayPerson,
 } from "@shared/api";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconBrandGoogle,
   IconBrandZoom,
   IconCalendar,
+  IconCheck,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconCircleCheck,
   IconCopy,
   IconExternalLink,
+  IconInfoCircle,
   IconLink,
   IconDotsVertical,
   IconPlus,
@@ -43,9 +48,11 @@ import {
   isToday,
   isBefore,
   addDays,
+  addMinutes,
   addMonths,
   subMonths,
   format,
+  parse,
   parseISO,
   startOfDay,
   getDay,
@@ -55,7 +62,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { HostOverlayStatusIcon } from "@/components/booking/HostOverlayStatusIcon";
+import { SharedAvailabilityPanel } from "@/components/booking/SharedAvailabilityPanel";
+import {
+  TimeZoneGrid,
+  type TimeZoneGridHost,
+} from "@/components/booking/TimeZoneGrid";
+import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import {
@@ -80,6 +93,14 @@ import {
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -87,6 +108,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -119,6 +145,15 @@ import {
   type BookingAvailabilityPreview,
 } from "@/hooks/use-bookings";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import {
+  useHostOverlayStatus,
+  useSendOverlayRequest,
+} from "@/hooks/use-host-overlay-status";
+import {
+  useAddOverlayPerson,
+  useOverlayPeople,
+} from "@/hooks/use-overlay-people";
+import { usePublicBookingLink } from "@/hooks/use-public-data";
 import { useSettings } from "@/hooks/use-settings";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
 import {
@@ -151,6 +186,23 @@ const BRAND_ICON_LINK_CLASS =
   "text-[#00B5FF] hover:bg-[#00B5FF]/10 hover:text-[#33C4FF]";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOOKING_SLOT_STEP_MINUTES = 30;
+
+function canEditBookingLink(link: BookingLink | null | undefined) {
+  return (
+    !link?.accessRole ||
+    link.accessRole === "owner" ||
+    link.accessRole === "admin" ||
+    link.accessRole === "editor"
+  );
+}
+
+function canDeleteBookingLink(link: BookingLink | null | undefined) {
+  return (
+    !link?.accessRole ||
+    link.accessRole === "owner" ||
+    link.accessRole === "admin"
+  );
+}
 
 type DraftLink = {
   id?: string;
@@ -193,7 +245,7 @@ const DEFAULT_SCHEDULE: DaySchedule = {
   slots: [{ ...DEFAULT_TIME_SLOT }],
 };
 
-type Tab = "links" | "availability" | "bookings";
+type Tab = "links" | "availability" | "shared" | "bookings";
 
 function createEmptyDraft(): DraftLink {
   return {
@@ -512,15 +564,57 @@ function BookingConferencingSelect({
 function BookingHostsEditor({
   hosts,
   onChange,
+  bookingLinkId,
+  isNewDraft,
 }: {
   hosts: BookingHost[];
-  onChange: (hosts: BookingHost[]) => void;
+  onChange: (
+    hosts: BookingHost[] | ((current: BookingHost[]) => BookingHost[]),
+  ) => void;
+  bookingLinkId: string | undefined;
+  isNewDraft: boolean;
 }) {
   const t = useT();
-  const [input, setInput] = useState("");
+  const [open, setOpen] = useState(false);
+  const [manualInput, setManualInput] = useState("");
+  const [addCalendarOpen, setAddCalendarOpen] = useState(false);
+  const { data: rawOverlayPeople } = useOverlayPeople();
+  const overlayPeople: OverlayPerson[] = Array.isArray(rawOverlayPeople)
+    ? rawOverlayPeople
+    : [];
 
-  function addHosts() {
-    const entries = input
+  const selectedEmails = new Set(hosts.map((host) => host.email.toLowerCase()));
+
+  function addHost(email: string, displayName?: string) {
+    const normalized = normalizeHostEmail(email);
+    if (!normalized) {
+      toast.error(t("bookingLinks.invalidEmail", { email }));
+      return;
+    }
+    onChange((current) =>
+      current.some((host) => host.email.toLowerCase() === normalized)
+        ? current
+        : [
+            ...current,
+            displayName
+              ? { email: normalized, displayName }
+              : { email: normalized },
+          ],
+    );
+  }
+
+  function toggleOverlayPerson(person: OverlayPerson) {
+    const normalized = normalizeHostEmail(person.email);
+    if (!normalized) return;
+    if (selectedEmails.has(normalized)) {
+      onChange(hosts.filter((host) => host.email !== normalized));
+      return;
+    }
+    addHost(person.email, person.name);
+  }
+
+  function addManualEmails() {
+    const entries = manualInput
       .split(/[\s,;]+/)
       .map((entry) => entry.trim())
       .filter(Boolean);
@@ -546,12 +640,99 @@ function BookingHostsEditor({
     }
     if (next.length !== hosts.length) {
       onChange(next);
-      setInput("");
+      setManualInput("");
     }
   }
 
   function removeHost(email: string) {
     onChange(hosts.filter((host) => host.email !== email));
+  }
+
+  // Sorted so the query key stays stable when chips are reordered — the key is
+  // hashed from param content, so reordering hosts must not look like a new
+  // query. Queried for every host, not just the ones the signed-in editor's
+  // own overlay list already recognizes: a shared editor's overlay list can
+  // differ from the link owner's, and the server only ever reports statuses
+  // for hosts on the owner's own list, so its response is the source of
+  // truth for which hosts are calendar-managed.
+  const allHostEmails = hosts.map((host) => host.email).sort();
+  const { data: hostStatuses } = useHostOverlayStatus(
+    allHostEmails,
+    bookingLinkId,
+    // Never fire with an ambiguous identity: either this is genuinely a new
+    // draft (no id yet, caller is the presumptive owner), or the real link
+    // and its bookingLinkId have finished loading.
+    allHostEmails.length > 0 && (isNewDraft || !!bookingLinkId),
+  );
+
+  function isOverlayHost(host: BookingHost) {
+    const normalized = normalizeHostEmail(host.email);
+    // Once the owner-scoped status list has loaded, it is authoritative.
+    if (hostStatuses) {
+      return hostStatuses.some(
+        (entry) => normalizeHostEmail(entry.email) === normalized,
+      );
+    }
+    // Before that, the signed-in user's own overlay list is only a safe
+    // stand-in for a brand-new, unsaved draft, where they are certainly the
+    // eventual owner. For a real link, a shared (non-owner) editor's own
+    // list can disagree with the owner's — guessing from it would briefly
+    // render an owner-managed host as manual, so show manual (undetermined)
+    // instead until the real status resolves.
+    return isNewDraft
+      ? overlayPeople.some(
+          (person) => normalizeHostEmail(person.email) === normalized,
+        )
+      : false;
+  }
+
+  const calendarHosts = hosts.filter((host) => isOverlayHost(host));
+  const manualHosts = hosts.filter((host) => !isOverlayHost(host));
+  const sendOverlayRequest = useSendOverlayRequest();
+  const addOverlayPerson = useAddOverlayPerson();
+
+  function renderHostBadge(host: BookingHost, options: { overlay: boolean }) {
+    const normalized = normalizeHostEmail(host.email);
+    const overlayColor = overlayPeople.find(
+      (person) => normalizeHostEmail(person.email) === normalized,
+    )?.color;
+    // Only overlay chips have a server-reported status. A missing row means
+    // loading, an error, or a client/server disagreement about overlay
+    // membership — all three render nothing rather than a guessed state.
+    const status = options.overlay
+      ? hostStatuses?.find(
+          (entry) => normalizeHostEmail(entry.email) === normalized,
+        )
+      : undefined;
+    return (
+      <Badge key={host.email} variant="secondary" className="gap-1.5 pr-1">
+        {overlayColor && (
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: overlayColor }}
+          />
+        )}
+        {host.displayName || host.email}
+        {(options.overlay ? Boolean(status) : true) && (
+          <HostOverlayStatusIcon
+            variant={options.overlay ? "overlay" : "manual"}
+            status={status}
+            email={normalized ?? host.email}
+            bookingLinkId={bookingLinkId}
+            mutation={sendOverlayRequest}
+            addPerson={addOverlayPerson}
+          />
+        )}
+        <button
+          type="button"
+          onClick={() => removeHost(host.email)}
+          className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+          aria-label={t("bookingLinks.removeHost", { email: host.email })}
+        >
+          <IconX className="h-3 w-3" />
+        </button>
+      </Badge>
+    );
   }
 
   return (
@@ -560,20 +741,127 @@ function BookingHostsEditor({
         <Label className="flex items-center gap-1.5">
           <IconUsers className="h-4 w-4" />
           {t("bookingLinks.requiredHosts")}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground"
+                aria-label={t("bookingLinks.overlayHostsHint")}
+              >
+                <IconInfoCircle className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-64">
+              {t("bookingLinks.overlayHostsHint")}
+            </TooltipContent>
+          </Tooltip>
         </Label>
         <p className="text-xs text-muted-foreground">
           {t("bookingLinks.requiredHostsDescription")}
         </p>
       </div>
+
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between font-normal"
+          >
+            <span className="truncate text-left text-muted-foreground">
+              {t("bookingLinks.overlayHostsPlaceholder")}
+            </span>
+            <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-[--radix-popover-trigger-width] p-0"
+        >
+          <Command>
+            <CommandInput
+              placeholder={t("bookingLinks.overlayHostsPlaceholder")}
+            />
+            <CommandList className="max-h-[280px]">
+              <CommandEmpty>{t("bookingLinks.overlayHostsEmpty")}</CommandEmpty>
+              {overlayPeople.length > 0 && (
+                <CommandGroup heading={t("bookingLinks.overlayHostsLabel")}>
+                  {overlayPeople.map((person) => {
+                    const normalized = normalizeHostEmail(person.email);
+                    const isSelected =
+                      !!normalized && selectedEmails.has(normalized);
+                    return (
+                      <CommandItem
+                        key={person.email}
+                        value={`${person.name ?? ""} ${person.email}`}
+                        onSelect={() => toggleOverlayPerson(person)}
+                      >
+                        <IconCheck
+                          className={cn(
+                            "mr-2 h-4 w-4 shrink-0",
+                            isSelected ? "opacity-100" : "opacity-0",
+                          )}
+                        />
+                        <span
+                          className="mr-2 h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: person.color }}
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">
+                            {person.name || person.email}
+                          </p>
+                          {person.name && (
+                            <p className="truncate text-xs text-muted-foreground">
+                              {person.email}
+                            </p>
+                          )}
+                        </div>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              )}
+              <CommandGroup>
+                <CommandItem
+                  value="add-overlay-person"
+                  onSelect={() => {
+                    setOpen(false);
+                    setAddCalendarOpen(true);
+                  }}
+                >
+                  <IconPlus className="mr-2 h-4 w-4 shrink-0" />
+                  {t("bookingLinks.addOverlayPersonCta")}
+                </CommandItem>
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {overlayPeople.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          {t("bookingLinks.noOverlayPeopleYet")}
+        </p>
+      )}
+
+      {calendarHosts.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {calendarHosts.map((host) =>
+            renderHostBadge(host, { overlay: true }),
+          )}
+        </div>
+      )}
+
       <div className="flex gap-2">
         <Input
           type="email"
-          value={input}
-          onChange={(event) => setInput(event.currentTarget.value)}
+          value={manualInput}
+          onChange={(event) => setManualInput(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              addHosts();
+              addManualEmails();
             }
           }}
           placeholder="teammate@example.com"
@@ -581,40 +869,32 @@ function BookingHostsEditor({
         <Button
           type="button"
           variant="outline"
-          onClick={addHosts}
-          disabled={!input.trim()}
+          onClick={addManualEmails}
+          disabled={!manualInput.trim()}
           className="shrink-0"
         >
-          {t("bookingLinks.add")}
+          {t("bookingLinks.addOtherEmail")}
         </Button>
       </div>
-      {hosts.length > 0 ? (
+
+      {manualHosts.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {hosts.map((host) => (
-            <Badge
-              key={host.email}
-              variant="secondary"
-              className="gap-1.5 pr-1"
-            >
-              {host.displayName || host.email}
-              <button
-                type="button"
-                onClick={() => removeHost(host.email)}
-                className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                aria-label={t("bookingLinks.removeHost", {
-                  email: host.email,
-                })}
-              >
-                <IconX className="h-3 w-3" />
-              </button>
-            </Badge>
-          ))}
+          {manualHosts.map((host) => renderHostBadge(host, { overlay: false }))}
         </div>
-      ) : (
+      )}
+
+      {hosts.length === 0 && (
         <p className="text-xs text-muted-foreground">
           {t("bookingLinks.onlyYouRequired")}
         </p>
       )}
+
+      <AddCalendarDialog
+        open={addCalendarOpen}
+        onOpenChange={setAddCalendarOpen}
+        defaultTab="people"
+        onPersonAdded={(person) => addHost(person.email, person.name)}
+      />
     </div>
   );
 }
@@ -626,7 +906,7 @@ export default function BookingLinksPage({
 }) {
   const t = useT();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") as Tab) || "links";
   const bookingLinksQuery = useBookingLinks();
   const {
@@ -640,6 +920,13 @@ export default function BookingLinksPage({
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  // The sidebar links straight to `?tab=shared`, which does not remount this
+  // page when it is already open — so follow the param rather than only
+  // reading it once.
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab) setActiveTab(tab as Tab);
+  }, [searchParams]);
   const [draft, setDraft] = useState<DraftLink>(() => createEmptyDraft());
   const [savedDraftSignature, setSavedDraftSignature] = useState<string | null>(
     null,
@@ -675,7 +962,6 @@ export default function BookingLinksPage({
   const [bookingSlug, setBookingSlug] = useState("meeting");
   const [timezone, setTimezone] = useState("America/New_York");
   const [usernameInput, setUsernameInput] = useState("");
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const googleStatus = useGoogleAuthStatus();
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
@@ -777,7 +1063,7 @@ export default function BookingLinksPage({
       !isLoading &&
       !bookingLinks.some((link) => link.id === selectedId)
     ) {
-      navigate("/booking-links", { replace: true });
+      void navigate("/booking-links", { replace: true });
     }
   }, [bookingLinks, selectedId, isLoading, navigate]);
 
@@ -785,6 +1071,17 @@ export default function BookingLinksPage({
     () => bookingLinks.find((link) => link.id === selectedId) ?? null,
     [bookingLinks, selectedId],
   );
+  // An optimistic id is assigned client-side the moment a new link is created,
+  // before the route ever loads, so it is never ambiguous with an existing
+  // link that simply hasn't finished loading yet.
+  const isNewBookingLinkDraft =
+    typeof selectedId === "string" && selectedId.startsWith(OPTIMISTIC_PREFIX);
+  const hostOverlayBookingLinkId =
+    selectedLink && !selectedLink.id.startsWith(OPTIMISTIC_PREFIX)
+      ? selectedLink.id
+      : undefined;
+  const canEditSelectedLink = canEditBookingLink(selectedLink);
+  const canDeleteSelectedLink = canDeleteBookingLink(selectedLink);
 
   useEffect(() => {
     if (!selectedLink) {
@@ -873,12 +1170,12 @@ export default function BookingLinksPage({
       {
         onSuccess: (created) => {
           // Swap URL from optimistic id to the real one without a back-stack entry.
-          navigate(`/booking-links/${created.id}`, { replace: true });
+          void navigate(`/booking-links/${created.id}`, { replace: true });
           toast.success(t("bookingLinks.bookingLinkCreated"));
         },
         onError: (error) => {
           // Cache was rolled back by the hook's onError. Bring the user back.
-          navigate("/booking-links", { replace: true });
+          void navigate("/booking-links", { replace: true });
           toast.error(
             error instanceof Error
               ? error.message
@@ -888,7 +1185,7 @@ export default function BookingLinksPage({
       },
     );
     // Navigate *immediately* — the optimistic row is already in the list cache.
-    navigate(`/booking-links/${optimisticId}`);
+    void navigate(`/booking-links/${optimisticId}`);
     setCreateDialogOpen(false);
   }
 
@@ -926,8 +1223,8 @@ export default function BookingLinksPage({
   async function handleDelete() {
     if (!draft.id) return;
     try {
-      await deleteBookingLink.mutateAsync(draft.id);
-      navigate("/booking-links");
+      await deleteBookingLink.mutateAsync({ id: draft.id });
+      void navigate("/booking-links");
       toast.success(t("bookingLinks.bookingLinkDeleted"));
     } catch {
       toast.error(t("bookingLinks.bookingLinkDeleteFailed"));
@@ -952,6 +1249,12 @@ export default function BookingLinksPage({
 
   async function copyPreviewUrl(slug: string) {
     if (await copyTextToClipboard(getBookingUrl(slug))) {
+      trackEvent("booking_link_shared", {
+        app_name: "calendar",
+        template_name: "calendar",
+        booking_type_id: slug,
+        share_method: "copy_link",
+      });
       toast.success(t("bookingLinks.bookingLinkCopied"));
       return;
     }
@@ -1067,19 +1370,21 @@ export default function BookingLinksPage({
               <TooltipContent>{t("bookingLinks.openLink")}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void handleSaveRef.current()}
-            disabled={updateBookingLink.isPending || !hasUnsavedChanges}
-            className="h-8 px-3"
-          >
-            {updateBookingLink.isPending
-              ? t("common.saving")
-              : hasUnsavedChanges
-                ? t("eventDialog.saveChanges")
-                : t("bookingLinks.saved")}
-          </Button>
+          {canEditSelectedLink && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSaveRef.current()}
+              disabled={updateBookingLink.isPending || !hasUnsavedChanges}
+              className="h-8 px-3"
+            >
+              {updateBookingLink.isPending
+                ? t("common.saving")
+                : hasUnsavedChanges
+                  ? t("eventDialog.saveChanges")
+                  : t("bookingLinks.saved")}
+            </Button>
+          )}
         </div>
       ) : null,
     };
@@ -1091,7 +1396,7 @@ export default function BookingLinksPage({
     previewUrl,
     updateBookingLink.isPending,
     hasUnsavedChanges,
-    navigate,
+    canEditSelectedLink,
     activeTab,
     t,
   ]);
@@ -1130,7 +1435,7 @@ export default function BookingLinksPage({
           {/* Left — Edit form */}
           <div
             className={cn(
-              "space-y-8",
+              "space-y-10",
               isPreviewCollapsed && "mx-auto w-full max-w-4xl",
             )}
           >
@@ -1160,9 +1465,9 @@ export default function BookingLinksPage({
                 </div>
               </div>
             ) : selectedLink ? (
-              <>
+              <fieldset disabled={!canEditSelectedLink} className="contents">
                 {/* Title */}
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   <Label htmlFor="booking-link-title">
                     {t("bookingLinks.meetingName")}
                   </Label>
@@ -1184,7 +1489,7 @@ export default function BookingLinksPage({
                 </div>
 
                 {/* Description */}
-                <div className="space-y-2">
+                <div className="space-y-2.5 border-t border-border pt-8">
                   <Label htmlFor="booking-link-description">
                     {t("eventForm.description")}{" "}
                     <span className="text-muted-foreground font-normal">
@@ -1206,12 +1511,12 @@ export default function BookingLinksPage({
                 </div>
 
                 {/* Duration options — multi-select */}
-                <div className="space-y-3">
+                <div className="space-y-3 border-t border-border pt-8">
                   <Label>{t("bookingLinks.durationOptions")}</Label>
                   <p className="text-xs text-muted-foreground">
                     {t("bookingLinks.durationOptionsDescription")}
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 pb-3">
                     {DURATION_PRESETS.map((minutes) => {
                       const isSelected = draft.durations.includes(minutes);
                       return (
@@ -1340,7 +1645,7 @@ export default function BookingLinksPage({
                   )}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2.5 border-t border-border pt-8">
                   <div className="flex items-center justify-between gap-3">
                     <Label>{t("bookingLinks.url")}</Label>
                     <Tooltip>
@@ -1421,49 +1726,67 @@ export default function BookingLinksPage({
                 </div>
 
                 {/* Conferencing — Zoom uses real OAuth */}
-                <BookingConferencingSelect
-                  value={draft.conferencing}
-                  onChange={(conferencing) =>
-                    setDraft((prev) => ({ ...prev, conferencing }))
-                  }
-                  zoomStatus={
-                    zoomStatus.data?.connected
-                      ? "connected"
-                      : zoomStatus.data?.configured === false
-                        ? "not-configured"
+                <div className="border-t border-border pt-8">
+                  <BookingConferencingSelect
+                    value={draft.conferencing}
+                    onChange={(conferencing) =>
+                      setDraft((prev) => ({ ...prev, conferencing }))
+                    }
+                    zoomStatus={
+                      zoomStatus.data?.connected
+                        ? "connected"
+                        : zoomStatus.data?.configured === false
+                          ? "not-configured"
+                          : "disconnected"
+                    }
+                    googleStatus={
+                      googleStatus.data?.connected
+                        ? "connected"
                         : "disconnected"
-                  }
-                  googleStatus={
-                    googleStatus.data?.connected ? "connected" : "disconnected"
-                  }
-                  onConnectZoom={() =>
-                    connectZoom.mutate(undefined, {
-                      onError: (error) =>
-                        toast.error(
-                          error instanceof Error
-                            ? error.message
-                            : t("bookingLinks.zoomStartFailed"),
-                        ),
-                    })
-                  }
-                  zoomPending={connectZoom.isPending}
-                />
+                    }
+                    onConnectZoom={() =>
+                      connectZoom.mutate(undefined, {
+                        onError: (error) =>
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : t("bookingLinks.zoomStartFailed"),
+                          ),
+                      })
+                    }
+                    zoomPending={connectZoom.isPending}
+                  />
+                </div>
 
-                <BookingHostsEditor
-                  hosts={draft.hosts}
-                  onChange={(hosts) => setDraft((prev) => ({ ...prev, hosts }))}
-                />
+                <div className="border-t border-border pt-8">
+                  <BookingHostsEditor
+                    bookingLinkId={hostOverlayBookingLinkId}
+                    isNewDraft={isNewBookingLinkDraft}
+                    hosts={draft.hosts}
+                    onChange={(update) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        hosts:
+                          typeof update === "function"
+                            ? update(prev.hosts)
+                            : update,
+                      }))
+                    }
+                  />
+                </div>
 
                 {/* Custom fields editor — shared package component */}
-                <SharedCustomFieldsEditor
-                  fields={draft.customFields}
-                  onChange={(fields) =>
-                    setDraft((prev) => ({ ...prev, customFields: fields }))
-                  }
-                />
+                <div className="border-t border-border pt-8">
+                  <SharedCustomFieldsEditor
+                    fields={draft.customFields}
+                    onChange={(fields) =>
+                      setDraft((prev) => ({ ...prev, customFields: fields }))
+                    }
+                  />
+                </div>
 
                 {/* Lower-risk settings */}
-                <div className="space-y-5 border-t border-border pt-5">
+                <div className="space-y-5 border-t border-border pt-8">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-sm font-medium">
@@ -1474,47 +1797,50 @@ export default function BookingLinksPage({
                       </p>
                     </div>
                     <Switch
+                      aria-label={t("bookingLinks.linkVisibility")}
                       checked={draft.isActive}
                       onCheckedChange={(checked) =>
                         setDraft((prev) => ({ ...prev, isActive: checked }))
                       }
                     />
                   </div>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
-                      >
-                        <IconTrash className="h-3.5 w-3.5" />
-                        {t("eventForm.delete")}
-                      </button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          {t("bookingLinks.deleteBookingLink")}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {t("bookingLinks.deleteDescriptionPrefix")}{" "}
-                          <span className="font-medium text-foreground">
-                            {draft.title}
-                          </span>{" "}
-                          {t("bookingLinks.deleteDescriptionSuffix")}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>
-                          {t("eventForm.cancel")}
-                        </AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete}>
+                  {canDeleteSelectedLink && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+                        >
+                          <IconTrash className="h-3.5 w-3.5" />
                           {t("eventForm.delete")}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {t("bookingLinks.deleteBookingLink")}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {t("bookingLinks.deleteDescriptionPrefix")}{" "}
+                            <span className="font-medium text-foreground">
+                              {draft.title}
+                            </span>{" "}
+                            {t("bookingLinks.deleteDescriptionSuffix")}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>
+                            {t("eventForm.cancel")}
+                          </AlertDialogCancel>
+                          <AlertDialogAction onClick={handleDelete}>
+                            {t("eventForm.delete")}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </div>
-              </>
+              </fieldset>
             ) : null}
           </div>
 
@@ -1548,6 +1874,7 @@ export default function BookingLinksPage({
                   customFields={draft.customFields}
                   isActive={draft.isActive}
                   availability={availability ?? undefined}
+                  bookingUsername={bookingUsername}
                   bookingSourceSlug={
                     selectedLink.id?.startsWith(OPTIMISTIC_PREFIX) ||
                     !availabilityPreview
@@ -1574,13 +1901,36 @@ export default function BookingLinksPage({
         {t("bookingLinks.description")}
       </p>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => {
+          trackEvent("booking_links_tab_changed", {
+            app_name: "calendar",
+            template_name: "calendar",
+            tab: v,
+          });
+          setActiveTab(v as Tab);
+          // Keep the param in step, so the effect above can't snap the user
+          // back to a tab they navigated away from.
+          setSearchParams(
+            (current) => {
+              const next = new URLSearchParams(current);
+              next.set("tab", v);
+              return next;
+            },
+            { replace: true },
+          );
+        }}
+      >
         <TabsList>
           <TabsTrigger value="links">
             {t("bookingLinks.meetingTypes")}
           </TabsTrigger>
           <TabsTrigger value="availability">
             {t("bookingLinks.availability")}
+          </TabsTrigger>
+          <TabsTrigger value="shared">
+            {t("bookingLinks.sharedAvailability")}
           </TabsTrigger>
           <TabsTrigger value="bookings">
             {t("bookingLinks.bookings")}
@@ -1624,6 +1974,7 @@ export default function BookingLinksPage({
             ) : (
               <div className="space-y-3">
                 {bookingLinks.map((link) => {
+                  const canEdit = canEditBookingLink(link);
                   const durations =
                     link.durations && link.durations.length > 0
                       ? link.durations
@@ -1716,58 +2067,60 @@ export default function BookingLinksPage({
                             </>
                           )}
 
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button
-                                type="button"
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                              >
-                                <IconDotsVertical className="h-4 w-4" />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem asChild>
-                                <Link to={`/booking-links/${link.id}`}>
-                                  {t("eventForm.edit")}
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  updateBookingLink.mutate(
-                                    {
-                                      id: link.id,
-                                      title: link.title,
-                                      slug: link.slug,
-                                      duration: durations[0] ?? link.duration,
-                                      durations: link.durations,
-                                      hosts: link.hosts,
-                                      description: link.description,
-                                      customFields: link.customFields,
-                                      conferencing: link.conferencing,
-                                      color: link.color,
-                                      isActive: !link.isActive,
-                                    },
-                                    {
-                                      onSuccess: () =>
-                                        toast.success(
-                                          t(
-                                            link.isActive
-                                              ? "bookingLinks.linkDisabled"
-                                              : "bookingLinks.linkEnabled",
-                                            { title: link.title },
+                          {canEdit && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                                >
+                                  <IconDotsVertical className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem asChild>
+                                  <Link to={`/booking-links/${link.id}`}>
+                                    {t("eventForm.edit")}
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    updateBookingLink.mutate(
+                                      {
+                                        id: link.id,
+                                        title: link.title,
+                                        slug: link.slug,
+                                        duration: durations[0] ?? link.duration,
+                                        durations: link.durations,
+                                        hosts: link.hosts,
+                                        description: link.description,
+                                        customFields: link.customFields,
+                                        conferencing: link.conferencing,
+                                        color: link.color,
+                                        isActive: !link.isActive,
+                                      },
+                                      {
+                                        onSuccess: () =>
+                                          toast.success(
+                                            t(
+                                              link.isActive
+                                                ? "bookingLinks.linkDisabled"
+                                                : "bookingLinks.linkEnabled",
+                                              { title: link.title },
+                                            ),
                                           ),
-                                        ),
-                                    },
-                                  );
-                                }}
-                              >
-                                {link.isActive
-                                  ? t("bookingLinks.disable")
-                                  : t("bookingLinks.enable")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                                      },
+                                    );
+                                  }}
+                                >
+                                  {link.isActive
+                                    ? t("bookingLinks.disable")
+                                    : t("bookingLinks.enable")}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1779,7 +2132,7 @@ export default function BookingLinksPage({
         </TabsContent>
 
         <TabsContent value="availability">
-          <div className="mx-auto max-w-2xl space-y-6">
+          <div className="max-w-2xl space-y-6">
             {/* Weekly Schedule */}
             <Card>
               <CardHeader>
@@ -1985,20 +2338,17 @@ export default function BookingLinksPage({
           </div>
         </TabsContent>
 
+        <TabsContent value="shared">
+          <div className="max-w-2xl">
+            <SharedAvailabilityPanel />
+          </div>
+        </TabsContent>
+
         <TabsContent value="bookings">
           <BookingsList />
         </TabsContent>
       </Tabs>
 
-      {showCloudUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <CloudUpgrade
-            title={t("bookingLinks.shareBookingLink")}
-            description={t("bookingLinks.cloudUpgradeDescription")}
-            onClose={() => setShowCloudUpgrade(false)}
-          />
-        </div>
-      )}
       <BookingLinkCreateDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
@@ -2042,6 +2392,7 @@ function BookingPreview({
   customFields = [],
   isActive,
   availability,
+  bookingUsername,
   bookingSourceSlug,
   availabilityPreview,
   bookingUrl,
@@ -2056,6 +2407,7 @@ function BookingPreview({
   customFields?: CustomField[];
   isActive: boolean;
   availability?: AvailabilityConfig;
+  bookingUsername?: string;
   bookingSourceSlug?: string;
   availabilityPreview?: BookingAvailabilityPreview;
   bookingUrl?: string;
@@ -2078,6 +2430,16 @@ function BookingPreview({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  // Identity for the selected live slot, kept separate from the `h:mm a`
+  // display label above because a fall-back DST date can have two distinct
+  // ISO instants that format to the same label.
+  const [selectedSlotStart, setSelectedSlotStart] = useState<string | null>(
+    null,
+  );
+  const [showPreviewTimeZones, setShowPreviewTimeZones] = useState(false);
+  const [previewExtraTimezones, setPreviewExtraTimezones] = useState<string[]>(
+    [],
+  );
   const [previewConfirmed, setPreviewConfirmed] = useState(false);
   const [previewForm, setPreviewForm] = useState<BookingPreviewFormValue>({
     name: t("bookingLinks.previewGuest"),
@@ -2108,6 +2470,7 @@ function BookingPreview({
   useEffect(() => {
     setSelectedDuration(null);
     setSelectedSlot(null);
+    setSelectedSlotStart(null);
     setPreviewConfirmed(false);
   }, [durations.join(",")]);
 
@@ -2176,6 +2539,61 @@ function BookingPreview({
     liveSlots,
   ]);
 
+  // The time-zone grid needs the raw ISO instant to convert per-row, which
+  // only exists once the link is saved and real availability is loaded —
+  // the synthetic placeholder slots above have no absolute timestamp.
+  //
+  // The admin's own booking-link fetch doesn't resolve peer timezones (that
+  // enrichment only runs for public visitors), so fetch the real public
+  // response here to preview it accurately instead of only showing the
+  // owner's own timezone.
+  const { data: previewPublicLink } = usePublicBookingLink(
+    showPreviewTimeZones ? bookingSourceSlug : undefined,
+    bookingUsername,
+  );
+  // A redirect-only response (unsynced/stale username) has no `id` or
+  // enrichment fields — fall through to the settings/hosts data below
+  // instead of rendering an empty preview.
+  const resolvedPreviewPublicLink =
+    previewPublicLink && !previewPublicLink.redirectPath
+      ? previewPublicLink
+      : undefined;
+  const previewTimeZoneHosts: TimeZoneGridHost[] = resolvedPreviewPublicLink
+    ? [
+        ...(resolvedPreviewPublicLink.ownerTimezone
+          ? [
+              {
+                id: "owner",
+                label: t("bookingLinks.hostLabel"),
+                timezone: resolvedPreviewPublicLink.ownerTimezone,
+              },
+            ]
+          : []),
+        ...(resolvedPreviewPublicLink.publicHosts ?? [])
+          .filter((host) => host.timezone)
+          .map((host) => ({
+            id: host.id,
+            label: host.label,
+            timezone: host.timezone as string,
+          })),
+      ]
+    : [
+        // No public response yet (unsaved link, or still loading) — peer
+        // time zones are only resolved server-side for public visitors, so
+        // this admin-only fallback can show the owner's own zone but not
+        // any host's, unlike the branch above.
+        ...(settings?.timezone
+          ? [
+              {
+                id: "owner",
+                label: t("bookingLinks.hostLabel"),
+                timezone: settings.timezone,
+              },
+            ]
+          : []),
+      ];
+  const selectedLiveSlotStart = hasLiveAvailability ? selectedSlotStart : null;
+
   // Determine which step to show
   const [forcedStep, setForcedStep] = useState<BookingPreviewStep | null>(null);
 
@@ -2194,6 +2612,27 @@ function BookingPreview({
     : ["date", "time", "info"];
 
   const confirmedDuration = selectedDuration ?? primaryDuration;
+
+  const selectedLiveSlot =
+    hasLiveAvailability && selectedSlotStart
+      ? (liveSlots.find((slot) => slot.start === selectedSlotStart) ?? null)
+      : null;
+
+  const confirmedRange =
+    selectedDate && selectedSlot
+      ? selectedLiveSlot
+        ? {
+            start: parseISO(selectedLiveSlot.start),
+            end: parseISO(selectedLiveSlot.end),
+          }
+        : {
+            start: parse(selectedSlot, "h:mm a", selectedDate),
+            end: addMinutes(
+              parse(selectedSlot, "h:mm a", selectedDate),
+              confirmedDuration,
+            ),
+          }
+      : null;
 
   function updatePreviewForm(patch: Partial<BookingPreviewFormValue>) {
     setPreviewForm((prev) => ({ ...prev, ...patch }));
@@ -2216,6 +2655,7 @@ function BookingPreview({
     setSelectedDuration(null);
     setSelectedDate(null);
     setSelectedSlot(null);
+    setSelectedSlotStart(null);
     setPreviewConfirmed(false);
     setForcedStep(null);
   }
@@ -2344,13 +2784,16 @@ function BookingPreview({
                       setSelectedDuration(null);
                       setSelectedDate(null);
                       setSelectedSlot(null);
+                      setSelectedSlotStart(null);
                       setForcedStep(null);
                     } else if (s === "date") {
                       setSelectedDate(null);
                       setSelectedSlot(null);
+                      setSelectedSlotStart(null);
                       setForcedStep(null);
                     } else if (s === "time") {
                       setSelectedSlot(null);
+                      setSelectedSlotStart(null);
                       setForcedStep(null);
                     } else {
                       setForcedStep(s);
@@ -2458,6 +2901,7 @@ function BookingPreview({
                       onClick={() => {
                         setSelectedDate(day);
                         setSelectedSlot(null);
+                        setSelectedSlotStart(null);
                         setForcedStep(null);
                       }}
                       className={cn(
@@ -2483,34 +2927,64 @@ function BookingPreview({
 
         {/* Time step */}
         {step === "time" && (
-          <div className="space-y-2">
-            {selectedDate && (
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {format(selectedDate, "EEEE, MMM d")}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-medium">
+                {t("bookingLinks.selectTime")}
+              </h4>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDate(null);
+                  setSelectedSlot(null);
+                  setSelectedSlotStart(null);
+                  setForcedStep(null);
+                }}
+                className={cn("text-[11px] hover:underline", BRAND_LINK_CLASS)}
+              >
+                {t("bookingLinks.changeDate")}
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              {selectedDate ? (
+                <p className="text-xs text-muted-foreground">
+                  {format(selectedDate, "EEEE, MMMM d, yyyy")}
                 </p>
+              ) : null}
+              {hasLiveAvailability ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedDate(null);
-                    setSelectedSlot(null);
-                    setForcedStep(null);
-                  }}
-                  className={cn(
-                    "text-[11px] hover:underline",
-                    BRAND_LINK_CLASS,
-                  )}
+                  onClick={() => setShowPreviewTimeZones((prev) => !prev)}
+                  // guard:allow-raw-color — matches this page's existing BRAND_LINK_CLASS brand color
+                  className="text-[11px] font-normal text-[#00B5FF] hover:text-[#33C4FF]"
                 >
-                  {t("bookingLinks.changeDate")}
+                  {showPreviewTimeZones
+                    ? t("bookingLinks.hideTimeZones")
+                    : t("bookingLinks.showTimeZones")}
                 </button>
-              </div>
-            )}
-            {!selectedDate && (
-              <p className="text-xs font-medium text-center text-muted-foreground">
-                {t("bookingLinks.availableTimes")}
-              </p>
-            )}
-            {liveSlotsLoading ? (
+              ) : null}
+            </div>
+            {showPreviewTimeZones ? (
+              <TimeZoneGrid
+                slots={liveSlots}
+                selectedSlot={selectedLiveSlotStart}
+                onSelect={(start) => {
+                  setSelectedSlot(format(parseISO(start), "h:mm a"));
+                  setSelectedSlotStart(start);
+                  setForcedStep(null);
+                }}
+                loading={liveSlotsLoading}
+                errorMessage={
+                  liveSlotsError
+                    ? t("bookingLinks.availabilityUnavailable")
+                    : undefined
+                }
+                hosts={previewTimeZoneHosts}
+                selectedDate={liveAvailabilityDate}
+                extraTimezones={previewExtraTimezones}
+                onExtraTimezonesChange={setPreviewExtraTimezones}
+              />
+            ) : liveSlotsLoading ? (
               <div className="grid grid-cols-3 gap-1.5">
                 {Array.from({ length: 6 }).map((_, index) => (
                   <Skeleton key={index} className="h-8 rounded-md" />
@@ -2522,22 +2996,38 @@ function BookingPreview({
               </p>
             ) : timeSlots.length > 0 ? (
               <div className="grid grid-cols-3 gap-1.5">
-                {timeSlots.map((slot) => (
+                {(hasLiveAvailability
+                  ? liveSlots.map((liveSlot) => ({
+                      key: liveSlot.start,
+                      label: format(parseISO(liveSlot.start), "h:mm a"),
+                      start: liveSlot.start as string | null,
+                    }))
+                  : timeSlots.map((label) => ({
+                      key: label,
+                      label,
+                      start: null as string | null,
+                    }))
+                ).map((slot) => (
                   <button
-                    key={slot}
+                    key={slot.key}
                     type="button"
                     onClick={() => {
-                      setSelectedSlot(slot);
+                      setSelectedSlot(slot.label);
+                      setSelectedSlotStart(slot.start);
                       setForcedStep(null);
                     }}
                     className={cn(
                       "rounded-md border px-2 py-1.5 text-center text-[11px] cursor-pointer",
-                      selectedSlot === slot
+                      (
+                        slot.start
+                          ? selectedSlotStart === slot.start
+                          : selectedSlot === slot.label
+                      )
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border/60 text-muted-foreground hover:bg-accent/60 hover:border-primary/30",
                     )}
                   >
-                    {slot}
+                    {slot.label}
                   </button>
                 ))}
               </div>
@@ -2552,32 +3042,35 @@ function BookingPreview({
         {/* Info step */}
         {step === "info" && (
           <form className="space-y-3" onSubmit={handlePreviewSubmit}>
-            {selectedDate && selectedSlot ? (
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t("bookingLinks.selectedDateTime", {
-                    date: format(selectedDate, "EEEE, MMM d"),
-                    time: selectedSlot,
-                  })}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedSlot(null);
-                    setForcedStep(null);
-                  }}
-                  className={cn(
-                    "text-[11px] hover:underline",
-                    BRAND_LINK_CLASS,
-                  )}
-                >
-                  {t("bookingLinks.changeTime")}
-                </button>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-medium">
+                {t("bookingLinks.yourInformation")}
+              </h4>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSlot(null);
+                  setSelectedSlotStart(null);
+                  setForcedStep(null);
+                }}
+                className={cn("text-[11px] hover:underline", BRAND_LINK_CLASS)}
+              >
+                {t("bookingLinks.changeTime")}
+              </button>
+            </div>
+            {confirmedRange && (
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {t("bookingLinks.confirming")}
+                </div>
+                <div className="mt-1 font-medium text-foreground">
+                  {format(confirmedRange.start, "EEEE, MMMM d")}
+                </div>
+                <div className="text-muted-foreground">
+                  {format(confirmedRange.start, "h:mm a")} -{" "}
+                  {format(confirmedRange.end, "h:mm a")}
+                </div>
               </div>
-            ) : (
-              <p className="text-xs font-medium text-center text-muted-foreground">
-                {t("bookingLinks.bookingDetails")}
-              </p>
             )}
             <div className="space-y-2">
               <div className="space-y-1.5">

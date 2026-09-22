@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     whatsNew: "最新消息",
   },
@@ -834,6 +837,8 @@ const messages = {
       "在此組織中建立的儀表板會在這裡顯示使用情況和清理訊號。",
     adminOnlyTitle: "需要管理員權限",
     adminOnlyDescription: "只有組織擁有者和管理員可以開啟 Analytics 管理工具。",
+    roleUnavailableTitle: "無法驗證你的存取權限",
+    roleUnavailableDescription: "無法檢查你的組織角色：{{message}}",
     notTracked: "未追蹤",
     visibilityprivate: "私人",
     visibilityorg: "與組織共用",
@@ -855,7 +860,6 @@ const messages = {
     connectionAppId: "應用程式 ID",
     connectionAppUrl: "應用程式 URL",
     connectionDatabaseUrl: "資料庫 URL",
-    connectionAuthToken: "驗證權杖（選填）",
     saveConnection: "儲存連線",
     deleteConnection: "刪除連線",
     deleteConnectionTitle: "刪除資料庫連線？",
@@ -980,6 +984,10 @@ const messages = {
     unhideFailed: "無法取消隱藏儀表板",
     addPanel: "新增面板",
     dashboardActions: "儀表板詳細資訊和操作",
+    certifyForAi: "核准 AI 查詢使用",
+    certifiedForAi: "已核准 AI 查詢使用",
+    certificationSaved: "已核准此儀表板供 AI 查詢使用",
+    certificationFailed: "無法核准儀表板：{{message}}",
     details: "Details",
     updated: "已於 {{date}} 更新",
     public: "Public",
@@ -1158,7 +1166,7 @@ const messages = {
   sessions: {
     title: "工作階段",
     description:
-      "檢視 Agent Native Analytics 捕獲的第一方瀏覽器工作階段和回放紀錄。",
+      "檢視 Agent-Native Analytics 捕獲的第一方瀏覽器工作階段和回放紀錄。",
     filters: "篩選器",
     segmentFilters: "區段篩選器",
     sessionPlaylist: "工作階段播放清單",

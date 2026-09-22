@@ -5,7 +5,7 @@ description: "使用 React Router v8 為 agent-native 應用程式提供基於�
 
 # 路由
 
-Agent-native 應用程式使用**React Router v8**，並透過來自 `@react-router/fs-routes` 的 `flatRoutes()` 進行基於檔案的路由。`app/routes/` 中的每個檔案都會變成一個 URL。範本使用點記號慣例。點在單一檔名內分隔 URL 區段。
+Agent-Native 應用程式使用**React Router v8**，並透過來自 `@react-router/fs-routes` 的 `flatRoutes()` 進行基於檔案的路由。`app/routes/` 中的每個檔案都會變成一個 URL。範本使用點記號慣例。點在單一檔名內分隔 URL 區段。
 
 此頁面涵蓋用戶端路由，也就是從 `app/routes/` 在瀏覽器中渲染的頁面。伺服器路由是另一套系統：`server/routes/` 下的 Nitro 檔案路由，加上框架自身的 `/_agent-native/*` 端點。這些內容位於[路由](/docs/server-routes)頁面。這兩者不共用目錄、命名慣例，也不共用路由器，因此 `server/routes/` 中的檔案永遠不會變成這裡的頁面，`app/routes/` 中的檔案也永遠不會變成伺服器端點。
 

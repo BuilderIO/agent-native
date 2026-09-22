@@ -26,10 +26,19 @@ const mockDispatchPostFinalizeJob = vi.hoisted(() =>
 );
 const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockMarkSeekableRepairPending = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingThumbnail = vi.hoisted(() =>
+  vi.fn(async () => ({
+    recordingId: "rec_1",
+    status: "already-set" as const,
+    changed: false,
+    thumbnailUrl: null,
+  })),
+);
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
 const mockDbExecute = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec_1" }]),
@@ -71,11 +80,14 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: mockDbExecute }),
-  isPostgres: () => false,
 }));
 
 vi.mock("@agent-native/core/event-bus", () => ({
   emit: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
@@ -124,6 +136,11 @@ vi.mock("../server/lib/debug.js", () => ({
   debugLog: vi.fn(),
 }));
 
+vi.mock("../server/lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
+}));
+
 vi.mock("../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: vi.fn(async () => ({
     queued: false,
@@ -134,6 +151,10 @@ vi.mock("../server/lib/builder-media-compression.js", () => ({
 vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: (...args: unknown[]) =>
     mockDispatchPostFinalizeJob(...args),
+}));
+
+vi.mock("../server/lib/reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingReady: vi.fn(async () => undefined),
 }));
 
 vi.mock("../server/lib/faststart.js", () => ({
@@ -341,6 +362,13 @@ describe("finalize-recording media serve verification", () => {
     mockDeleteAppState.mockResolvedValue(undefined);
     mockClearSeekableRepairPending.mockResolvedValue(undefined);
     mockMarkSeekableRepairPending.mockResolvedValue(undefined);
+    mockEnsureRecordingThumbnail.mockClear();
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec_1",
+      status: "already-set",
+      changed: false,
+      thumbnailUrl: null,
+    });
     mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateWhere.mockImplementation(() => ({
       returning: mockUpdateReturning,
@@ -350,6 +378,26 @@ describe("finalize-recording media serve verification", () => {
     });
     mockFetchS3ObjectByUrl.mockResolvedValue(null);
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("returns an explicit abort signal when cancellation wins the ready race", async () => {
+    seedBufferedRecording();
+    mockState.uploadState = { ...mockState.uploadState, aborted: true };
+    mockState.selectRows[1] = [{ status: "failed" }];
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "rec_1",
+        status: "failed",
+        aborted: true,
+      }),
+    );
   });
 
   it("verifies private S3 uploads with scoped credentials instead of the public URL", async () => {
@@ -389,6 +437,19 @@ describe("finalize-recording media serve verification", () => {
       allowLegacyObjectKey: true,
     });
     expect(fetch).not.toHaveBeenCalled();
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_ready",
+      expect.objectContaining({
+        app_name: "clips",
+        output_id: "rec_1",
+        output_type: "clip",
+        duration_s: 1,
+        video_format: "webm",
+        has_audio: true,
+        has_camera: false,
+      }),
+      { userId: "owner@example.com" },
+    );
   });
 
   it("falls back to the public URL when signed S3 credentials cannot read", async () => {
@@ -557,6 +618,12 @@ describe("finalize-recording media serve verification", () => {
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", videoSizeBytes: 2 }),
     );
+    expect(mockUpdateSet).toHaveBeenCalledWith({ thumbnailStatus: "pending" });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      kind: "thumbnail",
+      requireAccepted: true,
+    });
   });
 
   it("keeps verification pending when storage omits a determinate byte count", async () => {

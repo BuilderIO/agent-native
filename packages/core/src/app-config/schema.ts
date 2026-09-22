@@ -1,12 +1,17 @@
 import { z } from "zod";
 
 import { a2aConfig } from "./a2a.js";
+import { accessConfig } from "./access.js";
 import { agentConfig } from "./agent.js";
+import { analyticsConfig } from "./analytics.js";
 import { appConfig } from "./app.js";
 import { authConfig } from "./auth.js";
 import { integrationsConfig } from "./integrations.js";
 import { migrationConfig } from "./migration.js";
+import { observabilityConfig } from "./observability.js";
+import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
+import { runtimeConfig } from "./runtime.js";
 import { workspaceConfig } from "./workspace.js";
 
 /**
@@ -27,12 +32,17 @@ import { workspaceConfig } from "./workspace.js";
 // the domain schema over the empty object, so a declared default is there.
 export const appConfigSchema = z.object({
   a2a: a2aConfig.prefault({}),
+  access: accessConfig.prefault({}),
   agent: agentConfig.prefault({}),
+  analytics: analyticsConfig.prefault({}),
   app: appConfig.prefault({}),
   auth: authConfig.prefault({}),
   integrations: integrationsConfig.prefault({}),
   migration: migrationConfig.prefault({}),
+  observability: observabilityConfig.prefault({}),
+  plugins: pluginsConfig.prefault({}),
   privateBlob: privateBlobConfig.prefault({}),
+  runtime: runtimeConfig.prefault({}),
   workspace: workspaceConfig.prefault({}),
 });
 

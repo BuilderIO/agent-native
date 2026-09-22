@@ -203,7 +203,9 @@ async function renderPreview(
     0,
   );
   console.log(`\n[preview] summary`);
-  for (const [status, count] of [...counts].sort()) {
+  for (const [status, count] of [...counts].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
     console.log(`  ${status}: ${count}`);
   }
   console.log(`  images: ${rendered.attachments.length} (${totalBytes} bytes)`);

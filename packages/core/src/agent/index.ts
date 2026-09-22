@@ -22,6 +22,7 @@ export {
   type AgentChatAttachment,
   type AgentChatReference,
   type MentionProvider,
+  type MentionItemMedia,
   type MentionProviderItem,
 } from "./types.js";
 export {

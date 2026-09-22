@@ -16,6 +16,8 @@ export {
   useJoinByDomain,
   useSetOrgDomain,
   useSetWorkspaceAppDefaultVisibility,
+  useWorkspaceAppAccess,
+  useSetWorkspaceAppAccess,
   useSetOrgWorkspaceUrl,
   useRevealA2ASecret,
   useSetA2ASecret,
@@ -23,7 +25,18 @@ export {
   useOrgRole,
   useAppRoles,
   useAppRole,
+  useAppPermissions,
+  RequirePermission,
+  useSetAppMemberRoles,
   useSetAppMemberRole,
+  useOrgSsoProviders,
+  useCreateOrgSsoProvider,
+  useVerifyOrgSsoProvider,
+  useDeleteOrgSsoProvider,
+  useOrgScim,
+  useCreateOrgScimConnection,
+  useDeleteOrgScimConnection,
+  useSetOrgAuthProvider,
 } from "./hooks.js";
 
 export type {
@@ -34,14 +47,25 @@ export type {
   UseOrgRoleResult,
   AppRoleAssignment,
   AppRolesInfo,
+  AppPermissionsInfo,
   WorkspaceAppDefaultVisibility,
+  WorkspaceAppAccessMode,
+  WorkspaceAppAccess,
+  OrgSsoProvider,
+  OrgSsoProvidersResult,
+  OrgScimConnection,
+  OrgScimResult,
 } from "./hooks.js";
 
 // Type-only re-export so templates can annotate the `appRoles` prop without
 // importing the server module.
 export type { AppRolesDescriptor } from "../../org/app-roles.js";
 
-export { OrgSwitcher, type OrgSwitcherProps } from "./OrgSwitcher.js";
+export {
+  OrgSwitcher,
+  type OrgSwitcherProps,
+  type OrgSwitcherUtilityLink,
+} from "./OrgSwitcher.js";
 export {
   InvitationBanner,
   type InvitationBannerProps,

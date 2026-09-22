@@ -1,10 +1,10 @@
 /**
  * In-memory aggregation over staged dataset rows.
  *
- * Deliberately avoids dialect-specific JSON SQL so the same code runs on both
- * Postgres and SQLite without any JSON_EXTRACT / -> operators.
+ * Deliberately keeps aggregation in memory instead of relying on PostgreSQL
+ * JSON operators.
  *
- * Supported aggregations (all portable, no SQL required):
+ * Supported aggregations (no SQL required):
  *   - groupBy + sum / avg / count / min / max per group
  *   - where filters: equals / not_equals / contains / gt / gte / lt / lte / exists
  *   - orderBy + limit

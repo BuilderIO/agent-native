@@ -25,7 +25,7 @@ function toolCallAfter(input: Record<string, unknown>, result = "ok") {
   return buildA2AAgentActivitySnapshot(state).toolCalls[0];
 }
 
-describe("Agent Native A2A activity", () => {
+describe("Agent-Native A2A activity", () => {
   it("records redacted tool input and a bounded result summary", () => {
     let state = createA2AAgentActivityState(1_000);
     state = applyA2AAgentActivityEvent(

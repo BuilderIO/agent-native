@@ -356,6 +356,130 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## Connexions d'agents hébergés {#hosted-agent-connections}
+
+Un agent hébergé peut participer à A2A lorsqu'il expose un point de terminaison
+A2A compatible. Un fournisseur de modèles ou un SDK d'agents seul ne constitue
+pas un pair A2A. Gardez l'interface, les actions et la base de données de
+l'application sur son hôte habituel, puis connectez l'environnement d'exécution
+de l'agent par un adaptateur ou son point de terminaison A2A.
+
+Une connexion hébergée comprend les métadonnées du point de terminaison et un
+descripteur d'authentification. Conservez ces métadonnées avec la ressource de
+l'agent distant ou l'enregistrement de connexion. Ne placez jamais de jeton ou
+de secret client dans le manifeste :
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url` est le point de terminaison d'appel ou l'URL de base. `cardUrl` est
+facultatif lorsque la découverte utilise `/.well-known/agent-card.json`.
+Utilisez-le lorsque le fournisseur publie sa carte ailleurs. Le client lit la
+version du protocole dans la carte de l'agent. Si la carte du fournisseur ne la
+contient pas, transmettez `protocolVersion` directement à `A2AClient`. `auth`
+décrit comment le code serveur obtient un jeton Bearer. Les descripteurs
+pris en charge sont `bearer` avec un `credentialRef` stocké dans le coffre, ou
+`oauth-client-credentials` avec `tokenUrl`, `clientId`, `clientSecretRef` et
+`scope`. `credentialRef` et `clientSecretRef` sont des références, jamais les
+valeurs des secrets.
+
+### A2A Bearer générique {#generic-bearer-a2a}
+
+Utilisez le client standard lorsque le pair accepte `Authorization: Bearer ...`,
+fournit une carte compatible et accepte le JSON-RPC Agent-Native :
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+Résolvez `token` côté serveur via la connexion de l'espace de travail ou le
+coffre. Ne l'envoyez pas depuis le code du navigateur, ne l'écrivez pas dans un
+manifeste et ne l'incluez pas dans une invite. Une clé API statique est
+seulement un identifiant de transport pour le service distant. Elle n'établit
+pas l'identité de l'appelant Agent-Native et ne transporte pas
+`approvedActions`.
+
+### Microsoft Foundry {#microsoft-foundry}
+
+[Les agents hébergés Azure AI Foundry](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+exécutent votre code ou conteneur d'agent derrière un point de terminaison,
+une identité, une mise à l'échelle, un état de session et une observabilité
+gérés. Ce modèle héberge l'environnement d'exécution de l'agent. Gardez
+l'interface, les actions et le déploiement PostgreSQL Agent-Native sur l'hôte
+de l'application et appelez le point de terminaison Foundry côté serveur.
+
+Foundry peut exposer un point de terminaison A2A via [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
+Il exige l'authentification Microsoft Entra et l'appelant doit disposer de
+l'autorisation Foundry Agent Consumer. Utilisez la carte et le point de
+terminaison v0.3 du fournisseur avec `cardUrl` et `protocolVersion` lorsque le
+point de terminaison parle le JSON-RPC Agent-Native. Le fournisseur de jetons
+doit obtenir et renouveler un jeton d'accès Entra. `A2A_SECRET` et une clé API
+statique ne suffisent pas pour l'authentification Foundry.
+
+### Gemini Enterprise {#gemini-enterprise}
+
+[Gemini Enterprise peut enregistrer des agents A2A externes](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
+et son Agent Registry peut publier un point de terminaison proxy. Sa liaison
+HTTP+JSON utilise des chemins propres au fournisseur : la découverte utilise
+`GET {url}/v1/card`, l'appel `POST {url}/v1/message:send` et le streaming
+`POST {url}/v1/message:stream`. Les requêtes utilisent des jetons Bearer
+Google OAuth ou ADC et les autorisations Google Cloud IAM. Consultez [Appeler un agent avec son point de terminaison A2A de registre](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+pour les exigences de point de terminaison et d'autorisation.
+
+Ces chemins diffèrent des chemins JSON-RPC Agent-Native
+(`/.well-known/agent-card.json` et `/_agent-native/a2a`). N'enregistrez le
+point de terminaison qu'après avoir ajouté un adaptateur qui traduit le format
+du protocole et obtient puis renouvelle les identifiants Google. Si la cible
+expose séparément un point de terminaison A2A standard, utilisez-le avec les
+instructions Bearer génériques. Le trafic d'enregistrement Gemini Enterprise
+ne passe pas par les règles Agent Gateway. Appliquez donc les règles
+d'authentification et d'autorisation propres à la cible.
+
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents ne fournit pas de point de terminaison A2A entrant. Utilisez l’adaptateur du framework lorsque Agent-Native doit gérer la surface A2A, l’état du workflow et les approbations, tandis que l’agent hébergé gère sa session, son contexte et ses outils. L’adaptateur crée une session Managed Agents, envoie des événements `user.message` et lit le flux d’événements de la session. Un événement bloquant `agent.tool_use` ou `agent.mcp_tool_use` devient une tâche A2A `input-required` et un événement runtime `approval-request`. Reprenez avec des confirmations structurées explicites dans les métadonnées retournées ; ne déduisez jamais une approbation d’un message :
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` est une référence de coffre pour la clé API Anthropic. L’adaptateur la résout dans le périmètre de l’utilisateur et de l’organisation appelants, puis envoie les en-têtes requis `anthropic-beta: managed-agents-2026-04-01` et `anthropic-version: 2023-06-01`. Enregistrez `anthropic-managed-agents` dans le catalogue des connexions de l’espace de travail pour réutiliser les autorisations existantes pour chaque application. L’adaptateur est monté sur le point d’extension `A2AConfig.handler` habituel :
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## Invocation d'un espace de travail programmatique {#programmatic-invoke}
 
 Pour les espaces de travail natifs d'agent, préférez l'assistant `agentNative` lorsque du code ou un
@@ -428,7 +552,7 @@ La cible se résout de la même manière que `agentNative.invoke()` : par identi
 
 ## Activité de l’agent délégué {#delegated-agent-activity}
 
-Les pairs Agent Native peuvent joindre aux messages d’état de tâche une partie
+Les pairs Agent-Native peuvent joindre aux messages d’état de tâche une partie
 `data` facultative avec `kind: "agent-native/agent-activity"`. Elle contient un
 instantané borné des résumés de raisonnement visibles par l’utilisateur, des
 noms et états des outils, du temps écoulé et du texte de réponse progressif.

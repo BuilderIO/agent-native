@@ -458,7 +458,7 @@ export async function runSkillsCli(
       return;
     }
     if (shouldShowDelegatedStartupProgress(parsed, options)) {
-      process.stderr.write("Preparing Agent Native skills...\n");
+      process.stderr.write("Preparing Agent-Native skills...\n");
     }
     const loadedSource = shouldLoadPublicCatalog(parsed)
       ? await materializeSource(parsed.source ?? DEFAULT_SKILLS_SOURCE)
@@ -705,7 +705,7 @@ export async function installSkills(
     const skillFileClients = clients.filter(supportsSkillFiles);
     if (skillFileClients.length === 0 && mcpApps.length === 0) {
       throw new Error(
-        "Claude Cowork is MCP-only for Agent Native skills. Choose Codex, Claude Code, Pi, Cursor, OpenCode, or GitHub Copilot for local skill files, or install an app-backed skill with MCP enabled.",
+        "Claude Cowork is MCP-only for Agent-Native skills. Choose Codex, Claude Code, Pi, Cursor, OpenCode, or GitHub Copilot for local skill files, or install an app-backed skill with MCP enabled.",
       );
     }
 

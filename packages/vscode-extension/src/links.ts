@@ -44,7 +44,7 @@ export function buildVsCodeOpenUri(url: string): string {
 export function titleForUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    if (parsed.hostname) return `Agent Native: ${parsed.hostname}`;
+    if (parsed.hostname) return `Agent-Native: ${parsed.hostname}`;
   } catch {}
-  return "Agent Native";
+  return "Agent-Native";
 }

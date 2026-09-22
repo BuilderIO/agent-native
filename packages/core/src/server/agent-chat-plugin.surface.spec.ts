@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { attachToolSearch } from "../agent/tool-search.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import type { FrameworkToolGroup } from "../framework-tools.js";
 import {
   _agentChatPromptSectionsForTests,
@@ -13,7 +17,9 @@ import {
   filterPromptActionsToSurface,
   filterRuntimeActionsToSurface,
   resolveProductionCodeExecutionForActionSurface,
+  resolveConnectSetupInitialToolNames,
   resolveHostedBuilderHandoff,
+  resolveConfiguredAgentModel,
   resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
@@ -27,6 +33,16 @@ import {
   buildFrameworkCoreCompact,
 } from "./prompts/index.js";
 import { runWithRequestContext } from "./request-context.js";
+
+const agentChatPluginSourceUrl = new URL(
+  "./agent-chat-plugin.ts",
+  import.meta.url,
+);
+const devScriptSourceUrl = new URL("../scripts/dev/index.ts", import.meta.url);
+const productionAgentSourceUrl = new URL(
+  "../agent/production-agent.ts",
+  import.meta.url,
+);
 
 describe("shouldBlockInProductCodeEditingSurface", () => {
   it("blocks app-rendered chat surfaces, including legacy iframe labels", () => {
@@ -123,8 +139,19 @@ describe("interactive agent run options", () => {
 });
 
 describe("request-scoped action surface", () => {
+  it("does not import the release migration script during dev discovery", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const skipFiles = source.match(
+      /const skipFiles = new Set\(\[[\s\S]*?\]\);/,
+    )?.[0];
+
+    expect(skipFiles).toContain('"migrate-production"');
+  });
+
   it("restores the durable worker org from the validated persisted surface", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -188,7 +215,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("wires the safe code-execution mode into the interactive production registry", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -201,7 +228,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps request-scoped action surfaces out of the dev-native tool switch", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const devNativeBlock = source.match(
@@ -216,7 +243,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps request-scoped dev actions available without exposing them natively", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -229,7 +256,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps local coding tools in every dev handler variant", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -244,11 +271,33 @@ describe("request-scoped action surface", () => {
     );
   });
 
-  it("keeps local coding tools available while scoping app actions in dev", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+  it("generates chat tab titles with the shared completion engine", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
-    const devSource = readFileSync("src/scripts/dev/index.ts", {
+    const start = source.indexOf("`${routePath}/generate-title`");
+    const end = source.indexOf("// ─── Run management endpoints", start);
+    const route = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(route).toContain(
+      'if (titleOwnerContext.anonymous) return { title: "" };',
+    );
+    expect(route).toContain("runWithRequestContext");
+    expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
+    expect(route).toContain("{ userEmail: ownerEmail, orgId }");
+    expect(route).toContain("completeText({");
+    expect(route).toContain("appId: options?.appId");
+    expect(route).toContain('return { title: "" };');
+    expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
+  });
+
+  it("keeps local coding tools available while scoping app actions in dev", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const devSource = readFileSync(devScriptSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -256,7 +305,7 @@ describe("request-scoped action surface", () => {
       /const localDevActionNames = new Set\(Object\.keys\(devScriptRegistry\)\);/,
     );
     expect(source).toMatch(
-      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
+      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?if \(normalizedSurface\.actionScope\)[\s\S]*?allowedActionNames: normalizedSurface\.allowedActionNames,[\s\S]*?actionScope: normalizedSurface\.actionScope,[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
     );
     expect(devSource).toMatch(
       /unauthorizedActionFromBash\([\s\S]*?getRequestRunContext\(\)\?\.allowedActionNames/s,
@@ -294,7 +343,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("forwards the resolver into every interactive production handler", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -342,7 +391,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("uses the request-filtered supplier for production, lean, and dev sandbox meta-tools", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -354,7 +403,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("filters the action registry before agent-team tasks snapshot it", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -384,7 +433,7 @@ describe("hosted Builder handoff surface", () => {
   });
 
   it("wires the hosted handoff into the first-request and lean registries", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     expect(source).toMatch(
@@ -414,6 +463,50 @@ describe("hosted Builder handoff surface", () => {
   });
 });
 
+// A local `npx` Chat app registers `connect-builder` (it arrives with
+// `browserTools`), but its *name* used to reach the first-request tool list
+// only through `hostedBuilderHandoff`, which is empty whenever the environment
+// can toggle Code mode. So "connect Builder for me" in local dev found no tool
+// on the turn the user asked, while the composer and setup card kept offering
+// "Connect Builder.io" — the reported mismatch between the two surfaces.
+describe("connect setup initial tool names", () => {
+  const setupEntry = {
+    tool: { description: "Render a setup card.", parameters: {} },
+    run: async () => "card",
+  } as unknown as ActionEntry;
+
+  it("advertises each setup CTA the registry actually has", () => {
+    expect(
+      resolveConnectSetupInitialToolNames({
+        "connect-file-storage": setupEntry,
+        "connect-builder": setupEntry,
+      }),
+    ).toEqual(["connect-file-storage", "connect-builder"]);
+    expect(
+      resolveConnectSetupInitialToolNames({
+        "connect-file-storage": setupEntry,
+      }),
+    ).toEqual(["connect-file-storage"]);
+    expect(resolveConnectSetupInitialToolNames({})).toEqual([]);
+  });
+
+  it("names connect-builder on the first request outside hosted registries", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const initialNamesStart = source.indexOf(
+      "const effectiveInitialToolNames = [",
+    );
+    const initialNamesBlock = source.slice(
+      initialNamesStart,
+      initialNamesStart + 900,
+    );
+    expect(initialNamesBlock).toContain(
+      "...resolveConnectSetupInitialToolNames(browserTools),",
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // `resolveInteractiveAgentRunOptions` echoing its own inputs (above) proves
 // nothing about whether the value it returns actually reaches the run
@@ -428,26 +521,36 @@ describe("hosted Builder handoff surface", () => {
 // (run-manager.spec.ts) cannot see, since they drive `startRun` directly.
 describe("interactive agent run options — wiring guards", () => {
   it("spreads resolveInteractiveAgentRunOptions(options) into every createProductionAgentHandler call site", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
-    const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
-    const spreadSites = source.match(
-      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
-    );
+    const handlerCallSites = [
+      ...source.matchAll(/createProductionAgentHandler\(\{/g),
+    ];
+    const handlerBlocks = handlerCallSites.map((handlerCallSite, index) => {
+      const start = handlerCallSite.index ?? 0;
+      const end = handlerCallSites[index + 1]?.index ?? source.length;
+      return source.slice(start, end);
+    });
 
     // Three interactive handlers are created today (prod, anonymous
     // read-only, dev). If this count changes, a new call site was added or
-    // removed — update this guard alongside it, and confirm the new/changed
-    // site still spreads the run options immediately before
-    // `finalResponseGuard`.
+    // removed - update this guard alongside it, and confirm the new/changed
+    // site still includes both required options.
     expect(handlerCallSites).toHaveLength(3);
-    expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
+    for (const handlerBlock of handlerBlocks) {
+      expect(handlerBlock).toContain(
+        "...resolveInteractiveAgentRunOptions(options),",
+      );
+      expect(handlerBlock).toContain(
+        "finalResponseGuard: options?.finalResponseGuard,",
+      );
+    }
   });
 
   it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {
-    const source = readFileSync("src/agent/production-agent.ts", {
+    const source = readFileSync(productionAgentSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -476,7 +579,7 @@ describe("interactive agent run options — wiring guards", () => {
   // have no Builder account. No route test can see a hand-picked field, so this
   // guard stands in for one.
   it("reports whether the deployment pays for its own AI on /runs/active", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -489,7 +592,7 @@ describe("interactive agent run options — wiring guards", () => {
   });
 
   it("keeps background workers alive through run-manager finalization", () => {
-    const source = readFileSync("src/agent/production-agent.ts", {
+    const source = readFileSync(productionAgentSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -502,7 +605,7 @@ describe("interactive agent run options — wiring guards", () => {
 
 describe("background automation action surface — wiring guards", () => {
   it("uses one shared background action builder with unattended email tools", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -522,8 +625,18 @@ describe("background automation action surface — wiring guards", () => {
 // resolver in isolation; these source guards prove they are actually wired at
 // the two points that matter, and that the UI's routes stay out of it.
 describe("framework tool gating — wiring guards", () => {
-  const source = readFileSync("src/server/agent-chat-plugin.ts", {
+  const source = readFileSync(agentChatPluginSourceUrl, {
     encoding: "utf-8",
+  });
+
+  it("merges core actions before filtering an explicit agent registry", () => {
+    const merge = source.indexOf(
+      "await mergeCoreSharingActions(templateScriptsAll);",
+    );
+    expect(merge).toBeGreaterThan(source.indexOf("const rawActions ="));
+    expect(merge).toBeLessThan(
+      source.indexOf("filterAgentTools(templateScriptsAll)"),
+    );
   });
 
   it("resolves the framework tool surface once and gates both agent registries", () => {
@@ -567,7 +680,7 @@ describe("framework tool gating — wiring guards", () => {
 
 describe("lean workspace-app surface — wiring guards", () => {
   it("keeps cross-app discovery and delegation available when enabled", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -581,7 +694,7 @@ describe("lean workspace-app surface — wiring guards", () => {
 
 describe("delegated agent run policy — wiring guards", () => {
   it("forwards non-default delegated budgets to MCP ask_app", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const mcpCallStart = source.indexOf("await runMCPAgentLoop(");
@@ -830,7 +943,7 @@ describe("prompt content invariants", () => {
   });
 
   it("registers extension actions only after an explicit opt-in", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -1140,7 +1253,7 @@ describe("delegated tool surfaces in dev", () => {
   // the run dies on the repetition guard minutes later. Both delegated
   // surfaces therefore keep template actions native even in dev.
   it("keep template actions native so a sibling never has to shell out", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -1173,5 +1286,26 @@ describe("delegated tool surfaces in dev", () => {
     );
     expect(mcpPrompt).toContain("basePrompt +");
     expect(mcpPrompt).not.toContain("mcpDevPrompt");
+  });
+});
+
+describe("resolveConfiguredAgentModel", () => {
+  afterEach(() => resetAppConfigForTests());
+
+  it("returns undefined when neither layer is set, so the engine default wins", () => {
+    expect(resolveConfiguredAgentModel(undefined)).toBeUndefined();
+    expect(resolveConfiguredAgentModel({})).toBeUndefined();
+  });
+
+  it("falls back to the declared agent.model when the mount passes none", () => {
+    defineAppConfig({ agent: { model: "claude-sonnet-5" } });
+    expect(resolveConfiguredAgentModel({})).toBe("claude-sonnet-5");
+  });
+
+  it("lets the per-mount option win over the declared field", () => {
+    defineAppConfig({ agent: { model: "claude-sonnet-5" } });
+    expect(resolveConfiguredAgentModel({ model: "claude-opus-5" })).toBe(
+      "claude-opus-5",
+    );
   });
 });

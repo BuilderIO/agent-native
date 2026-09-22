@@ -1,6 +1,10 @@
 import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
+import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
 /**
  * Shared self-dispatch helper for the framework's serverless background-work
  * pattern: enqueue a unit of work to SQL, then fire a fresh HTTP POST back to
@@ -27,6 +31,8 @@ import {
   getConfiguredAppBasePath,
   withConfiguredAppBasePath,
 } from "./app-base-path.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
+import { getRequestContext } from "./request-context.js";
 
 /**
  * On serverless, returning from the dispatching handler before the outbound
@@ -81,9 +87,16 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
     );
   }
 
-  const proto = readHeader(event, "x-forwarded-proto") || "http";
   const host =
     readHeader(event, "host") || `localhost:${process.env.PORT || 3000}`;
+  const hostName = (
+    host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0]
+  ).toLowerCase();
+  const isLoopback =
+    hostName === "localhost" || hostName === "127.0.0.1" || hostName === "::1";
+  const proto = isLoopback
+    ? "http"
+    : readHeader(event, "x-forwarded-proto") || "http";
   return withConfiguredAppBasePath(`${proto}://${host}`);
 }
 
@@ -141,10 +154,8 @@ async function dispatchResponseError(
  * may take minutes); it is only raced against a short settle timer so the
  * request reliably leaves a serverless box before it freezes.
  *
- * When `A2A_SECRET` is unset in local SQLite development, the request is sent
- * unsigned — the processor accepts unsigned dispatches in dev and relies on
- * the SQL atomic claim for double-processing protection. Shared and production
- * dispatches fail before sending an unauthenticated request.
+ * Dispatches require an HMAC signature before sending an unauthenticated request.
+ * Local PGlite development may use the trusted loopback path when no secret is set.
  */
 /**
  * For host-root dispatch targets (`/.netlify/functions/*`), strip the configured
@@ -174,15 +185,18 @@ export async function fireInternalDispatch(
   // routes land on the right app; for a host-root function url we must dispatch
   // to `https://host/.netlify/functions/<name>` instead. Strip the base path
   // suffix from the resolved base url for `/.netlify/*` dispatch targets only.
-  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${options.path}`;
+  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${publicFrameworkPath(options.path)}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+  if (getRequestContext()?.isSyntheticTraffic === true) {
+    headers[SYNTHETIC_TRAFFIC_HEADER] = SYNTHETIC_TRAFFIC_BETA_E2E;
+  }
   try {
     headers["Authorization"] = `Bearer ${signInternalToken(options.taskId)}`;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    // Only local SQLite development has the loopback/unsigned exception. A
+    // Only local PGlite development has the loopback/unsigned exception. A
     // shared database or production deployment must never turn a signing
     // failure into an unauthenticated processor request.
     if (

@@ -26,8 +26,10 @@ export function setDesktopChatRelayBase(
   apiUrl: string | null | undefined,
 ): void {
   const base = resolveDesktopChatRelayBase(apiUrl);
-  if (base) relayBaseByAppId.set(appId, base);
-  else {
+  if (base) {
+    relayBaseByAppId.set(appId, base);
+    noBaseBackoffAttempts.clear();
+  } else {
     relayBaseByAppId.delete(appId);
     activeRelayAppIds.delete(appId);
   }
@@ -96,6 +98,59 @@ export function createDesktopChatRelayFetch(appId: string): typeof fetch {
   };
 }
 
+/**
+ * Thrown when a framework-prefixed request has no relay base to reach —
+ * no desktop app chat shell has resolved its `apiUrl` yet. Distinct from a
+ * network failure so callers (and tests) can tell "nothing to talk to" apart
+ * from "the request failed", instead of the renderer's file:// origin
+ * silently eating the request as an indistinguishable ERR_FILE_NOT_FOUND.
+ */
+export class DesktopChatRelayUnavailableError extends Error {
+  constructor(pathname: string) {
+    super(
+      `Desktop chat relay has no app mounted; refusing to route ${pathname} to file://.`,
+    );
+    this.name = "DesktopChatRelayUnavailableError";
+  }
+}
+
+// Growing delay before rejecting a request with no relay base, so any caller
+// that retries immediately on rejection is throttled by the wait instead of
+// free-running — this is what used to fire ~350 req/s against file:// with
+// no backoff. Resets once a base resolves (setDesktopChatRelayBase above).
+const NO_BASE_BACKOFF_BASE_MS = 250;
+const NO_BASE_BACKOFF_MAX_MS = 10_000;
+// Per pathname, so one endpoint that retries in a tight loop cannot push a
+// different endpoint's first attempt out to the 10s ceiling.
+const noBaseBackoffAttempts = new Map<string, number>();
+
+function rejectUnavailable(
+  pathname: string,
+  signal?: AbortSignal | null,
+): Promise<Response> {
+  const attempts = noBaseBackoffAttempts.get(pathname) ?? 0;
+  noBaseBackoffAttempts.set(pathname, attempts + 1);
+  const delay = Math.min(
+    NO_BASE_BACKOFF_BASE_MS * 2 ** attempts,
+    NO_BASE_BACKOFF_MAX_MS,
+  );
+  return new Promise((_resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DesktopChatRelayUnavailableError(pathname));
+    }, delay);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export const DesktopChatRelayAppContext = createContext<string | null>(null);
 
 export function useDesktopChatRelayFetch(): typeof fetch {
@@ -114,12 +169,16 @@ export function installDesktopChatFetchRelay(): void {
   originalFetch = window.fetch.bind(window);
   window.fetch = (input, init) => {
     const requestUrl = resolveRequestUrl(input);
-    if (
-      !requestUrl ||
-      !requestUrl.pathname.startsWith(FRAMEWORK_PREFIX) ||
-      relayBaseByAppId.size === 0
-    ) {
+    if (!requestUrl || !requestUrl.pathname.startsWith(FRAMEWORK_PREFIX)) {
       return originalFetch!(input, init);
+    }
+    if (relayBaseByAppId.size === 0) {
+      // No app has resolved a relay base yet. The renderer itself is served
+      // from file://, so handing this to the real fetch can never succeed —
+      // it would just resolve the relative path against file:// and reject
+      // with an opaque ERR_FILE_NOT_FOUND indistinguishable from any other
+      // failure. Fail closed with a typed, backed-off rejection instead.
+      return rejectUnavailable(requestUrl.pathname, init?.signal);
     }
 
     const bases = [...relayBaseByAppId.entries()];

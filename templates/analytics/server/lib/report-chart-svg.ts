@@ -77,7 +77,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
 const NEUTRAL_COLOR = "#71717a";
 
 function escapeXml(value: unknown): string {
-  return String(value ?? "")
+  return (typeof value === "string" ? value : (JSON.stringify(value) ?? ""))
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

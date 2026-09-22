@@ -9,10 +9,14 @@ const discoverAgents = vi.fn();
 const findAgent = vi.fn();
 
 vi.mock("../a2a/client.js", () => ({
+  A2ANoJsonRpcInterfaceError: class A2ANoJsonRpcInterfaceError extends Error {},
   A2AClient: class {
     constructor(public baseUrl: string) {}
     getAgentCard(options?: { timeoutMs?: number }) {
       return getAgentCard(this.baseUrl, options);
+    }
+    resolveEndpointUrl() {
+      return Promise.resolve(this.baseUrl);
     }
   },
 }));
@@ -48,7 +52,7 @@ function skill(overrides: Partial<AgentSkill> = {}): AgentSkill {
 function card(overrides: Partial<AgentCard> = {}): AgentCard {
   return {
     name: "Analytics",
-    description: "Agent-native analytics agent",
+    description: "Agent-Native analytics agent",
     url: "https://analytics.example.test/_agent-native/a2a",
     version: "1.0.0",
     protocolVersion: "0.3",
@@ -193,7 +197,7 @@ describe("describe-workspace-apps", () => {
     const output = await run({ app: "analytics" }, undefined, "coach");
 
     expect(output).toContain("Product analytics, funnels, and session replay.");
-    expect(output).not.toContain("Agent-native analytics agent");
+    expect(output).not.toContain("Agent-Native analytics agent");
   });
 
   it("falls back to the card description when the manifest has none", async () => {
@@ -201,7 +205,7 @@ describe("describe-workspace-apps", () => {
 
     const output = await run({ app: "analytics" }, undefined, "coach");
 
-    expect(output).toContain("Agent-native analytics agent");
+    expect(output).toContain("Agent-Native analytics agent");
   });
 
   it("lists the real app ids when the requested app does not exist", async () => {

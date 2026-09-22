@@ -13,7 +13,7 @@
  * joins on `template_id`.
  */
 
-import { table, text, integer } from "../db/schema.js";
+import { table, text, bigint } from "../db/schema.js";
 
 export const emailLog = table("email_log", {
   id: text("id").primaryKey(),
@@ -30,11 +30,36 @@ export const emailLog = table("email_log", {
   subject: text("subject").notNull(),
   /** "sent" once the provider accepted it, or "failed". Never optimistic. */
   status: text("status", { enum: ["sent", "failed"] }).notNull(),
-  /** Provider error text when status is "failed". */
+  /**
+   * Error text when the call never reached the provider or threw before/
+   * outside getting an HTTP response (network error, timeout/abort, credential
+   * resolution failure). Distinct from `responseStatus`/`responseBody`, which
+   * capture a provider response the request DID reach, so "we never reached
+   * the provider" and "the provider rejected it" stay visibly different.
+   */
   error: text("error"),
   /** "resend" | "sendgrid" | "dev". */
   provider: text("provider").notNull(),
-  createdAt: integer("created_at").notNull(),
+  /**
+   * Exact outbound JSON body sent to the provider, minus the Authorization
+   * header (the only secret in the request) and any attachment `content`
+   * bytes (large, no diagnostic value for "who did this go to").
+   */
+  requestPayload: text("request_payload"),
+  /** Raw HTTP status code from the provider, when a response was received. */
+  responseStatus: bigint("response_status", { mode: "number" }),
+  /** Raw HTTP response body text from the provider, when a response was received. */
+  responseBody: text("response_body"),
+  /**
+   * Rendered HTML body of the message that was sent, truncated like other
+   * logged text. Magic links, reset links, and OTP codes are redacted before
+   * this is written (see `redactSensitiveEmailBodyContent`) because this
+   * table is org-admin readable.
+   */
+  htmlBody: text("html_body"),
+  /** Rendered plain-text body, when the send included one. Same redaction as `htmlBody`. */
+  textBody: text("text_body"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
 export const EMAIL_LOG_CREATE_SQL = `CREATE TABLE IF NOT EXISTS email_log (
@@ -48,6 +73,11 @@ export const EMAIL_LOG_CREATE_SQL = `CREATE TABLE IF NOT EXISTS email_log (
   status TEXT NOT NULL,
   error TEXT,
   provider TEXT NOT NULL,
+  request_payload TEXT,
+  response_status INTEGER,
+  response_body TEXT,
+  html_body TEXT,
+  text_body TEXT,
   created_at INTEGER NOT NULL
 )`;
 
@@ -56,3 +86,9 @@ export const EMAIL_LOG_TEMPLATE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS email_lo
 
 export const EMAIL_LOG_ORG_APP_INDEX_SQL = `CREATE INDEX IF NOT EXISTS email_log_org_app_created_idx
   ON email_log (org_id, app, created_at)`;
+
+export const EMAIL_LOG_ORG_STATUS_INDEX_SQL = `CREATE INDEX IF NOT EXISTS email_log_org_status_created_idx
+  ON email_log (org_id, status, created_at)`;
+
+export const EMAIL_LOG_ORG_PROVIDER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS email_log_org_provider_created_idx
+  ON email_log (org_id, provider, created_at)`;

@@ -199,7 +199,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     }, MCP_APP_INITIALIZE_TIMEOUT_MS);
     const bridge = new AppBridge(
       null,
-      { name: "Agent Native", version: "1.0.0" },
+      { name: "Agent-Native", version: "1.0.0" },
       {
         openLinks: {},
         serverTools: {},

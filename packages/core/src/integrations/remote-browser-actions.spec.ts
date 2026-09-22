@@ -34,7 +34,7 @@ const device = {
   id: "device-1",
   ownerEmail: "owner@example.com",
   orgId: "org-1",
-  label: "Agent Native for Chrome",
+  label: "Agent-Native for Chrome",
   platform: "chrome-extension",
   appVersion: "0.1.0",
   hostName: null,

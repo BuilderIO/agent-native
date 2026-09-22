@@ -3,6 +3,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { useEffect } from "react";
 import { useParams } from "react-router";
 
 import { RecordActions } from "@/components/crm/RecordActions";
@@ -25,6 +27,19 @@ export default function RecordRoute() {
   const detail = summary
     ? ({ ...summary, ...(query.data as object) } as CrmRecordDetail)
     : undefined;
+
+  useEffect(() => {
+    if (!detail) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      detail.displayName,
+      "CRM record",
+    )} — CRM`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [detail?.displayName]);
 
   // A read that failed is not a record that is gone. Rendering the "archived or
   // no longer shared" empty state for a transport or permission error would

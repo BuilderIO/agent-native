@@ -5,6 +5,8 @@ import {
   closePenPath,
   constrainPointTo45Degrees,
   createCornerNode,
+  createPenCuspLatch,
+  createPenDragNode,
   createSmoothNode,
   getPenPathGeometry,
   hitTestPenAnchor,
@@ -225,6 +227,59 @@ describe("pen path helpers", () => {
     // created — the incoming segment is left a plain corner.
     expect(node.handleOut).toEqual({ x: 70, y: 60 });
     expect(node.handleIn).toBeUndefined();
+  });
+
+  describe("createPenDragNode (Alt on a new anchor)", () => {
+    it("mirrors handleIn from handleOut while Alt is untouched", () => {
+      const latch = createPenCuspLatch();
+      const node = createPenDragNode(
+        { x: 50, y: 50 },
+        { x: 70, y: 60 },
+        latch,
+        false,
+      );
+      expect(node.handleIn).toEqual({ x: 30, y: 40 });
+      expect(node.handleOut).toEqual({ x: 70, y: 60 });
+    });
+
+    it("freezes handleIn at the tangent Alt was pressed on instead of deleting it", () => {
+      const latch = createPenCuspLatch();
+      createPenDragNode({ x: 50, y: 50 }, { x: 70, y: 60 }, latch, false);
+      const cusp = createPenDragNode(
+        { x: 50, y: 50 },
+        { x: 90, y: 20 },
+        latch,
+        true,
+      );
+      expect(cusp.handleIn).toEqual({ x: 30, y: 40 });
+      expect(cusp.handleOut).toEqual({ x: 90, y: 20 });
+    });
+
+    it("stays broken after Alt is released mid-drag", () => {
+      const latch = createPenCuspLatch();
+      createPenDragNode({ x: 50, y: 50 }, { x: 70, y: 60 }, latch, false);
+      createPenDragNode({ x: 50, y: 50 }, { x: 90, y: 20 }, latch, true);
+      const afterRelease = createPenDragNode(
+        { x: 50, y: 50 },
+        { x: 120, y: 10 },
+        latch,
+        false,
+      );
+      expect(afterRelease.handleIn).toEqual({ x: 30, y: 40 });
+      expect(afterRelease.handleOut).toEqual({ x: 120, y: 10 });
+    });
+
+    it("leaves the incoming segment a corner when Alt is held from the first tick", () => {
+      const latch = createPenCuspLatch();
+      const node = createPenDragNode(
+        { x: 50, y: 50 },
+        { x: 70, y: 60 },
+        latch,
+        true,
+      );
+      expect(node.handleIn).toBeUndefined();
+      expect(node.handleOut).toEqual({ x: 70, y: 60 });
+    });
   });
 
   describe("snapPenAnchorPoint (P15)", () => {

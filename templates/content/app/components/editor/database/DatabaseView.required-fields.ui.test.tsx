@@ -27,7 +27,7 @@ import { BuilderRequiredFieldsCard } from "./DatabaseView";
 
 const source = {
   id: "builder-source",
-  sourceName: "Agent Native blog article test",
+  sourceName: "Agent-Native blog article test",
   sourceType: "builder-cms",
   sourceTable: "agent-native-blog-article-test",
   metadata: {

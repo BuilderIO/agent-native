@@ -6,6 +6,7 @@ import {
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
   buildAgentReadableResourceDiscovery,
+  normalizeDocumentTitle,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import {
@@ -144,8 +145,10 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
-  const title = loaderData?.deck?.title ?? "Shared Presentation";
-  return [{ title }];
+  const title = loaderData?.deck?.title
+    ? normalizeDocumentTitle(loaderData.deck.title, "Shared Presentation")
+    : "Shared Presentation";
+  return [{ title: `${title} — Slides` }];
 };
 
 export default function PublicDeckRoute() {

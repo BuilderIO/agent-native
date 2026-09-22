@@ -8,12 +8,24 @@ const generateProviderMock = vi.hoisted(() => vi.fn());
 const createAssetFromBufferMock = vi.hoisted(() => vi.fn());
 const getObjectMock = vi.hoisted(() => vi.fn());
 const prepareInpaintMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
+const draftProvenanceAccessMock = vi.hoisted(() =>
+  vi.fn((libraryId: string) => ({
+    resourceType: "asset-library",
+    resourceId: libraryId,
+    recordMinRole: "viewer" as const,
+  })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
 }));
 
-vi.mock("@agent-native/core/action", () => ({}));
+vi.mock("@agent-native/core/action", () => ({
+  defineAction: (entry: unknown) => entry,
+}));
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(async () => undefined),
@@ -21,12 +33,43 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: vi.fn(() => "designer@example.com"),
   getRequestOrgId: vi.fn(() => "org-1"),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+  resolveAccess: vi.fn(async () => ({ role: "owner" })),
+}));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
+const unrestrictedScope = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
+}));
+
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
+  draftProvenanceAccess: draftProvenanceAccessMock,
+  // The draft-input guards have their own tests; these specs exercise the
+  // surrounding behavior with an approver's unrestricted scope.
+  draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
+  resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
+  unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
+  assertCanUseAssets: vi.fn(),
+  assertCanUseRuns: vi.fn(),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+  draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -56,6 +99,9 @@ vi.mock("../server/db/index.js", () => ({
     assetLibraries: { id: "libraries.id" },
     assetCollections: { id: "collections.id" },
     assetGenerationPresets: { id: "presets.id" },
+    assetTemplates: { id: "templates.id", libraryId: "templates.library_id" },
+    assetTemplateShares: {},
+    assetLibraryShares: {},
     assetGenerationRuns: { id: "runs.id" },
     assetGenerationSessions: { id: "sessions.id" },
     assetGenerationSessionItems: {},
@@ -115,9 +161,18 @@ vi.mock("../server/lib/storage.js", () => ({
 }));
 
 vi.mock("./_helpers.js", () => ({
+  assetUrls: vi.fn((asset) => ({
+    previewUrl: asset.url,
+    thumbnailUrl: asset.url,
+  })),
   imageArtifactLinks: vi.fn(() => []),
   requireGenerationSessionInLibrary: vi.fn(),
-  serializeAsset: vi.fn((asset) => asset),
+  serializeAssetSummary: vi.fn((asset) => ({
+    ...asset,
+    artifactType: "image",
+    previewUrl: asset.url,
+    downloadUrl: asset.url,
+  })),
 }));
 
 vi.mock("./_image-model-default.js", () => ({
@@ -216,6 +271,7 @@ function asset(id: string, libraryId = "lib-1") {
 describe("generate-image preset reference board", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
     selectReferencesMock.mockResolvedValue([
       {
@@ -253,6 +309,75 @@ describe("generate-image preset reference board", () => {
       mask: Buffer.from("mask"),
       resized: false,
     });
+  });
+
+  it("generates with one global template in two brand kits", async () => {
+    const globalTemplate = { ...preset({}), libraryId: null };
+    for (const libraryId of ["kit-a", "kit-b"]) {
+      const db = createDb([
+        [{ ...library, id: libraryId }],
+        [globalTemplate],
+        [],
+      ]);
+      getDbMock.mockReturnValue(db);
+      await expect(
+        generateImage.run({
+          libraryId,
+          templateId: "preset-1",
+          prompt: "Post",
+        }),
+      ).resolves.toBeDefined();
+    }
+  });
+
+  it("records a kit viewer's provenance as draft work, not as editing the kit", async () => {
+    // A viewer may generate candidates, so every provenance write in this path
+    // must declare the draft role. Leaving the record at the `editor` default
+    // let the kit gate pass and then failed the turn with a bare
+    // `Requires editor role on asset-library <id> (have viewer)`.
+    const { recordGenerationCreativeContext } =
+      await import("@agent-native/creative-context/server");
+    libraryAccessMock.mockResolvedValue({ role: "viewer", canApprove: false });
+    getDbMock.mockReturnValue(
+      createDb([[library], [{ ...preset({}), libraryId: null }], []]),
+    );
+
+    await expect(
+      generateImage.run({
+        libraryId: "kit-1",
+        templateId: "preset-1",
+        prompt: "Post",
+      }),
+    ).resolves.toBeDefined();
+
+    expect(draftProvenanceAccessMock).toHaveBeenCalledWith("kit-1");
+    const recordCalls = vi.mocked(recordGenerationCreativeContext).mock.calls;
+    expect(recordCalls.length).toBeGreaterThan(0);
+    for (const [, options] of recordCalls) {
+      expect(options).toEqual({
+        artifactAccess: {
+          resourceType: "asset-library",
+          resourceId: "kit-1",
+          recordMinRole: "viewer",
+        },
+      });
+    }
+  });
+
+  it("rejects an associated template for a different brand kit", async () => {
+    getDbMock.mockReturnValue(
+      createDb([
+        [{ ...library, id: "kit-b" }],
+        [{ ...preset({}), libraryId: "kit-a" }],
+      ]),
+    );
+    await expect(
+      generateImage.run({
+        libraryId: "kit-b",
+        templateId: "preset-1",
+        prompt: "Post",
+      }),
+    ).rejects.toThrow("Template is associated to a different brand kit.");
   });
 
   it("rejects required variable entries without a fill", async () => {

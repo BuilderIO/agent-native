@@ -81,6 +81,28 @@ describe("classifyToolCallJournal", () => {
     expect(journal.interrupted[0].input).toEqual({ path: "a.ts" });
   });
 
+  it("preserves valid artifact receipts and filters malformed persisted elements", () => {
+    const events: AgentChatEvent[] = [
+      start("generate-asset", { prompt: "cover" }),
+      {
+        type: "tool_done",
+        tool: "generate-asset",
+        result: "...[truncated]",
+        artifacts: [
+          { kind: "image", id: "asset-1", url: "/asset/asset-1" },
+          null,
+          {},
+        ],
+      } as unknown as AgentChatEvent,
+    ];
+
+    const journal = classifyToolCallJournal(events);
+
+    expect(journal.completed[0].artifacts).toEqual([
+      { kind: "image", id: "asset-1", url: "/asset/asset-1" },
+    ]);
+  });
+
   it("treats all tool calls as completed when every start has a done", () => {
     const events: AgentChatEvent[] = [
       { type: "text", text: "working on it" },

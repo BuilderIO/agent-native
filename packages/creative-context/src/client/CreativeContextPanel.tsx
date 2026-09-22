@@ -418,7 +418,9 @@ function SourceRow({
   onDelete: (source: ContextSourceSummary) => void;
 }) {
   const t = useT();
-  const { formatDate, formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
+  const formatNumber = formatters.formatNumber.bind(formatters);
   return (
     <div className="flex items-start gap-3 border-t border-border/60 py-3 first:border-t-0">
       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
@@ -554,7 +556,8 @@ function PackRow({
   onDetails: (packId: string) => void;
 }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   return (
     <div className="flex items-center gap-3 border-t border-border/60 py-3 first:border-t-0">
       <div className="min-w-0 flex-1">
@@ -1200,7 +1203,8 @@ export function CreativeContextPanel({
   connectionsHref = "/settings/integrations",
 }: CreativeContextPanelProps) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const { data: org } = useOrg();
   const [libraryScope, setLibraryScope] = useState<AgentPageScope>(scope);
   const sourcesQuery = useCreativeContextSources({ limit: 100 });
@@ -1412,7 +1416,9 @@ export function CreativeContextPanel({
     brandProposal?.voiceDescriptors?.join(" · ") ?? brandProposal?.voiceLine;
   const canManageScope = libraryScope === "user" || canManageOrg;
   const canCreateContext =
-    canManageScope && contexts.some((context) => context.access.canAdmin);
+    contextsQuery.data?.canCreateContext === true &&
+    canManageScope &&
+    contexts.some((context) => context.access.canAdmin);
   const activeAppId = contextsQuery.data?.appId;
   const appDefaultContextId = contextsQuery.data?.appDefaultContextId ?? null;
   const canSetAppDefault = Boolean(

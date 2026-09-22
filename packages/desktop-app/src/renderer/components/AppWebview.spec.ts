@@ -22,6 +22,8 @@ import {
   resolveAppWebviewAuthState,
   resolveAppWebviewAuthStateFromProbe,
   resolveAppWebviewUrl,
+  resolveDesktopAppPath,
+  rememberDesktopEnvironmentLane,
   withDesktopEnvironmentOptOut,
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
@@ -31,6 +33,7 @@ import {
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
   shouldDeferDesktopAppWebviewLoad,
+  shouldClearDesktopIdentitySessionOnActivation,
   resolveDesktopIdentityStatusForChat,
   rememberDesktopIdentityStatus,
   invalidateRememberedDesktopIdentityStatus,
@@ -95,6 +98,22 @@ describe("Desktop identity lazy child synchronization", () => {
         status: "idle",
       }),
     ).toBe(false);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: false,
+        status: "failed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: true,
+        status: "failed",
+      }),
+    ).toBe(false);
   });
 
   it("keeps the chat handoff pending until child synchronization completes", () => {
@@ -135,9 +154,9 @@ describe("Desktop identity lazy child synchronization", () => {
     ).toBe(false);
   });
 
-  it("does not demote a verified workspace session when child sync fails", () => {
+  it("reports a failed child sync to the shell-owned identity surface", () => {
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", false)).toBe(
-      "signed-in",
+      "failed",
     );
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", true)).toBe(
       "signed-in",
@@ -235,7 +254,7 @@ describe("Desktop identity activation", () => {
       const firstUrl = webview?.getAttribute("src");
       expect(
         Number(new URL(firstUrl!).searchParams.get("agentNativeBetaOptOut")),
-      ).toBe(87_400_000);
+      ).toBe(29_800_000);
 
       now.mockReturnValue(2_000_000);
       act(() => {
@@ -246,6 +265,48 @@ describe("Desktop identity activation", () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  it("focuses an active webview for an explicit app-open request", () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-calendar",
+      name: "Calendar",
+      icon: "calendar",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://calendar.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+    const props = {
+      app,
+      appConfig,
+      isActive: true,
+      theme: "dark" as const,
+    };
+
+    act(() => {
+      root.render(React.createElement(AppWebview, props));
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    const focus = vi.fn();
+    Object.defineProperty(webview!, "focus", {
+      configurable: true,
+      value: focus,
+    });
+
+    act(() => {
+      root.render(React.createElement(AppWebview, { ...props, focusNonce: 1 }));
+    });
+
+    expect(focus).toHaveBeenCalledOnce();
   });
 
   it("reveals a loaded tab without reloading it after switching away", async () => {
@@ -321,6 +382,118 @@ describe("Desktop identity activation", () => {
     expect(
       sourceAssignments.mock.calls.filter(([name]) => name === "src"),
     ).toHaveLength(initialSourceAssignmentCount);
+  });
+
+  it("reconciles a loaded app session on activation", async () => {
+    const ensureAppSession = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false);
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => "signed-in"),
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+    rememberDesktopIdentityStatus("signed-in");
+    root = createRoot(container);
+
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(1));
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    Object.defineProperties(webview!, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview!.getAttribute("src") ?? "",
+      },
+    });
+    await act(async () => {
+      webview?.dispatchEvent(new Event("dom-ready"));
+      await Promise.resolve();
+    });
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(ensureAppSession).toHaveBeenCalledTimes(2);
+    expect(ensureAppSession).toHaveBeenNthCalledWith(2, "mail");
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(3));
+    expect(ensureAppSession).toHaveBeenNthCalledWith(3, "mail");
   });
 
   it("keeps a remembered session gated until child synchronization completes", async () => {
@@ -407,6 +580,122 @@ describe("Desktop identity activation", () => {
 
     expect(webviewSlot?.style.display).toBe("flex");
     expect(identityStatuses.at(-1)).toBe("signed-in");
+  });
+
+  it("falls back to the app page when child synchronization stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      const ensureAppSession = vi.fn(() => new Promise<boolean>(() => {}));
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          identity: {
+            getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+            getStatus: vi.fn(async () => "signed-in"),
+            ensureAppSession,
+            onStatusChange: vi.fn(() => () => {}),
+          },
+        },
+      });
+      rememberDesktopIdentityStatus("signed-in");
+      root = createRoot(container);
+
+      const app: AppDefinition = {
+        id: "mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig: AppConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: true,
+        enabled: true,
+        mode: "prod",
+      };
+
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark",
+          }),
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const webview = container.querySelector("webview");
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000);
+        await Promise.resolve();
+      });
+
+      expect(webview?.getAttribute("src")).not.toBe("about:blank");
+      expect(container.textContent).not.toContain("Loading Mail...");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not time out deferred inactive tabs", async () => {
+    vi.useFakeTimers();
+    try {
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: { identity: {} },
+      });
+      root = createRoot(container);
+
+      const app: AppDefinition = {
+        id: "mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig: AppConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: true,
+        enabled: true,
+        mode: "prod",
+      };
+
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: false,
+            theme: "dark",
+          }),
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const webview = container.querySelector("webview");
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000);
+        await Promise.resolve();
+      });
+
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reconciles a completed sign-in when the status event was missed", async () => {
@@ -816,6 +1105,12 @@ describe("AppWebview auth state", () => {
       "/_agent-native/auth/session",
     );
     expect(buildGuestAuthStateProbeScript()).toContain("workspaceRuntime");
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      "authenticated === true",
+    );
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      'window.location.protocol !== "http:"',
+    );
     expect(
       resolveAppWebviewAuthStateFromProbe(
         { authenticated: false, status: 200 },
@@ -828,6 +1123,33 @@ describe("AppWebview auth state", () => {
         "unauthenticated",
       ),
     ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { email: "user@example.com", status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: { email: "user@example.com" }, status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: {}, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe({ status: 200 }, "authenticated"),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { ok: true, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
   });
 
   it("falls back only when the app does not expose the session endpoint", () => {
@@ -870,7 +1192,7 @@ describe("AppWebview auth state", () => {
 
   it("reports only native sign-in gate states as unauthenticated", () => {
     expect(isDesktopIdentityGateUnauthenticated("sign-in-required")).toBe(true);
-    expect(isDesktopIdentityGateUnauthenticated("failed")).toBe(true);
+    expect(isDesktopIdentityGateUnauthenticated("failed")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("checking")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("signed-in")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("idle")).toBe(false);
@@ -926,6 +1248,17 @@ describe("AppWebview URL resolution", () => {
         mode: "dev",
       }),
     ).toBe("http://localhost:3003");
+  });
+
+  it("opens first-party app tabs at the private home route", () => {
+    expect(resolveDesktopAppPath({ id: "mail" })).toBe("/home");
+    expect(
+      resolveDesktopAppPath({ id: "mail" }, { isBuiltIn: true }, "/"),
+    ).toBe("/home");
+    expect(
+      resolveDesktopAppPath({ id: "mail" }, { isBuiltIn: true }, "/inbox"),
+    ).toBe("/inbox");
+    expect(resolveDesktopAppPath({ id: "custom-app" })).toBeUndefined();
   });
 
   it("uses the production URL by default", () => {
@@ -989,6 +1322,21 @@ describe("AppWebview URL resolution", () => {
       withDesktopEnvironmentOptOut("https://beta.mail.agent-native.com/inbox"),
     ).toBe("https://beta.mail.agent-native.com/inbox");
   });
+
+  it("still recognizes production URLs while the shell is on the beta lane", () => {
+    // resolveAppWebviewUrl follows the active lane, so a production URL must
+    // not stop matching (and silently lose its opt-out) once beta is picked.
+    rememberDesktopEnvironmentLane("beta");
+    try {
+      const parsed = new URL(
+        withDesktopEnvironmentOptOut("https://mail.agent-native.com/inbox"),
+      );
+      expect(parsed.origin).toBe("https://mail.agent-native.com");
+      expect(parsed.searchParams.has("agentNativeBetaOptOut")).toBe(true);
+    } finally {
+      rememberDesktopEnvironmentLane("production");
+    }
+  });
 });
 
 describe("AppWebview runtime preferences", () => {
@@ -1027,11 +1375,14 @@ describe("AppWebview per-app chat state propagation", () => {
 });
 
 describe("AppWebview theme propagation", () => {
+  beforeEach(() => window.localStorage.clear());
+
   it("updates the guest root and shared theme storage", () => {
     document.documentElement.className = "light";
     document.documentElement.removeAttribute("data-theme");
     document.documentElement.style.colorScheme = "light";
     window.localStorage.removeItem("theme");
+    window.localStorage.removeItem("agent-native-desktop-host-theme");
 
     let changeDetail: unknown;
     const onThemeChange = (event: Event) => {
@@ -1047,6 +1398,12 @@ describe("AppWebview theme propagation", () => {
       expect(document.documentElement.dataset.theme).toBe("dark");
       expect(document.documentElement.style.colorScheme).toBe("dark");
       expect(window.localStorage.getItem("theme")).toBe("dark");
+      expect(
+        window.localStorage.getItem("agent-native-desktop-host-theme"),
+      ).toBe("dark");
+      expect(
+        window.localStorage.getItem("agent-native-desktop-guest-theme"),
+      ).toBeNull();
       expect(changeDetail).toEqual({
         type: "agent-native-theme-update",
         theme: "dark",
@@ -1055,5 +1412,345 @@ describe("AppWebview theme propagation", () => {
     } finally {
       window.removeEventListener("agent-native:theme-change", onThemeChange);
     }
+  });
+
+  it("preserves a guest theme that differs from the last injected host theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+
+    new Function(buildGuestThemeScript("dark"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("light");
+  });
+
+  it("updates and clears the guest override when the guest changes theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+    new Function(buildGuestThemeScript("dark"))();
+
+    window.localStorage.setItem("theme", "dark");
+    new Function(buildGuestThemeScript("dark"))();
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("dark");
+
+    window.localStorage.setItem("theme", "system");
+    new Function(buildGuestThemeScript("light"))();
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBeNull();
+    expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("follows the host when the guest has not selected a different theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+
+    new Function(buildGuestThemeScript("light"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("preserves an explicit guest choice that matches the current host theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+    new Function(buildGuestThemeScript("light"))();
+
+    new Function(buildGuestThemeScript("dark"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("light");
+  });
+});
+
+describe("Returning to an already loaded app tab", () => {
+  it("keeps a loaded, verified guest page out of the identity loading gate", () => {
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("re-gates when there is no usable page to preserve", () => {
+    // First activation: nothing has loaded yet, so the gate is what the user
+    // should see rather than a blank webview.
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: false,
+        sessionReady: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: false,
+        sessionReady: true,
+      }),
+    ).toBe(true);
+    // A loaded page whose session was already invalidated is not usable.
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("re-gates a loaded tab whose session ended while it was hidden", () => {
+    // Sign-out reloads hidden webviews too, so the preserved page is already
+    // showing the signed-out screen. Preserving it here is what flashed that
+    // page with no gate over it.
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: "sign-in-required",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: "failed",
+      }),
+    ).toBe(true);
+  });
+
+  it("still preserves a loaded tab when workspace SSO is simply off", () => {
+    // "idle" is SSO disabled, not a sign-out. Re-gating here would put every
+    // tab switch back behind the loading screen for anyone not using SSO.
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: "idle",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: "signed-in",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("leaves a preserved page unblocked for loading", () => {
+    // The reactivation path must not reintroduce the deferral that keeps the
+    // webview on about:blank.
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: true,
+        status: "signed-in",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("Recovering from a slow app load", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect() {}
+        observe() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    Object.defineProperty(HTMLElement.prototype, "executeJavaScript", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    act(() => root.unmount());
+    container.remove();
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    invalidateRememberedDesktopIdentityStatus();
+  });
+
+  it("clears the load-timeout error when the app finally arrives", async () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    Object.defineProperties(webview!, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview!.getAttribute("src") ?? "",
+      },
+    });
+
+    // The origin is slow: nothing failed, the client just stopped waiting.
+    act(() => {
+      vi.advanceTimersByTime(20_000);
+    });
+    expect(container.textContent).toContain("Mail isn't loading");
+    expect((webview!.parentElement as HTMLElement).style.display).toBe("none");
+
+    // The same navigation completes afterwards. A timeout is not a failure, so
+    // the real page must replace the error screen instead of staying hidden
+    // behind it until the user hits Retry.
+    await act(async () => {
+      webview?.dispatchEvent(new Event("dom-ready"));
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("Mail isn't loading");
+    expect((webview!.parentElement as HTMLElement).style.display).toBe("flex");
+  });
+
+  it("loads the app URL instead of leaving an eligible app on about:blank after identity sync fails", async () => {
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => "failed"),
+          ensureAppSession: vi.fn(async () => false),
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+
+    root = createRoot(container);
+
+    const app: AppDefinition = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig: AppConfig = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      url: "https://mail.agent-native.com",
+      devPort: 3000,
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod",
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    expect(webview?.getAttribute("src")).toContain(
+      "https://mail.agent-native.com",
+    );
+    expect(webview?.getAttribute("src")).not.toBe("about:blank");
+  });
+
+  it("clears an unresponsive error when the guest becomes responsive", () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    act(() => {
+      webview?.dispatchEvent(new Event("unresponsive"));
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(container.textContent).toContain("Mail isn't loading");
+
+    act(() => {
+      webview?.dispatchEvent(new Event("responsive"));
+    });
+
+    expect(container.textContent).not.toContain("Mail isn't loading");
+    expect((webview!.parentElement as HTMLElement).style.display).toBe("flex");
   });
 });

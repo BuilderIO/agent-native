@@ -4,7 +4,12 @@ import { AGENT_CLIENT_ID } from "./agent-identity.js";
 // ---------------------------------------------------------------------------
 // Pure logic tests — no React rendering needed
 // ---------------------------------------------------------------------------
-import { toNormalized, fromNormalized } from "./presence.js";
+import {
+  deriveCollabUser,
+  shallowEqualOthers,
+  toNormalized,
+  fromNormalized,
+} from "./presence.js";
 
 describe("toNormalized", () => {
   const container: DOMRect = {
@@ -143,6 +148,47 @@ function deriveOthers(
 }
 
 describe("usePresence — derivation logic", () => {
+  it("preserves valid avatars and ignores malformed avatar data", () => {
+    expect(
+      deriveCollabUser(
+        {
+          user: {
+            name: "Alice",
+            email: "alice@ex.com",
+            color: "#f00",
+            avatarUrl: "https://example.com/alice.jpg",
+          },
+        },
+        2,
+      ),
+    ).toMatchObject({ avatarUrl: "https://example.com/alice.jpg" });
+    expect(
+      deriveCollabUser(
+        { user: { name: "Bob", email: "bob@ex.com", avatarUrl: "  " } },
+        3,
+      ),
+    ).not.toHaveProperty("avatarUrl");
+    expect(deriveCollabUser({ user: { avatarUrl: 42 } }, 4)).not.toHaveProperty(
+      "avatarUrl",
+    );
+  });
+
+  it("treats avatar changes as a meaningful remote-user change", () => {
+    const base = {
+      clientId: 2,
+      user: { name: "Alice", email: "alice@ex.com", color: "#f00" },
+      presence: {},
+      isAgent: false,
+    };
+    expect(shallowEqualOthers([base], [{ ...base }])).toBe(true);
+    expect(
+      shallowEqualOthers(
+        [base],
+        [{ ...base, user: { ...base.user, avatarUrl: "avatar.jpg" } }],
+      ),
+    ).toBe(false);
+  });
+
   it("excludes the local client from others", () => {
     const awareness = makeAwareness(
       new Map([

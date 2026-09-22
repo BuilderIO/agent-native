@@ -1,17 +1,29 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { embedApp } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
   deleteAppState,
   deleteAppStateByPrefix,
+  listAppState,
 } from "@agent-native/core/application-state";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import {
+  deleteGmailDraft,
+  saveGmailDraft,
+} from "../server/lib/gmail-drafts.js";
+import { updateLocalSavedDraft } from "../server/lib/local-email-drafts.js";
+import {
+  readLocalEmails,
+  withLocalEmailMutationLock,
+  writeLocalEmails,
+} from "../server/lib/local-email-store.js";
+import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
 import { appendSignatureToBody } from "../shared/signature.js";
-
-const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 
 /**
  * Deep link that reopens a compose draft in the Mail compose panel.
@@ -28,7 +40,7 @@ function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
-    to: `/inbox?${COMPOSE_FULLSCREEN_PARAM}=1`,
+    to: "/inbox",
     params: { composeDraftId: draft.id },
   });
 }
@@ -36,6 +48,96 @@ function composeDeepLink(draft: Record<string, string>): string {
 /** Reject IDs that could escape via path traversal. */
 function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
+}
+
+const draftFields = {
+  to: z.string().optional().describe("Recipient email(s)"),
+  cc: z.string().optional().describe("CC email(s)"),
+  bcc: z.string().optional().describe("BCC email(s)"),
+  subject: z.string().optional().describe("Email subject"),
+  body: z
+    .string()
+    .optional()
+    .describe(
+      "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
+    ),
+  mode: z
+    .enum(["compose", "reply", "forward"])
+    .optional()
+    .describe("compose, reply, or forward"),
+  replyToId: z.string().optional().describe("Message ID being replied to"),
+  replyToThreadId: z.string().optional().describe("Thread ID for grouping"),
+  accountEmail: z
+    .string()
+    .optional()
+    .describe("The 'from' account email address to send from"),
+};
+
+const draftId = z
+  .string()
+  .regex(/^[a-zA-Z0-9_-]{1,64}$/)
+  .describe("Draft ID");
+
+const manageDraftSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("create").describe("Create a new draft"),
+    id: draftId.optional().describe("Optional caller-provided draft ID"),
+    ...draftFields,
+  }),
+  z.object({
+    action: z.literal("update").describe("Update an existing draft"),
+    id: draftId,
+    ...draftFields,
+  }),
+  z.object({
+    action: z.literal("delete").describe("Delete one draft"),
+    id: draftId,
+  }),
+  z.object({
+    action: z
+      .literal("delete-saved")
+      .describe("Delete one saved mailbox draft"),
+    savedDraftId: z.string().min(1).max(512).describe("Saved mailbox draft ID"),
+    savedDraftBackend: z
+      .enum(["gmail", "local"])
+      .optional()
+      .describe("Backend that owns the saved draft, when known"),
+    accountEmail: z
+      .string()
+      .optional()
+      .describe("Exact connected account that owns a Gmail draft, when known"),
+  }),
+  z.object({
+    action: z.literal("delete-all").describe("Delete all compose drafts"),
+  }),
+]);
+
+async function deletePersistedDraft(args: {
+  ownerEmail: string;
+  savedDraftId: string;
+  savedDraftBackend?: "gmail" | "local";
+  accountEmail?: string;
+}): Promise<void> {
+  const ownership = await resolveExistingSavedDraftOwnership(args);
+
+  if (ownership.backend === "gmail") {
+    await deleteGmailDraft({
+      ownerEmail: args.ownerEmail,
+      accountEmail: ownership.accountEmail,
+      draftId: args.savedDraftId,
+    });
+    return;
+  }
+
+  await withLocalEmailMutationLock(args.ownerEmail, async () => {
+    const emails = await readLocalEmails(args.ownerEmail);
+    const remaining = emails.filter(
+      (email) => !(email.id === args.savedDraftId && email.isDraft),
+    );
+    if (remaining.length !== emails.length) {
+      await writeLocalEmails(args.ownerEmail, remaining);
+    }
+  });
 }
 
 async function readConfiguredSignature(): Promise<string | undefined> {
@@ -48,39 +150,13 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 
 export default defineAction({
   description:
-    "Create, update, or delete a compose draft. Opening a draft makes it appear in the compose panel UI automatically.",
-  schema: z.object({
-    action: z
-      .enum(["create", "update", "delete", "delete-all"])
-      .optional()
-      .describe("Action to perform"),
-    id: z
-      .string()
-      .optional()
-      .describe(
-        "Draft ID (auto-generated for create; required for update/delete)",
-      ),
-    to: z.string().optional().describe("Recipient email(s)"),
-    cc: z.string().optional().describe("CC email(s)"),
-    bcc: z.string().optional().describe("BCC email(s)"),
-    subject: z.string().optional().describe("Email subject"),
-    body: z
-      .string()
-      .optional()
-      .describe(
-        "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
-      ),
-    mode: z
-      .enum(["compose", "reply", "forward"])
-      .optional()
-      .describe("compose, reply, or forward"),
-    replyToId: z.string().optional().describe("Message ID being replied to"),
-    replyToThreadId: z.string().optional().describe("Thread ID for grouping"),
-    accountEmail: z
-      .string()
-      .optional()
-      .describe("The 'from' account email address to send from"),
-  }),
+    "Create, update, or delete a compose draft. Always pass action " +
+    "(create, update, delete, delete-saved, or delete-all). update and " +
+    "delete require the id returned by a prior create call on this draft; " +
+    "delete-saved requires savedDraftId instead. Never call update or " +
+    "delete before a matching create - to draft a reply, first call with " +
+    "action=create, mode=reply, replyToId, to, subject, body.",
+  schema: manageDraftSchema,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -92,44 +168,149 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const action = args.action;
-    if (!action)
-      throw new Error(
-        "--action is required (create, update, delete, delete-all)",
-      );
 
     if (action === "delete-all") {
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("Unauthenticated");
+      const storedDrafts = await listAppState("compose-");
+      for (const { value } of storedDrafts) {
+        const savedDraftId = value.savedDraftId;
+        if (typeof savedDraftId !== "string" || !savedDraftId) continue;
+        await deletePersistedDraft({
+          ownerEmail,
+          savedDraftId,
+          savedDraftBackend:
+            value.savedDraftBackend === "gmail" ||
+            value.savedDraftBackend === "local"
+              ? value.savedDraftBackend
+              : undefined,
+          accountEmail:
+            typeof value.savedDraftAccountEmail === "string"
+              ? value.savedDraftAccountEmail
+              : typeof value.accountEmail === "string"
+                ? value.accountEmail
+                : undefined,
+        });
+      }
       const count = await deleteAppStateByPrefix("compose-");
       return `Deleted ${count} draft(s)`;
     }
 
     if (action === "delete") {
-      if (!args.id) throw new Error("--id is required for delete");
       const safeId = sanitizeDraftId(args.id);
-      if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
+      if (!safeId)
+        fail(`Invalid draft ID "${args.id}"`, {
+          errorCode: "draft_invalid_id",
+        });
+      const storedDraft = await readAppState(`compose-${safeId}`);
+      if (!storedDraft)
+        fail(`Draft "${safeId}" not found`, {
+          errorCode: "draft_not_found",
+          statusCode: 404,
+        });
+      const savedDraftId = storedDraft.savedDraftId;
+      if (typeof savedDraftId === "string" && savedDraftId) {
+        const ownerEmail = getRequestUserEmail();
+        if (!ownerEmail) throw new Error("Unauthenticated");
+        await deletePersistedDraft({
+          ownerEmail,
+          savedDraftId,
+          savedDraftBackend:
+            storedDraft.savedDraftBackend === "gmail" ||
+            storedDraft.savedDraftBackend === "local"
+              ? storedDraft.savedDraftBackend
+              : undefined,
+          accountEmail:
+            typeof storedDraft.savedDraftAccountEmail === "string"
+              ? storedDraft.savedDraftAccountEmail
+              : typeof storedDraft.accountEmail === "string"
+                ? storedDraft.accountEmail
+                : undefined,
+        });
+      }
       const deleted = await deleteAppState(`compose-${safeId}`);
-      if (!deleted) throw new Error(`Draft "${safeId}" not found`);
+      if (!deleted)
+        fail(`Draft "${safeId}" not found`, {
+          errorCode: "draft_not_found",
+          statusCode: 404,
+        });
       return `Deleted draft ${safeId}`;
+    }
+
+    if (action === "delete-saved") {
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("Unauthenticated");
+      await deletePersistedDraft({
+        ownerEmail,
+        savedDraftId: args.savedDraftId,
+        savedDraftBackend: args.savedDraftBackend,
+        accountEmail: args.accountEmail,
+      });
+      return {
+        id: args.savedDraftId,
+        message: `Deleted saved draft ${args.savedDraftId}`,
+      };
     }
 
     if (action === "create") {
       const rawId = args.id || `draft-${Date.now()}`;
-      const id = sanitizeDraftId(rawId) ?? `draft-${Date.now()}`;
+      const id = sanitizeDraftId(rawId);
+      if (!id)
+        fail(`Invalid draft ID "${rawId}"`, {
+          errorCode: "draft_invalid_id",
+        });
       const signature = await readConfiguredSignature();
+      const ownerEmail = getRequestUserEmail();
+      const body = appendSignatureToBody(args.body || "", signature);
+      const savedGmailDraft = ownerEmail
+        ? await saveGmailDraft({
+            ownerEmail,
+            accountEmail: args.accountEmail,
+            to: args.to || "",
+            cc: args.cc,
+            bcc: args.bcc,
+            subject: args.subject || "",
+            body,
+            replyToId: args.replyToId,
+            replyToThreadId: args.replyToThreadId,
+          })
+        : null;
       const draft: Record<string, string> = {
         id,
         to: args.to || "",
         subject: args.subject || "",
-        body: appendSignatureToBody(args.body || "", signature),
+        body,
         mode: args.mode || "compose",
+        ...(savedGmailDraft
+          ? {
+              savedDraftId: savedGmailDraft.draftId,
+              savedDraftBackend: "gmail",
+              savedDraftAccountEmail: savedGmailDraft.accountEmail,
+            }
+          : {}),
       };
       if (args.cc) draft.cc = args.cc;
       if (args.bcc) draft.bcc = args.bcc;
       if (args.replyToId) draft.replyToId = args.replyToId;
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
-      if (args.accountEmail) draft.accountEmail = args.accountEmail;
+      const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
+      if (accountEmail) draft.accountEmail = accountEmail;
       await writeAppState(`compose-${id}`, draft);
+      track(
+        "draft_created",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          output_id: id,
+          output_type: "draft",
+          draft_mode: args.mode || "compose",
+          has_recipients: Boolean(args.to?.trim()),
+          agent_assisted: ctx?.caller !== "frontend",
+        },
+        ctx,
+      );
       return {
         id,
         draft,
@@ -139,11 +320,59 @@ export default defineAction({
     }
 
     if (action === "update") {
-      if (!args.id) throw new Error("--id is required for update");
       const safeId = sanitizeDraftId(args.id);
-      if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
-      const draft = await readAppState(`compose-${safeId}`);
-      if (!draft) throw new Error(`Draft "${safeId}" not found`);
+      if (!safeId)
+        fail(`Invalid draft ID "${args.id}"`, {
+          errorCode: "draft_invalid_id",
+        });
+      const storedDraft = await readAppState(`compose-${safeId}`);
+      if (!storedDraft)
+        fail(`Draft "${safeId}" not found`, {
+          errorCode: "draft_not_found",
+          statusCode: 404,
+        });
+      if (typeof storedDraft !== "object" || Array.isArray(storedDraft)) {
+        throw new Error(`Draft "${safeId}" has invalid stored data`);
+      }
+      const draft = Object.fromEntries(
+        Object.entries(storedDraft).map(([key, value]) => {
+          if (typeof value !== "string") {
+            throw new Error(`Draft "${safeId}" has invalid ${key}`);
+          }
+          return [key, value];
+        }),
+      ) as Record<string, string>;
+      const ownerEmail = getRequestUserEmail();
+      const savedDraftBackend = draft.savedDraftBackend;
+      if (
+        savedDraftBackend !== undefined &&
+        savedDraftBackend !== "gmail" &&
+        savedDraftBackend !== "local"
+      ) {
+        throw new Error(`Draft "${safeId}" has invalid saved draft backend`);
+      }
+      let ownership:
+        | Awaited<ReturnType<typeof resolveExistingSavedDraftOwnership>>
+        | undefined;
+      if (draft.savedDraftId) {
+        if (!ownerEmail) throw new Error("Unauthenticated");
+        ownership = await resolveExistingSavedDraftOwnership({
+          ownerEmail,
+          savedDraftId: draft.savedDraftId,
+          savedDraftBackend,
+          accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
+        });
+      }
+      if (
+        ownership?.backend === "gmail" &&
+        args.accountEmail !== undefined &&
+        args.accountEmail !== ownership.accountEmail
+      ) {
+        fail(`Cannot change the account for existing draft "${safeId}"`, {
+          errorCode: "draft_account_change",
+          statusCode: 400,
+        });
+      }
       for (const key of [
         "to",
         "cc",
@@ -158,6 +387,59 @@ export default defineAction({
         if ((args as any)[key] !== undefined)
           (draft as any)[key] = (args as any)[key];
       }
+      const accountEmail =
+        ownership?.backend === "gmail"
+          ? ownership.accountEmail
+          : (args.accountEmail ??
+            (draft.savedDraftId ? draft.accountEmail : undefined));
+      if (!draft.savedDraftId && args.accountEmail === undefined) {
+        delete draft.accountEmail;
+      }
+      if (ownership?.backend === "local" && ownerEmail) {
+        await updateLocalSavedDraft({
+          ownerEmail,
+          draftId: draft.savedDraftId!,
+          to: draft.to || "",
+          cc: draft.cc ?? "",
+          bcc: draft.bcc ?? "",
+          subject: draft.subject || "",
+          body: draft.body || "",
+          replyToId: draft.replyToId,
+          replyToThreadId: draft.replyToThreadId,
+        });
+        draft.savedDraftBackend = "local";
+        delete draft.savedDraftAccountEmail;
+      }
+
+      const savedGmailDraft =
+        ownership?.backend === "gmail" || !ownership
+          ? ownerEmail
+            ? await saveGmailDraft({
+                ownerEmail,
+                accountEmail,
+                draftId:
+                  ownership?.backend === "gmail"
+                    ? draft.savedDraftId
+                    : undefined,
+                to: draft.to || "",
+                cc: draft.cc,
+                bcc: draft.bcc,
+                subject: draft.subject || "",
+                body: draft.body || "",
+                replyToId: draft.replyToId,
+                replyToThreadId: draft.replyToThreadId,
+              })
+            : null
+          : null;
+      if (ownership?.backend === "gmail" && !savedGmailDraft) {
+        throw new Error("Could not save the existing Gmail draft.");
+      }
+      if (savedGmailDraft) {
+        draft.savedDraftId = savedGmailDraft.draftId;
+        draft.savedDraftBackend = "gmail";
+        draft.savedDraftAccountEmail = savedGmailDraft.accountEmail;
+        draft.accountEmail = savedGmailDraft.accountEmail;
+      }
       await writeAppState(`compose-${safeId}`, draft);
       return {
         id: safeId,
@@ -167,9 +449,9 @@ export default defineAction({
       };
     }
 
-    throw new Error(
-      `Unknown action "${action}". Valid: create, update, delete, delete-all`,
-    );
+    return fail(`Unknown action "${String(action)}"`, {
+      errorCode: "draft_action_invalid",
+    });
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;

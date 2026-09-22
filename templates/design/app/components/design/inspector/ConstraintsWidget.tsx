@@ -539,7 +539,7 @@ export function ConstraintsWidget({
 
   return (
     <div className={cn("space-y-2", className)}>
-      <span className="!text-[11px] font-medium text-muted-foreground">
+      <span className="design-sidebar-field-label text-muted-foreground">
         {copy.title}
       </span>
 

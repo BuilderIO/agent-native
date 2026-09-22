@@ -31,13 +31,12 @@ export function createOffice365Provider(
     init?: RequestInit,
   ): Promise<T> {
     const token = await config.getAccessToken(credentialId);
+    const headers = new Headers(init?.headers);
+    headers.set("authorization", `Bearer ${token}`);
+    headers.set("content-type", "application/json");
     const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
       ...init,
-      headers: {
-        ...(init?.headers ?? {}),
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      },
+      headers,
     });
     if (res.status === 401 || res.status === 403) {
       await config.markInvalid?.(credentialId);

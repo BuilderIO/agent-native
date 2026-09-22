@@ -95,6 +95,38 @@ describe("OAuth Client ID Metadata Documents", () => {
     );
   });
 
+  it("accepts a client that primarily advertises a confidential auth method but also supports none", async () => {
+    const clientId = "https://chatgpt.example.com/oauth/client.json";
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      metadataResponse(clientId, {
+        token_endpoint_auth_method: "private_key_jwt",
+        token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+      }),
+    );
+
+    await expect(
+      resolveOAuthClientMetadataDocument(clientId),
+    ).resolves.toMatchObject({
+      clientId,
+      tokenEndpointAuthMethod: "none",
+    });
+  });
+
+  it("rejects a confidential-only client that never supports none", async () => {
+    const clientId =
+      "https://confidential-client.example.com/oauth/client.json";
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      metadataResponse(clientId, {
+        token_endpoint_auth_method: "private_key_jwt",
+        token_endpoint_auth_methods_supported: ["private_key_jwt"],
+      }),
+    );
+
+    await expect(resolveOAuthClientMetadataDocument(clientId)).rejects.toThrow(
+      /Only public Client ID Metadata clients are supported/,
+    );
+  });
+
   it("rejects non-HTTPS and root-path client IDs without fetching", async () => {
     expect(() =>
       validateOAuthClientMetadataUrl(

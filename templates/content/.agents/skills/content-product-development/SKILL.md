@@ -1,7 +1,7 @@
 ---
 name: content-product-development
 description: >-
-  Product contracts and proof boundaries for Agent Native Content. Use when
+  Product contracts and proof boundaries for Agent-Native Content. Use when
   planning, implementing, reviewing, testing, or documenting Content behavior
   or shared framework behavior that changes Content.
 scope: dev
@@ -9,7 +9,7 @@ metadata:
   internal: true
 ---
 
-# Develop Agent Native Content
+# Develop Agent-Native Content
 
 ## Rule
 

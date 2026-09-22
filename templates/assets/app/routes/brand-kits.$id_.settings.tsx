@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -26,7 +27,7 @@ import {
 } from "react-router";
 import { toast } from "sonner";
 
-import { GenerationPresetsPanel } from "@/components/library/GenerationPresetsPanel";
+import { TemplatesPanel } from "@/components/library/TemplatesPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,14 +74,27 @@ export default function BrandKitSettingsRoute() {
   const { id } = useParams();
   const libraryId = id ?? "";
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
-  const { data: presetData } = useActionQuery("list-generation-presets", {
+  const { data: presetData } = useActionQuery("list-templates", {
     libraryId,
   }) as any;
   const updateLibrary = useActionMutation("update-library");
 
   const library = data?.library;
   const assets = (data?.assets ?? []) as any[];
-  const generationPresets = ((presetData as any)?.presets ?? []) as any[];
+  const generationPresets = ((presetData as any)?.templates ?? []) as any[];
+
+  useEffect(() => {
+    if (!library) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      library.title,
+      "Brand kit",
+    )} — Assets`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [library]);
 
   const [titleDraft, setTitleDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");
@@ -187,7 +201,7 @@ export default function BrandKitSettingsRoute() {
   );
 
   function handleBack() {
-    navigate(`/library/${libraryId}`);
+    void navigate(`/library/${libraryId}?tab=references`);
   }
 
   function keepEditing() {
@@ -320,16 +334,23 @@ export default function BrandKitSettingsRoute() {
           </button>
           {detailsOpen ? (
             <ul className="mt-4 space-y-3">
-              <li className="flex gap-3">
-                <IconPhoto className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">
-                    {t("brandKitDetail.setupGuideReferences")}
+              <li>
+                <button
+                  type="button"
+                  className="group flex w-full gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={handleBack}
+                >
+                  <IconPhoto className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium underline-offset-4 group-hover:underline">
+                      {t("brandKitDetail.setupGuideReferences")}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {t("brandKitDetail.setupGuideReferencesHint")}
+                    </p>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {t("brandKitDetail.setupGuideReferencesHint")}
-                  </p>
-                </div>
+                  <IconChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
               </li>
               <li className="flex gap-3">
                 <IconTextCaption className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -413,10 +434,7 @@ export default function BrandKitSettingsRoute() {
         </div>
       </div>
 
-      <GenerationPresetsPanel
-        libraryId={libraryId}
-        presets={generationPresets}
-      />
+      <TemplatesPanel libraryId={libraryId} templates={generationPresets} />
 
       <Dialog
         open={navigationBlocker.state === "blocked"}

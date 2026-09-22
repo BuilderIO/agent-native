@@ -6,8 +6,10 @@
  *  - `meetings:silence-stop` — both mic + system audio have been silent for N
  *    minutes (default 15).
  *  - `meetings:sleep-stop`   — the machine slept (clock-jump heuristic).
- *  - `meetings:call-ended`   — the foreground video-conferencing app
- *    backgrounded for >2 minutes.
+ *  - `meetings:call-ended`   — every watched conferencing app released the
+ *    microphone (CoreAudio per-process input, or macOS Control Center mic
+ *    attribution) and stayed released for 15s, or the scheduled meeting end
+ *    was reached with quiet audio.
  *
  * Renderer wires `startSilenceDetector` when a meeting becomes live and
  * `stopSilenceDetector` when it ends. `subscribeAutoStop` returns an
@@ -47,14 +49,7 @@ export async function subscribeAutoStop(
   onStop: (reason: AutoStopReason) => void,
 ): Promise<UnlistenFn> {
   const unlisteners: UnlistenFn[] = [];
-  unlisteners.push(
-    await listen("meetings:silence-stop", () => onStop("silence")),
-  );
-  unlisteners.push(await listen("meetings:sleep-stop", () => onStop("sleep")));
-  unlisteners.push(
-    await listen("meetings:call-ended", () => onStop("call-ended")),
-  );
-  return () => {
+  const unlistenAll = () => {
     for (const u of unlisteners) {
       try {
         u();
@@ -63,6 +58,21 @@ export async function subscribeAutoStop(
       }
     }
   };
+  try {
+    unlisteners.push(
+      await listen("meetings:silence-stop", () => onStop("silence")),
+    );
+    unlisteners.push(
+      await listen("meetings:sleep-stop", () => onStop("sleep")),
+    );
+    unlisteners.push(
+      await listen("meetings:call-ended", () => onStop("call-ended")),
+    );
+    return unlistenAll;
+  } catch (error) {
+    unlistenAll();
+    throw error;
+  }
 }
 
 /**

@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CLIP_SHARE_REF,
-  DASHBOARD_REDIRECT_PARAM,
-  DASHBOARD_REDIRECT_VALUE,
-  REF_PARAM,
-} from "./share-attribution.js";
+import { CLIP_SHARE_REF, REF_PARAM } from "./share-attribution.js";
 import { resolveDashboardRedirect } from "./share-dashboard-redirect.js";
 
 describe("resolveDashboardRedirect", () => {
@@ -49,24 +44,14 @@ describe("resolveDashboardRedirect", () => {
     ).toBe("/r/rec_1");
   });
 
-  it("does not bounce back when /r already redirected here", () => {
-    expect(
-      resolveDashboardRedirect({
-        recordingId: "rec_1",
-        canOpenDashboard: true,
-        search: `?${REF_PARAM}=${CLIP_SHARE_REF}&${DASHBOARD_REDIRECT_PARAM}=${DASHBOARD_REDIRECT_VALUE}`,
-      }),
-    ).toBeNull();
-  });
-
   it("forwards deep-link params and drops everything else", () => {
     expect(
       resolveDashboardRedirect({
         recordingId: "rec_1",
         canOpenDashboard: true,
-        search: "?t=1500&panel=transcript&agent_access=secret&via=slack",
+        search: "?t=1500&at=90&panel=transcript&agent_access=secret&via=slack",
       }),
-    ).toBe("/r/rec_1?t=1500&panel=transcript");
+    ).toBe("/r/rec_1?t=1500&at=90&panel=transcript");
   });
 
   it("never forwards a share access token to the authenticated route", () => {

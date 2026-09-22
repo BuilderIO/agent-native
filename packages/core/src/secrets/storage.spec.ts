@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import {
   afterEach,
   beforeAll,
@@ -9,51 +8,54 @@ import {
   vi,
 } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import { decryptSharedSecretValue } from "./crypto.js";
 
 // A stable encryption key so values round-trip deterministically and the
 // crypto layer never falls through to the cwd-derived fallback (which would
 // warn on every run).
-beforeAll(() => {
+beforeAll(async () => {
   process.env.SECRETS_ENCRYPTION_KEY = "storage-spec-encryption-key";
 });
 
 /**
- * Wrap a real in-memory better-sqlite3 connection in the `DbExec` interface
+ * Wrap a real in-memory PGlite connection in the `DbExec` interface
  * that `storage.ts` expects (`execute(string | { sql, args })`). Using a real
  * DB lets us assert genuine behavior — encryption at rest, upsert id-stability,
  * scope isolation, not-found/delete semantics — rather than captured SQL.
  */
-function createSqliteExec() {
-  const sqlite = new Database(":memory:");
+async function createPgliteExec() {
+  const pglite = await createTestPglite();
   return {
-    sqlite,
+    pglite,
     exec: {
       async execute(input: string | { sql: string; args?: any[] }) {
         const sql = typeof input === "string" ? input : input.sql;
         const args = typeof input === "string" ? [] : (input.args ?? []);
+        if (typeof input === "string") {
+          await pglite.exec(sql);
+          return { rows: [], rowsAffected: 0 };
+        }
         const trimmed = sql.trim().toUpperCase();
-        if (trimmed.startsWith("SELECT")) {
-          const rows = sqlite.prepare(sql).all(...args);
+        if (trimmed.startsWith("SELECT") || /\bRETURNING\b/i.test(sql)) {
+          const rows = await pglite.prepare(sql).all(...args);
           return { rows, rowsAffected: 0 };
         }
-        const info = sqlite.prepare(sql).run(...args);
+        const info = await pglite.prepare(sql).run(...args);
         return { rows: [], rowsAffected: info.changes };
       },
     },
   };
 }
 
-async function loadStorageWithSqlite() {
-  const { sqlite, exec } = createSqliteExec();
+async function loadStorageWithPglite() {
+  const { pglite, exec } = await createPgliteExec();
   vi.doMock("../db/client.js", () => ({
-    getDialect: () => "sqlite",
     getDbExec: () => exec,
-    isPostgres: () => false,
     isProductionServerlessFunctionRuntime: () => false,
   }));
   const mod = await import("./storage.js");
-  return { sqlite, mod };
+  return { pglite, mod };
 }
 
 const userRef = {
@@ -63,7 +65,7 @@ const userRef = {
 };
 
 describe("secrets storage bootstrap", () => {
-  afterEach(() => {
+  afterEach(async () => {
     vi.resetModules();
     vi.doUnmock("../db/client.js");
   });
@@ -72,9 +74,7 @@ describe("secrets storage bootstrap", () => {
     const execute = vi.fn(async () => ({ rows: [] as unknown[] }));
 
     vi.doMock("../db/client.js", () => ({
-      getDialect: () => "sqlite",
       getDbExec: () => ({ execute }),
-      isPostgres: () => false,
       isProductionServerlessFunctionRuntime: () => false,
     }));
 
@@ -99,17 +99,18 @@ describe("secrets storage bootstrap", () => {
     const execute = vi.fn(async (input: string | { sql: string }) => {
       const sql = typeof input === "string" ? input : input.sql;
       if (sql.trim().startsWith("SELECT") && execute.mock.calls.length === 1) {
-        throw Object.assign(new Error("no such table: app_secrets"), {
-          code: "SQLITE_ERROR",
-        });
+        throw Object.assign(
+          new Error('relation "app_secrets" does not exist'),
+          {
+            code: "DB_ERROR",
+          },
+        );
       }
       return { rows: [] as unknown[] };
     });
 
     vi.doMock("../db/client.js", () => ({
-      getDialect: () => "sqlite",
       getDbExec: () => ({ execute }),
-      isPostgres: () => false,
       isProductionServerlessFunctionRuntime: () => false,
     }));
 
@@ -138,9 +139,7 @@ describe("secrets storage bootstrap", () => {
     });
 
     vi.doMock("../db/client.js", () => ({
-      getDialect: () => "sqlite",
       getDbExec: () => ({ execute }),
-      isPostgres: () => false,
       isProductionServerlessFunctionRuntime: () => false,
     }));
 
@@ -151,13 +150,11 @@ describe("secrets storage bootstrap", () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
-  it("rewrites INTEGER to BIGINT for Postgres so millisecond timestamps fit", async () => {
+  it("rewrites BIGINT to BIGINT for Postgres so millisecond timestamps fit", async () => {
     const execute = vi.fn(async () => ({ rows: [] as unknown[] }));
 
     vi.doMock("../db/client.js", () => ({
-      getDialect: () => "postgres",
       getDbExec: () => ({ execute }),
-      isPostgres: () => true,
       isProductionServerlessFunctionRuntime: () => false,
     }));
 
@@ -200,9 +197,7 @@ describe("secrets storage bootstrap", () => {
     });
 
     vi.doMock("../db/client.js", () => ({
-      getDialect: () => "postgres",
       getDbExec: () => ({ execute }),
-      isPostgres: () => true,
       isProductionServerlessFunctionRuntime: () => false,
     }));
 
@@ -218,18 +213,18 @@ describe("secrets storage bootstrap", () => {
   });
 });
 
-describe("secrets storage CRUD (real sqlite)", () => {
-  let sqlite: Database.Database;
+describe("secrets storage CRUD (real pglite)", () => {
+  let pglite: Awaited<ReturnType<typeof createTestPglite>>;
   let mod: typeof import("./storage.js");
 
   beforeEach(async () => {
-    const loaded = await loadStorageWithSqlite();
-    sqlite = loaded.sqlite;
+    const loaded = await loadStorageWithPglite();
+    pglite = loaded.pglite;
     mod = loaded.mod;
   });
 
-  afterEach(() => {
-    sqlite.close();
+  afterEach(async () => {
+    await pglite.close();
     vi.resetModules();
     vi.doUnmock("../db/client.js");
   });
@@ -238,9 +233,9 @@ describe("secrets storage CRUD (real sqlite)", () => {
     await mod.writeAppSecret({ ...userRef, value: "sk-live-abc12345" });
 
     // The raw column never contains the plaintext — it is v1:-tagged ciphertext.
-    const row = sqlite
+    const row = (await pglite
       .prepare(`SELECT encrypted_value FROM app_secrets`)
-      .get() as { encrypted_value: string };
+      .get()) as { encrypted_value: string };
     expect(row.encrypted_value).toMatch(/^v1:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
     expect(row.encrypted_value).not.toContain("sk-live-abc12345");
 
@@ -378,11 +373,11 @@ describe("secrets storage CRUD (real sqlite)", () => {
         key: "BUILDER_PRIVATE_KEY",
         value: "builder-private-example",
       });
-      const before = sqlite
+      const before = (await pglite
         .prepare(
           `SELECT shared_encrypted_value, updated_at FROM app_secrets LIMIT 1`,
         )
-        .get() as {
+        .get()) as {
         shared_encrypted_value: string;
         updated_at: number;
       };
@@ -397,11 +392,11 @@ describe("secrets storage CRUD (real sqlite)", () => {
         }),
       ).resolves.toMatchObject({ value: "builder-private-example" });
 
-      const after = sqlite
+      const after = (await pglite
         .prepare(
           `SELECT shared_encrypted_value, updated_at FROM app_secrets LIMIT 1`,
         )
-        .get() as {
+        .get()) as {
         shared_encrypted_value: string;
         updated_at: number;
       };
@@ -466,11 +461,11 @@ describe("secrets storage CRUD (real sqlite)", () => {
 
       // Existing rows remain readable after the deployment adds the preferred
       // workspace key; the storage read path falls back to the old app key.
-      const beforeMigration = sqlite
+      const beforeMigration = (await pglite
         .prepare(
           `SELECT encrypted_value, shared_encrypted_value, updated_at FROM app_secrets`,
         )
-        .get() as {
+        .get()) as {
         encrypted_value: string;
         shared_encrypted_value: string | null;
         updated_at: number;
@@ -480,11 +475,11 @@ describe("secrets storage CRUD (real sqlite)", () => {
       await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
         value: "legacy-deployment-secret",
       });
-      const afterMigration = sqlite
+      const afterMigration = (await pglite
         .prepare(
           `SELECT encrypted_value, shared_encrypted_value, updated_at FROM app_secrets`,
         )
-        .get() as {
+        .get()) as {
         encrypted_value: string;
         shared_encrypted_value: string | null;
         updated_at: number;
@@ -509,9 +504,9 @@ describe("secrets storage CRUD (real sqlite)", () => {
         ...userRef,
         value: "updated-by-legacy-app",
       });
-      const afterLegacyWrite = sqlite
+      const afterLegacyWrite = (await pglite
         .prepare(`SELECT shared_encrypted_value FROM app_secrets`)
-        .get() as { shared_encrypted_value: string | null };
+        .get()) as { shared_encrypted_value: string | null };
       expect(afterLegacyWrite.shared_encrypted_value).toBeNull();
     } finally {
       if (originalAppName === undefined)
@@ -552,9 +547,9 @@ describe("secrets storage CRUD (real sqlite)", () => {
       // populates shared_encrypted_value alongside the legacy column.
       process.env.SECRETS_ENCRYPTION_KEY = "rotation-shared-material";
       await mod.writeAppSecret({ ...userRef, value: "original-secret-value" });
-      const original = sqlite
+      const original = (await pglite
         .prepare(`SELECT shared_encrypted_value FROM app_secrets`)
-        .get() as { shared_encrypted_value: string | null };
+        .get()) as { shared_encrypted_value: string | null };
       expect(original.shared_encrypted_value).not.toBeNull();
 
       // 2. A writer without shared key material updates the value (e.g. an
@@ -565,9 +560,9 @@ describe("secrets storage CRUD (real sqlite)", () => {
       delete process.env.SECRETS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
       await mod.writeAppSecret({ ...userRef, value: "rotated-secret-value" });
-      const afterRotationWrite = sqlite
+      const afterRotationWrite = (await pglite
         .prepare(`SELECT shared_encrypted_value FROM app_secrets`)
-        .get() as { shared_encrypted_value: string | null };
+        .get()) as { shared_encrypted_value: string | null };
       expect(afterRotationWrite.shared_encrypted_value).toBeNull();
 
       // 3. Shared material comes back (e.g. the deployment finishes rolling
@@ -641,9 +636,9 @@ describe("secrets storage CRUD (real sqlite)", () => {
       }),
     ).rejects.toThrow(/all required/);
 
-    const { count } = sqlite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM app_secrets`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(0);
   });
 
@@ -663,9 +658,9 @@ describe("secrets storage CRUD (real sqlite)", () => {
     // Reference stability: overwriting a key must not mint a new id.
     expect(secondId).toBe(firstId);
 
-    const { count } = sqlite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM app_secrets`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(1);
 
     const read = await mod.readAppSecret(userRef);
@@ -689,9 +684,9 @@ describe("secrets storage CRUD (real sqlite)", () => {
     ]);
     expect(firstId).toBe(secondId);
 
-    const { count } = sqlite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM app_secrets`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(1);
 
     const read = await mod.readAppSecret(userRef);
@@ -753,7 +748,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
     await mod.writeAppSecret({ ...userRef, value: "tamperable" });
     // Simulate a tampered / key-rotated row by overwriting the ciphertext with
     // a syntactically-encrypted-but-undecryptable value.
-    sqlite
+    await pglite
       .prepare(
         `UPDATE app_secrets SET encrypted_value = ?, shared_encrypted_value = ?`,
       )
@@ -793,10 +788,12 @@ describe("secrets storage CRUD (real sqlite)", () => {
 
     // A non-array / non-string-array / malformed allowlist degrades to null
     // rather than throwing or exposing junk.
-    sqlite.prepare(`UPDATE app_secrets SET url_allowlist = ?`).run("{not json");
+    await pglite
+      .prepare(`UPDATE app_secrets SET url_allowlist = ?`)
+      .run("{not json");
     expect((await mod.readAppSecretMeta(userRef))!.urlAllowlist).toBeNull();
 
-    sqlite
+    await pglite
       .prepare(`UPDATE app_secrets SET url_allowlist = ?`)
       .run(JSON.stringify([1, 2, 3]));
     expect((await mod.readAppSecretMeta(userRef))!.urlAllowlist).toBeNull();
@@ -825,7 +822,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
     // Both writes can land in the same millisecond; force a distinct, newer
     // updated_at on SECOND_KEY so the ORDER BY updated_at DESC contract is
     // exercised deterministically rather than depending on clock resolution.
-    sqlite
+    await pglite
       .prepare(
         `UPDATE app_secrets SET updated_at = ? WHERE scope_id = ? AND key = ?`,
       )
@@ -857,9 +854,9 @@ describe("secrets storage CRUD (real sqlite)", () => {
 describe("last4 preview", () => {
   let mod: typeof import("./storage.js");
   beforeEach(async () => {
-    ({ mod } = await loadStorageWithSqlite());
+    ({ mod } = await loadStorageWithPglite());
   });
-  afterEach(() => {
+  afterEach(async () => {
     vi.resetModules();
     vi.doUnmock("../db/client.js");
   });
@@ -880,21 +877,26 @@ describe("per-request read memo", () => {
   let runWithRequestContext: typeof import("../server/request-context.js").runWithRequestContext;
 
   beforeEach(async () => {
-    const { sqlite } = createSqliteExec();
+    const { pglite } = await createPgliteExec();
     selects = [];
     vi.doMock("../db/client.js", () => ({
-      getDialect: () => "sqlite",
-      isPostgres: () => false,
       isProductionServerlessFunctionRuntime: () => false,
       getDbExec: () => ({
         async execute(input: string | { sql: string; args?: any[] }) {
           const sql = typeof input === "string" ? input : input.sql;
           const args = typeof input === "string" ? [] : (input.args ?? []);
+          if (typeof input === "string") {
+            await pglite.exec(sql);
+            return { rows: [], rowsAffected: 0 };
+          }
           if (sql.trim().toUpperCase().startsWith("SELECT")) {
             selects.push(sql);
-            return { rows: sqlite.prepare(sql).all(...args), rowsAffected: 0 };
+            return {
+              rows: await pglite.prepare(sql).all(...args),
+              rowsAffected: 0,
+            };
           }
-          const info = sqlite.prepare(sql).run(...args);
+          const info = await pglite.prepare(sql).run(...args);
           return { rows: [], rowsAffected: info.changes };
         },
       }),
@@ -903,7 +905,7 @@ describe("per-request read memo", () => {
     ({ runWithRequestContext } = await import("../server/request-context.js"));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.resetModules();
     vi.doUnmock("../db/client.js");
   });

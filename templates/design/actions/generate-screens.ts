@@ -115,7 +115,7 @@ const AGENT_COLORS = [
 ];
 
 function designDeepLink(designId: string): string {
-  const path = `/design/${encodeURIComponent(designId)}?view=overview`;
+  const path = `/design/${encodeURIComponent(designId)}?editorView=overview`;
   return buildDeepLink({
     app: "design",
     view: "editor",
@@ -437,7 +437,7 @@ export default defineAction({
       view: "editor",
       designId,
       editorView: "overview",
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
     });
     await recordGenerationCreativeContext(
       {
@@ -479,7 +479,7 @@ export default defineAction({
       targets,
       ...creativeContextProvenance,
       contextResults: creativeContext.results,
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
       embed: true,
       nextRequiredAction:
         "Generate each target with generate-design, using the target filename and canvasFrame placement, the same designSystemId, and contextRefs for coherence.",

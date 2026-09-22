@@ -29,6 +29,10 @@ import {
   getIntegrationRequestContext,
   getRequestOrgId,
 } from "../server/request-context.js";
+import {
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
 
 /* ------------------------------------------------------------------ */
@@ -98,11 +102,12 @@ async function handleList(
   const automations = definitions
     .filter(({ meta }) => !args.domain || meta.domain === args.domain)
     .filter(({ meta }) => args.enabled_only !== "true" || meta.enabled)
-    .map(({ name, meta, body, canUpdate }) => ({
+    .map(({ name, meta, body, canUpdate, webhookPath }) => ({
       name,
       scope,
       triggerType: meta.triggerType,
       event: meta.event ?? null,
+      webhookPath: canUpdate ? (webhookPath ?? null) : null,
       schedule: meta.schedule || null,
       timezone: meta.timezone ? effectiveTimezone(meta.timezone) : null,
       scheduleDescription: meta.schedule
@@ -120,6 +125,7 @@ async function handleList(
       createdBy: meta.createdBy ?? null,
       runAs: meta.runAs ?? null,
       model: meta.model ?? null,
+      reasoningEffort: meta.reasoningEffort ?? null,
       executionHostId: meta.executionHostId ?? null,
       executionEngine: meta.executionEngine ?? null,
       executionCwd: meta.executionCwd ?? null,
@@ -141,9 +147,13 @@ function automationScope(value: unknown): AutomationScope {
   throw new Error('scope must be "personal" or "organization".');
 }
 
-function automationTriggerType(value: unknown): "schedule" | "event" {
-  if (value === "schedule" || value === "event") return value;
-  throw new Error('trigger_type must be "schedule" or "event".');
+function automationTriggerType(
+  value: unknown,
+): "schedule" | "event" | "webhook" {
+  if (value === "schedule" || value === "event" || value === "webhook") {
+    return value;
+  }
+  throw new Error('trigger_type must be "schedule", "event", or "webhook".');
 }
 
 async function handleDefine(
@@ -182,6 +192,13 @@ async function handleDefine(
             ? args.delegated_policy_id
             : undefined,
         model: typeof args.model === "string" ? args.model : undefined,
+        // Passed through rather than validated here: `defineAutomation`
+        // rejects an unrecognized value with a clear error, instead of this
+        // layer silently downgrading a typo to "use the model default".
+        reasoningEffort:
+          typeof args.reasoning_effort === "string"
+            ? (args.reasoning_effort as ReasoningEffort)
+            : undefined,
         executionHostId:
           typeof args.execution_host_id === "string"
             ? args.execution_host_id
@@ -221,12 +238,14 @@ async function handleDefine(
       scope: definition.scope,
       triggerType: definition.meta.triggerType,
       event: definition.meta.event ?? null,
+      webhookPath: definition.webhookPath ?? null,
       schedule: definition.meta.schedule || null,
       timezone: definition.meta.timezone ?? null,
       nextRun: definition.meta.nextRun ?? null,
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
       model: definition.meta.model ?? null,
+      reasoningEffort: definition.meta.reasoningEffort ?? null,
       executionHostId: definition.meta.executionHostId ?? null,
       executionEngine: definition.meta.executionEngine ?? null,
       executionCwd: definition.meta.executionCwd ?? null,
@@ -278,6 +297,15 @@ async function handleUpdate(
             : typeof args.model === "string"
               ? args.model
               : null,
+        // Passed through rather than validated here: `updateAutomation`
+        // rejects an unrecognized value with a clear error, instead of this
+        // layer silently downgrading a typo to "clear the effort".
+        reasoningEffort:
+          args.reasoning_effort === undefined
+            ? undefined
+            : typeof args.reasoning_effort === "string"
+              ? (args.reasoning_effort as ReasoningEffort)
+              : null,
         executionHostId:
           args.execution_host_id === undefined
             ? undefined
@@ -306,12 +334,14 @@ async function handleUpdate(
       scope: definition.scope,
       triggerType: definition.meta.triggerType,
       enabled: definition.meta.enabled,
+      webhookPath: definition.webhookPath ?? null,
       schedule: definition.meta.schedule || null,
       timezone: definition.meta.timezone ?? null,
       nextRun: definition.meta.nextRun ?? null,
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
       model: definition.meta.model ?? null,
+      reasoningEffort: definition.meta.reasoningEffort ?? null,
       executionHostId: definition.meta.executionHostId ?? null,
       executionEngine: definition.meta.executionEngine ?? null,
       executionCwd: definition.meta.executionCwd ?? null,
@@ -379,12 +409,15 @@ async function handleRunNow(
     return "Error: an automation cannot run another automation.";
   }
   try {
+    const path = typeof args.path === "string" ? args.path.trim() : "";
+    const name = typeof args.name === "string" ? args.name : "";
     const result = await queueAutomationRunNow({
       userEmail: getCurrentUser(),
       orgId: getRequestOrgId(),
       appId,
       scope: automationScope(args.scope),
-      name: typeof args.name === "string" ? args.name : "",
+      ...(path ? { path } : { name }),
+      requestHeaders: context?.requestHeaders,
     });
     return JSON.stringify(result);
   } catch (error) {
@@ -414,16 +447,16 @@ export function createAutomationToolEntries(
   return {
     "manage-automations": {
       tool: {
-        description: `Manage automations (event-triggered and scheduled tasks). Use the "action" parameter to choose an operation:
+        description: `Manage automations (scheduled, event-triggered, and webhook-triggered tasks). Use the "action" parameter to choose an operation:
 
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
 - **list-hosts**: List paired execution hosts and their non-secret capabilities. Call this before assigning execution_host_id.
-- **list**: List all automations (triggers). Shows trigger, status, model, execution host, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
-- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, execution_host_id, execution_engine, execution_cwd, mcpTools. A scheduled automation with no schedule defaults to once per hour; use an event trigger when it should run only when something changes. Host-targeted automations queue code-agent work on that host and do not silently fall back to this server.
-- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, execution host, MCP allowlist). Required param: name. Use the same scope it was created in.
+- **list**: List all automations (triggers). Shows trigger, status, model, reasoning effort, execution host, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
+- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, reasoning_effort, execution_host_id, execution_engine, execution_cwd, mcpTools. A scheduled automation with no schedule defaults to once per hour; use an event or webhook trigger when it should run only when something changes. Webhook definitions return a URL path with a secret token; never log or expose that token beyond the intended webhook provider. Host-targeted automations queue code-agent work on that host and do not silently fall back to this server.
+- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, reasoning effort, execution host, MCP allowlist). Required param: name. Use the same scope it was created in.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
 - **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).
-- **run-now**: Run one automation immediately using its real actions and side effects. This is an explicit user-authorized run and returns a durable run id; it does not change the automation's next scheduled run. Required params: name; optional scope.`,
+- **run-now**: Run one automation immediately using its real actions and side effects. This is an explicit user-authorized run and returns a durable run id; it does not change the automation's next scheduled run. Required params: name or path (not both); optional scope. Use path for automations nested under jobs/ (for example jobs/factories/<id>/factory-slack-feedback.md); those names contain a slash and cannot round-trip through name.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -436,7 +469,12 @@ export function createAutomationToolEntries(
             name: {
               type: "string",
               description:
-                "Slug name for the automation (lowercase, hyphens). Used by define, update, delete, and run-now.",
+                "Slug name for the automation (lowercase, hyphens). Used by define, update, delete, and run-now for flat automations. For nested automations, pass path to run-now instead.",
+            },
+            path: {
+              type: "string",
+              description:
+                "Full jobs resource path (jobs/...md) for a nested automation. Use with run-now instead of name when the automation name contains a slash.",
             },
             scope: {
               type: "string",
@@ -446,8 +484,9 @@ export function createAutomationToolEntries(
             },
             trigger_type: {
               type: "string",
-              description: '"event" or "schedule". Required for define.',
-              enum: ["event", "schedule"],
+              description:
+                '"schedule", "event", or "webhook". Required for define.',
+              enum: ["event", "schedule", "webhook"],
             },
             event: {
               type: "string",
@@ -484,6 +523,12 @@ export function createAutomationToolEntries(
               type: "string",
               description:
                 "Optional model id for this automation. The default model is used when omitted.",
+            },
+            reasoning_effort: {
+              type: "string",
+              description:
+                "Optional reasoning effort for this automation's model. The model's default is used when omitted.",
+              enum: [...REASONING_EFFORTS],
             },
             execution_host_id: {
               type: "string",
@@ -572,7 +617,7 @@ export function createAutomationToolEntries(
           case "run-now":
             return handleRunNow(args, getCurrentUser, appId, context);
           default:
-            return `Error: unknown action "${action}". Valid actions: ${VALID_ACTIONS.join(", ")}.`;
+            return `Error: unknown action "${String(action)}". Valid actions: ${VALID_ACTIONS.join(", ")}.`;
         }
       },
     },

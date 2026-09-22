@@ -5,7 +5,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
-    key === "editorToolbar.assetLibrary" ? "Asset Library" : key,
+    ({
+      "editorToolbar.assetLibrary": "Asset Library",
+      "styleInspector.position": "Position",
+      "styleInspector.top": "Top",
+      "styleInspector.left": "Left",
+      "styleInspector.center": "Center",
+      "styleInspector.right": "Right",
+      "styleInspector.bottom": "Bottom",
+    })[key] ?? key,
 }));
 
 import ImageOverlay from "./ImageOverlay";
@@ -19,6 +27,7 @@ describe("<ImageOverlay>", () => {
     const onUpload = vi.fn();
     const onDownload = vi.fn();
     const onToggleObjectFit = vi.fn();
+    const onChangeObjectPosition = vi.fn();
     const onClose = vi.fn();
 
     render(
@@ -26,11 +35,13 @@ describe("<ImageOverlay>", () => {
         anchorRect={new DOMRect(200, 80, 300, 200)}
         src="https://example.com/image.png"
         objectFit="cover"
+        objectPosition="center center"
         onGenerate={onGenerate}
         onLibrary={onLibrary}
         onUpload={onUpload}
         onDownload={onDownload}
         onToggleObjectFit={onToggleObjectFit}
+        onChangeObjectPosition={onChangeObjectPosition}
         onClose={onClose}
       />,
     );
@@ -46,11 +57,51 @@ describe("<ImageOverlay>", () => {
     ]);
     expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Logo" })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Position" })).toBeTruthy();
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual([
+      "Top Left",
+      "Top Center",
+      "Top Right",
+      "Left",
+      "Center",
+      "Right",
+      "Bottom Left",
+      "Bottom Center",
+      "Bottom Right",
+    ]);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Position" }), {
+      target: { value: "right bottom" },
+    });
+    expect(onChangeObjectPosition).toHaveBeenCalledWith("right bottom");
 
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
     expect(onDownload).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Fit: Cover" }));
     expect(onToggleObjectFit).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides crop controls for placeholders that have no persisted image style", () => {
+    render(
+      <ImageOverlay
+        anchorRect={new DOMRect(200, 80, 300, 200)}
+        src="placeholder:0:Hero%20image"
+        objectFit="cover"
+        objectPosition="center center"
+        onGenerate={vi.fn()}
+        onLibrary={vi.fn()}
+        onUpload={vi.fn()}
+        onDownload={vi.fn()}
+        onToggleObjectFit={vi.fn()}
+        onChangeObjectPosition={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Fit: Cover" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Position" })).toBeNull();
   });
 });

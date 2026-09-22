@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-22
+
+### Fixed
+
+- Tuning or adding a source no longer leaves the Sources page unresponsive.
+
 ## 2026-08-11
 
 ### Improved
@@ -35,7 +41,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- Clicking the Agent Native logo now toggles the app sidebar.
+- Clicking the Agent-Native logo now toggles the app sidebar.
 
 ## 2026-07-30
 

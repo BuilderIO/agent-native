@@ -231,7 +231,10 @@ function FormsCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
+  const formId = location.pathname.match(/^\/forms\/([^/]+)/)?.[1];
+  const isResponsesRoute = location.pathname.endsWith("/responses");
   return (
     <CommandMenu
       open={open}
@@ -240,9 +243,28 @@ function FormsCommandMenu({
       changelogKey="forms"
     >
       <CommandMenu.Group heading={t("root.commandForms")}>
-        <CommandMenu.Item onSelect={() => {}}>
-          {t("root.searchForms")}
-        </CommandMenu.Item>
+        {formId && !isResponsesRoute ? (
+          <CommandMenu.Item
+            onSelect={() => navigate(`/forms/${formId}/responses`)}
+          >
+            {t("header.responses")}
+          </CommandMenu.Item>
+        ) : null}
+        {formId && isResponsesRoute ? (
+          <CommandMenu.Item onSelect={() => navigate(`/forms/${formId}`)}>
+            {t("header.form")}
+          </CommandMenu.Item>
+        ) : null}
+        {location.pathname === "/ask" ? (
+          <CommandMenu.Item onSelect={() => navigate("/forms")}>
+            {t("navigation.allForms")}
+          </CommandMenu.Item>
+        ) : null}
+        {location.pathname !== "/ask" && !formId ? (
+          <CommandMenu.Item onSelect={() => navigate("/ask")}>
+            {t("navigation.askForms")}
+          </CommandMenu.Item>
+        ) : null}
         <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
           <IconHierarchy2 size={16} />
           {t("root.openAgent")}
@@ -275,13 +297,14 @@ export default function Root() {
   const location = useLocation();
   const isPublicPath =
     location.pathname === "/f" || location.pathname.startsWith("/f/");
+  const isMarketingHome = location.pathname === "/";
 
-  if (isPublicPath) {
+  if (isPublicPath || isMarketingHome) {
     return (
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}
-          isPublicPath
+          isPublicPath={isPublicPath || isMarketingHome}
           i18n={{ catalog: i18nCatalog }}
         >
           <Outlet />

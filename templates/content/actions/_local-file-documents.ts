@@ -56,6 +56,11 @@ function localOptions(): LocalArtifactOptions {
   };
 }
 
+export async function getContentSourceMode() {
+  const app = await getLocalArtifactApp(localOptions());
+  return app.mode;
+}
+
 function encodeIdPath(filePath: string): string {
   return Buffer.from(filePath, "utf8").toString("base64url");
 }
@@ -444,7 +449,7 @@ function frontmatterLine(key: string, value: unknown) {
   if (typeof value === "boolean" || typeof value === "number") {
     return `${key}: ${String(value)}`;
   }
-  return `${key}: ${JSON.stringify(String(value))}`;
+  return `${key}: ${JSON.stringify(typeof value === "string" ? value : (JSON.stringify(value) ?? ""))}`;
 }
 
 function shouldAddMissingFrontmatterKey(

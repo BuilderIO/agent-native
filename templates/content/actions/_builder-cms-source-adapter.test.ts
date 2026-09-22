@@ -282,9 +282,11 @@ describe("Builder CMS source adapter", () => {
     );
     // Bare reference → readable model:shortId token, never raw reference JSON.
     expect(result?.sourceValues["data.author"]).toBe("blog-author:724dd11f");
-    expect(String(result?.sourceValues["data.author"])).not.toContain(
-      "@builder.io/core:Reference",
-    );
+    expect(
+      typeof result?.sourceValues["data.author"] === "string"
+        ? result.sourceValues["data.author"]
+        : JSON.stringify(result?.sourceValues["data.author"] ?? ""),
+    ).not.toContain("@builder.io/core:Reference");
     // Inlined reference value → use the referenced entry's human name,
     // whether it lives in `value.data` or at the enriched entry's top level.
     expect(result?.sourceValues["data.coAuthor"]).toBe("Ada Lovelace");

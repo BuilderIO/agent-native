@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -21,6 +21,7 @@ export default defineAction({
       .describe("Replacement action list"),
     enabled: z.boolean().optional().describe("Whether the rule is enabled"),
     domain: z.enum(["mail", "calendar"]).optional().describe("Rule domain"),
+    kind: z.enum(["automation", "ai-filter"]).optional().describe("Rule kind"),
   }),
   http: { method: "PUT" },
   agentTool: false,

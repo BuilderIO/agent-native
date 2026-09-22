@@ -1,8 +1,9 @@
 #!/usr/bin/env tsx
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const INVENTORY_DOCUMENTATION_PATH = path.join(
@@ -30,6 +31,7 @@ const PUBLIC_EXACT_KEYS = new Set([
   "AUTH_DISABLED",
   "AUTH_MAGIC_LINK",
   "AUTH_MODE",
+  "AUTH_REQUIRE_EMAIL_VERIFICATION",
   "AUTH_SKIP_EMAIL_VERIFICATION",
   "BRAVE_SEARCH_API_KEY",
   "BETTER_AUTH_SECRET",
@@ -38,7 +40,6 @@ const PUBLIC_EXACT_KEYS = new Set([
   "COHERE_API_KEY",
   "COOKIE_DOMAIN",
   "CORS_ALLOWED_ORIGINS",
-  "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
   "DEBUG",
   "EMAIL_AGENT_ADDRESS",
@@ -227,14 +228,16 @@ console.log(
 );
 
 function repositoryFiles(): string[] {
-  return execFileSync(
+  return execGuardCommand(
     "git",
     ["ls-files", "--cached", "--others", "--exclude-standard"],
     {
       cwd: REPO_ROOT,
       encoding: "utf8",
+      maxBuffer: 1 << 28,
     },
   )
+    .toString()
     .split("\n")
     .filter(Boolean);
 }

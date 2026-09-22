@@ -51,7 +51,7 @@ records Brain is allowed to use:
 
 ```bash
 pnpm --filter brain action create-source \
-  --title "Blessed Agent Native docs" \
+  --title "Blessed Agent-Native docs" \
   --provider generic \
   --sourceKey agent-native-docs \
   --policy '{"trustTier":"blessed","answerEligible":true,"authority":100,"freshnessWindowDays":null,"reviewRequired":false,"conflictBehavior":"prefer-higher-authority"}' \
