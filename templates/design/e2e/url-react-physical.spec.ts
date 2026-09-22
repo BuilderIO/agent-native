@@ -150,6 +150,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
             }),
             id: "react-next",
             path: "/next",
+            url: `${targetUrl}/next`,
             title: "Next",
           },
         ],
