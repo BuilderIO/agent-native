@@ -32,6 +32,7 @@ import {
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
   retainThenAdoptDisplacedWinner,
+  shouldAttestUnchangedEditorSave,
   shouldSubmitDocumentContent,
   shouldShowNewDocumentTypeChooser,
   subscribeToAuthoritativeQuerySuccess,
@@ -48,6 +49,28 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("attests an identified revert even when its snapshot matches the saved page", () => {
+    const base = {
+      hasUpdates: false,
+      contentChanged: false,
+      editorSessionId: "editor-session",
+      editGeneration: 4,
+      isLinkedLocalSource: false,
+      isLocalFile: false,
+    };
+
+    expect(shouldAttestUnchangedEditorSave(base)).toBe(true);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, editorSessionId: undefined }),
+    ).toBe(false);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, contentChanged: true }),
+    ).toBe(false);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, isLocalFile: true }),
+    ).toBe(false);
+  });
+
   it("falls back when keepalive stale guards omit changed work", () => {
     expect(
       lifecycleKeepaliveDisposition({

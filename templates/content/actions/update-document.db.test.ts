@@ -387,6 +387,36 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(documentId)).content).toBe("");
   });
 
+  it.each([
+    {
+      protocol: "base revision only",
+      fields: { baseRevision: "body:0:sha256:invalid" },
+    },
+    {
+      protocol: "idempotency key only",
+      fields: { idempotencyKey: "partial-edit-protocol" },
+    },
+  ])("rejects a partial revision protocol: $protocol", async ({ fields }) => {
+    const documentId = await createDocument({ content: "original" });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocumentAction.run(
+          {
+            id: documentId,
+            find: "original",
+            replace: "changed",
+            ...fields,
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+    });
+    expect((await documentRow(documentId)).content).toBe("original");
+  });
+
   it("rejects external full-body writes outside the revisioned edit protocol", async () => {
     const documentId = await createDocument({ content: "original" });
 

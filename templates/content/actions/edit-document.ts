@@ -276,11 +276,10 @@ export default defineAction({
       ctx?.caller === "mcp" ||
       ctx?.caller === "webmcp" ||
       ctx?.caller === "a2a";
-    const usesRevisionProtocol = Boolean(
-      isExternalCaller ||
-      initializesBody ||
-      (args.baseRevision && args.idempotencyKey),
-    );
+    const suppliesRevisionProtocol =
+      args.baseRevision !== undefined || args.idempotencyKey !== undefined;
+    const usesRevisionProtocol =
+      isExternalCaller || initializesBody || suppliesRevisionProtocol;
     if (usesRevisionProtocol) {
       if (!args.baseRevision || !args.idempotencyKey) {
         throw new ActionContractError(

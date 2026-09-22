@@ -437,6 +437,24 @@ export function refreshUnchangedTitleSaveWatermark(args: {
   return { ...args.lastSaved, updatedAt: args.serverUpdatedAt };
 }
 
+export function shouldAttestUnchangedEditorSave(args: {
+  hasUpdates: boolean;
+  contentChanged: boolean;
+  editorSessionId?: string;
+  editGeneration?: number;
+  isLinkedLocalSource: boolean;
+  isLocalFile: boolean;
+}) {
+  return (
+    !args.hasUpdates &&
+    !args.contentChanged &&
+    !!args.editorSessionId &&
+    args.editGeneration !== undefined &&
+    !args.isLinkedLocalSource &&
+    !args.isLocalFile
+  );
+}
+
 export function refreshUnchangedContentSaveWatermark(args: {
   serverContent: string;
   serverUpdatedAt: string | null;
@@ -2829,7 +2847,26 @@ function PageEditorSessionBody({
         })
       )
         updates.content = content;
-      if (Object.keys(updates).length === 0) {
+      const hasUpdates = Object.keys(updates).length > 0;
+      if (
+        shouldAttestUnchangedEditorSave({
+          hasUpdates,
+          contentChanged,
+          editorSessionId: options.editorSessionId,
+          editGeneration: options.editGeneration,
+          isLinkedLocalSource: isLinkedLocalSourceDocument,
+          isLocalFile: isLocalFileDocument,
+        })
+      ) {
+        const attested = await persistDocumentUpdates(
+          { title, content },
+          options,
+        );
+        return {
+          contentPersisted: !isDocumentUpdateConflict(attested),
+        };
+      }
+      if (!hasUpdates) {
         return { contentPersisted: !contentChanged };
       }
 
