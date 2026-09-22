@@ -8,6 +8,7 @@ import {
 import {
   deterministicQuarantineDecision,
   fallbackSensitivityDecision,
+  sanitizeSensitiveText,
   screenSensitivityDeterministically,
 } from "./sensitivity-policy.js";
 
@@ -36,6 +37,19 @@ describe("capture sanitization", () => {
     expect(result.decision?.categories).toContain("secret-credential");
     expect(result.content).not.toContain("secret123");
     expect(JSON.stringify(result.metadata)).not.toContain("secret123");
+  });
+
+  it("redacts every credential label variant it suppresses on, in any case", () => {
+    for (const line of [
+      "private-key: not-a-real-value",
+      "access_token=not-a-real-value",
+      "API_KEY: not-a-real-value",
+      "authorization: bearer exampleexampleexample",
+    ]) {
+      const redacted = sanitizeSensitiveText(line);
+      expect(redacted).not.toContain("not-a-real-value");
+      expect(redacted).not.toContain("exampleexample");
+    }
   });
 
   it("quotes workspace settings as lower-priority data in the model prompt", async () => {
@@ -84,6 +98,10 @@ describe("capture sanitization", () => {
       "secret-credential",
       "curl -H 'Authorization: Bearer EXAMPLEEXAMPLEEXAMPLE'",
     ],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "authorization: bearer exampleexampleexample"],
+    ["secret-credential", "private-key: not-a-real-value"],
+    ["secret-credential", "access_token=not-a-real-value"],
   ])("hard category %s is always suppressed", async (category, content) => {
     const result = await sanitizeCaptureForStorage({ ...baseInput, content });
 

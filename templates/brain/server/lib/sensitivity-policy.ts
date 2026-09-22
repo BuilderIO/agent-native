@@ -38,10 +38,7 @@ export function sanitizeSensitiveText(value: string): string {
       // the middle the credential patterns no longer match, leaving the tail
       // of a live secret in the output.
       .replace(UNLABELLED_CREDENTIAL_PATTERN, "[redacted]")
-      .replace(
-        /\b(password|passcode|secret|token|api key)\s*[:=]\s*\S+/gi,
-        "$1: [redacted]",
-      )
+      .replace(LABELLED_CREDENTIAL_PATTERN, "$1: [redacted]")
       .replace(/<mailto:[^>|]+(?:\|[^>]+)?>/gi, "[redacted]")
       .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, "[redacted]")
       .replace(/\bU[A-Z0-9]{8,}\b/g, "[redacted]")
@@ -85,11 +82,26 @@ const UNLABELLED_CREDENTIAL_SOURCES = [
   String.raw`\b(?:Authorization\s*:\s*)?(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}`,
 ] as const;
 
-const CREDENTIAL_LABEL_PATTERN = String.raw`\b(?:password|passcode|secret|api[- ]?key|access[- ]?token|private[- ]?key)\s*[:=]`;
+/**
+ * Labels that introduce a secret value. Shared so the detector and the
+ * redactor cannot recognise different sets: a label in only the detector
+ * suppresses without redacting, and one in only the redactor leaves a
+ * credential-bearing capture stored as "allowed".
+ */
+const CREDENTIAL_LABELS = String.raw`password|passcode|secret|token|api[-_ ]?key|access[-_ ]?token|private[-_ ]?key`;
 
+const CREDENTIAL_LABEL_PATTERN = String.raw`\b(?:${CREDENTIAL_LABELS})\s*[:=]`;
+
+// Case-insensitive in both directions: the detector and the redactor must
+// agree, or `authorization: bearer <token>` is suppressed but not redacted.
 const UNLABELLED_CREDENTIAL_PATTERN = new RegExp(
   UNLABELLED_CREDENTIAL_SOURCES.join("|"),
-  "g",
+  "gi",
+);
+
+const LABELLED_CREDENTIAL_PATTERN = new RegExp(
+  String.raw`\b(${CREDENTIAL_LABELS})\s*[:=]\s*\S+`,
+  "gi",
 );
 
 const CREDENTIAL_PATTERN = new RegExp(
