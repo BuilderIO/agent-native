@@ -80,7 +80,7 @@ const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
 
 function preview(page: Page): Locator {
   return page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .contentFrame()
     .locator("body");
