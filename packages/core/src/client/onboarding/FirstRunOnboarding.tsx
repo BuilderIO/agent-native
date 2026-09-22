@@ -674,7 +674,7 @@ export function FirstRunOnboarding({
   return (
     <OnboardingShell
       profile={profile}
-      screen="choice"
+      screen="connecting"
       onDismiss={dismissOnboarding}
       {...completionErrorProps}
     >
