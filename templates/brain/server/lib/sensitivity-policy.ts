@@ -78,6 +78,11 @@ const UNLABELLED_CREDENTIAL_SOURCES = [
   String.raw`\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b`,
   // JWTs.
   String.raw`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`,
+  // PEM blocks. The label pattern wants `private key:`, which a PEM header
+  // never has.
+  String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----`,
+  // Authorization headers pasted from logs or curl commands.
+  String.raw`\b(?:Authorization\s*:\s*)?(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}`,
 ] as const;
 
 const CREDENTIAL_LABEL_PATTERN = String.raw`\b(?:password|passcode|secret|api[- ]?key|access[- ]?token|private[- ]?key)\s*[:=]`;

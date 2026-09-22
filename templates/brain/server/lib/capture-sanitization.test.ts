@@ -77,6 +77,13 @@ describe("capture sanitization", () => {
     ["secret-credential", "deploy uses AKIAEXAMPLEEXAMPLE99 today"],
     // guard:allow-secret-literal — shape-only fixtures proving suppression
     ["secret-credential", "oauth GOCSPX-EXAMPLEEXAMPLEEXAMPLEEX is rotating"],
+    // guard:allow-secret-literal — PEM header only, no key material
+    ["secret-credential", "-----BEGIN OPENSSH PRIVATE KEY-----"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    [
+      "secret-credential",
+      "curl -H 'Authorization: Bearer EXAMPLEEXAMPLEEXAMPLE'",
+    ],
   ])("hard category %s is always suppressed", async (category, content) => {
     const result = await sanitizeCaptureForStorage({ ...baseInput, content });
 

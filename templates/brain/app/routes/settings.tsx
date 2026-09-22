@@ -388,12 +388,12 @@ function PrivacySensitivitySettings({
               id="quarantine-retention-hours"
               type="number"
               min={1}
-              max={8760}
+              max={720}
               value={settings.quarantineRetentionHours ?? 72}
               onChange={(event) =>
                 update(
                   "quarantineRetentionHours",
-                  Math.max(1, Math.min(8760, Number(event.target.value) || 1)),
+                  Math.max(1, Math.min(720, Number(event.target.value) || 1)),
                 )
               }
             />
