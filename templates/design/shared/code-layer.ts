@@ -7087,11 +7087,13 @@ function applyWrapNodes(
   const wrapperKindAttr = wrapperIsFrame
     ? ' data-an-primitive="frame"'
     : ' data-agent-native-group="true"';
-  const hasMeasuredGroupRuntime = Boolean(measuredFlowGeometry);
+  const hasMeasuredGroupRuntime = Boolean(
+    measuredFlowGeometry && !wrapperIsFrame,
+  );
   const measuredFlowAttr = hasMeasuredGroupRuntime
     ? ` ${MEASURED_FLOW_GROUP_ATTR}="true"`
     : "";
-  const measuredFlowOriginAttr = hasMeasuredGroupRuntime
+  const measuredFlowOriginAttr = measuredFlowGeometry
     ? ` data-agent-native-group-origin-left="${formatMeasuredPixel(measuredFlowGeometry!.left)}" data-agent-native-group-origin-top="${formatMeasuredPixel(measuredFlowGeometry!.top)}"`
     : "";
   const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${measuredFlowAttr}${measuredFlowOriginAttr}${wrapperStyleAttr}>`;
