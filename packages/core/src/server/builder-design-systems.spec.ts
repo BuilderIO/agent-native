@@ -37,6 +37,7 @@ import {
   collectBuilderDesignSystemGitHubFiles,
   createBuilderDesignSystemProxyFields,
   fetchBuilderDesignSystemDocs,
+  fetchBuilderDesignSystemDocumentCount,
   hydrateBuilderDesignSystemReference,
   indexBuilderDesignSystem,
   localBuilderDesignSystemId,
@@ -66,6 +67,41 @@ describe("Builder design-system helpers", () => {
     resolveBuilderLegacyRequestAuthorizationMock.mockReset();
     useLegacyBuilderAuthorizationMock();
   });
+
+  function useBuilderTestCredentials() {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+  }
+
+  /**
+   * Hydration now reads the detail endpoint for `docCount` before paging
+   * docs, so a stub has to answer both routes. Responses are single-use, so
+   * every entry is a factory.
+   */
+  function stubBuilderDesignSystemFetch({
+    count,
+    docs,
+  }: {
+    count: () => Response;
+    docs: Array<() => Response>;
+  }) {
+    let docsCall = 0;
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (!url.pathname.endsWith("/docs")) return count();
+      const index = Math.min(docsCall, docs.length - 1);
+      docsCall += 1;
+      return docs[index]();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function countResponse(docCount: unknown, status = 200) {
+    return () => new Response(JSON.stringify({ docCount }), { status });
+  }
 
   it("uses OAuth for design-system reads without legacy API key fields", async () => {
     process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
@@ -401,24 +437,21 @@ describe("Builder design-system helpers", () => {
     });
   });
 
-  it("requires an explicit Builder completion signal when hydrating docs", async () => {
-    process.env.BUILDER_PRIVATE_KEY = "builder-private";
-    process.env.BUILDER_PUBLIC_KEY = "builder-public";
-    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
-      "https://builder.example.test/design-systems/v1";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
+  it("derives hydrated readiness from the Builder document count, not its status", async () => {
+    useBuilderTestCredentials();
+    const fetchMock = stubBuilderDesignSystemFetch({
+      count: countResponse(1),
+      docs: [
+        () =>
           new Response(
             JSON.stringify({
               docs: [{ tokenValues: { "--brand-primary": "#123456" } }],
-              status: "complete",
+              status: "in-progress",
             }),
             { status: 200 },
           ),
-      ),
-    );
+      ],
+    });
 
     await expect(
       hydrateBuilderDesignSystemReference({
@@ -432,37 +465,32 @@ describe("Builder design-system helpers", () => {
       tokenValues: { "--brand-primary": "#123456" },
       completionConfirmed: true,
     });
+    const countUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(countUrl.pathname).toBe("/design-systems/v1/ds-1");
+    expect(countUrl.searchParams.get("includeDocumentCount")).toBe("true");
   });
 
   it("hydrates every Builder docs page and preserves terminal failure status", async () => {
-    process.env.BUILDER_PRIVATE_KEY = "builder-private";
-    process.env.BUILDER_PUBLIC_KEY = "builder-public";
-    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
-      "https://builder.example.test/design-systems/v1";
-    let requestCount = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        requestCount += 1;
-        if (requestCount === 1) {
-          return new Response(
+    useBuilderTestCredentials();
+    const fetchMock = stubBuilderDesignSystemFetch({
+      count: countResponse(41),
+      docs: [
+        () =>
+          new Response(
             JSON.stringify(
               Array.from({ length: 40 }, (_, index) => ({
                 id: `doc-${index}`,
               })),
             ),
             { status: 200 },
-          );
-        }
-        return new Response(
-          JSON.stringify({
-            docs: [{ id: "doc-40" }],
-            status: "complete",
-          }),
-          { status: 200 },
-        );
-      }),
-    );
+          ),
+        () =>
+          new Response(
+            JSON.stringify({ docs: [{ id: "doc-40" }], status: "complete" }),
+            { status: 200 },
+          ),
+      ],
+    });
 
     await expect(
       hydrateBuilderDesignSystemReference({
@@ -475,17 +503,17 @@ describe("Builder design-system helpers", () => {
       docCount: 41,
       completionConfirmed: true,
     });
-    expect(requestCount).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
+    stubBuilderDesignSystemFetch({
+      count: countResponse(0),
+      docs: [
+        () =>
           new Response(JSON.stringify({ docs: [], status: "failed" }), {
             status: 200,
           }),
-      ),
-    );
+      ],
+    });
     await expect(
       hydrateBuilderDesignSystemReference({
         source: "builder",
@@ -495,26 +523,23 @@ describe("Builder design-system helpers", () => {
       }),
     ).resolves.toMatchObject({
       builderStatus: "failed",
+      docCount: 0,
       completionConfirmed: false,
     });
   });
 
-  it("bounds minimal hydration to the first page", async () => {
-    process.env.BUILDER_PRIVATE_KEY = "builder-private";
-    process.env.BUILDER_PUBLIC_KEY = "builder-public";
-    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
-      "https://builder.example.test/design-systems/v1";
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            docs: [{ id: "doc-1" }],
-            status: "in-progress",
-          }),
-          { status: 200 },
-        ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+  it("bounds minimal hydration to the first docs page", async () => {
+    useBuilderTestCredentials();
+    const fetchMock = stubBuilderDesignSystemFetch({
+      count: countResponse(1),
+      docs: [
+        () =>
+          new Response(
+            JSON.stringify({ docs: [{ id: "doc-1" }], status: "in-progress" }),
+            { status: 200 },
+          ),
+      ],
+    });
 
     await expect(
       hydrateBuilderDesignSystemReference(
@@ -529,30 +554,28 @@ describe("Builder design-system helpers", () => {
     ).resolves.toMatchObject({
       builderStatus: "in-progress",
       docCount: 1,
-      completionConfirmed: false,
+      completionConfirmed: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("preserves failed status over completion flags and normalizes cancellation variants", async () => {
-    process.env.BUILDER_PRIVATE_KEY = "builder-private";
-    process.env.BUILDER_PUBLIC_KEY = "builder-public";
-    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
-      "https://builder.example.test/design-systems/v1";
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          docs: [],
-          status: "error",
-          complete: true,
-          completed: true,
-        }),
-        { status: 200 },
-      ),
-    );
+  it("reports Builder's own status while the count decides readiness", async () => {
+    useBuilderTestCredentials();
+    stubBuilderDesignSystemFetch({
+      count: countResponse(0),
+      docs: [
+        () =>
+          new Response(
+            JSON.stringify({
+              docs: [],
+              status: "error",
+              complete: true,
+              completed: true,
+            }),
+            { status: 200 },
+          ),
+      ],
+    });
     await expect(
       hydrateBuilderDesignSystemReference({
         source: "builder",
@@ -565,11 +588,15 @@ describe("Builder design-system helpers", () => {
       completionConfirmed: false,
     });
 
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ docs: [], status: "canceled" }), {
-        status: 200,
-      }),
-    );
+    stubBuilderDesignSystemFetch({
+      count: countResponse(0),
+      docs: [
+        () =>
+          new Response(JSON.stringify({ docs: [], status: "canceled" }), {
+            status: 200,
+          }),
+      ],
+    });
     await expect(
       hydrateBuilderDesignSystemReference({
         source: "builder",
@@ -581,6 +608,41 @@ describe("Builder design-system helpers", () => {
       builderStatus: "cancelled",
       completionConfirmed: false,
     });
+  });
+
+  it("never reports an unreadable Builder document count as zero", async () => {
+    useBuilderTestCredentials();
+    const emptyDocs = () =>
+      new Response(JSON.stringify({ docs: [] }), { status: 200 });
+
+    stubBuilderDesignSystemFetch({
+      count: () =>
+        new Response(JSON.stringify({ status: "ready" }), { status: 200 }),
+      docs: [emptyDocs],
+    });
+    await expect(
+      fetchBuilderDesignSystemDocumentCount("ds-1"),
+    ).resolves.toMatchObject({ ok: false, reason: "invalid-response" });
+
+    stubBuilderDesignSystemFetch({
+      count: () => new Response("upstream down", { status: 503 }),
+      docs: [emptyDocs],
+    });
+    await expect(
+      fetchBuilderDesignSystemDocumentCount("ds-1"),
+    ).resolves.toMatchObject({ ok: false, reason: "unreachable" });
+
+    stubBuilderDesignSystemFetch({
+      count: () => new Response("upstream down", { status: 503 }),
+      docs: [emptyDocs],
+    });
+    await expect(
+      hydrateBuilderDesignSystemReference({
+        source: "builder",
+        builderDesignSystemId: "ds-1",
+        builderJobId: "job-1",
+      }),
+    ).rejects.toThrow(/document count could not be read/);
   });
 
   it("persists replayable GitHub source scope in the local proxy", () => {

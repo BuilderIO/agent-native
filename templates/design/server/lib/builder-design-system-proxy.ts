@@ -6,13 +6,14 @@ import {
 } from "@agent-native/core/brand-kit";
 import {
   createBuilderDesignSystemProxyFields,
+  isBuilderDesignSystemReadyByCount,
   localBuilderDesignSystemId,
   type BuilderDesignSystemHydratedReference,
   type BuilderDesignSystemIndexResult,
   type BuilderDesignSystemGitHubSource,
   type BuilderDesignSystemSourceKind,
 } from "@agent-native/core/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
@@ -31,12 +32,6 @@ type HydratedBuilderDesignSystemReference =
   BuilderDesignSystemHydratedReference & {
     completionConfirmed?: boolean;
   };
-
-export function isBuilderDesignSystemReady(
-  status: string | undefined,
-): boolean {
-  return status === "ready" || status === "complete" || status === "completed";
-}
 
 export interface BuilderProxyReconciliation {
   data: string;
@@ -182,11 +177,9 @@ export function reconcileBuilderProxyData(
       source: "Builder DSI",
     })),
   );
-  const completionConfirmed =
-    hydrated.completionConfirmed === true ||
-    hydrated.builderStatus === "ready" ||
-    hydrated.builderStatus === "complete" ||
-    hydrated.builderStatus === "completed";
+  const completionConfirmed = isBuilderDesignSystemReadyByCount(
+    hydrated.docCount,
+  );
   if (extracted.tokens.length === 0) {
     if (extracted.rejected.length > 0) {
       return {
@@ -201,6 +194,7 @@ export function reconcileBuilderProxyData(
       data: JSON.stringify({
         ...parsed,
         builderStatus: "ready",
+        docCount: hydrated.docCount,
         builderSyncedAt: syncedAt,
       }),
       tokenCount: 0,
@@ -313,6 +307,7 @@ export function reconcileBuilderProxyData(
     data: JSON.stringify({
       ...parsed,
       builderStatus: completionConfirmed ? "ready" : "in-progress",
+      docCount: hydrated.docCount,
       ...(completionConfirmed ? { builderSyncedAt: syncedAt } : {}),
       colors: nextColors,
       typography: nextTypography,
@@ -394,21 +389,6 @@ export async function upsertBuilderProxyDesignSystem({
       })
       .where(eq(schema.designSystems.id, existing.id));
   } else {
-    const [ownedSystem] = await db
-      .select({ id: schema.designSystems.id })
-      .from(schema.designSystems)
-      .where(
-        orgId
-          ? and(
-              eq(schema.designSystems.ownerEmail, ownerEmail),
-              eq(schema.designSystems.orgId, orgId),
-            )
-          : and(
-              eq(schema.designSystems.ownerEmail, ownerEmail),
-              isNull(schema.designSystems.orgId),
-            ),
-      )
-      .limit(1);
     await db.insert(schema.designSystems).values({
       id: localDesignSystemId,
       title: proxyFields.title,
@@ -416,9 +396,10 @@ export async function upsertBuilderProxyDesignSystem({
       data: proxyFields.data,
       assets: "[]",
       customInstructions: proxyFields.customInstructions,
-      // An indexing proxy has placeholders until Builder confirms completion;
-      // making it the default here lets new designs consume an unusable kit.
-      isDefault: !ownedSystem && isBuilderDesignSystemReady(result.status),
+      // A proxy created at index start has no indexed documents, so it is
+      // never usable yet; the refresh that sees a positive Builder doc count
+      // is what promotes it to default.
+      isDefault: false,
       ownerEmail,
       orgId: orgId ?? null,
       visibility: orgId ? "org" : "private",

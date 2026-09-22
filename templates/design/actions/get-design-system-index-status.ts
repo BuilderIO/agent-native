@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import {
   hydrateBuilderDesignSystemReference,
+  isBuilderDesignSystemReadyByCount,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -43,11 +44,7 @@ export default defineAction({
       builderJobId: reference.builderJobId,
       status:
         hydrated.builderStatus ?? reference.builderStatus ?? "in-progress",
-      ready:
-        hydrated.builderStatus === "ready" ||
-        hydrated.builderStatus === "complete" ||
-        hydrated.builderStatus === "completed" ||
-        hydrated.completionConfirmed === true,
+      ready: isBuilderDesignSystemReadyByCount(hydrated.docCount),
       docCount: hydrated.docCount,
       tokenCount: Object.keys(hydrated.tokenValues).length,
     };

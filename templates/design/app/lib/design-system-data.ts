@@ -5,6 +5,8 @@ export interface DesignSystemData {
   builderBranchName?: string;
   builderUrl?: string;
   builderStatus?: string;
+  /** Builder-reported indexed document count; readiness, unlike builderStatus. */
+  docCount?: number;
   builderSyncedAt?: string;
   colors?: {
     primary?: unknown;
@@ -45,6 +47,16 @@ export function parseDesignSystemData(
   }
 }
 
+/**
+ * Rows reconciled before the document count became the readiness signal carry
+ * no `docCount`. Absent is not zero, so fall back to the sync stamp a
+ * confirmed reconciliation wrote instead of demoting those kits to indexing.
+ */
+function isBuilderKitIndexed(parsed: DesignSystemData): boolean {
+  if (typeof parsed.docCount === "number") return parsed.docCount > 0;
+  return typeof parsed.builderSyncedAt === "string";
+}
+
 export function shouldRefreshBuilderDesignSystem(
   system: Pick<{ accessRole?: string; data: string }, "accessRole" | "data">,
 ): boolean {
@@ -54,11 +66,7 @@ export function shouldRefreshBuilderDesignSystem(
       system.accessRole === "admin" ||
       system.accessRole === "editor") &&
     parsed?.source === "builder" &&
-    (parsed.builderStatus === "in-progress" ||
-      ((parsed.builderStatus === "ready" ||
-        parsed.builderStatus === "complete" ||
-        parsed.builderStatus === "completed") &&
-        typeof parsed.builderSyncedAt !== "string"))
+    (!isBuilderKitIndexed(parsed) || typeof parsed.builderSyncedAt !== "string")
   );
 }
 
@@ -66,11 +74,7 @@ export function isDesignSystemUsableForGeneration(data: string): boolean {
   const parsed = parseDesignSystemData(data);
   if (!parsed) return false;
   if (parsed.source !== "builder") return true;
-  return (
-    parsed.builderStatus === "ready" ||
-    parsed.builderStatus === "complete" ||
-    parsed.builderStatus === "completed"
-  );
+  return isBuilderKitIndexed(parsed);
 }
 
 export function builderRefreshKey(system: {

@@ -34,6 +34,25 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
   return current;
 }
 
+/**
+ * Builder-reported indexed document count cached on the row. Undefined means
+ * "not measured yet", which is not the same as a system with zero documents.
+ */
+function cachedBuilderDocCount(data: string | null): number | undefined {
+  if (!data) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    // coercion-ok: unparseable row data leaves the count unknown, and
+    // undefined stays distinguishable from a measured zero.
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const docCount = (parsed as Record<string, unknown>).docCount;
+  return typeof docCount === "number" ? docCount : undefined;
+}
+
 export default defineAction({
   description:
     "List all design systems accessible to the current user. Returns title, " +
@@ -142,6 +161,7 @@ export default defineAction({
       }
       const canManage = canManageRole(role);
 
+      const docCount = cachedBuilderDocCount(row.data);
       if (args.compact === "true") {
         return {
           id: row.id,
@@ -149,6 +169,7 @@ export default defineAction({
           isDefault: row.id === effectiveDefaultId,
           accessRole: role,
           canManage,
+          docCount,
         };
       }
       return {
@@ -156,6 +177,7 @@ export default defineAction({
         title: row.title,
         description: row.description,
         data: row.data,
+        docCount,
         isDefault: row.id === effectiveDefaultId,
         visibility: row.visibility,
         accessRole: role,
