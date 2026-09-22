@@ -183,10 +183,6 @@ export async function burnRedactionsFor(args: {
     );
   }
   const previousVideoUrl: string = existing.videoUrl;
-  // Same name with a marker on the front, so the redacted copy is tellable
-  // from the original in a list. Burning twice does not stack the marker.
-  // `undefined` leaves the column alone; the column itself is never null.
-  const nextTitle = redactedTitle(existing.title) ?? undefined;
   if (!isFfmpegAvailable()) {
     throw new Error(
       "Redactions are rendered with ffmpeg, which is not available on this server.",
@@ -386,10 +382,20 @@ export async function burnRedactionsFor(args: {
   // that box is over. So only the boxes actually burned are removed, by id,
   // and the write below is pinned to this value.
   const [fresh] = await db
-    .select({ editsJson: schema.recordings.editsJson })
+    .select({
+      editsJson: schema.recordings.editsJson,
+      title: schema.recordings.title,
+    })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, args.recordingId));
   const freshEditsJson = fresh?.editsJson ?? null;
+  // Same name with a marker on the front, so the redacted copy is tellable
+  // from the original in a list. Burning twice does not stack the marker.
+  // Built from this read rather than the one before the encode, so a rename
+  // made while it ran is kept; the write below is pinned to it as well.
+  // `undefined` leaves the column alone; the column itself is never null.
+  const freshTitle = fresh?.title ?? existing.title;
+  const nextTitle = redactedTitle(freshTitle) ?? undefined;
   const freshEdits = parseEdits(freshEditsJson);
   const burnedIds = new Set(redactions.map((r) => r.id));
   const rawOverlays: unknown[] = Array.isArray(freshEdits.overlays)
@@ -462,6 +468,7 @@ export async function burnRedactionsFor(args: {
       and(
         eq(schema.recordings.id, args.recordingId),
         eq(schema.recordings.videoUrl, previousVideoUrl),
+        eq(schema.recordings.title, freshTitle),
         // Compare-and-swap on the edits too: if anything touched them between
         // the read above and this write, the row is left alone rather than
         // overwritten with a document built from a value that has since moved.

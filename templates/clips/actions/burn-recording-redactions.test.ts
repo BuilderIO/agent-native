@@ -58,6 +58,7 @@ const state = vi.hoisted(() => ({
   failures: [] as string[],
   canStart: true,
   filmstripCalls: [] as Array<Record<string, unknown>>,
+  duringEncode: null as null | (() => void),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -109,7 +110,7 @@ vi.mock("../server/db/index.js", () => ({
       },
     }),
   }),
-  schema: { recordings: { id: "id", videoUrl: "videoUrl" } },
+  schema: { recordings: { id: "id", videoUrl: "videoUrl", title: "title" } },
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
@@ -150,6 +151,7 @@ vi.mock("../server/lib/video-remux.js", () => ({
   ) => {
     state.ffmpegRuns += 1;
     state.ffmpegArgs = args;
+    state.duringEncode?.();
     options.onProgress(0.5);
   },
   withRemuxSlot: async (fn: () => Promise<unknown>) => fn(),
@@ -213,6 +215,7 @@ describe("burning redactions into a recording", () => {
     state.progressCleared = 0;
     state.failures = [];
     state.canStart = true;
+    state.duringEncode = null;
     recording.videoUrl = "https://cdn.example.com/media/clips/rec_1.webm";
     recording.kind = "video";
   });
@@ -262,6 +265,18 @@ describe("burning redactions into a recording", () => {
     await run();
     expect(state.updated[0].title).toBe("(Redacted) Test recording");
     recording.title = "Test recording";
+  });
+
+  it("keeps a rename made while the encode was running", async () => {
+    // The encode can take minutes. A title read before it and written after
+    // it would quietly undo whatever the owner renamed the clip to meanwhile.
+    state.duringEncode = () => {
+      recording.title = "Renamed mid-burn";
+    };
+
+    await run();
+
+    expect(state.updated[0].title).toBe("(Redacted) Renamed mid-burn");
   });
 
   it("marks a title the same way wherever it starts from", () => {
