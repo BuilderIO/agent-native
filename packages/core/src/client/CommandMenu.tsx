@@ -37,20 +37,29 @@ import React, {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type ReactNode,
 } from "react";
 
-import { parseChangelog } from "../changelog/parse.js";
 import { AboutAgentNativeDialog } from "./AboutAgentNativeDialog.js";
 import { sendToAgentChat } from "./agent-chat.js";
-import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
+import {
+  getChangelogLatestId,
+  useChangelogSeen,
+} from "./changelog/use-changelog-seen.js";
 import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
 import { useT } from "./i18n.js";
+import { LazyChunkErrorBoundary } from "./lazy-chunk-error-boundary.js";
 import { signOut, SIGN_OUT_SEARCH_TERMS } from "./sign-out.js";
 import { cn } from "./utils.js";
+
+const LazyChangelogDialog = lazy(async () => {
+  const { ChangelogDialog } = await import("./changelog/Changelog.js");
+  return { default: ChangelogDialog };
+});
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
@@ -361,11 +370,7 @@ export function CommandMenu({
   const hasChangelog =
     typeof changelog === "string" && changelog.trim().length > 0;
   const showAbout = showAboutProp ?? hasChangelog;
-  const changelogEntries = useMemo(
-    () => (hasChangelog ? parseChangelog(changelog as string) : []),
-    [hasChangelog, changelog],
-  );
-  const latestChangelogId = changelogEntries[0]?.id;
+  const latestChangelogId = getChangelogLatestId(changelog);
   const { unseen: changelogUnseen, markSeen: markChangelogSeen } =
     useChangelogSeen(changelogKey ?? "app", latestChangelogId);
 
@@ -702,13 +707,17 @@ export function CommandMenu({
         </DialogContent>
       </Dialog>
 
-      {hasChangelog && (
-        <ChangelogDialog
-          open={changelogOpen}
-          onOpenChange={setChangelogOpen}
-          markdown={changelog as string}
-          title={changelogLabel}
-        />
+      {hasChangelog && changelogOpen && (
+        <LazyChunkErrorBoundary fallback={null}>
+          <Suspense fallback={null}>
+            <LazyChangelogDialog
+              open
+              onOpenChange={setChangelogOpen}
+              markdown={changelog as string}
+              title={changelogLabel}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
 
       {showAbout && (
