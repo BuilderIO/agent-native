@@ -985,11 +985,12 @@ const parsedUnlockIf = reusableSteps[parsedUnlockIndex]?.if;
 if (
   typeof parsedUnlockIf !== "string" ||
   !parsedUnlockIf.includes("inputs.target == 'production'") ||
+  !parsedUnlockIf.includes("inputs.target == 'beta'") ||
   !parsedUnlockIf.includes("inputs.deploy") ||
   !parsedUnlockIf.includes("inputs.deploy_mode == 'production'")
 ) {
   issues.push(
-    `${reusablePath} must restrict the production unlock step to production uploads`,
+    `${reusablePath} must unlock prior production-context deploys before beta or production uploads`,
   );
 }
 const parsedResumeIf = reusableSteps[parsedResumeIndex]?.if;
@@ -1398,10 +1399,10 @@ if (
   !betaSmokeRollbackRun.includes("const beforeRestore =") ||
   !betaSmokeRollbackRun.includes("Netlify beta smoke rollback precondition") ||
   !betaSmokeRollbackRun.includes("/lock") ||
-  !reusable.includes("published_deploy_was_locked=${deploy.locked === true}") ||
-  !betaSmokeRollbackRun.includes(
-    "steps.previous.outputs.published_deploy_was_locked",
-  ) ||
+  !betaSmokeRollbackRun.includes("finally") ||
+  !betaSmokeRollbackRun.includes("failure cleanup") ||
+  !betaSmokeRollbackRun.includes("/unlock") ||
+  !betaSmokeRollbackRun.includes("pinned it until the next beta publish") ||
   !betaSmokeRollbackRun.includes("/restore")
 ) {
   issues.push(
