@@ -1,7 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 
-const DESIGN_SYSTEM_STATUS_REFRESH_MS = 5_000;
-
 type DesignSystemSummary = {
   id: string;
   title: string;
