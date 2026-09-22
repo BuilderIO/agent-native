@@ -42,7 +42,6 @@ const screenPaths = [
   "/home?onboarding=preview&step=manual",
   "/home?onboarding=preview&step=role",
   "/home?onboarding=preview&step=connecting",
-  "/home?onboarding=preview&step=ready",
   "/home?onboarding=preview&step=extension",
   "/home?onboarding=preview&step=references",
 ];

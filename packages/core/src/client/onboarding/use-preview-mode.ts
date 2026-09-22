@@ -19,7 +19,6 @@ export const ONBOARDING_PREVIEW_STEPS = [
   "role",
   "choice",
   "connecting",
-  "ready",
   "extension",
   "references",
 ] as const;

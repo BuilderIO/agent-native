@@ -508,7 +508,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toContain("This app is an agent.");
   });
 
-  it("shows the ready screen after a configured Builder connection", () => {
+  it("opens the app directly after a configured Builder connection", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
       statusResolved: true,
@@ -537,17 +537,6 @@ describe("FirstRunOnboarding", () => {
       document.body
         .querySelector("[data-testid='first-run-connect-builder']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(
-      document.body.querySelector("[data-onboarding-screen='ready']"),
-    ).toBeTruthy();
-    expect(mocks.completeFirstRun).not.toHaveBeenCalled();
-
-    act(() => {
-      document.body
-        .querySelector("[data-testid='first-run-open-app']")
-        ?.click();
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
