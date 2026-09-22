@@ -80,6 +80,8 @@ export interface GridGroupStructureMove {
 export interface RuntimeStructureInsertRequest {
   requestId: number;
   transactionId?: string;
+  /** Owning screen for host-side routing of the live insert. */
+  screenId?: string;
   /** Remint only ids already used by the destination live document. */
   remintCollidingNodeIds?: boolean;
   html: string;
