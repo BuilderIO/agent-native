@@ -71,8 +71,11 @@ describe("dictate page composition", () => {
     expect(routeSource).not.toContain("<DayGroupedCard");
   });
 
-  it("keeps dictionary management in the page toolbar", () => {
+  it("keeps dictionary management available before the first dictation", () => {
     expect(routeSource).toContain("<VocabularyManager />");
+    expect(routeSource).toMatch(
+      /<VocabularyManager \/>\s+\{\(dictations.length > 0 \|\| hasCaptureActivity\) && \(\s+<PageHeaderPrimaryAction/,
+    );
     expect(routeSource).not.toContain("<VocabularySection");
   });
 
@@ -111,6 +114,10 @@ describe("dictate page composition", () => {
     );
     expect(routeSource).not.toContain("line-clamp-2");
     expect(routeSource).toContain("displayText");
+    expect(routeSource).toContain(
+      "const displayText = dictation.cleanedText || dictation.fullText;",
+    );
+    expect(routeSource).not.toContain("setView(");
     expect(routeSource).not.toContain("md:grid-cols-2");
     expect(routeSource).not.toContain('t("dictateRoute.cleanupHint")');
     expect(routeSource).not.toContain('"segmented"');

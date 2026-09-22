@@ -914,9 +914,9 @@ export default function DictateRoute() {
         <div className="min-w-0 flex-1">
           <PageBreadcrumb items={[{ label: t("navigation.dictate") }]} />
         </div>
-        {(dictations.length > 0 || hasCaptureActivity) && (
-          <div className="ms-auto flex shrink-0 items-center gap-2">
-            <VocabularyManager />
+        <div className="ms-auto flex shrink-0 items-center gap-2">
+          <VocabularyManager />
+          {(dictations.length > 0 || hasCaptureActivity) && (
             <PageHeaderPrimaryAction
               type="button"
               onClick={
@@ -949,8 +949,8 @@ export default function DictateRoute() {
                     : t("dictateRoute.newDictation")}
               </span>
             </PageHeaderPrimaryAction>
-          </div>
-        )}
+          )}
+        </div>
       </PageHeader>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
         {isDesktopApp ? <HowToCard defaultOpen={false} /> : null}
