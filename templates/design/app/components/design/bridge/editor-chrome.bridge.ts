@@ -25405,13 +25405,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // still takes the insertion path even when its node id is reused.
       var existingBeforeRemint: Element | null = null;
       if (insertNodeId) {
-        try {
-          existingBeforeRemint = document.querySelector(
-            '[data-agent-native-node-id="' +
-              escapeAttribute(insertNodeId) +
-              '"]',
-          );
-        } catch (_err) {}
+        existingBeforeRemint = document.querySelector(
+          '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]',
+        );
       }
       var incomingRuntimeInstanceId = parsedInsertEl.getAttribute(
         "data-agent-native-runtime-instance-id",

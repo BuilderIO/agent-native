@@ -17933,12 +17933,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         var existingBeforeRemint = null;
         if (insertNodeId) {
-          try {
-            existingBeforeRemint = document.querySelector(
-              '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]'
-            );
-          } catch (_err) {
-          }
+          existingBeforeRemint = document.querySelector(
+            '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]'
+          );
         }
         var incomingRuntimeInstanceId = parsedInsertEl.getAttribute(
           "data-agent-native-runtime-instance-id"
