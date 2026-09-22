@@ -25,7 +25,9 @@ const MAX_HEALTH_BYTES = 64 * 1024;
 const MAX_TRANSIENT_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 10_000;
-const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+// A freshly published Netlify function can briefly return 404 while its route
+// propagates. Keep the final response authoritative after the retries.
+const RETRYABLE_STATUSES = new Set([404, 408, 429, 500, 502, 503, 504]);
 const CALLBACK_PATHS = {
   root: "/_agent-native/google/callback",
   // This callback is owned by the Slides template, not the framework fleet.
