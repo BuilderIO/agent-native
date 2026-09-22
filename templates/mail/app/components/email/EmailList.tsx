@@ -1815,26 +1815,38 @@ export function EmailList({
     [handleSwipeSnooze],
   );
 
-  const sortHeaderAction =
-    view === "inbox" && !searchQuery && !labelParam && threads.length > 0 ? (
-      <Select
-        value={sortMode}
-        onValueChange={(value) => onSortModeChange?.(value as MailSortMode)}
-      >
-        <SelectTrigger
-          className="h-7 w-[104px] text-[11px]"
-          aria-label={t("mail.sort.label")}
-          aria-busy={aiPriority.isPending}
+  const sortHeaderAction = useMemo(
+    () =>
+      view === "inbox" && !searchQuery && !labelParam && threads.length > 0 ? (
+        <Select
+          value={sortMode}
+          onValueChange={(value) => onSortModeChange?.(value as MailSortMode)}
         >
-          <SelectValue />
-          {aiPriority.isPending && <Spinner className="size-3" />}
-        </SelectTrigger>
-        <SelectContent align="end">
-          <SelectItem value="newest">{t("mail.sort.newest")}</SelectItem>
-          <SelectItem value="priority">{t("mail.sort.priority")}</SelectItem>
-        </SelectContent>
-      </Select>
-    ) : null;
+          <SelectTrigger
+            className="h-7 w-[104px] text-[11px]"
+            aria-label={t("mail.sort.label")}
+            aria-busy={aiPriority.isPending}
+          >
+            <SelectValue />
+            {aiPriority.isPending && <Spinner className="size-3" />}
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectItem value="newest">{t("mail.sort.newest")}</SelectItem>
+            <SelectItem value="priority">{t("mail.sort.priority")}</SelectItem>
+          </SelectContent>
+        </Select>
+      ) : null,
+    [
+      aiPriority.isPending,
+      labelParam,
+      onSortModeChange,
+      searchQuery,
+      sortMode,
+      t,
+      threads.length,
+      view,
+    ],
+  );
 
   const bulkHeaderActions = useMemo(
     () =>
