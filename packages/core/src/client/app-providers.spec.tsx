@@ -242,6 +242,8 @@ describe("AppProviders session gate", () => {
     );
 
     expect(privateMarkup).toContain('data-agent-native-session-bootstrap="1"');
+    expect(privateMarkup).toContain("AbortController");
+    expect(privateMarkup).toContain("abort()");
     expect(publicMarkup).not.toContain("data-agent-native-session-bootstrap");
   });
 

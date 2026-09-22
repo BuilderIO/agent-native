@@ -77,10 +77,6 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
 import {
-  getSsrSessionBootstrapScriptBody,
-  SSR_SESSION_BOOTSTRAP_MARKER,
-} from "../shared/ssr-session-bootstrap.js";
-import {
   workspaceAppAudienceFromEnv,
   workspaceAppAudienceFromPackageJson,
   workspaceAppRouteAccessFromEnv,
@@ -2732,23 +2728,6 @@ const STATIC_SHELL_LOADING_MARKUP = [
   "</main></div>",
 ].join("");
 
-function prefixMountedStaticPath(path: string, basePath: string): string {
-  if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
-  if (path === basePath || path.startsWith(basePath + "/")) return path;
-  return basePath + path;
-}
-
-function generateStaticShellSessionBootstrapScript(basePath: string): string {
-  const sessionHintCookieName = frameworkSessionHintCookieName(
-    resolveAuthCookieNamespace().frameworkCookieName,
-  );
-  const sessionPath = prefixMountedStaticPath(
-    `${resolveBuildFrameworkRoutePrefix()}/auth/session`,
-    basePath,
-  );
-  return `<script ${SSR_SESSION_BOOTSTRAP_MARKER}>${getSsrSessionBootstrapScriptBody(sessionPath, sessionHintCookieName)}</script>`;
-}
-
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,
   basePath = normalizeConfiguredAppBasePath(),
@@ -2784,7 +2763,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}${generateStaticShellSessionBootstrapScript(basePath)}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
