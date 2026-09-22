@@ -72,6 +72,14 @@ function documentUpdatedAt(documentId: string) {
   return updatedAt;
 }
 
+async function documentRowForDraftTest(documentId: string) {
+  const [document] = await getDb()
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  return document;
+}
+
 async function legacyClaimId(args: {
   documentId: string;
   expectedDraftVersion: number;
@@ -1503,6 +1511,115 @@ describe("private preview document drafts", () => {
       status: "conflict",
       draft: { content: "Tab two recovery", editorSessionId: "tab-two" },
     });
+  });
+
+  it("rejects a delete with only half of the editor identity", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Protected recovery"),
+          editorSessionId: "protected-tab",
+          editGeneration: 5,
+        },
+      }),
+    );
+
+    await expect(
+      asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "delete",
+          documentId,
+          expectedVersion: 1,
+          expectedTitle: "Builder row",
+          expectedContent: "Protected recovery",
+          expectedEditorSessionId: "protected-tab",
+        }),
+      ),
+    ).rejects.toThrow(
+      "expectedEditorSessionId and expectedEditGeneration must be provided together",
+    );
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toMatchObject({ content: "Protected recovery", editGeneration: 5 });
+  });
+
+  it("does not let a delayed lower generation replace newer unsettled work", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Generation five"),
+          editorSessionId: "ordered-tab",
+          editGeneration: 5,
+        },
+      }),
+    );
+
+    const delayed = await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: 1,
+        draft: {
+          ...payload("Delayed generation four"),
+          editorSessionId: "ordered-tab",
+          editGeneration: 4,
+        },
+      }),
+    );
+
+    expect(delayed).toMatchObject({
+      status: "conflict",
+      draft: { content: "Generation five", editGeneration: 5, version: 1 },
+    });
+  });
+
+  it("settles an unchanged editor snapshot without bumping the document timestamp", async () => {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload(before.content),
+          title: before.title,
+          editorSessionId: "revert-tab",
+          editGeneration: 9,
+        },
+      }),
+    );
+
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          title: before.title,
+          content: before.content,
+          editorSessionId: "revert-tab",
+          editorEditGeneration: 9,
+          editorSnapshotTitle: before.title,
+          editorSnapshotContent: before.content,
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+
+    const after = await documentRowForDraftTest(documentId);
+    expect(after.updatedAt).toBe(before.updatedAt);
+    expect(after.bodyRevision).toBe(before.bodyRevision);
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toBeNull();
   });
 
   it("does not settle a generation when only part of its editor snapshot was saved", async () => {

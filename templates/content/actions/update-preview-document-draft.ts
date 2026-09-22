@@ -4,7 +4,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -41,23 +41,37 @@ function draftId() {
 export default defineAction({
   description:
     "Atomically save or delete the current user's private preview draft.",
-  schema: z.discriminatedUnion("operation", [
-    z.object({
-      operation: z.literal("upsert"),
-      documentId: z.string().min(1),
-      expectedVersion: z.number().int().positive().nullable(),
-      draft: draftPayload,
+  schema: z
+    .discriminatedUnion("operation", [
+      z.object({
+        operation: z.literal("upsert"),
+        documentId: z.string().min(1),
+        expectedVersion: z.number().int().positive().nullable(),
+        draft: draftPayload,
+      }),
+      z.object({
+        operation: z.literal("delete"),
+        documentId: z.string().min(1),
+        expectedVersion: z.number().int().positive(),
+        expectedTitle: z.string().max(10_000),
+        expectedContent: z.string().max(500_000),
+        expectedEditorSessionId: z.string().min(1).max(200).optional(),
+        expectedEditGeneration: z.number().int().nonnegative().optional(),
+      }),
+    ])
+    .superRefine((args, ctx) => {
+      if (
+        args.operation === "delete" &&
+        (args.expectedEditorSessionId === undefined) !==
+          (args.expectedEditGeneration === undefined)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "expectedEditorSessionId and expectedEditGeneration must be provided together.",
+        });
+      }
     }),
-    z.object({
-      operation: z.literal("delete"),
-      documentId: z.string().min(1),
-      expectedVersion: z.number().int().positive(),
-      expectedTitle: z.string().max(10_000),
-      expectedContent: z.string().max(500_000),
-      expectedEditorSessionId: z.string().min(1).max(200).optional(),
-      expectedEditGeneration: z.number().int().nonnegative().optional(),
-    }),
-  ]),
   agentTool: false,
   toolCallable: false,
   run: async (args, ctx) => {
@@ -203,6 +217,10 @@ export default defineAction({
                     eq(
                       schema.documentPreviewDrafts.editorSessionId,
                       args.draft.editorSessionId,
+                    ),
+                    lte(
+                      schema.documentPreviewDrafts.editGeneration,
+                      args.draft.editGeneration as number,
                     ),
                   ]
                 : []),
