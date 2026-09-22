@@ -36,8 +36,8 @@ describe("MultiScreenCanvas viewport culling", () => {
     expect(OVERVIEW_CULLING_ENABLED).toBe(true);
   });
 
-  it("uses a generous (>=1.5x) overscan factor by default", () => {
-    expect(OVERVIEW_CULLING_OVERSCAN_FACTOR).toBeGreaterThanOrEqual(1.5);
+  it("uses enough overscan to absorb a settled pan", () => {
+    expect(OVERVIEW_CULLING_OVERSCAN_FACTOR).toBeGreaterThanOrEqual(2);
   });
 
   describe("live boot admission", () => {
