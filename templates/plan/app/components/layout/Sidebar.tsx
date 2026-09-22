@@ -24,12 +24,14 @@ import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
+import { planPathForKind } from "@shared/plan-routes";
 import {
   IconClipboardCheck,
   IconEdit,
   IconMessageCircle,
   IconPlus,
   IconRefresh,
+  IconNews,
   IconSettings,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
@@ -405,10 +407,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
         <div className="grid gap-0.5">
           {plans.map((plan) => {
             const isActive = plan.id === selectedPlanId;
-            const href =
-              plan.kind === "recap"
-                ? `/recaps/${plan.id}`
-                : `/plans/${plan.id}`;
+            const href = planPathForKind(plan.id, plan.kind);
             return (
               <Link
                 key={plan.id}
@@ -628,6 +627,15 @@ export function Sidebar({
         pathname.startsWith("/local-plans") ? (
           <PlansSidebarSection collapsed={collapsed} />
         ) : null}
+      </div>
+
+      <div>
+        <AppSidebarNavItem
+          to="/editions"
+          label={t("edition.nav.label")}
+          icon={IconNews}
+          active={pathname.startsWith("/editions")}
+        />
       </div>
     </AppSidebar>
   );

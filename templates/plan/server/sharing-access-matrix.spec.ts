@@ -67,6 +67,7 @@ import {
   LOCAL_PLAN_OWNER_EMAIL,
   resolvePlanAccessContext,
 } from "./lib/local-identity.js";
+import { PLANS_TABLE_DDL } from "./test-support/plans-test-schema.js";
 
 // Real PostgreSQL access matrices run alongside every workspace suite in CI.
 vi.setConfig({ testTimeout: 60_000 });
@@ -227,47 +228,7 @@ beforeAll(async () => {
   await execute(
     client,
     `
-    CREATE TABLE plans (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      brief TEXT NOT NULL,
-      kind TEXT NOT NULL DEFAULT 'plan',
-      status TEXT NOT NULL DEFAULT 'draft',
-      source TEXT NOT NULL DEFAULT 'manual',
-      repo_path TEXT,
-      current_focus TEXT,
-      html TEXT,
-      markdown TEXT,
-      content TEXT,
-      hosted_plan_id TEXT,
-      hosted_plan_url TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      approved_at TEXT,
-      usage_agent TEXT,
-      usage_model TEXT,
-      usage_input_tokens INTEGER,
-      usage_output_tokens INTEGER,
-      usage_cache_read_tokens INTEGER,
-      usage_cache_write_tokens INTEGER,
-      usage_cost_cents_x100 INTEGER,
-      usage_cost_source TEXT,
-      usage_recorded_at TEXT,
-      source_url TEXT,
-      source_type TEXT,
-      source_repo TEXT,
-      source_pr_number INTEGER,
-      source_pr_state TEXT,
-      source_pr_merged_at TEXT,
-      source_author_email TEXT,
-      source_author_name TEXT,
-      source_author_login TEXT,
-      recap_idempotency_key TEXT,
-      deleted_at TEXT, deleted_by TEXT,
-      owner_email TEXT NOT NULL,
-      org_id TEXT,
-      visibility TEXT NOT NULL DEFAULT 'private'
-    );
+    ${PLANS_TABLE_DDL};
     CREATE TABLE plan_sections (
       id TEXT PRIMARY KEY,
       plan_id TEXT NOT NULL,
@@ -454,7 +415,11 @@ describe("owner access", () => {
 
   it("generic sharing actions honor the local single-user owner for signed local browsers", async () => {
     const previous = process.env.PLAN_LOCAL_MODE;
+    const previousOrg = process.env.PLAN_LOCAL_ORG_ID;
     process.env.PLAN_LOCAL_MODE = "1";
+    // A developer's own `PLAN_LOCAL_ORG_ID` would otherwise bind an org onto
+    // every local write here and fail the no-org assertions below.
+    delete process.env.PLAN_LOCAL_ORG_ID;
     try {
       const planId = await createPlanAs(OWNER, ORG);
       let row = await rawPlan(planId);
@@ -489,6 +454,28 @@ describe("owner access", () => {
     } finally {
       if (previous === undefined) delete process.env.PLAN_LOCAL_MODE;
       else process.env.PLAN_LOCAL_MODE = previous;
+      if (previousOrg === undefined) delete process.env.PLAN_LOCAL_ORG_ID;
+      else process.env.PLAN_LOCAL_ORG_ID = previousOrg;
+    }
+  });
+
+  it("binds PLAN_LOCAL_ORG_ID onto a local write so org rows read back", async () => {
+    const previousMode = process.env.PLAN_LOCAL_MODE;
+    const previousOrg = process.env.PLAN_LOCAL_ORG_ID;
+    process.env.PLAN_LOCAL_MODE = "1";
+    process.env.PLAN_LOCAL_ORG_ID = ORG;
+    try {
+      const planId = await createPlanAs(OWNER, ORG);
+      const row = await rawPlan(planId);
+      expect(row.ownerEmail).toBe(LOCAL_PLAN_OWNER_EMAIL);
+      // Without this the row lands unscoped and nobody in the org reads it
+      // back — the local runtime looks empty against real org-visible data.
+      expect(row.orgId).toBe(ORG);
+    } finally {
+      if (previousMode === undefined) delete process.env.PLAN_LOCAL_MODE;
+      else process.env.PLAN_LOCAL_MODE = previousMode;
+      if (previousOrg === undefined) delete process.env.PLAN_LOCAL_ORG_ID;
+      else process.env.PLAN_LOCAL_ORG_ID = previousOrg;
     }
   });
 });

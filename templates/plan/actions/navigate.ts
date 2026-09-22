@@ -7,6 +7,7 @@
  *   pnpm action navigate --view=chat
  *   pnpm action navigate --view=plans
  *   pnpm action navigate --view=plan --planId=plan_...
+ *   pnpm action navigate --view=edition --editionId=edition-...
  *   pnpm action navigate --view=plan --localPlanSlug=checkout-review
  *   pnpm action navigate --view=plan --localPlanSlug=checkout-review --localPlanPath=plans/checkout-review
  *
@@ -21,13 +22,25 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the Agent-Native Plan UI to Ask Plan chat, the plan list, or a specific visual plan.",
+    "Navigate the Agent-Native Plan UI to Ask Plan chat, the plan list, a specific visual plan, or an edition of the engineering newspaper.",
   schema: z.object({
     view: z
-      .enum(["chat", "plans", "plan", "extensions", "team"])
+      .enum([
+        "chat",
+        "plans",
+        "plan",
+        "editions",
+        "edition",
+        "extensions",
+        "team",
+      ])
       .optional()
       .describe("View name to navigate to"),
     planId: z.string().optional().describe("Plan to open"),
+    editionId: z
+      .string()
+      .optional()
+      .describe("Edition of the engineering newspaper to open"),
     localPlanSlug: z
       .string()
       .optional()
@@ -43,12 +56,19 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    if (!args.view && !args.planId && !args.localPlanSlug && !args.path) {
-      return "Error: At least --view, --planId, --localPlanSlug, or --path is required.";
+    if (
+      !args.view &&
+      !args.planId &&
+      !args.editionId &&
+      !args.localPlanSlug &&
+      !args.path
+    ) {
+      return "Error: At least --view, --planId, --editionId, --localPlanSlug, or --path is required.";
     }
     const nav: Record<string, string> = {};
     nav.view = args.view ?? "plan";
     if (args.planId) nav.planId = args.planId;
+    if (args.editionId) nav.editionId = args.editionId;
     if (args.localPlanSlug) nav.localPlanSlug = args.localPlanSlug;
     if (args.localPlanPath) nav.localPlanPath = args.localPlanPath;
     if (args.path) nav.path = args.path;

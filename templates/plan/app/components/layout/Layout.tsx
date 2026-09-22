@@ -10,6 +10,7 @@ import {
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { immersiveReaderSegmentPattern } from "@shared/plan-routes";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
@@ -39,14 +40,15 @@ function routeOwnsToolbar(pathname: string): boolean {
   return pathname.startsWith("/extensions") || isPlanDetailRoute(pathname);
 }
 
-// Recaps are a kind of plan: `/plans/:id` and `/recaps/:id` both render
-// PlansPage and share the immersive full-screen reader, so the layout must
-// treat them identically (matching `viewForPath` in use-navigation-state.ts).
-// Without `/recaps/` here, recap routes never owned their toolbar and never
-// went immersive — they were stuck in app view and the full-screen toggle did
-// nothing.
+// A kind missing from this pattern never owns its toolbar, never goes
+// immersive, and its full-screen toggle does nothing — so the pattern is
+// derived from `immersiveReaderSegmentPattern` rather than hand-listed here.
+const PLAN_DETAIL_ROUTE_PATTERN = new RegExp(
+  `^\\/(${immersiveReaderSegmentPattern()}|local-plans)\\/[^/]+`,
+);
+
 function isPlanDetailRoute(pathname: string): boolean {
-  return /^\/(plans|recaps|local-plans)\/[^/]+/.test(pathname);
+  return PLAN_DETAIL_ROUTE_PATTERN.test(pathname);
 }
 
 export function Layout({ children }: LayoutProps) {

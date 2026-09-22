@@ -105,6 +105,7 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "internal transactional-email queue and delivery history",
   "clips:workspace_members": "membership join rows scoped through workspaces",
   "plan:plan_comments": "child rows scoped through plans",
+  "plan:plan_edition_stories": "child rows scoped through plans",
   "plan:plan_assets": "child rows scoped through plans",
   "plan:plan_events": "child rows scoped through plans",
   "plan:plan_guest_mints": "internal guest abuse-mitigation counters",

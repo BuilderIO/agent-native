@@ -1,27 +1,16 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { resolveOrgIdForEmail } from "@agent-native/core/org";
-import {
-  getRequestContext,
-  getRequestOrgId,
-  getRequestUserEmail,
-  runWithRequestContext,
-} from "@agent-native/core/server/request-context";
 import {
   accessFilter,
   assertAccess,
   currentAccess,
-  ForbiddenError,
 } from "@agent-native/core/sharing";
 import setResourceVisibilityAction from "@agent-native/core/sharing/actions/set-resource-visibility";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  requirePlanOwnerEmailForWrite,
-  resolvePlanAccessContext,
-  resolvePlanOrgIdForWrite,
-} from "../server/lib/local-identity.js";
+import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
+import { runWithPlanOrgContext } from "../server/lib/plan-org-context.js";
 import { planMdxFileSchema } from "../server/plan-mdx.js";
 import {
   planDeepLink,
@@ -45,47 +34,6 @@ function visualAnswerFocus(question: string): string {
 }
 
 type VisualAnswerVisibility = "private" | "org" | "public";
-
-async function resolveVisualAnswerOrgIdForVisibility(
-  visibility: VisualAnswerVisibility,
-): Promise<string | undefined> {
-  if (visibility !== "org") return undefined;
-
-  const requesterEmail = getRequestUserEmail();
-  const requestOrgId = resolvePlanOrgIdForWrite(
-    requesterEmail,
-    getRequestOrgId(),
-  );
-  if (requestOrgId) return requestOrgId;
-
-  const ownerEmail = requirePlanOwnerEmailForWrite(
-    requesterEmail,
-    "Creating a visual answer",
-  );
-  const ownerOrgId = await resolveOrgIdForEmail(ownerEmail);
-  if (ownerOrgId) return ownerOrgId;
-
-  throw new ForbiddenError(
-    "Creating an org-visible visual answer requires an active organization. Connect Plan from an organization or publish with private visibility.",
-  );
-}
-
-async function runWithVisualAnswerOrgContext<T>(
-  visibility: VisualAnswerVisibility,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const orgId = await resolveVisualAnswerOrgIdForVisibility(visibility);
-  if (!orgId || orgId === getRequestOrgId()) return fn();
-  const requestContext = getRequestContext() ?? {};
-  return runWithRequestContext(
-    {
-      ...requestContext,
-      userEmail: requestContext.userEmail ?? getRequestUserEmail(),
-      orgId,
-    },
-    fn,
-  ) as Promise<T>;
-}
 
 async function findExistingVisualAnswer(
   planId: string | undefined,
@@ -196,72 +144,76 @@ export default defineAction({
   },
   run: async (args) => {
     const visibility = args.visibility ?? "org";
-    return runWithVisualAnswerOrgContext(visibility, async () => {
-      const existingPlanId = await findExistingVisualAnswer(args.planId);
-      const result = await importVisualPlanSourceAction.run({
-        planId: existingPlanId,
-        title: args.title,
-        brief: args.brief,
-        kind: "plan",
-        source: args.source,
-        repoPath: args.repoPath,
-        currentFocus: args.currentFocus ?? visualAnswerFocus(args.question),
-        status: args.status,
-        mdx: args.mdx,
-      });
-      const planId = (result as { planId?: string } | null)?.planId;
-      if (planId) {
-        await assertAccess(
-          "plan",
-          planId,
-          "editor",
-          resolvePlanAccessContext(currentAccess()),
-        );
-        await getDb()
-          .update(schema.plans)
-          .set({
-            ...(args.sourceUrl !== undefined
-              ? { sourceUrl: args.sourceUrl ?? null }
-              : {}),
-            sourceType: args.sourceType ?? "code",
-          })
-          .where(eq(schema.plans.id, planId));
-        await setResourceVisibilityAction.run({
-          resourceType: "plan",
-          resourceId: planId,
-          visibility,
+    return runWithPlanOrgContext(
+      visibility,
+      "Creating a visual answer",
+      async () => {
+        const existingPlanId = await findExistingVisualAnswer(args.planId);
+        const result = await importVisualPlanSourceAction.run({
+          planId: existingPlanId,
+          title: args.title,
+          brief: args.brief,
+          kind: "plan",
+          source: args.source,
+          repoPath: args.repoPath,
+          currentFocus: args.currentFocus ?? visualAnswerFocus(args.question),
+          status: args.status,
+          mdx: args.mdx,
         });
-      }
-      // Return a focused payload: enough for the inline chat renderer
-      // (`plan.content` = normalized blocks) and the deep link, without echoing
-      // the heavy import bundle (html, comments, access) back into agent context.
-      const bundlePlan = (
-        result as {
-          plan?: {
-            id?: string;
-            kind?: string;
-            title?: string;
-            brief?: string;
-            content?: unknown;
-          };
-        } | null
-      )?.plan;
-      const answerPlanId = bundlePlan?.id ?? planId;
-      return {
-        planId: answerPlanId,
-        question: args.question,
-        url: answerPlanId ? planDeepLink(answerPlanId, "plan") : undefined,
-        plan: bundlePlan
-          ? {
-              id: bundlePlan.id,
-              kind: bundlePlan.kind,
-              title: bundlePlan.title,
-              brief: bundlePlan.brief,
-              content: bundlePlan.content,
-            }
-          : undefined,
-      };
-    });
+        const planId = (result as { planId?: string } | null)?.planId;
+        if (planId) {
+          await assertAccess(
+            "plan",
+            planId,
+            "editor",
+            resolvePlanAccessContext(currentAccess()),
+          );
+          await getDb()
+            .update(schema.plans)
+            .set({
+              ...(args.sourceUrl !== undefined
+                ? { sourceUrl: args.sourceUrl ?? null }
+                : {}),
+              sourceType: args.sourceType ?? "code",
+            })
+            .where(eq(schema.plans.id, planId));
+          await setResourceVisibilityAction.run({
+            resourceType: "plan",
+            resourceId: planId,
+            visibility,
+          });
+        }
+        // Return a focused payload: enough for the inline chat renderer
+        // (`plan.content` = normalized blocks) and the deep link, without echoing
+        // the heavy import bundle (html, comments, access) back into agent context.
+        const bundlePlan = (
+          result as {
+            plan?: {
+              id?: string;
+              kind?: string;
+              title?: string;
+              brief?: string;
+              content?: unknown;
+            };
+          } | null
+        )?.plan;
+        const answerPlanId = bundlePlan?.id ?? planId;
+        return {
+          planId: answerPlanId,
+          question: args.question,
+          url: answerPlanId ? planDeepLink(answerPlanId, "plan") : undefined,
+          plan: bundlePlan
+            ? {
+                id: bundlePlan.id,
+                kind: bundlePlan.kind,
+                title: bundlePlan.title,
+                brief: bundlePlan.brief,
+                content: bundlePlan.content,
+              }
+            : undefined,
+        };
+      },
+    );
   },
   link: ({ result }) => {
     const plan = (result as { plan?: { id?: string } } | null)?.plan;
