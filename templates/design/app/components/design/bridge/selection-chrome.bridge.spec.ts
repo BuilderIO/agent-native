@@ -78,4 +78,64 @@ describe("editor chrome selection overlays", () => {
       await browser.close();
     }
   });
+
+  it("keeps an overview-scale resize alive after the pointer leaves the iframe", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(
+        '<div id="viewport" style="width:200px;height:140px;overflow:hidden">' +
+          '<iframe id="preview" style="width:1280px;height:900px;border:0;transform:scale(0.15625);transform-origin:0 0"></iframe>' +
+          "</div>",
+      );
+      const iframe = page.locator("#preview");
+      const iframeHandle = await iframe.elementHandle();
+      if (!iframeHandle) throw new Error("preview iframe did not mount");
+      await iframe.evaluate((element) =>
+        element.setAttribute(
+          "srcdoc",
+          '<!doctype html><html><body style="margin:0">' +
+            '<div id="child" data-agent-native-node-id="child" style="position:absolute;left:20px;top:20px;width:200px;height:120px;background:#d4d4d8"></div>' +
+            "</body></html>",
+        ),
+      );
+      await page.waitForTimeout(50);
+      const frame = await iframeHandle.contentFrame();
+      if (!frame) throw new Error("preview iframe document was replaced");
+      await frame.locator("#child").waitFor();
+      await frame.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      const child = frame.locator("#child");
+      const childBox = (await child.boundingBox())!;
+      await page.mouse.click(
+        childBox.x + childBox.width / 2,
+        childBox.y + childBox.height / 2,
+      );
+      await page.waitForTimeout(200);
+
+      const handle = frame.locator('[data-agent-native-edit-handle="se"]');
+      const handleBox = (await handle.boundingBox())!;
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await page.mouse.down();
+      // The 200px preview viewport ends before this point. Pointer capture is
+      // the only way for the child document to receive the rest of the drag.
+      await page.mouse.move(handleBox.x + 220, handleBox.y + 100, {
+        steps: 12,
+      });
+      await page.mouse.up();
+
+      const resized = await frame.locator("#child").evaluate((element) => ({
+        width: (element as HTMLElement).style.width,
+        height: (element as HTMLElement).style.height,
+      }));
+      expect(Number.parseFloat(resized.width)).toBeGreaterThan(200);
+      expect(Number.parseFloat(resized.height)).toBeGreaterThan(120);
+    } finally {
+      await browser.close();
+    }
+  });
 });
