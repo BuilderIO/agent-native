@@ -542,6 +542,28 @@ describe("primitive drop target authored layout fallback", () => {
       )?.nodeId,
     ).toBe("late-child");
   });
+
+  it("keeps descendant z-index inside an auto stacking context", () => {
+    const screen = {
+      id: "auto-context-z",
+      filename: "auto-context-z.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="auto-context" data-an-primitive="frame" style="transform:translateZ(0);left:0;top:0;width:100px;height:100px">
+          <div data-agent-native-node-id="early-child" data-an-primitive="frame" style="position:absolute;z-index:999;left:0;top:0;width:100px;height:100px"></div>
+        </div>
+        <div data-agent-native-node-id="later" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:100px;height:100px"></div>
+      </body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 10, y: 10 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 100, height: 100 } },
+        () => ({ width: 100, height: 100 }),
+      )?.nodeId,
+    ).toBe("later");
+  });
 });
 
 describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {

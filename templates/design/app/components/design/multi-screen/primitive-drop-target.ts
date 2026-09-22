@@ -110,6 +110,59 @@ function isPrimitiveAncestor(
   return false;
 }
 
+function createsAuthoredStackingContext(
+  style: CSSStyleDeclaration,
+  parentDisplay: string,
+): boolean {
+  const value = (property: string) =>
+    style.getPropertyValue(property).trim().toLowerCase();
+  const position = value("position") || "static";
+  const zIndex = Number.parseInt(value("z-index"), 10);
+  const zIndexApplies =
+    position !== "static" ||
+    /^(?:flex|inline-flex|grid|inline-grid)$/.test(parentDisplay);
+
+  if (
+    position === "fixed" ||
+    position === "sticky" ||
+    (Number.isFinite(zIndex) && zIndexApplies)
+  ) {
+    return true;
+  }
+  const opacity = Number.parseFloat(value("opacity"));
+  if (Number.isFinite(opacity) && opacity < 1) return true;
+  if (
+    [
+      "transform",
+      "scale",
+      "rotate",
+      "translate",
+      "filter",
+      "backdrop-filter",
+      "perspective",
+      "clip-path",
+      "mask",
+      "mask-image",
+    ].some((property) => {
+      const propertyValue = value(property);
+      return propertyValue !== "" && propertyValue !== "none";
+    })
+  ) {
+    return true;
+  }
+  if (value("mix-blend-mode") && value("mix-blend-mode") !== "normal") {
+    return true;
+  }
+  if (value("isolation") === "isolate") return true;
+  if (/\b(?:layout|paint|strict|content)\b/.test(value("contain"))) {
+    return true;
+  }
+  if (/^(?:size|inline-size)$/.test(value("container-type"))) return true;
+  return /\b(?:opacity|transform|filter|perspective|clip-path|mask)\b/.test(
+    value("will-change"),
+  );
+}
+
 function compareStackingContexts(
   left: ParsedScreenPrimitive,
   right: ParsedScreenPrimitive,
@@ -1290,12 +1343,10 @@ export function parsePrimitivesFromScreen(
           ? (contextElement.parentElement as HTMLElement).style.display
           : "";
         const contextZIndex = Number.parseInt(contextStyle.zIndex, 10);
-        if (
-          Number.isFinite(contextZIndex) &&
-          ((contextStyle.position || "static") !== "static" ||
-            /^(?:flex|inline-flex|grid|inline-grid)$/.test(parentDisplay))
-        ) {
-          stackingContextZIndices.unshift(contextZIndex);
+        if (createsAuthoredStackingContext(contextStyle, parentDisplay)) {
+          stackingContextZIndices.unshift(
+            Number.isFinite(contextZIndex) ? contextZIndex : 0,
+          );
           stackingContextOrders.unshift(
             domOrderByElement.get(contextElement) ?? 0,
           );
