@@ -36,10 +36,8 @@ import {
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
-import {
-  getPublicFrameworkPathname,
-  type H3AppShim,
-} from "./framework-request-handler.js";
+import { getPublicFrameworkPathname } from "./framework-request-context.js";
+import type { H3AppShim } from "./framework-request-handler.js";
 import {
   canonicalFrameworkPathname,
   getFrameworkRoutePrefix,

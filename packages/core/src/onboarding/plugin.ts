@@ -47,7 +47,10 @@ import {
   hashOnboardingEmail,
 } from "../shared/first-run-onboarding.js";
 import { classifyTrackingFailure, track } from "../tracking/index.js";
-import { onboardingRoleSchema } from "../user-profile/shared.js";
+import {
+  getOnboardingRoleCategory,
+  onboardingRoleSchema,
+} from "../user-profile/shared.js";
 import {
   getUserProfile,
   updateUserOnboardingRole,
@@ -476,6 +479,7 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 400);
           return { error: "Invalid onboarding role" };
         }
+        const roleCategory = getOnboardingRoleCategory(parsed.data);
 
         return withOnboardingRequestContext(context, async () => {
           const sessionId = readBrowserSessionIdHeader(event);
@@ -496,7 +500,7 @@ export function createOnboardingPlugin(
               {
                 flow: "first_run",
                 step_id: "role",
-                role: parsed.data,
+                role: roleCategory,
                 outcome: "success",
               },
               trackingSource,
@@ -508,7 +512,7 @@ export function createOnboardingPlugin(
               {
                 flow: "first_run",
                 step_id: "role",
-                role: parsed.data,
+                role: roleCategory,
                 failure_type: classifyTrackingFailure(error),
               },
               trackingSource,

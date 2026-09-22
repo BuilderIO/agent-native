@@ -202,7 +202,7 @@ describe("AuthPage", () => {
     expect(html).toContain('id="heading"');
     expect(html).not.toContain('id="local-note"');
     expect(onboardingHtml).toContain(
-      ".auth-marketing-home .marketing-panel {\n    flex: 1 1 50%;",
+      ".auth-marketing-home .marketing-panel {\n    order: 1;\n    flex: 1 1 50%;",
     );
     expect(onboardingHtml).toContain(
       ".auth-marketing-home .auth-marketing-screenshot-wrap {\n    position: fixed;\n    inset: 0;",
@@ -213,7 +213,7 @@ describe("AuthPage", () => {
     );
     expect(onboardingHtml).toContain("box-shadow: none;");
     expect(onboardingHtml).toContain(
-      ".auth-marketing-home .form-panel {\n    flex: 1 1 50%;",
+      ".auth-marketing-home .form-panel {\n    order: 2;\n    flex: 1 1 50%;",
     );
     expect(onboardingHtml).toContain("border-inline-start: 1px solid");
     expect(onboardingHtml).toContain("@media (prefers-color-scheme: light)");

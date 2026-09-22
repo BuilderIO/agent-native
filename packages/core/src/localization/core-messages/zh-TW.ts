@@ -44,6 +44,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOps": "營運",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "其他",
+  "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暫時略過",
   "onboarding.saveRoleError": "無法儲存你的角色。",
   "onboarding.builderActivateCredits": "啟用 Builder.io 免費額度",

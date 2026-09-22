@@ -46,6 +46,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOps": "Operaciones",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Otro",
+  "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
   "onboarding.builderActivateCredits":

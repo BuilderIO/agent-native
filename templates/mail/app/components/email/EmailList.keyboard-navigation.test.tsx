@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   scrollToIndex: vi.fn(),
   trash: vi.fn(),
+  searchQuery: "",
   virtualStart: 0,
   virtualWindowSize: Number.POSITIVE_INFINITY,
 }));
@@ -59,7 +60,11 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("react-router", () => ({
   useNavigate: () => mocks.navigate,
   useParams: () => ({ view: "all" }),
-  useSearchParams: () => [new URLSearchParams()],
+  useSearchParams: () => [
+    new URLSearchParams(
+      mocks.searchQuery ? { q: mocks.searchQuery } : undefined,
+    ),
+  ],
 }));
 
 vi.mock("@/components/layout/HeaderActions", () => ({
@@ -183,9 +188,15 @@ const messages = ["first", "middle", "last"].map((id, index) => ({
 function Harness({
   emails = messages,
   onCompose,
+  accountErrors,
+  hasNextPage,
+  isFetchingNextPage,
 }: {
   emails?: typeof messages;
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
+  accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -201,6 +212,9 @@ function Harness({
         selectedIds={selectedIds}
         setSelectedIds={setSelectedIds}
         onCompose={onCompose}
+        accountErrors={accountErrors}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
       />
     </>
   );
@@ -219,11 +233,52 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.navigate.mockReset();
     mocks.scrollToIndex.mockReset();
     mocks.trash.mockReset();
+    mocks.searchQuery = "";
     mocks.virtualStart = 0;
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
   });
 
   afterEach(() => cleanup());
+
+  it("keeps partial refresh warnings out of a populated cached list", () => {
+    render(
+      <Harness
+        accountErrors={[
+          { email: "steve@builder.io", error: "temporary refresh failure" },
+        ]}
+      />,
+    );
+
+    expect(rows()).toHaveLength(3);
+    expect(screen.queryByText("mail.error.someAccountsFailed")).toBeNull();
+  });
+
+  it("keeps refresh warnings on empty search results", () => {
+    mocks.searchQuery = "invoice";
+    render(
+      <Harness
+        emails={[]}
+        accountErrors={[{ email: "steve@builder.io", error: "temporary" }]}
+      />,
+    );
+
+    expect(screen.getByText("mail.error.someAccountsFailed")).toBeTruthy();
+    expect(screen.getByText("mail.empty.noSearchResults")).toBeTruthy();
+  });
+
+  it("keeps refresh warnings while an empty page is fetching more rows", () => {
+    render(
+      <Harness
+        emails={[]}
+        accountErrors={[{ email: "steve@builder.io", error: "temporary" }]}
+        hasNextPage
+        isFetchingNextPage
+      />,
+    );
+
+    expect(screen.getByText("mail.error.someAccountsFailed")).toBeTruthy();
+    expect(screen.getByText("mail.empty.loadingMore")).toBeTruthy();
+  });
 
   it("moves visible focus with j/k and arrows and clamps at both ends", () => {
     render(<Harness />);
