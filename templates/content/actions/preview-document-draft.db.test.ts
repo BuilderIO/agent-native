@@ -1305,4 +1305,219 @@ describe("private preview document drafts", () => {
       (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
     ).toBeNull();
   });
+
+  it("does not let a delayed retained draft resurrect after its edit generation saved", async () => {
+    const documentId = await createDocument();
+    const editorSessionId = "tab-one";
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Unsaved generation one"),
+          editorSessionId,
+          editGeneration: 1,
+        },
+      }),
+    );
+
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Saved generation two",
+          historySessionId: "history-one",
+          editorSessionId,
+          editorEditGeneration: 2,
+          editorSnapshotTitle: "Builder row",
+          editorSnapshotContent: "Saved generation two",
+          loadedContentWasEmpty: false,
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toBeNull();
+    await expect(
+      asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: {
+            ...payload("Delayed generation one"),
+            editorSessionId,
+            editGeneration: 1,
+          },
+        }),
+      ),
+    ).resolves.toEqual({ status: "superseded", draft: null });
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toBeNull();
+  });
+
+  it("keeps another tab's newer recovery draft when one tab saves", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Other tab recovery"),
+          editorSessionId: "tab-two",
+          editGeneration: 3,
+        },
+      }),
+    );
+
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          title: "Saved in tab one",
+          historySessionId: "history-one",
+          editorSessionId: "tab-one",
+          editorEditGeneration: 4,
+          editorSnapshotTitle: "Saved in tab one",
+          editorSnapshotContent: "Server body",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toMatchObject({
+      content: "Other tab recovery",
+      editorSessionId: "tab-two",
+      editGeneration: 3,
+    });
+  });
+
+  it("does not let a tab replace or delete another tab's retained lineage", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Tab two recovery"),
+          editorSessionId: "tab-two",
+          editGeneration: 5,
+        },
+      }),
+    );
+
+    const replace = await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: 1,
+        draft: {
+          ...payload("Tab one recovery"),
+          editorSessionId: "tab-one",
+          editGeneration: 6,
+        },
+      }),
+    );
+    expect(replace).toMatchObject({
+      status: "conflict",
+      draft: { content: "Tab two recovery", editorSessionId: "tab-two" },
+    });
+
+    const remove = await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "delete",
+        documentId,
+        expectedVersion: 1,
+        expectedTitle: "Builder row",
+        expectedContent: "Tab two recovery",
+        expectedEditorSessionId: "tab-one",
+        expectedEditGeneration: 6,
+      }),
+    );
+    expect(remove).toMatchObject({
+      status: "conflict",
+      draft: { content: "Tab two recovery", editorSessionId: "tab-two" },
+    });
+  });
+
+  it("does not settle a generation when only part of its editor snapshot was saved", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Local body"),
+          title: "Local title",
+          editorSessionId: "partial-tab",
+          editGeneration: 7,
+        },
+      }),
+    );
+
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Local body",
+          editorSessionId: "partial-tab",
+          editorEditGeneration: 7,
+          editorSnapshotTitle: "Local title",
+          editorSnapshotContent: "Local body",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toMatchObject({ title: "Local title", content: "Local body" });
+  });
+
+  it("settles a retained generation after its rebased candidate is confirmed", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Local body"),
+          editorSessionId: "rebase-tab",
+          editGeneration: 8,
+        },
+      }),
+    );
+
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Server hunk and local body",
+          editorSessionId: "rebase-tab",
+          editorEditGeneration: 8,
+          editorSnapshotTitle: "Builder row",
+          editorSnapshotContent: "Server hunk and local body",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toBeNull();
+  });
 });

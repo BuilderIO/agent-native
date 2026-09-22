@@ -145,6 +145,8 @@ export const documentPreviewDrafts = table(
       .notNull()
       .default(0),
     deferredReason: text("deferred_reason"),
+    editorSessionId: text("editor_session_id"),
+    editGeneration: integer("edit_generation"),
     version: integer("version").notNull().default(1),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
@@ -159,6 +161,32 @@ export const documentPreviewDrafts = table(
       draft.ownerEmail,
       draft.orgId,
       draft.documentId,
+    ),
+  ],
+);
+
+export const documentPreviewDraftSettlements = table(
+  "document_preview_draft_settlements",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    editorSessionId: text("editor_session_id").notNull(),
+    settledGeneration: integer("settled_generation").notNull(),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (settlement) => [
+    uniqueIndex("document_preview_draft_settlements_scope_unique").on(
+      settlement.ownerEmail,
+      settlement.orgId,
+      settlement.documentId,
+      settlement.editorSessionId,
+    ),
+    index("document_preview_draft_settlements_document_idx").on(
+      settlement.ownerEmail,
+      settlement.orgId,
+      settlement.documentId,
     ),
   ],
 );

@@ -42,15 +42,28 @@ describe("document save ownership after a rejected CAS", () => {
     });
   });
 
-  it("preserves a genuine overlapping draft without retrying", async () => {
+  it("retries a genuine overlap with the later local intent", async () => {
     const localDraft = original.replace("inspect", "discuss");
+    const saved = {
+      ...winner,
+      content: localDraft,
+      updatedAt: "2026-09-09T00:00:03.000Z",
+    };
     const persist = vi
       .fn()
-      .mockResolvedValue({ conflict: true, document: winner });
+      .mockResolvedValueOnce({ conflict: true, document: winner })
+      .mockResolvedValueOnce(saved);
     await expect(
       saveDocumentWithRebase({ base, content: localDraft, persist }),
-    ).resolves.toEqual({ status: "conflict", localDraft });
-    expect(persist).toHaveBeenCalledTimes(1);
+    ).resolves.toEqual({
+      status: "saved",
+      document: saved,
+      content: localDraft,
+    });
+    expect(persist).toHaveBeenNthCalledWith(2, localDraft, {
+      content: winner.content,
+      updatedAt: winner.updatedAt,
+    });
   });
 
   it("merges independent peer and local block edits before retrying", async () => {

@@ -32,7 +32,7 @@ evidence:
     "actions/content-database-block-actions.db.test.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-08-10"
+last_reviewed: "2026-09-22"
 ---
 
 # Blocks fields
@@ -52,6 +52,7 @@ A reviewer writes a Comment containing a Page reference and a code Block, while 
 - Field history distinguishes atomic Events, logical Revisions, recovery snapshots, and named Page Versions.
 - Typed Blocks preserve source when a renderer is unavailable and report a degraded state rather than dropping content.
 - A multi-field action can share causality while retaining which field changed.
+- Page-body recovery generations are scoped to one editor lineage and settle only when the confirmed canonical title and body represent that authored snapshot.
 
 ## Boundaries and non-goals
 
@@ -71,7 +72,7 @@ Given a Page with two Blocks fields, when an authorized editor restores one fiel
 
 ## Current evidence
 
-Primary and additional collection Blocks properties now retain distinct field identities, ordered Block identities, and independent monotonic revisions around their existing Markdown stores. Shared actions can list and mutate one exact collection Blocks field with field-level compare-and-swap, sibling preservation, stable IDs, durable retry receipts, and verified read-back. Export reports each field and its identity status without changing plain NFM. Comment/Discussion owners, attributable history, arbitrary restore, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
+Primary and additional collection Blocks properties now retain distinct field identities, ordered Block identities, and independent monotonic revisions around their existing Markdown stores. Shared actions can list and mutate one exact collection Blocks field with field-level compare-and-swap, sibling preservation, stable IDs, durable retry receipts, and verified read-back. The Page body also fences delayed recovery upserts after a confirmed editor generation and preserves another tab's lineage. Export reports each field and its identity status without changing plain NFM. Comment/Discussion owners, attributable history, arbitrary restore, and the full real-interface matrix remain incomplete, so this is `in_progress`, not verified.
 
 ## Proof plan
 

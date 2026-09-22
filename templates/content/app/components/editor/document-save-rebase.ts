@@ -82,9 +82,15 @@ export async function saveDocumentWithRebase({
         localDoc,
         contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
         contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
+        {
+          overlapPolicy:
+            !owner || owner.current().version === owner.version
+              ? "prefer-live"
+              : "conflict",
+        },
       );
-      // Carry an unambiguous three-way merge into the retry. Ambiguous edits
-      // still need recovery because choosing either side would discard work.
+      // The browser's current edit is the later intent for overlapping hunks;
+      // independent server hunks still merge into the retry.
       if (plan.status === "applied") {
         candidate = docToNfm(plan.mergedDoc.toJSON());
       } else if (plan.status !== "noop") {

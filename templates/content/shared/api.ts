@@ -146,6 +146,10 @@ export interface DocumentUpdateRequest {
   title?: string;
   content?: string;
   historySessionId?: string;
+  editorSessionId?: string;
+  editorEditGeneration?: number;
+  editorSnapshotTitle?: string;
+  editorSnapshotContent?: string;
   description?: string;
   icon?: string | null;
   isFavorite?: boolean;

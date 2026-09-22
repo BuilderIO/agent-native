@@ -6,8 +6,9 @@ export async function readPreviewDocumentDraft(
   ownerEmail: string,
   orgId: string,
   documentId: string,
+  db: any = getDb(),
 ) {
-  const [draft] = await getDb()
+  const [draft] = await db
     .select({
       documentId: schema.documentPreviewDrafts.documentId,
       title: schema.documentPreviewDrafts.title,
@@ -15,6 +16,8 @@ export async function readPreviewDocumentDraft(
       baseDocumentUpdatedAt: schema.documentPreviewDrafts.baseDocumentUpdatedAt,
       loadedContentWasEmpty: schema.documentPreviewDrafts.loadedContentWasEmpty,
       deferredReason: schema.documentPreviewDrafts.deferredReason,
+      editorSessionId: schema.documentPreviewDrafts.editorSessionId,
+      editGeneration: schema.documentPreviewDrafts.editGeneration,
       version: schema.documentPreviewDrafts.version,
       updatedAt: schema.documentPreviewDrafts.updatedAt,
     })
