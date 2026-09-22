@@ -1397,6 +1397,11 @@ if (
   !betaSmokeRollbackRun.includes("PREVIOUS_DEPLOY_ID") ||
   !betaSmokeRollbackRun.includes("const beforeRestore =") ||
   !betaSmokeRollbackRun.includes("Netlify beta smoke rollback precondition") ||
+  !betaSmokeRollbackRun.includes("/lock") ||
+  !reusable.includes("published_deploy_was_locked=${deploy.locked === true}") ||
+  !betaSmokeRollbackRun.includes(
+    "steps.previous.outputs.published_deploy_was_locked",
+  ) ||
   !betaSmokeRollbackRun.includes("/restore")
 ) {
   issues.push(

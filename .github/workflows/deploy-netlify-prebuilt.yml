@@ -1203,16 +1203,29 @@ jobs:
             if (!deployId) {
               if (process.env.TARGET === "beta") {
                 console.log("Netlify beta site has no published deploy; continuing without a rollback baseline.");
-                fs.appendFileSync(process.env.GITHUB_OUTPUT, "published_deploy_id=\npublished_deploy_source_ref=\n");
+                fs.appendFileSync(
+                  process.env.GITHUB_OUTPUT,
+                  "published_deploy_id=\npublished_deploy_source_ref=\npublished_deploy_was_locked=\n",
+                );
                 return;
               }
               throw new Error("Netlify site has no published deploy to protect.");
             }
+            const deployResponse = await requestNetlifyApi(`https://api.netlify.com/api/v1/deploys/${deployId}`, {
+              headers: {
+                Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+              },
+            });
+            const deployText = await deployResponse.text();
+            const deploy = deployText ? JSON.parse(deployText) : null;
+            if (!deployResponse.ok || deploy?.id !== deployId) {
+              throw new Error(`Netlify published deploy lookup failed for ${deployId}.`);
+            }
             fs.appendFileSync(
               process.env.GITHUB_OUTPUT,
-              `published_deploy_id=${deployId}\npublished_deploy_source_ref=${publishedSourceRef}\n`,
+              `published_deploy_id=${deployId}\npublished_deploy_source_ref=${publishedSourceRef}\npublished_deploy_was_locked=${deploy.locked === true}\n`,
             );
-            console.log(`Captured current published deploy ${deployId} for callback rollback.`);
+            console.log(`Captured current published deploy ${deployId} for callback rollback (locked=${deploy.locked === true}).`);
             if (!publishedSourceRef) {
               console.log(`Published deploy ${deployId} title had no parseable source commit; nothing to regress against.`);
             }
@@ -2289,6 +2302,7 @@ jobs:
             const siteId = process.env.NETLIFY_SITE_ID;
             const newId = process.env.NEW_DEPLOY_ID;
             const previousId = process.env.PREVIOUS_DEPLOY_ID;
+            const previousWasLocked = "${{ steps.previous.outputs.published_deploy_was_locked }}" === "true";
             const site = await readJson(
               await request(`${api}/sites/${siteId}`),
               "Netlify beta smoke rollback site lookup",
@@ -2305,6 +2319,29 @@ jobs:
             if (beforeRestore.published_deploy?.id !== newId) {
               throw new Error(
                 `Refusing beta smoke rollback because Netlify changed to ${beforeRestore.published_deploy?.id || "an unknown deploy"} before restore, expected ${newId}.`,
+              );
+            }
+            const deploy = await readJson(
+              await request(`${api}/deploys/${newId}`),
+              `Netlify beta smoke rollback deploy ${newId} lock lookup`,
+            );
+            if (deploy.locked !== true) {
+              await readJson(
+                await request(`${api}/deploys/${newId}/lock`, { method: "POST" }),
+                `Netlify beta smoke rollback deploy ${newId} lock`,
+              );
+            }
+            const locked = await readJson(
+              await request(`${api}/deploys/${newId}`),
+              `Netlify beta smoke rollback deploy ${newId} lock verification`,
+            );
+            const lockedSite = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify beta smoke rollback locked deploy verification",
+            );
+            if (locked.locked !== true || lockedSite.published_deploy?.id !== newId) {
+              throw new Error(
+                `Refusing beta smoke rollback because deploy ${newId} was not locked while still published.`,
               );
             }
             const restored = await readJson(
@@ -2329,6 +2366,28 @@ jobs:
                 console.log(
                   `Restored previous beta deploy ${previousId} as ${restoredDeployId} after smoke failure.`,
                 );
+                const restoredDeploy = await readJson(
+                  await request(`${api}/deploys/${restoredDeployId}`),
+                  `Netlify beta smoke rollback deploy ${restoredDeployId} lock state lookup`,
+                );
+                if (restoredDeploy.locked !== previousWasLocked) {
+                  const lockAction = previousWasLocked ? "lock" : "unlock";
+                  await readJson(
+                    await request(`${api}/deploys/${restoredDeployId}/${lockAction}`, {
+                      method: "POST",
+                    }),
+                    `Netlify beta smoke rollback deploy ${restoredDeployId} ${lockAction}`,
+                  );
+                }
+                const restoredState = await readJson(
+                  await request(`${api}/deploys/${restoredDeployId}`),
+                  `Netlify beta smoke rollback deploy ${restoredDeployId} lock verification`,
+                );
+                if (restoredState.locked !== previousWasLocked) {
+                  throw new Error(
+                    `Netlify beta smoke rollback did not restore locked=${previousWasLocked} on ${restoredDeployId}.`,
+                  );
+                }
                 return;
               }
               await sleep(10_000);
