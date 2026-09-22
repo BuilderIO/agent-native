@@ -1,6 +1,11 @@
 export const BRAIN_SEARCH_INDEX_VERSION = "1";
-// Part of BrainSearchStalenessKey: a bump re-screens and re-indexes every
-// existing capture, so only change it when the verdict itself changes meaning.
+// Stamped on every new decision and on the quarantine event's conflict key, so
+// a bump keeps v2 verdicts from colliding with v1 ones. It does NOT retroactively
+// re-screen: `indexSnapshotMatches` compares a capture against its own artifact,
+// not against this constant, so captures decided under an older policy stay
+// indexed until they are re-screened. Run the `resanitize-captures` action to
+// migrate an existing corpus; that is deliberate, because re-deciding and
+// re-embedding every capture on deploy is a bulk cost, not a startup task.
 export const BRAIN_SENSITIVITY_POLICY_VERSION = "2";
 
 export const BRAIN_SENSITIVITY_CATEGORIES = [

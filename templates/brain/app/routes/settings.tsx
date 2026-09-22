@@ -586,10 +586,8 @@ export default function SettingsRoute() {
         label: t("settings.privacySensitivityTitle"),
         icon: IconLock,
         keywords:
-          "privacy sensitivity classifier quarantine retention tighten only",
-        content: (
-          <PrivacySensitivitySettings settings={settings} update={update} />
-        ),
+          "privacy sensitivity classifier jev quarantine retention tighten only",
+        hash: "privacy-sensitivity",
       },
       {
         id: "brain-identity",
@@ -747,6 +745,8 @@ export default function SettingsRoute() {
                   />
                 </CardContent>
               </Card>
+
+              <PrivacySensitivitySettings settings={settings} update={update} />
             </main>
 
             <aside className="grid content-start gap-5">

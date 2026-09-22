@@ -71,6 +71,10 @@ that boundary.
 - If no classifier is reachable, deterministic-only mode allows clearly clean,
   company-relevant material and quarantines uncertainty. Treat the health/setup
   warning as a requirement to configure a classifier before broad ingestion.
+- `BRAIN_SENSITIVITY_POLICY_VERSION` stamps new decisions; it does not
+  retroactively re-screen. Captures decided under an older policy keep their
+  verdict and stay indexed until `resanitize-captures` re-runs them, so treat a
+  classifier or policy change as needing a deliberate backfill.
 
 Administrators may review a disposition but may not declassify HR-blocked
 evidence. A broader statement must be a newly reviewed, non-identifying memory
