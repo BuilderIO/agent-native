@@ -2539,6 +2539,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return containerScopeAncestor(resolved, scope);
     }
+    function plainClickSelectionTarget(hit) {
+      if (!designCanvasBoardSurface) {
+        selectionContainerScope = null;
+        return selectionTargetForHit(hit);
+      }
+      return containerFirstSelectionTarget(hit);
+    }
     function clickThroughSelectionTarget(hit, ev) {
       if (ev.detail > 1) return null;
       if (!selectedEl || !document.documentElement.contains(selectedEl)) {
@@ -8247,7 +8254,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       hoveredSpacingHandleKey = "";
-      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
+      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : plainClickSelectionTarget(target);
       var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
       if (toggled !== void 0) {
         postToggledSelection(toggled);
@@ -16258,7 +16265,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : !designCanvasBoardSurface ? plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
         if (cycledEl) {
           selectTarget(cycledEl, ev, true);
         } else {
@@ -17205,7 +17212,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastHoverClientPoint = null;
     function resolveHoverTarget(clientX, clientY, deepSelect) {
       var rawHit = elementFromEditorPoint(clientX, clientY);
-      return deepSelect ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
+      return deepSelect || !designCanvasBoardSurface ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
     }
     function reresolveHoverAtLastPoint(deepSelect) {
       if (!lastHoverClientPoint) return;
