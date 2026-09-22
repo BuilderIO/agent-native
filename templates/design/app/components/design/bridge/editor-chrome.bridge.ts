@@ -2633,9 +2633,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       },
     );
     var nodes = [root].concat(
-      Array.prototype.slice.call(
-        root.querySelectorAll("[data-agent-native-node-id]"),
-      ),
+      Array.prototype.slice.call(root.querySelectorAll("*")),
     ) as Element[];
     nodes.forEach(function (node, index) {
       var nodeId = node.getAttribute("data-agent-native-node-id") || "";

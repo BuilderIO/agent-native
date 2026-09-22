@@ -458,7 +458,7 @@ describe("live insert lifecycle", () => {
         const inserted = page
           .locator('[data-source-file="src/Card.tsx"]')
           .nth(1);
-        expect(await inserted.textContent()).toBe("Moved");
+        expect(await inserted.locator("label").textContent()).toBe("Moved");
         const insertedId = await inserted.getAttribute("id");
         expect(insertedId).not.toBe("email");
         expect(await inserted.locator("label").getAttribute("for")).toBe(

@@ -2582,14 +2582,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (nodeId) existing[nodeId] = true;
         }
       );
-      Array.prototype.forEach.call(document.querySelectorAll("[id]"), function(node) {
-        var id = node.getAttribute("id") || "";
-        if (id) existingDomIds[id] = true;
-      });
+      Array.prototype.forEach.call(
+        document.querySelectorAll("[id]"),
+        function(node) {
+          var id = node.getAttribute("id") || "";
+          if (id) existingDomIds[id] = true;
+        }
+      );
       var nodes = [root].concat(
-        Array.prototype.slice.call(
-          root.querySelectorAll("[data-agent-native-node-id]")
-        )
+        Array.prototype.slice.call(root.querySelectorAll("*"))
       );
       nodes.forEach(function(node, index) {
         var nodeId = node.getAttribute("data-agent-native-node-id") || "";
@@ -2609,7 +2610,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       nodes.forEach(function(node, index) {
         var id = node.getAttribute("id") || "";
         if (!id || !existingDomIds[id]) return;
-        var nextId = freshRuntimeNodeId(index === 0 ? "move-id" : "move-child-id");
+        var nextId = freshRuntimeNodeId(
+          index === 0 ? "move-id" : "move-child-id"
+        );
         if (!remintedDomIds[id]) remintedDomIds[id] = nextId;
         node.setAttribute("id", nextId);
       });
@@ -2619,9 +2622,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           Object.keys(remintedDomIds).forEach(function(from) {
             var to = remintedDomIds[from];
             if (attribute.name === "for" || attribute.name.indexOf("aria-") === 0) {
-              value = value.split(/\s+/).map(function(token) { return token === from ? to : token; }).join(" ");
-            } else if ((attribute.name === "href" || attribute.name === "xlink:href") && value === "#" + from) {
-              value = "#" + to;
+              value = value.split(/\\s+/).map(function(token) {
+                return token === from ? to : token;
+              }).join(" ");
+            } else if (attribute.name === "href" || attribute.name === "xlink:href") {
+              if (value === "#" + from) value = "#" + to;
             }
           });
           if (value !== attribute.value) node.setAttribute(attribute.name, value);
