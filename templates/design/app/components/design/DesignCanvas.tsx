@@ -3622,6 +3622,15 @@ export function DesignCanvas({
     : waitingForLiveEditBridge
       ? `live-edit-pending:${liveEditBridgeKey}`
       : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
+  // Route navigation inside a live URL updates `externalPreviewUrl`, but it
+  // must not replace the host iframe. Keeping the element stable lets the
+  // running app navigate in place while the document identity below still
+  // resets readiness and re-arms the edit shield for the new route.
+  const iframeElementIdentity = externalPreviewUrl
+    ? `external:${previewFrameId ?? screenId ?? contentKey ?? "screen"}:${
+        usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
+      }`
+    : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
@@ -6909,7 +6918,7 @@ export function DesignCanvas({
       {rawExternalPreviewUrl &&
       !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
         <iframe
-          key={iframeDocumentIdentity}
+          key={iframeElementIdentity}
           ref={iframeRef}
           src={externalPreviewUrl ?? undefined}
           srcDoc={externalPreviewUrl ? undefined : srcdoc}

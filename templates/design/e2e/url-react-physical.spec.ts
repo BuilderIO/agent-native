@@ -204,14 +204,36 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
           ).__agentNativeWebMcp.call(name, args),
         { name, args },
       );
-    const frame = page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame();
-    await frame.locator('[data-agent-native-node-id="flow-root"]').waitFor();
     const liveFrames = page.locator("iframe[data-design-preview-iframe]");
     await expect(liveFrames).toHaveCount(2);
-    const destinationFrame = liveFrames.nth(1).contentFrame();
+    const candidateFrames = [
+      liveFrames.nth(0).contentFrame(),
+      liveFrames.nth(1).contentFrame(),
+    ];
+    await expect
+      .poll(
+        async () =>
+          (
+            await Promise.all(
+              candidateFrames.map((candidate) =>
+                candidate
+                  .locator('[data-agent-native-node-id="flow-root"]')
+                  .count(),
+              ),
+            )
+          ).findIndex((count) => count > 0),
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThanOrEqual(0);
+    const sourceFrameIndex =
+      (await candidateFrames[0]
+        .locator('[data-agent-native-node-id="flow-root"]')
+        .count()) > 0
+        ? 0
+        : 1;
+    const frame = candidateFrames[sourceFrameIndex];
+    const destinationFrame = candidateFrames[sourceFrameIndex === 0 ? 1 : 0];
+    await frame.locator('[data-agent-native-node-id="flow-root"]').waitFor();
     await destinationFrame
       .locator('[data-agent-native-node-id="dest-flow-root"]')
       .waitFor();
@@ -509,10 +531,36 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       timeout: 30_000,
     });
     await installBridge(page);
-    const reloaded = page
+    const reloadedCandidates = [
+      page.locator("iframe[data-design-preview-iframe]").nth(0).contentFrame(),
+      page.locator("iframe[data-design-preview-iframe]").nth(1).contentFrame(),
+    ];
+    await expect
+      .poll(
+        async () =>
+          (
+            await Promise.all(
+              reloadedCandidates.map((candidate) =>
+                candidate
+                  .locator('[data-agent-native-node-id="flow-root"]')
+                  .count(),
+              ),
+            )
+          ).findIndex((count) => count > 0),
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThanOrEqual(0);
+    const reloadedIndex =
+      (await reloadedCandidates[0]
+        .locator('[data-agent-native-node-id="flow-root"]')
+        .count()) > 0
+        ? 0
+        : 1;
+    const reloaded = reloadedCandidates[reloadedIndex];
+    await page
       .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame();
+      .nth(reloadedIndex)
+      .evaluate((iframe) => iframe.setAttribute("data-probe-marker", "keep"));
     await expect(reloaded.getByText("V1 updated", { exact: true })).toBeVisible(
       { timeout: 15_000 },
     );
@@ -524,7 +572,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
         () =>
           page
             .locator("iframe[data-design-preview-iframe]")
-            .first()
+            .nth(reloadedIndex)
             .evaluate((iframe) => getComputedStyle(iframe).pointerEvents),
         { timeout: 15_000 },
       )
@@ -536,7 +584,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     // initial bridge handshake.
     const reloadedFrame = await page
       .locator("iframe[data-design-preview-iframe]")
-      .first()
+      .nth(reloadedIndex)
       .elementHandle()
       .then((iframe) => iframe?.contentFrame());
     if (!reloadedFrame) throw new Error("missing reloaded React frame");
@@ -547,6 +595,9 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     await expect(reloaded.locator("[data-route-label]")).toHaveText(
       "Next route",
     );
+    await expect(
+      page.locator("iframe[data-design-preview-iframe]").nth(reloadedIndex),
+    ).toHaveAttribute("data-probe-marker", "keep");
     await reloadedFrame.evaluate(() => {
       const remount = (
         window as typeof window & {
