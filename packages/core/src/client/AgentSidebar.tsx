@@ -1414,7 +1414,9 @@ export function AgentSidebar({
         {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
-        <URLSync browserTabId={resolvedBrowserTabId} />
+        {shouldMountPanel ? (
+          <URLSync browserTabId={resolvedBrowserTabId} />
+        ) : null}
         {isResizing ? (
           <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
         ) : null}
