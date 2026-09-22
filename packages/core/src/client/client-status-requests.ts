@@ -5,6 +5,12 @@ export type ClientStatusResult<T> =
   | { state: "available"; value: T }
   | { state: "unavailable"; status?: number };
 
+declare global {
+  interface Window {
+    __agentNativeSessionBootstrap?: Promise<ClientStatusResult<unknown>>;
+  }
+}
+
 type CacheEntry = {
   expiresAt: number;
   result: ClientStatusResult<unknown>;
@@ -78,22 +84,29 @@ async function fetchClientStatus<T>(
       resolve({ state: "unavailable" });
     }, REQUEST_TIMEOUT_MS);
   });
-  const transport = fetch(url, {
-    cache: "no-store",
-    credentials: "same-origin",
-    ...(controller ? { signal: controller.signal } : {}),
-  })
-    .then(async (response): Promise<ClientStatusResult<unknown>> => {
-      if (!response.ok) {
-        return { state: "unavailable", status: response.status };
-      }
-      try {
-        return { state: "available", value: await response.json() };
-      } catch {
-        return { state: "unavailable", status: response.status };
-      }
+  const bootstrappedSession =
+    path === "/_agent-native/auth/session" && typeof window !== "undefined"
+      ? window.__agentNativeSessionBootstrap
+      : undefined;
+  if (bootstrappedSession) delete window.__agentNativeSessionBootstrap;
+  const transport =
+    bootstrappedSession ??
+    fetch(url, {
+      cache: "no-store",
+      credentials: "same-origin",
+      ...(controller ? { signal: controller.signal } : {}),
     })
-    .catch((): ClientStatusResult<unknown> => ({ state: "unavailable" }));
+      .then(async (response): Promise<ClientStatusResult<unknown>> => {
+        if (!response.ok) {
+          return { state: "unavailable", status: response.status };
+        }
+        try {
+          return { state: "available", value: await response.json() };
+        } catch {
+          return { state: "unavailable", status: response.status };
+        }
+      })
+      .catch((): ClientStatusResult<unknown> => ({ state: "unavailable" }));
   const request = Promise.race([transport, timeout])
     .then((result) => {
       if (
