@@ -2699,7 +2699,7 @@ describe("copyInstalledExternalSsrPackages", () => {
     expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
     fs.writeFileSync(
       path.join(serverDir, "chunk.mjs"),
-      'const react = require(`react`); export { Link } from "react-router"; export * from "@tanstack/react-query"; export { react };',
+      'const react = require(`react`);\nexport { Link } from "react-router";\nexport * from "@tanstack/react-query";\nexport { react };',
     );
 
     expect(
