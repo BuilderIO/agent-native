@@ -3394,6 +3394,7 @@ const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
 ] as const;
 const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
   "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
+const SERVERLESS_EXTERNAL_SSR_PACKAGES = ["react"] as const;
 
 function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   const manifest = readPackageManifest(projectCwd);
@@ -3734,6 +3735,69 @@ export function copyInstalledBrowserRuntimePackages(
 
   console.log(
     `[deploy] Copied ${copiedCount} serverless browser runtime package(s) into the server bundle (required by ${consumer}).`,
+  );
+  return copiedCount;
+}
+
+/**
+ * Vite's production SSR graph keeps React external so every SSR entry shares
+ * one hook dispatcher. Nitro preserves that external from the prebuilt route
+ * chunks, so the serverless artifact must carry the package itself.
+ */
+export function copyInstalledExternalSsrPackages(
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): number {
+  if (!serverDir || !fs.existsSync(serverDir)) return 0;
+
+  const packagesToCopy = new Set<string>();
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const source = fs.readFileSync(filePath, "utf-8");
+    for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
+      if (hasExternalSsrRuntimeReference(source, packageName)) {
+        packagesToCopy.add(packageName);
+      }
+    }
+  });
+  if (packagesToCopy.size === 0) return 0;
+
+  const nodeModulesRoots = nodeModulesAncestors(projectCwd);
+  const copiedPackages = new Set<string>();
+  let copiedCount = 0;
+  const versions: Record<string, string> = {};
+  for (const packageName of packagesToCopy) {
+    const packageDir = findInstalledPackageRoot(packageName, nodeModulesRoots);
+    if (!packageDir) continue;
+    const manifest = readPackageManifest(packageDir);
+    if (typeof manifest?.version === "string") {
+      versions[packageName] = manifest.version;
+    }
+    copiedCount += copyRuntimePackageTree(
+      packageName,
+      packageDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+  }
+
+  if (copiedCount === 0) return 0;
+
+  const packageJsonPath = path.join(serverDir, "package.json");
+  if (fs.existsSync(packageJsonPath) && Object.keys(versions).length > 0) {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    packageJson.dependencies = {
+      ...(packageJson.dependencies ?? {}),
+      ...versions,
+    };
+    fs.writeFileSync(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    );
+  }
+
+  console.log(
+    `[deploy] Copied ${copiedCount} external SSR runtime package(s) into the server bundle.`,
   );
   return copiedCount;
 }
@@ -4565,6 +4629,23 @@ function hasBareRuntimeImport(source: string, packageName: string): boolean {
   return new RegExp(
     `\\b(?:from\\s*|import\\s*\\(\\s*|import\\s*)(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
   ).test(source);
+}
+
+function hasBareRuntimeRequire(source: string, packageName: string): boolean {
+  const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `\\b(?:require|[A-Za-z_$][\\w$]*)\\s*\\(\\s*(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+  ).test(source);
+}
+
+function hasExternalSsrRuntimeReference(
+  source: string,
+  packageName: string,
+): boolean {
+  return (
+    hasBareRuntimeImport(source, packageName) ||
+    hasBareRuntimeRequire(source, packageName)
+  );
 }
 
 function hasUnsupportedYjsSubpathImport(source: string): boolean {
@@ -6095,6 +6176,7 @@ export default bundle;
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
+    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.

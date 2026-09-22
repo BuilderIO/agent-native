@@ -43,6 +43,7 @@ import {
   cloudflareWorkerStubAliasArgs,
   configureCloudflareModuleWorkerOutput,
   copyInstalledBrowserRuntimePackages,
+  copyInstalledExternalSsrPackages,
   copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
@@ -2595,6 +2596,72 @@ describe("copyInstalledBrowserRuntimePackages", () => {
     );
     const runtime = await import(pathToFileURL(entrypoint).href);
     expect(typeof runtime.chromium.connectOverCDP).toBe("function");
+  });
+});
+
+describe("copyInstalledExternalSsrPackages", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const directory of dirs.splice(0)) {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("ships externally required React with the generated function manifest", () => {
+    const root = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-external-ssr-test-"),
+    );
+    dirs.push(root);
+    const nodeModules = path.join(root, "node_modules");
+    const reactDir = path.join(nodeModules, "react");
+    const looseEnvifyDir = path.join(nodeModules, "loose-envify");
+    fs.mkdirSync(reactDir, { recursive: true });
+    fs.mkdirSync(looseEnvifyDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactDir, "package.json"),
+      JSON.stringify({
+        name: "react",
+        version: "19.2.7",
+        dependencies: { "loose-envify": "1.4.0" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(looseEnvifyDir, "package.json"),
+      JSON.stringify({ name: "loose-envify", version: "1.4.0" }),
+    );
+
+    const serverDir = path.join(root, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "package.json"),
+      JSON.stringify({ name: "traced-node-modules", dependencies: {} }),
+    );
+
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(0);
+    expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      "const react = require(`react`); export { react };",
+    );
+
+    expect(
+      copyInstalledExternalSsrPackages(serverDir, root),
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "loose-envify", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(serverDir, "package.json"), "utf8"))
+        .dependencies,
+    ).toEqual({ react: "19.2.7" });
   });
 });
 
