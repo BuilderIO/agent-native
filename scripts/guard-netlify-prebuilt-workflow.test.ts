@@ -1577,6 +1577,14 @@ describe("production Netlify site concurrency guard", () => {
       String(betaFailureCleanup?.run),
       /current\.published_deploy\?\.id/,
     );
+    const cacheVerification = steps.find(
+      (step) => step.name === "Verify the deployed site still caches a miss",
+    );
+    assert(cacheVerification);
+    assert(
+      steps.indexOf(betaFailureCleanup as Workflow) >
+        steps.indexOf(cacheVerification as Workflow),
+    );
 
     assert(previewSmoke);
     assert.equal(

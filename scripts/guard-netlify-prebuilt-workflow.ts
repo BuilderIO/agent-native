@@ -855,6 +855,9 @@ const parsedPublishWaitIndex = parsedStepIndex(
   "Wait for the Netlify deploy to publish",
 );
 const parsedPurgeIndex = parsedStepIndex("Purge the published Netlify cache");
+const parsedCacheVerificationIndex = parsedStepIndex(
+  "Verify the deployed site still caches a miss",
+);
 const parsedLockIndex = parsedStepIndex("Lock the published production deploy");
 const parsedResumeIndex = parsedStepIndex(
   "Resume automatic Netlify builds after production cutover",
@@ -1423,6 +1426,7 @@ const betaFailureCleanupIf = String(betaFailureCleanupStep?.if ?? "");
 const betaFailureCleanupRun = String(betaFailureCleanupStep?.run ?? "");
 if (
   betaFailureCleanupIndex <= betaSmokeRollbackIndex ||
+  betaFailureCleanupIndex <= parsedCacheVerificationIndex ||
   betaFailureCleanupStep?.id !== "beta_failure_cleanup" ||
   !betaFailureCleanupIf.includes("always()") ||
   !betaFailureCleanupIf.includes("inputs.target == 'beta'") ||
