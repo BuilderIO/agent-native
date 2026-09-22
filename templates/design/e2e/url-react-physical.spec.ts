@@ -139,7 +139,21 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       devServerUrl: manifest.devServerUrl,
       bridgeUrl: manifest.bridgeUrl,
       rootPath,
-      routeManifest: manifest,
+      routeManifest: {
+        ...manifest,
+        routes: [
+          ...manifest.routes,
+          {
+            ...(manifest.routes[0] ?? {
+              id: "react-next",
+              title: "Next",
+            }),
+            id: "react-next",
+            path: "/next",
+            title: "Next",
+          },
+        ],
+      },
       paths: ["/", "/next"],
       navigate: false,
       publicReadOnly: false,
