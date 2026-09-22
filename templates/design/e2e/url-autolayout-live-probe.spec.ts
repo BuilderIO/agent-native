@@ -636,33 +636,28 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect(page.locator("[data-design-editor]")).toBeVisible({
       timeout: 30_000,
     });
-    const reloadedFrame = page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame();
+    const readReloadedOrder = async () => {
+      try {
+        return await page
+          .locator("iframe[data-design-preview-iframe]")
+          .first()
+          .contentFrame()
+          .locator(
+            '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
+          )
+          .evaluateAll((els) =>
+            els.map((el) => el.getAttribute("data-agent-native-node-id")),
+          );
+      } catch (error) {
+        if (error instanceof Error && /Frame was detached/.test(error.message))
+          return null;
+        throw error;
+      }
+    };
     await expect
-      .poll(
-        () =>
-          reloadedFrame
-            .locator(
-              '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
-            )
-            .evaluateAll((els) =>
-              els.map((el) => el.getAttribute("data-agent-native-node-id")),
-            ),
-        { timeout: 15_000 },
-      )
+      .poll(readReloadedOrder, { timeout: 15_000 })
       .toEqual(["v2", "v3", "v1"]);
-    console.log(
-      "URL probe order after reload",
-      await reloadedFrame
-        .locator(
-          '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
-        )
-        .evaluateAll((els) =>
-          els.map((el) => el.getAttribute("data-agent-native-node-id")),
-        ),
-    );
+    console.log("URL probe order after reload", await readReloadedOrder());
     console.log(
       "URL probe prompt after reload",
       JSON.stringify(await call("get-visual-edit-prompt")),
@@ -716,6 +711,9 @@ test.describe("URL-backed live auto-layout probe", () => {
       '[data-agent-native-node-id="group-occupied"]',
     );
     await expect(groupA).toBeVisible({ timeout: 15_000 });
+    await expect(
+      frame.locator("[data-agent-native-editor-chrome-host]"),
+    ).toHaveCount(1, { timeout: 30_000 });
     const iframeSrcBeforeDrag = await iframe.getAttribute("src");
     await iframe.evaluate((element) => {
       element.setAttribute("data-iframe-identity-regression", "stable");
