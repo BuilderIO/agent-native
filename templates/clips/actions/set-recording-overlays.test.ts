@@ -87,9 +87,12 @@ describe("set-recording-overlays under contention", () => {
     const overlays = [box("r1", 1_000)];
     state.reads = [
       { id: "rec_1", editsJson: editsWith(overlays) },
-      { id: "rec_1", editsJson: editsWith(overlays, [
-        { id: "cut-1", startMs: 1_000, endMs: 2_000, excluded: true },
-      ]) },
+      {
+        id: "rec_1",
+        editsJson: editsWith(overlays, [
+          { id: "cut-1", startMs: 1_000, endMs: 2_000, excluded: true },
+        ]),
+      },
     ];
     state.writeWins = [false, true];
 

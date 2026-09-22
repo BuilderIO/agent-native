@@ -689,23 +689,14 @@ export function EditorToolbar({
             </Tooltip>
           ) : null}
 
-          {burningRedactions ? (
-            <div className="flex min-w-[140px] items-center gap-2 px-1">
-              <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-amber-500 transition-[width] duration-500"
-                  style={{ width: `${Math.max(3, burnPercent)}%` }}
-                />
-              </div>
-              <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                {burnPercent > 0
-                  ? t("editorToolbar.burningPercent", { percent: burnPercent })
-                  : t("editorToolbar.burning")}
-              </span>
-            </div>
-          ) : null}
-
-          {pendingRedactions > 0 && onBurnRedactions ? (
+          {/*
+            The percentage is shown in two places and that is enough: here, on
+            the button that started it, and in the toast, which follows the
+            user off the toolbar. A third read-out — a bar with its own
+            percentage sitting next to a button showing the same number — was
+            just the same fact three times, in a bar that is short of room.
+          */}
+          {(pendingRedactions > 0 || burningRedactions) && onBurnRedactions ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
