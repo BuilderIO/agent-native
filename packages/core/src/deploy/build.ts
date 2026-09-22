@@ -1480,6 +1480,7 @@ function getAppBasePath() {
 function stripAppBasePath(pathname) {
   const basePath = getAppBasePath();
   if (!basePath) return pathname;
+  if (pathname === basePath + ".data") return "/.data";
   if (pathname === basePath) return "/";
   if (pathname === basePath + "//") return "/";
   if (pathname.startsWith(basePath + "/")) {
