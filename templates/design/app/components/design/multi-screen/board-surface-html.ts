@@ -30,7 +30,6 @@ export function shouldMountBoardSurface(args: {
     args.hasRuntimeContent
   );
 }
-
 export function shouldRenderEmptyBoardReviewCanvas(args: {
   hasSurfaceContent: boolean;
   reviewPinMode: boolean;

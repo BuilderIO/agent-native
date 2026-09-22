@@ -45,7 +45,6 @@ describe("board surface rendering", () => {
       }),
     ).toBe(true);
   });
-
   it("uses the viewport for a normal-flow app stored as the only board file", () => {
     const appDocument = `<!doctype html><html><body data-agent-native-node-id="body">
       <div data-agent-native-node-id="app" class="app">
