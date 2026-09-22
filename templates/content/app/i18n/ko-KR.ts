@@ -1202,6 +1202,18 @@ const overrides = {
     labCreativeContext: "크리에이티브 컨텍스트",
     labCreativeContextDescription:
       "Content에서 제어된 참조 컨텍스트를 연결하고 재사용합니다.",
+    labSlashAdvancedCode: "고급 코드 블록",
+    labSlashAdvancedCodeDescription:
+      "슬래시 메뉴에 코드 및 코드 탭 블록을 추가합니다.",
+    labSlashLayouts: "레이아웃 블록",
+    labSlashLayoutsDescription:
+      "슬래시 메뉴에 사용자 지정 HTML 및 탭 블록을 추가합니다.",
+    labSlashVisuals: "시각적 블록",
+    labSlashVisualsDescription:
+      "슬래시 메뉴에 다이어그램, Mermaid 및 와이어프레임 블록을 추가합니다.",
+    labSlashDeveloperDocs: "개발자 문서 블록",
+    labSlashDeveloperDocsDescription:
+      "슬래시 메뉴에 API 및 개발자 문서 블록을 추가합니다.",
   },
   chat: {
     publicEmptyState: "이 문서에 대해 무엇이든 물어보세요",

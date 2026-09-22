@@ -1436,6 +1436,7 @@ interface VisualEditorProps {
    * whose type has no NFM analog (via the shared registry-block side-map).
    */
   notionPageId?: string | null;
+  builderBlocks?: boolean;
   onHistoryControllerChange?: (
     controller: VisualEditorHistoryController | null,
   ) => void;
@@ -2957,6 +2958,7 @@ export function VisualEditor({
   notionPageLinks = [],
   onOpenNotionPageLink,
   notionPageId,
+  builderBlocks,
   onHistoryControllerChange,
   onHistoryStateChange,
   onSelectionControllerChange,
@@ -4315,6 +4317,7 @@ export function VisualEditor({
           documentId={documentId}
           suggesting={suggesting}
           notionPageId={notionPageId}
+          builderBlocks={builderBlocks}
           onDraftCommitted={() =>
             Promise.resolve(
               persistEditorContent(editor, { userInitiated: true }),

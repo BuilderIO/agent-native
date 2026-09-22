@@ -1,6 +1,13 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabs } from "@agent-native/core/client/labs";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
+import {
+  CONTENT_SLASH_ADVANCED_CODE,
+  CONTENT_SLASH_DEVELOPER_DOCS,
+  CONTENT_SLASH_LAYOUTS,
+  CONTENT_SLASH_VISUALS,
+} from "@shared/labs";
 import { renderMathToHtml } from "@shared/math-rendering";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
@@ -81,6 +88,7 @@ interface SlashCommandMenuProps {
    * unset (the common case), all registry blocks are offered.
    */
   notionPageId?: string | null;
+  builderBlocks?: boolean;
 }
 
 interface EditorMenuPosition {
@@ -661,10 +669,12 @@ export function SlashCommandMenu({
   documentId,
   suggesting = false,
   notionPageId,
+  builderBlocks = false,
   onDraftCommitted,
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
+  const labs = useLabs();
   const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
@@ -990,8 +1000,15 @@ export function SlashCommandMenu({
         ? []
         : (buildRegistrySlashItems(contentBlockRegistry, {
             notionCompatibleOnly: !!notionPageId,
+            policy: {
+              advancedCode: labs[CONTENT_SLASH_ADVANCED_CODE.key] === true,
+              layouts: labs[CONTENT_SLASH_LAYOUTS.key] === true,
+              visuals: labs[CONTENT_SLASH_VISUALS.key] === true,
+              developerDocs: labs[CONTENT_SLASH_DEVELOPER_DOCS.key] === true,
+              builderBlocks,
+            },
           }) as unknown as CommandItem[]),
-    [isTurnInto, notionPageId],
+    [builderBlocks, isTurnInto, labs, notionPageId],
   );
   const localComponentCommands = useMemo<CommandItem[]>(
     () =>

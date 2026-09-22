@@ -1250,6 +1250,18 @@ const overrides = {
     labCreativeContext: "Kreativer Kontext",
     labCreativeContextDescription:
       "Verbinden und Wiederverwenden von geregeltem Referenzkontext in Content.",
+    labSlashAdvancedCode: "Erweiterte Codeblöcke",
+    labSlashAdvancedCodeDescription:
+      "Fügt Code- und Code-Tab-Blöcke zum Slash-Menü hinzu.",
+    labSlashLayouts: "Layoutblöcke",
+    labSlashLayoutsDescription:
+      "Fügt benutzerdefinierte HTML- und Tab-Blöcke zum Slash-Menü hinzu.",
+    labSlashVisuals: "Visuelle Blöcke",
+    labSlashVisualsDescription:
+      "Fügt Diagramm-, Mermaid- und Wireframe-Blöcke zum Slash-Menü hinzu.",
+    labSlashDeveloperDocs: "Blöcke für Entwicklerdokumentation",
+    labSlashDeveloperDocsDescription:
+      "Fügt API- und Entwicklerdokumentationsblöcke zum Slash-Menü hinzu.",
   },
   chat: {
     publicEmptyState: "Frag mich alles zu diesem Dokument",

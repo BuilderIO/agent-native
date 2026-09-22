@@ -1282,6 +1282,14 @@ const overrides = {
     labCreativeContext: "创意上下文",
     labCreativeContextDescription:
       "在 Content 中连接并复用受管控的参考上下文。",
+    labSlashAdvancedCode: "高级代码块",
+    labSlashAdvancedCodeDescription: "在斜杠菜单中添加代码和代码标签页块。",
+    labSlashLayouts: "布局块",
+    labSlashLayoutsDescription: "在斜杠菜单中添加自定义 HTML 和标签页块。",
+    labSlashVisuals: "可视化块",
+    labSlashVisualsDescription: "在斜杠菜单中添加图表、Mermaid 和线框图块。",
+    labSlashDeveloperDocs: "开发者文档块",
+    labSlashDeveloperDocsDescription: "在斜杠菜单中添加 API 和开发者文档块。",
   },
   chat: {
     publicEmptyState: "向我询问有关此文档的任何问题",
