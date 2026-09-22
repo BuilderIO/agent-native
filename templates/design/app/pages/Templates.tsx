@@ -24,6 +24,7 @@ import { toast } from "sonner";
 
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
 import {
@@ -106,6 +107,10 @@ export default function Templates() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems();
+  const designSystemOptions = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
 
   const templates = useMemo(() => data?.templates ?? [], [data?.templates]);
   const linkedTemplateId = searchParams.get("templateId");
@@ -387,7 +392,7 @@ export default function Templates() {
         onSubmit={handleSubmit}
         anchorRef={anchorRef}
         loading={creating}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedDesignSystemId ?? null}
         onDesignSystemChange={setSelectedDesignSystemId}

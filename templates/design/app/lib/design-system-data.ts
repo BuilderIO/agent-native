@@ -48,13 +48,12 @@ export function parseDesignSystemData(
 }
 
 /**
- * Rows reconciled before the document count became the readiness signal carry
- * no `docCount`. Absent is not zero, so fall back to the sync stamp a
- * confirmed reconciliation wrote instead of demoting those kits to indexing.
+ * docCount is the only readiness signal: not builderStatus, not a sync
+ * timestamp, not document types. A Builder-backed row with no recorded
+ * docCount has not been measured yet, which is not ready.
  */
 function isBuilderKitIndexed(parsed: DesignSystemData): boolean {
-  if (typeof parsed.docCount === "number") return parsed.docCount > 0;
-  return typeof parsed.builderSyncedAt === "string";
+  return typeof parsed.docCount === "number" && parsed.docCount > 0;
 }
 
 export function shouldRefreshBuilderDesignSystem(
