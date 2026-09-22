@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   _resetSyncTransportRegistryForTests,
+  REALTIME_CAP_POLL_LIVE,
   subscribeSyncEvents,
 } from "./use-db-sync";
 
@@ -200,6 +201,30 @@ describe("hosted SSE reconnect ownership", () => {
       u.includes("/_agent-native/poll"),
     ).length;
     expect(after).toBeGreaterThan(before);
+
+    unsub();
+  });
+
+  it("never reports poll-live for a hosted-gateway stream refused before it ever opened", async () => {
+    const capabilities: Array<readonly string[] | undefined> = [];
+    const unsub = subscribeSyncEvents({
+      onEvents: () => {},
+      onSseStateChange: (_connected, caps) => capabilities.push(caps),
+    });
+    await vi.advanceTimersByTimeAsync(200);
+
+    // The gateway stream is refused (CLOSED) before it ever opens — the same
+    // shape as a serverless 204 on the local endpoint, but poll-live is a
+    // local-only fallback: the gateway path has its own health-gate/revert
+    // instead (see revertToLocal).
+    const first = FakeEventSource.instances.at(-1)!;
+    first.readyState = FakeEventSource.CLOSED;
+    first.onerror?.();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(
+      capabilities.some((caps) => caps?.includes(REALTIME_CAP_POLL_LIVE)),
+    ).toBe(false);
 
     unsub();
   });

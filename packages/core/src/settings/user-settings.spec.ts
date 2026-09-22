@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock the store module
 const mockGetSetting = vi.fn();
+const mockGetSettings = vi.fn();
 const mockMutateSetting = vi.fn();
 const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
@@ -9,6 +10,7 @@ const mockDeleteSettingIfValue = vi.fn();
 
 vi.mock("./store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
+  getSettings: (...args: any[]) => mockGetSettings(...args),
   mutateSetting: (...args: any[]) => mockMutateSetting(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
@@ -17,6 +19,7 @@ vi.mock("./store.js", () => ({
 
 import {
   getUserSetting,
+  getUserSettings,
   mutateUserSetting,
   putUserSetting,
   deleteUserSetting,
@@ -49,6 +52,82 @@ describe("user-settings", () => {
 
       await getUserSetting("user+tag@example.com", "key");
       expect(mockGetSetting).toHaveBeenCalledWith("u:user+tag@example.com:key");
+    });
+  });
+
+  describe("getUserSettings", () => {
+    it("reads normalized keys for every email in one batch", async () => {
+      mockGetSettings.mockResolvedValueOnce(
+        new Map([
+          ["u:alice@test.com:theme", { theme: "dark" }],
+          ["u:bob@test.com:theme", { theme: "light" }],
+        ]),
+      );
+
+      const result = await getUserSettings(
+        ["alice@test.com", "bob@test.com"],
+        "theme",
+      );
+
+      expect(mockGetSettings).toHaveBeenCalledTimes(1);
+      expect(mockGetSettings).toHaveBeenCalledWith([
+        "u:alice@test.com:theme",
+        "u:bob@test.com:theme",
+      ]);
+      expect(result).toEqual(
+        new Map([
+          ["alice@test.com", { theme: "dark" }],
+          ["bob@test.com", { theme: "light" }],
+        ]),
+      );
+    });
+
+    it("falls back to a second batch only for emails whose legacy key differs and whose normalized key missed", async () => {
+      mockGetSettings
+        .mockResolvedValueOnce(
+          new Map([
+            ["u:alice@test.com:pref", { v: "normalized" }],
+            ["u:bob@test.com:pref", null],
+          ]),
+        )
+        .mockResolvedValueOnce(
+          new Map([["u:Bob@Test.com:pref", { v: "legacy" }]]),
+        );
+
+      const result = await getUserSettings(
+        ["alice@test.com", "Bob@Test.com"],
+        "pref",
+      );
+
+      expect(mockGetSettings).toHaveBeenCalledTimes(2);
+      // Only Bob is re-read: Alice's normalized key already hit, and an
+      // already-lowercase email has no distinct legacy key to fall back to.
+      expect(mockGetSettings).toHaveBeenNthCalledWith(2, [
+        "u:Bob@Test.com:pref",
+      ]);
+      expect(result).toEqual(
+        new Map([
+          ["alice@test.com", { v: "normalized" }],
+          ["Bob@Test.com", { v: "legacy" }],
+        ]),
+      );
+    });
+
+    it("returns null, not a missing entry, for an email with neither key set", async () => {
+      mockGetSettings.mockResolvedValueOnce(
+        new Map([["u:alice@test.com:pref", null]]),
+      );
+
+      const result = await getUserSettings(["alice@test.com"], "pref");
+
+      expect(mockGetSettings).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(new Map([["alice@test.com", null]]));
+    });
+
+    it("returns an empty map without calling getSettings for an empty email list", async () => {
+      const result = await getUserSettings([], "pref");
+      expect(result).toEqual(new Map());
+      expect(mockGetSettings).not.toHaveBeenCalled();
     });
   });
 

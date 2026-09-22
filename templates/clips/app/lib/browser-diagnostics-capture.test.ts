@@ -37,6 +37,28 @@ describe("browser diagnostics capture", () => {
     capture.dispose();
   });
 
+  it("records an opaque fetch response's status as undefined, not 0", async () => {
+    // A no-cors/opaque response reports status 0 and statusText "" — not
+    // constructible via `new Response()`, so stub window.fetch directly with
+    // a Response-shaped value the way the browser would deliver one.
+    const originalFetch = window.fetch;
+    window.fetch = (() =>
+      Promise.resolve({
+        status: 0,
+        statusText: "",
+        ok: false,
+      })) as unknown as typeof window.fetch;
+
+    const capture = createBrowserDiagnosticsCapture();
+    await window.fetch("https://example.com/opaque");
+    const snapshot = capture.stop();
+    window.fetch = originalFetch;
+
+    expect(snapshot.networkRequests[0]?.type).toBe("fetch");
+    expect(snapshot.networkRequests[0]?.status).toBeUndefined();
+    capture.dispose();
+  });
+
   it("does not remove a newer history wrapper during cleanup", () => {
     const originalPushState = window.history.pushState;
     const capture = createBrowserDiagnosticsCapture();

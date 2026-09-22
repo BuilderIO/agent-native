@@ -3,7 +3,10 @@ import { commitUploadReceiptsForImport } from "@agent-native/core/file-upload/ac
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  checkpointSkippedResultField,
+  snapshotDesignBeforeAgentEdit,
+} from "../server/lib/design-versions.js";
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
 import {
   normalizeImportedHtmlDocument,
@@ -96,7 +99,10 @@ export default defineAction({
           };
         }
       }
-      await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
+      const figFrameCheckpoint = await snapshotDesignBeforeAgentEdit(
+        resolvedDesignId,
+        context,
+      );
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
         sourceType: "fig-upload",
@@ -128,11 +134,15 @@ export default defineAction({
       return {
         ...saved,
         stats: { sourceKind: "fig-frame", frameCount: saved.files.length },
+        ...checkpointSkippedResultField(figFrameCheckpoint),
       };
     }
 
     if (sourceType === "html-string") {
-      await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
+      const htmlCheckpoint = await snapshotDesignBeforeAgentEdit(
+        resolvedDesignId,
+        context,
+      );
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
         sourceType: "html-import",
@@ -148,15 +158,23 @@ export default defineAction({
       return {
         ...saved,
         stats: { sourceKind: "html-string", frameCount: saved.files.length },
+        ...checkpointSkippedResultField(htmlCheckpoint),
       };
     }
 
-    await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
-    return saveFigmaPasteHtmlFallback({
+    const figmaPasteCheckpoint = await snapshotDesignBeforeAgentEdit(
+      resolvedDesignId,
+      context,
+    );
+    const figmaPasteResult = await saveFigmaPasteHtmlFallback({
       designId: resolvedDesignId,
       clipboardHtml: content,
       originalName,
     });
+    return {
+      ...figmaPasteResult,
+      ...checkpointSkippedResultField(figmaPasteCheckpoint),
+    };
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;

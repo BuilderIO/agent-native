@@ -119,6 +119,37 @@ counts instead of treating sampled rows as a complete request census. Keep
 mutations before presenting an action success rate. This metric is not a
 substitute for user-operation success or task completion.
 
+Read action reliability and latency through the `action-success-rate-over-time`,
+`action-reliability-by-action`, and `action-latency-p50-over-time` /
+`action-latency-p90-over-time` keys in `first-party-metric-catalog.ts` — the
+canonical, already-validated way to query this event, including the
+weighting, cancelled/suspended exclusions, and BigQuery-safe quantile math.
+
+A few fields need a value/absent distinction, not a guessed default:
+
+- `cold_start` is `true` when the response's `Server-Timing` header reports an
+  `app` phase (a live, non-cacheable response) with a `boot` phase alongside
+  it, `false` when it reports `app` without `boot` (a warm container that
+  timed its own request), and **absent** whenever `app` itself is missing —
+  including a CDN-cacheable response, which reports only an `origin`
+  timestamp snapshot and never per-invocation phases. A missing `app` phase
+  means unknown, not warm. `server_boot_ms`/`server_init_ms` are present only
+  on a cold request.
+- `response_bytes` reflects the response's `Content-Length` header and is
+  absent when that header is missing, never `0` — a `0`-byte body and an
+  unmeasured one are different facts.
+- `page_hidden` is `true` when the document was hidden at any point during the
+  attempt, including a call that starts in an already-backgrounded tab (a
+  cmd-click, session restore, a hidden desktop webview) and surfaces before
+  the call completes. A backgrounded tab or a sleeping device throttles JS
+  timers, which is why an `outcome = 'timeout'` row can otherwise read as many
+  minutes of `duration_ms` for a request that never really waited that long;
+  treat a `page_hidden` row's latency as unreliable rather than a real server
+  hang.
+- `timeout_ms` is the effective timeout applied to that attempt (60s by
+  default, or a caller's override) — compare it against `duration_ms` instead
+  of assuming every timeout used the same budget.
+
 ## Server action response telemetry
 
 `event_name = 'http.response'` is the server-observed request outcome. Action

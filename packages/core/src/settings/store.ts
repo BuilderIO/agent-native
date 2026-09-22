@@ -124,6 +124,65 @@ export async function getSetting(
   return raw == null ? null : JSON.parse(raw);
 }
 
+// Keeps the IN-list under Postgres's bind-parameter ceiling and out of
+// pathological query-planning territory for the rare caller (a huge org
+// roster, or a flag registry with hundreds of keys) that requests more keys
+// than fit in one statement.
+const SETTINGS_IN_LIST_CHUNK_SIZE = 500;
+
+/**
+ * Batched read of several settings keys in as few round trips as possible.
+ * Serves per-request cache hits directly (same cache as {@link getSetting}),
+ * then issues one `key IN (...)` query — chunked above
+ * {@link SETTINGS_IN_LIST_CHUNK_SIZE} — for the rest. Every requested key is
+ * cached, including a miss as `null`, so a later {@link getSetting} for the
+ * same key in this request is free. A key absent from production but present
+ * in the request is indistinguishable from a key never asked for other than
+ * by looking it up, matching `getSetting`'s null-for-missing contract.
+ */
+export async function getSettings(
+  keys: readonly string[],
+  options?: StoreReadOptions,
+): Promise<Map<string, Record<string, unknown> | null>> {
+  const uniqueKeys = [...new Set(keys)];
+  const result = new Map<string, Record<string, unknown> | null>();
+  if (uniqueKeys.length === 0) return result;
+
+  const cache = options?.transaction ? null : requestSettingsCache();
+  const misses: string[] = [];
+  for (const key of uniqueKeys) {
+    if (!options?.bypassCache && cache?.has(key)) {
+      const cached = cache.get(key);
+      result.set(key, cached == null ? null : JSON.parse(cached));
+    } else {
+      misses.push(key);
+    }
+  }
+  if (misses.length === 0) return result;
+
+  if (!options?.transaction) await ensureTable();
+  const client = options?.transaction ?? getDbExec();
+  const table = settingsTable();
+  const rawByKey = new Map<string, string>();
+  for (let i = 0; i < misses.length; i += SETTINGS_IN_LIST_CHUNK_SIZE) {
+    const chunk = misses.slice(i, i + SETTINGS_IN_LIST_CHUNK_SIZE);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const { rows } = await client.execute({
+      sql: `SELECT key, value FROM ${table} WHERE key IN (${placeholders})`,
+      args: chunk,
+    });
+    for (const row of rows) {
+      rawByKey.set(row.key as string, row.value as string);
+    }
+  }
+  for (const key of misses) {
+    const raw = rawByKey.get(key) ?? null;
+    if (!options?.bypassCache) cache?.set(key, raw);
+    result.set(key, raw == null ? null : JSON.parse(raw));
+  }
+  return result;
+}
+
 export interface StoreWriteOptions {
   /** Tag identifying who initiated this write (e.g. a tab ID). */
   requestSource?: string;

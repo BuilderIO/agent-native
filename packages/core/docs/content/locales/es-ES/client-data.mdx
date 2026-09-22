@@ -404,7 +404,7 @@ Cada solicitud de `useActionQuery()`, `useActionMutation()` y `callAction()` est
   returns={{ type: "void" }}
 />
 
-Este hook está pensado para mantener la UI sincronizada con cambios en la base de datos que ocurren fuera de tus propias acciones, como una escritura del agente, un webhook o un cambio hecho desde otra pestaña del navegador. Escucha cambios a través de eventos enviados por el servidor, y recurre al sondeo cuando los eventos enviados por el servidor no están disponibles.
+Este hook está pensado para mantener la UI sincronizada con cambios en la base de datos que ocurren fuera de tus propias acciones, como una escritura del agente, un webhook o un cambio hecho desde otra pestaña del navegador. Escucha cambios a través de eventos enviados por el servidor, y recurre al sondeo cuando los eventos enviados por el servidor no están disponibles. En un despliegue serverless de producción, el propio stream `/_agent-native/events` de la app no está disponible por diseño — el servidor responde con un 204 inmediato en lugar de mantener abierta una instancia de función —, así que el sondeo se encarga de toda la sincronización allí, al mismo ritmo, a menos que la app se haya suscrito a la [puerta de enlace de sincronización en tiempo real alojada](/docs/real-time-collaboration#hosted-gateway).
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";

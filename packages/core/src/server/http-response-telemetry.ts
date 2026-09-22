@@ -9,7 +9,6 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 
-import { getAppConfig } from "../app-config/index.js";
 import {
   claimStartupDatabaseTelemetry,
   createDatabaseRequestTelemetry,
@@ -23,6 +22,7 @@ import {
   flushTrackingEvents,
   type TrackingEventScope,
 } from "../observability/tracing.js";
+import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { track } from "../tracking/index.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -388,9 +388,13 @@ async function emitTelemetry(
       runWithRequestContext({ trackingScope: state.trackingScope }, () => {
         track(TELEMETRY_EVENT_NAME, {
           source: "server",
-          app: getAppConfig().app.name,
-          template:
-            envValue("AGENT_NATIVE_TEMPLATE") ?? getAppConfig().app.name,
+          // getAppConfig().app.name is an optional display name (APP_NAME or
+          // npm_package_name) that Lambda never sets, so it silently dropped
+          // `app`/`template` from every deployed row. trackingIdentityProperties
+          // resolves the same dimensions from the deploy URL/env the way every
+          // other tracking event in this codebase already does, and leaves the
+          // keys absent (not a guessed default) when nothing resolves.
+          ...trackingIdentityProperties(),
           organization: organizationForHost(host),
           method: getMethod(event),
           path: normalizeHttpTelemetryPath(pathname),
@@ -598,7 +602,8 @@ function logSlowRequest(
   console.log(
     JSON.stringify({
       event: SLOW_REQUEST_LOG_EVENT,
-      app: getAppConfig().app.name,
+      // See emitTelemetry: getAppConfig().app.name is unset on Lambda.
+      ...trackingIdentityProperties(),
       method: getMethod(event),
       path: normalizeHttpTelemetryPath(pathname),
       status: responseStatusCode(event, response),
@@ -665,6 +670,23 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
     (event.context as Record<PropertyKey, unknown>)[REQUEST_TELEMETRY_KEY] =
       state;
     enterDatabaseRequestTelemetry(state.db);
+    // Written now, before the handler (and any guard it calls) runs — and to
+    // BOTH header buckets h3 keeps. A thrown createError() (every 401/403
+    // action guard) builds its Response from `res.errHeaders`, a bucket
+    // separate from `res.headers`; h3's own CORS helpers write the same
+    // header to both for exactly this reason. Writing only `res.headers`
+    // here (as the "response" hook below still also does, for the ordinary
+    // success path) left every guard-rejected request with no
+    // x-agent-native-request-id on the wire, breaking the client<->server
+    // join for the failure class that needs it most.
+    try {
+      event.res.headers.set(REQUEST_ID_HEADER, state.requestId);
+      event.res.errHeaders.set(REQUEST_ID_HEADER, state.requestId);
+    } catch {
+      // coercion-ok: best-effort only. Some adapters don't expose a writable
+      // response this early; the "response" hook below still covers the
+      // success path, and tracking still has the id either way.
+    }
   });
 
   hooks.hook("response", async (response: Response, event: H3Event) => {

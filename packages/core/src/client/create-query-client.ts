@@ -10,7 +10,7 @@
  * House defaults:
  * - staleTime 30s  — data is considered fresh for 30 s; useDbSync invalidates
  *   on real changes so this only affects the window between sync events.
- * - retry          — never retry 401/403; allow one retry for transient errors.
+ * - retry          — never retry 401/403/404; allow one retry for transient errors.
  * - refetchOnWindowFocus false — useDbSync already runs its own focus poll
  *   (use-db-sync.ts) so unconditional refetch on focus would double-fetch.
  *
@@ -19,15 +19,28 @@
  */
 import { QueryClient, type QueryClientConfig } from "@tanstack/react-query";
 
-/** Returns true for HTTP 401 / 403 responses wrapped as { status: number }. */
-function isAuthFailure(error: unknown): boolean {
+function hasStatus(error: unknown, status: number): boolean {
   return (
     !!error &&
     typeof error === "object" &&
     "status" in error &&
-    ((error as { status?: unknown }).status === 401 ||
-      (error as { status?: unknown }).status === 403)
+    (error as { status?: unknown }).status === status
   );
+}
+
+/**
+ * True for HTTP 401 / 403 — an expired or missing session that a retry
+ * cannot fix. Exported so useActionQuery's refetchInterval guard and
+ * use-db-sync.ts's sync-invalidation skip reuse this one predicate instead of
+ * each keeping a private copy.
+ */
+export function isTerminalAuthFailure(error: unknown): boolean {
+  return hasStatus(error, 401) || hasStatus(error, 403);
+}
+
+/** True for HTTP 404 — a resource that will not appear on retry. */
+function isNotFoundFailure(error: unknown): boolean {
+  return hasStatus(error, 404);
 }
 
 /** House defaults merged into every template QueryClient. */
@@ -38,9 +51,12 @@ const HOUSE_DEFAULTS: QueryClientConfig = {
       // invalidates caches on real DB changes so this gap is only relevant
       // for the window between two sync events.
       staleTime: 30_000,
-      // Never retry auth failures — they will not succeed on retry.
-      // Allow one retry for transient network/server errors.
-      retry: (failureCount, error) => !isAuthFailure(error) && failureCount < 1,
+      // Never retry auth failures or a 404 — none succeed on retry. Allow
+      // one retry for transient network/server errors.
+      retry: (failureCount, error) =>
+        !isTerminalAuthFailure(error) &&
+        !isNotFoundFailure(error) &&
+        failureCount < 1,
       // The useDbSync hook already runs a focus-aware event poll, so
       // React Query's own refetchOnWindowFocus would cause duplicate
       // refetches on every window-focus event.

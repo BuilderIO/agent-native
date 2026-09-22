@@ -46,7 +46,10 @@ import * as Y from "yjs";
 import { agentNativePath } from "../client/api-path.js";
 import { useAvatarUrl } from "../client/use-avatar.js";
 import { subscribeSyncEvents, type SyncEvent } from "../client/use-db-sync.js";
-import { REALTIME_CAP_NO_AWARENESS } from "../realtime-protocol.js";
+import {
+  REALTIME_CAP_NO_AWARENESS,
+  REALTIME_CAP_POLL_LIVE,
+} from "../realtime-protocol.js";
 export {
   dedupeCollabUsersByEmail,
   emailToColor,
@@ -394,6 +397,13 @@ class CollabDocConnection {
   // poll cadence — otherwise remote cursors go stale. In-process SSE forwards
   // awareness and sends no handshake, so this stays true there.
   private sseAwarenessCovered = false;
+  // True when the shared transport reports REALTIME_CAP_POLL_LIVE: the local
+  // SSE endpoint refused before ever opening (serverless 204), so /poll is
+  // this deploy's live channel. Treated like an SSE stream that carries
+  // awareness — see getActivePollInterval — because staying on the fast
+  // "live channel down" cadence would add load with no freshness gain: a
+  // Lambda stream never carried cross-instance awareness anyway.
+  private ssePollLive = false;
   private sseSubscribedWithPause: boolean | null = null;
   private unsubscribeCollabEvents: (() => void) | null = null;
   private unsubscribeAwarenessEvents: (() => void) | null = null;
@@ -1031,12 +1041,21 @@ class CollabDocConnection {
           connected && !capabilities?.includes(REALTIME_CAP_NO_AWARENESS);
         const coverageFlipped = awarenessCovered !== this.sseAwarenessCovered;
         this.sseAwarenessCovered = awarenessCovered;
+        const pollLive =
+          capabilities?.includes(REALTIME_CAP_POLL_LIVE) === true;
+        const pollLiveFlipped = pollLive !== this.ssePollLive;
+        this.ssePollLive = pollLive;
         // The gateway handshake lands AFTER onopen, so a relaxed poll timer
         // scheduled at connect can already be pending when `no-awareness`
         // arrives. Reschedule only for that mid-connection capability flip so
         // the fast presence cadence applies immediately; connect/disconnect
-        // transitions keep the pre-existing next-natural-tick behavior.
-        if (coverageFlipped && connected === wasActive) this.reschedulePoll();
+        // transitions keep the pre-existing next-natural-tick behavior. A
+        // poll-live flip is the same shape: `connected` stays false
+        // throughout (refused before ever opening), so `connected === wasActive`
+        // holds and the flip alone drives the reschedule.
+        if ((coverageFlipped || pollLiveFlipped) && connected === wasActive) {
+          this.reschedulePoll();
+        }
         if (connected) this.consecutiveErrors = 0;
       },
       pauseWhenHidden,
@@ -1086,10 +1105,14 @@ class CollabDocConnection {
   }
 
   private getActivePollInterval(): number {
-    // Relax to the slow cadence only when SSE is genuinely carrying awareness;
-    // on a `no-awareness` hosted stream keep the fast cadence so presence/
-    // cursor state doesn't go stale (the gateway doesn't forward awareness).
-    return this.sseActive && this.sseAwarenessCovered
+    // Relax to the slow cadence when SSE is genuinely carrying awareness, or
+    // when the local endpoint reported poll-live: on that deploy target
+    // /poll is the live channel (a serverless SSE stream never carried
+    // cross-instance awareness either), so the fast "live channel down"
+    // cadence would only add load with no freshness gain. A `no-awareness`
+    // hosted stream keeps the fast cadence so presence/cursor state doesn't
+    // go stale (the gateway doesn't forward awareness).
+    return (this.sseActive && this.sseAwarenessCovered) || this.ssePollLive
       ? this.effectivePollIntervalWithSse
       : this.effectivePollInterval;
   }

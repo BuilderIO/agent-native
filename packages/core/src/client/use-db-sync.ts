@@ -4,10 +4,14 @@ import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
 import {
   parseHandshakeFrame,
   parseTokenFrame,
+  REALTIME_CAP_POLL_LIVE,
+  REALTIME_POLL_LIVE_QUERY_PARAM,
   REALTIME_PROTOCOL_VERSION,
   REALTIME_SSE_HANDSHAKE_EVENT,
   REALTIME_SSE_TOKEN_EVENT,
 } from "../realtime-protocol.js";
+
+export { REALTIME_CAP_POLL_LIVE } from "../realtime-protocol.js";
 import {
   addSurfaceVisibilityListener,
   isHostSurfaceHidden,
@@ -15,6 +19,7 @@ import {
 } from "../shared/surface-visibility.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
+import { isTerminalAuthFailure } from "./create-query-client.js";
 import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
@@ -57,6 +62,19 @@ const HIDDEN_POLL_INTERVAL_MS = 10_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const LOCAL_SSE_RECONNECT_BASE_MS = 1_000;
 const LOCAL_SSE_RECONNECT_MAX_MS = 30_000;
+// A never-opened refusal (serverless 204, or a long-lived host's stream
+// declining before sign-in/behind a restarting proxy) starts on the same
+// short schedule as an opened-then-dropped stream — a 401 before sign-in, a
+// 502 while a workspace child restarts, or a proxy hiccup mid-deploy all
+// recover within seconds, and /poll is already carrying the load via
+// poll-live meanwhile (see the onerror CLOSED branch below). Only once that
+// short schedule has hit its cap this many times does a never-opened stream
+// look serverless-permanent rather than transient, and retries fall back to
+// LOCAL_SSE_REFUSAL_BASE_MS/MAX below so a serverless deploy isn't billed a
+// fresh cold container every few seconds forever.
+const LOCAL_SSE_REFUSAL_SHORT_TIER_ATTEMPTS = 8;
+const LOCAL_SSE_REFUSAL_BASE_MS = 5 * 60_000;
+const LOCAL_SSE_REFUSAL_MAX_MS = 60 * 60_000;
 const ACTIVE_CHAT_TTL_MS = 5 * 60 * 1_000;
 const ACTIVE_CHAT_MAX = 1_000;
 /**
@@ -206,7 +224,13 @@ function isDocumentHidden(): boolean {
 function resolveSseUrl(sseUrl: string | false | undefined): string | false {
   if (sseUrl === false) return false;
   if (isEmbedAuthActive()) return false;
-  return agentNativePath(sseUrl ?? "/_agent-native/events");
+  const path = agentNativePath(sseUrl ?? "/_agent-native/events");
+  // Local-mode connect URL only — the hosted gateway builds its own URL in
+  // `activeSseUrl` and never reads this one. The param is how the server's
+  // serverless 204 gate (core-routes-plugin.ts) tells this bundle apart from
+  // an older one that would silently lose its live channel to a 204 with no
+  // poll-live fallback.
+  return `${path}${path.includes("?") ? "&" : "?"}${REALTIME_POLL_LIVE_QUERY_PARAM}=1`;
 }
 
 // --- Hosted Realtime Gateway binding ----------------------------------------
@@ -283,16 +307,6 @@ function normalizeEventPayload(payload: unknown): SyncEvent[] {
   return [payload as SyncEvent];
 }
 
-function isAuthFailure(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "status" in error &&
-    ((error as { status?: unknown }).status === 401 ||
-      (error as { status?: unknown }).status === 403)
-  );
-}
-
 /**
  * True for a query whose last fetch failed authorization. Such a query needs a
  * new session, not another request: every background invalidation reissues the
@@ -302,7 +316,7 @@ function isAuthFailure(error: unknown): boolean {
  * retries them.
  */
 function hasTerminalAuthFailure(query: Query): boolean {
-  return isAuthFailure(query.state?.error);
+  return isTerminalAuthFailure(query.state?.error);
 }
 
 /**
@@ -455,6 +469,21 @@ class SyncTransport {
   private eventSource: EventSource | null = null;
   private localReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private localReconnectAttempts = 0;
+  // Attempt count for a never-opened refusal's two-tier backoff (see
+  // scheduleLocalRefusalRetry), separate from localReconnectAttempts (the
+  // opened-then-dropped short backoff) even though the first
+  // LOCAL_SSE_REFUSAL_SHORT_TIER_ATTEMPTS attempts share its formula — only
+  // one of the two counters is ever counting up at a time, matching which
+  // branch of connectEvents()'s onerror actually ran. Reset on a successful
+  // open, which resets both backoff tiers at once.
+  private localRefusalAttempts = 0;
+  // Tracks "has any local-mode EventSource on this transport ever opened",
+  // not any single EventSource — a reconnect creates a new EventSource, so a
+  // per-instance flag would forget a prior successful open and misclassify
+  // the next refusal as the initial one. Only set from local mode so a
+  // hosted-gateway open (before a health-gate revert) can't mask a later
+  // serverless refusal after revertToLocal.
+  private localSseOpened = false;
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
@@ -803,6 +832,13 @@ class SyncTransport {
   private closeEvents(): void {
     if (this.localReconnectTimer) {
       clearTimeout(this.localReconnectTimer);
+      // Cancelling (not firing) a pending reconnect/refusal retry — surface
+      // hidden, poll auth-failure cooldown. connectEvents()'s guard reads
+      // this timer directly, so nulling it here is what lets the next
+      // trigger (visibility restore, focus, cooldown expiry) retry right
+      // away instead of a never-opened stream staying refused for the life
+      // of the tab. localRefusalAttempts is untouched, so a repeat refusal
+      // re-arms the backoff at the same (not restarted) delay.
       this.localReconnectTimer = null;
     }
     if (!this.eventSource) return;
@@ -913,11 +949,23 @@ class SyncTransport {
         this.cursorRef = maxSyncCursor(this.cursorRef, frame.cursor);
         this.fan(frame.events, frame.version, this.cursorRef);
       } else if (frame?.type === "sse-state") {
+        const capabilitiesChanged =
+          frame.capabilities.length !== this.capabilities.length ||
+          frame.capabilities.some((cap, i) => cap !== this.capabilities[i]);
         this.capabilities = frame.capabilities;
         // The leader's stream is this tab's push path too. Tracking its state
         // lets a follower relax to the fallback cadence instead of polling at
         // the active rate on top of a stream that is already delivering.
+        const wasConnected = this.sseConnected;
         this.setSseConnected(frame.connected);
+        // setSseConnected() only notifies when `connected` itself changes.
+        // A capability-only frame (e.g. poll-live appearing on the leader's
+        // refusal, or its reply to this follower's own sse-state-request)
+        // leaves `connected` at its prior value, so it needs its own notify
+        // or this follower's subscribers never learn about it.
+        if (capabilitiesChanged && this.sseConnected === wasConnected) {
+          this.notifySseState();
+        }
         this.reschedule();
       }
     };
@@ -956,10 +1004,47 @@ class SyncTransport {
     }, delay);
   }
 
+  /**
+   * Two-tier backoff for a never-opened refusal (see `localSseOpened`),
+   * sharing `localReconnectTimer` with `scheduleLocalReconnect` so only one
+   * local reconnect timer is ever pending. The first
+   * LOCAL_SSE_REFUSAL_SHORT_TIER_ATTEMPTS attempts reuse
+   * scheduleLocalReconnect's short formula so a transient refusal recovers in
+   * seconds; once that schedule's cap has fired enough times to look
+   * serverless-permanent, later attempts fall back to the long
+   * LOCAL_SSE_REFUSAL_BASE_MS/MAX schedule.
+   */
+  private scheduleLocalRefusalRetry(): void {
+    if (this.stopped || this.localReconnectTimer) return;
+    const attempt = this.localRefusalAttempts++;
+    const delay =
+      attempt < LOCAL_SSE_REFUSAL_SHORT_TIER_ATTEMPTS
+        ? Math.min(
+            LOCAL_SSE_RECONNECT_BASE_MS * 2 ** attempt,
+            LOCAL_SSE_RECONNECT_MAX_MS,
+          )
+        : Math.min(
+            LOCAL_SSE_REFUSAL_BASE_MS *
+              2 ** (attempt - LOCAL_SSE_REFUSAL_SHORT_TIER_ATTEMPTS),
+            LOCAL_SSE_REFUSAL_MAX_MS,
+          );
+    this.localReconnectTimer = setTimeout(() => {
+      this.localReconnectTimer = null;
+      this.connectEvents();
+    }, delay);
+  }
+
   private connectEvents(): void {
     if (
       this.stopped ||
       this.eventSource ||
+      // A never-opened refusal's retry is pending (see
+      // scheduleLocalRefusalRetry) — short-circuit so a poll tick or a
+      // focus/visibility event in between can't bypass its backoff. An
+      // opened-then-dropped stream's pending timer (localSseOpened true) is
+      // not gated the same way: reconnecting it early is a fast path, not a
+      // footgun.
+      (this.localReconnectTimer && !this.localSseOpened) ||
       typeof EventSource === "undefined" ||
       this.shouldStayIdle()
     ) {
@@ -998,6 +1083,18 @@ class SyncTransport {
     const source = new EventSource(url);
     this.eventSource = source;
     source.onopen = () => {
+      if (this.mode === "local") {
+        this.localSseOpened = true;
+        this.localRefusalAttempts = 0;
+        // A prior attempt on this transport refused before ever opening and
+        // reported poll-live; this attempt actually opened, so the fallback
+        // no longer applies.
+        if (this.capabilities.includes(REALTIME_CAP_POLL_LIVE)) {
+          this.capabilities = this.capabilities.filter(
+            (cap) => cap !== REALTIME_CAP_POLL_LIVE,
+          );
+        }
+      }
       const wasConnected = this.sseConnected;
       this.localReconnectAttempts = 0;
       this.setSseConnected(true);
@@ -1036,7 +1133,32 @@ class SyncTransport {
       if (source.readyState === EventSource.CLOSED) {
         source.close();
         this.eventSource = null;
-        this.scheduleLocalReconnect();
+        if (this.localSseOpened) {
+          this.scheduleLocalReconnect();
+        } else {
+          // Never opened on this transport (e.g. a serverless 204, or a
+          // transient 401/502 before the short retry schedule gives up on
+          // it — see scheduleLocalRefusalRetry). /poll is this deploy's live
+          // channel meanwhile, so subscribers get poll-live and keep their
+          // normal cadence instead of racing /poll under a "live channel
+          // down" fallback that would never get fresher.
+          if (!this.capabilities.includes(REALTIME_CAP_POLL_LIVE)) {
+            this.capabilities = [...this.capabilities, REALTIME_CAP_POLL_LIVE];
+            // setSseConnected(false) above already no-op'd — sseConnected was
+            // already false, since this stream never opened — so notify this
+            // tab's subscribers of the new capability directly, and broadcast
+            // it too: setSseConnected's broadcast only fires on a `connected`
+            // transition, and this tab may be the elected leader for one or
+            // more follower tabs whose own subscribers need the same update.
+            this.notifySseState();
+            this.broadcast({
+              type: "sse-state",
+              connected: this.sseConnected,
+              capabilities: this.capabilities,
+            });
+          }
+          this.scheduleLocalRefusalRetry();
+        }
       }
       this.schedulePoll();
     };
@@ -1133,6 +1255,15 @@ class SyncTransport {
       );
       if (this.stopped) return;
       this.consecutiveFailures = 0;
+      if (this.authFailureUntil > 0) {
+        // This poll succeeded past a cooldown set by a prior 401/403 — the
+        // session is healthy again. That cooldown's closeEvents() call may
+        // have cancelled a pending SSE refusal-retry timer (see closeEvents),
+        // so give SSE its own retry here instead of waiting on a focus or
+        // visibility change that may not come for a while.
+        this.authFailureUntil = 0;
+        this.connectEvents();
+      }
       const events = data.events ?? [];
       const responseCursor = decodeSyncCursor(data.cursor);
       // A paged durable response's numeric version is the high-water mark,
@@ -1149,14 +1280,14 @@ class SyncTransport {
         // Gateway auth failure → re-mint (expired/rotated token), WITHOUT
         // tripping the poll-401 cooldown. Persistent failures of any kind
         // health-gate back to the local app.
-        if (isAuthFailure(err)) {
+        if (isTerminalAuthFailure(err)) {
           this.token = null;
           void this.mintToken();
         }
         if (this.consecutiveFailures >= HOSTED_UNHEALTHY_THRESHOLD) {
           this.revertToLocal();
         }
-      } else if (isAuthFailure(err)) {
+      } else if (isTerminalAuthFailure(err)) {
         this.authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
         this.closeEvents();
       }

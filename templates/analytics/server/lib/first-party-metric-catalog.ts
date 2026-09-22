@@ -731,6 +731,43 @@ const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
 const SIGNIFICANT_ACTION_FILTER = `((event_name IN ('action_completed', 'core_action_completed') AND COALESCE(properties::jsonb ->> 'success', 'true') = 'true') OR event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
+/**
+ * `action.response` fast-success rows are sampled at 10% client-side
+ * (`sample_weight = 1/sample_rate`, always emitted since #5335); every error,
+ * 4xx, and >=1000ms row is tracked at weight 1. Rows from before #5335 (and
+ * from stale bundles/long-lived tabs) carry no `sample_weight` at all, so a
+ * plain `COALESCE(sample_weight, 1)` under-counts their fast successes.
+ * This infers the pre-#5335 weight by replicating the guaranteed-track
+ * branches of `getActionResponseSampling` (use-action.ts) in reverse: a row
+ * is only the 10%-sampled kind if it was a fast (<1000ms) success under 400
+ * with no startup Server-Timing. Validated against every row that does carry
+ * an explicit `sample_weight` today (100% match); see telemetry-sampling-bias
+ * in the metrics investigation. Presence checks use `->>`/`NULLIF` rather
+ * than the jsonb `?` operator because `validateFirstPartyAnalyticsSql` rejects
+ * any `?` in dashboard SQL as a bind placeholder.
+ */
+const ACTION_RESPONSE_WEIGHT_SQL = `CASE WHEN NULLIF(properties::jsonb ->> 'sample_weight', '') IS NOT NULL THEN (properties::jsonb ->> 'sample_weight')::numeric WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE((properties::jsonb ->> 'duration_ms')::numeric, 1000) < 1000 AND COALESCE((properties::jsonb ->> 'status_code')::int, 200) < 400 AND NULLIF(properties::jsonb ->> 'framework_ready_wait_ms', '') IS NULL AND NULLIF(properties::jsonb ->> 'startup_db_operation_wall_ms', '') IS NULL THEN 10 ELSE 1 END`;
+/**
+ * `outcome = 'cancelled'` (React Query superseding/unmounting a call) is
+ * emitted with `success = false` even though nothing user-facing failed —
+ * excluding it from both success AND failure keeps a client-side abort from
+ * inflating either side of a reliability rate. Do not fold cancelled into
+ * success: some cancellations are a user giving up on a slow load, which is
+ * a latency signal, not a success.
+ *
+ * `outcome = 'timeout'` with `page_hidden = 'true'` is a client timer
+ * artifact, not an application failure: a backgrounded/throttled tab lets
+ * the timer fire many minutes after the real wait ended, with no server
+ * response and no `request_id`. Classify it 'suspended' and exclude it from
+ * the rate the same way as 'cancelled', but keep it a distinct class so it
+ * stays visible on its own instead of being silently dropped.
+ */
+const ACTION_RESPONSE_OUTCOME_CLASS_SQL = `CASE WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'cancelled' THEN 'cancelled' WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'timeout' AND COALESCE(properties::jsonb ->> 'page_hidden', '') = 'true' THEN 'suspended' WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' THEN 'success' ELSE 'failure' END`;
+const ACTION_RESPONSE_CALL_TYPE_SQL = `CASE WHEN COALESCE(upper(properties::jsonb ->> 'method'), '') = 'GET' THEN 'read' ELSE 'mutation' END`;
+const ACTION_RESPONSE_AUTH_STATE_SQL = `CASE WHEN NULLIF(user_id, '') IS NOT NULL THEN 'signed_in' ELSE 'anonymous' END`;
+/** Beta template sites are published at `beta.<app>.agent-native.com`. */
+const ACTION_RESPONSE_DEPLOYMENT_ENV_SQL = `CASE WHEN hostname LIKE 'beta.%' THEN 'beta' WHEN NULLIF(hostname, '') IS NOT NULL THEN 'prod' ELSE 'unknown' END`;
+const ACTION_RESPONSE_EVENT_FILTER = `event_name = 'action.response' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
 const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
   SELECT DISTINCT funnel_user_key
   FROM funnel_events
@@ -826,6 +863,59 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
 const SIGNUP_METHOD_CONVERSION_SQL = `${FUNNEL_EVENTS_CTE}, clicks AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'method', ''), 'unknown') AS method, COUNT(DISTINCT funnel_user_key) AS clicks FROM funnel_events WHERE event_name = 'auth.signup_clicked' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), signups AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'signup_method', ''), CASE WHEN lower(properties::jsonb ->> 'auth_provider') = 'google' THEN 'google' ELSE 'unknown' END) AS method, COUNT(DISTINCT funnel_user_key) AS signups FROM funnel_events WHERE event_name = 'signup' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), methods AS (SELECT method FROM clicks UNION SELECT method FROM signups) SELECT methods.method, COALESCE(clicks.clicks, 0) AS clicks, COALESCE(signups.signups, 0) AS signups, COALESCE(signups.signups::float / NULLIF(clicks.clicks, 0), 0) AS conversion_rate FROM methods LEFT JOIN clicks ON clicks.method = methods.method LEFT JOIN signups ON signups.method = methods.method ORDER BY clicks DESC NULLS LAST, methods.method`;
 const ONBOARDING_STEP_DROPOFF_SQL = `${FUNNEL_EVENTS_CTE}, views AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), 'unknown') AS flow, COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COALESCE(NULLIF(properties::jsonb ->> 'step_index', ''), '999') AS step_index, COUNT(DISTINCT funnel_user_key) AS users_reached FROM funnel_events WHERE event_name = 'onboarding_step_viewed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2, 3), completions AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), 'unknown') AS flow, COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COUNT(DISTINCT funnel_user_key) AS users_completed FROM funnel_events WHERE event_name = 'onboarding_step_completed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2) SELECT views.flow, views.step_id, views.step_index, views.users_reached, COALESCE(completions.users_completed, 0) AS users_completed, COALESCE(completions.users_completed::float / NULLIF(views.users_reached, 0), 0) AS completion_rate FROM views LEFT JOIN completions ON completions.flow = views.flow AND completions.step_id = views.step_id ORDER BY views.step_index, views.flow, views.step_id`;
 const SHARING_ACTIONS_BY_APP_SQL = `${FUNNEL_EVENTS_CTE} SELECT ${TEMPLATE_EXPR} AS app, event_name AS action, COUNT(*) AS events, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name IN ('share_view', 'share_cta_click', 'share_invite_sent', 'share_visibility_change', 'share_link_copied') AND ${FUNNEL_SCOPE_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY 1, 2 ORDER BY app, events DESC`;
+
+// --- Action reliability & latency (canonical action.response metric) -----
+// Cancelled and suspended (a hidden-tab timeout artifact, see
+// ACTION_RESPONSE_OUTCOME_CLASS_SQL) are excluded from both the numerator and
+// denominator; "success rate" below always means weighted success / weighted
+// (success + failure).
+//
+// `SUM(...) FILTER (WHERE ...)` and `DISTINCT ON` are plain PostgreSQL and
+// both fail BigQuery translation (`assertFirstPartyAnalyticsBigQuerySql` in
+// first-party-analytics-backend.ts), so the panels below use
+// `SUM(CASE WHEN ... THEN weight ELSE 0 END)` (which also keeps the weight
+// columns and the rate numerator 0, not NULL, on a failure-only group) and a
+// `GROUP BY` + `MIN(CASE WHEN ...)` quantile in place of the Postgres-only
+// forms.
+// `properties::jsonb` is re-parsed per column per row across these CTEs --
+// project the scalar fields once in an inner CTE if a Postgres-sink tenant's
+// window approaches FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS.
+//
+// Grouped by deployment_env as well as date/app: beta is mostly internal/QA
+// traffic, and mixing it into a production rate or latency line hides
+// whichever side is actually broken. `series` (app || ' / ' || deployment_env)
+// is the pivot key so the two environments render as separate lines per app.
+//
+// `grid` cross-joins every date the window actually has traffic on against
+// every (app, deployment_env) pair the window actually has traffic on, and
+// the final SELECT LEFT JOINs the aggregate onto it. Without this, a day
+// where one series had zero events (a quiet weekend, a beta env nobody hit)
+// emits no row at all for that (date, series) cell -- and `pivotRows` in
+// `pivot.ts` zero-fills any missing cell, so a day with no data would draw as
+// a 0% outage instead of "not yet known". The `a.date IS NULL` check keeps
+// that distinction: a real 0% (failures occurred, zero succeeded) still
+// comes through as 0, only a cell with no aggregate row at all reports NULL.
+const ACTION_SUCCESS_RATE_OVER_TIME_SQL = `WITH action_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS app, ${ACTION_RESPONSE_DEPLOYMENT_ENV_SQL} AS deployment_env, session_id, ${ACTION_RESPONSE_OUTCOME_CLASS_SQL} AS outcome_class, ${ACTION_RESPONSE_WEIGHT_SQL} AS weight FROM analytics_events WHERE ${ACTION_RESPONSE_EVENT_FILTER}), grid AS (SELECT d.date, s.app, s.deployment_env FROM (SELECT DISTINCT date FROM action_events) d CROSS JOIN (SELECT DISTINCT app, deployment_env FROM action_events) s), agg AS (SELECT date, app, deployment_env, SUM(CASE WHEN outcome_class = 'success' THEN weight ELSE 0 END) AS success_weight, SUM(CASE WHEN outcome_class = 'failure' THEN weight ELSE 0 END) AS failure_weight, SUM(CASE WHEN outcome_class = 'cancelled' THEN weight ELSE 0 END) AS cancelled_weight, SUM(CASE WHEN outcome_class = 'suspended' THEN weight ELSE 0 END) AS suspended_weight, COUNT(DISTINCT session_id) AS sessions, COUNT(DISTINCT CASE WHEN outcome_class = 'failure' THEN session_id END) AS failure_sessions FROM action_events GROUP BY date, app, deployment_env) SELECT g.date, g.app, g.deployment_env, g.app || ' / ' || g.deployment_env AS series, COALESCE(a.success_weight, 0) AS success_weight, COALESCE(a.failure_weight, 0) AS failure_weight, COALESCE(a.cancelled_weight, 0) AS cancelled_weight, COALESCE(a.suspended_weight, 0) AS suspended_weight, CASE WHEN a.date IS NULL THEN NULL ELSE COALESCE(a.success_weight, 0)::float / NULLIF(COALESCE(a.success_weight, 0) + COALESCE(a.failure_weight, 0), 0) END AS rate, COALESCE(a.sessions, 0) AS sessions, CASE WHEN a.date IS NULL THEN NULL ELSE COALESCE(a.failure_sessions, 0)::float / NULLIF(a.sessions, 0) END AS session_failure_share FROM grid g LEFT JOIN agg a ON a.date = g.date AND a.app = g.app AND a.deployment_env = g.deployment_env ORDER BY g.date, g.app, g.deployment_env`;
+// Bucketed cumulative-weight quantile (25ms buckets), not `percentile_cont` —
+// `percentile_cont` has no weight argument, so it would count every sampled
+// fast-success row as one call instead of `sample_weight` many. One row per
+// (app, action, call_type, auth_state, deployment_env); p50/p90 are NULL when
+// that group has no successful call with a `duration_ms`. A call spanning a
+// backgrounded tab (`page_hidden`) is excluded from the latency population --
+// its wall-clock duration is inflated by browser timer throttling, not by
+// the server or network.
+const ACTION_RELIABILITY_BY_ACTION_SQL = `WITH action_events AS (SELECT ${TEMPLATE_EXPR} AS app, COALESCE(NULLIF(properties::jsonb ->> 'action', ''), 'unknown') AS action, ${ACTION_RESPONSE_CALL_TYPE_SQL} AS call_type, ${ACTION_RESPONSE_AUTH_STATE_SQL} AS auth_state, ${ACTION_RESPONSE_DEPLOYMENT_ENV_SQL} AS deployment_env, ${ACTION_RESPONSE_OUTCOME_CLASS_SQL} AS outcome_class, ${ACTION_RESPONSE_WEIGHT_SQL} AS weight, NULLIF(properties::jsonb ->> 'duration_ms', '')::numeric AS duration_ms, NULLIF(properties::jsonb ->> 'page_hidden', '') AS page_hidden FROM analytics_events WHERE ${ACTION_RESPONSE_EVENT_FILTER}), rates AS (SELECT app, action, call_type, auth_state, deployment_env, COUNT(*) AS raw_n, SUM(CASE WHEN outcome_class = 'success' THEN weight ELSE 0 END) AS success_weight, SUM(CASE WHEN outcome_class = 'failure' THEN weight ELSE 0 END) AS failure_weight, SUM(CASE WHEN outcome_class = 'cancelled' THEN weight ELSE 0 END) AS cancelled_weight, SUM(CASE WHEN outcome_class = 'suspended' THEN weight ELSE 0 END) AS suspended_weight FROM action_events GROUP BY app, action, call_type, auth_state, deployment_env), duration_buckets AS (SELECT app, action, call_type, auth_state, deployment_env, (FLOOR(duration_ms / 25) * 25) AS bucket_ms, SUM(weight) AS bucket_weight FROM action_events WHERE outcome_class = 'success' AND duration_ms IS NOT NULL AND COALESCE(page_hidden, '') <> 'true' GROUP BY app, action, call_type, auth_state, deployment_env, (FLOOR(duration_ms / 25) * 25)), duration_cumulative AS (SELECT *, SUM(bucket_weight) OVER (PARTITION BY app, action, call_type, auth_state, deployment_env ORDER BY bucket_ms) AS cumulative_weight, SUM(bucket_weight) OVER (PARTITION BY app, action, call_type, auth_state, deployment_env) AS total_success_weight FROM duration_buckets), quantiles AS (SELECT app, action, call_type, auth_state, deployment_env, MIN(CASE WHEN cumulative_weight >= total_success_weight * 0.5 THEN bucket_ms END) AS p50_ms, MIN(CASE WHEN cumulative_weight >= total_success_weight * 0.9 THEN bucket_ms END) AS p90_ms FROM duration_cumulative GROUP BY app, action, call_type, auth_state, deployment_env) SELECT r.app, r.action, r.call_type, r.auth_state, r.deployment_env, r.raw_n, r.success_weight, r.failure_weight, r.cancelled_weight, r.suspended_weight, COALESCE(r.success_weight, 0)::float / NULLIF(COALESCE(r.success_weight, 0) + COALESCE(r.failure_weight, 0), 0) AS success_rate, q.p50_ms, q.p90_ms FROM rates r LEFT JOIN quantiles q ON q.app = r.app AND q.action = r.action AND q.call_type = r.call_type AND q.auth_state = r.auth_state AND q.deployment_env = r.deployment_env WHERE COALESCE(r.success_weight, 0) + COALESCE(r.failure_weight, 0) > 0 ORDER BY (COALESCE(r.success_weight, 0) + COALESCE(r.failure_weight, 0)) DESC, r.app, r.action LIMIT 200`;
+// Sibling of ACTION_RELIABILITY_BY_ACTION_SQL's quantile, grouped by
+// date/app/deployment_env instead of action/call_type/auth_state so it can
+// sit next to ACTION_SUCCESS_RATE_OVER_TIME_SQL as a trend line. Same
+// bucketed cumulative-weight quantile over successful, foreground-tab calls
+// only -- a 'suspended' row is already outside outcome_class = 'success' so
+// it never enters this population, and page_hidden is still checked
+// explicitly for an ordinary successful call made from a tab that was
+// hidden partway through. `grid` (see ACTION_SUCCESS_RATE_OVER_TIME_SQL)
+// keeps a day with zero successful calls for a series NULL instead of
+// absent, so it doesn't draw as an instant 0ms response.
+const ACTION_LATENCY_OVER_TIME_SQL = `WITH action_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS app, ${ACTION_RESPONSE_DEPLOYMENT_ENV_SQL} AS deployment_env, ${ACTION_RESPONSE_OUTCOME_CLASS_SQL} AS outcome_class, ${ACTION_RESPONSE_WEIGHT_SQL} AS weight, NULLIF(properties::jsonb ->> 'duration_ms', '')::numeric AS duration_ms, NULLIF(properties::jsonb ->> 'page_hidden', '') AS page_hidden FROM analytics_events WHERE ${ACTION_RESPONSE_EVENT_FILTER}), grid AS (SELECT d.date, s.app, s.deployment_env FROM (SELECT DISTINCT date FROM action_events) d CROSS JOIN (SELECT DISTINCT app, deployment_env FROM action_events) s), duration_buckets AS (SELECT date, app, deployment_env, (FLOOR(duration_ms / 25) * 25) AS bucket_ms, SUM(weight) AS bucket_weight FROM action_events WHERE outcome_class = 'success' AND duration_ms IS NOT NULL AND COALESCE(page_hidden, '') <> 'true' GROUP BY date, app, deployment_env, (FLOOR(duration_ms / 25) * 25)), duration_cumulative AS (SELECT *, SUM(bucket_weight) OVER (PARTITION BY date, app, deployment_env ORDER BY bucket_ms) AS cumulative_weight, SUM(bucket_weight) OVER (PARTITION BY date, app, deployment_env) AS total_weight FROM duration_buckets), quantiles AS (SELECT date, app, deployment_env, MIN(CASE WHEN cumulative_weight >= total_weight * 0.5 THEN bucket_ms END) AS p50_ms, MIN(CASE WHEN cumulative_weight >= total_weight * 0.9 THEN bucket_ms END) AS p90_ms FROM duration_cumulative GROUP BY date, app, deployment_env) SELECT g.date, g.app, g.deployment_env, g.app || ' / ' || g.deployment_env AS series, q.p50_ms, q.p90_ms FROM grid g LEFT JOIN quantiles q ON q.date = g.date AND q.app = g.app AND q.deployment_env = g.deployment_env ORDER BY g.date, g.app, g.deployment_env`;
 
 /**
  * Catalog entries. Order here is the default panel order when a caller passes
@@ -990,6 +1080,104 @@ const ENTRIES: FirstPartyMetric[] = [
       color: "#f59e0b",
       description:
         "true = signed in, false = anonymous. Best proxy for total signups per period (still includes returning users).",
+    },
+  },
+
+  // --- Action reliability & latency -----------------------------------------
+  {
+    key: "action-success-rate-over-time",
+    title: "Action Success Rate Over Time",
+    chartType: "line",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ACTION_SUCCESS_RATE_OVER_TIME_SQL),
+    config: {
+      xKey: "date",
+      yKey: "rate",
+      yFormatter: "percent",
+      pivot: {
+        xKey: "date",
+        seriesKey: "series",
+        valueKey: "rate",
+      },
+      description:
+        "Daily weighted action.response success rate by app / deployment_env (beta.* vs prod hostname, kept separate since beta is mostly internal/QA traffic): sample_weight-expanded success / (success + failure). Cancelled (outcome='cancelled', a superseded/unmounted call) and suspended (a hidden-tab timeout with no real server wait) are excluded from both sides, not counted as success. Also carries sessions (distinct session_id count) and session_failure_share (share of sessions with >=1 failure), since a rate can look stable while failures concentrate in a few sessions. A day with no traffic for a series is blank, not zero.",
+    },
+  },
+  {
+    key: "action-reliability-by-action",
+    title: "Action Reliability & Latency by Action",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ACTION_RELIABILITY_BY_ACTION_SQL),
+    config: {
+      description:
+        "Weighted action.response reliability and latency, broken out by app, action, read (GET) vs mutation, auth_state (user_id present), and deployment environment (beta.* vs prod hostname). p50/p90 are a sample_weight-bucketed cumulative quantile over successful, foreground-tab calls only (page_hidden excluded), not a raw percentile_cont. raw_n is the unweighted row count in that group -- treat a rate from a small raw_n as high-variance. Suspended (a hidden-tab timeout with no real server wait) is excluded from success_rate the same way cancelled is.",
+      sortable: true,
+      limit: 200,
+      columns: [
+        { key: "app", label: "App" },
+        { key: "action", label: "Action" },
+        { key: "call_type", label: "Type" },
+        { key: "auth_state", label: "Auth" },
+        { key: "deployment_env", label: "Env" },
+        { key: "raw_n", label: "Rows", format: "number" },
+        { key: "success_rate", label: "Success rate", format: "percent" },
+        { key: "cancelled_weight", label: "Cancelled", format: "number" },
+        { key: "suspended_weight", label: "Suspended", format: "number" },
+        { key: "p50_ms", label: "p50 (ms)", format: "number" },
+        { key: "p90_ms", label: "p90 (ms)", format: "number" },
+      ],
+    },
+  },
+  // Two panels, one shared SQL: a pivoted chart forces its y-axis to the
+  // series discovered under one valueKey (see SqlChart.tsx), so p50 and p90
+  // each need their own panel to both actually render -- a single panel
+  // carrying both as extra row fields only ever draws the one wired to the
+  // pivot's valueKey.
+  {
+    key: "action-latency-p50-over-time",
+    title: "Action Latency p50 Over Time",
+    chartType: "line",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ACTION_LATENCY_OVER_TIME_SQL),
+    config: {
+      xKey: "date",
+      yKey: "p50_ms",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "series",
+        valueKey: "p50_ms",
+      },
+      description:
+        "Daily weighted p50 action.response latency (ms) by app / deployment_env. Same sample_weight-bucketed cumulative quantile as action-reliability-by-action, over successful, foreground-tab calls only (page_hidden excluded). A day with no successful calls for a series is blank, not zero. See action-latency-p90-over-time for the tail.",
+    },
+  },
+  {
+    key: "action-latency-p90-over-time",
+    title: "Action Latency p90 Over Time",
+    chartType: "line",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ACTION_LATENCY_OVER_TIME_SQL),
+    config: {
+      xKey: "date",
+      yKey: "p90_ms",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "series",
+        valueKey: "p90_ms",
+      },
+      description:
+        "Daily weighted p90 action.response latency (ms) by app / deployment_env -- same population as action-latency-p50-over-time, but the tail where a backgrounded-tab or slow-network trend shows up before it moves p50.",
     },
   },
 

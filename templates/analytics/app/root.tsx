@@ -94,10 +94,6 @@ function DbSyncBridge() {
   const queryClient = useQueryClient();
   useDbSync({
     queryClient,
-    // Netlify functions cannot reliably hold the local long-lived SSE
-    // response. Analytics uses the poll safety net until a hosted realtime
-    // gateway is configured for this deployment.
-    sseUrl: false,
     ignoreSource: TAB_ID,
     onEvent: notifyProviderCorpusJobSyncEvent,
     actionInvalidatePredicate: shouldInvalidateAnalyticsQueryForAction,

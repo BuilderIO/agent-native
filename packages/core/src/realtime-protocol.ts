@@ -29,6 +29,24 @@ export const REALTIME_SSE_TOKEN_EVENT = "token";
  */
 export const REALTIME_CAP_NO_AWARENESS = "no-awareness";
 
+/**
+ * Capability the client reports (with `connected: false`) when the app-origin
+ * SSE stream is refused because the deploy is a serverless function runtime:
+ * `/poll` is the live channel there, so subscribers should keep their normal
+ * cadence instead of switching to a "live channel down" fallback.
+ */
+export const REALTIME_CAP_POLL_LIVE = "poll-live";
+
+/**
+ * Query parameter the client appends to the local (non-gateway) SSE connect
+ * URL to tell the server it understands {@link REALTIME_CAP_POLL_LIVE} — see
+ * `resolveSseUrl` in use-db-sync.ts and the SSE mount in
+ * core-routes-plugin.ts. A production serverless deploy answers 204 only when
+ * this is present, so an older bundle without the poll-live fallback keeps
+ * getting today's streaming response until it reloads.
+ */
+export const REALTIME_POLL_LIVE_QUERY_PARAM = "poll_live";
+
 export interface RealtimeHandshake {
   protocol: number;
   capabilities: string[];

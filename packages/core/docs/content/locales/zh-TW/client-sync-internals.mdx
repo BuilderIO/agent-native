@@ -74,7 +74,7 @@ function DashboardView({ id }) {
 
 一次本機變異，也就是您自己的 `useActionMutation()` 呼叫剛剛所做的變異，會在成功後立即發出一個 `source: "action"` 事件。每個依賴該 action 的查詢都會立即重新取得。沒有來回延遲，因為進行寫入的分頁已經知道這件事。
 
-一次遠端變異，來自代理、webhook、另一個分頁或另一位使用者，必須先傳達到這個分頁。`useDbSync()` 幾乎立即透過 SSE 接收到它，或若 SSE 不可用，則在約兩秒內透過輪詢備援接收到它。只有在該事件到達之後，相關的版本計數器才會遞增，查詢才會在背景重新取得。
+一次遠端變異，來自代理、webhook、另一個分頁或另一位使用者，必須先傳達到這個分頁。在長期執行的主機上，`useDbSync()` 幾乎立即透過 SSE 接收到它；否則就透過輪詢備援接收。只有在該事件到達之後，相關的版本計數器才會遞增，查詢才會在背景重新取得。在正式環境無伺服器部署上，應用程式自身的 SSE 串流不是可以回退的較慢路徑——它依設計是關閉的（參見 [Live Sync](/docs/key-concepts#polling-sync)），因此那裡的每一次遠端變異都經由輪詢傳遞，除非應用程式已啟用[託管即時同步閘道](/docs/real-time-collaboration#hosted-gateway)。
 
 <Diagram id="doc-block-client-sync-internals-3" title="重新取得的兩條路徑" summary="本機變異會立即使自己的快取失效。遠端寫入透過 SSE 到達此分頁，或以輪詢作為備援。">
 
