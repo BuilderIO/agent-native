@@ -4096,6 +4096,20 @@ export function DesignCanvas({
             typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
           applied: e.data.applied !== false,
         });
+        // Runtime inserts have their own transaction acknowledgement. The
+        // bridge also emits an optimistic visual-structure-change so the
+        // normal drag path can retain provenance, but that echo is not the
+        // authority for an insert. Ack it only after the runtime insert has
+        // reported success so a stale/false visual callback cannot remove a
+        // node that was inserted into the target DOM successfully.
+        iframeRef.current?.contentWindow?.postMessage(
+          {
+            type: "visual-structure-ack",
+            requestId,
+            applied: e.data.applied !== false,
+          },
+          "*",
+        );
         return;
       }
       if (e.data.type === "runtime-element-deleted") {
@@ -4228,6 +4242,7 @@ export function DesignCanvas({
         const anchorSelector = String(e.data.anchorSelector || "");
         const placement = String(e.data.placement || "after");
         const replaced = e.data.replaced === true;
+        const runtimeInsert = e.data.runtimeInsert === true;
         dndHostLog("recv:structure-change", {
           selector,
           anchorSelector,
@@ -4297,94 +4312,98 @@ export function DesignCanvas({
             placement === "after" ||
             placement === "inside")
         ) {
-          const applied = onVisualStructureChange?.(
-            replaced ? anchorSelector : selector,
-            replaced ? "" : anchorSelector,
-            placement,
-            replaced && isElementInfoPayload(e.data.anchorPayload)
-              ? e.data.anchorPayload
-              : e.data.payload,
-            {
-              requestId,
-              transactionId:
-                typeof e.data.transactionId === "string"
-                  ? e.data.transactionId
-                  : undefined,
-              routePath:
-                typeof e.data.routePath === "string"
-                  ? e.data.routePath
-                  : (liveRoutePathRef.current ?? undefined),
-              sourceId: replaced ? anchorSourceId : sourceId,
-              anchorSourceId: replaced ? undefined : anchorSourceId,
-              dropMode,
-              forceFlowPositionOverride:
-                e.data.forceFlowPositionOverride === true,
-              sourceRect,
-              anchorRect,
-              gridPlacement:
-                e.data.gridPlacement &&
-                Number.isFinite(e.data.gridPlacement.column) &&
-                Number.isFinite(e.data.gridPlacement.columnEnd) &&
-                Number.isFinite(e.data.gridPlacement.row) &&
-                Number.isFinite(e.data.gridPlacement.rowEnd)
-                  ? {
-                      column: Number(e.data.gridPlacement.column),
-                      columnEnd: Number(e.data.gridPlacement.columnEnd),
-                      row: Number(e.data.gridPlacement.row),
-                      rowEnd: Number(e.data.gridPlacement.rowEnd),
-                    }
-                  : undefined,
-              gridDisplacements: Array.isArray(e.data.gridDisplacements)
-                ? e.data.gridDisplacements.map(
-                    (entry: {
-                      sourceId?: unknown;
-                      selector?: unknown;
-                      placement: {
-                        column: number;
-                        columnEnd: number;
-                        row: number;
-                        rowEnd: number;
-                      };
-                    }) => ({
-                      sourceId:
-                        typeof entry.sourceId === "string"
-                          ? entry.sourceId
-                          : undefined,
-                      selector:
-                        typeof entry.selector === "string"
-                          ? entry.selector
-                          : undefined,
-                      placement: {
-                        column: Number(entry.placement.column),
-                        columnEnd: Number(entry.placement.columnEnd),
-                        row: Number(entry.placement.row),
-                        rowEnd: Number(entry.placement.rowEnd),
-                      },
-                    }),
-                  )
-                : undefined,
-              anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
-                ? e.data.anchorPayload
-                : undefined,
-              insertedHtml:
-                typeof e.data.insertedHtml === "string"
-                  ? e.data.insertedHtml
-                  : undefined,
-              ...(replaced
-                ? {
-                    replaced: true as const,
-                    replacementSelector: selector,
-                    replacementSourceId: sourceId,
-                    replacementSnapshotHtml: replacementSnapshot?.ok
-                      ? replacementSnapshot.html
+          const applied = runtimeInsert
+            ? "pending"
+            : onVisualStructureChange?.(
+                replaced ? anchorSelector : selector,
+                replaced ? "" : anchorSelector,
+                placement,
+                replaced && isElementInfoPayload(e.data.anchorPayload)
+                  ? e.data.anchorPayload
+                  : e.data.payload,
+                {
+                  requestId,
+                  transactionId:
+                    typeof e.data.transactionId === "string"
+                      ? e.data.transactionId
                       : undefined,
-                    replacementElementInfo: isElementInfoPayload(e.data.payload)
-                      ? e.data.payload
+                  routePath:
+                    typeof e.data.routePath === "string"
+                      ? e.data.routePath
+                      : (liveRoutePathRef.current ?? undefined),
+                  sourceId: replaced ? anchorSourceId : sourceId,
+                  anchorSourceId: replaced ? undefined : anchorSourceId,
+                  dropMode,
+                  forceFlowPositionOverride:
+                    e.data.forceFlowPositionOverride === true,
+                  sourceRect,
+                  anchorRect,
+                  gridPlacement:
+                    e.data.gridPlacement &&
+                    Number.isFinite(e.data.gridPlacement.column) &&
+                    Number.isFinite(e.data.gridPlacement.columnEnd) &&
+                    Number.isFinite(e.data.gridPlacement.row) &&
+                    Number.isFinite(e.data.gridPlacement.rowEnd)
+                      ? {
+                          column: Number(e.data.gridPlacement.column),
+                          columnEnd: Number(e.data.gridPlacement.columnEnd),
+                          row: Number(e.data.gridPlacement.row),
+                          rowEnd: Number(e.data.gridPlacement.rowEnd),
+                        }
                       : undefined,
-                  }
-                : {}),
-            },
-          );
+                  gridDisplacements: Array.isArray(e.data.gridDisplacements)
+                    ? e.data.gridDisplacements.map(
+                        (entry: {
+                          sourceId?: unknown;
+                          selector?: unknown;
+                          placement: {
+                            column: number;
+                            columnEnd: number;
+                            row: number;
+                            rowEnd: number;
+                          };
+                        }) => ({
+                          sourceId:
+                            typeof entry.sourceId === "string"
+                              ? entry.sourceId
+                              : undefined,
+                          selector:
+                            typeof entry.selector === "string"
+                              ? entry.selector
+                              : undefined,
+                          placement: {
+                            column: Number(entry.placement.column),
+                            columnEnd: Number(entry.placement.columnEnd),
+                            row: Number(entry.placement.row),
+                            rowEnd: Number(entry.placement.rowEnd),
+                          },
+                        }),
+                      )
+                    : undefined,
+                  anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
+                    ? e.data.anchorPayload
+                    : undefined,
+                  insertedHtml:
+                    typeof e.data.insertedHtml === "string"
+                      ? e.data.insertedHtml
+                      : undefined,
+                  ...(replaced
+                    ? {
+                        replaced: true as const,
+                        replacementSelector: selector,
+                        replacementSourceId: sourceId,
+                        replacementSnapshotHtml: replacementSnapshot?.ok
+                          ? replacementSnapshot.html
+                          : undefined,
+                        replacementElementInfo: isElementInfoPayload(
+                          e.data.payload,
+                        )
+                          ? e.data.payload
+                          : undefined,
+                      }
+                    : {}),
+                },
+              );
           dndHostLog("persist:result", {
             applied,
             requestId,
