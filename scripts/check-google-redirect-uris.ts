@@ -433,13 +433,13 @@ export async function fetchWithRetry(
         retryDelayMilliseconds(response, attempt),
         Math.max(0, deadline - Date.now()),
       );
-      await response.body?.cancel().catch(() => undefined);
       if (Date.now() >= deadline) return response;
       console.warn(
         `Google probe request returned HTTP ${response.status}; retrying in ${Math.ceil(delay / 1000)}s.`,
       );
       await sleep(delay);
       if (Date.now() >= deadline) return response;
+      await response.body?.cancel().catch(() => undefined);
     } catch (error) {
       lastError = error;
       if (attempt === MAX_TRANSIENT_ATTEMPTS - 1 || Date.now() >= deadline) {
