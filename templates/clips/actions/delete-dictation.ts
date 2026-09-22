@@ -23,7 +23,14 @@ export default defineAction({
       .where(eq(schema.dictations.id, args.id));
     if (!existing) throw new Error(`Dictation not found: ${args.id}`);
 
-    await db.delete(schema.dictations).where(eq(schema.dictations.id, args.id));
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.dictationShares)
+        .where(eq(schema.dictationShares.resourceId, args.id));
+      await tx
+        .delete(schema.dictations)
+        .where(eq(schema.dictations.id, args.id));
+    });
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { id: args.id };
   },

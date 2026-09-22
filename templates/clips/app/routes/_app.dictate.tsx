@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { CaptureInstallButton } from "@/components/capture-install-options";
 import { VocabularyManager } from "@/components/dictate/vocabulary-section";
 import { AppEmptyState } from "@/components/library/empty-state";
 import {
@@ -257,12 +258,14 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
 
 function DictationCaptureStatus({
   supported,
+  desktopApp,
   listening,
   saving,
   draftText,
   interimText,
 }: {
   supported: boolean;
+  desktopApp: boolean;
   listening: boolean;
   saving: boolean;
   draftText: string;
@@ -271,7 +274,7 @@ function DictationCaptureStatus({
   const t = useT();
   const preview = [draftText, interimText].filter(Boolean).join(" ").trim();
 
-  if (!supported) {
+  if (!supported && !desktopApp) {
     return (
       <div className="mb-4 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs text-muted-foreground">
         {t("dictateRoute.browserUnavailable")}
@@ -655,9 +658,13 @@ function DictationCard({
 }
 
 function DictationEmptyState({
+  isDesktopApp,
+  speechSupported,
   disabled,
   onNewDictation,
 }: {
+  isDesktopApp: boolean;
+  speechSupported: boolean;
   disabled: boolean;
   onNewDictation: () => void;
 }) {
@@ -667,16 +674,34 @@ function DictationEmptyState({
     <AppEmptyState
       icon={IconMicrophone2}
       title={t("dictateRoute.startFirst")}
-      description={t("dictateRoute.browserDictationDescription")}
+      description={
+        isDesktopApp
+          ? t("dictateRoute.emptyDesktopDescription", {
+              fnKey: "Fn",
+              modifierKey: shortcutModifierLabel(),
+            })
+          : speechSupported
+            ? t("dictateRoute.browserDictationDescription")
+            : t("dictateRoute.browserUnavailable")
+      }
       content={
-        <Button
-          type="button"
-          size="sm"
-          onClick={onNewDictation}
-          disabled={disabled}
-        >
-          {t("dictateRoute.newDictation")}
-        </Button>
+        isDesktopApp ? null : speechSupported ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={onNewDictation}
+            disabled={disabled}
+          >
+            {t("dictateRoute.newDictation")}
+          </Button>
+        ) : (
+          <CaptureInstallButton
+            size="sm"
+            downloadedChildren={t("captureInstall.openDesktopApp")}
+          >
+            {t("dictateRoute.downloadDesktopApp")}
+          </CaptureInstallButton>
+        )
       }
     />
   );
@@ -903,6 +928,7 @@ export default function DictateRoute() {
         timestampValue(dictationTimestamp(a)),
     );
   }, [dictations]);
+  const hasCaptureActivity = listening || createDictation.isPending;
 
   if (lab.isSuccess && !lab.enabled) {
     return <Navigate replace to="/library" />;
@@ -914,7 +940,7 @@ export default function DictateRoute() {
         <div className="min-w-0 flex-1">
           <PageBreadcrumb items={[{ label: t("navigation.dictate") }]} />
         </div>
-        {dictations.length > 0 && (
+        {(dictations.length > 0 || hasCaptureActivity) && (
           <div className="ms-auto flex shrink-0 items-center gap-2">
             <VocabularyManager />
             <PageHeaderPrimaryAction
@@ -956,6 +982,7 @@ export default function DictateRoute() {
         {isDesktopApp ? <HowToCard defaultOpen={false} /> : null}
         <DictationCaptureStatus
           supported={speechSupported}
+          desktopApp={isDesktopApp}
           listening={listening}
           saving={createDictation.isPending}
           draftText={draftText}
@@ -991,9 +1018,11 @@ export default function DictateRoute() {
               </div>
             ))}
           </div>
-        ) : (
+        ) : hasCaptureActivity ? null : (
           <DictationEmptyState
-            disabled={!speechSupported || createDictation.isPending}
+            isDesktopApp={isDesktopApp}
+            speechSupported={speechSupported}
+            disabled={createDictation.isPending}
             onNewDictation={() => startBrowserDictation("manual")}
           />
         )}

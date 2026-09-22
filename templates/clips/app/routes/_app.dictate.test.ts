@@ -62,11 +62,15 @@ describe("dictate page composition", () => {
 
   it("uses the library toolbar pattern for the primary dictation action", () => {
     expect(routeSource).toContain("<PageHeaderPrimaryAction");
-    expect(routeSource).toContain("dictations.length > 0 &&");
+    expect(routeSource).toContain(
+      "(dictations.length > 0 || hasCaptureActivity) &&",
+    );
     expect(routeSource).toContain('t("dictateRoute.newDictation")');
     expect(routeSource).toContain("<DictationCaptureStatus");
     expect(routeSource).toContain("<DictationEmptyState");
-    expect(routeSource).not.toContain("CaptureInstallButton");
+    expect(routeSource).toContain("<CaptureInstallButton");
+    expect(routeSource).toContain("isDesktopApp");
+    expect(routeSource).toContain("speechSupported");
     expect(routeSource).not.toContain('t("dictateRoute.recordOnDesktop")');
     expect(routeSource).toContain("<AppEmptyState");
     expect(routeSource).toContain(
