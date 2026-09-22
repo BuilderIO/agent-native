@@ -253,9 +253,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       timeout: 5_000,
     });
     await page.mouse.up();
-    await expect
-      .poll(() => crossSource.count(), { timeout: 5_000 })
-      .toBe(0);
+    await expect.poll(() => crossSource.count(), { timeout: 5_000 }).toBe(0);
     await expect(crossTarget).toHaveCount(2, { timeout: 5_000 });
     await expect(
       frame.locator('[data-agent-native-edit-overlay="shield"]'),
