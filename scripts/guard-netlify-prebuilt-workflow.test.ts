@@ -1130,11 +1130,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 16);
+    assert.equal(nodeHeredocs.length, 17);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      16,
+      17,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
@@ -1555,12 +1555,28 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(betaSmokeRollback?.run), /\/lock/);
     assert.match(String(betaSmokeRollback?.run), /finally/);
     assert.match(String(betaSmokeRollback?.run), /failure cleanup/);
-    assert.match(String(betaSmokeRollback?.run), /\/unlock/);
+    assert.doesNotMatch(String(betaSmokeRollback?.run), /\/unlock/);
+    assert.match(String(betaSmokeRollback?.run), /Left published beta deploy/);
     assert.match(
       String(betaSmokeRollback?.run),
       /pinned it until the next beta publish/,
     );
     assert.match(String(betaSmokeRollback?.run), /\/restore/);
+    const betaFailureCleanup = steps.find(
+      (step) => step.name === "Pin the beta site after a failed cutover",
+    );
+    assert(betaFailureCleanup);
+    assert.equal(betaFailureCleanup?.id, "beta_failure_cleanup");
+    assert.match(String(betaFailureCleanup?.if), /always\(\)/);
+    assert.match(String(betaFailureCleanup?.if), /inputs.target == 'beta'/);
+    assert.match(String(betaFailureCleanup?.if), /failure\(\)/);
+    assert.match(String(betaFailureCleanup?.run), /baselineDeployId/);
+    assert.match(String(betaFailureCleanup?.run), /baselineWasLocked/);
+    assert.match(String(betaFailureCleanup?.run), /\/lock/);
+    assert.match(
+      String(betaFailureCleanup?.run),
+      /current\.published_deploy\?\.id/,
+    );
 
     assert(previewSmoke);
     assert.equal(
@@ -1781,6 +1797,16 @@ describe("production Netlify site concurrency guard", () => {
 
   it("captures the Netlify deploy baseline before draining production deploys", () => {
     const unlock = nodeHeredocs[1];
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const steps = (workflow.jobs as Record<string, Workflow>).deploy
+      .steps as Array<Workflow>;
+    const previous = steps.find(
+      (step) =>
+        step.name ===
+        "Capture the current published deploy for callback rollback",
+    );
     assert.doesNotMatch(unlock, /readyIsBlocking/);
     const baselineIndex = unlock.indexOf(
       "const preexistingDeployIds = new Set",
@@ -1790,6 +1816,20 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       unlock,
       /const preexistingDeployIds = new Set\([\s\S]*?Netlify pre-existing production ready deploy lookup[\s\S]*?\["ready"\][\s\S]*?\);\s*const site = await readJson\(/,
+    );
+    assert.match(unlock, /published_deploy_source_ref/);
+    assert.equal(
+      (previous?.env as Record<string, unknown>).UNLOCKED_PUBLISHED_DEPLOY_ID,
+      "${{ steps.unlock.outputs.published_deploy_id }}",
+    );
+    assert.equal(
+      (previous?.env as Record<string, unknown>).UNLOCKED_PUBLISHED_SOURCE_REF,
+      "${{ steps.unlock.outputs.published_deploy_source_ref }}",
+    );
+    assert.match(String(previous?.run), /TARGET === "beta"/);
+    assert.match(
+      String(previous?.run),
+      /Captured beta rollback baseline .* before unlock/,
     );
   });
 

@@ -1058,6 +1058,8 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     !unlock.includes("Netlify pre-existing production ready deploy lookup") ||
     !unlock.includes('["ready"]') ||
     !unlock.includes("finalBeforeUnlock") ||
+    !unlock.includes('TARGET === "beta"') ||
+    !unlock.includes("published_deploy_source_ref") ||
     (
       unlock.match(
         /pendingProductionDeploys\([\s\S]*?publishedId,\s*preexistingDeployIds/g,
@@ -1304,9 +1306,15 @@ const betaSmokeRollbackStep = reusableSteps.find(
   (step) =>
     step?.name === "Roll back beta deploy after smoke verification failure",
 );
+const betaFailureCleanupStep = reusableSteps.find(
+  (step) => step?.name === "Pin the beta site after a failed cutover",
+);
 const betaSmokeIndex = reusableSteps.indexOf(betaSmokeStep ?? null);
 const betaSmokeRollbackIndex = reusableSteps.indexOf(
   betaSmokeRollbackStep ?? null,
+);
+const betaFailureCleanupIndex = reusableSteps.indexOf(
+  betaFailureCleanupStep ?? null,
 );
 const buildIndex = parsedStepIndex(
   "Build with the Netlify project configuration",
@@ -1401,12 +1409,32 @@ if (
   !betaSmokeRollbackRun.includes("/lock") ||
   !betaSmokeRollbackRun.includes("finally") ||
   !betaSmokeRollbackRun.includes("failure cleanup") ||
-  !betaSmokeRollbackRun.includes("/unlock") ||
+  betaSmokeRollbackRun.includes("/unlock") ||
+  !betaSmokeRollbackRun.includes("Left published beta deploy") ||
   !betaSmokeRollbackRun.includes("pinned it until the next beta publish") ||
   !betaSmokeRollbackRun.includes("/restore")
 ) {
   issues.push(
     `${reusablePath} must restore the previous beta deploy when a published smoke check fails`,
+  );
+}
+
+const betaFailureCleanupIf = String(betaFailureCleanupStep?.if ?? "");
+const betaFailureCleanupRun = String(betaFailureCleanupStep?.run ?? "");
+if (
+  betaFailureCleanupIndex <= betaSmokeRollbackIndex ||
+  betaFailureCleanupStep?.id !== "beta_failure_cleanup" ||
+  !betaFailureCleanupIf.includes("always()") ||
+  !betaFailureCleanupIf.includes("inputs.target == 'beta'") ||
+  !betaFailureCleanupIf.includes("failure()") ||
+  !betaFailureCleanupRun.includes("baselineDeployId") ||
+  !betaFailureCleanupRun.includes("baselineWasLocked") ||
+  !betaFailureCleanupRun.includes("/lock") ||
+  !betaFailureCleanupRun.includes("Pin") ||
+  !betaFailureCleanupRun.includes("current.published_deploy?.id")
+) {
+  issues.push(
+    `${reusablePath} must restore beta deploy pinning after any failed cutover step`,
   );
 }
 

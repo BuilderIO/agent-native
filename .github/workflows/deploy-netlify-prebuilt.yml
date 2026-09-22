@@ -1106,7 +1106,10 @@ jobs:
           const deployId = site.published_deploy?.id;
           if (!deployId) {
             if (process.env.TARGET === "beta") {
-              fs.appendFileSync(process.env.GITHUB_OUTPUT, "published_deploy_id=\nwas_locked=false\n");
+              fs.appendFileSync(
+                process.env.GITHUB_OUTPUT,
+                "published_deploy_id=\npublished_deploy_source_ref=\nwas_locked=false\n",
+              );
               console.log("Netlify beta site has no published deploy; no unlock is needed.");
               process.exit(0);
             }
@@ -1134,7 +1137,9 @@ jobs:
           );
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
-            `published_deploy_id=${deployId}\nwas_locked=${deploy.locked === true}\n`,
+            `published_deploy_id=${deployId}\npublished_deploy_source_ref=${
+              (/\b([0-9a-f]{40})\b/i.exec(site.published_deploy?.title || "") || [])[1]?.toLowerCase() || ""
+            }\nwas_locked=${deploy.locked === true}\n`,
           );
 
           if (deploy.locked !== true) {
@@ -1185,6 +1190,8 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          UNLOCKED_PUBLISHED_DEPLOY_ID: ${{ steps.unlock.outputs.published_deploy_id }}
+          UNLOCKED_PUBLISHED_SOURCE_REF: ${{ steps.unlock.outputs.published_deploy_source_ref }}
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
@@ -1192,6 +1199,20 @@ jobs:
           (async () => {
             const fs = require("node:fs");
             const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            if (process.env.TARGET === "beta") {
+              const deployId = process.env.UNLOCKED_PUBLISHED_DEPLOY_ID || "";
+              const sourceRef = process.env.UNLOCKED_PUBLISHED_SOURCE_REF || "";
+              fs.appendFileSync(
+                process.env.GITHUB_OUTPUT,
+                `published_deploy_id=${deployId}\npublished_deploy_source_ref=${sourceRef}\n`,
+              );
+              if (deployId) {
+                console.log(`Captured beta rollback baseline ${deployId} before unlock.`);
+              } else {
+                console.log("Netlify beta site has no published deploy; continuing without a rollback baseline.");
+              }
+              return;
+            }
             const siteId = process.env.NETLIFY_SITE_ID;
             const response = await requestNetlifyApi(`https://api.netlify.com/api/v1/sites/${siteId}`, {
               headers: {
@@ -2297,7 +2318,6 @@ jobs:
             const siteId = process.env.NETLIFY_SITE_ID;
             const newId = process.env.NEW_DEPLOY_ID;
             const previousId = process.env.PREVIOUS_DEPLOY_ID;
-            let lockAttempted = false;
             let rollbackCompleted = false;
             let restoredDeployId = "";
             try {
@@ -2324,7 +2344,6 @@ jobs:
                 `Netlify beta smoke rollback deploy ${newId} lock lookup`,
               );
               if (deploy.locked !== true) {
-                lockAttempted = true;
                 await readJson(
                   await request(`${api}/deploys/${newId}/lock`, { method: "POST" }),
                   `Netlify beta smoke rollback deploy ${newId} lock`,
@@ -2402,35 +2421,39 @@ jobs:
                 `Netlify did not publish beta smoke rollback ${restoredDeployId} within five minutes.`,
               );
             } finally {
-              if (!rollbackCompleted && lockAttempted) {
+              if (!rollbackCompleted) {
                 const current = await readJson(
                   await request(`${api}/sites/${siteId}`),
                   "Netlify beta smoke rollback failure cleanup site lookup",
                 );
-                if (restoredDeployId && current.published_deploy?.id === restoredDeployId) {
-                  const restored = await readJson(
-                    await request(`${api}/deploys/${restoredDeployId}`),
-                    `Netlify beta smoke rollback failure cleanup deploy ${restoredDeployId} lookup`,
-                  );
-                  if (restored.locked !== true) {
-                    await readJson(
-                      await request(`${api}/deploys/${restoredDeployId}/lock`, {
-                        method: "POST",
-                      }),
-                      `Netlify beta smoke rollback failure cleanup deploy ${restoredDeployId} lock`,
-                    );
-                  }
+                const currentId = current.published_deploy?.id || "";
+                if (!currentId) {
+                  console.log("Netlify beta smoke rollback left no published deploy to pin.");
+                  return;
                 }
-                const failed = await readJson(
-                  await request(`${api}/deploys/${newId}`),
-                  `Netlify beta smoke rollback failure cleanup deploy ${newId} lookup`,
+                const currentUrl = `${api}/deploys/${currentId}`;
+                const pinned = await readJson(
+                  await request(currentUrl),
+                  `Netlify beta smoke rollback failure cleanup deploy ${currentId} lookup`,
                 );
-                if (failed.locked === true) {
+                if (pinned.locked !== true) {
                   await readJson(
-                    await request(`${api}/deploys/${newId}/unlock`, { method: "POST" }),
-                    `Netlify beta smoke rollback failure cleanup deploy ${newId} unlock`,
+                    await request(`${currentUrl}/lock`, { method: "POST" }),
+                    `Netlify beta smoke rollback failure cleanup deploy ${currentId} lock`,
                   );
                 }
+                const verified = await readJson(
+                  await request(currentUrl),
+                  `Netlify beta smoke rollback failure cleanup deploy ${currentId} lock verification`,
+                );
+                if (verified.locked !== true) {
+                  throw new Error(
+                    `Netlify beta smoke rollback failure cleanup could not lock published deploy ${currentId}.`,
+                  );
+                }
+                console.log(
+                  `Left published beta deploy ${currentId} locked until the next beta publish after rollback failure.`,
+                );
               }
             }
           })().catch((error) => {
@@ -2646,6 +2669,81 @@ jobs:
           probe_exit_code="${{ steps.google_redirect.outputs.exit_code }}"
           echo "::error::Google OAuth callback verification failed (exit code ${probe_exit_code:-2})."
           exit "${probe_exit_code:-2}"
+
+      - name: Pin the beta site after a failed cutover
+        id: beta_failure_cleanup
+        if: >-
+          always() && inputs.target == 'beta' && inputs.deploy &&
+          inputs.deploy_mode == 'production' && failure()
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          baselineDeployId: ${{ steps.previous.outputs.published_deploy_id }}
+          baselineWasLocked: ${{ steps.unlock.outputs.was_locked }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const api = "https://api.netlify.com/api/v1";
+            const headers = { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` };
+            const request = (url, options = {}) => requestNetlifyApi(url, {
+              ...options,
+              headers: { ...headers, ...(options.headers || {}) },
+            });
+            const readJson = async (response, label) => {
+              const text = await response.text();
+              const body = text ? JSON.parse(text) : null;
+              if (!response.ok) throw new Error(`${label} failed with HTTP ${response.status}.`);
+              return body;
+            };
+            const originalId = process.env.baselineDeployId || "";
+            const originalWasLocked = process.env.baselineWasLocked === "true";
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              const site = await readJson(
+                await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
+                "Netlify beta failure cleanup site lookup",
+              );
+              const currentId = site.published_deploy?.id || "";
+              if (!currentId) {
+                console.log("Netlify beta site has no published deploy to pin after failure.");
+                return;
+              }
+              if (currentId === originalId && !originalWasLocked) {
+                console.log(`Preserving unlocked beta deploy ${currentId} after failure.`);
+                return;
+              }
+              const deployUrl = `${api}/deploys/${currentId}`;
+              const deploy = await readJson(
+                await request(deployUrl),
+                `Netlify beta failure cleanup deploy ${currentId} lookup`,
+              );
+              if (deploy.locked !== true) {
+                await readJson(
+                  await request(`${deployUrl}/lock`, { method: "POST" }),
+                  `Netlify beta failure cleanup deploy ${currentId} lock`,
+                );
+              }
+              const locked = await readJson(
+                await request(deployUrl),
+                `Netlify beta failure cleanup deploy ${currentId} lock verification`,
+              );
+              const current = await readJson(
+                await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
+                "Netlify beta failure cleanup pinned deploy verification",
+              );
+              if (locked.locked === true && current.published_deploy?.id === currentId) {
+                console.log(`Pinned beta deploy ${currentId} after failed cutover.`);
+                return;
+              }
+              console.log(`Beta published deploy changed during failure cleanup attempt ${attempt}; retrying.`);
+            }
+            throw new Error("Netlify beta failure cleanup could not pin the current published deploy.");
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
 
       - name: Smoke-test the static docs deploy
         if: >-
