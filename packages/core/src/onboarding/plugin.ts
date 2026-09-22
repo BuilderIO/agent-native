@@ -550,8 +550,8 @@ export function createOnboardingPlugin(
           path: "/",
         });
         if (getAppConfig().onboarding.sharedCompletion.enabled) {
-          const role =
-            (await getUserProfile(context.userEmail)).onboardingRole ?? null;
+          const profile = await getUserProfile(context.userEmail);
+          const role = profile.onboardingRole ?? null;
           setCookie(
             event,
             SHARED_ONBOARDING_COOKIE,
