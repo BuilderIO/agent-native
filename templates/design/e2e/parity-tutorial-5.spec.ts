@@ -1024,7 +1024,7 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     await enterInteractView(page);
     await expect(page.locator("[data-screen-shell]").last()).toBeVisible();
     await expect(
-      page.locator('iframe[data-design-preview-iframe]').last(),
+      page.locator("iframe[data-design-preview-iframe]").last(),
     ).toBeVisible();
   });
 
