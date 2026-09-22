@@ -50,6 +50,10 @@ describe("AuthPage", () => {
     expect(shouldStartWithLocalDev("/", "?error=INVALID_TOKEN")).toBe(false);
     expect(shouldStartWithLocalDev("/login", "")).toBe(false);
     expect(shouldStartWithLocalDev("/signup/", "")).toBe(false);
+    expect(shouldStartWithLocalDev("/sign-in", "")).toBe(false);
+    expect(
+      shouldStartWithLocalDev("/_agent-native/sign-in", "?return=%2Fplans"),
+    ).toBe(false);
     expect(shouldStartWithLocalDev("/", "?c=%2Fplans")).toBe(false);
   });
 

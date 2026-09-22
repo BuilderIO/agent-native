@@ -719,7 +719,8 @@ export function shouldStartWithLocalDev(
     !params.has("verified") &&
     !isVerificationLinkInvalid(params.get("error")) &&
     !path.endsWith("/login") &&
-    !path.endsWith("/signup")
+    !path.endsWith("/signup") &&
+    !path.endsWith("/sign-in")
   );
 }
 
