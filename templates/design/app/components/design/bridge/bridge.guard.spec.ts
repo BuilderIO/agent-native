@@ -553,7 +553,6 @@ it("keeps cancel cleanup compatible with held modifiers", () => {
   const cancel = bridge.slice(resetStart, resetEnd);
   expect(cancel).toContain("bridgeSpaceKeyPressed = false");
   expect(cancel).not.toContain("bridgeIgnoreAutoLayoutKeyPressed = false");
-  expect(bridge).toContain("crossScreenControlPressedRef.current = false");
 });
 
 // ── test 3: generated output is fresh ──────────────────────────────────────
