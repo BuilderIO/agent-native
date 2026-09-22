@@ -56,6 +56,8 @@
     "playwright": "^1.63.0",
     "postcss": "^8.5.28",
     "prettier": "^3.9.4",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "yjs": "catalog:",
     "zod": "^4.3.6"
   },
@@ -108,9 +110,7 @@
     "input-otp": "^1.4.2",
     "next-themes": "^0.4.6",
     "oxfmt": "catalog:",
-    "react": "catalog:",
     "react-day-picker": "^9.14.0",
-    "react-dom": "catalog:",
     "react-hook-form": "^7.71.2",
     "react-resizable-panels": "^4.10.0",
     "react-router": "^8.1.0",
