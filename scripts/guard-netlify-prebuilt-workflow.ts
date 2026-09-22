@@ -1292,7 +1292,8 @@ const betaDeployNeeds = Array.isArray(betaDeployJob?.needs)
   ? betaDeployJob.needs
   : [];
 const betaMigrationStep = reusableSteps.find(
-  (step) => step?.name === "Run the beta release migration against production",
+  (step) =>
+    step?.name === "Run the beta release migration against the beta database",
 );
 const betaMigrationIndex = reusableSteps.indexOf(betaMigrationStep ?? null);
 const buildIndex = parsedStepIndex(
@@ -1349,21 +1350,20 @@ if (
   !betaMigrationIf.includes(
     "steps.beta_pre_migration_freshness.outputs.current == 'true'",
   ) ||
-  betaMigrationEnv?.BUILD_CONTEXT !== "production" ||
+  betaMigrationEnv?.BUILD_CONTEXT !== "branch-deploy" ||
   betaMigrationEnv?.NETLIFY_MIGRATION_SITE_ID !==
-    "${{ steps.target.outputs.migration_site_id }}" ||
-  betaMigrationEnv?.BETA_DATABASE_URL_SECRET !==
-    "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}" ||
+    "${{ steps.target.outputs.site_id }}" ||
+  betaMigrationEnv?.BETA_DATABASE_URL_SECRET !== undefined ||
   !betaMigrationRun.includes("netlify api getSiteDatabase") ||
   !betaMigrationRun.includes("netlify api getEnvVars") ||
   !betaMigrationRun.includes("scripts/netlify-migration-url.ts") ||
-  !betaMigrationRun.includes("CONTEXT=production") ||
+  !betaMigrationRun.includes("CONTEXT=branch-deploy") ||
   !betaMigrationRun.includes("pnpm --filter") ||
   !betaMigrationRun.includes("migrate:production") ||
-  !betaMigrationRun.includes("No production PostgreSQL migration URL")
+  !betaMigrationRun.includes("No beta PostgreSQL migration URL")
 ) {
   issues.push(
-    `${reusablePath} must migrate each beta site's production database after artifact validation and before publishing it`,
+    `${reusablePath} must migrate each beta site's beta database after artifact validation and before publishing it`,
   );
 }
 
