@@ -20,17 +20,41 @@ function treeNode(
 }
 
 describe("document sidebar layout", () => {
-  it("opens a Page or Collection menu before creating from the plus button", () => {
+  it("gives the visible workspace plus button only root Page and Collection choices", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const selectorStart = sidebar.indexOf("const contentSpaceSelector");
+    const selectorEnd = sidebar.indexOf("const feedbackButton", selectorStart);
+    const selector = sidebar.slice(selectorStart, selectorEnd);
+    const plusMenuStart = selector.lastIndexOf("<DropdownMenu>");
+    const plusMenu = selector.slice(plusMenuStart);
 
-    expect(sidebar).toContain("<DropdownMenuTrigger asChild>");
-    expect(sidebar).toContain("onCreateDatabaseInSpace(space)");
-    expect(sidebar).toContain("handleCreatePageInSpace(selectedSpace)");
-    expect(sidebar).toContain(
+    expect(plusMenu).toContain("<DropdownMenuTrigger asChild>");
+    expect(plusMenu).toContain(
+      'aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}',
+    );
+    expect(plusMenu).toContain("handleCreatePageInSpace(selectedSpace)");
+    expect(plusMenu).toContain(
       "handleCreateDatabase(undefined, selectedSpace.id)",
     );
-    expect(sidebar).toContain('{t("sidebar.page")}');
-    expect(sidebar).toContain('{t("sidebar.collection")}');
+    expect(plusMenu).toContain('{t("sidebar.page")}');
+    expect(plusMenu).toContain('{t("sidebar.collection")}');
+    expect(plusMenu).not.toContain("WorkspaceSourceMenu");
+    expect(plusMenu).not.toContain('t("sidebar.newWorkspace")');
+    expect(plusMenu).not.toContain('to="/local-files"');
+  });
+
+  it("keeps workspace switching and source creation in the workspace menu", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const selectorStart = sidebar.indexOf("const contentSpaceSelector");
+    const selectorEnd = sidebar.indexOf("const feedbackButton", selectorStart);
+    const selector = sidebar.slice(selectorStart, selectorEnd);
+
+    expect(selector).toContain("<WorkspaceSourceMenu");
+    expect(selector).toContain("menuStart={");
+    expect(selector).toContain("<DropdownMenuRadioGroup");
+    expect(selector).toContain("contentSpaces.map((space)");
+    expect(selector).toContain("void handleSelectContentSpace(space)");
+    expect(selector).toContain("onCreated={handleWorkspaceCreated}");
   });
 
   it("opens search from expanded and collapsed sidebar branches", () => {
@@ -343,8 +367,8 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("<OrgSwitcher");
     expect(sidebar).not.toContain("<ExtensionsSidebarSection />");
     expect(sidebar).toContain("<AppSidebarFooter");
-    expect(sidebar).toContain('t("sidebar.addWorkspace")');
     expect(sidebar).toContain("<WorkspaceSourceMenu");
+    expect(sidebar).toContain("menuStart={");
     expect(sidebar).toContain("onCreated={handleWorkspaceCreated}");
     expect(sidebar).toContain("scroll={false}");
   });

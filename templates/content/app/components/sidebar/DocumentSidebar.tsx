@@ -2155,23 +2155,10 @@ export function DocumentSidebar({
   );
   const contentSpaceSelector = selectedSpace ? (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            className="grid h-8 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center p-0"
-            aria-label={`${t("sidebar.contentSpace")}: ${selectedSpace.name}`}
-          >
-            <span className="truncate ps-2 text-start">
-              {selectedSpace.name}
-            </span>
-            <IconChevronDown className="size-3.5 justify-self-center" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)]"
-        >
+      <WorkspaceSourceMenu
+        onCreated={handleWorkspaceCreated}
+        contentClassName="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)]"
+        menuStart={
           <DropdownMenuRadioGroup
             value={selectedSpace.id}
             onValueChange={(spaceId) => {
@@ -2194,18 +2181,46 @@ export function DocumentSidebar({
               </Tooltip>
             ))}
           </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <WorkspaceSourceMenu onCreated={handleWorkspaceCreated}>
+        }
+      >
         <Button
           variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
-          aria-label={t("sidebar.addWorkspace")}
+          className="grid h-8 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center p-0"
+          aria-label={`${t("sidebar.contentSpace")}: ${selectedSpace.name}`}
         >
-          <IconPlus className="size-4" />
+          <span className="truncate ps-2 text-start">{selectedSpace.name}</span>
+          <IconChevronDown className="size-3.5 justify-self-center" />
         </Button>
       </WorkspaceSourceMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}
+            disabled={createDocument.isPending || createDatabase.isPending}
+          >
+            <IconPlus className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem
+            onClick={() => void handleCreatePageInSpace(selectedSpace)}
+          >
+            <IconFileText className="me-2 size-4" />
+            {t("sidebar.page")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() =>
+              void handleCreateDatabase(undefined, selectedSpace.id)
+            }
+          >
+            <IconDatabase className="me-2 size-4" />
+            {t("sidebar.collection")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   ) : null;
   const feedbackButton = (
