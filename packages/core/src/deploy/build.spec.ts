@@ -2625,6 +2625,8 @@ describe("copyInstalledExternalSsrPackages", () => {
       "build",
       "query-codemods",
     );
+    const queryCodemodsBuildDir = path.join(reactQueryDir, "build", "codemods");
+    const queryModernDir = path.join(reactQueryDir, "build", "modern");
     fs.mkdirSync(reactDir, { recursive: true });
     fs.mkdirSync(looseEnvifyDir, { recursive: true });
     fs.mkdirSync(reactRouterDir, { recursive: true });
@@ -2632,6 +2634,8 @@ describe("copyInstalledExternalSsrPackages", () => {
     fs.mkdirSync(reactQueryDir, { recursive: true });
     fs.mkdirSync(queryCoreDir, { recursive: true });
     fs.mkdirSync(queryCodemodsDir, { recursive: true });
+    fs.mkdirSync(queryCodemodsBuildDir, { recursive: true });
+    fs.mkdirSync(queryModernDir, { recursive: true });
     fs.writeFileSync(
       path.join(reactDir, "package.json"),
       JSON.stringify({
@@ -2672,6 +2676,11 @@ describe("copyInstalledExternalSsrPackages", () => {
       path.join(queryCodemodsDir, "root.eslint.config.js"),
       'import "@vitest/runner";\n',
     );
+    fs.writeFileSync(
+      path.join(queryCodemodsBuildDir, "transform.cjs"),
+      'require("@vitest/runner");\n',
+    );
+    fs.writeFileSync(path.join(queryModernDir, "index.js.map"), "source map");
 
     const serverDir = path.join(root, "server");
     fs.mkdirSync(serverDir, { recursive: true });
@@ -2680,6 +2689,12 @@ describe("copyInstalledExternalSsrPackages", () => {
       JSON.stringify({ name: "traced-node-modules", dependencies: {} }),
     );
 
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(0);
+    expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      "throw Error(`Did you accidentally import `RouterProvider` from `react-router`?`);",
+    );
     expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(0);
     expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
     fs.writeFileSync(
@@ -2730,6 +2745,31 @@ describe("copyInstalledExternalSsrPackages", () => {
           "react-query",
           "build",
           "query-codemods",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "codemods",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.js.map",
         ),
       ),
     ).toBe(false);

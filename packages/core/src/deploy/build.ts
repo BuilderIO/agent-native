@@ -3399,6 +3399,17 @@ const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
   "react-router",
   "@tanstack/react-query",
 ] as const;
+const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
+  {
+    "react-router": ["dist/development", "docs", "CHANGELOG.md"],
+    "@tanstack/react-query": [
+      "build/codemods",
+      "build/legacy",
+      "build/query-codemods",
+      "src",
+    ],
+    "@tanstack/query-core": ["build/legacy", "src"],
+  };
 
 function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   const manifest = readPackageManifest(projectCwd);
@@ -3666,6 +3677,30 @@ function copyRuntimePackageTree(
   return copiedCount;
 }
 
+function pruneExternalSsrPackageArtifacts(
+  serverDir: string,
+  packageName: string,
+): void {
+  const packageDir = path.join(
+    serverDir,
+    "node_modules",
+    ...packageName.split("/"),
+  );
+  if (!fs.existsSync(packageDir)) return;
+
+  for (const relativePath of SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS[
+    packageName
+  ] ?? []) {
+    fs.rmSync(path.join(packageDir, relativePath), {
+      recursive: true,
+      force: true,
+    });
+  }
+  for (const sourceMap of fs.globSync("**/*.map", { cwd: packageDir })) {
+    fs.rmSync(path.join(packageDir, sourceMap), { force: true });
+  }
+}
+
 export function copyInstalledBrowserRuntimePackages(
   serverDir: string | undefined,
   projectCwd = cwd,
@@ -3783,21 +3818,9 @@ export function copyInstalledExternalSsrPackages(
       nodeModulesRoots,
       copiedPackages,
     );
-    if (packageName === "@tanstack/react-query") {
-      // The published package includes codemod build tooling with Vitest
-      // imports, but the SSR runtime only needs the package entrypoints.
-      fs.rmSync(
-        path.join(
-          serverDir,
-          "node_modules",
-          "@tanstack",
-          "react-query",
-          "build",
-          "query-codemods",
-        ),
-        { recursive: true, force: true },
-      );
-    }
+  }
+  for (const packageName of copiedPackages) {
+    pruneExternalSsrPackageArtifacts(serverDir, packageName);
   }
 
   if (copiedCount === 0) return 0;
@@ -4645,9 +4668,14 @@ const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(
-    `\\b(?:from\\s*|import\\s*\\(\\s*|import\\s*)(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
-  ).test(source);
+  const quote = `["'\\\`]`;
+  const staticImport = new RegExp(
+    `(?:^|[;\\n])\\s*import(?:[^;\\n]*?from\\s*|\\s*)(${quote})${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+  );
+  const dynamicImport = new RegExp(
+    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+  );
+  return staticImport.test(source) || dynamicImport.test(source);
 }
 
 function hasBareRuntimeRequire(source: string, packageName: string): boolean {
