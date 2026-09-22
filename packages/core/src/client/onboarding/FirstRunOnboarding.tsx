@@ -35,6 +35,8 @@ import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
 import { saveFirstRunOnboardingRole } from "./first-run-status.js";
 import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import {
+  ONBOARDING_PREVIEW_QUERY_PARAM,
+  ONBOARDING_PREVIEW_STEP_QUERY_PARAM,
   useOnboardingPreviewMode,
   useOnboardingPreviewStep,
 } from "./use-preview-mode.js";
@@ -308,10 +310,17 @@ export function FirstRunOnboarding({
     const completed = await finishOnboarding("choice");
     if (!completed) return;
     if (typeof window === "undefined") return;
+    // Drop the onboarding preview params — useOnboardingPreviewMode() reads
+    // them live from the URL, so carrying them over would re-trigger the
+    // preview overlay on the Settings page we're navigating to.
+    const search = new URLSearchParams(window.location.search);
+    search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
+    search.delete(ONBOARDING_PREVIEW_STEP_QUERY_PARAM);
+    const query = search.toString();
     window.history.pushState(
       null,
       "",
-      `${appPath(buildSettingsRoute("agent:llm"))}${window.location.search}`,
+      `${appPath(buildSettingsRoute("agent:llm"))}${query ? `?${query}` : ""}`,
     );
     window.dispatchEvent(new Event("popstate"));
   };

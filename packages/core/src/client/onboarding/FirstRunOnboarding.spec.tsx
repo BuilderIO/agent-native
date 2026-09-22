@@ -25,6 +25,8 @@ vi.mock("./use-onboarding.js", () => ({
 }));
 
 vi.mock("./use-preview-mode.js", () => ({
+  ONBOARDING_PREVIEW_QUERY_PARAM: "onboarding",
+  ONBOARDING_PREVIEW_STEP_QUERY_PARAM: "step",
   useOnboardingPreviewMode: mocks.useOnboardingPreviewMode,
   useOnboardingPreviewStep: mocks.useOnboardingPreviewStep,
 }));
@@ -582,6 +584,39 @@ describe("FirstRunOnboarding", () => {
     expect(completedSteps()).toEqual(["choice"]);
     expect(skippedSteps()).toEqual(["role"]);
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("strips the onboarding preview query when navigating to settings", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/home?onboarding=preview&step=choice",
+    );
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.search).not.toContain("onboarding=preview");
+    expect(window.location.search).not.toContain("step=choice");
     window.history.replaceState(null, "", "/");
   });
 
