@@ -1426,20 +1426,23 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     await expect(response.text()).resolves.toBe("/.data");
   });
 
-  it("does not re-prefix mounted root data redirects", async () => {
-    const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
-      rootDataLocation: "/docs.data",
-    });
+  it.each(["/docs.data?_routes=root", "/docs.data#root"])(
+    "does not re-prefix mounted root data redirects with %s",
+    async (location) => {
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+        rootDataLocation: location,
+      });
 
-    const response = await worker.fetch(
-      new Request("https://app.test/docs.data"),
-      { APP_BASE_PATH: "/docs" },
-      {},
-    );
+      const response = await worker.fetch(
+        new Request("https://app.test/docs.data"),
+        { APP_BASE_PATH: "/docs" },
+        {},
+      );
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("/docs.data");
-  });
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(location);
+    },
+  );
 
   it("hard-caches .data responses for authenticated Cloudflare worker requests", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));

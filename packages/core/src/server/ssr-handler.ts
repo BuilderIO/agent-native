@@ -136,10 +136,11 @@ function requestForAnonymousSsr(request: Request): Request {
 
 function prefixMountedPath(path: string, basePath: string): string {
   if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
+  const pathname = path.split(/[?#]/, 1)[0] ?? path;
   if (
-    path === basePath ||
-    path === `${basePath}.data` ||
-    path.startsWith(`${basePath}/`)
+    pathname === basePath ||
+    pathname === `${basePath}.data` ||
+    pathname.startsWith(`${basePath}/`)
   )
     return path;
   return `${basePath}${path}`;
