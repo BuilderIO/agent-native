@@ -4532,7 +4532,13 @@ function createAgentNativeConfig(
     ssr: isBuildCommand(command)
       ? {
           ...(userConfig.ssr ?? {}),
-          noExternal: /^(?!node:)/,
+          // Keep the framework router and its React peers external in the
+          // intermediate SSR graph. Nitro consumes this graph as a prebuilt
+          // server chunk and bundles the same packages for the final runtime;
+          // inlining them here creates a second Router context in serverless
+          // output, so <ServerRouter> and route hooks disagree at request time.
+          noExternal:
+            /^(?!(?:react|react-dom|react-router|@tanstack\/react-query)(?:\/|$))(?!node:)/,
           external: [
             // Yjs is used by both server-side collaboration actions and the
             // client SSR graph. If Vite inlines it here, Nitro also emits its
@@ -4674,7 +4680,7 @@ function createAgentNativeConfig(
       ],
       alias: [
         // Published npm installs: one react-router instance for app + core.
-        ...getReactRouterAliases(cwd),
+        ...(isBuildCommand(command) ? [] : getReactRouterAliases(cwd)),
         ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Production must use compiled exports so the React Router SSR graph
