@@ -4123,6 +4123,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     getCanvasPoint,
     getResolvedMetadata,
     onCrossScreenElementDrop,
+    runtimeStructurePendingTransactionRef,
   ]);
 
   // Unmount only — deliberately NOT part of the message effect's cleanup
