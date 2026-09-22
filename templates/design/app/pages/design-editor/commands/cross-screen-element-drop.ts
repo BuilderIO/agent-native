@@ -469,6 +469,7 @@ export function runCrossScreenElementDrop(
       requestId: runtimeStructureInsertRevisionRef.current,
       transactionId,
       screenId: targetScreenId,
+      remintCollidingNodeIds: true,
       html: insertedHtml,
       anchor: {
         selector: targetAnchorSelector ?? "",
@@ -546,6 +547,7 @@ export function runCrossScreenElementDrop(
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
         screenId: targetScreenId,
+        remintCollidingNodeIds: true,
         html: insertedHtml,
         anchor: {
           selector: targetAnchorSelector ?? "",
@@ -820,6 +822,7 @@ export function runCrossScreenElementDrop(
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
       screenId: targetScreenId,
+      remintCollidingNodeIds: true,
       html: insertedHtml,
       anchor: {
         selector: targetAnchorSelector ?? "",

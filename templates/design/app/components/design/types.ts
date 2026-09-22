@@ -80,6 +80,8 @@ export interface GridGroupStructureMove {
 export interface RuntimeStructureInsertRequest {
   requestId: number;
   transactionId?: string;
+  /** Remint only ids already used by the destination live document. */
+  remintCollidingNodeIds?: boolean;
   html: string;
   /** Additional clipboard roots inserted by the same paste gesture. */
   additionalHtml?: string[];

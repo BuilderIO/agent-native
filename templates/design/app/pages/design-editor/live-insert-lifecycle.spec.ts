@@ -409,6 +409,79 @@ describe("live insert lifecycle", () => {
   );
 
   it(
+    "remints colliding live insert ids without changing source provenance",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html><body>
+          <main data-agent-native-node-id="card">
+            <div data-agent-native-node-id="shared" data-source-file="src/Card.tsx" data-source-line="12">Existing</div>
+          </main>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "runtime-structure-insert",
+              requestId: 101,
+              html: '<div data-agent-native-node-id="shared" data-agent-native-runtime-instance-id="shared" data-source-file="src/Card.tsx" data-source-line="12">Moved</div>',
+              anchorSelector: '[data-agent-native-node-id="card"]',
+              anchorSourceId: "card",
+              placement: "inside",
+              remintCollidingNodeIds: true,
+            },
+            "*",
+          );
+        });
+
+        await page.waitForFunction(
+          () =>
+            document.querySelectorAll('[data-source-file="src/Card.tsx"]')
+              .length === 2,
+        );
+        const ids = await page
+          .locator('[data-source-file="src/Card.tsx"]')
+          .evaluateAll((nodes) =>
+            nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+          );
+        expect(ids).toHaveLength(2);
+        expect(new Set(ids).size).toBe(2);
+        expect(ids).toContain("shared");
+        const inserted = page
+          .locator('[data-source-file="src/Card.tsx"]')
+          .nth(1);
+        expect(await inserted.textContent()).toBe("Moved");
+        expect(
+          await inserted.getAttribute("data-agent-native-runtime-instance-id"),
+        ).toBe(ids[1]);
+        const messages = await page.evaluate(
+          () =>
+            (window as Window & { __messages?: Record<string, unknown>[] })
+              .__messages ?? [],
+        );
+        expect(messages).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "runtime-structure-insert-applied",
+              requestId: "101",
+              sourceId: expect.not.stringMatching(/^shared$/),
+            }),
+          ]),
+        );
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "accepts replacement snapshots at the size cap and rolls back one character above it",
     { timeout: 60_000 },
     async () => {

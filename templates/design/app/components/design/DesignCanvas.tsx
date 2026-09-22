@@ -5969,6 +5969,9 @@ export function DesignCanvas({
         type: "runtime-structure-insert",
         requestId: runtimeStructureInsertRequest.requestId + index / 1_000,
         transactionId: runtimeStructureInsertRequest.transactionId,
+        ...(runtimeStructureInsertRequest.remintCollidingNodeIds === true
+          ? { remintCollidingNodeIds: true }
+          : {}),
         html,
         anchorSelector,
         anchorSourceId,

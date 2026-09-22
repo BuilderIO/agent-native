@@ -2613,6 +2613,50 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "an-" + String(prefix || "copy") + "-" + random;
   }
 
+  function remintCollidingRuntimeNodeIds(root: Element): void {
+    var seen = Object.create(null) as { [key: string]: boolean };
+    var reminted = Object.create(null) as { [key: string]: string };
+    var existing = Object.create(null) as { [key: string]: boolean };
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[data-agent-native-node-id]"),
+      function (node: Element) {
+        var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+        if (nodeId) existing[nodeId] = true;
+      },
+    );
+    var nodes = [root].concat(
+      Array.prototype.slice.call(
+        root.querySelectorAll("[data-agent-native-node-id]"),
+      ),
+    ) as Element[];
+    nodes.forEach(function (node, index) {
+      var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+      if (!nodeId) return;
+      var collision = Boolean(seen[nodeId] || existing[nodeId]);
+      if (collision) {
+        var nextNodeId = freshRuntimeNodeId(
+          index === 0 ? "move" : "move-child",
+        );
+        reminted[nodeId] = nextNodeId;
+        nodeId = nextNodeId;
+        node.setAttribute("data-agent-native-node-id", nodeId);
+      }
+      seen[nodeId] = true;
+    });
+    nodes.forEach(function (node) {
+      var runtimeInstanceId = node.getAttribute(
+        "data-agent-native-runtime-instance-id",
+      );
+      var nextInstanceId = runtimeInstanceId && reminted[runtimeInstanceId];
+      if (nextInstanceId) {
+        node.setAttribute(
+          "data-agent-native-runtime-instance-id",
+          nextInstanceId,
+        );
+      }
+    });
+  }
+
   function resetRuntimeStableIds(
     root: Element | null,
   ): Array<[string, string]> {
@@ -25250,6 +25294,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         rejectInsert("html");
         return;
+      }
+      if (e.data.remintCollidingNodeIds === true) {
+        remintCollidingRuntimeNodeIds(parsedInsertEl);
       }
       var insertNodeId = parsedInsertEl.getAttribute(
         "data-agent-native-node-id",

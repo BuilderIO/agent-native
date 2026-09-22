@@ -2570,6 +2570,49 @@ export const editorChromeBridgeScript: string = `"use strict";
         random = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       return "an-" + String(prefix || "copy") + "-" + random;
     }
+    function remintCollidingRuntimeNodeIds(root) {
+      var seen = /* @__PURE__ */ Object.create(null);
+      var reminted = /* @__PURE__ */ Object.create(null);
+      var existing = /* @__PURE__ */ Object.create(null);
+      Array.prototype.forEach.call(
+        document.querySelectorAll("[data-agent-native-node-id]"),
+        function(node) {
+          var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+          if (nodeId) existing[nodeId] = true;
+        }
+      );
+      var nodes = [root].concat(
+        Array.prototype.slice.call(
+          root.querySelectorAll("[data-agent-native-node-id]")
+        )
+      );
+      nodes.forEach(function(node, index) {
+        var nodeId = node.getAttribute("data-agent-native-node-id") || "";
+        if (!nodeId) return;
+        var collision = Boolean(seen[nodeId] || existing[nodeId]);
+        if (collision) {
+          var nextNodeId = freshRuntimeNodeId(
+            index === 0 ? "move" : "move-child"
+          );
+          reminted[nodeId] = nextNodeId;
+          nodeId = nextNodeId;
+          node.setAttribute("data-agent-native-node-id", nodeId);
+        }
+        seen[nodeId] = true;
+      });
+      nodes.forEach(function(node) {
+        var runtimeInstanceId = node.getAttribute(
+          "data-agent-native-runtime-instance-id"
+        );
+        var nextInstanceId = runtimeInstanceId && reminted[runtimeInstanceId];
+        if (nextInstanceId) {
+          node.setAttribute(
+            "data-agent-native-runtime-instance-id",
+            nextInstanceId
+          );
+        }
+      });
+    }
     function resetRuntimeStableIds(root) {
       if (!root || !root.querySelectorAll) return [];
       var sourceNodeIdMap = [];
@@ -17799,6 +17842,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!parsedInsertEl || parsedInsertEl === document.body || parsedInsertEl.tagName === "BODY") {
           rejectInsert("html");
           return;
+        }
+        if (e.data.remintCollidingNodeIds === true) {
+          remintCollidingRuntimeNodeIds(parsedInsertEl);
         }
         var insertNodeId = parsedInsertEl.getAttribute(
           "data-agent-native-node-id"

@@ -1107,7 +1107,7 @@ export function prepareClonedHtmlLayer(
     ? previousRootNodeId || uniqueLayerId("move")
     : claimClonedNodeId(previousRootNodeId, "copy", reservedNodeIds);
   clone.setAttribute("data-agent-native-node-id", rootNodeId);
-  if (previousRootNodeId && previousRootNodeId !== rootNodeId) {
+  if (previousRootNodeId) {
     nodeIdMap.set(previousRootNodeId, rootNodeId);
   }
   if (!preserveIncomingNodeIds) {
@@ -1121,6 +1121,13 @@ export function prepareClonedHtmlLayer(
         );
         node.setAttribute("data-agent-native-node-id", nextChildId);
         if (previousChildId) nodeIdMap.set(previousChildId, nextChildId);
+      },
+    );
+  } else {
+    Array.from(clone.querySelectorAll("[data-agent-native-node-id]")).forEach(
+      (node) => {
+        const nodeId = node.getAttribute("data-agent-native-node-id");
+        if (nodeId) nodeIdMap.set(nodeId, nodeId);
       },
     );
   }

@@ -2141,6 +2141,7 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
 
     expect(insertRequest).toMatchObject({
       screenId: "target",
+      remintCollidingNodeIds: true,
       anchor: { selector: "body" },
     });
     expect((insertRequest as { html: string }).html).toContain(">Source</div>");
