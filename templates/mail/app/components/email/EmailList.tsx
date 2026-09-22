@@ -3,6 +3,7 @@ import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
 import {
+  AI_IMPORTANT_LABEL,
   AI_PRIORITY_MAX_EMAILS,
   type AiPriorityEmail,
   type MailSortMode,
@@ -56,6 +57,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAiPriority } from "@/hooks/use-ai-priority";
+import { useAutomations } from "@/hooks/use-automations";
 import {
   useEmails,
   useMarkRead,
@@ -475,6 +477,8 @@ export function EmailList({
     view: string;
     threadId: string;
   }>();
+  const { data: automationRules = [], isFetching: areAutomationRulesFetching } =
+    useAutomations({ enabled: view === "inbox" });
   const [searchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") ?? undefined;
   const labelParam = searchParams.get("label");
@@ -575,6 +579,28 @@ export function EmailList({
     () => new Set(priorityWindowEmails.map((email) => email.id)),
     [priorityWindowEmails],
   );
+  const priorityRuleRevision = useMemo(
+    () =>
+      automationRules
+        .filter(
+          (rule) =>
+            rule.kind === "ai-filter" &&
+            rule.enabled &&
+            rule.actions.some(
+              (action) =>
+                action.type === "label" &&
+                action.labelName === AI_IMPORTANT_LABEL,
+            ) &&
+            !rule.actions.some((action) => action.type === "archive"),
+        )
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map(
+          (rule) =>
+            `${rule.id}:${rule.updatedAt}:${rule.condition}:${JSON.stringify(rule.actions)}`,
+        )
+        .join("\u001f"),
+    [automationRules],
+  );
   const chronologicalIndexes = useMemo(
     () =>
       new Map(
@@ -587,13 +613,15 @@ export function EmailList({
   );
   const priorityInputKey = useMemo(
     () =>
-      priorityWindowEmails
-        .map(
-          (email) =>
-            `${email.id}:${email.date}:${email.from.email}:${email.subject}:${email.snippet}:${email.labelIds.join(",")}`,
+      [priorityRuleRevision]
+        .concat(
+          priorityWindowEmails.map(
+            (email) =>
+              `${email.id}:${email.date}:${email.from.email}:${email.subject}:${email.snippet}:${email.labelIds.join(",")}`,
+          ),
         )
         .join("\u001f"),
-    [priorityWindowEmails],
+    [priorityRuleRevision, priorityWindowEmails],
   );
   const [priorityScores, setPriorityScores] = useState<Map<string, number>>(
     () => new Map(),
@@ -603,6 +631,8 @@ export function EmailList({
   const previousSortModeRef = useRef(currentSortMode);
   const runPriority = useCallback(async () => {
     if (
+      areAutomationRulesFetching ||
+      isPriorityPending ||
       priorityWindowEmails.length === 0 ||
       priorityRequestKeyRef.current === priorityInputKey
     ) {
@@ -629,6 +659,8 @@ export function EmailList({
     }
   }, [
     onSortModeChange,
+    areAutomationRulesFetching,
+    isPriorityPending,
     priorityInputKey,
     priorityWindowEmails,
     requestPriority,
@@ -648,7 +680,7 @@ export function EmailList({
     }
     previousSortModeRef.current = currentSortMode;
     if (currentSortMode === "priority") void runPriority();
-  }, [currentSortMode, runPriority]);
+  }, [currentSortMode, isPriorityPending, runPriority]);
   const threads = useMemo(
     () =>
       currentSortMode === "priority"

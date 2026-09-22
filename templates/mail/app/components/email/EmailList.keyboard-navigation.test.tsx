@@ -108,6 +108,10 @@ vi.mock("@/hooks/use-ai-priority", () => ({
   }),
 }));
 
+vi.mock("@/hooks/use-automations", () => ({
+  useAutomations: () => ({ data: [], isFetching: false }),
+}));
+
 vi.mock("@/hooks/use-emails", () => {
   const mutation = () => ({
     mutate: vi.fn(),

@@ -44,16 +44,18 @@ function emailFingerprint(
 function importantRules(
   rules: Awaited<ReturnType<typeof listAutomationRules>>,
 ) {
-  return rules.filter(
-    (rule) =>
-      rule.kind === "ai-filter" &&
-      rule.enabled &&
-      rule.actions.some(
-        (action) =>
-          action.type === "label" && action.labelName === AI_IMPORTANT_LABEL,
-      ) &&
-      !rule.actions.some((action) => action.type === "archive"),
-  );
+  return rules
+    .filter(
+      (rule) =>
+        rule.kind === "ai-filter" &&
+        rule.enabled &&
+        rule.actions.some(
+          (action) =>
+            action.type === "label" && action.labelName === AI_IMPORTANT_LABEL,
+        ) &&
+        !rule.actions.some((action) => action.type === "archive"),
+    )
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export default defineAction({
