@@ -178,11 +178,6 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
     expect(
       await mod.isBlockedExtensionUrlWithDns("https://api.openai.com/v1"),
     ).toBe(true);
-    expect(
-      await mod.isBlockedExtensionUrlWithDns("https://api.openai.com/v1", {
-        treatBenchmarkingAsPrivate: false,
-      }),
-    ).toBe(false);
     vi.doUnmock("node:dns/promises");
     vi.resetModules();
   });
@@ -198,11 +193,6 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
     const mod = await import("./url-safety.js");
     expect(
       await mod.isBlockedExtensionUrlWithDns("https://attacker.example.com/"),
-    ).toBe(true);
-    expect(
-      await mod.isBlockedExtensionUrlWithDns("https://attacker.example.com/", {
-        treatBenchmarkingAsPrivate: false,
-      }),
     ).toBe(true);
     vi.doUnmock("node:dns/promises");
     vi.resetModules();

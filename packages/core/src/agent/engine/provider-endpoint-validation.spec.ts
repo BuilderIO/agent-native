@@ -6,7 +6,7 @@ describe("validateProviderBaseUrl fake-ip DNS", () => {
     vi.resetModules();
   });
 
-  it("accepts a public hostname whose only DNS answer is in 198.18.0.0/15", async () => {
+  it("rejects a public hostname whose DNS answer is in 198.18.0.0/15", async () => {
     vi.doMock("node:dns/promises", () => ({
       lookup: async () => [{ address: "198.18.0.12", family: 4 }],
     }));
@@ -17,7 +17,7 @@ describe("validateProviderBaseUrl fake-ip DNS", () => {
 
     await expect(
       validateProviderBaseUrl("https://cloud.google.com/v1"),
-    ).resolves.toBe("https://cloud.google.com/v1");
+    ).rejects.toThrow(/private\/internal address/);
   });
 
   it("still rejects a literal benchmark address and a real private DNS answer", async () => {
