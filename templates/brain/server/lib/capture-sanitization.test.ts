@@ -75,6 +75,8 @@ describe("capture sanitization", () => {
     ["secret-credential", "rotate xoxb-000000000000-000000000000-EXAMPLEEXAMP"],
     // guard:allow-secret-literal — shape-only fixtures proving suppression
     ["secret-credential", "deploy uses AKIAEXAMPLEEXAMPLE99 today"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "oauth GOCSPX-EXAMPLEEXAMPLEEXAMPLEEX is rotating"],
   ])("hard category %s is always suppressed", async (category, content) => {
     const result = await sanitizeCaptureForStorage({ ...baseInput, content });
 

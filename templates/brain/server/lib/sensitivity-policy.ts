@@ -37,24 +37,7 @@ export function sanitizeSensitiveText(value: string): string {
       // runs inside tokens like `xoxb-000000000000-...`, and once it rewrites
       // the middle the credential patterns no longer match, leaving the tail
       // of a live secret in the output.
-      .replace(
-        /\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)_[A-Za-z0-9_=-]{16,}\b/g,
-        "[redacted]",
-      )
-      .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_=-]{16,}\b/g, "[redacted]")
-      // Unlabelled provider credentials: Slack tokens, AWS access key ids,
-      // Google API keys, and JWTs carry no `token:` prefix to match on.
-      .replace(/\bxox[abposr]-[A-Za-z0-9-]{10,}/gi, "[redacted]")
-      .replace(
-        /\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b/g,
-        "[redacted]",
-      )
-      .replace(/\bAIza[A-Za-z0-9_-]{35}\b/g, "[redacted]")
-      .replace(/\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g, "[redacted]")
-      .replace(
-        /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
-        "[redacted]",
-      )
+      .replace(UNLABELLED_CREDENTIAL_PATTERN, "[redacted]")
       .replace(
         /\b(password|passcode|secret|token|api key)\s*[:=]\s*\S+/gi,
         "$1: [redacted]",
@@ -69,6 +52,45 @@ export function sanitizeSensitiveText(value: string): string {
       .replace(/https?:\/\/\S+/gi, "[link]")
   );
 }
+
+/**
+ * Unlabelled provider credential formats, listed once because they are needed
+ * in two places that must not drift: the `secret-credential` hard-category
+ * screen (which suppresses the whole capture) and `sanitizeSensitiveText`
+ * (which redacts anything leaving the process). A format present in only the
+ * redactor would let a credential-bearing capture be stored as "allowed".
+ *
+ * This list is defence in depth with a long tail, not the primary control.
+ * Labelled secrets are caught by the `CREDENTIAL_LABEL_PATTERN` below, and the
+ * classifier's `secret-credential` question covers formats nobody enumerated.
+ */
+const UNLABELLED_CREDENTIAL_SOURCES = [
+  // GitHub, OpenAI, Stripe, and similar `<prefix>_<body>` / `<prefix>-<body>`.
+  String.raw`\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)[_-][A-Za-z0-9_=-]{12,}\b`,
+  // Slack bot/user/app/refresh tokens.
+  String.raw`\bxox[abposr]-[A-Za-z0-9-]{10,}`,
+  // AWS access key ids.
+  String.raw`\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b`,
+  // Google API keys and OAuth client secrets.
+  String.raw`\bAIza[A-Za-z0-9_-]{35}\b`,
+  String.raw`\bGOCSPX-[A-Za-z0-9_-]{20,}\b`,
+  // SendGrid.
+  String.raw`\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b`,
+  // JWTs.
+  String.raw`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`,
+] as const;
+
+const CREDENTIAL_LABEL_PATTERN = String.raw`\b(?:password|passcode|secret|api[- ]?key|access[- ]?token|private[- ]?key)\s*[:=]`;
+
+const UNLABELLED_CREDENTIAL_PATTERN = new RegExp(
+  UNLABELLED_CREDENTIAL_SOURCES.join("|"),
+  "g",
+);
+
+const CREDENTIAL_PATTERN = new RegExp(
+  [CREDENTIAL_LABEL_PATTERN, ...UNLABELLED_CREDENTIAL_SOURCES].join("|"),
+  "i",
+);
 
 const HARD_CATEGORY_PATTERNS: ReadonlyArray<
   readonly [BrainSensitivityCategory, RegExp]
@@ -109,14 +131,7 @@ const HARD_CATEGORY_PATTERNS: ReadonlyArray<
     "privileged-legal",
     /\b(attorney[- ]client|legal privilege|privileged and confidential|outside counsel|litigation hold)\b/i,
   ],
-  [
-    "secret-credential",
-    // Labelled secrets, then unlabelled provider formats. The unlabelled ones
-    // must land here and not only in sanitizeSensitiveText: redaction alone
-    // would let a credential-bearing capture be stored as "allowed", while the
-    // policy for a labelled secret is to suppress the whole capture.
-    /\b(?:password|passcode|secret|api[- ]?key|access[- ]?token|private[- ]?key)\s*[:=]|\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)[_-][A-Za-z0-9_=-]{12,}\b|\bxox[abposr]-[A-Za-z0-9-]{10,}|\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b|\bAIza[A-Za-z0-9_-]{35}\b|\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/i,
-  ],
+  ["secret-credential", CREDENTIAL_PATTERN],
 ];
 
 const PERSONAL_PATTERN =
