@@ -25402,11 +25402,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var insertNodeId = parsedInsertEl.getAttribute(
         "data-agent-native-node-id",
       );
-      // Repeated drags of the same runtime primitive are reorders, not new
-      // inserts. Resolve that identity before collision reminting so the
-      // remint pass cannot hide the existing live instance. A copied subtree
-      // gets a fresh runtime-instance id during clone preparation, so it
-      // still takes the insertion path even when its node id is reused.
+      // A same-screen repeat drag explicitly identifies the source screen, so
+      // it is a reorder rather than a new insert. Resolve that identity before
+      // collision reminting; a cross-screen copy must never reuse a coincident
+      // node/runtime id from this destination document.
       var existingBeforeRemint: Element | null = null;
       if (insertNodeId) {
         existingBeforeRemint = document.querySelector(
@@ -25430,10 +25429,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         remintCollidingRuntimeNodeIds(parsedInsertEl);
       }
       insertNodeId = parsedInsertEl.getAttribute("data-agent-native-node-id");
-      // Repeat drops of the same board primitive must not mint a second live
-      // element carrying the same node id: findUniqueRuntimeStructureTarget
-      // returns null on a duplicate id, which silently breaks every later
-      // move, ack, and undo for BOTH copies. Re-drag the existing node instead.
+      // Only the explicit same-screen identity path may reuse an existing
+      // runtime node. All other inserts keep the parsed node as a new element,
+      // with collision reminting above when requested.
       var existingInsertEl: Element | null = reuseExistingRuntimeNode
         ? existingBeforeRemint
         : null;
