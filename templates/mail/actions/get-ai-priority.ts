@@ -116,9 +116,10 @@ export default defineAction({
         if (score.reason) entry.reason = score.reason;
         return entry;
       });
+      const latestCache = await getAiPriorityCache(ownerEmail);
       await saveAiPriorityCache(
         ownerEmail,
-        mergePriorityCache(cache, entries, model),
+        mergePriorityCache(latestCache, entries, model),
       );
       for (const entry of entries) {
         scores.set(entry.emailId, {

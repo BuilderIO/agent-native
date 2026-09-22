@@ -468,7 +468,8 @@ export function EmailList({
   onSortModeChange,
 }: EmailListProps) {
   const t = useT();
-  const aiPriority = useAiPriority();
+  const { isPending: isPriorityPending, mutateAsync: requestPriority } =
+    useAiPriority();
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -598,6 +599,7 @@ export function EmailList({
     () => new Map(),
   );
   const priorityRequestKeyRef = useRef("");
+  const priorityRequestGenerationRef = useRef(0);
   const previousSortModeRef = useRef(currentSortMode);
   const runPriority = useCallback(async () => {
     if (
@@ -606,23 +608,38 @@ export function EmailList({
     ) {
       return;
     }
-    priorityRequestKeyRef.current = priorityInputKey;
+    const requestKey = priorityInputKey;
+    const requestGeneration = ++priorityRequestGenerationRef.current;
+    priorityRequestKeyRef.current = requestKey;
     try {
-      const result = await aiPriority.mutateAsync({
+      const result = await requestPriority({
         emails: priorityWindowEmails.map(toPriorityEmail),
       });
+      if (priorityRequestGenerationRef.current !== requestGeneration) return;
       setPriorityScores(
         new Map(result.scores.map((score) => [score.emailId, score.score])),
       );
     } catch (error) {
+      if (priorityRequestGenerationRef.current !== requestGeneration) return;
       priorityRequestKeyRef.current = "";
       onSortModeChange?.("newest");
       toast.error(
         error instanceof Error ? error.message : t("mail.sort.priorityFailed"),
       );
     }
-  }, [aiPriority, onSortModeChange, priorityInputKey, priorityWindowEmails, t]);
+  }, [
+    onSortModeChange,
+    priorityInputKey,
+    priorityWindowEmails,
+    requestPriority,
+    t,
+  ]);
   useEffect(() => {
+    if (currentSortMode !== "priority") {
+      priorityRequestGenerationRef.current += 1;
+      previousSortModeRef.current = currentSortMode;
+      return;
+    }
     if (
       currentSortMode === "priority" &&
       previousSortModeRef.current !== "priority"
@@ -1825,10 +1842,10 @@ export function EmailList({
           <SelectTrigger
             className="h-7 w-[104px] text-[11px]"
             aria-label={t("mail.sort.label")}
-            aria-busy={aiPriority.isPending}
+            aria-busy={isPriorityPending}
           >
             <SelectValue />
-            {aiPriority.isPending && <Spinner className="size-3" />}
+            {isPriorityPending && <Spinner className="size-3" />}
           </SelectTrigger>
           <SelectContent align="end">
             <SelectItem value="newest">{t("mail.sort.newest")}</SelectItem>
@@ -1837,7 +1854,7 @@ export function EmailList({
         </Select>
       ) : null,
     [
-      aiPriority.isPending,
+      isPriorityPending,
       labelParam,
       onSortModeChange,
       searchQuery,
