@@ -27,26 +27,42 @@ describe("dictate page composition", () => {
     expect(routeSource).toContain("<ItemGroup");
     expect(routeSource).toMatch(/<Item\s+asChild/);
     expect(routeSource).not.toContain("<ItemMedia");
-    expect(routeSource).toContain("<ItemDescription");
+    expect(routeSource).not.toContain("<ItemDescription");
+    expect(routeSource).toContain(
+      "<DictationInfoPopover dictation={dictation}",
+    );
+    expect(routeSource).toContain("<PopoverContent");
+    expect(routeSource).toContain('aria-label={t("dictateRoute.info")}');
+    expect(routeSource).toContain('t("dictateRoute.time")');
+    expect(routeSource).toContain('t("dictateRoute.duration")');
+    expect(routeSource).toContain(
+      "onPointerDown={(event) => event.stopPropagation()}",
+    );
     expect(routeSource).toContain("<ItemActions");
-    expect(routeSource).toContain("<Badge");
-    expect(routeSource).toContain('<Badge variant="outline">{label}</Badge>');
     expect(routeSource).toContain("<CollapsibleContent");
     expect(routeSource).toContain(
       'className="clips-collapsible-content w-full"',
     );
+    expect(routeSource).toMatch(/<\/ItemActions>\s+<CollapsibleContent/);
+    expect(routeSource).not.toMatch(
+      /<ItemContent\b(?:(?!<\/ItemContent>)[\s\S])*<CollapsibleContent/,
+    );
     expect(routeSource).toContain("<CollapsibleTrigger");
     expect(routeSource).toContain('document.addEventListener("pointerdown"');
     expect(routeSource).toContain("setExpanded((value) => !value)");
-    expect(routeSource).toContain("<TabsList");
-    expect(routeSource).toContain("<TabsTrigger");
+    expect(routeSource).not.toContain("<TabsList");
+    expect(routeSource).not.toContain("<TabsTrigger");
+    expect(routeSource).toContain('t("dictateRoute.aiCleaned")');
+    expect(routeSource).toContain("text-success");
+    expect(routeSource).toContain(
+      "aria-disabled={processed || cleanupPending}",
+    );
+    expect(routeSource).toContain("<IconWand");
     expect(routeSource).toContain("<IconTrash");
     expect(routeSource).toContain('"delete-dictation"');
     expect(routeSource).toContain('size="icon"');
     expect(routeSource).toContain('aria-label={t("dictateRoute.copy")}');
-    expect(routeSource).toContain(
-      'aria-label={t("dictateRoute.cleanupWithAi")}',
-    );
+    expect(routeSource).toContain('t("dictateRoute.cleanupWithAi")');
     expect(routeSource).toContain("actionErrorMessage(error)");
     expect(routeSource).toContain('t("dictateRoute.cleanupComplete")');
     expect(routeSource).toContain('t("dictateRoute.cleanupFailed")');
@@ -90,7 +106,10 @@ describe("dictate page composition", () => {
   });
 
   it("uses progressive disclosure for the full transcript", () => {
-    expect(routeSource).toContain("line-clamp-2");
+    expect(routeSource).toContain(
+      'expanded ? "whitespace-pre-wrap break-words" : "truncate"',
+    );
+    expect(routeSource).not.toContain("line-clamp-2");
     expect(routeSource).toContain("displayText");
     expect(routeSource).not.toContain("md:grid-cols-2");
     expect(routeSource).not.toContain('t("dictateRoute.cleanupHint")');

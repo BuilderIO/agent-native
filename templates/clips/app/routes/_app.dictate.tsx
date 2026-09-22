@@ -3,13 +3,14 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
 import { CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconChevronDown,
   IconChevronRight,
   IconCopy,
+  IconInfoCircle,
   IconKeyboard,
   IconLoader2,
   IconMicrophone2,
@@ -42,7 +43,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -53,13 +53,16 @@ import {
   Item,
   ItemActions,
   ItemContent,
-  ItemDescription,
   ItemGroup,
   ItemTitle,
 } from "@/components/ui/item";
 import { Kbd } from "@/components/ui/kbd";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -67,7 +70,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import enMessages from "@/i18n/en-US";
-import { shortcutLabel, shortcutModifierLabel } from "@/lib/utils";
+import { cn, shortcutModifierLabel } from "@/lib/utils";
 
 export function meta() {
   return [{ title: enMessages.dictateRoute.pageTitle }];
@@ -142,24 +145,22 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
-function formatDuration(ms?: number | null): string {
+function formatDuration(
+  ms: number | null | undefined,
+  formatters: ReturnType<typeof useFormatters>,
+): string {
   if (!ms || ms <= 0) return "—";
   const total = Math.round(ms / 1000);
-  if (total < 60) return `${total}s`;
+  const seconds = (value: number) =>
+    formatters.formatNumber(value, {
+      style: "unit",
+      unit: "second",
+      unitDisplay: "short",
+    });
+  if (total < 60) return seconds(total);
   const m = Math.floor(total / 60);
   const s = total % 60;
-  return `${m}m ${s.toString().padStart(2, "0")}s`;
-}
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
+  return `${formatters.formatNumber(m, { style: "unit", unit: "minute", unitDisplay: "short" })} ${seconds(s)}`;
 }
 
 function dictationTimestamp(dictation: Dictation): string {
@@ -173,30 +174,6 @@ function timestampValue(iso: string): number {
 
 export function dictationsRefetchInterval(isActive: boolean): number | false {
   return isActive ? 2_000 : false;
-}
-
-function sourceMeta(
-  source: string | undefined,
-  t: ReturnType<typeof useT>,
-): string {
-  switch (source) {
-    case "fn-hold":
-      return t("dictateRoute.holdFn");
-    case "cmd-shift-space":
-      return shortcutLabel("cmd+shift+space");
-    case "manual":
-      return t("dictateRoute.browserDictation");
-    case "mobile":
-      return t("dictateRoute.mobileDictation");
-    case "fn":
-      return t("dictateRoute.fnShortcut");
-    case "custom":
-      return t("dictateRoute.customShortcut");
-    case "other":
-      return t("dictateRoute.otherSource");
-    default:
-      return t("dictateRoute.voiceSource");
-  }
 }
 
 async function copyToClipboard(
@@ -306,9 +283,57 @@ function DictationCaptureStatus({
   );
 }
 
-function DictationExpandedContent({
+function DictationInfoPopover({ dictation }: { dictation: Dictation }) {
+  const t = useT();
+  const formatters = useFormatters();
+  const timestamp = dictationTimestamp(dictation);
+
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={t("dictateRoute.info")}
+              className="size-8 text-muted-foreground"
+            >
+              <IconInfoCircle aria-hidden="true" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("dictateRoute.info")}</TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="end"
+        aria-label={t("dictateRoute.info")}
+        className="w-64 cursor-default"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          <dt className="text-muted-foreground">{t("dictateRoute.time")}</dt>
+          <dd className="text-end tabular-nums">
+            <time dateTime={timestamp}>
+              {formatters.formatDate(timestamp, { timeStyle: "short" })}
+            </time>
+          </dd>
+          <dt className="text-muted-foreground">
+            {t("dictateRoute.duration")}
+          </dt>
+          <dd className="text-end tabular-nums">
+            {formatDuration(dictation.durationMs, formatters)}
+          </dd>
+        </dl>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DictationActions({
   dictation,
-  displayText,
   onCopy,
   onCleanup,
   cleanupPending,
@@ -316,129 +341,90 @@ function DictationExpandedContent({
   deletePending,
 }: {
   dictation: Dictation;
-  displayText: string;
-  onCopy: (text: string) => void;
+  onCopy: () => void;
   onCleanup: () => void;
   cleanupPending: boolean;
   onDelete: () => void;
   deletePending: boolean;
 }) {
   const t = useT();
-  const [view, setView] = useState<"processed" | "original">(
-    dictation.cleanedText ? "processed" : "original",
-  );
-
-  useEffect(() => {
-    if (view === "processed" && !dictation.cleanedText) setView("original");
-  }, [dictation.cleanedText, view]);
+  const processed = Boolean(dictation.cleanedText);
 
   return (
-    <div className="basis-full min-w-0 space-y-4 pt-1">
-      <Tabs
-        value={view}
-        onValueChange={(next) => setView(next as "processed" | "original")}
-        className="gap-4"
-      >
-        <TabsContent value="processed" className="mt-0">
-          <p className="whitespace-pre-wrap text-base leading-relaxed">
-            {displayText || t("dictateRoute.noText")}
-          </p>
-        </TabsContent>
-        <TabsContent value="original" className="mt-0">
-          <p className="whitespace-pre-wrap text-base leading-relaxed">
-            {dictation.fullText || t("dictateRoute.noText")}
-          </p>
-        </TabsContent>
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList className="w-fit">
-            <TabsTrigger value="processed" disabled={!dictation.cleanedText}>
-              {t("dictateRoute.aiProcessed")}
-            </TabsTrigger>
-            <TabsTrigger value="original">
-              {t("dictateRoute.original")}
-            </TabsTrigger>
-          </TabsList>
-
-          <ItemActions className="ms-auto">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={t("dictateRoute.copy")}
-                  onClick={() =>
-                    onCopy(
-                      view === "processed" ? displayText : dictation.fullText,
-                    )
-                  }
-                  className="size-8 text-muted-foreground"
-                >
-                  <IconCopy />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t("dictateRoute.copy")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={t("dictateRoute.cleanupWithAi")}
-                  onClick={onCleanup}
-                  disabled={cleanupPending}
-                  className="size-8 text-muted-foreground"
-                >
-                  {cleanupPending ? (
-                    <IconLoader2 className="animate-spin" />
-                  ) : (
-                    <IconWand />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t("dictateRoute.cleanupWithAi")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={t("dictateRoute.delete")}
-                  onClick={onDelete}
-                  disabled={deletePending}
-                  className="size-8 text-muted-foreground"
-                >
-                  {deletePending ? (
-                    <IconLoader2 className="animate-spin" />
-                  ) : (
-                    <IconTrash />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t("dictateRoute.delete")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={t("dictateRoute.hideDetails")}
-                    className="size-8 text-muted-foreground"
-                  >
-                    <IconChevronDown />
-                  </Button>
-                </CollapsibleTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{t("dictateRoute.hideDetails")}</TooltipContent>
-            </Tooltip>
-          </ItemActions>
-        </div>
-      </Tabs>
+    <div className="flex flex-wrap items-center justify-end gap-3 pt-3">
+      <ItemActions className="ms-auto">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={
+                processed
+                  ? t("dictateRoute.aiCleaned")
+                  : t("dictateRoute.cleanupWithAi")
+              }
+              onClick={() => {
+                if (!processed && !cleanupPending) onCleanup();
+              }}
+              aria-disabled={processed || cleanupPending}
+              aria-busy={cleanupPending}
+              className={
+                processed
+                  ? "size-8 bg-success/10 text-success hover:bg-success/10 hover:text-success"
+                  : "size-8 text-muted-foreground"
+              }
+            >
+              {cleanupPending ? (
+                <IconLoader2 className="animate-spin" aria-hidden="true" />
+              ) : (
+                <IconWand aria-hidden="true" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {processed
+              ? t("dictateRoute.aiCleaned")
+              : t("dictateRoute.cleanupWithAi")}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={t("dictateRoute.copy")}
+              onClick={onCopy}
+              className="size-8 text-muted-foreground"
+            >
+              <IconCopy />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("dictateRoute.copy")}</TooltipContent>
+        </Tooltip>
+        <DictationInfoPopover dictation={dictation} />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={t("dictateRoute.delete")}
+              onClick={onDelete}
+              disabled={deletePending}
+              className="size-8 text-muted-foreground"
+            >
+              {deletePending ? (
+                <IconLoader2 className="animate-spin" />
+              ) : (
+                <IconTrash />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("dictateRoute.delete")}</TooltipContent>
+        </Tooltip>
+      </ItemActions>
     </div>
   );
 }
@@ -459,7 +445,6 @@ function DictationCard({
     "delete-dictation",
   );
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const label = sourceMeta(dictation.source, t);
 
   useEffect(() => {
     if (!initialExpanded) return;
@@ -483,7 +468,6 @@ function DictationCard({
   }, [expanded]);
 
   const displayText = dictation.cleanedText || dictation.fullText;
-  const timestamp = dictationTimestamp(dictation);
 
   const handleCleanup = () => {
     cleanup.mutate(
@@ -524,7 +508,7 @@ function DictationCard({
 
   return (
     <Collapsible open={expanded} onOpenChange={setExpanded} asChild>
-      <Item asChild variant="outline" size="sm" className="bg-card">
+      <Item asChild variant="outline" size="sm" className="gap-y-0 bg-card">
         <div
           ref={rowRef}
           role="listitem"
@@ -539,80 +523,70 @@ function DictationCard({
             setExpanded((value) => !value);
           }}
         >
-          <ItemContent
-            className={expanded ? "basis-full min-w-0" : "min-w-0 gap-1.5"}
-          >
-            {!expanded ? (
-              <>
-                <ItemTitle className="min-w-0 w-full line-clamp-2 whitespace-pre-wrap break-words text-base font-normal leading-relaxed">
-                  {displayText || (
-                    <span className="text-muted-foreground italic">
-                      {t("dictateRoute.noText")}
-                    </span>
-                  )}
-                </ItemTitle>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <ItemDescription className="text-xs tabular-nums">
-                    {formatTime(timestamp)}
-                  </ItemDescription>
-                  <span className="text-muted-foreground" aria-hidden="true">
-                    ·
-                  </span>
-                  <Badge variant="outline">{label}</Badge>
-                  <span className="text-muted-foreground" aria-hidden="true">
-                    ·
-                  </span>
-                  <ItemDescription className="text-xs tabular-nums">
-                    {formatDuration(dictation.durationMs)}
-                  </ItemDescription>
-                  {dictation.cleanedText ? (
-                    <Badge variant="secondary">
-                      {t("dictateRoute.aiCleaned")}
-                    </Badge>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-
-            <CollapsibleContent className="clips-collapsible-content w-full">
-              <DictationExpandedContent
-                dictation={dictation}
-                displayText={displayText}
-                onCopy={(text) =>
-                  void copyToClipboard(
-                    text,
-                    t("dictateRoute.copied"),
-                    t("dictateRoute.copyFailed"),
-                  )
-                }
-                onCleanup={handleCleanup}
-                cleanupPending={cleanup.isPending}
-                onDelete={() => setDeleteOpen(true)}
-                deletePending={deleteDictation.isPending}
-              />
-            </CollapsibleContent>
+          <ItemContent className="min-w-0 self-start py-0.5">
+            <ItemTitle
+              className={cn(
+                "block min-w-0 w-full text-base font-normal leading-relaxed",
+                expanded ? "whitespace-pre-wrap break-words" : "truncate",
+              )}
+            >
+              {displayText || (
+                <span className="text-muted-foreground italic">
+                  {t("dictateRoute.noText")}
+                </span>
+              )}
+            </ItemTitle>
           </ItemContent>
 
-          {!expanded ? (
-            <ItemActions className="ms-auto self-start">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <CollapsibleTrigger asChild>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      aria-label={t("dictateRoute.showDetails")}
-                      className="size-8 text-muted-foreground"
-                    >
-                      <IconChevronRight />
-                    </Button>
-                  </CollapsibleTrigger>
-                </TooltipTrigger>
-                <TooltipContent>{t("dictateRoute.showDetails")}</TooltipContent>
-              </Tooltip>
-            </ItemActions>
-          ) : null}
+          <ItemActions className="ms-auto shrink-0 self-start gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={
+                      expanded
+                        ? t("dictateRoute.hideDetails")
+                        : t("dictateRoute.showDetails")
+                    }
+                    className="size-8 text-muted-foreground"
+                  >
+                    <IconChevronRight
+                      aria-hidden="true"
+                      className={cn(
+                        "transition-transform duration-150 motion-reduce:transition-none",
+                        expanded && "rotate-90",
+                      )}
+                    />
+                  </Button>
+                </CollapsibleTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                {expanded
+                  ? t("dictateRoute.hideDetails")
+                  : t("dictateRoute.showDetails")}
+              </TooltipContent>
+            </Tooltip>
+          </ItemActions>
+
+          <CollapsibleContent className="clips-collapsible-content w-full">
+            <DictationActions
+              dictation={dictation}
+              onCopy={() =>
+                void copyToClipboard(
+                  displayText,
+                  t("dictateRoute.copied"),
+                  t("dictateRoute.copyFailed"),
+                )
+              }
+              onCleanup={handleCleanup}
+              cleanupPending={cleanup.isPending}
+              onDelete={() => setDeleteOpen(true)}
+              deletePending={deleteDictation.isPending}
+            />
+          </CollapsibleContent>
 
           <AlertDialog
             open={deleteOpen}

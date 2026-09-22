@@ -187,9 +187,8 @@ describe("selected library actions layout", () => {
     const dictateSource = readSource("../../routes/_app.dictate.tsx");
     const trashSource = readSource("../../routes/_app.trash.tsx");
 
-    expect(layoutSource).toContain(
-      "to: getMeetingsSidebarHref(meetingsLabEnabled, CLIPS_MEETINGS.key)",
-    );
+    expect(layoutSource).toContain("...(meetingsLabEnabled");
+    expect(layoutSource).toContain('to: "/meetings"');
     expect(meetingsSource).toContain("<PageBreadcrumb");
     expect(dictateSource).toContain("<PageBreadcrumb");
     expect(trashSource).toContain("<PageBreadcrumb");
