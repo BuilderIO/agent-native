@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getBoardSurfaceContentBounds,
   getBoardSurfaceHtml,
+  hasBoardRuntimeSurfaceContent,
   shouldMountBoardSurface,
   shouldRenderOverviewReviewCanvas,
   shouldRenderEmptyBoardReviewCanvas,
@@ -44,6 +45,30 @@ describe("board surface rendering", () => {
         hasRuntimeContent: true,
       }),
     ).toBe(true);
+  });
+
+  it("does not carry runtime board content across board identities", () => {
+    expect(
+      hasBoardRuntimeSurfaceContent({
+        boardFileId: "board-a",
+        runtimeBoardFileId: "board-a",
+        runtimeRequestKeys: ["move-a"],
+      }),
+    ).toBe(true);
+    expect(
+      hasBoardRuntimeSurfaceContent({
+        boardFileId: "board-b",
+        runtimeBoardFileId: "board-a",
+        runtimeRequestKeys: ["move-a"],
+      }),
+    ).toBe(false);
+    expect(
+      hasBoardRuntimeSurfaceContent({
+        boardFileId: "board-a",
+        runtimeBoardFileId: "board-a",
+        runtimeRequestKeys: [],
+      }),
+    ).toBe(false);
   });
   it("uses the viewport for a normal-flow app stored as the only board file", () => {
     const appDocument = `<!doctype html><html><body data-agent-native-node-id="body">

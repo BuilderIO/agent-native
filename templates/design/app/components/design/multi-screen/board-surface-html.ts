@@ -30,6 +30,19 @@ export function shouldMountBoardSurface(args: {
     args.hasRuntimeContent
   );
 }
+
+export function hasBoardRuntimeSurfaceContent(args: {
+  boardFileId?: string;
+  runtimeBoardFileId: string | null;
+  runtimeRequestKeys: readonly string[];
+}): boolean {
+  return (
+    args.boardFileId !== undefined &&
+    args.runtimeBoardFileId === args.boardFileId &&
+    args.runtimeRequestKeys.length > 0
+  );
+}
+
 export function shouldRenderEmptyBoardReviewCanvas(args: {
   hasSurfaceContent: boolean;
   reviewPinMode: boolean;

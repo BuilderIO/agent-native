@@ -294,6 +294,7 @@ import {
   getBoardSurfaceHtml,
   getBoardSurfaceRenderContent,
   getBoardSurfaceStaticPreviewContent,
+  hasBoardRuntimeSurfaceContent,
   hasBoardSurfaceContent,
   shouldMountBoardSurface,
   shouldRenderEmptyBoardReviewCanvas,
@@ -730,8 +731,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // before the first layout measurement.
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [crossScreenDragActive, setCrossScreenDragActive] = useState(false);
-  const [boardRuntimeSurfaceActive, setBoardRuntimeSurfaceActive] =
-    useState(false);
+  const [boardRuntimeSurfaceState, setBoardRuntimeSurfaceState] = useState<{
+    boardFileId: string | null;
+    requestKeys: string[];
+  }>({ boardFileId: null, requestKeys: [] });
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
   const renderedScreenIdsRef = useRef<Set<string>>(new Set());
@@ -905,7 +908,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     hasAuthoredContent: hasBoardSurfaceContent(boardFileContent),
     crossScreenDragActive,
     hasPendingRuntimeInsert: Boolean(boardRuntimeStructureInsertRequest),
-    hasRuntimeContent: boardRuntimeSurfaceActive,
+    hasRuntimeContent: hasBoardRuntimeSurfaceContent({
+      boardFileId,
+      runtimeBoardFileId: boardRuntimeSurfaceState.boardFileId,
+      runtimeRequestKeys: boardRuntimeSurfaceState.requestKeys,
+    }),
   })
     ? getBoardSurfaceHtml(boardFileContent)
     : undefined;
@@ -918,10 +925,43 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       sourceId?: string;
       applied?: boolean;
     }) => {
-      if (details.applied !== false) setBoardRuntimeSurfaceActive(true);
+      if (details.applied !== false && details.selector && boardFileId) {
+        const requestKey = details.transactionId ?? details.requestId;
+        setBoardRuntimeSurfaceState((current) => {
+          const base =
+            current.boardFileId === boardFileId
+              ? current
+              : { boardFileId, requestKeys: [] };
+          return base.requestKeys.includes(requestKey)
+            ? base
+            : { ...base, requestKeys: [...base.requestKeys, requestKey] };
+        });
+      }
       onBoardRuntimeStructureInsertApplied?.(details);
     },
-    [onBoardRuntimeStructureInsertApplied],
+    [boardFileId, onBoardRuntimeStructureInsertApplied],
+  );
+  const handleBoardRuntimeStructureRollbackResult = useCallback(
+    (details: {
+      requestId: string;
+      transactionId?: string;
+      applied: boolean;
+      reason?: string;
+    }) => {
+      if (details.applied && details.transactionId && boardFileId) {
+        setBoardRuntimeSurfaceState((current) => {
+          if (current.boardFileId !== boardFileId) return current;
+          const requestKeys = current.requestKeys.filter(
+            (key) => key !== details.transactionId,
+          );
+          return requestKeys.length > 0
+            ? { ...current, requestKeys }
+            : { boardFileId: null, requestKeys: [] };
+        });
+      }
+      onBoardRuntimeStructureRollbackResult?.(details);
+    },
+    [boardFileId, onBoardRuntimeStructureRollbackResult],
   );
   const boardHasSurfaceContent = boardSurfaceHtml !== undefined;
   const boardReviewGeometry = boardSurfaceRenderGeometry ?? {
@@ -10763,7 +10803,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     handleBoardRuntimeStructureInsertApplied
                   }
                   onRuntimeStructureRollbackResult={
-                    onBoardRuntimeStructureRollbackResult
+                    handleBoardRuntimeStructureRollbackResult
                   }
                   clearSelectionRequest={boardClearSelectionRequest}
                   selectedSelector={boardSelectedSelector ?? null}
