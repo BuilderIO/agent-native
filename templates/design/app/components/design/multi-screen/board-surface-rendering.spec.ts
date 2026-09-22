@@ -20,13 +20,15 @@ describe("board surface rendering", () => {
     expect(getBoardSurfaceHtml(authored)).toBe(authored);
   });
 
-  it("keeps a runtime board mounted through the drop acknowledgement", () => {
+  it("keeps a runtime board mounted through its insert acknowledgement", () => {
     expect(
       shouldMountBoardSurface({
         hasAuthoredContent: false,
         crossScreenDragActive: false,
         hasPendingRuntimeInsert: false,
-        hasRuntimeContent: false,
+        hasPendingRuntimeRollback: false,
+        runtimeContentBoardId: null,
+        boardFileId: "board-1",
       }),
     ).toBe(false);
     expect(
@@ -34,7 +36,9 @@ describe("board surface rendering", () => {
         hasAuthoredContent: false,
         crossScreenDragActive: false,
         hasPendingRuntimeInsert: true,
-        hasRuntimeContent: false,
+        hasPendingRuntimeRollback: false,
+        runtimeContentBoardId: null,
+        boardFileId: "board-1",
       }),
     ).toBe(true);
     expect(
@@ -42,7 +46,29 @@ describe("board surface rendering", () => {
         hasAuthoredContent: false,
         crossScreenDragActive: false,
         hasPendingRuntimeInsert: false,
-        hasRuntimeContent: true,
+        hasPendingRuntimeRollback: false,
+        runtimeContentBoardId: "board-1",
+        boardFileId: "board-1",
+      }),
+    ).toBe(true);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasPendingRuntimeRollback: false,
+        runtimeContentBoardId: "board-1",
+        boardFileId: "board-2",
+      }),
+    ).toBe(false);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasPendingRuntimeRollback: true,
+        runtimeContentBoardId: null,
+        boardFileId: "board-1",
       }),
     ).toBe(true);
   });
