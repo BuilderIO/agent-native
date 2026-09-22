@@ -66,7 +66,7 @@ const messages = {
     folders: "Carpetas",
     recordings: "Grabaciones",
     newFolder: "Nueva carpeta",
-    noSpaces: "Aún no hay espacios",
+    noSpaces: "Reúne los Clips de tu equipo en un solo lugar",
     noSpacesAdminCta:
       "Pide a un administrador de la organización que cree el primer espacio.",
     desktopCta: "Obtener la app de escritorio",
@@ -86,35 +86,35 @@ const messages = {
   },
   empty: {
     library: {
-      title: "Tu biblioteca está vacía",
-      body: "Captura tu primera grabación de pantalla y aparecerá aquí, lista para compartir.",
-      cta: "Grabar tu primer Clip",
+      title: "Tus Clips empiezan aquí",
+      body: "Graba tu pantalla, cámara o ambas. Tu Clip estará aquí listo para revisar y compartir.",
+      cta: "Grabar un Clip",
     },
     shared: {
-      title: "Aún no han compartido clips contigo",
-      body: "Los clips que tus compañeros compartan contigo aparecerán aquí.",
+      title: "Explora las grabaciones compartidas contigo",
+      body: "Mira grabaciones de tus compañeros y participa en la conversación con comentarios.",
     },
     folder: {
-      title: "Esta carpeta está vacía",
-      body: "Arrastra grabaciones aquí o pulsa grabar para empezar algo nuevo en esta carpeta.",
-      cta: "Grabar aquí",
+      title: "Mantén este trabajo unido",
+      body: "Mueve las grabaciones relacionadas a esta carpeta o graba un nuevo Clip para este proyecto.",
+      cta: "Grabar un Clip",
     },
     space: {
-      title: "Aún no hay grabaciones en este espacio",
-      body: "Comparte una grabación con el espacio o graba algo nuevo; tu equipo lo verá aquí.",
-      cta: "Grabar para este espacio",
+      title: "Dale a este espacio su primer Clip",
+      body: "Graba o mueve un Clip aquí para que tu equipo lo encuentre en un solo lugar.",
+      cta: "Grabar un Clip",
     },
     archive: {
-      title: "No hay nada archivado",
-      body: "Las grabaciones archivadas se ocultan de la biblioteca, pero se conservan. Siempre puedes restaurarlas más tarde.",
+      title: "No hay grabaciones archivadas",
+      body: "Los Clips archivados se quedan aquí hasta que quieras recuperarlos.",
     },
     trash: {
       title: "La papelera está vacía",
-      body: "Las grabaciones eliminadas aparecen aquí durante 30 días antes de eliminarse permanentemente.",
+      body: "Los Clips eliminados se quedan aquí durante 30 días antes de eliminarse permanentemente.",
     },
     search: {
-      title: "Sin coincidencias",
-      body: "Prueba con otro término de búsqueda o revisa los filtros.",
+      title: "Nada coincide con esta búsqueda",
+      body: "Prueba otro término o borra los filtros para encontrar el Clip que buscas.",
     },
   },
   trashRoute: {
@@ -1267,7 +1267,7 @@ const messages = {
   createSpaceDialog: {
     newSpace: "Nuevo espacio",
     description:
-      "Los espacios son lugares compartidos para organizar las grabaciones de tu organización.",
+      "Organiza las grabaciones por proyecto o equipo para que todos encuentren el trabajo que les interesa.",
     name: "Nombre",
     color: "Color",
     useColor: "Usar color {{color}}",
@@ -1634,7 +1634,7 @@ const messages = {
     howToUse: "How to use Dictate",
     browserDictation: "Browser dictation",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup.",
+      "Captura tus ideas mientras hablas. Copia la transcripción o mejórala con IA.",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.",
     quickNoteTitle: "Quick dictation note",
@@ -1652,9 +1652,12 @@ const messages = {
     emptyTranscript: "Empty transcript",
     replaceOriginal: "Replace original with cleaned",
     cleanupWithAi: "Cleanup with AI",
+    cleanupComplete: "Dictado limpiado",
+    cleanupFailed: "No se pudo limpiar el dictado",
     cleanupHint:
       'Click "Cleanup with AI" to fix punctuation, casing, and filler words.',
-    startFirst: "Start your first dictation",
+    startFirst: "Convierte tus ideas en texto",
+    recordOnDesktop: "Grabar en el escritorio",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here.",
     emptyWebDescription:
@@ -1683,17 +1686,17 @@ const messages = {
     dictionaryTermsPlaceholder: "Agent-Native\nagente nativo → Agent-Native",
     dictionaryTermsRequired: "Introduce al menos un término.",
     dictionarySearch: "Buscar en el diccionario",
-    dictionaryNoMatches: "No hay términos coincidentes.",
+    dictionaryNoMatches: "Ningún término coincide con esta búsqueda",
     dictionaryRemoveTitle: "¿Eliminar “{{term}}”?",
     dictionaryRemoveDescription:
       "Las próximas transcripciones ya no usarán esta corrección.",
     dictionaryDescription:
-      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.",
+      "Añade tus grafías preferidas para que Clips reconozca las palabras que usas.",
     dictionaryTermPlaceholder: "Term",
     dictionaryReplacementPlaceholder: "Replacement (optional)",
     dictionaryAdd: "Add",
     dictionaryLoading: "Loading dictionary...",
-    dictionaryEmpty: "No learned terms yet.",
+    dictionaryEmpty: "Enseña a Clips tu vocabulario",
     dictionaryUsesCount: "Usado {{count}} veces",
     dictionaryRemove: "Eliminar",
     vocabularyAddFailed: "Couldn't add term",
@@ -1805,9 +1808,9 @@ const messages = {
     pastRecordings: "Past recordings",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
-    connectGoogleCalendar: "Connect Google Calendar",
+    connectGoogleCalendar: "Trae tus reuniones a Clips",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
+      "Conecta Google Calendar para ver las próximas reuniones. Usa Clips Desktop para tomar notas mientras hablas.",
     getDesktopApp: "Get desktop app",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription.",
@@ -1828,19 +1831,19 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
+      "Inicia las notas en Clips Desktop durante una reunión. La transcripción y las notas se guardarán aquí.",
     searchPlaceholder: "Buscar reuniones, asistentes y transcripciones...",
     agendaTab: "Agenda",
     pastTab: "Anteriores",
     now: "Ahora",
-    noPastMeetings: "Aún no hay reuniones anteriores",
+    noPastMeetings: "Tu historial de reuniones empieza aquí",
     loadOlder: "Cargar anteriores",
     searchFailed:
       "No se pudieron buscar las reuniones. Inténtalo de nuevo en un momento.",
     clearSearch: "Clear search",
-    noMeetingsYet: "No meetings yet",
+    noMeetingsYet: "Tu agenda está despejada",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.",
+      "Los próximos eventos de tus calendarios conectados aparecerán aquí cuando se programen.",
     noMeetingsMatch: 'No meetings match "{{query}}"',
     refreshing: "Refreshing…",
     howToTriggerTitle: "How to trigger meeting notes",

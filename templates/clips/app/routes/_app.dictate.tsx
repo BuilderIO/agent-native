@@ -1,4 +1,5 @@
 import {
+  actionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -6,27 +7,40 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
 import { CLIPS_WISPRFLOW } from "@shared/labs";
 import {
-  IconArrowsExchange,
   IconChevronDown,
   IconChevronRight,
-  IconCommand,
   IconCopy,
-  IconDeviceDesktop,
-  IconDownload,
   IconKeyboard,
   IconLoader2,
   IconMicrophone2,
   IconPlayerStop,
+  IconTrash,
+  IconWand,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { CaptureInstallButton } from "@/components/capture-install-options";
 import { VocabularyManager } from "@/components/dictate/vocabulary-section";
-import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
-import { DayHeader } from "@/components/meetings/day-header";
+import { AppEmptyState } from "@/components/library/empty-state";
+import {
+  PageBreadcrumb,
+  PageHeader,
+  PageHeaderPrimaryAction,
+} from "@/components/library/page-header";
+import { groupByCalendarDay } from "@/components/meetings/day-grouped-card";
+import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,16 +49,16 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@/components/ui/item";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -52,7 +66,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import enMessages from "@/i18n/en-US";
-import { cn, shortcutLabel, shortcutModifierLabel } from "@/lib/utils";
+import { shortcutLabel, shortcutModifierLabel } from "@/lib/utils";
 
 export function meta() {
   return [{ title: enMessages.dictateRoute.pageTitle }];
@@ -63,12 +77,11 @@ interface Dictation {
   fullText: string;
   cleanedText?: string | null;
   durationMs?: number | null;
-  audioUrl?: string | null;
   source?: "fn-hold" | "cmd-shift-space" | (string & {});
+  startedAt?: string;
   createdAt: string;
 }
 
-type SourceFilter = "all" | "fn-hold" | "cmd-shift-space" | "manual";
 type BrowserDictationSource = "manual" | "cmd-shift-space";
 
 interface SpeechRecognitionAlternative {
@@ -148,27 +161,13 @@ function formatTime(iso: string): string {
   }
 }
 
-function dayBucket(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const today = new Date();
-    const startOfDay = (x: Date) =>
-      new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-    const ms = 24 * 60 * 60 * 1000;
-    const diff = Math.round((startOfDay(today) - startOfDay(d)) / ms);
-    if (diff === 0) return "Today";
-    if (diff === 1) return "Yesterday";
-    if (diff > 1 && diff <= 6) {
-      return d.toLocaleDateString([], {
-        weekday: "long",
-        month: "short",
-        day: "numeric",
-      });
-    }
-    return d.toLocaleDateString([], { month: "short", day: "numeric" });
-  } catch {
-    return "Earlier";
-  }
+function dictationTimestamp(dictation: Dictation): string {
+  return dictation.startedAt ?? dictation.createdAt;
+}
+
+function timestampValue(iso: string): number {
+  const value = Date.parse(iso);
+  return Number.isNaN(value) ? 0 : value;
 }
 
 export function dictationsRefetchInterval(isActive: boolean): number | false {
@@ -178,40 +177,37 @@ export function dictationsRefetchInterval(isActive: boolean): number | false {
 function sourceMeta(
   source: string | undefined,
   t: ReturnType<typeof useT>,
-): {
-  label: string;
-  icon: React.ReactNode;
-} {
+): string {
   switch (source) {
     case "fn-hold":
-      return {
-        label: t("dictateRoute.holdFn"),
-        icon: <IconKeyboard className="h-3 w-3" />,
-      };
+      return t("dictateRoute.holdFn");
     case "cmd-shift-space":
-      return {
-        label: shortcutLabel("cmd+shift+space"),
-        icon: <IconCommand className="h-3 w-3" />,
-      };
+      return shortcutLabel("cmd+shift+space");
     case "manual":
-      return {
-        label: t("dictateRoute.browserDictation"),
-        icon: <IconMicrophone2 className="h-3 w-3" />,
-      };
+      return t("dictateRoute.browserDictation");
+    case "mobile":
+      return t("dictateRoute.mobileDictation");
+    case "fn":
+      return t("dictateRoute.fnShortcut");
+    case "custom":
+      return t("dictateRoute.customShortcut");
+    case "other":
+      return t("dictateRoute.otherSource");
     default:
-      return {
-        label: source ?? "Voice",
-        icon: <IconMicrophone2 className="h-3 w-3" />,
-      };
+      return t("dictateRoute.voiceSource");
   }
 }
 
-async function copyToClipboard(text: string, label: string): Promise<void> {
+async function copyToClipboard(
+  text: string,
+  copiedMessage: string,
+  errorMessage: string,
+): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
-    toast.success(`Copied ${label}`);
+    toast.success(copiedMessage);
   } catch {
-    toast.error("Couldn't copy");
+    toast.error(errorMessage);
   }
 }
 
@@ -259,141 +255,192 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
   );
 }
 
-function FilterTabs({
-  value,
-  onChange,
-  counts,
-}: {
-  value: SourceFilter;
-  onChange: (next: SourceFilter) => void;
-  counts: Record<SourceFilter, number>;
-}) {
-  const t = useT();
-  const tabs: Array<{ id: SourceFilter; label: string }> = [
-    { id: "all", label: "All" },
-    { id: "manual", label: t("dictateRoute.browserDictation") },
-    { id: "fn-hold", label: t("dictateRoute.holdFn") },
-    { id: "cmd-shift-space", label: shortcutLabel("cmd+shift+space") },
-  ];
-  return (
-    <Tabs
-      value={value}
-      onValueChange={(nextValue) => onChange(nextValue as SourceFilter)}
-      className="mb-3 gap-0"
-    >
-      <TabsList
-        variant="line"
-        className="h-9 max-w-full justify-start overflow-x-auto"
-        aria-label={t("navigation.dictate")}
-      >
-        {tabs.map((tab) => (
-          <TabsTrigger key={tab.id} value={tab.id} className="gap-1.5 px-3">
-            {tab.label}
-            <span className="text-xs tabular-nums text-muted-foreground">
-              {counts[tab.id]}
-            </span>
-          </TabsTrigger>
-        ))}
-      </TabsList>
-    </Tabs>
-  );
-}
-
-function WebDictationPanel({
+function DictationCaptureStatus({
   supported,
   listening,
   saving,
   draftText,
   interimText,
-  isDesktopApp,
-  isEmpty,
-  onStart,
-  onStop,
 }: {
   supported: boolean;
   listening: boolean;
   saving: boolean;
   draftText: string;
   interimText: string;
-  isDesktopApp: boolean;
-  isEmpty: boolean;
-  onStart: () => void;
-  onStop: () => void;
 }) {
   const t = useT();
   const preview = [draftText, interimText].filter(Boolean).join(" ").trim();
-  return (
-    <section className="mb-4 rounded-xl border border-border bg-background px-4 py-4 shadow-sm sm:px-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <IconMicrophone2 className="h-4 w-4 text-foreground" />
-            {isEmpty
-              ? t("dictateRoute.startFirst")
-              : isDesktopApp
-                ? t("dictateRoute.quickNoteTitle")
-                : t("dictateRoute.browserDictation")}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            {isDesktopApp ? (
-              <>
-                <Kbd>Fn</Kbd>
-                <span>{t("dictateRoute.holdToDictate")}</span>
-              </>
-            ) : (
-              <>
-                <Kbd>{shortcutModifierLabel()}</Kbd>
-                <Kbd>⇧</Kbd>
-                <Kbd>Space</Kbd>
-                <span>{t("dictateRoute.toggle")}</span>
-              </>
-            )}
-          </div>
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          onClick={listening ? onStop : onStart}
-          disabled={!supported || saving}
-          className="gap-1.5"
-        >
-          {saving ? (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : listening ? (
-            <IconPlayerStop className="h-3.5 w-3.5" />
-          ) : (
-            <IconMicrophone2 className="h-3.5 w-3.5" />
-          )}
-          {saving ? "Saving" : listening ? "Stop" : "Start dictation"}
-        </Button>
-      </div>
 
-      {!supported ? (
-        <div className="mt-3 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs text-muted-foreground">
-          {t("dictateRoute.browserUnavailable")}
-        </div>
-      ) : listening || preview ? (
-        <div className="mt-3 rounded-md border border-border bg-accent/20 px-3 py-2">
-          <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase text-muted-foreground">
-            {listening && (
-              <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
-            )}
-            {listening ? "Listening" : "Last capture"}
-          </div>
-          <p className="min-h-5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-            {preview || (
-              <span className="text-muted-foreground">
-                {t("dictateRoute.startSpeaking")}
-              </span>
-            )}
-          </p>
-        </div>
-      ) : null}
-    </section>
+  if (!supported) {
+    return (
+      <div className="mb-4 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs text-muted-foreground">
+        {t("dictateRoute.browserUnavailable")}
+      </div>
+    );
+  }
+
+  if (!listening && !saving) return null;
+
+  return (
+    <div
+      className="mb-4 rounded-md border border-border bg-accent/20 px-3 py-2"
+      aria-live="polite"
+    >
+      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase text-muted-foreground">
+        {listening && (
+          <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+        )}
+        {saving ? t("dictateRoute.saving") : t("dictateRoute.listening")}
+      </div>
+      <p className="min-h-5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+        {preview || (
+          <span className="text-muted-foreground">
+            {t("dictateRoute.startSpeaking")}
+          </span>
+        )}
+      </p>
+    </div>
   );
 }
 
-function DictationRow({
+function DictationExpandedContent({
+  dictation,
+  displayText,
+  onCopy,
+  onCleanup,
+  cleanupPending,
+  onDelete,
+  deletePending,
+}: {
+  dictation: Dictation;
+  displayText: string;
+  onCopy: (text: string) => void;
+  onCleanup: () => void;
+  cleanupPending: boolean;
+  onDelete: () => void;
+  deletePending: boolean;
+}) {
+  const t = useT();
+  const [view, setView] = useState<"processed" | "original">(
+    dictation.cleanedText ? "processed" : "original",
+  );
+
+  useEffect(() => {
+    if (view === "processed" && !dictation.cleanedText) setView("original");
+  }, [dictation.cleanedText, view]);
+
+  return (
+    <div className="basis-full min-w-0 space-y-4 pt-1">
+      <Tabs
+        value={view}
+        onValueChange={(next) => setView(next as "processed" | "original")}
+        className="gap-4"
+      >
+        <TabsContent value="processed" className="mt-0">
+          <p className="whitespace-pre-wrap text-base leading-relaxed">
+            {displayText || t("dictateRoute.noText")}
+          </p>
+        </TabsContent>
+        <TabsContent value="original" className="mt-0">
+          <p className="whitespace-pre-wrap text-base leading-relaxed">
+            {dictation.fullText || t("dictateRoute.noText")}
+          </p>
+        </TabsContent>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TabsList className="w-fit">
+            <TabsTrigger value="processed" disabled={!dictation.cleanedText}>
+              {t("dictateRoute.aiProcessed")}
+            </TabsTrigger>
+            <TabsTrigger value="original">
+              {t("dictateRoute.original")}
+            </TabsTrigger>
+          </TabsList>
+
+          <ItemActions className="ms-auto">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label={t("dictateRoute.copy")}
+                  onClick={() =>
+                    onCopy(
+                      view === "processed" ? displayText : dictation.fullText,
+                    )
+                  }
+                  className="size-8 text-muted-foreground"
+                >
+                  <IconCopy />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("dictateRoute.copy")}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label={t("dictateRoute.cleanupWithAi")}
+                  onClick={onCleanup}
+                  disabled={cleanupPending}
+                  className="size-8 text-muted-foreground"
+                >
+                  {cleanupPending ? (
+                    <IconLoader2 className="animate-spin" />
+                  ) : (
+                    <IconWand />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("dictateRoute.cleanupWithAi")}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label={t("dictateRoute.delete")}
+                  onClick={onDelete}
+                  disabled={deletePending}
+                  className="size-8 text-muted-foreground"
+                >
+                  {deletePending ? (
+                    <IconLoader2 className="animate-spin" />
+                  ) : (
+                    <IconTrash />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("dictateRoute.delete")}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={t("dictateRoute.hideDetails")}
+                    className="size-8 text-muted-foreground"
+                  >
+                    <IconChevronDown />
+                  </Button>
+                </CollapsibleTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("dictateRoute.hideDetails")}</TooltipContent>
+            </Tooltip>
+          </ItemActions>
+        </div>
+      </Tabs>
+    </div>
+  );
+}
+
+function DictationCard({
   dictation,
   initialExpanded = false,
 }: {
@@ -405,11 +452,11 @@ function DictationRow({
   const rowRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const cleanup = useActionMutation<any, { id: string }>("cleanup-dictation");
-  const replaceOriginal = useActionMutation<
-    any,
-    { id: string; fullText: string }
-  >("update-dictation");
-  const { label, icon } = sourceMeta(dictation.source, t);
+  const deleteDictation = useActionMutation<any, { id: string }>(
+    "delete-dictation",
+  );
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const label = sourceMeta(dictation.source, t);
 
   useEffect(() => {
     if (!initialExpanded) return;
@@ -417,318 +464,221 @@ function DictationRow({
     rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [initialExpanded]);
 
-  const preview = (dictation.cleanedText || dictation.fullText || "").slice(
-    0,
-    140,
-  );
+  useEffect(() => {
+    if (!expanded) return;
 
-  const handleCleanup = (e: React.MouseEvent) => {
-    e.stopPropagation();
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !rowRef.current?.contains(target)) {
+        setExpanded(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () =>
+      document.removeEventListener("pointerdown", handleOutsidePointerDown);
+  }, [expanded]);
+
+  const displayText = dictation.cleanedText || dictation.fullText;
+  const timestamp = dictationTimestamp(dictation);
+
+  const handleCleanup = () => {
     cleanup.mutate(
       { id: dictation.id },
       {
         onSuccess: () => {
+          toast.success(t("dictateRoute.cleanupComplete"));
           void qc.invalidateQueries({
             queryKey: ["action", "list-dictations"],
           });
+        },
+        onError: (error) => {
+          toast.error(
+            actionErrorMessage(error) ?? t("dictateRoute.cleanupFailed"),
+          );
         },
       },
     );
   };
 
-  const handleReplaceOriginal = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!dictation.cleanedText) return;
-    const next = dictation.cleanedText;
-    // Optimistic — patch the list cache immediately.
-    qc.setQueryData<any>(["action", "list-dictations", {}], (prev: any) => {
-      if (!prev) return prev;
-      const list: Dictation[] = Array.isArray(prev) ? prev : prev.dictations;
-      if (!list) return prev;
-      const updated = list.map((d) =>
-        d.id === dictation.id ? { ...d, fullText: next } : d,
-      );
-      return Array.isArray(prev) ? updated : { ...prev, dictations: updated };
-    });
-    replaceOriginal.mutate(
-      { id: dictation.id, fullText: next },
+  const handleDelete = () => {
+    deleteDictation.mutate(
+      { id: dictation.id },
       {
         onSuccess: () => {
-          toast.success(t("dictateRoute.replacedOriginal"));
+          setDeleteOpen(false);
+          toast.success(t("dictateRoute.deleted"));
           void qc.invalidateQueries({
             queryKey: ["action", "list-dictations"],
           });
         },
         onError: () => {
-          toast.error("Couldn't replace");
-          void qc.invalidateQueries({
-            queryKey: ["action", "list-dictations"],
-          });
+          toast.error(t("dictateRoute.deleteFailed"));
         },
       },
     );
   };
 
   return (
-    <div
-      ref={rowRef}
-      className={cn(
-        "border-b border-border last:border-b-0 cursor-pointer",
-        expanded ? "bg-accent/20" : "hover:bg-accent/10",
-      )}
-      onClick={() => setExpanded((v) => !v)}
-    >
-      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2.5 text-sm md:grid-cols-12 md:gap-3 md:px-4">
-        <div className="col-span-1 flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums md:col-span-2">
-          {expanded ? (
-            <IconChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <IconChevronRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
-          )}
-          {formatTime(dictation.createdAt)}
-        </div>
-        <div className="col-span-1 hidden md:col-span-2 md:block">
-          <Badge variant="secondary" className="text-[10px] gap-1 font-normal">
-            {icon}
-            {label}
-          </Badge>
-        </div>
-        <div className="col-span-1 min-w-0 text-foreground/90 md:col-span-6">
-          <div className="truncate">
-            {preview || (
-              <span className="text-muted-foreground italic">
-                {t("dictateRoute.noText")}
-              </span>
-            )}
-          </div>
-          <div className="mt-1 md:hidden">
-            <Badge
-              variant="secondary"
-              className="text-[10px] gap-1 font-normal"
-            >
-              {icon}
-              {label}
-            </Badge>
-          </div>
-        </div>
-        <div className="col-span-1 hidden text-end text-xs text-muted-foreground tabular-nums md:block">
-          {formatDuration(dictation.durationMs)}
-        </div>
-        <div className="col-span-1 flex justify-end">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void copyToClipboard(
-                    dictation.cleanedText || dictation.fullText || "",
-                    "text",
-                  );
-                }}
-                className="h-7 w-7 p-0 cursor-pointer"
-              >
-                <IconCopy className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Copy</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-      {expanded && (
-        <div className="px-4 pb-4 pt-1 space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="rounded-md border border-border bg-background px-3 py-2.5">
-              <div className="flex items-center justify-between mb-1">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Original
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void copyToClipboard(dictation.fullText || "", "original");
-                  }}
-                  className="h-6 gap-1 text-[10px] cursor-pointer"
-                >
-                  <IconCopy className="h-3 w-3" />
-                  Copy
-                </Button>
-              </div>
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                {dictation.fullText || (
-                  <span className="text-muted-foreground italic">
-                    {t("dictateRoute.emptyTranscript")}
-                  </span>
-                )}
-              </p>
-            </div>
-            <div className="rounded-md border border-border bg-background px-3 py-2.5">
-              <div className="flex items-center justify-between mb-1 gap-2">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Cleaned
-                </div>
-                <div className="flex items-center gap-1">
-                  {dictation.cleanedText && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void copyToClipboard(
-                            dictation.cleanedText || "",
-                            "cleaned",
-                          );
-                        }}
-                        className="h-6 gap-1 text-[10px] cursor-pointer"
-                      >
-                        <IconCopy className="h-3 w-3" />
-                        Copy
-                      </Button>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={handleReplaceOriginal}
-                            disabled={replaceOriginal.isPending}
-                            className="h-6 gap-1 text-[10px] cursor-pointer"
-                          >
-                            {replaceOriginal.isPending ? (
-                              <IconLoader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <IconArrowsExchange className="h-3 w-3" />
-                            )}
-                            Replace
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {t("dictateRoute.replaceOriginal")}
-                        </TooltipContent>
-                      </Tooltip>
-                    </>
+    <Collapsible open={expanded} onOpenChange={setExpanded} asChild>
+      <Item asChild variant="outline" size="sm" className="bg-card">
+        <div
+          ref={rowRef}
+          role="listitem"
+          className="cursor-pointer"
+          onClick={(event) => {
+            if (
+              event.target instanceof Element &&
+              event.target.closest("button, a, input, textarea, select")
+            ) {
+              return;
+            }
+            setExpanded((value) => !value);
+          }}
+        >
+          <ItemContent
+            className={expanded ? "basis-full min-w-0" : "min-w-0 gap-1.5"}
+          >
+            {!expanded ? (
+              <>
+                <ItemTitle className="min-w-0 w-full line-clamp-2 whitespace-pre-wrap break-words text-base font-normal leading-relaxed">
+                  {displayText || (
+                    <span className="text-muted-foreground italic">
+                      {t("dictateRoute.noText")}
+                    </span>
                   )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleCleanup}
-                    disabled={cleanup.isPending}
-                    className="h-6 gap-1 text-[10px] cursor-pointer"
-                  >
-                    {cleanup.isPending ? (
-                      <IconLoader2 className="h-3 w-3 animate-spin" />
-                    ) : null}
-                    {t("dictateRoute.cleanupWithAi")}
-                  </Button>
-                </div>
-              </div>
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                {dictation.cleanedText || (
-                  <span className="text-muted-foreground italic">
-                    {t("dictateRoute.cleanupHint")}
+                </ItemTitle>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <ItemDescription className="text-xs tabular-nums">
+                    {formatTime(timestamp)}
+                  </ItemDescription>
+                  <span className="text-muted-foreground" aria-hidden="true">
+                    ·
                   </span>
-                )}
-              </p>
-            </div>
-          </div>
+                  <Badge variant="outline">{label}</Badge>
+                  <span className="text-muted-foreground" aria-hidden="true">
+                    ·
+                  </span>
+                  <ItemDescription className="text-xs tabular-nums">
+                    {formatDuration(dictation.durationMs)}
+                  </ItemDescription>
+                  {dictation.cleanedText ? (
+                    <Badge variant="secondary">
+                      {t("dictateRoute.aiCleaned")}
+                    </Badge>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
+
+            <CollapsibleContent className="clips-collapsible-content w-full">
+              <DictationExpandedContent
+                dictation={dictation}
+                displayText={displayText}
+                onCopy={(text) =>
+                  void copyToClipboard(
+                    text,
+                    t("dictateRoute.copied"),
+                    t("dictateRoute.copyFailed"),
+                  )
+                }
+                onCleanup={handleCleanup}
+                cleanupPending={cleanup.isPending}
+                onDelete={() => setDeleteOpen(true)}
+                deletePending={deleteDictation.isPending}
+              />
+            </CollapsibleContent>
+          </ItemContent>
+
+          {!expanded ? (
+            <ItemActions className="ms-auto self-start">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label={t("dictateRoute.showDetails")}
+                      className="size-8 text-muted-foreground"
+                    >
+                      <IconChevronRight />
+                    </Button>
+                  </CollapsibleTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t("dictateRoute.showDetails")}</TooltipContent>
+              </Tooltip>
+            </ItemActions>
+          ) : null}
+
+          <AlertDialog
+            open={deleteOpen}
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen && !deleteDictation.isPending) {
+                setDeleteOpen(false);
+              }
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t("dictateRoute.deleteDictationTitle")}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("dictateRoute.deleteDictationDescription")}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleteDictation.isPending}>
+                  {t("common.cancel")}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={deleteDictation.isPending}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    handleDelete();
+                  }}
+                >
+                  {deleteDictation.isPending ? (
+                    <IconLoader2 className="animate-spin" />
+                  ) : null}
+                  {t("dictateRoute.delete")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
-      )}
-    </div>
+      </Item>
+    </Collapsible>
   );
 }
 
-function DownloadDesktopAppCard() {
-  const t = useT();
-  return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-accent/20 px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <IconDeviceDesktop className="h-4 w-4 text-foreground" />
-          {t("dictateRoute.desktopCtaTitle")}
-        </div>
-      </div>
-      <CaptureInstallButton
-        size="sm"
-        className="shrink-0 gap-1.5"
-        downloadedChildren={
-          <>
-            <IconDeviceDesktop className="h-3.5 w-3.5" />
-            {t("captureInstall.openDesktopApp")}
-          </>
-        }
-      >
-        <IconDownload className="h-3.5 w-3.5" />
-        {t("dictateRoute.downloadDesktopApp")}
-      </CaptureInstallButton>
-    </div>
-  );
-}
-
-function DictateEmptyState({
-  isDesktopApp,
-  speechSupported,
-  onTryInBrowser,
+function DictationEmptyState({
+  disabled,
+  onNewDictation,
 }: {
-  isDesktopApp: boolean;
-  speechSupported: boolean;
-  onTryInBrowser: () => void;
+  disabled: boolean;
+  onNewDictation: () => void;
 }) {
   const t = useT();
 
   return (
-    <Empty className="min-h-[calc(100dvh-8rem)] border-0 px-4 py-12">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <IconMicrophone2 />
-        </EmptyMedia>
-        <EmptyTitle>{t("dictateRoute.startFirst")}</EmptyTitle>
-        <EmptyDescription className="text-pretty">
-          {isDesktopApp
-            ? t("dictateRoute.emptyDesktopDescription", {
-                fnKey: "Fn",
-                modifierKey: shortcutModifierLabel(),
-              })
-            : t("dictateRoute.emptyWebDescription")}
-        </EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
-        {isDesktopApp ? (
-          <div className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border bg-accent px-3 text-sm font-medium">
-            <Kbd>Fn</Kbd>
-            <span>{t("dictateRoute.holdToDictate")}</span>
-          </div>
-        ) : (
-          <div className="flex flex-wrap justify-center gap-2">
-            <CaptureInstallButton
-              className="gap-1.5"
-              downloadedChildren={
-                <>
-                  <IconDeviceDesktop className="size-4" />
-                  {t("captureInstall.openDesktopApp")}
-                </>
-              }
-            >
-              <IconDownload className="size-4" />
-              {t("dictateRoute.downloadDesktopApp")}
-            </CaptureInstallButton>
-            {speechSupported ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-1.5"
-                onClick={onTryInBrowser}
-              >
-                <IconMicrophone2 className="size-4" />
-                {t("dictateRoute.tryInBrowser")}
-              </Button>
-            ) : null}
-          </div>
-        )}
-      </EmptyContent>
-    </Empty>
+    <AppEmptyState
+      icon={IconMicrophone2}
+      title={t("dictateRoute.startFirst")}
+      description={t("dictateRoute.browserDictationDescription")}
+      content={
+        <Button
+          type="button"
+          size="sm"
+          onClick={onNewDictation}
+          disabled={disabled}
+        >
+          {t("dictateRoute.newDictation")}
+        </Button>
+      }
+    />
   );
 }
 
@@ -738,7 +688,6 @@ export default function DictateRoute() {
   const [searchParams] = useSearchParams();
   const selectedDictationId = searchParams.get("dictationId");
   const { isDesktopApp } = useDesktopPromo();
-  const [filter, setFilter] = useState<SourceFilter>("all");
   const [listening, setListening] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [interimText, setInterimText] = useState("");
@@ -945,44 +894,15 @@ export default function DictateRoute() {
     return data.dictations ?? [];
   }, [data]);
 
-  const counts = useMemo<Record<SourceFilter, number>>(() => {
-    const c: Record<SourceFilter, number> = {
-      all: dictations.length,
-      "fn-hold": 0,
-      "cmd-shift-space": 0,
-      manual: 0,
-    };
-    for (const d of dictations) {
-      if (d.source === "fn-hold") c["fn-hold"]++;
-      else if (d.source === "cmd-shift-space") c["cmd-shift-space"]++;
-      else if (d.source === "manual") c.manual++;
-    }
-    return c;
+  const grouped = useMemo(() => {
+    return groupByCalendarDay(
+      dictations,
+      dictationTimestamp,
+      (a, b) =>
+        timestampValue(dictationTimestamp(b)) -
+        timestampValue(dictationTimestamp(a)),
+    );
   }, [dictations]);
-
-  const filtered = useMemo(() => {
-    if (filter === "all") return dictations;
-    return dictations.filter((d) => d.source === filter);
-  }, [dictations, filter]);
-
-  const grouped = useMemo<Array<[string, Dictation[]]>>(() => {
-    const map = new Map<string, Dictation[]>();
-    // Already comes back desc; keep order.
-    for (const d of filtered) {
-      const k = dayBucket(d.createdAt);
-      const arr = map.get(k) ?? [];
-      arr.push(d);
-      map.set(k, arr);
-    }
-    return Array.from(map.entries());
-  }, [filtered]);
-
-  const isEmpty = !isLoading && !isError && dictations.length === 0;
-  const hasActiveBrowserCapture =
-    listening ||
-    createDictation.isPending ||
-    draftText.trim().length > 0 ||
-    interimText.trim().length > 0;
 
   if (lab.isSuccess && !lab.enabled) {
     return <Navigate replace to="/library" />;
@@ -991,91 +911,91 @@ export default function DictateRoute() {
   return (
     <>
       <PageHeader>
-        <PageBreadcrumb items={[{ label: t("navigation.dictate") }]} />
-        <VocabularyManager />
+        <div className="min-w-0 flex-1">
+          <PageBreadcrumb items={[{ label: t("navigation.dictate") }]} />
+        </div>
+        {dictations.length > 0 && (
+          <div className="ms-auto flex shrink-0 items-center gap-2">
+            <VocabularyManager />
+            <PageHeaderPrimaryAction
+              type="button"
+              onClick={
+                listening
+                  ? stopBrowserDictation
+                  : () => startBrowserDictation("manual")
+              }
+              disabled={!speechSupported || createDictation.isPending}
+              aria-label={
+                createDictation.isPending
+                  ? t("dictateRoute.saving")
+                  : listening
+                    ? t("dictateRoute.stop")
+                    : t("dictateRoute.newDictation")
+              }
+              className="gap-1.5"
+            >
+              {createDictation.isPending ? (
+                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : listening ? (
+                <IconPlayerStop className="h-3.5 w-3.5" />
+              ) : (
+                <IconMicrophone2 className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">
+                {createDictation.isPending
+                  ? t("dictateRoute.saving")
+                  : listening
+                    ? t("dictateRoute.stop")
+                    : t("dictateRoute.newDictation")}
+              </span>
+            </PageHeaderPrimaryAction>
+          </div>
+        )}
       </PageHeader>
-      <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
+        {isDesktopApp ? <HowToCard defaultOpen={false} /> : null}
+        <DictationCaptureStatus
+          supported={speechSupported}
+          listening={listening}
+          saving={createDictation.isPending}
+          draftText={draftText}
+          interimText={interimText}
+        />
+
         {isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full" />
+          <div className="space-y-2" aria-busy="true">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-36 w-full rounded-lg" />
             ))}
           </div>
         ) : isError ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             {t("dictateRoute.loadFailed")}
           </div>
-        ) : isEmpty && !hasActiveBrowserCapture ? (
-          <DictateEmptyState
-            isDesktopApp={isDesktopApp}
-            speechSupported={speechSupported}
-            onTryInBrowser={() => startBrowserDictation("manual")}
-          />
-        ) : (
-          <>
-            {isEmpty ? null : isDesktopApp ? (
-              <HowToCard defaultOpen={false} />
-            ) : (
-              <DownloadDesktopAppCard />
-            )}
-            <WebDictationPanel
-              supported={speechSupported}
-              listening={listening}
-              saving={createDictation.isPending}
-              draftText={draftText}
-              interimText={interimText}
-              isDesktopApp={isDesktopApp}
-              isEmpty={isEmpty}
-              onStart={() => startBrowserDictation("manual")}
-              onStop={stopBrowserDictation}
-            />
-
-            {isEmpty ? null : (
-              <>
-                <FilterTabs
-                  value={filter}
-                  onChange={setFilter}
-                  counts={counts}
+        ) : dictations.length > 0 ? (
+          <div className="space-y-6">
+            {grouped.map(([key, items]) => (
+              <div key={key} className="space-y-2">
+                <DayHeader
+                  label={formatDayLabel(dictationTimestamp(items[0]!))}
                 />
-
-                {filtered.length === 0 ? (
-                  <Empty className="border bg-accent/20 py-10">
-                    <EmptyHeader>
-                      <EmptyTitle className="text-sm font-medium text-muted-foreground">
-                        {t("dictateRoute.noFilterMatches")}
-                      </EmptyTitle>
-                    </EmptyHeader>
-                  </Empty>
-                ) : (
-                  <div className="space-y-6">
-                    {grouped.map(([day, items]) => (
-                      <div key={day} className="space-y-2">
-                        <DayHeader label={day} />
-                        <div className="overflow-hidden rounded-lg border border-border bg-background">
-                          <div className="hidden grid-cols-12 items-center gap-3 border-b border-border bg-accent/20 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:grid">
-                            <div className="col-span-2">When</div>
-                            <div className="col-span-2">Source</div>
-                            <div className="col-span-6">Text</div>
-                            <div className="col-span-1 text-end">Duration</div>
-                            <div className="col-span-1" />
-                          </div>
-                          <div>
-                            {items.map((d) => (
-                              <DictationRow
-                                key={d.id}
-                                dictation={d}
-                                initialExpanded={d.id === selectedDictationId}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </>
+                <ItemGroup className="gap-2">
+                  {items.map((dictation) => (
+                    <DictationCard
+                      key={dictation.id}
+                      dictation={dictation}
+                      initialExpanded={dictation.id === selectedDictationId}
+                    />
+                  ))}
+                </ItemGroup>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <DictationEmptyState
+            disabled={!speechSupported || createDictation.isPending}
+            onNewDictation={() => startBrowserDictation("manual")}
+          />
         )}
       </div>
     </>

@@ -60,7 +60,7 @@ export function AppEmptyState({
 }: AppEmptyStateProps) {
   return (
     <Empty className="min-h-64 px-6 py-12 md:p-12">
-      <EmptyHeader>
+      <EmptyHeader className="w-full max-w-xl">
         <EmptyMedia variant="icon">
           <Icon />
         </EmptyMedia>
@@ -69,7 +69,9 @@ export function AppEmptyState({
           <EmptyDescription>{description}</EmptyDescription>
         ) : null}
       </EmptyHeader>
-      {content ? <EmptyContent>{content}</EmptyContent> : null}
+      {content ? (
+        <EmptyContent className="gap-2">{content}</EmptyContent>
+      ) : null}
     </Empty>
   );
 }

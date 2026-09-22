@@ -64,7 +64,7 @@ const messages = {
     folders: "文件夹",
     recordings: "录制",
     newFolder: "新建文件夹",
-    noSpaces: "暂无空间",
+    noSpaces: "把团队的 Clips 集中到一个地方",
     noSpacesAdminCta: "请联系组织管理员创建第一个空间。",
     desktopCta: "获取桌面应用",
     desktopTitle: "获取 Clips 桌面应用。",
@@ -82,35 +82,35 @@ const messages = {
   },
   empty: {
     library: {
-      title: "你的资料库还是空的",
-      body: "录制第一个屏幕视频后，它会出现在这里，随时可以分享。",
-      cta: "录制第一个 Clip",
+      title: "你的 Clips 从这里开始",
+      body: "录制屏幕、摄像头或两者。你的 Clip 会在这里准备好，方便查看和分享。",
+      cta: "录制一个 Clip",
     },
     shared: {
-      title: "暂时没有与你共享的剪辑",
-      body: "团队成员与你共享的剪辑会显示在这里。",
+      title: "查看与你共享的录制",
+      body: "观看团队成员的录制，并通过评论参与讨论。",
     },
     folder: {
-      title: "这个文件夹是空的",
-      body: "拖入录制，或点击录制在此文件夹中开始新内容。",
-      cta: "在这里录制",
+      title: "把这项工作集中起来",
+      body: "将相关录制移入此文件夹，或为这个项目录制新的 Clip。",
+      cta: "录制一个 Clip",
     },
     space: {
-      title: "这个空间还没有录制",
-      body: "将录制分享到空间，或录制新内容，团队会在这里看到。",
-      cta: "为这个空间录制",
+      title: "为这个空间添加第一个 Clip",
+      body: "在这里录制或移动一个 Clip，让团队在同一个地方找到它。",
+      cta: "录制一个 Clip",
     },
     archive: {
-      title: "没有归档内容",
-      body: "归档的录制会从资料库隐藏但仍安全保留。你可以随时恢复它们。",
+      title: "暂无归档的录制",
+      body: "归档的 Clips 会一直保存在这里，直到你准备好将它们恢复。",
     },
     trash: {
       title: "废纸篓是空的",
-      body: "删除的录制会在这里保留 30 天，然后永久移除。",
+      body: "删除的 Clips 会在这里保留 30 天，然后永久移除。",
     },
     search: {
-      title: "没有匹配结果",
-      body: "尝试其他搜索词，或检查你的筛选条件。",
+      title: "没有内容符合此搜索",
+      body: "尝试其他关键词，或清除筛选条件来找到你要的 Clip。",
     },
   },
   trashRoute: {
@@ -1187,7 +1187,7 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "新建空间",
-    description: "空间是组织用来整理录制内容的共享场所。",
+    description: "按项目或团队整理录制内容，让每个人都能找到与自己相关的工作。",
     name: "名称",
     color: "颜色",
     useColor: "使用颜色 {{color}}",
@@ -1542,8 +1542,7 @@ const messages = {
     pageTitle: "Dictate · Clips (已本地化)",
     howToUse: "How to use Dictate (已本地化)",
     browserDictation: "Browser dictation (已本地化)",
-    browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (已本地化)",
+    browserDictationDescription: "边说边记录想法。复制转录文本，或用 AI 润色。",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (已本地化)",
     quickNoteTitle: "Quick dictation note (已本地化)",
@@ -1562,9 +1561,12 @@ const messages = {
     emptyTranscript: "Empty transcript (已本地化)",
     replaceOriginal: "Replace original with cleaned (已本地化)",
     cleanupWithAi: "Cleanup with AI (已本地化)",
+    cleanupComplete: "听写已清理",
+    cleanupFailed: "无法清理听写",
     cleanupHint:
       'Click "Cleanup with AI" to fix punctuation, casing, and filler words. (已本地化)',
-    startFirst: "Start your first dictation (已本地化)",
+    startFirst: "把想法变成文字",
+    recordOnDesktop: "在桌面端录制",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here. (已本地化)",
     emptyWebDescription:
@@ -1592,15 +1594,15 @@ const messages = {
     dictionaryTermsPlaceholder: "Agent-Native\n智能体原生 → Agent-Native",
     dictionaryTermsRequired: "请至少输入一个词条。",
     dictionarySearch: "搜索词典",
-    dictionaryNoMatches: "没有匹配的词条。",
+    dictionaryNoMatches: "没有词条符合此搜索",
     dictionaryRemoveTitle: "移除“{{term}}”？",
     dictionaryRemoveDescription: "之后的听写将不再使用此更正。",
-    dictionaryDescription: "这些词条可帮助语音识别采用你偏好的拼写。",
+    dictionaryDescription: "添加偏好的拼写，让 Clips 识别你常用的词语。",
     dictionaryTermPlaceholder: "Term (已本地化)",
     dictionaryReplacementPlaceholder: "Replacement (optional) (已本地化)",
     dictionaryAdd: "Add (已本地化)",
     dictionaryLoading: "Loading dictionary... (已本地化)",
-    dictionaryEmpty: "还没有学习到词条。",
+    dictionaryEmpty: "教 Clips 认识你的词汇",
     dictionaryUsesCount: "已使用 {{count}} 次",
     dictionaryRemove: "移除",
     vocabularyAddFailed: "无法添加词条",
@@ -1706,9 +1708,9 @@ const messages = {
     pastRecordings: "Past recordings (已本地化)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (已本地化)",
-    connectGoogleCalendar: "Connect Google Calendar (已本地化)",
+    connectGoogleCalendar: "把会议带到 Clips",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (已本地化)",
+      "连接 Google 日历以查看即将开始的会议。使用 Clips Desktop 在交谈时记录笔记。",
     getDesktopApp: "Get desktop app (已本地化)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (已本地化)",
@@ -1730,19 +1732,19 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (已本地化)",
     title: "Meetings (已本地化)",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (已本地化)",
+      "在会议期间通过 Clips Desktop 开始记录笔记。转录文本和笔记会保存在这里。",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (已本地化)",
     agendaTab: "Agenda (已本地化)",
     pastTab: "Past (已本地化)",
     now: "Now (已本地化)",
-    noPastMeetings: "No past meetings yet (已本地化)",
+    noPastMeetings: "你的会议记录从这里开始",
     loadOlder: "Load older (已本地化)",
     searchFailed: "Couldn't search meetings. Try again in a moment. (已本地化)",
     clearSearch: "Clear search (已本地化)",
-    noMeetingsYet: "No meetings yet (已本地化)",
+    noMeetingsYet: "当前没有安排",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (已本地化)",
+      "已连接日历中的即将到来的活动安排好后，会显示在这里。",
     noMeetingsMatch: 'No meetings match "{{query}}" (已本地化)',
     refreshing: "Refreshing… (已本地化)",
     howToTriggerTitle: "How to trigger meeting notes (已本地化)",

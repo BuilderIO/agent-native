@@ -53,6 +53,9 @@ describe("selected library actions layout", () => {
     expect(primaryActionsSource).toContain('triggerIcon="chevron"');
     expect(gridSource).toContain('import { FolderCard } from "./folder-card"');
     expect(gridSource).toContain("visibleFolders");
+    expect(gridSource).toContain("const isEmptyState =");
+    expect(gridSource).toContain("!isEmptyState && extraActions");
+    expect(gridSource).toContain("!isEmptyState && (\n              <SortMenu");
     expect(gridSource).toContain("organizationId: currentOrganizationId");
     expect(folderRouteSource).toContain("useOrganizations()");
     expect(folderRouteSource).toContain(
@@ -208,7 +211,7 @@ describe("selected library actions layout", () => {
   it("keeps library search before the primary recording action", () => {
     const gridSource = readSource("./library-grid.tsx");
     const searchIndex = gridSource.indexOf("<SearchBar");
-    const actionIndex = gridSource.indexOf("{extraActions}");
+    const actionIndex = gridSource.indexOf("!isEmptyState && extraActions");
 
     expect(searchIndex).toBeGreaterThan(-1);
     expect(actionIndex).toBeGreaterThan(searchIndex);

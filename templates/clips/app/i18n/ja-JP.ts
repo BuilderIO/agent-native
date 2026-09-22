@@ -66,7 +66,7 @@ const messages = {
     folders: "フォルダ",
     recordings: "録画",
     newFolder: "新規フォルダ",
-    noSpaces: "スペースはまだありません",
+    noSpaces: "チームの Clips をひとつの場所にまとめましょう",
     noSpacesAdminCta: "組織の管理者に最初のスペース作成を依頼してください。",
     desktopCta: "デスクトップアプリを入手",
     desktopTitle: "Clips デスクトップアプリを入手しましょう。",
@@ -85,35 +85,35 @@ const messages = {
   },
   empty: {
     library: {
-      title: "ライブラリは空です",
-      body: "最初の画面録画を作成すると、共有できる状態でここに表示されます。",
-      cta: "最初の Clip を録画",
+      title: "ここから Clips が始まります",
+      body: "画面、カメラ、または両方を録画できます。Clip はここで確認して共有できます。",
+      cta: "Clip を録画",
     },
     shared: {
-      title: "共有されたクリップはまだありません",
-      body: "チームメンバーがあなたと共有したクリップがここに表示されます。",
+      title: "共有された録画を見てみましょう",
+      body: "チームメンバーの録画を見て、コメントで会話に参加できます。",
     },
     folder: {
-      title: "このフォルダは空です",
-      body: "録画をドラッグするか、録画を押してこのフォルダで新しい内容を始めましょう。",
-      cta: "ここに録画",
+      title: "この作業をひとつにまとめましょう",
+      body: "関連する録画をこのフォルダに移動するか、このプロジェクト用に新しい Clip を録画しましょう。",
+      cta: "Clip を録画",
     },
     space: {
-      title: "このスペースにはまだ録画がありません",
-      body: "録画をスペースに共有するか、新しく録画するとチームがここで確認できます。",
-      cta: "このスペース用に録画",
+      title: "このスペースに最初の Clip を追加しましょう",
+      body: "Clip を録画または移動して、チームがひとつの場所で見つけられるようにしましょう。",
+      cta: "Clip を録画",
     },
     archive: {
-      title: "アーカイブはありません",
-      body: "アーカイブした録画はライブラリから非表示になりますが、安全に保持されます。後でいつでも復元できます。",
+      title: "アーカイブした録画はありません",
+      body: "アーカイブした Clips は、戻すまでここに保管されます。",
     },
     trash: {
       title: "ゴミ箱は空です",
-      body: "削除した録画は完全に削除される前に 30 日間ここに表示されます。",
+      body: "削除した Clips は完全に削除されるまで 30 日間ここに保管されます。",
     },
     search: {
-      title: "一致する結果はありません",
-      body: "別の検索語を試すか、フィルターを確認してください。",
+      title: "この検索に一致するものはありません",
+      body: "別の語を試すか、フィルターを解除して Clip を探してください。",
     },
   },
   trashRoute: {
@@ -1250,7 +1250,8 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "新しいスペース",
-    description: "スペースは組織で録画を整理するための共有の場所です。",
+    description:
+      "録画をプロジェクトやチームごとに整理して、必要な情報を誰もが見つけられるようにしましょう。",
     name: "名前",
     color: "色",
     useColor: "色 {{color}} を使用",
@@ -1622,7 +1623,7 @@ const messages = {
     howToUse: "How to use Dictate (ローカライズ済み)",
     browserDictation: "Browser dictation (ローカライズ済み)",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (ローカライズ済み)",
+      "話した内容をテキストに残せます。文字起こしをコピーしたり、AI で整えたりできます。",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (ローカライズ済み)",
     quickNoteTitle: "Quick dictation note (ローカライズ済み)",
@@ -1642,9 +1643,12 @@ const messages = {
     emptyTranscript: "Empty transcript (ローカライズ済み)",
     replaceOriginal: "Replace original with cleaned (ローカライズ済み)",
     cleanupWithAi: "Cleanup with AI (ローカライズ済み)",
+    cleanupComplete: "ディクテーションをクリーンアップしました",
+    cleanupFailed: "ディクテーションをクリーンアップできませんでした",
     cleanupHint:
       'Click "Cleanup with AI" to fix punctuation, casing, and filler words. (ローカライズ済み)',
-    startFirst: "Start your first dictation (ローカライズ済み)",
+    startFirst: "考えをテキストに変えましょう",
+    recordOnDesktop: "デスクトップで録音",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here. (ローカライズ済み)",
     emptyWebDescription:
@@ -1675,18 +1679,18 @@ const messages = {
       "Agent-Native\nエージェントネイティブ → Agent-Native",
     dictionaryTermsRequired: "用語を1つ以上入力してください。",
     dictionarySearch: "辞書を検索",
-    dictionaryNoMatches: "一致する用語はありません。",
+    dictionaryNoMatches: "この検索に一致する用語はありません",
     dictionaryRemoveTitle: "「{{term}}」を削除しますか？",
     dictionaryRemoveDescription:
       "今後の音声入力ではこの修正が使われなくなります。",
     dictionaryDescription:
-      "音声認識で優先したい表記をこれらの用語から学習します。",
+      "好みの表記を追加すると、Clips が使う言葉を認識しやすくなります。",
     dictionaryTermPlaceholder: "Term (ローカライズ済み)",
     dictionaryReplacementPlaceholder:
       "Replacement (optional) (ローカライズ済み)",
     dictionaryAdd: "Add (ローカライズ済み)",
     dictionaryLoading: "Loading dictionary... (ローカライズ済み)",
-    dictionaryEmpty: "学習した用語はまだありません。",
+    dictionaryEmpty: "Clips にあなたの語彙を教えましょう",
     dictionaryUsesCount: "{{count}}回使用",
     dictionaryRemove: "削除",
     vocabularyAddFailed: "用語を追加できませんでした",
@@ -1796,9 +1800,9 @@ const messages = {
     pastRecordings: "Past recordings (ローカライズ済み)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (ローカライズ済み)",
-    connectGoogleCalendar: "Connect Google Calendar (ローカライズ済み)",
+    connectGoogleCalendar: "会議を Clips に取り込みましょう",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (ローカライズ済み)",
+      "Google カレンダーを接続して今後の会議を確認できます。Clips Desktop で会話中にノートを記録しましょう。",
     getDesktopApp: "Get desktop app (ローカライズ済み)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (ローカライズ済み)",
@@ -1821,20 +1825,20 @@ const messages = {
       "Disconnect Google Calendar? (ローカライズ済み)",
     title: "Meetings (ローカライズ済み)",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (ローカライズ済み)",
+      "会議中に Clips Desktop でノートを開始しましょう。文字起こしとノートはここに保存されます。",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (ローカライズ済み)",
     agendaTab: "Agenda (ローカライズ済み)",
     pastTab: "Past (ローカライズ済み)",
     now: "Now (ローカライズ済み)",
-    noPastMeetings: "No past meetings yet (ローカライズ済み)",
+    noPastMeetings: "会議の履歴はここから始まります",
     loadOlder: "Load older (ローカライズ済み)",
     searchFailed:
       "Couldn't search meetings. Try again in a moment. (ローカライズ済み)",
     clearSearch: "Clear search (ローカライズ済み)",
-    noMeetingsYet: "No meetings yet (ローカライズ済み)",
+    noMeetingsYet: "予定はありません",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (ローカライズ済み)",
+      "接続したカレンダーに今後の予定が登録されると、ここに表示されます。",
     noMeetingsMatch: 'No meetings match "{{query}}" (ローカライズ済み)',
     refreshing: "Refreshing… (ローカライズ済み)",
     howToTriggerTitle: "How to trigger meeting notes (ローカライズ済み)",

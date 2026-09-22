@@ -66,7 +66,7 @@ const messages = {
     folders: "Dossiers",
     recordings: "Enregistrements",
     newFolder: "Nouveau dossier",
-    noSpaces: "Aucun espace pour le moment",
+    noSpaces: "Réunissez les Clips de votre équipe au même endroit",
     noSpacesAdminCta:
       "Demandez à un administrateur de l’organisation de créer le premier espace.",
     desktopCta: "Obtenir l’app de bureau",
@@ -86,35 +86,35 @@ const messages = {
   },
   empty: {
     library: {
-      title: "Votre bibliothèque est vide",
-      body: "Capturez votre premier enregistrement d’écran et il apparaîtra ici, prêt à partager.",
-      cta: "Enregistrer votre premier Clip",
+      title: "Vos Clips commencent ici",
+      body: "Enregistrez votre écran, votre caméra ou les deux. Votre Clip sera ici, prêt à être vérifié et partagé.",
+      cta: "Enregistrer un Clip",
     },
     shared: {
-      title: "Aucun clip partagé avec vous",
-      body: "Les clips que vos collègues partagent avec vous apparaîtront ici.",
+      title: "Découvrez les enregistrements partagés avec vous",
+      body: "Regardez les enregistrements de vos collègues et participez à la discussion avec des commentaires.",
     },
     folder: {
-      title: "Ce dossier est vide",
-      body: "Glissez-y des enregistrements ou lancez l’enregistrement pour commencer dans ce dossier.",
-      cta: "Enregistrer ici",
+      title: "Gardez ce travail ensemble",
+      body: "Déplacez les enregistrements associés dans ce dossier ou enregistrez un nouveau Clip pour ce projet.",
+      cta: "Enregistrer un Clip",
     },
     space: {
-      title: "Aucun enregistrement dans cet espace pour le moment",
-      body: "Partagez un enregistrement avec l’espace ou créez-en un nouveau ; votre équipe le verra ici.",
-      cta: "Enregistrer pour cet espace",
+      title: "Donnez à cet espace son premier Clip",
+      body: "Enregistrez ou déplacez un Clip ici pour que votre équipe le retrouve au même endroit.",
+      cta: "Enregistrer un Clip",
     },
     archive: {
-      title: "Rien dans l’archive",
-      body: "Les enregistrements archivés sont masqués de la bibliothèque, mais conservés. Vous pourrez toujours les restaurer plus tard.",
+      title: "Aucun enregistrement archivé",
+      body: "Les Clips archivés restent ici jusqu’à ce que vous souhaitiez les récupérer.",
     },
     trash: {
       title: "La corbeille est vide",
-      body: "Les enregistrements supprimés restent ici pendant 30 jours avant d’être supprimés définitivement.",
+      body: "Les Clips supprimés restent ici pendant 30 jours avant d’être supprimés définitivement.",
     },
     search: {
-      title: "Aucun résultat",
-      body: "Essayez un autre terme de recherche ou vérifiez vos filtres.",
+      title: "Rien ne correspond à cette recherche",
+      body: "Essayez un autre terme ou effacez vos filtres pour trouver le Clip recherché.",
     },
   },
   trashRoute: {
@@ -1266,7 +1266,7 @@ const messages = {
   createSpaceDialog: {
     newSpace: "Nouvel espace",
     description:
-      "Les espaces sont des lieux partagés où votre organisation peut organiser ses enregistrements.",
+      "Organisez les enregistrements par projet ou par équipe pour que chacun retrouve le travail qui le concerne.",
     name: "Nom",
     color: "Couleur",
     useColor: "Utiliser la couleur {{color}}",
@@ -1639,7 +1639,7 @@ const messages = {
     howToUse: "How to use Dictate (Localisé)",
     browserDictation: "Browser dictation (Localisé)",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (Localisé)",
+      "Capturez vos idées en parlant. Copiez la transcription ou améliorez-la avec l’IA.",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (Localisé)",
     quickNoteTitle: "Quick dictation note (Localisé)",
@@ -1658,9 +1658,12 @@ const messages = {
     emptyTranscript: "Empty transcript (Localisé)",
     replaceOriginal: "Replace original with cleaned (Localisé)",
     cleanupWithAi: "Cleanup with AI (Localisé)",
+    cleanupComplete: "Dictée nettoyée",
+    cleanupFailed: "Impossible de nettoyer la dictée",
     cleanupHint:
       'Click "Cleanup with AI" to fix punctuation, casing, and filler words. (Localisé)',
-    startFirst: "Start your first dictation (Localisé)",
+    startFirst: "Transformez vos idées en texte",
+    recordOnDesktop: "Enregistrer sur le bureau",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here. (Localisé)",
     emptyWebDescription:
@@ -1689,17 +1692,17 @@ const messages = {
     dictionaryTermsPlaceholder: "Agent-Native\nagent natif → Agent-Native",
     dictionaryTermsRequired: "Saisissez au moins un terme.",
     dictionarySearch: "Rechercher dans le dictionnaire",
-    dictionaryNoMatches: "Aucun terme correspondant.",
+    dictionaryNoMatches: "Aucun terme ne correspond à cette recherche",
     dictionaryRemoveTitle: "Supprimer « {{term}} » ?",
     dictionaryRemoveDescription:
       "Les prochaines dictées n’utiliseront plus cette correction.",
     dictionaryDescription:
-      "Ces termes aident la reconnaissance vocale à utiliser vos orthographes préférées.",
+      "Ajoutez vos orthographes préférées pour que Clips reconnaisse les mots que vous utilisez.",
     dictionaryTermPlaceholder: "Term (Localisé)",
     dictionaryReplacementPlaceholder: "Replacement (optional) (Localisé)",
     dictionaryAdd: "Add (Localisé)",
     dictionaryLoading: "Loading dictionary... (Localisé)",
-    dictionaryEmpty: "Aucun terme appris pour le moment.",
+    dictionaryEmpty: "Apprenez votre vocabulaire à Clips",
     dictionaryUsesCount: "Utilisé {{count}} fois",
     dictionaryRemove: "Supprimer",
     vocabularyAddFailed: "Impossible d’ajouter le terme",
@@ -1811,9 +1814,9 @@ const messages = {
     pastRecordings: "Past recordings (Localisé)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localisé)",
-    connectGoogleCalendar: "Connect Google Calendar (Localisé)",
+    connectGoogleCalendar: "Importez vos réunions dans Clips",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Localisé)",
+      "Connectez Google Agenda pour voir vos prochaines réunions. Utilisez Clips Desktop pour prendre des notes pendant la discussion.",
     getDesktopApp: "Get desktop app (Localisé)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (Localisé)",
@@ -1835,19 +1838,19 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Localisé)",
     title: "Meetings (Localisé)",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Localisé)",
+      "Lancez les notes dans Clips Desktop pendant une réunion. La transcription et les notes seront enregistrées ici.",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (Localisé)",
     agendaTab: "Agenda (Localisé)",
     pastTab: "Past (Localisé)",
     now: "Now (Localisé)",
-    noPastMeetings: "No past meetings yet (Localisé)",
+    noPastMeetings: "Votre historique de réunions commence ici",
     loadOlder: "Load older (Localisé)",
     searchFailed: "Couldn't search meetings. Try again in a moment. (Localisé)",
     clearSearch: "Clear search (Localisé)",
-    noMeetingsYet: "No meetings yet (Localisé)",
+    noMeetingsYet: "Votre agenda est libre",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (Localisé)",
+      "Les prochains événements de vos calendriers connectés apparaîtront ici une fois programmés.",
     noMeetingsMatch: 'No meetings match "{{query}}" (Localisé)',
     refreshing: "Refreshing… (Localisé)",
     howToTriggerTitle: "How to trigger meeting notes (Localisé)",
