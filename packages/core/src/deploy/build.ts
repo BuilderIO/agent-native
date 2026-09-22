@@ -3409,8 +3409,10 @@ const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
 const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
   {
     "react-dom": [
-      // Netlify's Node runtime resolves react-dom/server to server.node. The
-      // browser, edge, bun, and profiling renderers cannot be reached there.
+      // Netlify's Node runtime resolves react-dom/server to server.node, while
+      // the shared streaming entrypoint imports react-dom/server.browser.
+      // Keep that browser wrapper and its production implementation; the
+      // other browser, edge, bun, and profiling renderers cannot be reached.
       "cjs/react-dom-client.development.js",
       "cjs/react-dom-profiling.development.js",
       "cjs/react-dom-profiling.profiling.js",
@@ -3418,7 +3420,6 @@ const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
       "cjs/react-dom-server-legacy.browser.production.js",
       "cjs/react-dom-server-legacy.node.development.js",
       "cjs/react-dom-server.browser.development.js",
-      "cjs/react-dom-server.browser.production.js",
       "cjs/react-dom-server.bun.development.js",
       "cjs/react-dom-server.bun.production.js",
       "cjs/react-dom-server.edge.development.js",
@@ -3429,7 +3430,6 @@ const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
       "cjs/react-dom.development.js",
       "cjs/react-dom.react-server.development.js",
       "profiling.js",
-      "server.browser.js",
       "server.bun.js",
       "server.edge.js",
       "server.react-server.js",

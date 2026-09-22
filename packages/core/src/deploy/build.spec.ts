@@ -2684,8 +2684,13 @@ describe("copyInstalledExternalSsrPackages", () => {
     }
     const reactDomCjsDir = path.join(nodeModules, "react-dom", "cjs");
     fs.mkdirSync(reactDomCjsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(nodeModules, "react-dom", "server.browser.js"),
+      "module.exports = {};\n",
+    );
     for (const fileName of [
       "react-dom-profiling.profiling.js",
+      "react-dom-server.browser.production.js",
       "react-dom-server.edge.production.js",
       "react-dom-server.node.production.js",
     ]) {
@@ -2761,6 +2766,22 @@ describe("copyInstalledExternalSsrPackages", () => {
           "react-dom",
           "cjs",
           "react-dom-server.node.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-dom", "server.browser.js"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.browser.production.js",
         ),
       ),
     ).toBe(true);
