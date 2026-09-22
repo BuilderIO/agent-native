@@ -111,7 +111,7 @@ export function EmptyState({
       {t(`empty.${kind}.cta`)}
     </Button>
   ) : BACK_TO_LIBRARY_KINDS.has(kind) ? (
-    <Button asChild size="sm" variant="outline">
+    <Button asChild size="sm">
       <Link to="/library">{t("recordingPage.backToLibrary")}</Link>
     </Button>
   ) : null;
