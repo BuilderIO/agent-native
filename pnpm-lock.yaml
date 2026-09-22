@@ -4162,6 +4162,12 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       sql-formatter:
         specifier: 15.7.3
         version: 15.7.3
@@ -4331,15 +4337,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -4418,6 +4418,12 @@ importers:
       p-limit:
         specifier: ^7.3.0
         version: 7.3.0
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
@@ -4512,12 +4518,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-router:
         specifier: ^8.1.0
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -4705,6 +4705,12 @@ importers:
       nanoid:
         specifier: ^5.1.9
         version: 5.1.15
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       vgpu:
         specifier: 0.3.1
         version: 0.3.1
@@ -4868,15 +4874,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -4967,6 +4967,12 @@ importers:
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       use-sync-external-store:
         specifier: ^1.6.0
         version: 1.6.0(react@19.2.7)
@@ -5112,15 +5118,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -5196,6 +5196,12 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       yjs:
         specifier: 'catalog:'
         version: 13.6.32
@@ -5335,15 +5341,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -5640,6 +5640,12 @@ importers:
       prosemirror-markdown:
         specifier: ^1.13.4
         version: 1.13.4
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       remark-mdx:
         specifier: ^3.1.1
         version: 3.1.1
@@ -5740,12 +5746,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-router:
         specifier: ^8.1.0
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5984,6 +5984,12 @@ importers:
       prettier:
         specifier: ^3.9.4
         version: 3.9.4
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       yjs:
         specifier: 'catalog:'
         version: 13.6.32
@@ -6135,15 +6141,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -6225,6 +6225,12 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6256,12 +6262,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-router:
         specifier: ^8.1.0
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6319,6 +6319,12 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       react-router:
         specifier: ^8.1.0
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6464,15 +6470,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -6584,9 +6584,15 @@ importers:
       nanoid:
         specifier: ^5.1.9
         version: 5.1.15
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -6693,12 +6699,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-router:
         specifier: ^8.1.0
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6774,9 +6774,15 @@ importers:
       nanoid:
         specifier: ^5.1.9
         version: 5.1.15
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)
@@ -6958,12 +6964,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -7060,6 +7060,12 @@ importers:
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.17)(react@19.2.7)
@@ -7226,15 +7232,9 @@ importers:
       prettier:
         specifier: ^3.8.3
         version: 3.8.3
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -7412,6 +7412,12 @@ importers:
       prettier:
         specifier: ^3.9.6
         version: 3.9.6
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.17)(react@19.2.7)
@@ -7593,15 +7599,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -7680,6 +7680,12 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -7828,15 +7834,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)

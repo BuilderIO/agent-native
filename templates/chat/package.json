@@ -32,6 +32,8 @@
     "h3": "catalog:",
     "isbot": "^5",
     "node-pty": "^1.1.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "use-sync-external-store": "^1.6.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.15"
@@ -82,9 +84,7 @@
     "input-otp": "^1.4.2",
     "next-themes": "^0.4.6",
     "oxfmt": "catalog:",
-    "react": "catalog:",
     "react-day-picker": "^9.14.0",
-    "react-dom": "catalog:",
     "react-hook-form": "^7.71.2",
     "react-resizable-panels": "^4.10.0",
     "react-router": "^8.1.0",
