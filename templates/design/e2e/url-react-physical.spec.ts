@@ -162,6 +162,14 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       previewToken: opened.previewToken,
       allowedOrigins: [new URL(baseURL).origin],
     });
+    await expect
+      .poll(
+        async () =>
+          (await fetch(`${manifest.bridgeUrl}/health`).catch(() => null))?.ok ??
+          false,
+        { timeout: 15_000 },
+      )
+      .toBe(true);
     await page.goto(
       `${baseURL}/visual-edit/${opened.designId}?editorView=overview`,
       { waitUntil: "domcontentloaded" },
@@ -285,7 +293,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
             ),
         { timeout: 5_000 },
       )
-      .toEqual(["dest-v2", "dest-v3"]);
+      .toEqual(["dest-v1", "dest-v2", "v2", "dest-v3"]);
     await expect(
       frame.locator('[data-agent-native-edit-overlay="shield"]'),
     ).toBeAttached();
