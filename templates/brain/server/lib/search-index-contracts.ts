@@ -20,6 +20,17 @@ export const BRAIN_SENSITIVITY_CATEGORIES = [
 export type BrainSensitivityCategory =
   (typeof BRAIN_SENSITIVITY_CATEGORIES)[number];
 
+/**
+ * Reserved score key for a workspace's own `sensitivityCustomInstructions`.
+ * Workspace rules may only tighten, so a hit quarantines without claiming one
+ * of the eleven policy categories.
+ */
+export const BRAIN_WORKSPACE_RULE_SCORE_KEY = "workspace-rule";
+
+export type BrainSensitivityScoreKey =
+  | BrainSensitivityCategory
+  | typeof BRAIN_WORKSPACE_RULE_SCORE_KEY;
+
 export type BrainSensitivityDisposition =
   | "allowed"
   | "suppressed"
@@ -43,7 +54,7 @@ export interface BrainSensitivityDecision {
   safeContent: string;
   classifier: "deterministic" | "approved-model" | "jev";
   /** Per-category probabilities, when the classifier reports calibrated scores. */
-  categoryScores?: Partial<Record<BrainSensitivityCategory, number>>;
+  categoryScores?: Partial<Record<BrainSensitivityScoreKey, number>>;
 }
 
 export interface BrainAudienceAssignment {

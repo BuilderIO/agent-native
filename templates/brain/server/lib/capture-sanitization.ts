@@ -21,6 +21,7 @@ import {
   deterministicQuarantineDecision,
   fallbackSensitivityDecision,
   MAX_CLASSIFIER_OUTPUT_CHARS,
+  sanitizeSensitiveText,
   screenSensitivityDeterministically,
 } from "./sensitivity-policy.js";
 
@@ -131,27 +132,6 @@ export function shouldSanitizeCaptureBeforeStorage(
   if (configOverride !== undefined) return configOverride;
 
   return input.kind === "transcript";
-}
-
-function sanitizeSensitiveText(value: string): string {
-  return value
-    .replace(/<mailto:[^>|]+(?:\|[^>]+)?>/gi, "[redacted]")
-    .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, "[redacted]")
-    .replace(/\bU[A-Z0-9]{8,}\b/g, "[redacted]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
-    .replace(/(?:\+?\d|\(\d{2,4}\))[\d\s().-]{6,}\d/g, (candidate) =>
-      /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : "[redacted]",
-    )
-    .replace(
-      /\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)_[A-Za-z0-9_=-]{16,}\b/g,
-      "[redacted]",
-    )
-    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_=-]{16,}\b/g, "[redacted]")
-    .replace(
-      /\b(password|passcode|secret|token|api key)\s*[:=]\s*\S+/gi,
-      "$1: [redacted]",
-    )
-    .replace(/https?:\/\/\S+/gi, "[link]");
 }
 
 function neutralizeSpeakerLabel(line: string): string {
@@ -563,8 +543,13 @@ export async function sanitizeCaptureForStorage(
         orgId: input.source.orgId,
       });
   decision ??= jev.decision ?? null;
+  // A Jev failure counts as a configured-classifier outage even when the
+  // credential lookup itself threw, so a broken vault fails closed instead of
+  // reading as an unconfigured workspace and releasing content.
   const classifierConfigured =
-    jev.configured || Boolean(approvedModelSettings(input.settings));
+    jev.configured ||
+    Boolean(jev.failureReason) ||
+    Boolean(approvedModelSettings(input.settings));
   let classifierFailed = false;
   try {
     decision ??= await classifyWithApprovedModel(input);

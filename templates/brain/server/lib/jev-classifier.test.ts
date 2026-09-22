@@ -10,6 +10,7 @@ import {
   resolveClassifierPreference,
   resolveJevAuth,
   runJevClassification,
+  WORKSPACE_RULE_QUESTION,
   type JevAuth,
   type JevCategoryScores,
 } from "./jev-classifier.js";
@@ -94,8 +95,9 @@ describe("classifier preference", () => {
 describe("probability to disposition mapping", () => {
   it("allows a capture every category scores comfortably low", () => {
     const decision = jevSensitivityDecision(scoresWith(), {
-      content: CLEAN_BODY,
+      judgedContent: CLEAN_BODY,
       capturedAt: CAPTURED_AT,
+      truncated: false,
     });
 
     expect(decision.disposition).toBe("allowed");
@@ -107,8 +109,9 @@ describe("probability to disposition mapping", () => {
 
   it("quarantines and names the category when one clears the block bar", () => {
     const decision = jevSensitivityDecision(scoresWith({ performance: 0.92 }), {
-      content: CLEAN_BODY,
+      judgedContent: CLEAN_BODY,
       capturedAt: CAPTURED_AT,
+      truncated: false,
     });
 
     expect(decision.disposition).toBe("quarantined");
@@ -119,8 +122,9 @@ describe("probability to disposition mapping", () => {
 
   it("reports medium confidence just above the block bar", () => {
     const decision = jevSensitivityDecision(scoresWith({ compensation: 0.7 }), {
-      content: CLEAN_BODY,
+      judgedContent: CLEAN_BODY,
       capturedAt: CAPTURED_AT,
+      truncated: false,
     });
 
     expect(decision.disposition).toBe("quarantined");
@@ -130,8 +134,9 @@ describe("probability to disposition mapping", () => {
 
   it("fails closed on the uncertain middle band without naming a category", () => {
     const decision = jevSensitivityDecision(scoresWith({ recruiting: 0.45 }), {
-      content: CLEAN_BODY,
+      judgedContent: CLEAN_BODY,
       capturedAt: CAPTURED_AT,
+      truncated: false,
     });
 
     expect(decision.disposition).toBe("quarantined");
@@ -141,13 +146,125 @@ describe("probability to disposition mapping", () => {
 
   it("quarantines when the deterministic screen leaves no safe content", () => {
     const decision = jevSensitivityDecision(scoresWith(), {
-      content: "api key: not-a-real-secret-value",
+      judgedContent: "api key: not-a-real-secret-value",
       capturedAt: CAPTURED_AT,
+      truncated: false,
     });
 
     expect(decision.disposition).toBe("quarantined");
     expect(decision.safeContent).toBe("");
     expect(decision.safeSegments).toEqual([]);
+  });
+});
+
+describe("review fixes", () => {
+  const input = {
+    title: "Planning transcript",
+    content: CLEAN_BODY,
+    capturedAt: CAPTURED_AT,
+    settings: DEFAULT_BRAIN_SETTINGS,
+    ownerEmail: "owner@example.com",
+    orgId: "org-1",
+  };
+
+  it("quarantines when the capture was too long for Jev to see in full", () => {
+    const decision = jevSensitivityDecision(scoresWith(), {
+      judgedContent: CLEAN_BODY,
+      capturedAt: CAPTURED_AT,
+      truncated: true,
+    });
+
+    expect(decision.disposition).toBe("quarantined");
+  });
+
+  it("treats a score exactly on the allow bar as uncertain", () => {
+    const decision = jevSensitivityDecision(scoresWith({ personal: 0.2 }), {
+      judgedContent: CLEAN_BODY,
+      capturedAt: CAPTURED_AT,
+      truncated: false,
+    });
+
+    expect(decision.disposition).toBe("quarantined");
+    expect(decision.confidenceBand).toBe("uncertain");
+  });
+
+  it("rejects an out-of-range probability instead of clamping it to safe", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jevResponse(
+          Object.fromEntries(
+            BRAIN_SENSITIVITY_CATEGORIES.map((c) => [c, -1]),
+          ) as JevCategoryScores,
+        ),
+      ),
+    );
+
+    await expect(
+      requestJevSensitivityScores(
+        { source: "stored-key", apiKey: "not-a-real-key" },
+        { title: "Planning", body: CLEAN_BODY },
+      ),
+    ).rejects.toThrow(/out-of-range/);
+  });
+
+  it("resolves the credential with the capture owner, not the ambient request user", async () => {
+    getCredentialContext.mockReturnValue({
+      userEmail: "editor@example.com",
+      orgId: "org-2",
+    });
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+
+    await resolveJevAuth({ ownerEmail: "owner@example.com", orgId: "org-1" });
+
+    expect(resolveSourceCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ctx: { userEmail: "owner@example.com", orgId: "org-1" },
+      }),
+    );
+  });
+
+  it("redacts contact details before the payload leaves the process", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    const fetchMock = vi.fn(async () => jevResponse(scoresWith()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runJevClassification({
+      ...input,
+      content: `${CLEAN_BODY}\nPing person@example.com or +1 (415) 555-1212 at https://internal.example.test/doc`,
+    });
+
+    const body = fetchCallArgs(fetchMock).init.body as string;
+    expect(body).not.toContain("person@example.com");
+    expect(body).not.toContain("555-1212");
+    expect(body).not.toContain("internal.example.test");
+    expect(body).toContain("ship the retrieval API");
+  });
+
+  it("asks Jev the workspace's own restriction and quarantines when it trips", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    const fetchMock = vi.fn(async () =>
+      jevResponse({ ...scoresWith(), [WORKSPACE_RULE_QUESTION]: 0.95 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await runJevClassification({
+      ...input,
+      settings: {
+        ...DEFAULT_BRAIN_SETTINGS,
+        sensitivityCustomInstructions: "Never retain unreleased pricing.",
+      },
+    });
+
+    const body = JSON.parse(fetchCallArgs(fetchMock).init.body as string);
+    expect(body.questions[WORKSPACE_RULE_QUESTION].criteria.true).toContain(
+      "Never retain unreleased pricing.",
+    );
+    expect(outcome.decision?.disposition).toBe("quarantined");
+    expect(outcome.decision?.categories).toEqual([]);
+    expect(outcome.decision?.categoryScores?.[WORKSPACE_RULE_QUESTION]).toBe(
+      0.95,
+    );
   });
 });
 
