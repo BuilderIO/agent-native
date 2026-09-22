@@ -17,6 +17,20 @@ export function getBoardSurfaceHtml(html: string | undefined) {
   return hasBoardSurfaceContent(html) ? html : EMPTY_BOARD_SURFACE_HTML;
 }
 
+export function shouldMountBoardSurface(args: {
+  hasAuthoredContent: boolean;
+  crossScreenDragActive: boolean;
+  hasPendingRuntimeInsert: boolean;
+  hasRuntimeContent: boolean;
+}): boolean {
+  return (
+    args.hasAuthoredContent ||
+    args.crossScreenDragActive ||
+    args.hasPendingRuntimeInsert ||
+    args.hasRuntimeContent
+  );
+}
+
 export function shouldRenderEmptyBoardReviewCanvas(args: {
   hasSurfaceContent: boolean;
   reviewPinMode: boolean;

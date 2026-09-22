@@ -295,6 +295,7 @@ import {
   getBoardSurfaceRenderContent,
   getBoardSurfaceStaticPreviewContent,
   hasBoardSurfaceContent,
+  shouldMountBoardSurface,
   shouldRenderEmptyBoardReviewCanvas,
 } from "./multi-screen/board-surface-html";
 import {
@@ -729,6 +730,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // before the first layout measurement.
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [crossScreenDragActive, setCrossScreenDragActive] = useState(false);
+  const [boardRuntimeSurfaceActive, setBoardRuntimeSurfaceActive] =
+    useState(false);
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
   const renderedScreenIdsRef = useRef<Set<string>>(new Set());
@@ -898,10 +901,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // Keep the empty board unmounted during normal editing so the text/shape
   // creation path can still own its first mount. Mount it for the duration of
   // a cross-screen drag so the drop has a real DOM target before release.
-  const boardSurfaceHtml =
-    crossScreenDragActive || hasBoardSurfaceContent(boardFileContent)
-      ? getBoardSurfaceHtml(boardFileContent)
-      : undefined;
+  const boardSurfaceHtml = shouldMountBoardSurface({
+    hasAuthoredContent: hasBoardSurfaceContent(boardFileContent),
+    crossScreenDragActive,
+    hasPendingRuntimeInsert: Boolean(boardRuntimeStructureInsertRequest),
+    hasRuntimeContent: boardRuntimeSurfaceActive,
+  })
+    ? getBoardSurfaceHtml(boardFileContent)
+    : undefined;
+  const handleBoardRuntimeStructureInsertApplied = useCallback(
+    (details: {
+      requestId: string;
+      transactionId?: string;
+      routePath?: string;
+      selector: string;
+      sourceId?: string;
+      applied?: boolean;
+    }) => {
+      if (details.applied !== false) setBoardRuntimeSurfaceActive(true);
+      onBoardRuntimeStructureInsertApplied?.(details);
+    },
+    [onBoardRuntimeStructureInsertApplied],
+  );
   const boardHasSurfaceContent = boardSurfaceHtml !== undefined;
   const boardReviewGeometry = boardSurfaceRenderGeometry ?? {
     x: 0,
@@ -10739,7 +10760,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     onBoardRuntimeStructureInsertRejected
                   }
                   onRuntimeStructureInsertApplied={
-                    onBoardRuntimeStructureInsertApplied
+                    handleBoardRuntimeStructureInsertApplied
                   }
                   onRuntimeStructureRollbackResult={
                     onBoardRuntimeStructureRollbackResult
