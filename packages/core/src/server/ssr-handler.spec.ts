@@ -921,6 +921,22 @@ describe("createH3SSRHandler", () => {
     expect(await response.text()).toBe("GET /.data");
   });
 
+  it("does not re-prefix mounted root data redirects", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(null, { status: 302, headers: { location: "/docs.data" } }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/docs.data"));
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/docs.data");
+    expect(new URL(mocks.requestHandler.mock.calls[0][0].url).pathname).toBe(
+      "/.data",
+    );
+  });
+
   it("uses APP_BASE_PATH in React Router's mounted hydration context", async () => {
     process.env.APP_BASE_PATH = "/analytics";
     mocks.requestHandler.mockResolvedValueOnce(
