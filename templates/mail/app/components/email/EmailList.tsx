@@ -585,6 +585,7 @@ export function EmailList({
         .filter(
           (rule) =>
             rule.kind === "ai-filter" &&
+            rule.domain === "mail" &&
             rule.enabled &&
             rule.actions.some(
               (action) =>
@@ -698,7 +699,8 @@ export function EmailList({
               (priorityScores.get(b.latestMessage.id) ?? 0.5) -
                 (priorityScores.get(a.latestMessage.id) ?? 0.5) ||
               new Date(b.latestMessage.date).getTime() -
-                new Date(a.latestMessage.date).getTime()
+                new Date(a.latestMessage.date).getTime() ||
+              b.latestMessage.id.localeCompare(a.latestMessage.id)
             );
           })
         : chronologicalThreads,

@@ -512,7 +512,7 @@ async function callModel(
   });
 }
 
-async function getAutomationModelSettings(
+export async function getAutomationModelSettings(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
   const autoSettings = await getUserSetting(ownerEmail, "automation-settings");

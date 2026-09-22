@@ -11,7 +11,10 @@ import {
   saveAiPriorityCache,
   type AiPriorityCacheEntry,
 } from "../server/lib/ai-priority.js";
-import { previewAutomationPriority } from "../server/lib/automation-engine.js";
+import {
+  getAutomationModelSettings,
+  previewAutomationPriority,
+} from "../server/lib/automation-engine.js";
 import { listAutomationRules } from "../server/lib/automations.js";
 import {
   AI_IMPORTANT_LABEL,
@@ -47,6 +50,7 @@ function importantRules(
   return rules
     .filter(
       (rule) =>
+        rule.domain === "mail" &&
         rule.kind === "ai-filter" &&
         rule.enabled &&
         rule.actions.some(
@@ -73,12 +77,16 @@ export default defineAction({
     const instruction = rules.length
       ? rules.map((rule) => rule.condition.trim()).join("\n")
       : AI_PRIORITY_DEFAULT_INSTRUCTION;
+    const modelSettings = await getAutomationModelSettings(ownerEmail);
     const instructionKey = hash(
-      rules.length
-        ? rules
-            .map((rule) => `${rule.id}:${rule.updatedAt}:${rule.condition}`)
-            .join("\n")
-        : instruction,
+      JSON.stringify({
+        model: modelSettings,
+        rules: rules.length
+          ? rules.map(
+              (rule) => `${rule.id}:${rule.updatedAt}:${rule.condition}`,
+            )
+          : [instruction],
+      }),
     );
     const eligibleEmails = emails
       .filter(
@@ -87,7 +95,11 @@ export default defineAction({
           !email.isTrashed &&
           mailLabelsInclude(email.labelIds, "inbox"),
       )
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.date).getTime() - new Date(a.date).getTime() ||
+          b.id.localeCompare(a.id),
+      )
       .slice(0, AI_PRIORITY_MAX_EMAILS);
     const cache = await getAiPriorityCache(ownerEmail);
     const fingerprints = eligibleEmails.map((email) => ({
@@ -96,7 +108,7 @@ export default defineAction({
     }));
     const scores = getCachedPriorityScores(cache, fingerprints, instructionKey);
     const pending = eligibleEmails.filter((email) => !scores.has(email.id));
-    let model = cache.model;
+    let model = modelSettings;
 
     if (pending.length > 0) {
       const result = await previewAutomationPriority(
@@ -105,9 +117,25 @@ export default defineAction({
         instruction,
       );
       model = result.model;
+      const incomplete = pending.some((email) => {
+        const score = result.scores.get(email.id)?.score;
+        return (
+          score === undefined ||
+          !Number.isFinite(score) ||
+          score < 0 ||
+          score > 1
+        );
+      });
+      if (incomplete) {
+        throw new Error(
+          "Priority model returned incomplete results. Run Priority again.",
+        );
+      }
       const now = Date.now();
       const entries: AiPriorityCacheEntry[] = pending.map((email) => {
-        const score = result.scores.get(email.id) ?? { score: 0.5 };
+        const score = result.scores.get(email.id);
+        if (!score)
+          throw new Error("Priority model returned an invalid result.");
         const entry: AiPriorityCacheEntry = {
           emailId: email.id,
           score: score.score,

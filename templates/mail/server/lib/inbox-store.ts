@@ -179,7 +179,11 @@ export async function readInboxThreads(
     .select()
     .from(schema.mailInboxThreads)
     .where(and(...conditions))
-    .orderBy(desc(schema.mailInboxThreads.latestDate));
+    .orderBy(
+      desc(schema.mailInboxThreads.latestDate),
+      desc(schema.mailInboxThreads.latestMessageId),
+      desc(schema.mailInboxThreads.id),
+    );
   return rows.map(toInboxThreadRow);
 }
 

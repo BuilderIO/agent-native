@@ -236,8 +236,10 @@ export function filterInboxTabEmails(
   const qualified = new Set<string>();
   for (const [key, latestMsg] of latest) {
     if (
-      !savedFilterThreads.has(key) &&
-      qualifiesForInboxTab(latestMsg.labelIds, tab, triage)
+      (!savedFilterThreads.has(key) &&
+        qualifiesForInboxTab(latestMsg.labelIds, tab, triage)) ||
+      (tab === "important" &&
+        mailLabelsInclude(latestMsg.labelIds, AI_IMPORTANT_LABEL))
     ) {
       qualified.add(key);
     }
