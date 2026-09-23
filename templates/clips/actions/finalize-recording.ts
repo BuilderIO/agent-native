@@ -605,6 +605,7 @@ async function markRecordingReady(params: {
   finalHeight: number;
   finalHasAudio: boolean;
   finalHasCamera: boolean;
+  recordingAttemptId?: string | null;
   existingTitle: string;
   // Whether a seekable rewrite (MP4 faststart / WebM Cues remux) was already
   // applied to the uploaded bytes. When false, a best-effort background repair
@@ -623,6 +624,7 @@ async function markRecordingReady(params: {
     finalHeight,
     finalHasAudio,
     finalHasCamera,
+    recordingAttemptId,
     existingTitle,
     seekableApplied,
   } = params;
@@ -716,6 +718,7 @@ async function markRecordingReady(params: {
       template_name: "clips",
       output_id: id,
       output_type: "clip",
+      recording_attempt_id: recordingAttemptId ?? id,
       duration_s: Math.round(finalDurationMs / 1000),
       video_format: videoFormat,
       has_audio: finalHasAudio,
@@ -864,6 +867,7 @@ async function retryPendingMediaVerification(params: {
   const db = getDb();
   const [recording] = await db
     .select({
+      uploadAttemptId: schema.recordings.uploadAttemptId,
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
       editsJson: schema.recordings.editsJson,
@@ -919,6 +923,7 @@ async function retryPendingMediaVerification(params: {
       finalHeight: candidate.finalHeight,
       finalHasAudio: candidate.finalHasAudio,
       finalHasCamera: candidate.finalHasCamera,
+      recordingAttemptId: recording.uploadAttemptId,
       seekableApplied: candidate.seekableApplied,
     });
     if (result.status === "ready" && result.transitionedToReady) {
@@ -1196,6 +1201,7 @@ export default defineAction({
         finalHeight,
         finalHasAudio,
         finalHasCamera,
+        recordingAttemptId: existing.uploadAttemptId,
         existingTitle: existing.title,
       };
 

@@ -443,6 +443,7 @@ describe("finalize-recording media serve verification", () => {
         app_name: "clips",
         output_id: "rec_1",
         output_type: "clip",
+        recording_attempt_id: "rec_1",
         duration_s: 1,
         video_format: "webm",
         has_audio: true,
