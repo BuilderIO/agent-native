@@ -1150,18 +1150,32 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
 }
 
 /**
+ * Whether an approval continuation must stay with this app's own chat. The
+ * paused `needsApproval` run and its durable grant live there, and two outer
+ * chats cannot carry the keys: Builder's chat (`builder.submitChat` has no
+ * field for them and Builder holds none of this app's grants) and an MCP
+ * host's chat (every host transport — the direct follow-up API and the
+ * wrapper's `sendHostChat` — forwards only the message text). Anywhere else
+ * the normal relay carries the keys to the chat that owns the run.
+ */
+function keepsApprovalInAppChat(
+  opts: Pick<AgentChatMessage, "approvedToolCalls">,
+): boolean {
+  if (!opts.approvedToolCalls?.length) return false;
+  return isInBuilderFrame() || isMcpAppChatBridgeEnabled();
+}
+
+/**
  * Whether this send goes to the code-editing frame rather than the app's own
- * chat. Builder's chat is a separate agent: `builder.submitChat` has no field
- * for approval keys and Builder holds none of this app's durable grants. An
- * approval continuation resumes this app's own paused run, so in a Builder
- * frame it stays with the embedded AgentSidebar, like a content prompt.
- * Anywhere else a code request keeps its frame, whose relay carries the keys.
+ * chat. A code request goes to its frame unless it is an approval
+ * continuation that must stay in the app's chat (see
+ * {@link keepsApprovalInAppChat}).
  */
 export function routesToCodeFrame(
   opts: Pick<AgentChatMessage, "type" | "requiresCode" | "approvedToolCalls">,
 ): boolean {
   if (opts.type !== "code" && opts.requiresCode !== true) return false;
-  return !(opts.approvedToolCalls?.length && isInBuilderFrame());
+  return !keepsApprovalInAppChat(opts);
 }
 
 /**
@@ -1175,7 +1189,8 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
       ? undefined
       : normalizeAgentActionScope(opts.actionScope);
   const isCodeRequest = routesToCodeFrame(opts);
-  const localChatTarget = opts.chatTarget === "local";
+  const localChatTarget =
+    opts.chatTarget === "local" || keepsApprovalInAppChat(opts);
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -1216,17 +1231,12 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     !localChatTarget &&
     isMcpAppChatBridgeEnabled()
   ) {
-    // MCP host follow-up APIs carry neither attachment descriptors, a usage
-    // label, nor approval keys. Use the normal wrapper transport when any needs
-    // to reach the chat thread — a label silently downgraded to `chat` is
-    // exactly the run the caller named it to be able to find, and a dropped
-    // approval key makes the server ask for approval again.
-    if (
-      opts.attachments?.length ||
-      opts.usageLabel ||
-      actionScope ||
-      opts.approvedToolCalls?.length
-    ) {
+    // MCP host follow-up APIs carry neither attachment descriptors nor a usage
+    // label. Use the normal wrapper transport when either needs to reach the
+    // chat thread — a label silently downgraded to `chat` is exactly the run
+    // the caller named it to be able to find. (Approval continuations never
+    // get here: they stay in the app's own chat, see keepsApprovalInAppChat.)
+    if (opts.attachments?.length || opts.usageLabel || actionScope) {
       window.parent.postMessage(
         payload,
         getFramePostMessageTargetOrigin() || "*",
@@ -1340,8 +1350,7 @@ export function sendToAgentChatAndConfirm(
   // and cannot answer this window-local CustomEvent acknowledgement.
   if (
     opts.chatTarget !== "local" ||
-    opts.type === "code" ||
-    opts.requiresCode === true ||
+    routesToCodeFrame(opts) ||
     opts.submit === false
   ) {
     return Promise.resolve({

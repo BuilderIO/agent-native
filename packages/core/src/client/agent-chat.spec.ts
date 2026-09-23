@@ -665,22 +665,52 @@ describe("sendToAgentChat", () => {
     expect(payload.data.usageLabel).toBe("crm:enrich-record");
   });
 
-  it("uses the wrapper relay when an MCP App send carries approval keys", () => {
+  it.each([
+    ["a chat", undefined],
+    ["a code", "code" as const],
+  ])(
+    "keeps %s approval continuation in the app chat inside an MCP App embed",
+    (_label, type) => {
+      vi.useFakeTimers();
+      window.location.search =
+        "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+      const tabId = sendToAgentChat({
+        message: "Approved.",
+        submit: true,
+        type,
+        approvedToolCalls: ["publish-release:{}"],
+      });
+
+      // Neither host transport can carry the keys: the direct follow-up API
+      // takes text only, and the wrapper's sendHostChat forwards only the
+      // message. The paused run lives in this app's own chat.
+      expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+      expect(parentPostMessageSpy).not.toHaveBeenCalled();
+      expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+
+      vi.runOnlyPendingTimers();
+
+      expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+      const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+      expect(targetOrigin).toBe("http://localhost:3000");
+      expect(payload.type).toBe("agentNative.submitChat");
+      expect(payload.data.tabId).toBe(tabId);
+      expect(
+        parseSubmitChatMessage({ data: payload } as MessageEvent)
+          ?.approvedToolCalls,
+      ).toEqual(["publish-release:{}"]);
+    },
+  );
+
+  it("still relays an MCP App send without approval keys to the host", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
 
-    sendToAgentChat({
-      message: "Approved.",
-      submit: true,
-      approvedToolCalls: ["publish-release:{}"],
-    });
+    sendToAgentChat({ message: "summarize this", submit: true });
 
-    // The host follow-up API has no field for the keys; without them the
-    // server sees a plain message and asks for approval again.
-    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const [payload] = parentPostMessageSpy.mock.calls[0];
-    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledOnce();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("can force MCP App embeds to use the local app chat", () => {
@@ -830,6 +860,43 @@ describe("sendToAgentChat", () => {
       delivered: false,
       reason: "missing-engine",
     });
+  });
+
+  it("confirms a Builder-frame code approval continuation kept in the app chat", async () => {
+    vi.useFakeTimers();
+    frameState.inBuilderFrame = true;
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "Approved.",
+      submit: true,
+      chatTarget: "local",
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    vi.advanceTimersByTime(0);
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
+    expect(payload?.data?.approvedToolCalls).toEqual(["publish-release:{}"]);
+    reportAgentChatSubmitResult(payload.data.submitMessageId, true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
+  it("still rejects confirmation for a code request bound for Builder", async () => {
+    frameState.inBuilderFrame = true;
+    const result = await sendToAgentChatAndConfirm({
+      message: "change this app",
+      submit: true,
+      chatTarget: "local",
+      type: "code",
+    });
+
+    expect(result).toMatchObject({
+      delivered: false,
+      reason: "unsupported-target",
+    });
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("rejects non-local confirmation targets without sending", async () => {
