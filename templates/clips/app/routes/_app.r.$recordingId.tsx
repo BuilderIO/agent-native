@@ -780,7 +780,10 @@ export default function RecordingPage() {
     prime: primeCompletionCue,
   } = useCompletionAudioCue();
   const lifecyclePhaseRef = useRef<RecordingProcessingSnapshot | null>(null);
-  const activeAiRequestKindRef = useRef<ClipsAiRequestKind | null>(null);
+  const activeAiRequestRef = useRef<{
+    kind: ClipsAiRequestKind;
+    requestedAt: string | null;
+  } | null>(null);
   const transcriptLifecycleActiveRef = useRef(false);
   const transcriptLifecycleRecordingIdRef = useRef<string | null>(null);
   const transcriptPendingObservedRef = useRef(false);
@@ -1166,7 +1169,7 @@ export default function RecordingPage() {
     : null;
 
   useEffect(() => {
-    activeAiRequestKindRef.current = null;
+    activeAiRequestRef.current = null;
     workflowLifecycleActiveRef.current = false;
     dismissAiRequestToast();
     dismissWorkflowToast();
@@ -1221,11 +1224,26 @@ export default function RecordingPage() {
     if (!kind || !status) return;
 
     if (status === "queued" || status === "working") {
-      activeAiRequestKindRef.current = kind;
+      activeAiRequestRef.current = {
+        kind,
+        requestedAt: aiRequestStatus.requestedAt ?? null,
+      };
       startAiRequestToast(t(aiRequestProgressKey(kind)));
       return;
     }
-    if (activeAiRequestKindRef.current !== kind) return;
+    if (
+      !aiRequestStatus.requestedAt ||
+      activeAiRequestRef.current?.kind !== kind ||
+      activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt
+    ) {
+      return;
+    }
+    if (status === "cancelled") {
+      activeAiRequestRef.current = null;
+      cancelCompletionCue();
+      dismissAiRequestToast();
+      return;
+    }
 
     if (status === "completed") {
       completeAiRequestToast(t(aiRequestCompletionKey(kind)), {
@@ -1243,14 +1261,16 @@ export default function RecordingPage() {
       });
       cancelCompletionCue();
     }
-    activeAiRequestKindRef.current = null;
+    activeAiRequestRef.current = null;
   }, [
     aiRequestStatus?.kind,
     aiRequestStatus?.message,
     aiRequestStatus?.status,
     aiRequestStatus?.updatedAt,
+    aiRequestStatus?.requestedAt,
     cancelCompletionCue,
     completeAiRequestToast,
+    dismissAiRequestToast,
     failAiRequestToast,
     playCompletionCue,
     startAiRequestToast,
@@ -1435,12 +1455,12 @@ export default function RecordingPage() {
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
   const beginAiRequest = (kind: ClipsAiRequestKind) => {
-    activeAiRequestKindRef.current = kind;
+    activeAiRequestRef.current = { kind, requestedAt: null };
     primeCompletionCue();
     startAiRequestToast(t(aiRequestProgressKey(kind)));
   };
   const handleBackgroundAiError = (err: Error) => {
-    activeAiRequestKindRef.current = null;
+    activeAiRequestRef.current = null;
     cancelCompletionCue();
     failAiRequestToast(t("recordingPage.aiRequestFailed"), {
       description: actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
@@ -1484,24 +1504,31 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "regenerate-title";
-        startAiRequestToast(t(aiRequestProgressKey("regenerate-title")));
+        const kind: ClipsAiRequestKind =
+          result?.kind === "generate-metadata"
+            ? "generate-metadata"
+            : "regenerate-title";
+        activeAiRequestRef.current = {
+          kind,
+          requestedAt: result?.requestedAt ?? null,
+        };
+        startAiRequestToast(t(aiRequestProgressKey(kind)));
         void aiRequestStatusQ.refetch();
       }
       setMetadataRefreshUntil(Date.now() + 60_000);
       void playerDataQ.refetch();
       if (result?.updated && result?.queued !== true) {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         completeAiRequestToast(t("recordingPage.titleUpdated"));
         playCompletionCue();
       } else if (result?.reason === "builder_credits_paused") {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         cancelCompletionCue();
         stopAiRequestToast(t("builderCredits.pausedTitle"), {
           description: t("builderCredits.titleDescription"),
         });
       } else if (result?.skipped) {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         cancelCompletionCue();
         stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
           description: t("recordingPage.tryAfterTranscription"),
@@ -1514,18 +1541,21 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "regenerate-summary";
+        activeAiRequestRef.current = {
+          kind: "regenerate-summary",
+          requestedAt: result?.requestedAt ?? null,
+        };
         startAiRequestToast(t(aiRequestProgressKey("regenerate-summary")));
         void aiRequestStatusQ.refetch();
       }
       setMetadataRefreshUntil(Date.now() + 60_000);
       void playerDataQ.refetch();
       if (result?.updated === true) {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         completeAiRequestToast(t("recordingPage.descriptionUpdated"));
         playCompletionCue();
       } else if (result?.skipped === true) {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         cancelCompletionCue();
         stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
           description: t("recordingPage.tryAfterTranscription"),
@@ -1538,7 +1568,10 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "regenerate-chapters";
+        activeAiRequestRef.current = {
+          kind: "regenerate-chapters",
+          requestedAt: result?.requestedAt ?? null,
+        };
         startAiRequestToast(t(aiRequestProgressKey("regenerate-chapters")));
         void aiRequestStatusQ.refetch();
       }
@@ -1549,7 +1582,10 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "remove-filler-words";
+        activeAiRequestRef.current = {
+          kind: "remove-filler-words",
+          requestedAt: result?.requestedAt ?? null,
+        };
         startAiRequestToast(t(aiRequestProgressKey("remove-filler-words")));
         void aiRequestStatusQ.refetch();
       }
@@ -1560,7 +1596,10 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "remove-silences";
+        activeAiRequestRef.current = {
+          kind: "remove-silences",
+          requestedAt: result?.requestedAt ?? null,
+        };
         startAiRequestToast(t(aiRequestProgressKey("remove-silences")));
         void aiRequestStatusQ.refetch();
       }
