@@ -13,7 +13,7 @@ vi.mock("./route-chunk-recovery.js", () => ({
 
 import { AgentNativeI18nProvider } from "./i18n.js";
 import { LazyChunkErrorBoundary } from "./lazy-chunk-error-boundary.js";
-import { LazyChunkRetryFallback } from "./settings/deferred-builder-connect-popover.js";
+import { LazyChunkRetryFallback } from "./lazy-chunk-retry-fallback.js";
 
 const FailingLazy = lazy(() =>
   Promise.reject(new Error("Failed to fetch dynamically imported module")),

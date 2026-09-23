@@ -443,8 +443,9 @@ const editor = {
   pageBodySyncing: "이 페이지의 콘텐츠가 아직 동기화 중입니다",
   pageBodySyncingDescription:
     "기존 콘텐츠를 덮어쓰지 않도록 페이지 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
+  createCollection: "컬렉션 만들기",
   creatingDatabase: "인라인 컬렉션 생성 중...",
-  databaseCreated: "인라인 컬렉션가 생성되었습니다.",
+  databaseCreated: "컬렉션이 생성되었습니다.",
   emptyBlockPlaceholder: "‘/’를 눌러 명령 사용",
   describeWhatToGenerate: "무엇을 생성할지 설명하세요...",
   enterToSubmit: "제출하려면 입력하세요.",
@@ -693,6 +694,10 @@ const editor = {
     collapsibleBlockDescription: "접이식 블록",
     database: "컬렉션",
     databaseDescription: "이 페이지 안의 인라인 컬렉션",
+    collectionInline: "컬렉션 — 인라인",
+    collectionInlineDescription: "이 페이지 안에 컬렉션 추가",
+    collectionFullPage: "컬렉션 — 전체 페이지",
+    collectionFullPageDescription: "하위 컬렉션을 만들고 여기에 연결",
     divider: "분배기",
     dividerDescription: "수평선",
     generate: "생성",
@@ -870,6 +875,7 @@ const rawLiterals = {
     failedRemoveFromRecent: "최근 방문에서 제거하지 못했습니다",
     expandItem: "{{title}} 펼치기",
     database: "컬렉션",
+    collection: "컬렉션",
     databasePermanentlyDeleted: "컬렉션가 영구 삭제되었습니다",
     databaseRestored: "컬렉션가 복원되었습니다",
     deleteDatabaseNamedPermanently: "{{title}} 영구 삭제",
@@ -1227,6 +1233,18 @@ const overrides = {
     labCreativeContext: "크리에이티브 컨텍스트",
     labCreativeContextDescription:
       "Content에서 제어된 참조 컨텍스트를 연결하고 재사용합니다.",
+    labSlashAdvancedCode: "고급 코드 블록",
+    labSlashAdvancedCodeDescription:
+      "슬래시 메뉴에 코드 및 코드 탭 블록을 추가합니다.",
+    labSlashLayouts: "레이아웃 블록",
+    labSlashLayoutsDescription:
+      "슬래시 메뉴에 사용자 지정 HTML 및 탭 블록을 추가합니다.",
+    labSlashVisuals: "시각적 블록",
+    labSlashVisualsDescription:
+      "슬래시 메뉴에 다이어그램, Mermaid 및 와이어프레임 블록을 추가합니다.",
+    labSlashDeveloperDocs: "개발자 문서 블록",
+    labSlashDeveloperDocsDescription:
+      "슬래시 메뉴에 API 및 개발자 문서 블록을 추가합니다.",
   },
   chat: {
     publicEmptyState: "이 문서에 대해 무엇이든 물어보세요",

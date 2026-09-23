@@ -1,11 +1,12 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
-  PromptComposer,
   type PromptComposerSubmitOptions,
   useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
+import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
+import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import { useOrg } from "@agent-native/core/client/org";
 import {
   EmbeddedApp,
@@ -22,7 +23,14 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import { toast } from "sonner";
 
 import {
@@ -58,6 +66,16 @@ import {
 } from "@/components/ui/tooltip";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
+
+const loadPromptComposer = () =>
+  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
+    default: PromptComposer,
+  }));
+const LazyPromptComposer = lazy(loadPromptComposer);
+
+export function preloadPromptComposer() {
+  void loadPromptComposer().catch(() => {});
+}
 
 export interface UploadedFile {
   path: string;
@@ -1000,25 +1018,42 @@ export default function PromptPopover({
         ) : null}
 
         <div className={cn("px-2 pb-2", showStartChoice && "hidden")}>
-          <PromptComposer
-            key={placeholder ?? t("home.describeBuild")}
-            autoFocus
-            attachmentsEnabled
-            disabled={loading || submitting}
-            placeholder={placeholder ?? t("home.describeBuild")}
-            onSubmit={handleSubmit}
-            onAttachmentsChange={handleAttachmentsChange}
-            draftScope={orgScopedDraftScope}
-            initialText={restoredPromptText}
-            initialTextKey={restoredPromptKey}
-            attachButton={
-              <PromptAttachmentMenu
-                disabled={loading || uploading || submitting}
-                onUploadFiles={handleUploadFiles}
-                onPickAsset={() => setAssetsPickerOpen(true)}
+          <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+            <Suspense
+              fallback={
+                <div
+                  aria-busy="true"
+                  className="flex min-h-36 flex-col justify-between gap-3 rounded-md border border-input p-3"
+                >
+                  <Skeleton className="h-16 w-full" />
+                  <div className="flex items-center justify-between gap-2">
+                    <Skeleton className="size-8" />
+                    <Skeleton className="h-8 w-24" />
+                  </div>
+                </div>
+              }
+            >
+              <LazyPromptComposer
+                key={placeholder ?? t("home.describeBuild")}
+                autoFocus
+                attachmentsEnabled
+                disabled={loading || submitting}
+                placeholder={placeholder ?? t("home.describeBuild")}
+                onSubmit={handleSubmit}
+                onAttachmentsChange={handleAttachmentsChange}
+                draftScope={orgScopedDraftScope}
+                initialText={restoredPromptText}
+                initialTextKey={restoredPromptKey}
+                attachButton={
+                  <PromptAttachmentMenu
+                    disabled={loading || uploading || submitting}
+                    onUploadFiles={handleUploadFiles}
+                    onPickAsset={() => setAssetsPickerOpen(true)}
+                  />
+                }
               />
-            }
-          />
+            </Suspense>
+          </LazyChunkErrorBoundary>
         </div>
         {!showStartChoice &&
           (onTemplateChange ||

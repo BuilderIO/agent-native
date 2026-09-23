@@ -449,8 +449,9 @@ const editor = {
   pageBodySyncing: "このページのコンテンツはまだ同期中です",
   pageBodySyncingDescription:
     "既存のコンテンツを上書きしないよう、ページ本文の同期が完了するまで編集は一時停止されます。",
+  createCollection: "コレクションを作成",
   creatingDatabase: "インラインコレクションを作成しています...",
-  databaseCreated: "インラインコレクションが作成されました",
+  databaseCreated: "コレクションが作成されました",
   emptyBlockPlaceholder: "「/」でコマンドを表示",
   describeWhatToGenerate: "何を生成するかを説明します...",
   enterToSubmit: "入力して送信してください",
@@ -699,6 +700,10 @@ const editor = {
     collapsibleBlockDescription: "折りたたみ可能なブロック",
     database: "コレクション",
     databaseDescription: "このページ内のインラインコレクション",
+    collectionInline: "コレクション — インライン",
+    collectionInlineDescription: "このページ内にコレクションを追加",
+    collectionFullPage: "コレクション — フルページ",
+    collectionFullPageDescription: "子コレクションを作成してここにリンク",
     divider: "ディバイダー",
     dividerDescription: "横罫線",
     generate: "生成する",
@@ -876,6 +881,7 @@ const rawLiterals = {
     failedRemoveFromRecent: "最近の閲覧から削除できませんでした",
     expandItem: "{{title}} を展開",
     database: "コレクション",
+    collection: "コレクション",
     databasePermanentlyDeleted: "コレクションを完全に削除しました",
     databaseRestored: "コレクションを復元しました",
     deleteDatabaseNamedPermanently: "{{title}} を完全に削除",
@@ -1240,6 +1246,18 @@ const overrides = {
     labCreativeContext: "クリエイティブコンテキスト",
     labCreativeContextDescription:
       "Content 内で管理された参照コンテキストを接続して再利用します。",
+    labSlashAdvancedCode: "高度なコードブロック",
+    labSlashAdvancedCodeDescription:
+      "スラッシュメニューにコードとコードタブのブロックを追加します。",
+    labSlashLayouts: "レイアウトブロック",
+    labSlashLayoutsDescription:
+      "スラッシュメニューにカスタム HTML とタブのブロックを追加します。",
+    labSlashVisuals: "ビジュアルブロック",
+    labSlashVisualsDescription:
+      "スラッシュメニューに図、Mermaid、ワイヤーフレームのブロックを追加します。",
+    labSlashDeveloperDocs: "開発者向けドキュメントブロック",
+    labSlashDeveloperDocsDescription:
+      "スラッシュメニューに API と開発者向けドキュメントのブロックを追加します。",
   },
   chat: {
     publicEmptyState: "このドキュメントについて何でも聞いてください",

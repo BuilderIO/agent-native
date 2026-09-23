@@ -19,6 +19,7 @@ import {
   getClientForConnectedAccount,
   getConnectedAccountsWithErrors,
   getHeader,
+  invalidateHistoryCacheForAccount,
   invalidateListCacheForOwner,
   isPermanentRefreshError,
   parseAddressList,
@@ -66,6 +67,11 @@ const METADATA_HEADERS = [
   "X-Auto-Response-Suppress",
   "Feedback-ID",
 ];
+
+type SyncStepResult = {
+  status: InboxSyncAccountStatus;
+  changed: boolean;
+};
 
 function boundedErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -307,7 +313,7 @@ async function runFullSyncStep(
   deadline: number,
   claimId: string,
   connectedAccountEmails?: readonly string[],
-): Promise<InboxSyncAccountStatus> {
+): Promise<SyncStepResult> {
   let fullSyncHistoryId = row.fullSyncHistoryId;
   let fullSyncStartedAt = row.fullSyncStartedAt;
   if (fullSyncHistoryId == null) {
@@ -367,7 +373,10 @@ async function runFullSyncStep(
         lastError: null,
         lastSyncedAt: Date.now(),
       });
-      return { accountEmail, state: "ready", lastSyncedAt: Date.now() };
+      return {
+        status: { accountEmail, state: "ready", lastSyncedAt: Date.now() },
+        changed: true,
+      };
     }
   }
 
@@ -377,7 +386,10 @@ async function runFullSyncStep(
     lastError: null,
     lastSyncedAt: Date.now(),
   });
-  return { accountEmail, state: "initial", lastSyncedAt: Date.now() };
+  return {
+    status: { accountEmail, state: "initial", lastSyncedAt: Date.now() },
+    changed: true,
+  };
 }
 
 async function runIncrementalSyncStep(
@@ -388,7 +400,7 @@ async function runIncrementalSyncStep(
   deadline: number,
   claimId: string,
   connectedAccountEmails?: readonly string[],
-): Promise<InboxSyncAccountStatus> {
+): Promise<SyncStepResult> {
   // Gmail's response `historyId` is the mailbox's *current* id, identical on
   // every page, so it is only a safe watermark once every page has been
   // consumed. When the budget runs out mid-way we persist the last processed
@@ -398,6 +410,7 @@ async function runIncrementalSyncStep(
   let lastRecordId: string | null = null;
   let caughtUp = false;
   let currentHistoryId: string | null = null;
+  let changed = false;
   do {
     let history: any;
     try {
@@ -436,8 +449,10 @@ async function runIncrementalSyncStep(
       throw err;
     }
 
+    const records = history.history ?? [];
+    if (records.length > 0) changed = true;
     const threadIds = new Set<string>();
-    for (const record of history.history ?? []) {
+    for (const record of records) {
       if (record?.id != null) lastRecordId = String(record.id);
       for (const bucket of [
         record.messagesAdded,
@@ -483,7 +498,10 @@ async function runIncrementalSyncStep(
       lastError: null,
       lastSyncedAt: Date.now(),
     });
-    return { accountEmail, state: "initial", lastSyncedAt: Date.now() };
+    return {
+      status: { accountEmail, state: "initial", lastSyncedAt: Date.now() },
+      changed,
+    };
   }
 
   await patchProgress(ownerEmail, accountEmail, claimId, {
@@ -491,7 +509,10 @@ async function runIncrementalSyncStep(
     lastError: null,
     lastSyncedAt: Date.now(),
   });
-  return { accountEmail, state: "ready", lastSyncedAt: Date.now() };
+  return {
+    status: { accountEmail, state: "ready", lastSyncedAt: Date.now() },
+    changed,
+  };
 }
 
 async function failAccount(
@@ -504,6 +525,11 @@ async function failAccount(
   const status: SyncAccountRow["status"] = isPermanentRefreshError(raw)
     ? "needs_reauth"
     : "error";
+  // Earlier pages may already have changed the local mirror when a later
+  // Gmail page fails. Do not leave shared provider/list caches describing the
+  // pre-sync mirror while the account is reported as failed.
+  invalidateHistoryCacheForAccount(row.accountEmail);
+  invalidateListCacheForOwner(row.ownerEmail);
   // Fenced: a claim already lost to a newer worker must not stomp its
   // progress with this stale failure. If the fence no-ops, releaseSyncAccount
   // below (also fenced) no-ops too — nothing left to reconcile.
@@ -593,7 +619,7 @@ export async function syncInboxAccount(
       row = { ...row, labels, labelsUpdatedAt };
     }
 
-    const accountStatus =
+    const syncResult =
       row.historyId == null
         ? await runFullSyncStep(
             ownerEmail,
@@ -614,15 +640,19 @@ export async function syncInboxAccount(
             opts?.connectedAccountEmails,
           );
 
+    const accountStatus = syncResult.status;
     const dbStatus: SyncAccountRow["status"] =
       accountStatus.state === "error" || accountStatus.state === "needs_reauth"
         ? accountStatus.state
         : "idle";
-    await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
+    if (syncResult.changed) invalidateHistoryCacheForAccount(accountEmail);
     invalidateListCacheForOwner(ownerEmail);
+    await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
     return accountStatus;
   } catch (err) {
     if (err instanceof SyncClaimLostError) {
+      invalidateHistoryCacheForAccount(accountEmail);
+      invalidateListCacheForOwner(ownerEmail);
       // A newer worker already owns this account's row — this worker's
       // progress is stale by definition, so report "still syncing" and stop
       // quietly rather than calling failAccount (which would stomp the new

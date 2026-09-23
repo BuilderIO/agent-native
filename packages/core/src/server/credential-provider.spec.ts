@@ -2221,6 +2221,48 @@ describe("Builder gateway credential lane", () => {
     );
   });
 
+  it("resolves an owner's org when Builder auth has no selected org", async () => {
+    mockHasBuilderOAuthSession.mockResolvedValue(true);
+    mockGetBuilderOAuthSession.mockResolvedValue({
+      accessToken: "oauth-access-token",
+      scopes: ["builder:ai:invoke"],
+      scope: "org",
+    });
+
+    await expect(
+      resolveBuilderGatewayAuth({
+        userEmail: "owner@example.com",
+        orgId: undefined,
+      }),
+    ).resolves.toMatchObject({
+      authorization: "Bearer oauth-access-token",
+      spaceId: null,
+    });
+    expect(mockHasBuilderOAuthSession).toHaveBeenCalledWith(
+      "owner@example.com",
+      undefined,
+    );
+    expect(mockGetBuilderOAuthSession).toHaveBeenCalledWith(
+      "owner@example.com",
+      undefined,
+      "builder:ai:invoke",
+    );
+  });
+
+  it("does not resolve another org for an explicitly Personal Builder lookup", async () => {
+    mockHasBuilderOAuthSession.mockResolvedValue(false);
+
+    await resolveBuilderGatewayAuth({
+      userEmail: "owner@example.com",
+      orgId: null,
+    });
+
+    expect(mockHasBuilderOAuthSession).toHaveBeenCalledWith(
+      "owner@example.com",
+      null,
+    );
+  });
+
   it("skips the OAuth lookup when the request has no owner email", async () => {
     process.env.BUILDER_PRIVATE_KEY = "bpk-legacy";
     mockGetRequestUserEmail.mockReturnValue(undefined);

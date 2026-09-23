@@ -19,7 +19,6 @@ import {
   IconDots,
   IconFiles,
   IconPin,
-  IconPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -44,11 +43,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   setCachedRecentPinnedState,
   useContentRecent,
@@ -145,8 +139,6 @@ export function PersonalSidebarSections({
   spaceId,
   activeDocumentId,
   onNavigate,
-  onCreatePage,
-  createPagePending = false,
   onToggleFavorite,
   reorderLabels,
   seeAllHrefs,
@@ -157,8 +149,6 @@ export function PersonalSidebarSections({
   spaceId: string;
   activeDocumentId?: string | null;
   onNavigate?: () => void;
-  onCreatePage?: () => void;
-  createPagePending?: boolean;
   onToggleFavorite?: (documentId: string, isFavorite: boolean) => void;
   reorderLabels: SidebarReorderLabels;
   seeAllHrefs: Record<ContentSidebarSectionId, string>;
@@ -292,25 +282,6 @@ export function PersonalSidebarSections({
               labels={labels}
               onChangeVisible={(sectionId, visible) =>
                 change(sectionId, { visible })
-              }
-              action={
-                onCreatePage ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground"
-                        aria-label={t("sidebar.newPage")}
-                        disabled={createPagePending}
-                        onClick={onCreatePage}
-                      >
-                        <IconPlus className="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t("sidebar.newPage")}</TooltipContent>
-                  </Tooltip>
-                ) : null
               }
             >
               {sections.files.expanded ? renderFiles() : null}
@@ -448,7 +419,6 @@ function PersonalSection({
   sections,
   labels,
   onChangeVisible,
-  action,
   children,
 }: {
   id: ContentSidebarSectionId;
@@ -460,8 +430,6 @@ function PersonalSection({
   sections: ContentSidebarSections;
   labels: Record<ContentSidebarSectionId, string>;
   onChangeVisible: (id: "pinned" | "recent", visible: boolean) => void;
-  /** An optional header action shown before the section menu. */
-  action?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
@@ -509,7 +477,6 @@ function PersonalSection({
           </button>
         )}
         <div className="flex items-center gap-0.5">
-          {action}
           {/* The section menu stays quiet until the header is hovered or
               focused; devices without hover always show it. */}
           <div className="flex has-[[data-state=open]]:opacity-100 group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100 [@media(hover:hover)]:opacity-0">
