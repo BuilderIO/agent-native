@@ -425,7 +425,9 @@ describe("useEmails query warming", () => {
     expect(source).toContain('const prefetchKey = ["email-prefetch"');
     expect(source).toContain("EMAIL_PREFETCH_TIMEOUT_MS");
     expect(source).toContain("queryClient.removeQueries");
-    expect(source).toContain("queryKey: prefetchKey");
+    expect(source).toContain(
+      "EMAIL_PREFETCH_TIMEOUT_MS,\n        prefetchKey,",
+    );
     expect(source).toContain("...emailQueryOptions(qc, view, search, label)");
   });
 });

@@ -1214,14 +1214,21 @@ function isRetryableEmailsError(error: unknown): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
+type EmailQueryKey = readonly [
+  "emails" | "email-prefetch",
+  string,
+  string | undefined,
+  string | undefined,
+];
+
 function emailQueryOptions(
   queryClient: QueryClient,
   view: string,
   search?: string,
   label?: string,
   prefetchTimeoutMs?: number,
+  queryKey: EmailQueryKey = ["emails", view, search, label],
 ) {
-  const queryKey = ["emails", view, search, label] as const;
   return {
     queryKey,
     queryFn: async ({
@@ -1303,8 +1310,8 @@ export function prefetchEmails(
         search,
         label,
         EMAIL_PREFETCH_TIMEOUT_MS,
+        prefetchKey,
       ),
-      queryKey: prefetchKey,
     })
     .then(() => {
       const data = queryClient.getQueryData(prefetchKey);

@@ -29,7 +29,7 @@ export function StartCtas({ location }: { location: StartCtaLocation }) {
         href={sitePathForLocale("/docs", locale)}
         className="uppercase"
         onClick={() => {
-          trackEvent("click_get_started", { location });
+          trackEvent("click get started", { location });
           sendAhrefsEvent(`${ahrefsPrefix}_get_started_click`);
         }}
       >
