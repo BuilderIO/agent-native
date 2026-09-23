@@ -1,4 +1,7 @@
-export const DEFAULT_SLIDE_BACKGROUND = "#F5F2EA"; // guard:allow-raw-color - default slide canvas fallback
+// Neutral on purpose. This is the canvas under a slide that has no background
+// of its own and no linked design system; a tinted default reads as a theme
+// the user never chose.
+export const DEFAULT_SLIDE_BACKGROUND = "#FFFFFF"; // guard:allow-raw-color - default slide canvas fallback
 
 // `slide.background` holds either a raw CSS value or a Tailwind arbitrary
 // class (`bg-[...]`), which SlideRenderer applies as a class rather than
