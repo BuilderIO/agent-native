@@ -934,7 +934,12 @@ export async function preloadJevContextForPrompt(options: {
 }): Promise<string> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
-  if (!request || (!apiKey && !options.builderAuth) || options.maxChars === 0) {
+  const personalApiKey = options.personalApiKey?.trim();
+  if (
+    !request ||
+    (!apiKey && !personalApiKey && !options.builderAuth) ||
+    options.maxChars === 0
+  ) {
     return "";
   }
 
@@ -942,7 +947,7 @@ export async function preloadJevContextForPrompt(options: {
   const selectedIds = await rankJevCandidates({
     request,
     apiKey,
-    personalApiKey: options.personalApiKey,
+    personalApiKey,
     builderAuth: options.builderAuth,
     candidates,
     candidateStateKey: "candidate_context",
