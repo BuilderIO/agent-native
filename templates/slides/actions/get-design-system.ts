@@ -3,7 +3,7 @@ import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -70,6 +70,12 @@ async function persistBuilderDocCount(
       and(
         eq(schema.designSystems.id, row.id),
         eq(schema.designSystems.data, row.data),
+        accessFilter(
+          schema.designSystems,
+          schema.designSystemShares,
+          undefined,
+          "editor",
+        ),
       ),
     );
 }
