@@ -75,6 +75,8 @@ export function normalizeLengthValue(
   return trimmed;
 }
 
+const DEFAULT_PAINT_COLOR = "#000000"; // guard:allow-raw-color — valid initial value for an empty solid-paint editor
+
 /**
  * Enter and Escape are the only PropInput keys that manually call `.blur()`
  * after handling themselves (commit-then-blur for Enter, revert-then-blur for
@@ -509,10 +511,13 @@ export function ColorInput({
   const pickerValue = singlePaint
     ? singlePaintGradient
       ? value
-      : draft || value || "#000000"
+      : draft || value || DEFAULT_PAINT_COLOR
     : selectedLayerIndex !== null
-      ? (backgroundLayers[selectedLayerIndex] ?? draft ?? value ?? "#000000")
-      : draft || "#000000";
+      ? (backgroundLayers[selectedLayerIndex] ??
+        draft ??
+        value ??
+        DEFAULT_PAINT_COLOR)
+      : draft || DEFAULT_PAINT_COLOR;
   const selectedBackgroundLayerValue = (layers: string[]): string | undefined =>
     selectedLayerIndex !== null ? layers[selectedLayerIndex] : undefined;
   const handlePaintTypeChange = (type: DesignPaintType) => {
@@ -587,7 +592,7 @@ export function ColorInput({
         return;
       }
       const patch = solidToGradientPatch(
-        draft || value || "#000000",
+        draft || value || DEFAULT_PAINT_COLOR,
         {
           backgroundImage: [],
           backgroundSize: [],

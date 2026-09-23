@@ -10528,6 +10528,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         svgStop.setAttribute(
           "stop-color",
+          // guard:allow-raw-color — serialize the resolved user-selected SVG stop color
           "rgb(" + colorParts.slice(0, 3).join(" ") + ")"
         );
         var alpha = colorParts.length > 3 ? Number(colorParts[3]) : 1;
