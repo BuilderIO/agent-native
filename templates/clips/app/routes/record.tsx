@@ -2112,6 +2112,7 @@ export default function RecordRoute() {
         app_name: "clips",
         template_name: "clips",
         output_id: pendingRef.current?.id,
+        recording_attempt_id: pendingRef.current?.id,
         capture_type:
           recordingMode === "camera"
             ? "camera"
