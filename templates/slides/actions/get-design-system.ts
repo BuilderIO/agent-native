@@ -3,7 +3,7 @@ import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -51,7 +51,7 @@ function truncate(value: string, maxChars: number): string {
 // next call to persist it. Never bumps updatedAt, so a background count
 // refresh doesn't reorder the list.
 async function persistBuilderDocCount(
-  row: { id: string; data: string | null },
+  row: { id: string; ownerEmail: string; data: string | null },
   docCount: number,
 ): Promise<void> {
   if (!row.data) return;
@@ -69,8 +69,8 @@ async function persistBuilderDocCount(
     .where(
       and(
         eq(schema.designSystems.id, row.id),
+        eq(schema.designSystems.ownerEmail, row.ownerEmail),
         eq(schema.designSystems.data, row.data),
-        accessFilter(schema.designSystems, schema.designSystemShares),
       ),
     );
 }

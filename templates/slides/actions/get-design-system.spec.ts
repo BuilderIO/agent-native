@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockHydrateBuilderDesignSystemReference = vi.fn();
 const mockParseBuilderDesignSystemProxyReference = vi.fn();
 const mockResolveAccess = vi.fn();
-const mockAccessFilter = vi.fn();
 const mockWhere = vi.fn();
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
@@ -18,8 +17,6 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: (...args: Parameters<typeof mockAccessFilter>) =>
-    mockAccessFilter(...args),
   resolveAccess: (...args: Parameters<typeof mockResolveAccess>) =>
     mockResolveAccess(...args),
 }));
@@ -27,8 +24,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({ update: mockUpdate }),
   schema: {
-    designSystems: { id: "id", data: "data" },
-    designSystemShares: {},
+    designSystems: { id: "id", ownerEmail: "ownerEmail", data: "data" },
   },
 }));
 
@@ -40,6 +36,7 @@ describe("get-design-system", () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({
@@ -98,7 +95,6 @@ describe("get-design-system", () => {
   it("persists the hydrated docCount onto the row when it changes", async () => {
     await action.run({ id: "builder-ds-1" });
 
-    expect(mockAccessFilter).toHaveBeenCalledTimes(1);
     expect(mockUpdate).toHaveBeenCalledTimes(1);
     expect(mockSet).toHaveBeenCalledWith({
       data: JSON.stringify({
@@ -115,6 +111,7 @@ describe("get-design-system", () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({
