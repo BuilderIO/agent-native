@@ -323,8 +323,35 @@ async function failStoredButUnservableRecording(params: {
         eq(schema.recordings.status, "processing"),
       ),
     )
-    .returning({ id: schema.recordings.id });
+    .returning({
+      id: schema.recordings.id,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+    });
   if (failed.length !== 1) return false;
+  try {
+    track(
+      "clips_upload_blocking_failure",
+      {
+        app: "clips",
+        template: "clips",
+        surface: "media_verification",
+        stage: "media_verification",
+        outcome: "failed",
+        failure_type: "media_verification",
+        failure_code: "media_verification_failed",
+        output_id: id,
+        output_type: "clip",
+        recording_id: id,
+        recording_attempt_id: id,
+        ...(failed[0]?.uploadAttemptId
+          ? { upload_attempt_id: failed[0].uploadAttemptId }
+          : {}),
+      },
+      { userId: ownerEmail },
+    );
+  } catch {
+    // coercion-ok: analytics is best-effort and must not change media recovery behavior.
+  }
   const uploadStateRaw = await readAppState(`recording-upload-${id}`).catch(
     () => null,
   );
@@ -605,6 +632,7 @@ async function markRecordingReady(params: {
   finalHeight: number;
   finalHasAudio: boolean;
   finalHasCamera: boolean;
+  recordingAttemptId?: string | null;
   existingTitle: string;
   // Whether a seekable rewrite (MP4 faststart / WebM Cues remux) was already
   // applied to the uploaded bytes. When false, a best-effort background repair
@@ -623,6 +651,7 @@ async function markRecordingReady(params: {
     finalHeight,
     finalHasAudio,
     finalHasCamera,
+    recordingAttemptId,
     existingTitle,
     seekableApplied,
   } = params;
@@ -716,6 +745,8 @@ async function markRecordingReady(params: {
       template_name: "clips",
       output_id: id,
       output_type: "clip",
+      recording_attempt_id: id,
+      ...(recordingAttemptId ? { upload_attempt_id: recordingAttemptId } : {}),
       duration_s: Math.round(finalDurationMs / 1000),
       video_format: videoFormat,
       has_audio: finalHasAudio,
@@ -864,6 +895,7 @@ async function retryPendingMediaVerification(params: {
   const db = getDb();
   const [recording] = await db
     .select({
+      uploadAttemptId: schema.recordings.uploadAttemptId,
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
       editsJson: schema.recordings.editsJson,
@@ -919,6 +951,7 @@ async function retryPendingMediaVerification(params: {
       finalHeight: candidate.finalHeight,
       finalHasAudio: candidate.finalHasAudio,
       finalHasCamera: candidate.finalHasCamera,
+      recordingAttemptId: recording.uploadAttemptId,
       seekableApplied: candidate.seekableApplied,
     });
     if (result.status === "ready" && result.transitionedToReady) {
@@ -1196,6 +1229,7 @@ export default defineAction({
         finalHeight,
         finalHasAudio,
         finalHasCamera,
+        recordingAttemptId: existing.uploadAttemptId,
         existingTitle: existing.title,
       };
 

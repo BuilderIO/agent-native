@@ -7,7 +7,6 @@ import {
   IconChevronDown,
   IconFileText,
   IconFileTypePdf,
-  IconLoader2,
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
@@ -39,13 +38,9 @@ import {
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
-import {
-  isDesignSystemSelectable,
-  resolveSelectableDesignSystemId,
-} from "@/lib/design-system-selection";
+import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
 import { cn } from "@/lib/utils";
 
-import type { DesignSystemIndexingStatus } from "../../../shared/design-system-validation";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
@@ -82,7 +77,6 @@ interface DesignSystemOption {
   id: string;
   title: string;
   isDefault?: boolean;
-  indexingStatus?: DesignSystemIndexingStatus;
 }
 
 interface NewDeckReferenceStepProps {
@@ -137,9 +131,7 @@ export function NewDeckReferenceStep({
   const t = useT();
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
-  >(() =>
-    resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
-  );
+  >(resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId));
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
@@ -157,6 +149,9 @@ export function NewDeckReferenceStep({
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
+  // True while the picker still reflects an auto-applied default rather than
+  // an explicit user choice, so a default that resolves after this step is
+  // already open can still land - see the hydration effects below.
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
 
@@ -165,14 +160,6 @@ export function NewDeckReferenceStep({
   const selectedReferenceDeck = selectedReferenceDeckId
     ? deckById.get(selectedReferenceDeckId)
     : undefined;
-  const selectedDesignSystem = selectedDesignSystemId
-    ? designSystems.find((ds) => ds.id === selectedDesignSystemId)
-    : undefined;
-  // Selecting one from the list below already disables non-ready rows; this
-  // also covers a system that starts re-indexing after it was selected.
-  const selectedDesignSystemUnavailable = Boolean(
-    selectedDesignSystem && !isDesignSystemSelectable(selectedDesignSystem),
-  );
   const hasSelection = Boolean(
     selectedDesignSystemId ||
     selectedReferenceDeckId ||
@@ -183,7 +170,9 @@ export function NewDeckReferenceStep({
     if (!open) return;
     designSystemAutoRef.current = true;
     referenceDeckAutoRef.current = true;
-    setSelectedDesignSystemId(null);
+    setSelectedDesignSystemId(
+      resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
+    );
     setSelectedReferenceDeckId(defaultReferenceDeckId);
     setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
@@ -235,7 +224,7 @@ export function NewDeckReferenceStep({
   };
 
   const handleContinue = async () => {
-    if (busy || selectedDesignSystemUnavailable || !hasSelection) return;
+    if (busy || !hasSelection) return;
     const trimmedSource =
       selectedSource && selectedSource.value.trim()
         ? { ...selectedSource, value: selectedSource.value.trim() }
@@ -376,38 +365,13 @@ export function NewDeckReferenceStep({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">{t("home.none")}</SelectItem>
-                  {designSystems.map((designSystem) => {
-                    const selectable = isDesignSystemSelectable(designSystem);
-                    return (
-                      <SelectItem
-                        key={designSystem.id}
-                        value={designSystem.id}
-                        disabled={!selectable}
-                      >
-                        <span className="flex items-center gap-1.5">
-                          {designSystem.title}
-                          {designSystem.indexingStatus === "indexing" && (
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                              <IconLoader2 className="size-3 animate-spin" />
-                              {t("home.designSystemIndexing")}
-                            </span>
-                          )}
-                          {designSystem.indexingStatus === "unavailable" && (
-                            <span className="text-xs text-muted-foreground">
-                              ({t("home.designSystemUnavailable")})
-                            </span>
-                          )}
-                        </span>
-                      </SelectItem>
-                    );
-                  })}
+                  {designSystems.map((designSystem) => (
+                    <SelectItem key={designSystem.id} value={designSystem.id}>
+                      {designSystem.title}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {selectedDesignSystemUnavailable && (
-                <p className="text-xs text-amber-500">
-                  {t("home.designSystemIndexingNotice")}
-                </p>
-              )}
             </div>
 
             <div className="grid gap-2">
@@ -644,7 +608,6 @@ export function NewDeckReferenceStep({
           aria-busy={busy}
           disabled={
             busy ||
-            selectedDesignSystemUnavailable ||
             !hasSelection ||
             Boolean(selectedSource && !selectedSource.value.trim())
           }

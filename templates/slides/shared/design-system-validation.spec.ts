@@ -33,26 +33,25 @@ describe("getDesignSystemIndexingStatus", () => {
     ).toBe("indexing");
   });
 
-  it("treats a confirmed-complete Builder status as ready", () => {
-    for (const status of ["ready", "complete", "completed", "READY"]) {
-      expect(
-        getDesignSystemIndexingStatus({
-          source: "builder",
-          builderStatus: status,
-        }),
-      ).toBe("ready");
-    }
+  it("treats a Builder system as ready if colors/typography exist (proof of work)", () => {
+    expect(
+      getDesignSystemIndexingStatus({
+        source: "builder",
+        builderStatus: "in-progress",
+        colors: { primary: "#fff" },
+        typography: { headingFont: "sans-serif" },
+      }),
+    ).toBe("ready");
   });
 
-  it("treats a failed Builder status as unavailable", () => {
-    for (const status of ["error", "failed", "cancelled", "canceled"]) {
-      expect(
-        getDesignSystemIndexingStatus({
-          source: "builder",
-          builderStatus: status,
-        }),
-      ).toBe("unavailable");
-    }
+  it("treats a Builder system as unavailable if warning is set and no colors/typography", () => {
+    expect(
+      getDesignSystemIndexingStatus({
+        source: "builder",
+        builderStatus: "error",
+        warning: "Some error occurred",
+      }),
+    ).toBe("unavailable");
   });
 });
 

@@ -16,7 +16,13 @@ vi.mock("../server/credential-provider.js", () => ({
 }));
 
 import type { EngineTool } from "./engine/types.js";
-import { preloadJevTools, rankJevCandidates } from "./jev-tool-prefetch.js";
+import {
+  isBuilderJevEnabled,
+  isJevEnabled,
+  preloadJevTools,
+  rankJevCandidates,
+  requestJevThroughBuilder,
+} from "./jev-tool-prefetch.js";
 import type { ActionEntry } from "./production-agent.js";
 
 function action(description: string): ActionEntry {
@@ -44,8 +50,14 @@ describe("preloadJevTools", () => {
     systemOne.mockReset();
     typeSafeClient.mockReset();
     typeSafeClient.mockImplementation(
-      class TypeSafeClient {
-        systemOne = systemOne;
+      function TypeSafeClient(this: {
+        handler: typeof systemOne;
+        systemOne: (request: unknown) => unknown;
+      }) {
+        this.handler = systemOne;
+        this.systemOne = function (request: unknown) {
+          return this.handler(request);
+        };
       },
     );
   });
@@ -139,6 +151,7 @@ describe("preloadJevTools", () => {
 
     const result = await preloadJevTools({
       apiKey: "jev-test-key",
+      personalApiKey: "jev-test-key",
       request: "Find the customer and email me the record",
       registry: {
         "send-email": action("Send an email"),
@@ -169,6 +182,7 @@ describe("preloadJevTools", () => {
     const initialTools = [tool("tool-search", "Find tools")];
     const result = await preloadJevTools({
       apiKey: "jev-test-key",
+      personalApiKey: "jev-test-key",
       request: "Search customer records",
       registry: {
         "search-customers": action("Search customer records"),
@@ -243,6 +257,30 @@ describe("preloadJevTools", () => {
     ).toMatchObject({ model: "jev-latest" });
   });
 
+  it("does not use a deployment Jev key without Builder auth", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const initialTools = [tool("tool-search", "Find tools")];
+
+    await expect(
+      preloadJevTools({
+        apiKey: "deployment-jev-key",
+        request: "Find customer records",
+        registry: {
+          "search-customers": action("Search customers"),
+          "list-customers": action("List customers"),
+        },
+        initialTools,
+        availableTools: [
+          ...initialTools,
+          tool("search-customers", "Search customers"),
+          tool("list-customers", "List customers"),
+        ],
+      }),
+    ).resolves.toBe(initialTools);
+    expect(typeSafeClient).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("uses the Builder proxy in production when Builder auth is available", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
     vi.stubGlobal(
@@ -284,6 +322,260 @@ describe("preloadJevTools", () => {
     expect(systemOne).not.toHaveBeenCalled();
   });
 
+  it("does not bypass a Builder Jev denial with a deployment key", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("blocked", { status: 403 })),
+    );
+
+    await expect(
+      rankJevCandidates({
+        request: "Find customer records",
+        apiKey: "deployment-jev-key",
+        builderAuth: { authorization: "Bearer builder-test-token" },
+        candidates: [
+          { id: "search-customers", description: "Search customers" },
+          { id: "list-customers", description: "List customers" },
+        ],
+        candidateStateKey: "candidate_tools",
+        answerKey: "best_tool",
+        question: "Choose the best tool.",
+      }),
+    ).resolves.toEqual([]);
+
+    expect(typeSafeClient).not.toHaveBeenCalled();
+  });
+
+  it("uses an explicitly saved Jev key after a Builder denial", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("blocked", { status: 403 })),
+    );
+    systemOne.mockResolvedValue({
+      answers: { best_tool: { choice: "search-customers" } },
+    });
+
+    await expect(
+      rankJevCandidates({
+        request: "Find customer records",
+        apiKey: "deployment-jev-key",
+        personalApiKey: " personal-jev-key ",
+        builderAuth: { authorization: "Bearer builder-test-token" },
+        candidates: [
+          { id: "search-customers", description: "Search customers" },
+          { id: "list-customers", description: "List customers" },
+        ],
+        candidateStateKey: "candidate_tools",
+        answerKey: "best_tool",
+        question: "Choose the best tool.",
+      }),
+    ).resolves.toEqual(["search-customers"]);
+
+    expect(typeSafeClient).toHaveBeenCalledWith({
+      apiKey: "personal-jev-key",
+      timeout: 750,
+      retry: { maxRetries: 0 },
+    });
+  });
+
+  it("preserves Jev question types through the Builder proxy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            answers: { q_0: { noul: 0.9 } },
+            usage: { input_tokens: 10, output_tokens: 2 },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const request = {
+      model: "jev-latest",
+      state: { emails: [{ id: "message-1" }] },
+      questions: {
+        q_0: {
+          type: "noul",
+          instructions: "Should this email be prioritized?",
+          criteria: { true: "Prioritize", false: "Do not prioritize" },
+        },
+      },
+    };
+
+    await expect(
+      requestJevThroughBuilder(
+        {
+          authorization: "Bearer builder-test-token",
+          spaceId: "builder-space-1",
+          userId: "builder-user-1",
+        },
+        request,
+        { timeoutMs: 12_000 },
+      ),
+    ).resolves.toMatchObject({ answers: { q_0: { noul: 0.9 } } });
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe("https://api.builder.io/agent-native/jev/v1/system-one");
+    const headers = new Headers(init?.headers);
+    expect(headers.get("authorization")).toBe("Bearer builder-test-token");
+    expect(headers.get("x-builder-api-key")).toBe("builder-space-1");
+    expect(headers.get("x-builder-user-id")).toBe("builder-user-1");
+    expect(headers.get("x-client-name")).toBe("@agent-native/core");
+    expect(JSON.parse(init?.body as string)).toEqual(request);
+  });
+
+  it.each([429, 529])(
+    "retries Builder Jev inference once after HTTP %s",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(new Response("busy", { status }))
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify({ answers: { q_0: { noul: 0.9 } } }), {
+              status: 200,
+            }),
+          ),
+      );
+
+      await expect(
+        requestJevThroughBuilder(
+          { authorization: "Bearer builder-test-token" },
+          { model: "jev-latest", state: {}, questions: { q_0: {} } },
+          { timeoutMs: 12_000 },
+        ),
+      ).resolves.toMatchObject({ answers: { q_0: { noul: 0.9 } } });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal).toBe(
+        vi.mocked(fetch).mock.calls[1]?.[1]?.signal,
+      );
+    },
+  );
+
+  it("does not retry Builder Jev inference after the caller aborts", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementationOnce(async () => {
+        controller.abort("cancelled");
+        return new Response("busy", { status: 429 });
+      }),
+    );
+
+    await expect(
+      requestJevThroughBuilder(
+        { authorization: "Bearer builder-test-token" },
+        { model: "jev-latest", state: {}, questions: { q_0: {} } },
+        { signal: controller.signal, timeoutMs: 12_000 },
+      ),
+    ).rejects.toBe("cancelled");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks Builder Jev entitlement without running inference", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ enabled: true }), { status: 200 }),
+        ),
+    );
+    const auth = {
+      authorization: "Bearer builder-test-token",
+      spaceId: "builder-space-1",
+      userId: "builder-user-1",
+    };
+
+    await expect(
+      isJevEnabled({
+        apiKey: undefined,
+        personalApiKey: undefined,
+        builderAuth: auth,
+      }),
+    ).resolves.toBe(true);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.builder.io/agent-native/jev/v1/status",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer builder-test-token",
+          "x-builder-api-key": "builder-space-1",
+          "x-builder-user-id": "builder-user-1",
+        }),
+      }),
+    );
+  });
+
+  it("treats Builder Jev entitlement denial as disabled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("blocked", { status: 403 })),
+    );
+
+    await expect(
+      isBuilderJevEnabled({ authorization: "Bearer builder-test-token" }),
+    ).resolves.toBe(false);
+  });
+
+  it("does not expose Jev features from a deployment key alone", async () => {
+    await expect(
+      isJevEnabled({
+        apiKey: "deployment-jev-key",
+        personalApiKey: undefined,
+        builderAuth: null,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("enables Jev features for a saved personal key", async () => {
+    await expect(
+      isJevEnabled({
+        apiKey: "personal-jev-key",
+        personalApiKey: "personal-jev-key",
+        builderAuth: null,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("does not report Jev disabled when saved-key lookup failed", async () => {
+    await expect(
+      isJevEnabled({
+        apiKey: undefined,
+        personalApiKey: undefined,
+        builderAuth: null,
+        apiKeyLookupFailed: true,
+      }),
+    ).rejects.toThrow(
+      "Could not check Jev credentials or Builder entitlement.",
+    );
+  });
+
+  it("does not report Jev disabled when Builder entitlement lookup failed", async () => {
+    await expect(
+      isJevEnabled({
+        apiKey: undefined,
+        personalApiKey: undefined,
+        builderAuth: null,
+        builderAuthLookupFailed: true,
+      }),
+    ).rejects.toThrow(
+      "Could not check Jev credentials or Builder entitlement.",
+    );
+  });
+
+  it("uses a saved personal key when Builder entitlement lookup failed", async () => {
+    await expect(
+      isJevEnabled({
+        apiKey: "personal-jev-key",
+        personalApiKey: "personal-jev-key",
+        builderAuth: null,
+        builderAuthLookupFailed: true,
+      }),
+    ).resolves.toBe(true);
+  });
+
   it("ranks context candidates from metadata without sending their bodies", async () => {
     systemOne.mockResolvedValue({
       answers: {
@@ -297,6 +589,7 @@ describe("preloadJevTools", () => {
     await expect(
       rankJevCandidates({
         apiKey: "jev-test-key",
+        personalApiKey: "jev-test-key",
         request: "draft a launch email",
         candidates: [
           {
@@ -346,6 +639,7 @@ describe("preloadJevTools", () => {
     await expect(
       rankJevCandidates({
         apiKey: "jev-test-key",
+        personalApiKey: "jev-test-key",
         request: "draft a launch email",
         candidates: [
           { id: "context-0", description: "Brand guidelines" },

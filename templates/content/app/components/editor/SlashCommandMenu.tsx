@@ -1,6 +1,13 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabs } from "@agent-native/core/client/labs";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
+import {
+  CONTENT_SLASH_ADVANCED_CODE,
+  CONTENT_SLASH_DEVELOPER_DOCS,
+  CONTENT_SLASH_LAYOUTS,
+  CONTENT_SLASH_VISUALS,
+} from "@shared/labs";
 import { renderMathToHtml } from "@shared/math-rendering";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
@@ -55,8 +62,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useCreateInlineContentDatabase } from "@/hooks/use-content-database";
+import {
+  contentDatabaseCreationRequest,
+  useCreateContentDatabase,
+  useCreateInlineContentDatabase,
+} from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
+import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
@@ -69,6 +81,7 @@ import { buildRegistrySlashItems } from "./registrySlashItems";
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
+  contentSpaceId?: string;
   /** Restrict the menu to block operations supported by suggestion capture. */
   suggesting?: boolean;
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
@@ -78,7 +91,7 @@ interface SlashCommandMenuProps {
    * registry-derived block slash items are filtered to specs that round-trip to
    * Notion-Flavored Markdown (`spec.notionCompatible`), so authors can't add a
    * structured block that would silently drop on the next Notion push. When
-   * unset (the common case), all registry blocks are offered.
+   * unset (the common case), Content's Labs and authoring policy applies.
    */
   notionPageId?: string | null;
 }
@@ -397,6 +410,55 @@ export function insertInlineDatabaseBlock(
     : chain.insertContent(content).run();
 }
 
+function removeCreatedPageReference(editor: Editor, pageId: string) {
+  let range: { from: number; to: number } | null = null;
+  const attrsJson = JSON.stringify({ id: pageId });
+  editor.state.doc.descendants((node, pos) => {
+    if (
+      node.type.name === "notionBlockAtom" &&
+      node.attrs.tagName === "page" &&
+      node.attrs.attrsJson === attrsJson
+    ) {
+      range = { from: pos, to: pos + node.nodeSize };
+      return false;
+    }
+  });
+  if (range) editor.commands.deleteRange(range);
+}
+
+function removeCreatedInlineCollection(editor: Editor, blockId: string) {
+  let range: { from: number; to: number } | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (
+      node.type.name === "registryBlock" &&
+      node.attrs.blockType === "inline-database" &&
+      node.attrs.blockId === blockId
+    ) {
+      range = { from: pos, to: pos + node.nodeSize };
+      return false;
+    }
+  });
+  if (range) editor.commands.deleteRange(range);
+}
+
+export async function cleanupFailedSlashCreation(
+  removeReference: () => void,
+  trashResource: () => Promise<unknown>,
+): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  try {
+    removeReference();
+  } catch (error) {
+    errors.push(error);
+  }
+  try {
+    await trashResource();
+  } catch (error) {
+    errors.push(error);
+  }
+  return errors;
+}
+
 export function equationNodeContent(latex: string, displayMode: boolean) {
   return displayMode
     ? {
@@ -659,18 +721,22 @@ const turnIntoCommands: CommandTemplate[] = [
 export function SlashCommandMenu({
   editor,
   documentId,
+  contentSpaceId,
   suggesting = false,
   notionPageId,
   onDraftCommitted,
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
+  const labs = useLabs();
   const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
+  const rollbackCreatedSlashDocument = useRollbackCreatedSlashDocument();
   const createInlineDatabase = useCreateInlineContentDatabase(
     documentId ?? null,
   );
+  const createFullPageDatabase = useCreateContentDatabase(null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -800,44 +866,58 @@ export function SlashCommandMenu({
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      let pageId: string;
+      const pageId = crypto.randomUUID();
       try {
-        pageId = await createPage(documentId);
-      } catch {
+        await createPage(documentId, pageId);
+      } catch (error) {
+        try {
+          await rollbackCreatedSlashDocument.mutateAsync({
+            id: pageId,
+            parentId: documentId,
+          });
+        } catch (cleanupError) {
+          toast.error(t("editor.failedToCreatePage"), {
+            description: [error, cleanupError]
+              .map((value) =>
+                value instanceof Error
+                  ? value.message
+                  : t("empty.genericError"),
+              )
+              .join("; "),
+          });
+        }
         return;
       }
-      const pageReference = {
-        type: "notionBlockAtom",
-        attrs: {
-          tagName: "page",
-          attrsJson: JSON.stringify({
-            id: pageId,
-          }),
-          label: "Untitled",
-        },
-      };
-      const insertContent = [pageReference, { type: "paragraph" }];
-      const range = slashRange
-        ? (() => {
-            const $from = editor.state.doc.resolve(slashRange.from);
-            return $from.parent.isTextblock
-              ? { from: $from.before(), to: $from.after() }
-              : slashRange;
-          })()
-        : null;
-
-      if (range) {
-        editor.chain().focus().insertContentAt(range, insertContent).run();
-      } else {
-        const { $from } = editor.state.selection;
-        editor
-          .chain()
-          .focus()
-          .insertContentAt($from.after(), insertContent)
-          .run();
-      }
-      await waitForEditorUpdateFrame();
+      let parentPersisted = false;
       try {
+        const pageReference = {
+          type: "notionBlockAtom",
+          attrs: {
+            tagName: "page",
+            attrsJson: JSON.stringify({ id: pageId }),
+            label: "Untitled",
+          },
+        };
+        const insertContent = [pageReference, { type: "paragraph" }];
+        const range = slashRange
+          ? (() => {
+              const $from = editor.state.doc.resolve(slashRange.from);
+              return $from.parent.isTextblock
+                ? { from: $from.before(), to: $from.after() }
+                : slashRange;
+            })()
+          : null;
+        if (range) {
+          editor.chain().focus().insertContentAt(range, insertContent).run();
+        } else {
+          const { $from } = editor.state.selection;
+          editor
+            .chain()
+            .focus()
+            .insertContentAt($from.after(), insertContent)
+            .run();
+        }
+        await waitForEditorUpdateFrame();
         const content = collapseExactRepeatedNfm(
           docToNfm(editor.getJSON() as any),
           {
@@ -848,12 +928,27 @@ export function SlashCommandMenu({
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
         } else {
-          await onDraftCommitted?.();
+          const committed = await onDraftCommitted?.();
+          if (committed === false) throw new Error(t("empty.genericError"));
         }
+        parentPersisted = true;
       } catch (error) {
+        const cleanupErrors = parentPersisted
+          ? []
+          : await cleanupFailedSlashCreation(
+              () => removeCreatedPageReference(editor, pageId),
+              () =>
+                rollbackCreatedSlashDocument.mutateAsync({
+                  id: pageId,
+                  parentId: documentId,
+                }),
+            );
         toast.error(t("editor.failedToCreatePage"), {
-          description:
-            error instanceof Error ? error.message : t("empty.genericError"),
+          description: [error, ...cleanupErrors]
+            .map((value) =>
+              value instanceof Error ? value.message : t("empty.genericError"),
+            )
+            .join("; "),
         });
         return;
       }
@@ -861,9 +956,10 @@ export function SlashCommandMenu({
     },
   };
 
-  const databaseCommand: CommandItem = {
-    title: t("editor.slash.database"),
-    description: t("editor.slash.databaseDescription"),
+  const inlineCollectionCommand: CommandItem = {
+    title: t("editor.slash.collectionInline"),
+    description: t("editor.slash.collectionInlineDescription"),
+    searchText: "database collection inline",
     icon: IconDatabase,
     preserveSlashRange: true,
     action: async (editor, { slashRange }) => {
@@ -871,16 +967,24 @@ export function SlashCommandMenu({
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      if (slashRange) {
-        editor.chain().focus().deleteRange(slashRange).run();
-      }
       const toastId = toast.loading(t("editor.creatingDatabase"));
+      const createdDocumentId = crypto.randomUUID();
+      const createdOwnerBlockId = `inline-database-${crypto.randomUUID()}`;
+      let createdBlock: CreateInlineDatabaseResponse["block"] | null = null;
+      let parentPersisted = false;
       try {
         const result = await createInlineDatabase.mutateAsync({
           hostDocumentId: documentId,
           title: t("editor.untitledDatabase"),
+          newDocumentId: createdDocumentId,
+          ownerBlockId: createdOwnerBlockId,
         });
-        const inserted = insertInlineDatabaseBlock(editor, result.block);
+        createdBlock = result.block;
+        const inserted = insertInlineDatabaseBlock(
+          editor,
+          result.block,
+          slashRange,
+        );
         if (!inserted) throw new Error(t("empty.genericError"));
         await waitForEditorUpdateFrame();
         const content = collapseExactRepeatedNfm(
@@ -893,14 +997,132 @@ export function SlashCommandMenu({
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
         } else {
-          await onDraftCommitted?.();
+          const committed = await onDraftCommitted?.();
+          if (committed === false) throw new Error(t("empty.genericError"));
         }
+        parentPersisted = true;
         toast.success(t("editor.databaseCreated"), { id: toastId });
       } catch (error) {
+        const blockToCleanup = createdBlock;
+        const cleanupErrors = !parentPersisted
+          ? await cleanupFailedSlashCreation(
+              () =>
+                removeCreatedInlineCollection(
+                  editor,
+                  blockToCleanup?.ownerBlockId ?? createdOwnerBlockId,
+                ),
+              () =>
+                rollbackCreatedSlashDocument.mutateAsync({
+                  id: createdDocumentId,
+                  parentId: documentId,
+                }),
+            )
+          : [];
         toast.error(t("editor.failedToCreateDatabase"), {
           id: toastId,
-          description:
-            error instanceof Error ? error.message : t("empty.genericError"),
+          description: [error, ...cleanupErrors]
+            .map((value) =>
+              value instanceof Error ? value.message : t("empty.genericError"),
+            )
+            .join("; "),
+        });
+      }
+    },
+  };
+
+  const fullPageCollectionCommand: CommandItem = {
+    title: t("editor.slash.collectionFullPage"),
+    description: t("editor.slash.collectionFullPageDescription"),
+    searchText: "database collection full page",
+    icon: IconDatabase,
+    preserveSlashRange: true,
+    action: async (editor, { slashRange }) => {
+      if (!documentId) {
+        toast.error(t("editor.noDocumentSelected"));
+        return;
+      }
+      const toastId = toast.loading(t("editor.creatingDatabase"));
+      let createdPageId: string | null = null;
+      let parentPersisted = false;
+      try {
+        const newDocumentId = crypto.randomUUID();
+        const request = contentDatabaseCreationRequest({
+          newDocumentId,
+          parentId: documentId,
+          spaceId: contentSpaceId,
+          title: t("editor.untitledDatabase"),
+        });
+        createdPageId = newDocumentId;
+        const result = await createFullPageDatabase
+          .mutateAsync(request)
+          .catch(() => createFullPageDatabase.mutateAsync(request));
+        const pageId = result.database.documentId;
+        createdPageId = pageId;
+        const pageReference = {
+          type: "notionBlockAtom",
+          attrs: {
+            tagName: "page",
+            attrsJson: JSON.stringify({ id: pageId }),
+            label: t("editor.untitledDatabase"),
+          },
+        };
+        const insertContent = [pageReference, { type: "paragraph" }];
+        const range = slashRange
+          ? (() => {
+              const $from = editor.state.doc.resolve(slashRange.from);
+              return $from.parent.isTextblock
+                ? { from: $from.before(), to: $from.after() }
+                : slashRange;
+            })()
+          : null;
+        if (range) {
+          editor.chain().focus().insertContentAt(range, insertContent).run();
+        } else {
+          const { $from } = editor.state.selection;
+          editor
+            .chain()
+            .focus()
+            .insertContentAt($from.after(), insertContent)
+            .run();
+        }
+        await waitForEditorUpdateFrame();
+        const content = collapseExactRepeatedNfm(
+          docToNfm(editor.getJSON() as any),
+          { requiredText: `id="${pageId}"` },
+        );
+        if (onDraftPersisted) {
+          const persisted = await onDraftPersisted(content);
+          if (!persisted) throw new Error(t("empty.genericError"));
+        } else {
+          const committed = await onDraftCommitted?.();
+          if (committed === false) throw new Error(t("empty.genericError"));
+        }
+        parentPersisted = true;
+        toast.success(t("editor.databaseCreated"), { id: toastId });
+        navigate(`/page/${pageId}`, { flushSync: true });
+      } catch (error) {
+        const pageIdToCleanup = createdPageId;
+        const cleanupErrors =
+          pageIdToCleanup && !parentPersisted
+            ? await cleanupFailedSlashCreation(
+                () => {
+                  if (createdPageId)
+                    removeCreatedPageReference(editor, createdPageId);
+                },
+                () =>
+                  rollbackCreatedSlashDocument.mutateAsync({
+                    id: pageIdToCleanup,
+                    parentId: documentId,
+                  }),
+              )
+            : [];
+        toast.error(t("editor.failedToCreateDatabase"), {
+          id: toastId,
+          description: [error, ...cleanupErrors]
+            .map((value) =>
+              value instanceof Error ? value.message : t("empty.genericError"),
+            )
+            .join("; "),
         });
       }
     },
@@ -990,8 +1212,14 @@ export function SlashCommandMenu({
         ? []
         : (buildRegistrySlashItems(contentBlockRegistry, {
             notionCompatibleOnly: !!notionPageId,
+            policy: {
+              advancedCode: labs[CONTENT_SLASH_ADVANCED_CODE.key] === true,
+              layouts: labs[CONTENT_SLASH_LAYOUTS.key] === true,
+              visuals: labs[CONTENT_SLASH_VISUALS.key] === true,
+              developerDocs: labs[CONTENT_SLASH_DEVELOPER_DOCS.key] === true,
+            },
           }) as unknown as CommandItem[]),
-    [isTurnInto, notionPageId],
+    [isTurnInto, labs, notionPageId],
   );
   const localComponentCommands = useMemo<CommandItem[]>(
     () =>
@@ -1017,7 +1245,9 @@ export function SlashCommandMenu({
     blockCommands,
     registryCommands,
   );
-  const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
+  const pageCommands = isTurnInto
+    ? []
+    : [pageCommand, inlineCollectionCommand, fullPageCollectionCommand];
   const mediaCommands = isTurnInto
     ? []
     : [imageCommand, videoCommand, audioCommand];
