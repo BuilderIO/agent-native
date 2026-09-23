@@ -3,10 +3,7 @@ import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
-import {
-  readDeployCredentialEnv,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
 
 export interface AutomationModelSettings {
@@ -67,13 +64,6 @@ async function resolveEngineDefaultModel(
 export async function resolveDefaultAutomationModel(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
-  if (readDeployCredentialEnv("TYPESAFE_API_KEY")) {
-    return {
-      engine: TYPESAFE_AUTOMATION_ENGINE,
-      model: TYPESAFE_AUTOMATION_MODEL,
-    };
-  }
-
   for (const candidate of CHEAP_MODEL_CANDIDATES) {
     if (
       candidate.engine &&

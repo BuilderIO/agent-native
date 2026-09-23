@@ -18,9 +18,19 @@ vi.mock("../server/request-context.js", () => ({
   getRequestOrgId: () => mockGetRequestOrgId(),
   getRequestUserEmail: () => undefined,
 }));
+vi.mock("../server/credential-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/credential-provider.js")
+  >()),
+  resolveBuilderGatewayAuth: async () => null,
+}));
 
 import { resetOptionalKeyCache } from "../secrets/optional-key-cache.js";
-import { getOwnerApiKey, getOwnerJevApiKey } from "./production-agent.js";
+import {
+  getJevContextCredentials,
+  getOwnerApiKey,
+  getOwnerJevApiKey,
+} from "./production-agent.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -136,6 +146,34 @@ describe("getOwnerApiKey", () => {
     await expect(getOwnerJevApiKey("owner@example.com")).resolves.toBe(
       "deployment-jev-key",
     );
+  });
+
+  it("keeps a scoped Jev key distinct from the deployment fallback", async () => {
+    mockReadAppSecret.mockResolvedValueOnce({
+      value: "user-jev-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
+
+    await expect(
+      getJevContextCredentials("owner@example.com"),
+    ).resolves.toEqual({
+      apiKey: "user-jev-key",
+      personalApiKey: "user-jev-key",
+      builderAuth: null,
+    });
+
+    resetOptionalKeyCache();
+    vi.stubEnv("JEV_API_KEY", "deployment-jev-key");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    await expect(
+      getJevContextCredentials("owner@example.com"),
+    ).resolves.toEqual({
+      apiKey: "deployment-jev-key",
+      personalApiKey: undefined,
+      builderAuth: null,
+    });
   });
 
   it("does not use a deployment Jev key when scoped lookup fails", async () => {

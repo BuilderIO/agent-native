@@ -115,6 +115,17 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("falls back from Priority sort when Jev availability cannot be checked", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      'navCommand.sort === "priority" &&\n      jevAvailability.isLoading',
+    );
+    expect(source).toContain(
+      'setSortMode(jevConfigured ? "priority" : "newest")',
+    );
+  });
+
   it("normalizes hidden combined-inbox triage routes", () => {
     const source = inboxSource();
 
@@ -312,7 +323,7 @@ describe("Inbox pagination", () => {
     // Priority preloads its bounded evaluation window; other routes start
     // from the newly-active tab's page 0.
     expect(source).toContain(
-      "  }, [activeAccounts, isInboxView, resolvedInboxTab, sortMode]);",
+      "  }, [activeAccounts, isInboxView, jevConfigured, resolvedInboxTab, sortMode]);",
     );
   });
 

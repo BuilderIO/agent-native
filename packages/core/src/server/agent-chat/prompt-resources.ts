@@ -927,6 +927,7 @@ async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
 export async function preloadJevContextForPrompt(options: {
   request: string;
   apiKey?: string;
+  personalApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   compact?: boolean;
   maxChars?: number;
@@ -941,6 +942,7 @@ export async function preloadJevContextForPrompt(options: {
   const selectedIds = await rankJevCandidates({
     request,
     apiKey,
+    personalApiKey: options.personalApiKey,
     builderAuth: options.builderAuth,
     candidates,
     candidateStateKey: "candidate_context",
