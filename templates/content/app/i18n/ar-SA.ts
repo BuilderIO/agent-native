@@ -993,6 +993,13 @@ const exactEnglish = {
     },
     toolbar: {
       info: "معلومات",
+      copyLink: "نسخ الرابط",
+      copyForPeople: "نسخ للأشخاص",
+      copyForAgents: "نسخ للوكلاء",
+      copiedAgentPrompt: "تم نسخ تعليمات الوكيل",
+      couldNotCopyAgentPrompt: "تعذر نسخ تعليمات الوكيل",
+      agentPrompt:
+        'اقرأ مستند Content هذا: {{documentUrl}}\n\nاستخدم اتصال Content MCP متاحًا لـ {{mcpUrl}} لاستدعاء get-document بالمعرّف "{{documentId}}". يمكن أيضًا قراءة الصفحة المتاحة للعامة مباشرةً.\n\nإذا لزم الوصول بالمصادقة وكان Content MCP غير متاح أو تم تسجيل الخروج منه، فاطلب مني توصيله والمصادقة. إعداد الاتصال: {{connectUrl}}. الدليل الرسمي: {{docsUrl}}\n\nبعد أن أؤكد جاهزية الاتصال، أعد محاولة القراءة باستخدام الأذونات الحالية لحسابي. إذا رُفضت القراءة بالمصادقة، فأخبرني بهذه النتيجة.',
       closeUtilityPanel: "إغلاق اللوحة",
       exportCsv: "تصدير CSV",
       exportDatabase: "تصدير المجموعة",

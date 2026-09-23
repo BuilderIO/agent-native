@@ -747,6 +747,13 @@ const editorToolbarMessages = {
     "Connect a Notion workspace to link this document.",
   copiedPageLink: "Copied page link",
   copyPageLink: "Copy page link",
+  copyLink: "Copy link",
+  copyForPeople: "Copy for people",
+  copyForAgents: "Copy for agents",
+  copiedAgentPrompt: "Agent prompt copied",
+  couldNotCopyAgentPrompt: "Could not copy agent prompt",
+  agentPrompt:
+    'Read this Content document: {{documentUrl}}\n\nUse an available Content MCP connection for {{mcpUrl}} to call get-document with id "{{documentId}}". A publicly readable page can also be read directly.\n\nIf authenticated access is needed and Content MCP is unavailable or signed out, ask me to connect it and authenticate. Connection setup: {{connectUrl}}. Official guide: {{docsUrl}}\n\nAfter I confirm the connection is ready, retry the read using my account\'s existing permissions. If the authenticated read is denied, tell me that result.',
   couldNotCopyLink: "Could not copy link",
   clipboardAccessUnavailable:
     "Clipboard access is not available in this browser.",

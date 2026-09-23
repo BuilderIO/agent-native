@@ -782,6 +782,13 @@ const overrides = {
     },
     toolbar: {
       suggestEdits: "建議修改",
+      copyLink: "複製連結",
+      copyForPeople: "複製給其他人",
+      copyForAgents: "複製給代理程式",
+      copiedAgentPrompt: "已複製代理程式指示",
+      couldNotCopyAgentPrompt: "無法複製代理程式指示",
+      agentPrompt:
+        '請閱讀此 Content 文件：{{documentUrl}}\n\n使用適用於 {{mcpUrl}} 的可用 Content MCP 連線，以 ID "{{documentId}}" 呼叫 get-document。公開可讀的頁面也可以直接讀取。\n\n如果需要驗證身分才能存取，而 Content MCP 無法使用或已登出，請要求我連線並完成驗證。連線設定：{{connectUrl}}。官方指南：{{docsUrl}}\n\n在我確認連線準備就緒後，請使用我帳戶現有的權限重試讀取。如果驗證後的讀取遭到拒絕，請告訴我這個結果。',
       suggesting: "建議中",
       stopSuggesting: "停止建議",
       undo: "復原",

@@ -131,6 +131,7 @@ import {
   useSearchNotionPages,
   useCreateAndLinkNotionPage,
 } from "@/hooks/use-notion";
+import { contentAgentPromptValues } from "@/lib/content-agent-prompt";
 import { documentQueryFilter } from "@/lib/document-query";
 import {
   localSourceAbsolutePath,
@@ -783,6 +784,29 @@ export function DocumentToolbar({
     toast.success(t("editor.toolbar.copiedPageLink"));
   }, [copyPageUrl, documentId, isLocalFileDocument, t]);
 
+  const handleCopyAgentPrompt = useCallback(async () => {
+    const prompt = t(
+      "editor.toolbar.agentPrompt",
+      contentAgentPromptValues({
+        documentId,
+        origin: window.location.origin,
+        basePath: appPath("/"),
+      }),
+    );
+    if (!(await writeClipboardText(prompt))) {
+      toast.error(t("editor.toolbar.couldNotCopyAgentPrompt"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+      return;
+    }
+    trackEvent("share_link_copied", {
+      resource_type: "document",
+      resource_id: documentId,
+      link_type: "agent_prompt",
+    });
+    toast.success(t("editor.toolbar.copiedAgentPrompt"));
+  }, [documentId, t]);
+
   const handleRevealLocalPath = useCallback(async () => {
     try {
       const result = await revealLinkedLocalSourceFile(source);
@@ -1113,6 +1137,50 @@ export function DocumentToolbar({
             </Suspense>
           )}
 
+          {isLocalFileDocument ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={t("editor.toolbar.copyLink")}
+                  onClick={() => void handleCopyPageLink()}
+                >
+                  <IconLink size={18} aria-hidden="true" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("editor.toolbar.copyLink")}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <DropdownMenu modal={false}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t("editor.toolbar.copyLink")}
+                    >
+                      <IconLink size={18} aria-hidden="true" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t("editor.toolbar.copyLink")}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent
+                align="end"
+                data-database-preview-portal={compact ? "" : undefined}
+              >
+                <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
+                  {t("editor.toolbar.copyForPeople")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handleCopyAgentPrompt()}>
+                  {t("editor.toolbar.copyForAgents")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           {suggesting ? (
             <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
               <IconPencil aria-hidden="true" className="size-3.5" />
@@ -1232,10 +1300,6 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
-                  <IconLink className="me-2 h-4 w-4" />
-                  {t("editor.toolbar.copyPageLink")}
-                </DropdownMenuItem>
                 {onToggleFavorite ? (
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}

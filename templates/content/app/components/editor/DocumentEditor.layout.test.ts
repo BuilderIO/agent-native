@@ -1413,7 +1413,9 @@ describe("document editor layout", () => {
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
-    expect(source).toContain("editor.toolbar.copyPageLink");
+    expect(source).toContain("editor.toolbar.copyLink");
+    expect(source).toContain("editor.toolbar.copyForPeople");
+    expect(source).toContain("editor.toolbar.copyForAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
     expect(source).toContain("showCommentsControl ?");

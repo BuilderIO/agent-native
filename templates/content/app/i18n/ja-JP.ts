@@ -1002,6 +1002,13 @@ const exactEnglish = {
     },
     toolbar: {
       info: "情報",
+      copyLink: "リンクをコピー",
+      copyForPeople: "人向けにコピー",
+      copyForAgents: "エージェント向けにコピー",
+      copiedAgentPrompt: "エージェント用指示をコピーしました",
+      couldNotCopyAgentPrompt: "エージェント用指示をコピーできませんでした",
+      agentPrompt:
+        'この Content ドキュメントを読んでください: {{documentUrl}}\n\n{{mcpUrl}} に利用可能な Content MCP 接続を使い、ID "{{documentId}}" で get-document を呼び出してください。公開されているページは直接読むこともできます。\n\n認証が必要で、Content MCP が利用できないかサインアウトしている場合は、接続して認証するよう私に依頼してください。接続の設定: {{connectUrl}}。公式ガイド: {{docsUrl}}\n\n接続の準備ができたと私が確認したら、私のアカウントの既存の権限を使って再度読み込んでください。認証後の読み込みが拒否された場合は、その結果を教えてください。',
       closeUtilityPanel: "パネルを閉じる",
       exportCsv: "CSV をエクスポート",
       exportDatabase: "コレクションをエクスポート",

@@ -1032,6 +1032,13 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informationen",
+      copyLink: "Link kopieren",
+      copyForPeople: "Für Personen kopieren",
+      copyForAgents: "Für Agenten kopieren",
+      copiedAgentPrompt: "Agenten-Anweisung kopiert",
+      couldNotCopyAgentPrompt: "Agenten-Anweisung konnte nicht kopiert werden",
+      agentPrompt:
+        'Lies dieses Content-Dokument: {{documentUrl}}\n\nNutze eine verfügbare Content-MCP-Verbindung für {{mcpUrl}}, um get-document mit der ID "{{documentId}}" aufzurufen. Eine öffentlich lesbare Seite kann auch direkt gelesen werden.\n\nFalls authentifizierter Zugriff nötig ist und Content MCP nicht verfügbar oder abgemeldet ist, bitte mich, die Verbindung herzustellen und mich anzumelden. Verbindung einrichten: {{connectUrl}}. Offizielle Anleitung: {{docsUrl}}\n\nNachdem ich bestätigt habe, dass die Verbindung bereit ist, versuche erneut, das Dokument mit den bestehenden Berechtigungen meines Kontos zu lesen. Wenn der authentifizierte Lesezugriff verweigert wird, teile mir dieses Ergebnis mit.',
       closeUtilityPanel: "Bereich schließen",
       exportCsv: "Als CSV exportieren",
       exportDatabase: "Sammlung exportieren",

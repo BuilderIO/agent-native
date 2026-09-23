@@ -1083,6 +1083,13 @@ const exactEnglish = {
     },
     toolbar: {
       info: "信息",
+      copyLink: "复制链接",
+      copyForPeople: "复制给他人",
+      copyForAgents: "复制给智能体",
+      copiedAgentPrompt: "已复制智能体指令",
+      couldNotCopyAgentPrompt: "无法复制智能体指令",
+      agentPrompt:
+        '请阅读此 Content 文档：{{documentUrl}}\n\n使用适用于 {{mcpUrl}} 的可用 Content MCP 连接，以 ID "{{documentId}}" 调用 get-document。也可以直接读取公开可访问的页面。\n\n如果需要经过身份验证的访问，而 Content MCP 不可用或已退出登录，请让我连接并完成身份验证。连接设置：{{connectUrl}}。官方指南：{{docsUrl}}\n\n在我确认连接已就绪后，请使用我的账户现有权限重新尝试读取。如果经过身份验证的读取被拒绝，请告诉我这一结果。',
       closeUtilityPanel: "关闭面板",
       exportCsv: "导出 CSV",
       exportDatabase: "导出集合",

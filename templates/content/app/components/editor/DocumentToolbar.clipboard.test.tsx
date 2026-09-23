@@ -94,9 +94,9 @@ describe("DocumentToolbar clipboard behavior", () => {
     vi.unstubAllGlobals();
   });
 
-  async function copyPageLink() {
+  async function copyFromLinkMenu(label: string) {
     const trigger = container.querySelector<HTMLButtonElement>(
-      '[aria-label="editor.toolbar.morePageActions"]',
+      '[aria-label="editor.toolbar.copyLink"]',
     );
     expect(trigger).not.toBeNull();
     await act(async () => {
@@ -111,9 +111,7 @@ describe("DocumentToolbar clipboard behavior", () => {
 
     const item = Array.from(
       document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((candidate) =>
-      candidate.textContent?.includes("editor.toolbar.copyPageLink"),
-    );
+    ).find((candidate) => candidate.textContent?.includes(label));
     expect(item).not.toBeUndefined();
     await act(async () => item!.click());
   }
@@ -121,7 +119,7 @@ describe("DocumentToolbar clipboard behavior", () => {
   it("copies the canonical page URL before reporting success", async () => {
     mocks.copy.mockResolvedValue(true);
 
-    await copyPageLink();
+    await copyFromLinkMenu("editor.toolbar.copyForPeople");
 
     expect(mocks.copy).toHaveBeenCalledWith(
       `${window.location.origin}${appPath("/p/clipboard-fixture")}`,
@@ -138,7 +136,7 @@ describe("DocumentToolbar clipboard behavior", () => {
   it("reports failure without a success toast or analytics", async () => {
     mocks.copy.mockResolvedValue(false);
 
-    await copyPageLink();
+    await copyFromLinkMenu("editor.toolbar.copyForPeople");
 
     expect(mocks.error).toHaveBeenCalledWith(
       "editor.toolbar.couldNotCopyLink",
@@ -146,5 +144,72 @@ describe("DocumentToolbar clipboard behavior", () => {
     );
     expect(mocks.success).not.toHaveBeenCalled();
     expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("copies an agent request without creating a share grant", async () => {
+    mocks.copy.mockResolvedValue(true);
+
+    await copyFromLinkMenu("editor.toolbar.copyForAgents");
+
+    expect(mocks.copy).toHaveBeenCalledWith("editor.toolbar.agentPrompt");
+    expect(mocks.success).toHaveBeenCalledWith(
+      "editor.toolbar.copiedAgentPrompt",
+    );
+    expect(mocks.track).toHaveBeenCalledWith("share_link_copied", {
+      resource_type: "document",
+      resource_id: "clipboard-fixture",
+      link_type: "agent_prompt",
+    });
+  });
+
+  it("does not report an agent copy when clipboard access fails", async () => {
+    mocks.copy.mockResolvedValue(false);
+
+    await copyFromLinkMenu("editor.toolbar.copyForAgents");
+
+    expect(mocks.error).toHaveBeenCalledWith(
+      "editor.toolbar.couldNotCopyAgentPrompt",
+      { description: "editor.toolbar.clipboardAccessUnavailable" },
+    );
+    expect(mocks.success).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("keeps local-file documents on their local page link", async () => {
+    mocks.copy.mockResolvedValue(true);
+    await act(async () => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          null,
+          createElement(
+            TooltipProvider,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(DocumentToolbar, {
+                documentId: "clipboard-fixture",
+                source: { mode: "local-files", path: "notes/example.md" },
+                utilityPanel: null,
+                onUtilityPanelChange: () => {},
+              }),
+            ),
+          ),
+        ),
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.copyLink"]',
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger!.click());
+
+    expect(mocks.copy).toHaveBeenCalledWith(
+      `${window.location.origin}${appPath("/page/clipboard-fixture")}`,
+    );
+    expect(mocks.track).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[role="menuitem"]')).toBeNull();
   });
 });

@@ -995,6 +995,13 @@ const exactEnglish = {
     },
     toolbar: {
       info: "정보",
+      copyLink: "링크 복사",
+      copyForPeople: "사람용으로 복사",
+      copyForAgents: "에이전트용으로 복사",
+      copiedAgentPrompt: "에이전트 지침을 복사했습니다",
+      couldNotCopyAgentPrompt: "에이전트 지침을 복사할 수 없습니다",
+      agentPrompt:
+        '이 Content 문서를 읽어 주세요: {{documentUrl}}\n\n{{mcpUrl}}에 사용할 수 있는 Content MCP 연결로 ID "{{documentId}}"를 지정해 get-document를 호출하세요. 공개적으로 읽을 수 있는 페이지는 직접 읽어도 됩니다.\n\n인증된 액세스가 필요한데 Content MCP를 사용할 수 없거나 로그아웃된 상태라면, 연결하고 인증하도록 저에게 요청하세요. 연결 설정: {{connectUrl}}. 공식 가이드: {{docsUrl}}\n\n연결이 준비되었다고 제가 확인하면 제 계정의 기존 권한으로 다시 읽어 보세요. 인증된 읽기가 거부되면 그 결과를 알려 주세요.',
       closeUtilityPanel: "패널 닫기",
       exportCsv: "CSV 내보내기",
       exportDatabase: "컬렉션 내보내기",
