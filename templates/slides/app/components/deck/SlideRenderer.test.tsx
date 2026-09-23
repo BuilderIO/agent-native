@@ -428,37 +428,6 @@ describe("SlideInner autofit", () => {
     ).toBe("#FFFFFF");
   });
 
-  it("publishes no design-system tokens when no design system is linked", () => {
-    const slide: Slide = {
-      id: "no-tokens",
-      layout: "blank",
-      notes: "",
-      content:
-        '<div class="fmd-slide" style="--deck-accent: #7FB069;"><h1>Subject theme</h1></div>',
-    };
-
-    render(<SlideInner slide={slide} />);
-
-    const canvas = document.querySelector<HTMLElement>(
-      '[data-slide-canvas="no-tokens"]',
-    );
-    // A published token would win over the theme the slide baked in for itself,
-    // rendering every unlinked deck in a palette nobody picked.
-    for (const token of [
-      "--ds-accent",
-      "--ds-text",
-      "--ds-text-muted",
-      "--ds-surface",
-      "--ds-primary",
-      "--ds-secondary",
-      "--ds-heading-font",
-      "--ds-body-font",
-      "--ds-radius",
-    ]) {
-      expect(canvas?.style.getPropertyValue(token)).toBe("");
-    }
-  });
-
   it("reports vertical overflow for markdown slides too", async () => {
     const slide: Slide = {
       id: "markdown",

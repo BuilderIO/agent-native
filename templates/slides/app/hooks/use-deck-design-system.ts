@@ -85,10 +85,9 @@ export interface DeckDesignSystemResult {
   isLoading: boolean;
 }
 
-// A deck with no linked system renders the theme baked into its own slide
-// HTML. Substituting a stock palette here would publish `--ds-*` values the
-// slide's `var(--ds-bg, ...)` fallbacks can never override, so "no design
-// system" would silently render as one nobody picked.
+// Returning a stock palette for an unlinked deck publishes `--ds-*` values the
+// slide's own `var(--ds-*, ...)` fallbacks can never override, so "no design
+// system" renders as one nobody picked.
 export function resolveDeckDesignSystem(
   designSystemId: string | null | undefined,
   data: { title?: string | null; data?: string } | undefined,

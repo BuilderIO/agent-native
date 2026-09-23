@@ -244,9 +244,8 @@ function standaloneDesignSystemVars(
     builderTokenValues,
   );
   const darkBackground = isDarkStandaloneBackground(safeBackground);
-  // Mirrors SlideRenderer: publish a token only when a design system actually
-  // supplies it, so an unlinked deck keeps the theme baked into its slide HTML
-  // instead of inheriting a palette nobody chose.
+  // Must match SlideRenderer: publishing a token an unlinked deck never chose
+  // overrides the theme baked into its slide HTML.
   const token = (name: string, value: unknown): string | null => {
     if (typeof value !== "string" || !value.trim()) return null;
     const resolved = safeCssToken(value, "", builderTokenValues);

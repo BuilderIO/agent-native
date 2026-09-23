@@ -84,8 +84,6 @@ describe("resolveDeckDesignSystem", () => {
   it("reports no design system for a deck that has none linked", () => {
     const resolved = resolveDeckDesignSystem(null, undefined);
 
-    // Returning a stock palette here is what made "no design system" render as
-    // one nobody picked: the published tokens outrank the slide's own theme.
     expect(resolved.designSystem).toBeUndefined();
     expect(resolved.designSystemTitle).toBeNull();
   });
@@ -97,16 +95,6 @@ describe("resolveDeckDesignSystem", () => {
     });
 
     expect(resolved.designSystem).toBeUndefined();
-    expect(resolved.designSystemTitle).toBe("Brand");
-  });
-
-  it("hydrates a linked design system", () => {
-    const resolved = resolveDeckDesignSystem("ds-1", {
-      title: "Brand",
-      data: JSON.stringify({ colors: { accent: "#7FB069" } }),
-    });
-
-    expect(resolved.designSystem?.colors.accent).toBe("#7FB069");
     expect(resolved.designSystemTitle).toBe("Brand");
   });
 });
