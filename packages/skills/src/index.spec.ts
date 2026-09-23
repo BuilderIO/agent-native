@@ -226,8 +226,6 @@ describe("@agent-native/skills", () => {
     const project = tmpDir();
     writeSkill(repo, "quick-recap");
     writeSkill(repo, "efficient-fable");
-    writeSkill(repo, "factory", "Body", "factory");
-    writeSkill(repo, "factory-review-prs", "Body", "factory");
     const stdout: string[] = [];
     vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
       stdout.push(String(chunk));
@@ -301,6 +299,8 @@ describe("@agent-native/skills", () => {
     const project = tmpDir();
     writeSkill(repo, "quick-recap");
     writeSkill(repo, "efficient-fable");
+    writeSkill(repo, "factory", "Body", "factory");
+    writeSkill(repo, "factory-review-prs", "Body", "factory");
     let skillContext: SkillsPromptContext | undefined;
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
