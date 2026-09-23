@@ -2324,10 +2324,8 @@ export default function DeckEditor() {
       accessCheckKey: currentDeckAccessKey,
       checkedAccessKey: checkedDeckAccessKey,
       retrying: retryingMissingDeck,
-      privateDeckAccessConfirmed: Boolean(
-        deckAccessStatus?.exists &&
-        !deckAccessStatus.hasAccess &&
-        deckAccessStatus.visibility === "private",
+      deckAccessDeniedConfirmed: Boolean(
+        deckAccessStatus?.exists && !deckAccessStatus.hasAccess,
       ),
     })
   ) {

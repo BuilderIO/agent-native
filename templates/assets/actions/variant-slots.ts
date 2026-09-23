@@ -177,6 +177,36 @@ export async function readVariantState(
   return withVariantStateLock(() => readVariantStateUnlocked(scopeId));
 }
 
+export async function failMissingVariantRun(input: {
+  runId: string;
+  libraryId: string;
+  scopeId?: string | null;
+  staleBefore: number;
+  error: string;
+}): Promise<boolean> {
+  return withVariantStateLock(async () => {
+    const state = await readVariantStateUnlocked(input.scopeId);
+    if (!state || state.libraryId !== input.libraryId) return false;
+    const slot = state.slots.find(
+      (candidate) =>
+        candidate.runId === input.runId && candidate.status === "pending",
+    );
+    if (!slot) return false;
+    const timestamp = Date.parse(slot.createdAt ?? slot.updatedAt ?? "");
+    if (!Number.isFinite(timestamp) || timestamp > input.staleBefore) {
+      return false;
+    }
+
+    const now = nowIso();
+    slot.status = "failed";
+    slot.error = input.error;
+    slot.updatedAt = now;
+    state.updatedAt = now;
+    await writeVariantStateUnlocked(state, input.scopeId);
+    return true;
+  });
+}
+
 // Iterations (refine/edit/restyle) are a continuation of what is already on
 // screen for this thread, not a new generation topic: they should append into
 // the live tray instead of tripping the "new batch/run" reset in

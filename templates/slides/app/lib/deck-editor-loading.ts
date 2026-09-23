@@ -12,7 +12,7 @@ export function shouldShowDeckEditorSkeleton({
   accessCheckKey,
   checkedAccessKey,
   retrying,
-  privateDeckAccessConfirmed,
+  deckAccessDeniedConfirmed,
 }: {
   deckFound: boolean;
   decksLoading: boolean;
@@ -20,13 +20,11 @@ export function shouldShowDeckEditorSkeleton({
   accessCheckKey: string | null;
   checkedAccessKey: string | null;
   retrying: boolean;
-  privateDeckAccessConfirmed: boolean;
+  deckAccessDeniedConfirmed: boolean;
 }): boolean {
-  // A private deck intentionally returns 404 from the content action. The
-  // metadata-only access check is the source of truth for this state, so do
-  // not leave the user on the editor skeleton while that protected fetch
-  // settles.
-  if (privateDeckAccessConfirmed) return false;
+  // The metadata-only access check is authoritative even when loading the
+  // protected deck list fails or stays pending.
+  if (deckAccessDeniedConfirmed) return false;
   if (decksLoading) return true;
   if (deckFound || !accessCheckKey) return false;
   return orgLoading || checkedAccessKey !== accessCheckKey || retrying;

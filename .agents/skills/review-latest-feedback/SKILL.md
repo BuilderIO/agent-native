@@ -15,10 +15,9 @@ metadata:
 
 # Review Latest Feedback
 
-Four phases, in order. Phase 0 comes before any investigation, not after.
+Four phases, in order. Phase 0 confirms scope before claiming a fix.
 
-0. **Claim** every item you intend to tackle with `👀`, before investigating
-   any of it.
+0. **Confirm and claim** actionable work.
 1. **Answer the people who answered you.** Older open questions first.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply**, under a hard question budget, then recap.
@@ -26,14 +25,20 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 Output is fixes; reply only when informative. Two fixes and three messages
 beats thirty replies.
 
-## Phase 0: claim what you are taking
+## Phase 0: confirm the bug, then claim the fix
 
-Other agents work concurrently. The eye is a temporary work lock: keep it only
-while investigating, fixing, or waiting on one targeted detail.
+Read the parent, replies, and owning code to confirm the defect and owner.
+`👀` means **a concrete in-scope fix is active**: add it when editing starts
+and verify the reaction.
 
-**Defects are in scope: fix them or ask for the one detail needed to fix them.**
-Failure to reproduce means ask, not close; state what you tried and request one
-unblocker - request id, time, screenshot, account, or URL.
+The proposed remedy may be wrong while the underlying bug is real. Follow the
+observable failure to its owning boundary and fix that defect; do not reject a
+report just because its suggested solution is unsuitable.
+
+Do not add or keep `👀` while the owner, defect, or repair is unclear; while
+waiting on a reporter; for an unendorsed preference; or for work owned
+elsewhere. Ask for any detail that could make an uncertain report actionable,
+removing our eye while waiting; re-add it only when an in-scope fix can begin.
 
 ### Checkmark gate
 
@@ -43,9 +48,9 @@ review, assignment, source change, test, or beta/PR queue; a suspected fix is
 not a fix. The workspace `:done:` means triage complete only; it never means
 the reported bug is fixed or the proposal accepted.
 
-If confidence is missing, retain `👀`, use an evidence-limited disposition, and
-ask one targeted question or fork if it would unblock reproduction. Age never
-upgrades an unverified defect; **Abandoned - no answer in 4 days** is non-fixed.
+If confidence is missing, use an evidence-limited disposition and ask one
+targeted question only if its answer could unblock a fix. Age never upgrades an
+unverified defect; **Abandoned - no answer in 4 days** is non-fixed.
 
 Skip only non-defects. **Open - no reply** requires working the defect, finding
 no fix or useful question, and documenting why.
@@ -58,27 +63,27 @@ synonyms:
 - **Terminal, release the workflow's eye:** **Fixed**, **Shipped**, **Live
   verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
   **Clustered**, or **Abandoned - no answer in 4 days**.
-- **Evidence-limited or still active, retain the workflow's eye:** **Verified
-  locally**, **Built - live unverified**, **Deployed - live unverified**,
-  **Not reproducible - attempted**, **In progress**, **Asked**, **Clarification
-  needed**, or **Blocked on reporter**.
+- **Active fix, retain the eye:** **Verified locally**, **Built - live
+  unverified**, **Deployed - live unverified**, **Not reproducible - attempted**,
+  or **In progress**, only while fix or verification work is active.
+- **Waiting or unresolved, no eye:** **Asked**, **Clarification needed**, or
+  **Blocked on reporter**. Find outstanding questions in Phase 1's disclosure
+  search, not through stale reactions.
 - **Foreign ownership, preserve the other workflow's eye:** **Owned elsewhere**.
 
 After the verified source fix merges, **Fixed** is terminal; publication, beta,
-and live reruns are separate follow-ups. Before closing, link a durable
-follow-up for remaining work with the original issue, target package/release/
-runtime, owner, and verification command or URL. Do not use open-issue scans to
-rediscover closed fixes or reopen them for release work. **Clustered** closes a
-duplicate row without erasing it.
+and live reruns are separate follow-ups. Link durable follow-ups with the
+original issue, target, owner, and verification command or URL. Do not reopen
+closed fixes during issue scans. **Clustered** closes a duplicate row without
+erasing it.
 
 Use `✅` only for **Fixed**, **Shipped**, or **Live verified**; use `:done:`
 for other terminal states. Leave foreign eyes untouched; record **Owned
 elsewhere** and preserve their blocker when needed.
 
-Enumerate `slack_read_channel` newest backward through `next_cursor` until a
-parent has your open `👀` without either release marker, or is older than 5
-days. Use its oldest timestamp as the recap cursor. Classify from parent text,
-attachments, and reactions; do not open threads yet.
+Enumerate `slack_read_channel` newest backward through `next_cursor` until the
+parent is older than 5 days. Use the oldest timestamp as the recap cursor.
+Classify from parent text, attachments, and reactions; do not open threads yet.
 
 **`slack_search` is not a scan.** It ranks and truncates. Use channel reads for
 enumeration and put their count in the recap; use search for known things such
@@ -87,21 +92,11 @@ as prior replies, eyes, and repeat symptoms.
 A channel read returns parents, so use its timestamps directly; *search* hits
 are usually replies, so resolve those through the permalink `thread_ts` first.
 
-Add `👀` to every intended item and read reactions back before investigation.
-Claim all actionable reports, including carried-over parents, without adding a
-second reaction.
-
-On reopen, re-claim, or disposition change, remove our marker before adding
-`👀`. If unavailable, inspect full reactions, record manual cleanup as
-unverified, and wait to claim; the optimized cursor is insufficient.
-
-Claiming only marks work; it does not investigate or reply. Search-discovered
-work gets the same eye-first read-back. Release out-of-scope work with
-`:done:`; preserve foreign eyes and stop on unverified reactions.
-
-Never end with an unworked claim: give each eye a disposition; release markers
-apply only to terminal states. Every item gets a recap row, but only informative outcomes get a reply. A fresh
-symptom after an answer is a repeat; claim and cluster it for Phase 2.
+On reopen or disposition change, remove our eye before re-adding it. If a
+reaction cannot be verified, do not claim the item. Preserve foreign eyes;
+release out-of-scope work with `:done:` only when terminal. Every item gets a
+recap row, but only informative outcomes get a reply. A fresh symptom after an
+answer is a repeat; confirm ownership, then eye and cluster it with the fix.
 
 ### External trackers are evidence, not status
 
@@ -248,15 +243,14 @@ reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
 An upvoted item is a **feature or UX change**: it skips only the clear-bug bar,
-not `👀`, fix-altitude, verification, or question-budget requirements. The
+not ownership, fix-altitude, verification, or question-budget requirements. The
 upvote overrides the bug gate, not ownership; build the smallest endorsed
-version and name Sid or Alice in the recap. Add `👀` before investigation or
-delegation and read it back. Keep an evidence-limited disposition until Phase
-2's four bars hold; only then use **Shipped** with `✅`.
+version and name Sid or Alice in the recap. Add `👀` when its concrete fix
+begins, then verify it. Use an evidence-limited disposition until Phase 2's
+four bars hold; only then use **Shipped** with `✅`.
 
-Phase 0 already claimed these with `👀`. If this workflow earlier eyed
-something out of scope, release it with `:done:`; do not post a
-compensating message.
+If this workflow eyed work that is out of scope or no longer active, remove our
+eye and use `:done:` when terminal; do not post a compensating message.
 
 Run an unbounded reaction search across identities as well:
 
@@ -268,8 +262,8 @@ Read each matching parent and its reaction metadata. Use other valid workflow
 identities' eyes only to detect **Owned elsewhere**; leave those items out of
 your worklist. The `hasmy::eyes: -hasmy::white_check_mark: -hasmy::done:`
 cursor optimizes the current identity's scan but is
-never the only cursor. Keep your active claims in the worklist until a verified
-fix, targeted clarification, or Phase 0 release.
+never the only cursor. Keep active fixes in the worklist until fixed or
+terminal; track unanswered questions through Phase 1 without an eye.
 
 Group repeat symptoms into one cluster with one owning investigation; the
 repeat gate in Phase 2 owns how they are worked.
@@ -545,8 +539,9 @@ owner instead of borrowing a nearby PR link.
 
 If the sweep found no verified fix, finish with the recap and say why no ship
 started. Unavailable connectors and external failures are not shipping blockers.
-An unresolved **Clarification needed** item remains eye-held and blocks an
-authorized merge until answered or expired.
+An unresolved **Clarification needed** item has no eye and does not block an
+unrelated authorized merge. Reopen the fix only if a reporter's answer makes
+the defect actionable.
 
 ## Recap
 

@@ -112,6 +112,18 @@ const DESIGN_FEEDBACK_REGEX_CASES = [
   [false, "The design needs a little more contrast."],
 ];
 
+const FEEDBACK_EYES_RE =
+  /(?:\b(?:no|not|zero|without|missing)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:put|add|place|react|mark)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:remove|clear|take off)\b[^.!?]{0,80}(?:\beyes?\b|👀)[^.!?]{0,80}\b(?:confiden\w*|sure|fix\w*)\b)/i;
+
+const FEEDBACK_EYES_REGEX_CASES = [
+  [true, "There's not a single eye emoji on anything."],
+  [true, "Put eye emoji on it and fix the bug."],
+  [true, "Remove eye emoji if you're not confident you can fix it."],
+  [false, "I like the eyes emoji."],
+  [false, "One eye emoji is already on the bug."],
+  [false, "Fixed, add a checkmark."],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -158,6 +170,11 @@ if (process.argv.includes("--self-test")) {
     ...DESIGN_FEEDBACK_REGEX_CASES.filter(
       ([expected, message]) =>
         DESIGN_FEEDBACK_SCOPE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_EYES_REGEX_CASES.filter(
+      ([expected, message]) => FEEDBACK_EYES_RE.test(message) !== expected,
     ),
   );
   if (failures.length > 0) {
@@ -315,6 +332,13 @@ const PATTERNS = [
       "Reported duplicate feedback clarification or missing thank-first reply",
     fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+  },
+  {
+    key: "feedback-eyes-missed",
+    label: "Had to demand correct 👀 ownership and release",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (confidence-based eye lifecycle, 2026-09-23)",
+    re: FEEDBACK_EYES_RE,
   },
   // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly
   // questions but not their volume, so the 2026-09-01 sweep that posted 23
