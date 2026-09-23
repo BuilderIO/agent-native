@@ -1,3 +1,7 @@
+import { serializePenNodes } from "@shared/pen-path";
+
+import { parsePenPathFromSerializedD } from "@/pages/design-editor/canvas-primitives";
+
 const MAX_BYTES = 1_000_000;
 const MAX_NODES = 10_000;
 const ALLOWED_TAGS = new Set([
@@ -147,6 +151,18 @@ function sanitizeStyle(value: string): string {
     })
     .filter(Boolean)
     .join(";");
+}
+
+function hasInlineTransform(element: Element | undefined): boolean {
+  return (element?.getAttribute("style") ?? "")
+    .split(";")
+    .some((declaration) => {
+      const separator = declaration.indexOf(":");
+      return (
+        separator >= 0 &&
+        declaration.slice(0, separator).trim().toLowerCase() === "transform"
+      );
+    });
 }
 
 function sanitizeElement(
@@ -328,5 +344,40 @@ export function parsePastedSvg(source: string): PastedSvg | null {
   svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
+  const viewBoxValues =
+    svg
+      .getAttribute("viewBox")
+      ?.trim()
+      .split(/[\s,]+/)
+      .map(Number) ?? [];
+  const drawableChildren = Array.from(svg.children).filter(
+    (element) => element.localName.toLowerCase() !== "defs",
+  );
+  const path = drawableChildren[0];
+  const pathData = path?.getAttribute("d") ?? "";
+  const unsupportedPathSyntax = pathData
+    .replace(/[MLCZ]|-?\d+(?:\.\d+)?/g, "")
+    .replace(/[\s,]/g, "");
+  // Only mark the Pen round-trip grammar when its local coordinates already
+  // match the pasted 1:1 SVG viewport; other SVG transforms need an inverse map.
+  if (
+    drawableChildren.length === 1 &&
+    path?.localName.toLowerCase() === "path" &&
+    svg.querySelectorAll("path").length === 1 &&
+    viewBoxValues.length === 4 &&
+    viewBoxValues.every(Number.isFinite) &&
+    Math.abs(viewBoxValues[2]! - width) < 0.001 &&
+    Math.abs(viewBoxValues[3]! - height) < 0.001 &&
+    !svg.hasAttribute("transform") &&
+    !path.hasAttribute("transform") &&
+    !hasInlineTransform(svg) &&
+    !hasInlineTransform(path) &&
+    !unsupportedPathSyntax
+  ) {
+    const penPath = parsePenPathFromSerializedD(pathData);
+    if (penPath && penPath.nodes.length > 1) {
+      svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
+    }
+  }
   return { svg: svg.outerHTML, width, height };
 }

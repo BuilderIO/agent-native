@@ -13467,15 +13467,89 @@ it(
   },
 );
 
-// ── Layers-panel-driven selection must post the same rich payload ──────────
-//
-// The host tells the iframe which element is selected via a "select-element"
-// postMessage (this is how Layers-panel clicks, not just canvas pointer
-// clicks, drive selection). Before this fix, that handler only repositioned
-// the selection overlay and never called postElementSelect(), so the
-// properties panel kept whatever payload (or lack of one) it already had —
-// live-QA symptom: canvas-click selection showed Fill correctly, the same
-// element selected via the Layers panel showed an empty Fill section.
+// CSSStyleDeclaration expands shorthand declarations when read by property.
+// Preserve which border side keys were actually authored so the inspector
+// can distinguish one uniform border from four independently styled sides.
+it(
+  "reports only explicitly authored border sides in the selection inline-style payload",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html>
+<html><body>
+  <div id="shorthand" data-agent-native-node-id="shorthand" style="border-width: 6px; border-style: solid; border-color: #111827"></div>
+  <div id="sides" data-agent-native-node-id="sides" style="border-top-width: 6px; border-right-width: 6px; border-bottom-width: 6px; border-left-width: 6px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: #111827; border-right-color: #111827; border-bottom-color: #111827; border-left-color: #111827"></div>
+  <div id="top-border" data-agent-native-node-id="top-border" style="border-top: 6px solid #111827"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const select = async (selector: string) => {
+        await page.evaluate((targetSelector) => {
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: targetSelector,
+              selectorCandidates: [targetSelector],
+            },
+            "*",
+          );
+        }, selector);
+        await page.waitForFunction(
+          (sourceId) =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) =>
+                message.type === "element-select" &&
+                message.payload?.sourceId === sourceId,
+            ),
+          selector.slice(1),
+        );
+        return (await readBridgeMessages(page)).find(
+          (message) =>
+            message.type === "element-select" &&
+            (message as any).payload?.sourceId === selector.slice(1),
+        ) as
+          | { payload?: { inlineStyles?: Record<string, string> } }
+          | undefined;
+      };
+
+      const shorthand = await select("#shorthand");
+      expect(shorthand?.payload?.inlineStyles?.borderWidth).toBe("6px");
+      expect(shorthand?.payload?.inlineStyles).not.toHaveProperty(
+        "borderTopWidth",
+      );
+      expect(shorthand?.payload?.inlineStyles).not.toHaveProperty(
+        "borderTopStyle",
+      );
+      expect(shorthand?.payload?.inlineStyles).not.toHaveProperty(
+        "borderTopColor",
+      );
+
+      const sides = await select("#sides");
+      expect(sides?.payload?.inlineStyles?.borderTopWidth).toBe("6px");
+      expect(sides?.payload?.inlineStyles?.borderTopStyle).toBe("solid");
+      expect(sides?.payload?.inlineStyles?.borderTopColor).toBe(
+        "rgb(17, 24, 39)",
+      );
+
+      const topBorder = await select("#top-border");
+      expect(topBorder?.payload?.inlineStyles?.borderTop).toBe(
+        "6px solid rgb(17, 24, 39)",
+      );
+      expect(topBorder?.payload?.inlineStyles).not.toHaveProperty(
+        "borderRight",
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it(
   "editor chrome bridge posts the full element-select payload when the host drives selection via select-element (Layers panel parity with pointer selection)",
   { timeout: 30_000 },
@@ -14700,6 +14774,54 @@ it(
         screenId: "screen-target",
         svg: '<svg width="17" height="9"><path d="M0 0h17"/></svg>',
       });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "omits screen binding when relaying SVG clipboard files from the board iframe",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(false, "board", true),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(['<svg><path d="M0 0h17"/></svg>'], "board.svg", {
+            type: "image/svg+xml",
+          }),
+        );
+        document.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: transfer,
+          }),
+        );
+      });
+
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "figma-clipboard-paste" &&
+            message.svg?.includes('<path d="M0 0h17"'),
+        ),
+      );
+      const paste = (await readBridgeMessages(page)).find(
+        (message) => message.type === "figma-clipboard-paste",
+      ) as { screenId?: string; svg?: string } | undefined;
+      expect(paste?.svg).toBe('<svg><path d="M0 0h17"/></svg>');
+      expect(paste).not.toHaveProperty("screenId");
     } finally {
       await browser.close();
     }

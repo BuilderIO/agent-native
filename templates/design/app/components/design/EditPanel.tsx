@@ -189,6 +189,7 @@ import {
   ExportSettingsPanel,
   DesignColorPicker,
   SizingField,
+  type ScrubInputChangeMeta,
   type ExportSettingsValue,
   type FrameSizePreset,
   InteractionStatePanel,
@@ -359,6 +360,12 @@ interface EditPanelProps {
    *  properties at once; without this they degrade to one-at-a-time writes
    *  that each rebuild from the same stale projection. */
   onSelectedScreenStylesChange?: StylesChangeHandler;
+  vectorPointRadius?: { value: number; max: number } | null;
+  vectorPointSelected?: boolean;
+  onVectorPointRadiusChange?: (
+    value: number,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
   /** Source ranges covered by the current selection for Figma-style color
    *  replacement. Multiple scopes may belong to one file or several screens. */
   selectionColorScopes?: SelectionColorScope[];
@@ -2496,6 +2503,9 @@ export const EditPanel = memo(function EditPanel({
   selectedScreenElement,
   onSelectedScreenStyleChange,
   onSelectedScreenStylesChange,
+  vectorPointRadius,
+  vectorPointSelected,
+  onVectorPointRadiusChange,
   selectionColorScopes = [],
   onSelectionColorChange: onSelectionColorChangeProp,
   onSelectionColorTarget,
@@ -3358,6 +3368,9 @@ export const EditPanel = memo(function EditPanel({
                     onToggleHidden={onToggleSelectionHidden}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
+                    vectorPointRadius={vectorPointRadius}
+                    vectorPointSelected={vectorPointSelected}
+                    onVectorPointRadiusChange={onVectorPointRadiusChange}
                   />
                   {inspectorElement.tagName.toLowerCase() === "img" ? (
                     <ImageProperties

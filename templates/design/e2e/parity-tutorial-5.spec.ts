@@ -616,7 +616,7 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     ).toBe(true);
   });
 
-  test("step 2 (no equivalent): Enter does not open a vector edit / point-add mode on a shape", async ({
+  test("step 2: Enter opens vector edit mode and Escape preserves the shape", async ({
     page,
     request,
   }) => {
@@ -632,17 +632,14 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     await drawShape(page, "r", card.x + 40, card.y + 40, 40, 40);
     await page.waitForTimeout(300);
 
-    const before = await page.evaluate(() => document.title);
+    const before = await fileContent(page, "index.html");
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(300);
-    // No vector-edit affordance exists in this app; confirm no dedicated mode
-    // banner/toolbar appears (closest observable signal: no aria-pressed
-    // "Vector edit" style tool button exists at all).
-    const vectorEditButton = page.locator(
-      'button[aria-label*="vector" i], button[aria-label*="Edit points" i]',
-    );
-    expect(await vectorEditButton.count()).toBe(0);
-    expect(await page.evaluate(() => document.title)).toBe(before);
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    await expect(page.locator("[data-vector-anchor]")).toHaveCount(4);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-vector-edit-overlay]")).toHaveCount(0);
+    expect(await fileContent(page, "index.html")).toBe(before);
   });
 
   test("step 2b: Cmd+Opt+K annotates a frame as a component (closest equivalent; no component/variant system)", async ({

@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 import { expect, test, type Page } from "@playwright/test";
 
 import {
@@ -583,6 +586,143 @@ test("clipboard SVG File paste in the parent editor stays editable after reload"
       ),
     ).toHaveCount(0);
     await assertNestedPathColorPersists(page, designId, screenId);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("pasting a 17 by 9 SVG keeps the selected layer at its copied size", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  const copiedSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="9" viewBox="0 0 17 9"><path d="M0 0h17v9H0z" fill="#111827"/></svg>';
+  try {
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    await expandAllLayers(page);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+
+    expect(await pasteSvgFile(page.locator("body"), copiedSvg)).toBe(true);
+    const pastedSvg = designFrame(page, screenId).locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"]',
+    );
+    await expect(pastedSvg).toBeVisible();
+    await expect(pastedSvg).toHaveAttribute("data-an-primitive", "pasted-svg");
+    await expect
+      .poll(() =>
+        pastedSvg.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return { width: bounds.width, height: bounds.height };
+        }),
+      )
+      .toEqual({ width: 17, height: 9 });
+
+    const selectedLayer = page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("treeitem")
+      .filter({
+        has: page.getByRole("button", { name: "Pasted SVG", exact: true }),
+      });
+    await expect(selectedLayer).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("textbox", { name: "W size in pixels" }),
+    ).toHaveValue("17px");
+    await expect(
+      page.getByRole("textbox", { name: "H size in pixels" }),
+    ).toHaveValue("9px");
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("pasting a PNG from the clipboard preserves intrinsic size through save and reload", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  const fixture = path.resolve(
+    import.meta.dirname,
+    "fixtures/responsive-card-art-photo.png",
+  );
+  const bytes = [...(await readFile(fixture))];
+  const assetUrl = "/e2e-assets/clipboard-image.png";
+  try {
+    await page.route("**/_agent-native/actions/upload-image", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ url: assetUrl }),
+      }),
+    );
+    await page.route(`**${assetUrl}`, (route) =>
+      route.fulfill({
+        body: Buffer.from(bytes),
+        contentType: "image/png",
+      }),
+    );
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    await expandAllLayers(page);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+    const wasHandled = await designFrame(page, screenId)
+      .locator("body")
+      .evaluate((body, pngBytes) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File([Uint8Array.from(pngBytes)], "clipboard-image.png", {
+            type: "image/png",
+          }),
+        );
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        body.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, bytes);
+    expect(wasHandled).toBe(true);
+
+    const image = designFrame(page, screenId).locator(
+      'img[data-agent-native-layer-name="clipboard-image.png"]',
+    );
+    await expect(image).toHaveAttribute("src", assetUrl);
+    await expect
+      .poll(() =>
+        image.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return { width: bounds.width, height: bounds.height };
+        }),
+      )
+      .toEqual({ width: 640, height: 360 });
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .toContain('data-agent-native-layer-name="clipboard-image.png"');
+    expect(await readSource(page, designId, "screen.html")).not.toContain(
+      "blob:",
+    );
+
+    await page.reload();
+    const reloaded = designFrame(page, screenId).locator(
+      'img[data-agent-native-layer-name="clipboard-image.png"]',
+    );
+    await expect(reloaded).toHaveAttribute("src", assetUrl);
+    await expect(reloaded).toHaveCSS("width", "640px");
+    await expect(reloaded).toHaveCSS("height", "360px");
+    await expect
+      .poll(() =>
+        reloaded.evaluate(
+          (element) => (element as HTMLImageElement).naturalWidth,
+        ),
+      )
+      .toBe(640);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }

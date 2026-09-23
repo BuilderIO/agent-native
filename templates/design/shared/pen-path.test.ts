@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendPenNode,
   closePenPath,
+  clonePenPath,
   constrainPointTo45Degrees,
   createCornerNode,
   createPenCuspLatch,
@@ -19,6 +20,8 @@ import {
   scalePenPathToGeometry,
   serializePenNodes,
   serializePenPath,
+  maxPenCornerRadius,
+  setPenNodeCornerRadius,
   setPenNodeType,
   snapPenAnchorPoint,
   translatePenPath,
@@ -33,6 +36,87 @@ describe("pen path helpers", () => {
     );
 
     expect(serializePenPath(path)).toBe("M 10 20 L 50 60");
+  });
+
+  it("rounds one straight-sided anchor and preserves its radius in serialized nodes", () => {
+    const square = closePenPath(
+      appendPenNode(
+        appendPenNode(
+          appendPenNode(
+            appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
+            createCornerNode({ x: 100, y: 0 }),
+          ),
+          createCornerNode({ x: 100, y: 100 }),
+        ),
+        createCornerNode({ x: 0, y: 100 }),
+      ),
+    );
+    const rounded = setPenNodeCornerRadius(square, 1, 12)!;
+
+    expect(maxPenCornerRadius(square, 1)).toBeCloseTo(50);
+    expect(serializePenPath(rounded)).toBe(
+      "M 0 0 L 88 0 A 12 12 0 0 1 100 12 L 100 100 L 0 100 L 0 0 Z",
+    );
+    expect(rounded.nodes[0]?.cornerRadius).toBeUndefined();
+    expect(parsePenNodes(serializePenNodes(rounded))).toEqual(rounded);
+
+    const scaled = scalePenPathToGeometry(rounded, getPenPathGeometry(square), {
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 100,
+    });
+    const cloned = clonePenPath(scaled);
+    expect(cloned.nodes[1]?.cornerRadius).toBe(12);
+    expect(getPenPathGeometry(cloned)).toEqual({
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 100,
+    });
+    expect(parsePenNodes(serializePenNodes(cloned))).toEqual(cloned);
+  });
+
+  it("reads legacy Pen tuples and rejects rounding across curved segments", () => {
+    expect(
+      parsePenNodes("[1,[0,0,null,null,null,null],[10,0,null,null,null,null]]"),
+    ).toEqual({
+      closed: true,
+      nodes: [{ point: { x: 0, y: 0 } }, { point: { x: 10, y: 0 } }],
+    });
+
+    const curved = closePenPath(
+      appendPenNode(
+        appendPenNode(
+          appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
+          createSmoothNode({ x: 100, y: 0 }, { x: 120, y: 0 }),
+        ),
+        createCornerNode({ x: 100, y: 100 }),
+      ),
+    );
+    expect(maxPenCornerRadius(curved, 1)).toBeNull();
+    expect(setPenNodeCornerRadius(curved, 1, 8)).toBeNull();
+  });
+
+  it("fails closed for open paths even when the selected point has two straight neighbors", () => {
+    const openPath = appendPenNode(
+      appendPenNode(
+        appendPenNode(
+          appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
+          createCornerNode({ x: 100, y: 0 }),
+        ),
+        createCornerNode({ x: 100, y: 100 }),
+      ),
+      createCornerNode({ x: 0, y: 100 }),
+    );
+
+    expect(maxPenCornerRadius(openPath, 1)).toBeNull();
+    expect(setPenNodeCornerRadius(openPath, 1, 12)).toBeNull();
+    expect(
+      parsePenNodes(
+        "[0,[0,0,null,null,null,null,null],[100,0,null,null,null,null,12],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]",
+      ),
+    ).toBeNull();
   });
 
   it("serializes drag-created smooth anchors as cubic Bezier segments", () => {

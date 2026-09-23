@@ -7,6 +7,8 @@ import {
   createCornerNode,
   parsePenNodes,
   resumePenPathAtEnd,
+  setPenNodeCornerRadius,
+  serializePenPath,
   translatePenPath,
   type PenPath,
 } from "@shared/pen-path";
@@ -30,6 +32,39 @@ const editedPath: PenPath = {
 };
 
 describe("nested Pen path commits", () => {
+  it("persists one rounded anchor through vector writeback and node rehydration", () => {
+    const path = closePenPath(
+      appendPenNode(
+        appendPenNode(
+          appendPenNode(
+            appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
+            createCornerNode({ x: 100, y: 0 }),
+          ),
+          createCornerNode({ x: 100, y: 100 }),
+        ),
+        createCornerNode({ x: 0, y: 100 }),
+      ),
+    );
+    const rounded = setPenNodeCornerRadius(path, 1, 12)!;
+    const html = `<!doctype html><svg data-agent-native-node-id="rounded-pen" data-an-primitive="path"
+      viewBox="0 0 100 100" style="position:absolute;left:0px;top:0px;width:100px;height:100px">
+      <path d="${serializePenPath(path)}" fill="#336699" /></svg>`;
+
+    const updated = writeBackVectorEditedPenPath(html, "rounded-pen", rounded);
+    const svg = new DOMParser()
+      .parseFromString(updated!, "text/html")
+      .querySelector("svg");
+    const persisted = parsePenNodes(
+      svg?.getAttribute("data-an-pen-nodes") ?? "",
+    );
+
+    expect(svg?.querySelector("path")?.getAttribute("d")).toBe(
+      serializePenPath(rounded),
+    );
+    expect(persisted?.nodes[1]?.cornerRadius).toBe(12);
+    expect(persisted?.nodes.filter((node) => node.cornerRadius).length).toBe(1);
+  });
+
   it("keeps parent-local placement, fractional geometry, and authored styles", () => {
     const html = `<!doctype html><main style="position:relative;left:18px;top:-157px">
       <svg data-agent-native-node-id="pen-1" viewBox="33.25 -74.5 10.25 10.5"

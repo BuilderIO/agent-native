@@ -28,8 +28,8 @@ import type {
   ResolvedScreenMetadata,
 } from "./types";
 
-const DRAFT_FRAME_WIDTH = 320;
-const DRAFT_FRAME_HEIGHT = 640;
+const DRAFT_FRAME_WIDTH = 1440;
+const DRAFT_FRAME_HEIGHT = 1024;
 const DRAFT_RECT_WIDTH = 100;
 const DRAFT_RECT_HEIGHT = 100;
 const DRAFT_TEXT_WIDTH = 180;

@@ -144,7 +144,9 @@ import {
   type NodeRewriteProposal,
 } from "@shared/node-rewrite";
 import {
+  maxPenCornerRadius,
   parsePenNodes,
+  setPenNodeCornerRadius,
   translatePenPath,
   type PenGeometry,
   type PenPath,
@@ -1597,6 +1599,7 @@ function DesignEditor() {
     screenId: string;
     nodeId: string;
     path: PenPath;
+    selectedAnchorIndex: number | null;
     sourceOffset: { x: number; y: number };
     primitiveSource: {
       geometry: PenGeometry;
@@ -11386,6 +11389,7 @@ function DesignEditor() {
       return (
         applyFileContentUpdate(screenId, nextContent, {
           skipPreview: screenId !== activeFile?.id,
+          historyBeforeContent: baseContent,
         }).status === "accepted"
       );
     },
@@ -11441,6 +11445,7 @@ function DesignEditor() {
           if (nextContent !== baseContent) {
             applyFileContentUpdate(current.screenId, nextContent, {
               skipPreview: current.screenId !== activeFile?.id,
+              historyBeforeContent: baseContent,
             });
           }
           return {
@@ -11461,6 +11466,65 @@ function DesignEditor() {
   const handleVectorEditExit = useCallback(() => {
     setVectorEditingState(null);
   }, []);
+
+  const handleVectorAnchorSelection = useCallback(
+    (selectedAnchorIndex: number | null) => {
+      setVectorEditingState((current) =>
+        current ? { ...current, selectedAnchorIndex } : current,
+      );
+    },
+    [],
+  );
+
+  const handleVectorCornerRadiusChange = useCallback(
+    (radius: number, phase: "preview" | "commit") => {
+      setVectorEditingState((current) => {
+        if (!current || current.selectedAnchorIndex === null) return current;
+        const nextPath = setPenNodeCornerRadius(
+          current.path,
+          current.selectedAnchorIndex,
+          radius,
+        );
+        if (!nextPath) return current;
+        if (
+          (current.path.nodes[current.selectedAnchorIndex]?.cornerRadius ??
+            0) ===
+          (nextPath.nodes[current.selectedAnchorIndex]?.cornerRadius ?? 0)
+        ) {
+          return current;
+        }
+        if (phase === "commit") {
+          const baseContent = getScreenContent(current.screenId);
+          if (!baseContent) {
+            toast.error(t("designEditor.toasts.vectorEditUnsupported"));
+            return current;
+          }
+          const sourcePath = translatePenPath(
+            nextPath,
+            -current.sourceOffset.x,
+            -current.sourceOffset.y,
+          );
+          const nextContent = writeBackVectorEditedPenPath(
+            baseContent,
+            current.nodeId,
+            sourcePath,
+          );
+          if (nextContent === null) {
+            toast.error(t("designEditor.toasts.vectorEditUnsupported"));
+            return current;
+          }
+          if (nextContent !== baseContent) {
+            applyFileContentUpdate(current.screenId, nextContent, {
+              skipPreview: current.screenId !== activeFile?.id,
+              historyBeforeContent: baseContent,
+            });
+          }
+        }
+        return { ...current, path: nextPath };
+      });
+    },
+    [activeFile?.id, applyFileContentUpdate, getScreenContent, t],
+  );
 
   /**
    * P5/vector-edit: the VectorEditOverlayState prop threaded to
@@ -11483,6 +11547,8 @@ function DesignEditor() {
     if (!originCanvas) return null;
     return {
       path: vectorEditingState.path,
+      selectedAnchorIndex: vectorEditingState.selectedAnchorIndex,
+      onSelectedAnchorChange: handleVectorAnchorSelection,
       originCanvas,
       onChange: handleVectorEditChange,
       onExit: handleVectorEditExit,
@@ -11492,6 +11558,7 @@ function DesignEditor() {
     canvasFrameGeometryById,
     handleVectorEditChange,
     handleVectorEditExit,
+    handleVectorAnchorSelection,
     overviewScreens,
     vectorEditingState,
   ]);
@@ -17360,8 +17427,20 @@ function DesignEditor() {
     if (!canEditDesign || !selectedElement) return;
     if (isVectorShapeElement(selectedElement)) {
       const styles = selectedElement.computedStyles;
-      const fill = styles.fill ?? "";
-      const stroke = styles.stroke ?? "";
+      // SVG gradient styles render as url(#id), but the editor's authored
+      // custom properties hold the portable gradient values. Capture both
+      // before committing either side so Shift+X can rebuild each definition
+      // without leaving the other paint pointing at a removed id.
+      const fill =
+        selectedElement.inlineStyles?.["--an-vector-fill-gradient"] ||
+        styles["--an-vector-fill-gradient"] ||
+        styles.fill ||
+        "";
+      const stroke =
+        selectedElement.inlineStyles?.["--an-vector-stroke-gradient"] ||
+        styles["--an-vector-stroke-gradient"] ||
+        styles.stroke ||
+        "";
       const hasPaint = (value: string) => {
         const normalized = value.trim().toLowerCase();
         if (
@@ -18866,6 +18945,7 @@ function DesignEditor() {
           screenId: owner.fileId,
           nodeId,
           path: translatePenPath(path, offset.x, offset.y),
+          selectedAnchorIndex: null,
           sourceOffset: offset,
           primitiveSource: null,
         });
@@ -18885,6 +18965,7 @@ function DesignEditor() {
         screenId: owner.fileId,
         nodeId,
         path: source.path,
+        selectedAnchorIndex: null,
         sourceOffset: { x: 0, y: 0 },
         primitiveSource: { geometry: source.geometry, fill: source.fill },
       });
@@ -19910,7 +19991,17 @@ function DesignEditor() {
     const selectedIds = new Set(selectedLayerIdsState);
     const projected = activeCodeLayerProjection.nodes
       .filter((node) => selectedIds.has(node.id))
-      .map(elementInfoFromCodeLayerNode);
+      .map((node) => ({
+        ...elementInfoFromCodeLayerNode(node),
+        ...(activeCodeLayerProjection.source?.fileId
+          ? {
+              sourceLayerIdentity: {
+                screenId: activeCodeLayerProjection.source.fileId,
+                nodeId: node.id,
+              },
+            }
+          : {}),
+      }));
     return projected.length > 0
       ? projected
       : selectedElement
@@ -19931,7 +20022,7 @@ function DesignEditor() {
       // In overview, Copy as PNG targets the one selected screen instead of
       // whichever iframe happens to be first in DOM order. The download action
       // still targets the active screen through canvasIframeRef.
-      if (scope !== "document" && viewMode === "overview") {
+      if (scope === "screens" && viewMode === "overview") {
         const screenId =
           selectedScreenIds.length === 1 ? selectedScreenIds[0] : null;
         iframe = screenId
@@ -19939,7 +20030,22 @@ function DesignEditor() {
               `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
             )
           : null;
-        if (scope === "screens") cropSelection = null;
+        cropSelection = null;
+      } else if (scope === "element" && viewMode === "overview") {
+        const ownerFileId =
+          pngSelectedElements[0]?.sourceLayerIdentity?.screenId ??
+          selectedElement?.sourceLayerIdentity?.screenId ??
+          activeFile?.id;
+        iframe =
+          ownerFileId === boardFileId
+            ? document.querySelector<HTMLIFrameElement>(
+                "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+              )
+            : ownerFileId
+              ? document.querySelector<HTMLIFrameElement>(
+                  `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(ownerFileId)}"]`,
+                )
+              : null;
       }
 
       if (!iframe) throw new PngCaptureError("no-preview");
@@ -19970,6 +20076,8 @@ function DesignEditor() {
       activeCanvasSourceType,
       canEditDesign,
       canvasIframeRef,
+      activeFile?.id,
+      boardFileId,
       pngSelectedElements,
       selectedElement,
       selectedScreenIds,
@@ -26965,6 +27073,29 @@ function DesignEditor() {
       : undefined,
     onSelectedScreenStylesChange: canEditActiveVisualScreen
       ? handleSelectedScreenStylesChange
+      : undefined,
+    vectorPointSelected:
+      vectorEditingState?.selectedAnchorIndex !== null &&
+      vectorEditingState?.selectedAnchorIndex !== undefined,
+    vectorPointRadius: (() => {
+      if (!vectorEditingState) return null;
+      const selectedIndex = vectorEditingState.selectedAnchorIndex;
+      if (selectedIndex === null || vectorEditingState.primitiveSource) {
+        return null;
+      }
+      const max = maxPenCornerRadius(vectorEditingState.path, selectedIndex);
+      if (max === null) return null;
+      return {
+        value: vectorEditingState.path.nodes[selectedIndex]?.cornerRadius ?? 0,
+        max,
+      };
+    })(),
+    onVectorPointRadiusChange: canEditDesign
+      ? (value: number, meta?: { phase?: "preview" | "commit" | "cancel" }) =>
+          handleVectorCornerRadiusChange(
+            value,
+            meta?.phase === "preview" ? "preview" : "commit",
+          )
       : undefined,
     selectionColorScopes,
     onSelectionColorTarget: handleSelectionColorTarget,

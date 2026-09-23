@@ -52,6 +52,7 @@ import {
   movePenAnchor,
   movePenHandle,
   resumePenPathAtEnd,
+  serializePenNodes,
   serializePenPath,
   setPenNodeType,
   snapPenAnchorPoint,
@@ -6489,13 +6490,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         if (!state || state.type !== "vector-anchor") return;
         const active = vectorEditRef.current;
         if (!active) return;
-        if (
-          !state.hasMoved &&
-          Math.hypot(
-            ev.clientX - state.originClient.x,
-            ev.clientY - state.originClient.y,
-          ) >= DRAG_THRESHOLD
-        ) {
+        if (!state.hasMoved) {
+          if (
+            Math.hypot(
+              ev.clientX - state.originClient.x,
+              ev.clientY - state.originClient.y,
+            ) < DRAG_THRESHOLD
+          ) {
+            return;
+          }
           state.hasMoved = true;
         }
         const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
@@ -6522,6 +6525,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           finishDrag();
           return;
         }
+        active.onSelectedAnchorChange(state.nodeIndex);
         const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
         const localPoint = vectorEditCanvasToLocalPoint(
           canvasPoint,
@@ -6530,15 +6534,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const nextPath = state.hasMoved
           ? movePenAnchor(state.pathBefore, state.nodeIndex, localPoint)
           : state.pathBefore;
-        active.onChange(nextPath, "commit");
+        const changed =
+          serializePenNodes(nextPath) !== serializePenNodes(state.pathBefore);
+        if (changed) {
+          active.onChange(nextPath, "commit");
+        } else if (state.hasMoved) {
+          active.onChange(nextPath, "preview");
+        }
         finishDrag();
       };
 
       const cancelGesture = () => {
         const state = dragState.current;
         const active = vectorEditRef.current;
-        if (state?.type === "vector-anchor" && active) {
-          active.onChange(clonePenPath(state.pathBefore), "commit");
+        if (state?.type === "vector-anchor" && state.hasMoved && active) {
+          active.onChange(clonePenPath(state.pathBefore), "preview");
         }
         finishDrag();
       };
@@ -6579,13 +6589,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         if (!state || state.type !== "vector-handle") return;
         const active = vectorEditRef.current;
         if (!active) return;
-        if (
-          !state.hasMoved &&
-          Math.hypot(
-            ev.clientX - state.originClient.x,
-            ev.clientY - state.originClient.y,
-          ) >= DRAG_THRESHOLD
-        ) {
+        if (!state.hasMoved) {
+          if (
+            Math.hypot(
+              ev.clientX - state.originClient.x,
+              ev.clientY - state.originClient.y,
+            ) < DRAG_THRESHOLD
+          ) {
+            return;
+          }
           state.hasMoved = true;
         }
         const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
@@ -6630,15 +6642,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               { breakSymmetry: state.symmetryBroken },
             )
           : state.pathBefore;
-        active.onChange(nextPath, "commit");
+        const changed =
+          serializePenNodes(nextPath) !== serializePenNodes(state.pathBefore);
+        if (changed) {
+          active.onChange(nextPath, "commit");
+        } else if (state.hasMoved) {
+          active.onChange(nextPath, "preview");
+        }
         finishDrag();
       };
 
       const cancelGesture = () => {
         const state = dragState.current;
         const active = vectorEditRef.current;
-        if (state?.type === "vector-handle" && active) {
-          active.onChange(clonePenPath(state.pathBefore), "commit");
+        if (state?.type === "vector-handle" && state.hasMoved && active) {
+          active.onChange(clonePenPath(state.pathBefore), "preview");
         }
         finishDrag();
       };
@@ -6853,7 +6871,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           modifiers,
         });
         // Figma parity: a frame-tool CLICK nested inside a screen places
-        // Figma's default 100x100 frame. The frame tool's 320x640 click
+        // Figma's default 100x100 frame. The frame tool's desktop click
         // default (DRAFT_FRAME_WIDTH/HEIGHT) only fits the top-level
         // screen-creation path handled above — nesting a screen-sized div
         // from a single click would blanket the whole screen.
@@ -11629,6 +11647,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         {vectorEdit ? (
           <VectorEditOverlay
             vectorEdit={vectorEdit}
+            selectedAnchorIndex={vectorEdit.selectedAnchorIndex}
+            onSelectedAnchorChange={vectorEdit.onSelectedAnchorChange}
             chromeScale={chromeScale}
             zIndex={vectorEditOverlayZIndex}
           />
@@ -12566,10 +12586,14 @@ function isPoint(point: Point | undefined): point is Point {
  */
 function VectorEditOverlay({
   vectorEdit,
+  selectedAnchorIndex,
+  onSelectedAnchorChange,
   chromeScale,
   zIndex,
 }: {
   vectorEdit: VectorEditOverlayState;
+  selectedAnchorIndex: number | null;
+  onSelectedAnchorChange: (nodeIndex: number | null) => void;
   chromeScale: number;
   zIndex: number;
 }) {
@@ -12661,7 +12685,11 @@ function VectorEditOverlay({
         <span
           key={`vector-anchor-${index}`}
           data-vector-anchor
-          className="pointer-events-none absolute rounded-[2px] border shadow-sm border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)]"
+          className={cn(
+            "pointer-events-auto absolute rounded-[2px] border shadow-sm border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)]",
+            selectedAnchorIndex === index &&
+              "ring-2 ring-[var(--design-editor-accent-color)]",
+          )}
           style={{
             left: node.point.x - geometry.x - anchorSize / 2,
             top: node.point.y - geometry.y - anchorSize / 2,
@@ -12683,7 +12711,7 @@ function VectorEditOverlay({
             <span
               key={`vector-handle-${index}-${which}`}
               data-vector-handle
-              className="pointer-events-none absolute rounded-full border border-[var(--design-editor-accent-color)] bg-background shadow-sm"
+              className="pointer-events-auto absolute rounded-full border border-[var(--design-editor-accent-color)] bg-background shadow-sm"
               style={{
                 left: handle.x - geometry.x - handleSize / 2,
                 top: handle.y - geometry.y - handleSize / 2,

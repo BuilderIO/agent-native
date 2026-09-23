@@ -296,9 +296,12 @@ export function FillProperties({
   const renderedFillValue = isTextFillElement
     ? styles.color || ""
     : isVectorFillElement
-      ? styles.fill || ""
+      ? element.inlineStyles?.["--an-vector-fill-gradient"] || styles.fill || ""
       : styles.backgroundColor || "";
-  const authoredFillValue = element.inlineStyles?.[fillProperty];
+  const authoredFillValue = isVectorFillElement
+    ? (element.inlineStyles?.["--an-vector-fill-gradient"] ??
+      element.inlineStyles?.[fillProperty])
+    : element.inlineStyles?.[fillProperty];
   const storedPaint = readGradientFillOpacity([
     { color: authoredFillValue ?? renderedFillValue },
   ]);
@@ -615,34 +618,38 @@ export function FillProperties({
                       ? undefined
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
-                  // Text gradients are backgrounds clipped to glyphs; SVG
-                  // shapes continue to use their dedicated fill paint.
+                  // SVG fills can be gradients, but they are one native paint,
+                  // not an entry in the CSS background layer stack.
                   supportsLayeredFills={!isVectorFillElement}
+                  singlePaint={isVectorFillElement}
                   onBackgroundImageChange={
                     isVectorFillElement
                       ? undefined
                       : commitBackgroundImageChange
                   }
                   onSolidToGradientChange={
-                    isVectorFillElement || isTextFillElement
-                      ? undefined
-                      : (patch) => {
-                          const convertedLayerKey = nextLayerKey();
-                          pendingConvertedLayerRef.current = {
-                            elementKey: fillStashKey,
-                            key: convertedLayerKey,
-                            index: backgroundLayers.length,
-                            previousLayerCount: backgroundLayers.length,
-                          };
-                          setOpenFillPickerKey(
-                            `${fillStashKey}:${convertedLayerKey}`,
-                          );
-                          commitStylePatch(
-                            patch,
-                            onStyleChange,
-                            onStylesChange,
-                          );
-                        }
+                    isVectorFillElement
+                      ? (patch) =>
+                          onStyleChange(fillProperty, patch.backgroundImage)
+                      : isTextFillElement
+                        ? undefined
+                        : (patch) => {
+                            const convertedLayerKey = nextLayerKey();
+                            pendingConvertedLayerRef.current = {
+                              elementKey: fillStashKey,
+                              key: convertedLayerKey,
+                              index: backgroundLayers.length,
+                              previousLayerCount: backgroundLayers.length,
+                            };
+                            setOpenFillPickerKey(
+                              `${fillStashKey}:${convertedLayerKey}`,
+                            );
+                            commitStylePatch(
+                              patch,
+                              onStyleChange,
+                              onStylesChange,
+                            );
+                          }
                   }
                   // Layer-index-aware: ColorInput merges the edited image
                   // into the correct backgroundImage/backgroundSize/
@@ -658,7 +665,11 @@ export function FillProperties({
                       : commitImageFillPatch
                   }
                   supportedPaintTypes={
-                    isTextFillElement ? TEXT_BASE_PAINT_TYPES : undefined
+                    isVectorFillElement
+                      ? ["solid", "linear", "radial"]
+                      : isTextFillElement
+                        ? TEXT_BASE_PAINT_TYPES
+                        : undefined
                   }
                   documentColors={documentColors}
                   pickerKey={[

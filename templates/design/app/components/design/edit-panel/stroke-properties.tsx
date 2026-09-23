@@ -79,13 +79,11 @@ import { STROKE_POSITION_OPTIONS } from "./style-options";
 import { vectorEndpointInspectorIdentity } from "./vector-endpoint-inspector";
 
 /**
- * Paint types allowed for CSS properties with no clean gradient/image
- * equivalent — currently strokes (`border`/`outline`), which are plain CSS
- * colors with no `border-image`/layered-background trickery clean enough to
- * support here. Passed as `supportedPaintTypes` so the picker never shows a
- * tab that would silently discard its write.
+ * Borders use a single linear paint only when source and geometry meet the
+ * border-image path's limits. Outlines and all other strokes stay solid-only.
  */
 const SOLID_ONLY_PAINT_TYPES: DesignPaintType[] = ["solid"];
+const CSS_BORDER_PAINT_TYPES: DesignPaintType[] = ["solid", "linear"];
 const VECTOR_STROKE_PAINT_TYPES: DesignPaintType[] = [
   "solid",
   "linear",
@@ -102,6 +100,8 @@ function StrokeLayerControl({
   kind,
   visible,
   color,
+  gradient,
+  supportsGradient,
   width,
   styleValue,
   outlineOffset,
@@ -115,6 +115,8 @@ function StrokeLayerControl({
   kind: StrokeLayerKind;
   visible: boolean;
   color: string;
+  gradient?: string;
+  supportsGradient?: boolean;
   width: string;
   styleValue: string;
   /** Only meaningful when `kind === "outline"` — distinguishes outside vs
@@ -197,11 +199,23 @@ function StrokeLayerControl({
         <InspectorGridCell span={20}>
           <ColorInput
             label=""
-            value={cssColorOrFallback(color, DEFAULT_STROKE_COLOR)}
-            onChange={(value, meta) =>
-              onStyleChange(`${prefix}Color`, value, meta)
+            value={gradient || cssColorOrFallback(color, DEFAULT_STROKE_COLOR)}
+            onChange={(value, meta) => {
+              commitStylePatch(
+                { [`${prefix}Color`]: value },
+                onStyleChange,
+                onStylesChange,
+                meta,
+              );
+            }}
+            singlePaint={Boolean(supportsGradient || gradient)}
+            supportsLayeredFills={Boolean(supportsGradient || gradient)}
+            onSolidToGradientChange={(patch) =>
+              onStyleChange(`${prefix}Color`, patch.backgroundImage)
             }
-            supportedPaintTypes={SOLID_ONLY_PAINT_TYPES}
+            supportedPaintTypes={
+              supportsGradient ? CSS_BORDER_PAINT_TYPES : SOLID_ONLY_PAINT_TYPES
+            }
           />
         </InspectorGridCell>
         <InspectorGridCell span={4} className="flex justify-center">
@@ -212,6 +226,13 @@ function StrokeLayerControl({
                 : t("editPanel.labels.showLayer")
             }
             onClick={() => {
+              if (kind === "border" && gradient) {
+                onStyleChange(
+                  `${prefix}Color`,
+                  visible ? "transparent" : gradient,
+                );
+                return;
+              }
               // Hide/show by zeroing the stroke color's alpha (preserving its
               // RGB channels — same durable, comment-free technique as the
               // fill visibility toggle) instead of forcing borderStyle to
@@ -436,6 +457,48 @@ export function StrokeProperties({
     styles.outlineColor,
     styles.outlineOffset,
   ].some(isMixedValue);
+  const inlineStyles = element.inlineStyles ?? {};
+  const borderGradient = inlineStyles["--an-css-border-gradient"];
+  const hasAuthoredSideBorder = Object.keys(inlineStyles).some((property) =>
+    /^border(?:Top|Right|Bottom|Left)(?:Width|Style|Color)?$/.test(property),
+  );
+  const canEditBorderGradient =
+    element.tagName?.toLowerCase() === "div" &&
+    element.classes.length === 0 &&
+    (!element.primitiveKind || element.primitiveKind === "rectangle") &&
+    Boolean(
+      inlineStyles.border ||
+      (inlineStyles.borderWidth &&
+        inlineStyles.borderStyle &&
+        inlineStyles.borderColor),
+    ) &&
+    !hasAuthoredSideBorder &&
+    [
+      styles.borderTopWidth ?? styles.borderWidth,
+      styles.borderRightWidth ?? styles.borderWidth,
+      styles.borderBottomWidth ?? styles.borderWidth,
+      styles.borderLeftWidth ?? styles.borderWidth,
+    ].every((width) => width === styles.borderWidth) &&
+    [
+      styles.borderTopStyle ?? styles.borderStyle,
+      styles.borderRightStyle ?? styles.borderStyle,
+      styles.borderBottomStyle ?? styles.borderStyle,
+      styles.borderLeftStyle ?? styles.borderStyle,
+    ].every((style) => style === "solid") &&
+    [
+      styles.borderTopColor,
+      styles.borderRightColor,
+      styles.borderBottomColor,
+      styles.borderLeftColor,
+    ].every((color) => !color || color === styles.borderColor) &&
+    [
+      styles.borderTopLeftRadius,
+      styles.borderTopRightRadius,
+      styles.borderBottomRightRadius,
+      styles.borderBottomLeftRadius,
+    ].every((radius) => !radius || cssLengthNumber(radius) === 0);
+  const cssBorderGradientVisible =
+    Boolean(borderGradient) && inlineStyles.borderImageSource !== "none";
   // Width alone is not evidence of a stroke: a stylesheet can leave
   // `outline-width` non-zero with `outline-style: none`, which paints nothing
   // and whose `outline-color` resolves to currentColor — surfacing a phantom
@@ -554,15 +617,24 @@ export function StrokeProperties({
           ) : borderExists ? (
             <StrokeLayerControl
               kind="border"
-              visible={borderVisible}
-              color={styles.borderColor || DEFAULT_STROKE_COLOR}
+              visible={borderVisible || cssBorderGradientVisible}
+              color={
+                inlineStyles["--an-css-border-solid-color"] ||
+                styles.borderColor ||
+                DEFAULT_STROKE_COLOR
+              }
+              gradient={borderGradient}
+              supportsGradient={canEditBorderGradient}
               width={styles.borderWidth || "0px"}
               styleValue={styles.borderStyle || "none"}
               onStyleChange={onStyleChange}
               onStylesChange={onStylesChange}
               onRemove={() => {
                 if (onStylesChange) {
-                  onStylesChange({ borderWidth: "0px", borderStyle: "none" });
+                  onStylesChange({
+                    borderWidth: "0px",
+                    borderStyle: "none",
+                  });
                 } else {
                   onStyleChange("borderWidth", "0px");
                 }
@@ -588,7 +660,10 @@ export function StrokeProperties({
               onStylesChange={onStylesChange}
               onRemove={() => {
                 if (onStylesChange) {
-                  onStylesChange({ outlineWidth: "0px", outlineStyle: "none" });
+                  onStylesChange({
+                    outlineWidth: "0px",
+                    outlineStyle: "none",
+                  });
                 } else {
                   onStyleChange("outlineWidth", "0px");
                 }

@@ -169,6 +169,7 @@ export type VisualStyleProperty =
   | "border-width"
   | "border-style"
   | "border-color"
+  | "--an-css-border-gradient"
   | "border-radius"
   | "border-top-left-radius"
   | "border-top-right-radius"
@@ -886,6 +887,7 @@ const STYLE_PROPERTIES = [
   "border-width",
   "border-style",
   "border-color",
+  "--an-css-border-gradient",
   "border-radius",
   "border-top-left-radius",
   "border-top-right-radius",
@@ -4482,7 +4484,25 @@ const VECTOR_PAINT_PROPERTIES = [
 
 const VECTOR_STROKE_POSITION = "data-an-vector-stroke-position";
 const VECTOR_STROKE_GRADIENT_PROPERTY = "--an-vector-stroke-gradient";
+const CSS_BORDER_GRADIENT_PROPERTY = "--an-css-border-gradient";
+const CSS_BORDER_SOLID_COLOR_PROPERTY = "--an-css-border-solid-color";
+
+function cssBorderShorthandParts(value: string | undefined) {
+  if (!value) return null;
+  const width = value.match(
+    /(?:^|\s)((?:thin|medium|thick|(?:\d*\.)?\d+(?:px|em|rem|pt|pc|in|cm|mm|q|ex|ch|vw|vh|vmin|vmax)?))(?=\s|$)/i,
+  )?.[1];
+  const style = value.match(/(?:^|\s)(solid)(?=\s|$)/i)?.[1];
+  if (!width || !style) return null;
+  const color = value
+    .replace(new RegExp(`(?:^|\\s)${width}(?=\\s|$)`, "i"), " ")
+    .replace(/(?:^|\s)solid(?=\s|$)/i, " ")
+    .trim();
+  return color ? { width, style, color } : null;
+}
 const VECTOR_STROKE_GRADIENT_MARKER = "data-an-vector-stroke-gradient";
+const VECTOR_FILL_GRADIENT_PROPERTY = "--an-vector-fill-gradient";
+const VECTOR_FILL_GRADIENT_MARKER = "data-an-vector-fill-gradient";
 const VECTOR_STROKE_OVERLAY = "data-an-vector-stroke-overlay";
 const VECTOR_STROKE_LOGICAL_WIDTH = "data-an-vector-logical-width";
 const VECTOR_STROKE_GENERATED_DEFS = "data-an-vector-stroke-defs";
@@ -5488,6 +5508,264 @@ function applyVectorStrokeGradient(
   ]);
 }
 
+function removeVectorFillGradientMarkup(
+  html: string,
+  wrapper: ParsedElement,
+  fillValue: string | null,
+): string {
+  const elements = parseHtmlElements(html);
+  const current = elements[wrapper.index];
+  if (!current || current.start !== wrapper.start) return html;
+  const gradientId = fillValue?.match(
+    /^url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)$/i,
+  )?.[2];
+  if (!gradientId) return html;
+  const spans = current.childIndexes
+    .map((index) => elements[index])
+    .filter((child): child is ParsedElement => {
+      if (
+        !child ||
+        child.tag !== "defs" ||
+        getAttribute(child, VECTOR_FILL_GRADIENT_MARKER) === undefined
+      ) {
+        return false;
+      }
+      return child.childIndexes.some((childIndex) => {
+        const definition = elements[childIndex];
+        return definition && attributeValue(definition, "id") === gradientId;
+      });
+    })
+    .map((child) => ({ start: child.start, end: child.end }));
+  let result = html;
+  for (const span of spans.sort((a, b) => b.start - a.start)) {
+    result = `${result.slice(0, span.start)}${result.slice(span.end)}`;
+  }
+  return result;
+}
+
+function vectorFillGradientId(
+  wrapper: ParsedElement,
+  elements: ParsedElement[],
+): string {
+  const nodeId = attributeValue(wrapper, "data-agent-native-node-id");
+  const baseId = `${nodeId || `vector-${wrapper.index}`}-fill-gradient`;
+  const existingIds = new Set(
+    elements
+      .map((element) => attributeValue(element, "id"))
+      .filter((id): id is string => Boolean(id)),
+  );
+  if (!existingIds.has(baseId)) return baseId;
+  let suffix = 2;
+  while (existingIds.has(`${baseId}-${suffix}`)) suffix += 1;
+  return `${baseId}-${suffix}`;
+}
+
+function applyVectorFillGradient(
+  html: string,
+  shape: ParsedElement,
+  value: string,
+): string | PatchResultStatus {
+  const elements = parseHtmlElements(html);
+  const currentShape = elements[shape.index];
+  const wrapper = currentShape
+    ? vectorShapeOwnerSvg(currentShape, elements)
+    : null;
+  const gradient = normalizeVectorStrokeGradient(value);
+  const stops = gradient ? vectorStrokeGradientStops(gradient.value) : null;
+  const svgStops = stops ? vectorStrokeGradientStopsForSvg(stops) : null;
+  if (
+    !currentShape ||
+    currentShape.start !== shape.start ||
+    !wrapper ||
+    wrapper.tag !== "svg" ||
+    !gradient ||
+    !svgStops
+  ) {
+    return "unsupported";
+  }
+  const shapes = vectorShapeDescendants(wrapper, elements);
+  const shapeIndex = shapes.indexOf(currentShape);
+  const nodeId = attributeValue(wrapper, "data-agent-native-node-id");
+  const kind = attributeValue(wrapper, "data-an-primitive");
+  if (
+    shapeIndex < 0 ||
+    !nodeId ||
+    (!kind && !vectorShapeChild(wrapper, elements))
+  ) {
+    return "unsupported";
+  }
+
+  let content = clearVectorFillGradientState(
+    html,
+    currentShape,
+    vectorStyleValue(currentShape, "fill"),
+  );
+  const refreshed = parseHtmlElements(content);
+  const nextWrapper = refreshed.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const nextShapes = nextWrapper
+    ? vectorShapeDescendants(nextWrapper, refreshed)
+    : [];
+  const target = nextShapes[shapeIndex] ?? null;
+  if (!nextWrapper || !target) return "unsupported";
+  const id = vectorFillGradientId(nextWrapper, refreshed);
+  const box = vectorGradientBox(nextWrapper);
+  if (!box) return "unsupported";
+  let gradientMarkup: string | null = null;
+  if (gradient.kind === "linear") {
+    const angle = vectorLinearGradientAngle(
+      gradient.value,
+      box.cssWidth,
+      box.cssHeight,
+    );
+    if (angle === null) return "unsupported";
+    gradientMarkup = buildLinearGradientDef(
+      escapeHtmlAttribute(id),
+      angle,
+      svgStops,
+      {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+      },
+    );
+  } else {
+    const radial = parseComputedRadialGradient(gradient.value);
+    if (!radial) return "unsupported";
+    const geometry = resolveRadialGradientGeometry(
+      radial,
+      box.cssWidth,
+      box.cssHeight,
+    );
+    const cx = box.x + geometry.cx * box.scale;
+    const cy = box.y + geometry.cy * box.scale;
+    const rx = geometry.rx * box.scale;
+    const ry = geometry.ry * box.scale;
+    gradientMarkup =
+      Math.abs(rx - ry) < 0.01
+        ? buildRadialGradientDef(escapeHtmlAttribute(id), svgStops, {
+            cx,
+            cy,
+            r: rx,
+          })
+        : buildRadialGradientDef(escapeHtmlAttribute(id), svgStops, {
+            cx,
+            cy,
+            rx,
+            ry,
+          });
+  }
+  if (!gradientMarkup) return "unsupported";
+  const fillDefs = nextWrapper.childIndexes
+    .map((index) => refreshed[index])
+    .find(
+      (child) =>
+        child?.tag === "defs" &&
+        getAttribute(child, VECTOR_FILL_GRADIENT_MARKER) !== undefined,
+    );
+  if (fillDefs?.closeStart !== undefined) {
+    content = `${content.slice(0, fillDefs.closeStart)}${gradientMarkup}${content.slice(fillDefs.closeStart)}`;
+  } else {
+    const defs = `<defs ${VECTOR_FILL_GRADIENT_MARKER}="">${gradientMarkup}</defs>`;
+    content = `${content.slice(0, nextWrapper.openEnd)}${defs}${content.slice(nextWrapper.openEnd)}`;
+  }
+  const finalElements = parseHtmlElements(content);
+  const finalWrapper = finalElements.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const finalTarget = finalWrapper
+    ? (vectorShapeDescendants(finalWrapper, finalElements)[shapeIndex] ?? null)
+    : null;
+  if (!finalWrapper || !finalTarget) return "unsupported";
+  const authoredShapes = vectorShapeDescendants(finalWrapper, finalElements);
+  const metadataElement =
+    authoredShapes.length === 1 ? finalWrapper : finalTarget;
+  const fillStyle = setStyleValue(
+    attributeValue(finalTarget, "style"),
+    "fill",
+    `url(#${id})`,
+  );
+  const metadataStyle = setStyleValue(
+    metadataElement === finalTarget
+      ? fillStyle
+      : attributeValue(metadataElement, "style"),
+    VECTOR_FILL_GRADIENT_PROPERTY as VisualStyleProperty,
+    value.trim(),
+  );
+  return patchElementAttributes(content, [
+    {
+      element: finalTarget,
+      attributes: { style: fillStyle },
+    },
+    {
+      element: metadataElement,
+      attributes: { style: metadataStyle },
+    },
+  ]);
+}
+
+function clearVectorFillGradientState(
+  html: string,
+  shape: ParsedElement,
+  previousFill: string | null,
+): string {
+  const elements = parseHtmlElements(html);
+  const currentShape = elements[shape.index];
+  const wrapper = currentShape
+    ? vectorShapeOwnerSvg(currentShape, elements)
+    : null;
+  if (!currentShape || currentShape.start !== shape.start || !wrapper) {
+    return html;
+  }
+  const shapes = vectorShapeDescendants(wrapper, elements);
+  const shapeIndex = shapes.indexOf(currentShape);
+  if (shapeIndex < 0) return html;
+  const withoutDefs = removeVectorFillGradientMarkup(
+    html,
+    wrapper,
+    previousFill,
+  );
+  const refreshed = parseHtmlElements(withoutDefs);
+  const nextWrapper = refreshed.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const nextShapes = nextWrapper
+    ? vectorShapeDescendants(nextWrapper, refreshed)
+    : [];
+  const selectedShape = nextShapes[shapeIndex];
+  if (!nextWrapper || !selectedShape) return withoutDefs;
+  const gradientId = previousFill?.match(
+    /^url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)$/i,
+  )?.[2];
+  const metadataOwners = [nextWrapper, selectedShape];
+  if (gradientId) {
+    for (const candidate of nextShapes) {
+      if (
+        vectorStyleValue(candidate, "fill") === `url(#${gradientId})` &&
+        !metadataOwners.includes(candidate)
+      ) {
+        metadataOwners.push(candidate);
+      }
+    }
+  }
+  return patchElementAttributes(
+    withoutDefs,
+    metadataOwners.map((owner) => {
+      const style = parseStyle(attributeValue(owner, "style"));
+      delete style[VECTOR_FILL_GRADIENT_PROPERTY];
+      const nextStyle = serializeStyleDeclarations(
+        Object.entries(style).map(([property, value]) => ({ property, value })),
+      );
+      return {
+        element: owner,
+        attributes: { style: nextStyle || null },
+      };
+    }),
+  );
+}
+
 function clearVectorStrokeGradientState(
   html: string,
   shape: ParsedElement,
@@ -5731,8 +6009,142 @@ function applyStyleEdit(
   const normalized = normalizedSafeStyleValue(intent.property, intent.value);
   if (!normalized) return "unsupported";
   const { property, value } = normalized;
+  if (property === "border-color") {
+    const isGradient =
+      /^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value);
+    if (isGradient) {
+      const gradient = normalizeVectorStrokeGradient(value);
+      const stops =
+        gradient?.kind === "linear"
+          ? vectorStrokeGradientStops(gradient.value)
+          : null;
+      const style = parseStyle(attributeValue(element, "style"));
+      const shorthand = cssBorderShorthandParts(style.border);
+      const radiusProperties = [
+        "border-radius",
+        "border-top-left-radius",
+        "border-top-right-radius",
+        "border-bottom-right-radius",
+        "border-bottom-left-radius",
+      ];
+      const hasSquareCorners = radiusProperties.every(
+        (property) =>
+          !style[property] ||
+          style[property] === "0" ||
+          style[property] === "0px",
+      );
+      const hasExistingGradient = Boolean(style[CSS_BORDER_GRADIENT_PROPERTY]);
+      const hasUniformBorder =
+        (style["border-width"] ?? shorthand?.width) &&
+        (style["border-style"] ?? shorthand?.style) === "solid" &&
+        (style[CSS_BORDER_SOLID_COLOR_PROPERTY] ||
+          style["border-color"] ||
+          shorthand?.color) &&
+        !Object.keys(style).some((name) =>
+          /^border-(?:top|right|bottom|left)(?:-(?:width|style|color))?$/.test(
+            name,
+          ),
+        );
+      if (
+        element.tag !== "div" ||
+        classList(element).length > 0 ||
+        !hasSquareCorners ||
+        !hasUniformBorder ||
+        !gradient ||
+        !stops ||
+        (style["border-image"] && !hasExistingGradient) ||
+        (style["border-image-source"] && !hasExistingGradient)
+      ) {
+        return "unsupported";
+      }
+      const originalColor =
+        style[CSS_BORDER_SOLID_COLOR_PROPERTY] ??
+        style["border-color"] ??
+        shorthand?.color;
+      let nextStyle = setStyleValue(
+        attributeValue(element, "style"),
+        CSS_BORDER_GRADIENT_PROPERTY as VisualStyleProperty,
+        gradient.value,
+      );
+      nextStyle = setStyleValue(
+        nextStyle,
+        CSS_BORDER_SOLID_COLOR_PROPERTY as VisualStyleProperty,
+        originalColor,
+      );
+      nextStyle = setStyleValue(
+        nextStyle,
+        "border-image-source" as VisualStyleProperty,
+        `var(${CSS_BORDER_GRADIENT_PROPERTY})`,
+      );
+      nextStyle = setStyleValue(
+        nextStyle,
+        "border-image-slice" as VisualStyleProperty,
+        "1",
+      );
+      nextStyle = setStyleValue(nextStyle, "border-color", "transparent");
+      return {
+        content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+    const style = parseStyle(attributeValue(element, "style"));
+    if (style[CSS_BORDER_GRADIENT_PROPERTY]) {
+      if (value.trim().toLowerCase() === "transparent") {
+        const nextStyle = setStyleValue(
+          attributeValue(element, "style"),
+          "border-image-source" as VisualStyleProperty,
+          "none",
+        );
+        return {
+          content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+          capability: {
+            kind: "style",
+            properties: [property],
+            confidence: 0.9,
+          },
+        };
+      }
+      if (/^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value)) {
+        return "unsupported";
+      }
+      const declarations = parseStyleDeclarations(
+        attributeValue(element, "style"),
+      );
+      removeStyleDeclarations(declarations, [
+        CSS_BORDER_GRADIENT_PROPERTY,
+        "border-image-source",
+        "border-image-slice",
+      ]);
+      let nextStyle = serializeStyleDeclarations(declarations);
+      const solidColor =
+        value.trim().toLowerCase() !== "transparent" &&
+        parseCssColorExtended(value)
+          ? value
+          : (style[CSS_BORDER_SOLID_COLOR_PROPERTY] ?? value);
+      nextStyle = setStyleValue(nextStyle, "border-color", solidColor);
+      const cleaned = parseStyleDeclarations(nextStyle);
+      removeStyleDeclarations(cleaned, [CSS_BORDER_SOLID_COLOR_PROPERTY]);
+      nextStyle = serializeStyleDeclarations(cleaned);
+      return {
+        content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+  }
   if (property === "stroke") {
     const gradient = applyVectorStrokeGradient(html, element, value);
+    if (gradient !== "unsupported") {
+      return {
+        content: gradient,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+    if (/^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value)) {
+      return "unsupported";
+    }
+  }
+  if (property === "fill") {
+    const gradient = applyVectorFillGradient(html, element, value);
     if (gradient !== "unsupported") {
       return {
         content: gradient,
@@ -5784,6 +6196,8 @@ function applyStyleEdit(
   if (storedValue === null) return "unsupported";
   const previousStroke =
     property === "stroke" ? vectorStyleValue(element, "stroke") : null;
+  const previousFill =
+    property === "fill" ? vectorStyleValue(element, "fill") : null;
   const nextStyle = setStyleValue(
     attributeValue(element, "style"),
     property,
@@ -5792,6 +6206,9 @@ function applyStyleEdit(
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
   if (property === "stroke" && value.trim().toLowerCase() !== "transparent") {
     content = clearVectorStrokeGradientState(content, element, previousStroke);
+  }
+  if (property === "fill") {
+    content = clearVectorFillGradientState(content, element, previousFill);
   }
   if (alignedOverlay && property === "stroke-width") {
     const current = parseHtmlElements(content)[element.index];
@@ -5877,6 +6294,8 @@ function applyStyleRemoveEdit(
   const currentStyle = attributeValue(styleElement, "style");
   const previousStroke =
     property === "stroke" ? vectorStyleValue(styleElement, "stroke") : null;
+  const previousFill =
+    property === "fill" ? vectorStyleValue(styleElement, "fill") : null;
   if (currentStyle === null) {
     return {
       content: html,
@@ -5902,6 +6321,13 @@ function applyStyleRemoveEdit(
         content,
         styleElement,
         previousStroke,
+      );
+    }
+    if (property === "fill") {
+      content = clearVectorFillGradientState(
+        content,
+        styleElement,
+        previousFill,
       );
     }
     content = clearVectorWrapperPaint(content, element);

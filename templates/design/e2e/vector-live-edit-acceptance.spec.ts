@@ -1,0 +1,346 @@
+import { expect, test, type Page } from "@playwright/test";
+
+import {
+  appPath,
+  designFrame,
+  enterDirectMode,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
+
+const HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><main style="position:relative;width:640px;height:480px"></main></body></html>`;
+const GROUPED_SVG =
+  '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
+const EDITABLE_SVG =
+  '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0L30 0L30 30L0 30Z" fill="#f97316"/></svg>';
+const PEN_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;min-height:600px"><main data-agent-native-node-id="main" style="position:relative;min-height:600px"><div data-agent-native-node-id="frame" data-agent-native-layer-name="Frame" data-an-primitive="frame" style="position:absolute;left:40px;top:120px;width:600px;height:400px"><div data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="position:absolute;left:80px;top:70px;width:280px;height:200px;transform:translate(10px,5px)"><svg data-agent-native-node-id="nested-path" data-agent-native-layer-name="Nested path" data-an-primitive="path" data-an-pen-nodes='[1,[0,0,null,null,null,null],[100,0,null,null,null,null],[100,80,null,null,null,null],[0,80,null,null,null,null]]' viewBox="0 0 100 80" preserveAspectRatio="none" style="position:absolute;left:15.25px;top:20.5px;width:100px;height:80px;overflow:visible;opacity:0.5;filter:drop-shadow(0 1px 2px #000)"><path d="M 0 0 L 100 0 L 100 80 L 0 80 Z" fill="#336699" stroke="none" /></svg></div></div></main></body></html>`;
+
+async function action(
+  page: Page,
+  name: string,
+  input: Record<string, unknown>,
+) {
+  const response = await page.request.post(
+    appPath(`/_agent-native/actions/${name}`),
+    { data: input },
+  );
+  if (!response.ok())
+    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
+  return response.json();
+}
+
+async function readSource(page: Page, designId: string) {
+  const response = await page.request.get(
+    appPath(
+      `/_agent-native/actions/read-source-file?designId=${encodeURIComponent(designId)}&path=screen.html`,
+    ),
+  );
+  if (!response.ok())
+    throw new Error(
+      `read-source-file: ${response.status()} ${await response.text()}`,
+    );
+  return (await response.json()).content as string;
+}
+
+function nestedPathNodes(source: string) {
+  const element = source.match(
+    /<[^>]*\bdata-agent-native-node-id=(["'])nested-path\1[^>]*>/,
+  );
+  const attribute = element?.[0].match(/\bdata-an-pen-nodes=(["'])(.*?)\1/);
+  if (!attribute) throw new Error("nested-path source nodes are missing");
+  return JSON.parse(attribute[2]) as [number, ...Array<Array<number | null>>];
+}
+
+async function createDesign(page: Page, content = HTML) {
+  const design = await action(page, "create-design", {
+    title: `Vector live acceptance ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = design.id ?? design.data?.id;
+  const file = await action(page, "create-file", {
+    designId,
+    filename: "screen.html",
+    fileType: "html",
+    content,
+  });
+  const screenId = file.id ?? file.data?.id;
+  await action(page, "update-design", {
+    id: designId,
+    dataOperations: [
+      {
+        op: "set",
+        path: ["canvasFrames", screenId],
+        value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
+      },
+      {
+        op: "set",
+        path: ["screenMetadata", screenId],
+        value: { sourceType: "inline", width: 800, height: 600 },
+      },
+    ],
+  });
+  return { designId, screenId };
+}
+
+async function pasteSvg(
+  target: import("@playwright/test").Locator,
+  source: string,
+) {
+  return target.evaluate((body, svg) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File([svg], "clipboard.svg", { type: "image/svg+xml" }),
+    );
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: transfer,
+    });
+    body.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, source);
+}
+
+async function selectLayer(page: Page, name: string) {
+  const row = page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.locator(`span[title="${name}"]`) })
+    .first()
+    .locator('xpath=ancestor::*[@role="treeitem"][1]');
+  await expect(row).toBeVisible();
+  await row.locator("[data-layer-row-button]").click();
+  await expect(row).toHaveAttribute("aria-selected", "true");
+}
+
+test("grouped clipboard SVG keeps path identities and edits only the selected sibling", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  try {
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    await expandAllLayers(page);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+    expect(await pasteSvg(page.locator("body"), GROUPED_SVG)).toBe(true);
+
+    const svg = designFrame(page, screenId).locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"]',
+    );
+    const paths = svg.locator("g > path");
+    await expect(paths).toHaveCount(2);
+    await expect(svg.locator("g")).toHaveCount(1);
+    await expandAllLayers(page);
+    const pathIds = await paths.evaluateAll((elements) =>
+      elements.map((element) =>
+        element.getAttribute("data-agent-native-node-id"),
+      ),
+    );
+    expect(pathIds.every(Boolean)).toBe(true);
+    expect(new Set(pathIds).size).toBe(2);
+
+    const target = paths.nth(0);
+    const sibling = paths.nth(1);
+    const siblingBefore = await sibling.evaluate(
+      (element) => getComputedStyle(element).fill,
+    );
+    const layers = page.getByRole("tree", { name: "Layers" });
+    // expandAllLayers above has already expanded both the imported SVG and
+    // its nested group; toggling those rows here would collapse them.
+    const pathRows = layers.getByRole("treeitem", { level: 4 }).filter({
+      has: page.getByRole("button", { name: "PATH", exact: true }),
+    });
+    await expect(pathRows).toHaveCount(2);
+    // Layer rows list siblings in reverse SVG document order, so this row
+    // selects paths.nth(0), the orange path that this test edits.
+    const row = pathRows.nth(1);
+    await expect(row).toBeVisible();
+    await row.locator("[data-layer-row-button]").click();
+    await expect(row).toHaveAttribute("aria-selected", "true");
+    const fill = page
+      .getByRole("heading", { name: "Fill", exact: true })
+      .locator("xpath=ancestor::section");
+    await fill.getByRole("button", { name: "Open color picker" }).click();
+    const hex = page.getByRole("textbox", { name: "Hex", exact: true });
+    await hex.fill("3B82F6");
+    await hex.press("Enter");
+    await expect(target).toHaveCSS("fill", "rgb(59, 130, 246)");
+    await expect(sibling).toHaveCSS("fill", siblingBefore);
+    const source = await page.request
+      .get(
+        appPath(
+          `/_agent-native/actions/read-source-file?designId=${encodeURIComponent(designId)}&path=screen.html`,
+        ),
+      )
+      .then((response) => response.json());
+    const html = source.content ?? "";
+    expect(html).toContain(pathIds[0]!);
+    expect(html).toMatch(/fill:\s*#3b82f6/i);
+    await page.reload();
+    const reloaded = designFrame(page, screenId).locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"] g > path',
+    );
+    await expect(reloaded.nth(0)).toHaveCSS("fill", "rgb(59, 130, 246)");
+    await expect(reloaded.nth(1)).toHaveCSS("fill", siblingBefore);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("a pasted SVG path can be edited, undone, redone, and reopened", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  try {
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+    expect(await pasteSvg(page.locator("body"), EDITABLE_SVG)).toBe(true);
+    await expandAllLayers(page);
+    await selectLayer(page, "Pasted SVG");
+
+    const frame = designFrame(page, screenId);
+    const svg = frame.locator('svg[data-agent-native-layer-name="Pasted SVG"]');
+    const path = svg.locator("path");
+    const originalPathData = await path.getAttribute("d");
+    expect(originalPathData).toBe("M0 0L30 0L30 30L0 30Z");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    const previewPath = page
+      .locator("[data-vector-edit-overlay] svg path")
+      .nth(0);
+    const originalPreviewPathData = await previewPath.getAttribute("d");
+    const anchor = page.locator("[data-vector-anchor]").nth(1);
+    const box = await anchor.boundingBox();
+    if (!box) throw new Error("pasted SVG anchor has no bounds");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box.x + box.width / 2 + 18,
+      box.y + box.height / 2 + 10,
+      { steps: 4 },
+    );
+    await expect
+      .poll(() => previewPath.getAttribute("d"))
+      .not.toBe(originalPreviewPathData);
+    await page.mouse.up();
+    await expect.poll(() => path.getAttribute("d")).not.toBe(originalPathData);
+    const editedPathData = await path.getAttribute("d");
+    expect(await readSource(page, designId)).toContain(editedPathData);
+    await page.keyboard.press("Escape");
+
+    const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
+    const redo =
+      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
+    await page.keyboard.press(undo);
+    await expect.poll(() => path.getAttribute("d")).toBe(originalPathData);
+    await page.keyboard.press(redo);
+    await expect.poll(() => path.getAttribute("d")).toBe(editedPathData);
+    await page.reload();
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await selectLayer(page, "Pasted SVG");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    await expect.poll(() => path.getAttribute("d")).toBe(editedPathData);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("per-anchor radius previews, commits, and survives undo, redo, and reload", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page, PEN_HTML);
+  try {
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await selectLayer(page, "Nested path");
+    const frame = designFrame(page, screenId);
+    const originalSource = await readSource(page, designId);
+    const contentUpdates: Array<Record<string, unknown>> = [];
+    page.on("request", (request) => {
+      if (!request.url().includes("/_agent-native/actions/update-file")) return;
+      try {
+        const body = request.postDataJSON() as Record<string, unknown>;
+        if (body.id === screenId) contentUpdates.push(body);
+      } catch {
+        // Ignore non-JSON update requests from unrelated test setup.
+      }
+    });
+    const renderedPath = frame.locator(
+      '[data-agent-native-node-id="nested-path"] path',
+    );
+    const originalPathData = await renderedPath.getAttribute("d");
+    expect(originalPathData).toBe("M 0 0 L 100 0 L 100 80 L 0 80 Z");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    const anchor = page.locator("[data-vector-anchor]").nth(1);
+    const box = await anchor.boundingBox();
+    if (!box) throw new Error("selected vector anchor has no bounds");
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    const radius = page.getByRole("textbox", { name: "Corner radius" });
+    await expect(radius).toHaveValue("0");
+    await page.waitForTimeout(100);
+    expect(contentUpdates).toHaveLength(0);
+    expect(await readSource(page, designId)).toBe(originalSource);
+    await radius.fill("14");
+    await expect(radius).toHaveValue("14");
+    expect(contentUpdates).toHaveLength(0);
+    expect(await readSource(page, designId)).toBe(originalSource);
+    await radius.press("Enter");
+    await expect(radius).toHaveValue("14");
+    await expect
+      .poll(() => renderedPath.getAttribute("d"))
+      .not.toBe(originalPathData);
+    const roundedPathData = await renderedPath.getAttribute("d");
+    expect(roundedPathData).toContain("A 14 14");
+    await expect
+      .poll(async () => nestedPathNodes(await readSource(page, designId))[2][6])
+      .toBe(14);
+    await page.keyboard.press("Escape");
+
+    const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
+    const redo =
+      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
+    await page.keyboard.press(undo);
+    await expect.poll(() => readSource(page, designId)).toBe(originalSource);
+    await expect
+      .poll(() => renderedPath.getAttribute("d"))
+      .toBe(originalPathData);
+    await expect
+      .poll(async () => nestedPathNodes(await readSource(page, designId))[2][6])
+      .toBeUndefined();
+    await page.keyboard.press(redo);
+    await expect
+      .poll(() => renderedPath.getAttribute("d"))
+      .toBe(roundedPathData);
+    await expect
+      .poll(async () => nestedPathNodes(await readSource(page, designId))[2][6])
+      .toBe(14);
+    await page.reload();
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await selectLayer(page, "Nested path");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    await expect
+      .poll(() => renderedPath.getAttribute("d"))
+      .toBe(roundedPathData);
+    await expect
+      .poll(async () => nestedPathNodes(await readSource(page, designId))[2][6])
+      .toBe(14);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});

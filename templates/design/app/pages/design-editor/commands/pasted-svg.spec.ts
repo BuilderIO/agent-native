@@ -27,6 +27,36 @@ describe("parsePastedSvg", () => {
     expect(pasted?.svg).toContain('height="9.5"');
   });
 
+  it("keeps simple 1:1 pasted paths editable with the Pen tool", () => {
+    const pasted = parsePastedSvg(
+      '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0L30 0L30 30L0 30Z" fill="#f97316"/></svg>',
+    );
+
+    const root = new DOMParser().parseFromString(
+      pasted!.svg,
+      "image/svg+xml",
+    ).documentElement;
+    expect(JSON.parse(root.getAttribute("data-an-pen-nodes")!)).toEqual([
+      1,
+      [0, 0, null, null, null, null, null],
+      [30, 0, null, null, null, null, null],
+      [30, 30, null, null, null, null, null],
+      [0, 30, null, null, null, null, null],
+    ]);
+  });
+
+  it.each([
+    '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0h30v30z"/></svg>',
+    '<svg width="80" height="40" viewBox="0 0 80 40"><path transform="scale(2)" d="M0 0L30 0L30 30Z"/></svg>',
+    '<svg width="80" height="40" viewBox="0 0 80 40" style="transform:scale(2)"><path d="M0 0L30 0L30 30Z"/></svg>',
+    '<svg width="80" height="40" viewBox="0 0 80 40"><path style="transform:scale(2)" d="M0 0L30 0L30 30Z"/></svg>',
+    '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0L30 0L30 30Z"/></g></svg>',
+  ])("leaves non-round-trippable clipboard paths unmarked (%s)", (source) => {
+    const pasted = parsePastedSvg(source);
+
+    expect(pasted?.svg).not.toContain("data-an-pen-nodes");
+  });
+
   it("infers one missing dimension from the viewBox aspect ratio", () => {
     const pasted = parsePastedSvg(
       '<svg width="34" viewBox="0 0 17 9"><rect width="17" height="9"/></svg>',
