@@ -88,6 +88,11 @@ describe("OutputPreview saved MCP Apps", () => {
       );
     });
 
+    await vi.waitFor(() =>
+      expect(container.querySelector("iframe")?.getAttribute("sandbox")).toBe(
+        "",
+      ),
+    );
     const iframe = container.querySelector("iframe");
     expect(iframe?.getAttribute("sandbox")).toBe("");
     expect(iframe?.style.maxHeight).toBe("420px");
@@ -180,7 +185,7 @@ describe("OutputPreview saved MCP Apps", () => {
     expect(container.querySelector("iframe")).toBeNull();
   });
 
-  it("shows the saved app rather than duplicating its structured payload", () => {
+  it("shows the saved app rather than duplicating its structured payload", async () => {
     act(() => {
       root.render(
         <OutputPreview
@@ -207,7 +212,9 @@ describe("OutputPreview saved MCP Apps", () => {
       );
     });
 
-    expect(container.querySelector("iframe")).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(container.querySelector("iframe")).not.toBeNull(),
+    );
     expect(container.textContent).not.toContain("A story in three slides");
     expect(container.querySelector('[data-preview-kind="design"]')).toBeNull();
   });

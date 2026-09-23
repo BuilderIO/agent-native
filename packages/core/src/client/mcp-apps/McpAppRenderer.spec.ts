@@ -223,19 +223,27 @@ describe("McpAppRenderer security helpers", () => {
     });
 
     const iframe = container.querySelector("iframe");
-    expect(iframe?.getAttribute("sandbox")).toBe("");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Loading MCP App",
+    );
+    expect(iframe).toBeNull();
     await vi.waitFor(() =>
-      expect(iframe?.srcdoc).toContain("connect-src 'none'"),
+      expect(container.querySelector("iframe")).not.toBeNull(),
     );
-    expect(iframe?.srcdoc).toContain("script-src 'none'");
-    expect(iframe?.srcdoc).toContain("navigate-to 'none'");
-    expect(iframe?.srcdoc?.indexOf("Content-Security-Policy")).toBeLessThan(
-      iframe?.srcdoc?.indexOf("<body") ?? -1,
+    const renderedIframe = container.querySelector("iframe");
+    expect(renderedIframe?.getAttribute("sandbox")).toBe("");
+    await vi.waitFor(() =>
+      expect(renderedIframe?.srcdoc).toContain("connect-src 'none'"),
     );
-    expect(iframe?.srcdoc).toContain("Saved app");
-    expect(iframe?.srcdoc).not.toContain("window.leak");
-    expect(iframe?.srcdoc).not.toContain("tracker.example");
-    expect(iframe?.srcdoc).not.toContain("untrusted-cdn.example.com");
+    expect(renderedIframe?.srcdoc).toContain("script-src 'none'");
+    expect(renderedIframe?.srcdoc).toContain("navigate-to 'none'");
+    expect(
+      renderedIframe?.srcdoc?.indexOf("Content-Security-Policy"),
+    ).toBeLessThan(renderedIframe?.srcdoc?.indexOf("<body") ?? -1);
+    expect(renderedIframe?.srcdoc).toContain("Saved app");
+    expect(renderedIframe?.srcdoc).not.toContain("window.leak");
+    expect(renderedIframe?.srcdoc).not.toContain("tracker.example");
+    expect(renderedIframe?.srcdoc).not.toContain("untrusted-cdn.example.com");
     expect(container.querySelector("button")).toBeNull();
   });
 

@@ -403,16 +403,25 @@ export function McpAppRenderer({
             </div>
           </div>
         )}
-        <iframe
-          ref={iframeRef}
-          title={app.tool?.title ?? app.originalToolName}
-          srcDoc={srcDoc}
-          sandbox=""
-          style={{
-            height,
-            ...(finitePositiveNumber(maxHeight) ? { maxHeight } : {}),
-          }}
-        />
+        {srcDoc ? (
+          <iframe
+            ref={iframeRef}
+            title={app.tool?.title ?? app.originalToolName}
+            srcDoc={srcDoc}
+            sandbox=""
+            style={{
+              height,
+              ...(finitePositiveNumber(maxHeight) ? { maxHeight } : {}),
+            }}
+          />
+        ) : (
+          !error && (
+            <div className="agent-mcp-app__loading" role="status">
+              <IconLoader2 size={14} className="agent-conversation-spin" />
+              <span>Loading MCP App</span>
+            </div>
+          )
+        )}
       </div>
     );
   }
