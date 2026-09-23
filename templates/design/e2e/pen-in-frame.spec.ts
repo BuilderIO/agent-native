@@ -144,11 +144,30 @@ async function penPreview(page: Page) {
       const rect = anchor.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     });
+    const handles = Array.from(
+      overlay.querySelectorAll<HTMLElement>("[data-pen-handle]"),
+    ).map((handle) => {
+      const rect = handle.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    });
     return {
       anchors: rects,
+      handles,
       pathData: overlay.querySelector("svg path")?.getAttribute("d") ?? "",
     };
   });
+}
+
+async function screenLocalPoint(page: Page, point: { x: number; y: number }) {
+  return page
+    .locator("iframe[data-screen-iframe-id]")
+    .evaluate((iframe, outerPoint) => {
+      const rect = iframe.getBoundingClientRect();
+      return {
+        x: ((outerPoint.x - rect.left) / rect.width) * iframe.clientWidth,
+        y: ((outerPoint.y - rect.top) / rect.height) * iframe.clientHeight,
+      };
+    }, point);
 }
 
 async function terminalPenPoint(page: Page) {
@@ -277,6 +296,147 @@ test("a pen path drawn inside a frame paints where it was drawn and stays dragga
 
     const moved = (await vectors(page))[0]!;
     expect(moved.styleLeft).not.toBe(vector.styleLeft);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("a new Pen path previews every pointer step in the selected frame and closes with fill", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(request);
+  try {
+    await page.goto(appPath(`/design/${designId}?view=overview`), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect
+      .poll(async () => page.locator("[data-screen-shell]").count(), {
+        timeout: 40_000,
+      })
+      .toBeGreaterThan(0);
+    await page.locator("[data-frame-title]").first().click();
+    const iframe = page.locator("iframe[data-screen-iframe-id]").first();
+    await expect
+      .poll(async () => Boolean(await iframe.boundingBox()))
+      .toBe(true);
+    const bounds = (await iframe.boundingBox())!;
+    const framePoint = (x: number, y: number) => ({
+      x: bounds.x + ((FRAME_LEFT + x) / 800) * bounds.width,
+      y: bounds.y + ((FRAME_TOP + y) / 600) * bounds.height,
+    });
+    const points = [
+      framePoint(72, 64),
+      framePoint(198, 82),
+      framePoint(138, 206),
+    ];
+
+    await page.keyboard.press("p");
+    await expect(
+      page.getByRole("button", { name: "Pen", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    // Each click adds the anchor while the pointer is still down. The second
+    // point is a real drag, so its Bézier handles and changing endpoint must
+    // be visible before mouseup, not only in the final persisted SVG.
+    await page.mouse.move(points[0]!.x, points[0]!.y);
+    await page.mouse.down();
+    await expect
+      .poll(async () => (await penPreview(page)).anchors.length)
+      .toBe(1);
+    expect((await penPreview(page)).pathData).toMatch(/^M\s/);
+    await page.mouse.up();
+
+    await page.mouse.move(points[1]!.x, points[1]!.y);
+    await page.mouse.down();
+    await expect
+      .poll(async () => (await penPreview(page)).anchors.length)
+      .toBe(2);
+    for (const t of [0.25, 0.5, 0.75, 1]) {
+      const pointer = {
+        x: points[1]!.x + 28 * t,
+        y: points[1]!.y + 34 * t,
+      };
+      await page.mouse.move(pointer.x, pointer.y);
+      const preview = await penPreview(page);
+      expect(preview.anchors).toHaveLength(2);
+      expect(preview.handles.length).toBeGreaterThan(0);
+      expect(preview.pathData).toMatch(/[CQ]/);
+      expect(Math.abs(preview.anchors[1]!.x - points[1]!.x)).toBeLessThan(3);
+      expect(Math.abs(preview.anchors[1]!.y - points[1]!.y)).toBeLessThan(3);
+      const draggedHandle = preview.handles.at(-1)!;
+      expect(Math.abs(draggedHandle.x - pointer.x)).toBeLessThan(3);
+      expect(Math.abs(draggedHandle.y - pointer.y)).toBeLessThan(3);
+    }
+    const curvedAnchorExpected = await screenLocalPoint(page, points[1]!);
+    await page.mouse.up();
+
+    await page.mouse.move(points[2]!.x, points[2]!.y);
+    await page.mouse.down();
+    await expect
+      .poll(async () => (await penPreview(page)).anchors.length)
+      .toBe(3);
+    expect((await penPreview(page)).pathData).not.toMatch(/Z\s*$/i);
+    await page.mouse.up();
+
+    // Closing is itself a pointer gesture. While the pointer is down over the
+    // first anchor the preview closes, but nothing is persisted before release.
+    const firstAnchor = (await penPreview(page)).anchors[0]!;
+    await page.mouse.move(firstAnchor.x, firstAnchor.y);
+    await page.mouse.down();
+    await expect
+      .poll(async () => (await penPreview(page)).pathData)
+      .toMatch(/Z\s*$/i);
+    expect(await persistedVectors(request, designId)).toEqual([]);
+    await page.mouse.up();
+
+    await expect
+      .poll(async () => (await persistedVectors(request, designId)).length)
+      .toBe(1);
+    const [vector] = await page
+      .frameLocator("iframe[data-screen-iframe-id]")
+      .locator("svg[data-an-primitive='path']")
+      .evaluateAll((svgs) =>
+        svgs.map((svg) => {
+          const path = svg.querySelector("path");
+          return {
+            parent: svg.parentElement?.getAttribute(
+              "data-agent-native-node-id",
+            ),
+            nodes: JSON.parse(svg.getAttribute("data-an-pen-nodes") ?? "[]"),
+            screenAnchors: (() => {
+              const matrix = (svg as SVGSVGElement).getScreenCTM();
+              if (!matrix) return [];
+              return JSON.parse(svg.getAttribute("data-an-pen-nodes") ?? "[]")
+                .slice(1)
+                .map(([x, y]: [number, number]) => {
+                  const point = new DOMPoint(x, y).matrixTransform(matrix);
+                  return { x: point.x, y: point.y };
+                });
+            })(),
+            closed: path?.getAttribute("d")?.trim().endsWith("Z"),
+            fill: path ? getComputedStyle(path).fill : null,
+            stroke: path ? getComputedStyle(path).stroke : null,
+          };
+        }),
+      );
+    expect(vector).toBeDefined();
+    expect(vector!.parent).toBe("frame");
+    expect(vector!.nodes[0]).toBe(1);
+    expect(vector!.nodes).toHaveLength(4);
+    const expectedAnchors = [
+      await screenLocalPoint(page, points[0]!),
+      curvedAnchorExpected,
+      await screenLocalPoint(page, points[2]!),
+    ];
+    expectedAnchors.forEach((expected, index) => {
+      const actual = vector!.screenAnchors[index]!;
+      expect(Math.abs(actual.x - expected.x)).toBeLessThan(3);
+      expect(Math.abs(actual.y - expected.y)).toBeLessThan(3);
+    });
+    expect(vector!.closed).toBe(true);
+    expect(vector!.fill).toBe("rgb(218, 218, 218)");
+    expect(vector!.stroke).toBe("none");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
