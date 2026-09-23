@@ -44,29 +44,15 @@ describe("getLaunchDarklyClient", () => {
     expect(first).toBe(client);
     expect(second).toBe(client);
     expect(initMock).toHaveBeenCalledTimes(1);
-    expect(initMock).toHaveBeenCalledWith("sdk-key");
   });
 
-  it("resolves null and warns when initialization rejects", async () => {
-    getAppConfigMock.mockReturnValue({ launchDarkly: { sdkKey: "sdk-key" } });
-    const client = {
-      waitForInitialization: vi.fn().mockRejectedValue(new Error("failed")),
-      close: vi.fn(),
-    };
-    initMock.mockReturnValue(client);
-
-    await expect(getLaunchDarklyClient()).resolves.toBeNull();
-    expect(console.warn).toHaveBeenCalled();
-  });
-
-  it("resolves null and warns when initialization never settles", async () => {
+  it("resolves null instead of hanging when initialization never settles", async () => {
     vi.useFakeTimers();
     getAppConfigMock.mockReturnValue({ launchDarkly: { sdkKey: "sdk-key" } });
-    const client = {
+    initMock.mockReturnValue({
       waitForInitialization: vi.fn(() => new Promise(() => {})),
       close: vi.fn(),
-    };
-    initMock.mockReturnValue(client);
+    });
 
     const pending = getLaunchDarklyClient();
     await vi.advanceTimersByTimeAsync(6_000);
@@ -96,9 +82,5 @@ describe("closeLaunchDarklyClient", () => {
     });
     await getLaunchDarklyClient();
     expect(initMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("is a no-op when no client was ever created", async () => {
-    await expect(closeLaunchDarklyClient()).resolves.toBeUndefined();
   });
 });

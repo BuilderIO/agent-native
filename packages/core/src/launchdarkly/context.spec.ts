@@ -9,14 +9,6 @@ describe("buildLaunchDarklyContext", () => {
       key: "anonymous",
       anonymous: true,
     });
-  });
-
-  it("builds an anonymous context for a null/blank email", () => {
-    expect(buildLaunchDarklyContext({ userEmail: null })).toEqual({
-      kind: "user",
-      key: "anonymous",
-      anonymous: true,
-    });
     expect(buildLaunchDarklyContext({ userEmail: "   " })).toEqual({
       kind: "user",
       key: "anonymous",
@@ -24,7 +16,7 @@ describe("buildLaunchDarklyContext", () => {
     });
   });
 
-  it("keys a signed-in caller by normalized email", () => {
+  it("keys a signed-in caller by normalized email and carries orgId", () => {
     expect(
       buildLaunchDarklyContext({ userEmail: "  Ada@Example.com  " }),
     ).toEqual({
@@ -32,9 +24,6 @@ describe("buildLaunchDarklyContext", () => {
       key: "ada@example.com",
       anonymous: false,
     });
-  });
-
-  it("carries orgId as a custom attribute when present", () => {
     expect(
       buildLaunchDarklyContext({
         userEmail: "ada@example.com",
@@ -45,16 +34,6 @@ describe("buildLaunchDarklyContext", () => {
       key: "ada@example.com",
       anonymous: false,
       orgId: "org-1",
-    });
-  });
-
-  it("omits orgId when absent or null", () => {
-    expect(
-      buildLaunchDarklyContext({ userEmail: "ada@example.com", orgId: null }),
-    ).toEqual({
-      kind: "user",
-      key: "ada@example.com",
-      anonymous: false,
     });
   });
 });

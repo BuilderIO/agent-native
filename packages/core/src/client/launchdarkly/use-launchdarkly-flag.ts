@@ -5,15 +5,10 @@ interface GetLaunchDarklyFlagsResult {
   flags?: Record<string, unknown>;
 }
 
-/**
- * Returns the current user's evaluated value for a LaunchDarkly boolean flag.
- *
- * Reads through the `get-launchdarkly-flags` action rather than a
- * LaunchDarkly client-side SDK, so no LaunchDarkly key or client-side ID ever
- * reaches the browser. `get-launchdarkly-flags` requires a real session —
- * gating on it avoids firing a request that 401s for every signed-out
- * visitor; the flag defaults to `defaultValue` with no data either way.
- */
+// Reads through the `get-launchdarkly-flags` action rather than a
+// LaunchDarkly client-side SDK, so no LaunchDarkly key ever reaches the
+// browser. Requires a real session — gating on it avoids firing a request
+// that 401s for every signed-out visitor.
 export function useLaunchDarklyFlag(
   key: string,
   defaultValue = false,
@@ -28,9 +23,6 @@ export function useLaunchDarklyFlag(
   return typeof value === "boolean" ? value : defaultValue;
 }
 
-/**
- * Returns evaluated values for several LaunchDarkly flags in one request.
- */
 export function useLaunchDarklyFlags(
   keys: readonly string[],
   defaultValue = false,

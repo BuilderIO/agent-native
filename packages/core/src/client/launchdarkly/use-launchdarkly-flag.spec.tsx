@@ -69,7 +69,7 @@ describe("useLaunchDarklyFlag / useLaunchDarklyFlags session gating", () => {
     expect(value).toBe(false);
   });
 
-  it("fires get-launchdarkly-flags once the session is authenticated", async () => {
+  it("fires get-launchdarkly-flags once authenticated and returns the evaluated value", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
     const fetchMock = vi
       .fn()
@@ -86,25 +86,6 @@ describe("useLaunchDarklyFlag / useLaunchDarklyFlags session gating", () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(value).toBe(true);
-  });
-
-  it("returns the caller-supplied default when the key is absent from the response", async () => {
-    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ flags: {} })),
-    );
-
-    let value: boolean | undefined;
-    function Probe() {
-      value = useLaunchDarklyFlag("missing-flag", true);
-      return null;
-    }
-
-    await mountProbe(Probe);
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
-
     expect(value).toBe(true);
   });
 

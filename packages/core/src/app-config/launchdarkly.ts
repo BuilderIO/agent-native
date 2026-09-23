@@ -1,10 +1,7 @@
 import { z } from "zod";
 
-/**
- * LaunchDarkly server-side flag evaluation. This schema is part of
- * `appConfigSchema` (see `schema.ts`), which is never serialized to the
- * browser — the SDK key never reaches a bundle.
- */
+// Server-only — part of `appConfigSchema` (see `schema.ts`), which is never
+// serialized to the browser, so the SDK key never reaches a bundle.
 export const launchDarklyConfig = z.object({
   sdkKey: z
     .string()

@@ -1,13 +1,8 @@
 import { getLaunchDarklyClient } from "./client.js";
 import { buildLaunchDarklyContext, type LaunchDarklyActor } from "./context.js";
 
-/**
- * Evaluates a LaunchDarkly flag's variation for the given caller.
- *
- * Fails closed to `defaultValue` — never throws — when LaunchDarkly is not
- * configured, the client failed to initialize, or evaluation itself errors. A
- * flag read must never become an availability dependency for its caller.
- */
+// Fails closed to `defaultValue` — never throws — because a flag read must
+// never become an availability dependency for its caller.
 export async function getLaunchDarklyVariation<T>(
   flagKey: string,
   actor: LaunchDarklyActor,
@@ -24,7 +19,6 @@ export async function getLaunchDarklyVariation<T>(
   }
 }
 
-/** Boolean convenience wrapper around {@link getLaunchDarklyVariation}. */
 export async function isLaunchDarklyFlagEnabled(
   flagKey: string,
   actor: LaunchDarklyActor,
@@ -33,11 +27,6 @@ export async function isLaunchDarklyFlagEnabled(
   return getLaunchDarklyVariation(flagKey, actor, defaultValue);
 }
 
-/**
- * Evaluates every flag LaunchDarkly currently has targeting rules for, for the
- * given caller. Returns `{}` (not an error) when LaunchDarkly is unconfigured
- * or unreachable.
- */
 export async function getAllLaunchDarklyFlags(
   actor: LaunchDarklyActor,
 ): Promise<Record<string, unknown>> {
