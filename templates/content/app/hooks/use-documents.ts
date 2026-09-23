@@ -256,6 +256,13 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
   baseRevision?: string;
   /** Exact title baseline when a title and body are saved together. */
   baseTitle?: string;
+  /** Stable browser-tab identity for recovery-draft ordering. */
+  editorSessionId?: string;
+  /** Monotonic intentional edit generation within editorSessionId. */
+  editorEditGeneration?: number;
+  /** Complete editor snapshot represented by this generation. */
+  editorSnapshotTitle?: string;
+  editorSnapshotContent?: string;
 };
 
 export type DocumentUpdateResult =
@@ -630,6 +637,8 @@ export interface PreviewDocumentDraftRecord {
   baseDocumentUpdatedAt: string | null;
   loadedContentWasEmpty: number;
   deferredReason: string | null;
+  editorSessionId: string | null;
+  editGeneration: number | null;
   version: number;
   updatedAt: string;
 }
@@ -657,7 +666,7 @@ export function usePreviewDocumentDraft(
 export function useUpdatePreviewDocumentDraft() {
   return useActionMutation<
     {
-      status: "saved" | "deleted" | "conflict";
+      status: "saved" | "deleted" | "conflict" | "superseded";
       draft: PreviewDocumentDraftRecord | null;
     },
     | {
@@ -670,6 +679,8 @@ export function useUpdatePreviewDocumentDraft() {
           baseDocumentUpdatedAt: string | null;
           loadedContentWasEmpty: boolean;
           deferredReason: "hydration" | "conflict" | null;
+          editorSessionId?: string;
+          editGeneration?: number;
         };
       }
     | {
@@ -678,6 +689,8 @@ export function useUpdatePreviewDocumentDraft() {
         expectedVersion: number;
         expectedTitle: string;
         expectedContent: string;
+        expectedEditorSessionId?: string;
+        expectedEditGeneration?: number;
       }
   >("update-preview-document-draft", {
     skipActionQueryInvalidation: true,

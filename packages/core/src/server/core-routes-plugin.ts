@@ -89,6 +89,7 @@ import {
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { getOrgContext } from "../org/context.js";
 import { createProgressHandler } from "../progress/routes.js";
+import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
 import {
   parseRemoteAgentAuth,
   parseRemoteAgentKind,
@@ -1607,10 +1608,12 @@ export interface CoreRoutesPluginOptions {
   disableSSE?: boolean;
   /**
    * Close an SSE stream after this many milliseconds instead of holding it
-   * open indefinitely. On a serverless host, set it below the platform's
-   * function ceiling (e.g. 280_000 under Vercel's 300s limit): the stream then
-   * ends at 200 and the client reconnects, instead of the platform killing the
-   * invocation and recording a runtime timeout. Default: unset (no cap).
+   * open indefinitely, so the stream ends at 200 and the client reconnects
+   * instead of the platform killing the invocation and recording a runtime
+   * timeout. Only applies on a long-lived host, or a production serverless
+   * request from a bundle old enough to still stream (see the SSE mount) —
+   * a request that opts into the 204 short-circuit never reaches the stream,
+   * so this value is unused for it. Default: unset (no cap).
    * `createCoreRoutesPlugin` throws on a zero, negative, or non-finite value.
    */
   sseMaxDurationMs?: number;
@@ -2835,13 +2838,45 @@ export function createCoreRoutesPlugin(
 
       // SSE
       if (!options.disableSSE) {
+        // A serverless invocation holding this stream never ends on its own:
+        // the platform kills it at its own ceiling, which recycles that
+        // execution environment, and EventSource reconnects immediately — one
+        // open tab becomes a steady stream of fresh cold containers. Refusing
+        // up front with a bare 204 (EventSource treats any non-200 status as
+        // terminal and does not auto-reconnect; 204 is the conventional "stop"
+        // signal) costs nothing per invocation and lets the client's own
+        // local-reconnect path (use-db-sync.ts) fall back to /poll instead,
+        // reporting poll-live so subscribers keep their normal cadence.
+        // Long-lived Node hosts and local dev are unaffected.
+        //
+        // Gated on the request itself, not only the runtime: `isServerlessRuntime()`
+        // is a pool-sizing check that is also true under `netlify dev`
+        // (NETLIFY_LOCAL, a long-lived local server) and on Cloudflare (one
+        // isolate serving many concurrent requests, where in-process events
+        // can still reach some streams) — a false positive there would
+        // silently drop local SSE. `isProductionServerlessFunctionRuntime()`
+        // excludes both. The `poll_live` param further limits the 204 to
+        // requests from a client new enough to fall back to poll-live; an
+        // older bundle's stream (already open, or opened before its next
+        // reload) keeps streaming.
+        const streamHandler = createPollEventsHandler(undefined, {
+          maxDurationMs: sseMaxDurationMs,
+        });
+        const sseHandler = isProductionServerlessFunctionRuntime()
+          ? defineEventHandler((event) => {
+              if (
+                getRequestURL(event).searchParams.get(
+                  REALTIME_POLL_LIVE_QUERY_PARAM,
+                ) === "1"
+              ) {
+                setResponseStatus(event, 204);
+                return "";
+              }
+              return streamHandler(event);
+            })
+          : streamHandler;
         for (const route of resolveFrameworkSseRoutes(options.sseRoute)) {
-          getH3App(nitroApp).use(
-            route,
-            createPollEventsHandler(undefined, {
-              maxDurationMs: sseMaxDurationMs,
-            }),
-          );
+          getH3App(nitroApp).use(route, sseHandler);
         }
       }
 

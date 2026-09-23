@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- PDF exports preserve slide fonts and text wrapping
 - Keep slide additions aligned with the deck's existing design system
 
 ## 2026-09-20
@@ -34,6 +35,10 @@ time from the command menu (Cmd+K → "What's new").
 - Inline slide editing now preserves text changes through teardown and reload
 - Slides keeps chat controls, queued prompts, sharing, and design-system status in sync.
 - Slides now hydrates configured design system defaults when references load after opening.
+
+### Removed
+
+- Slides opens directly into the deck workspace without the extra first-run setup flow
 
 ## 2026-09-17
 

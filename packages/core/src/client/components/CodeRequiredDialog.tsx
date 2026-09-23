@@ -10,7 +10,7 @@ import { createPortal } from "react-dom";
 
 import { agentNativePath } from "../api-path.js";
 import { useT } from "../i18n.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
@@ -219,7 +219,7 @@ export function CodeRequiredDialog({
               <span style={s.badge}>{t("codeRequired.codeChangeBadge")}</span>
             </div>
           ) : (
-            <BuilderConnectPopover flow={builderFlow}>
+            <DeferredBuilderConnectPopover flow={builderFlow}>
               <button
                 type="button"
                 disabled={builderFlow.connecting}
@@ -257,7 +257,7 @@ export function CodeRequiredDialog({
                 </div>
                 <span style={s.badge}>{t("codeRequired.setupRequired")}</span>
               </button>
-            </BuilderConnectPopover>
+            </DeferredBuilderConnectPopover>
           )}
         </div>
 

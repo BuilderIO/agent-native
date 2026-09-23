@@ -2566,6 +2566,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return containerScopeAncestor(resolved, scope);
   }
 
+  /*
+   * HUMAN-DIRECTED UX EXCEPTION - DO NOT REVERT TO FIGMA:
+   * Screen contents intentionally select the deepest block under a plain
+   * single click. This is a rare, 100% intentional deviation from Figma UX,
+   * requested by user feedback because people expect to click directly into
+   * blocks while working inside a screen. The infinite-canvas board keeps the
+   * Figma container-first behavior above. Do not remove or “fix” this branch
+   * unless a human explicitly asks for this behavior to change.
+   * Feedback: https://builder-internal.slack.com/archives/C0ATH3CCZT4/p1790099891790049?thread_ts=1790099192.113439&cid=C0ATH3CCZT4
+   */
+  function plainClickSelectionTarget(hit: Element | null): Element | null {
+    if (!designCanvasBoardSurface) {
+      // A direct screen click also exits any board-style drill scope left by a
+      // prior interaction before resolving the block under the pointer.
+      selectionContainerScope = null;
+      return selectionTargetForHit(hit);
+    }
+    return containerFirstSelectionTarget(hit);
+  }
+
   // Figma "click through": with a container selected, a plain click on one
   // of its descendants selects the container's child under the pointer, one
   // level per click, and the scope follows so later clicks stay inside it.
@@ -5751,12 +5771,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
-  // Figma parity: a plain click resolves to the outermost child of this
-  // container (the screen root, i.e. null, by default) rather than the raw
-  // deepest hit. Double-click drilling (beginTextEditingFromEvent's descend
-  // fallback) sets this to the container just drilled into; a plain click
-  // that lands outside it exits drill mode by clearing it back to null. See
-  // containerFirstSelectionTarget.
+  // Figma parity on the infinite-canvas board: a plain click resolves to the
+  // outermost child of this container (the screen root, i.e. null, by default)
+  // rather than the raw deepest hit. Double-click drilling
+  // (beginTextEditingFromEvent's descend fallback) sets this to the container
+  // just drilled into; a plain click that lands outside it exits drill mode by
+  // clearing it back to null. See containerFirstSelectionTarget. Screen
+  // contents intentionally use plainClickSelectionTarget instead.
   var selectionContainerScope: Element | null = null;
   var selectionGeneration = 0;
   // When true, selection chrome stays hidden through async reflows so a
@@ -8777,6 +8798,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // each axis always stays body-grabbable.
   var HANDLE_MAX_INWARD_FRACTION = 0.25;
 
+  // A translated or scaled element still has an axis-aligned visual box, so
+  // its center is safe for move-drag fallback. Rotation, skew, perspective,
+  // and other non-axis-aligned transforms must keep the existing handle-first
+  // behavior because their edge handles can legitimately overlap the element's
+  // axis-aligned bounding rect.
+  function isAxisAlignedTransform(transform: string): boolean {
+    if (!transform || transform === "none") return true;
+    var matrixMatch = /^matrix\(([^)]+)\)$/.exec(transform);
+    if (matrixMatch) {
+      var matrixValues = matrixMatch[1]!.split(",").map(Number);
+      return (
+        matrixValues.length === 6 &&
+        matrixValues.every(function (value) {
+          return Number.isFinite(value);
+        }) &&
+        Math.abs(matrixValues[1]!) < 0.001 &&
+        Math.abs(matrixValues[2]!) < 0.001
+      );
+    }
+    var matrix3dMatch = /^matrix3d\(([^)]+)\)$/.exec(transform);
+    if (!matrix3dMatch) return false;
+    var matrix3dValues = matrix3dMatch[1]!.split(",").map(Number);
+    return (
+      matrix3dValues.length === 16 &&
+      matrix3dValues.every(function (value) {
+        return Number.isFinite(value);
+      }) &&
+      Math.abs(matrix3dValues[1]!) < 0.001 &&
+      Math.abs(matrix3dValues[2]!) < 0.001 &&
+      Math.abs(matrix3dValues[3]!) < 0.001 &&
+      Math.abs(matrix3dValues[4]!) < 0.001 &&
+      Math.abs(matrix3dValues[6]!) < 0.001 &&
+      Math.abs(matrix3dValues[7]!) < 0.001 &&
+      Math.abs(matrix3dValues[8]!) < 0.001 &&
+      Math.abs(matrix3dValues[9]!) < 0.001 &&
+      Math.abs(matrix3dValues[11]!) < 0.001 &&
+      Math.abs(matrix3dValues[10]! - 1) < 0.001 &&
+      Math.abs(matrix3dValues[15]! - 1) < 0.001
+    );
+  }
+
   // Mirror of clampHandleInwardReach in multi-screen/handle-hit-zones.ts.
   // Non-finite or non-positive dimensions (no overlaid element, degenerate
   // zero-size elements mid-creation) return the nominal reach unchanged —
@@ -11107,7 +11169,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var resolvedClickTarget =
       e.metaKey || e.ctrlKey
         ? selectionTargetForHit(target)
-        : containerFirstSelectionTarget(target);
+        : plainClickSelectionTarget(target);
     var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
     if (toggled !== undefined) {
       postToggledSelection(toggled);
@@ -17540,6 +17602,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     collectMessages?: any[],
     transactionId?: string,
     requestIdOverride?: string,
+    runtimeInsert?: boolean,
   ) {
     if (!el || !target || !target.anchor) return;
     // Batched grid messages keep the grid container as their runtime anchor;
@@ -17600,6 +17663,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // the change. The host must NOT tell the coding agent to relocate an
       // element the source file has never contained.
       insertedHtml: typeof insertedHtml === "string" ? insertedHtml : undefined,
+      // A runtime insert has a separate applied acknowledgement. Its
+      // optimistic visual-structure echo is informational and must not be
+      // rejected independently, or the target bridge removes a successful
+      // cross-screen/canvas insert before the host records it.
+      runtimeInsert: runtimeInsert === true ? true : undefined,
       replaced: replaced === true ? true : undefined,
       replacementSnapshotHtml: replacementSnapshotHtml,
       sourceRect: rectInfoForElement(el),
@@ -22931,9 +22999,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
           ? selectionTargetForHit(hit)
-          : (!readOnly && !e.shiftKey
-              ? clickThroughSelectionTarget(hit, ev)
-              : null) || containerFirstSelectionTarget(hit);
+          : !designCanvasBoardSurface
+            ? plainClickSelectionTarget(hit)
+            : (!readOnly && !e.shiftKey
+                ? clickThroughSelectionTarget(hit, ev)
+                : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
         // Real event (not undefined): selectionIntentFromEvent now reports
         // Cmd/Ctrl-alone as non-additive, so the intent this carries already
@@ -22963,10 +23033,131 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // smaller than a screen pixel, so the first move often leaves the iframe.
   // Capture the pointer before the existing mouse handler starts the gesture;
   // otherwise the document-level move/up listeners stop receiving the drag.
+  var selectionHandleMoveRerouted = false;
+  function rerouteStaleSelectionHandleHitToMove(e): boolean {
+    if (
+      readOnly ||
+      !selectedEl ||
+      !document.documentElement.contains(selectedEl) ||
+      !e ||
+      e.button !== 0
+    ) {
+      return false;
+    }
+    var target = e.target as Element | null;
+    var isResizeHandle = Boolean(
+      target &&
+      target.getAttribute &&
+      (target.getAttribute("data-agent-native-edit-handle") ||
+        target.getAttribute("data-agent-native-edge-handle")),
+    );
+    if (!isResizeHandle) return false;
+
+    // Runtime inserts can settle from their source-frame size to their
+    // destination layout size after the selection overlay was first painted.
+    // Recompute the current hit geometry before deciding whether this press is
+    // genuinely on a resize handle. Without this, a tiny inserted node can
+    // retain a scaled edge bar over its entire center and every canvas drag
+    // starts a resize instead of moving the node.
+    var hadSuppressedHandleTransition = selectionOverlay.hasAttribute(
+      "data-agent-native-suppress-handle-transition",
+    );
+    if (!hadSuppressedHandleTransition) {
+      selectionOverlay.setAttribute(
+        "data-agent-native-suppress-handle-transition",
+        "",
+      );
+    }
+    applySelectionHandleHitGeometry(selectedEl);
+    // Same-element scale/resize updates normally animate the singleton
+    // handles. Hit testing must see the just-written geometry, not an
+    // interpolated frame from that transition.
+    void selectionOverlay.offsetHeight;
+    var refreshedTarget = document.elementFromPoint(e.clientX, e.clientY);
+    var resizeHandlePosition = (
+      target.getAttribute("data-agent-native-edit-handle") ||
+      target.getAttribute("data-agent-native-edge-handle") ||
+      ""
+    ).toLowerCase();
+    var selectedRect = selectedEl.getBoundingClientRect();
+    var selectedTransform = window.getComputedStyle(selectedEl).transform;
+    var isAxisAligned = isAxisAlignedTransform(selectedTransform);
+    var isClearlyInsideMoveBand = false;
+    if (
+      isAxisAligned &&
+      e.clientX >= selectedRect.left &&
+      e.clientX <= selectedRect.right &&
+      e.clientY >= selectedRect.top &&
+      e.clientY <= selectedRect.bottom
+    ) {
+      // A resize handle should only win when the pointer is in the outer
+      // quarter of the selected box on the handle's axis. This guard is
+      // deliberately based on the live element rect rather than the overlay
+      // span: the span can still cover the center for one frame while a
+      // runtime clone settles from its source-frame size. A center press must
+      // remain a move even if elementFromPoint reports the stale span.
+      var moveBandX = selectedRect.width * HANDLE_MAX_INWARD_FRACTION;
+      var moveBandY = selectedRect.height * HANDLE_MAX_INWARD_FRACTION;
+      var awayFromTop = e.clientY > selectedRect.top + moveBandY;
+      var awayFromBottom = e.clientY < selectedRect.bottom - moveBandY;
+      var awayFromLeft = e.clientX > selectedRect.left + moveBandX;
+      var awayFromRight = e.clientX < selectedRect.right - moveBandX;
+      var onTop = resizeHandlePosition.indexOf("n") !== -1;
+      var onBottom = resizeHandlePosition.indexOf("s") !== -1;
+      var onLeft = resizeHandlePosition.indexOf("w") !== -1;
+      var onRight = resizeHandlePosition.indexOf("e") !== -1;
+      isClearlyInsideMoveBand =
+        (!onTop || awayFromTop) &&
+        (!onBottom || awayFromBottom) &&
+        (!onLeft || awayFromLeft) &&
+        (!onRight || awayFromRight);
+    }
+    var refreshedResizeHandle = Boolean(
+      refreshedTarget &&
+      refreshedTarget.getAttribute &&
+      (refreshedTarget.getAttribute("data-agent-native-edit-handle") ||
+        refreshedTarget.getAttribute("data-agent-native-edge-handle")),
+    );
+    if (isClearlyInsideMoveBand) {
+      selectionHandleMoveRerouted = true;
+      window.setTimeout(function () {
+        selectionHandleMoveRerouted = false;
+      }, 0);
+      beginPotentialShieldDrag(e);
+      if (!hadSuppressedHandleTransition) {
+        selectionOverlay.removeAttribute(
+          "data-agent-native-suppress-handle-transition",
+        );
+      }
+      return true;
+    }
+    if (refreshedResizeHandle) {
+      if (!hadSuppressedHandleTransition) {
+        selectionOverlay.removeAttribute(
+          "data-agent-native-suppress-handle-transition",
+        );
+      }
+      return false;
+    }
+
+    selectionHandleMoveRerouted = true;
+    window.setTimeout(function () {
+      selectionHandleMoveRerouted = false;
+    }, 0);
+    beginPotentialShieldDrag(e);
+    if (!hadSuppressedHandleTransition) {
+      selectionOverlay.removeAttribute(
+        "data-agent-native-suppress-handle-transition",
+      );
+    }
+    return true;
+  }
+
   selectionOverlay.addEventListener(
     "pointerdown",
     function (e) {
       if (readOnly || e.button !== 0) return;
+      if (rerouteStaleSelectionHandleHitToMove(e)) return;
       if (e.pointerId !== undefined && selectionOverlay.setPointerCapture) {
         selectionOverlay.setPointerCapture(e.pointerId);
       }
@@ -22978,6 +23169,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "mousedown",
     function (e) {
       if (readOnly) return;
+      if (selectionHandleMoveRerouted) {
+        selectionHandleMoveRerouted = false;
+        return;
+      }
       var spacingKey =
         e.target &&
         e.target.getAttribute &&
@@ -24353,7 +24548,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     deepSelect: boolean,
   ): Element | null {
     var rawHit = elementFromEditorPoint(clientX, clientY);
-    return deepSelect
+    return deepSelect || !designCanvasBoardSurface
       ? selectionTargetForHit(rawHit)
       : containerFirstSelectionTarget(rawHit);
   }
@@ -25768,6 +25963,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           parsedInsertEl.outerHTML,
           true,
           replacementSnapshot.html,
+          undefined,
+          typeof e.data.transactionId === "string"
+            ? e.data.transactionId
+            : undefined,
+          String(insertRequestId),
+          true,
         );
         replaceParent.removeChild(insertAnchor);
         refreshOverlays();
@@ -25802,6 +26003,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ? e.data.transactionId
           : undefined,
         String(insertRequestId),
+        true,
       );
       acknowledgeInsert(parsedInsertEl);
       return;

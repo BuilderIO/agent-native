@@ -253,15 +253,16 @@ export function resolveRuntimeStructureMoveExecutionMode(input: {
    * with no screen of their own. Only that route may be reinterpreted as an
    * insert: dropping a real screen's element into a live app is a MOVE, and
    * turning it into an insert would duplicate the element while leaving the
-   * original in its source screen.
+   * original in its source screen. A board node can still be runtime-only when
+   * it was dragged out of a live screen; the board remains the source surface
+   * for this operation and the destination must receive the DOM insert.
    */
   sourceScreenIsBoard?: boolean;
 }): RuntimeStructureMoveExecutionMode {
   if (
     input.targetScreenIsLive &&
     input.sourceScreenIsBoard &&
-    input.sourceScreenId !== input.targetScreenId &&
-    !input.subjectRuntimeOnly
+    input.sourceScreenId !== input.targetScreenId
   ) {
     return "screen-bridge-insert";
   }

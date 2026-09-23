@@ -12,6 +12,7 @@ import {
   shouldUseIdentitySsoForGoogle,
   shouldAutoFederateIdentitySso,
   shouldHideAuthSubtitle,
+  shouldStartWithLocalDev,
   type AuthPageProps,
 } from "./AuthPage.js";
 
@@ -39,6 +40,21 @@ describe("AuthPage", () => {
     expect(shouldHideAuthSubtitle("signup", true)).toBe(true);
     expect(shouldHideAuthSubtitle("signup", false)).toBe(false);
     expect(shouldHideAuthSubtitle("login", true)).toBe(false);
+  });
+
+  it("starts local development sign-in collapsed unless the URL requests auth", () => {
+    expect(shouldStartWithLocalDev("/", "")).toBe(true);
+    expect(shouldStartWithLocalDev("/", "?tab=signup")).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?tab=login")).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?verified=1")).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?error=INVALID_TOKEN")).toBe(false);
+    expect(shouldStartWithLocalDev("/login", "")).toBe(false);
+    expect(shouldStartWithLocalDev("/signup/", "")).toBe(false);
+    expect(shouldStartWithLocalDev("/sign-in", "")).toBe(false);
+    expect(
+      shouldStartWithLocalDev("/_agent-native/sign-in", "?return=%2Fplans"),
+    ).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?c=%2Fplans")).toBe(false);
   });
 
   it("only confirms anonymous sessions from a readable auth response", () => {

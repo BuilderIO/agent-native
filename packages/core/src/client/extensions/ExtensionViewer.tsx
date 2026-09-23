@@ -20,7 +20,7 @@ import { getThemeVars } from "../../extensions/theme.js";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
 import { normalizeDocumentTitle } from "../../shared/document-title.js";
 import { sendToAgentChat } from "../agent-chat.js";
-import { AgentToggleButton } from "../AgentPanel.js";
+import { AgentToggleButton } from "../AgentSidebar.js";
 import { agentNativePath, appPath } from "../api-path.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
 import {

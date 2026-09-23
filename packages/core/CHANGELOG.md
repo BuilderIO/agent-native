@@ -51,6 +51,36 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.184.0
+
+### Minor Changes
+
+- 113944d: Add a `reasoningEffort` field to job/automation frontmatter, the background automation runner, `automations/service.ts`, `list-automations`, and the `manage-jobs` tool, so a scheduled automation can request an explicit reasoning effort instead of always inheriting the model's default.
+- 71f6bbd: Add an opt-in ChatGPT subscription lab for experimental Codex engine access.
+- 113944d: Stop forcing `reasoning_effort: "none"` for GPT reasoning models (Luna/Terra/Sol) with tools on the Builder gateway. That guard was based on a Chat Completions rejection actually observed on a different engine/proxy; the Builder gateway has always routed these models through OpenAI's Responses API, which accepts reasoning effort alongside tools — confirmed via a live gateway request. The requested effort is now forwarded unconditionally.
+- 7e74d2a: Add a human review loop for inspecting agent asks and answers, recording feedback, and drafting instruction updates for review.
+
+### Patch Changes
+
+- 3f2a2fb: Allow users to enter a custom role when selecting Other during onboarding.
+- 00d6183: Keep local-development sign-in options collapsed until a user expands them.
+- f447d33: Keep externally hosted React Router and TanStack Query runtimes in prebuilt serverless SSR bundles.
+- 2055930: Keep hosted Google sign-in popups navigable across the provider redirect.
+- aaf9958: Preserve Google Analytics custom browser events when Google Tag Manager is configured.
+- 97385a2: Keep production SSR builds on one Core/React singleton graph and make serverless size checks ignore platform-selected Resvg binaries.
+- 6595223: Keep public framework route context out of application server bundles.
+- Release all public npm packages with a patch version bump.
+- e973e00: Move the auth form to the top of the page on small screens and hide the learn-more link there.
+- facaeaa: Reconnect expired Streamable HTTP MCP sessions and replay the failed request once.
+- 45c137b: Ship the external React runtime required by serverless SSR chunks.
+- 865cac6: Ship react-dom, react-router, and @tanstack/react-query alongside the external React runtime required by serverless SSR chunks, so the deployed function and the prebuilt route chunks resolve one shared instance of each instead of two.
+- 1cab0d0: Keep production SSR React Router imports external and resolve them from the consuming app so serverless route hooks share the ServerRouter context.
+- Updated dependencies
+- Updated dependencies [e973e00]
+  - @agent-native/agentkit@0.2.6
+  - @agent-native/recap-cli@0.5.36
+  - @agent-native/toolkit@0.20.6
+
 ## 0.183.0
 
 ### Minor Changes
@@ -2993,11 +3023,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
-
-## 0.164.1
-
-### Patch Changes
-
-- 5a05b04: Connect signed-in users to Builder's managed AI gateway with least-privilege OAuth, encrypted per-user token custody, refresh, and revocation while preserving legacy Builder credentials for uncovered integrations.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -32,6 +32,10 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../db/index.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../../lib/pending-redactions.js";
 import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
@@ -51,6 +55,7 @@ const SAFE_RASTER_IMAGE_TYPES = new Set([
 
 type ThumbnailRecording = {
   id: string;
+  editsJson?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   expiresAt?: string | null;
@@ -208,6 +213,7 @@ async function loadRecording(recordingId: string, event: H3Event) {
     const [row] = await getDb()
       .select({
         id: schema.recordings.id,
+        editsJson: schema.recordings.editsJson,
         thumbnailUrl: schema.recordings.thumbnailUrl,
         animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
         expiresAt: schema.recordings.expiresAt,
@@ -267,6 +273,16 @@ export default defineEventHandler(async (event: H3Event) => {
       ) {
         setResponseStatus(event, 410);
         return { error: "Recording has expired" };
+      }
+
+      // Held while redactions are drawn but not burned in. The poster and the
+      // animated thumbnail are frames of the stored file, so they show exactly
+      // what the boxes are over — and this route is public, so without this
+      // they go to every viewer and every crawler. The burn clears both
+      // columns, so this lifts on its own.
+      if (isHeldForRedaction(recording.editsJson, loaded.role)) {
+        setResponseStatus(event, 409);
+        return { error: REDACTION_HOLD_MESSAGE };
       }
 
       const query = getQuery(event) as {

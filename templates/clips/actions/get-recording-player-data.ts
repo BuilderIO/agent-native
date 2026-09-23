@@ -30,6 +30,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
+import { isHeldForRedaction } from "../server/lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
@@ -353,7 +354,13 @@ export default defineAction({
         animatedThumbnailUrl: rec.animatedThumbnailUrl
           ? resolvePlayerThumbnailUrl(rec, { animated: true })
           : null,
-        filmstripUrl: rec.filmstripUrl ?? null,
+        // The filmstrip is a sheet of unredacted frames, and unlike the
+        // video it is fetched straight from storage rather than through a
+        // route that can refuse. Held from anyone who cannot finish the burn,
+        // the same test every other media path uses.
+        filmstripUrl: isHeldForRedaction(rec.editsJson, access.role)
+          ? null
+          : (rec.filmstripUrl ?? null),
         filmstripFrameCount: rec.filmstripFrameCount ?? 0,
         filmstripColumns: rec.filmstripColumns ?? 0,
         filmstripRows: rec.filmstripRows ?? 0,
@@ -366,6 +373,10 @@ export default defineAction({
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
+        // The version of the stored bytes. A redaction burn re-uploads under
+        // the same URL, so without this the browser can keep playing the copy
+        // it already has — the one with the boxes still only drawn on.
+        mediaUpdatedAt: rec.mediaUpdatedAt ?? null,
         width: rec.width,
         height: rec.height,
         hasAudio: Boolean(rec.hasAudio),
