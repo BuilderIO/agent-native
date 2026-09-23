@@ -276,7 +276,11 @@ export default defineAction({
       ctx?.caller === "mcp" ||
       ctx?.caller === "webmcp" ||
       ctx?.caller === "a2a";
-    if (isExternalCaller || initializesBody) {
+    const suppliesRevisionProtocol =
+      args.baseRevision !== undefined || args.idempotencyKey !== undefined;
+    const usesRevisionProtocol =
+      isExternalCaller || initializesBody || suppliesRevisionProtocol;
+    if (usesRevisionProtocol) {
       if (!args.baseRevision || !args.idempotencyKey) {
         throw new ActionContractError(
           "External document edits require baseRevision and idempotencyKey from get-document.",
@@ -327,23 +331,25 @@ export default defineAction({
         ctx,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      try {
-        agentTouchDocument(id, {
-          edit: {
-            descriptor: {
-              kind: "text",
-              quote:
-                args.initializeContent?.slice(0, 80) ??
-                edits?.[0]?.replace.slice(0, 80) ??
-                "",
+      if (isAgentCaller) {
+        try {
+          agentTouchDocument(id, {
+            edit: {
+              descriptor: {
+                kind: "text",
+                quote:
+                  args.initializeContent?.slice(0, 80) ??
+                  edits?.[0]?.replace.slice(0, 80) ??
+                  "",
+              },
+              label: existing.title || undefined,
             },
-            label: existing.title || undefined,
-          },
-        });
-      } catch (error) {
-        console.error("edit-document: agent presence publish failed", error);
+          });
+        } catch (error) {
+          console.error("edit-document: agent presence publish failed", error);
+        }
       }
-      if (result.applied > 0) {
+      if (isAgentCaller && result.applied > 0) {
         track(
           "ai_refine_used",
           {

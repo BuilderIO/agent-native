@@ -2,7 +2,10 @@ import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -56,6 +59,7 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { settlePreviewDocumentDraft } from "./_preview-document-draft-settlement.js";
 import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
@@ -414,6 +418,22 @@ export default defineAction({
       .describe(
         "Browser editor session ID used to group related title and body saves",
       ),
+    editorSessionId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Stable browser-tab identity for recovery-draft ordering"),
+    editorEditGeneration: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Browser-local edit generation acknowledged by this save; paired with editorSessionId",
+      ),
+    editorSnapshotTitle: z.string().max(10_000).optional(),
+    editorSnapshotContent: z.string().max(500_000).optional(),
     preserveLeadingTitleHeading: z
       .boolean()
       .optional()
@@ -466,6 +486,24 @@ export default defineAction({
   ): Promise<DocumentUpdateResponse | DocumentUpdateConflictResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    if (
+      (args.editorSessionId === undefined) !==
+      (args.editorEditGeneration === undefined)
+    ) {
+      throw new ActionContractError(
+        "editorSessionId and editorEditGeneration must be provided together.",
+        { errorCode: "INVALID_EDITOR_EDIT_IDENTITY", statusCode: 400 },
+      );
+    }
+    if (
+      (args.editorSnapshotTitle === undefined) !==
+      (args.editorSnapshotContent === undefined)
+    ) {
+      throw new ActionContractError(
+        "editorSnapshotTitle and editorSnapshotContent must be provided together.",
+        { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
+      );
+    }
     if (args.isFavorite !== undefined && !isFavoriteOnlyUpdate(args)) {
       throw new ActionContractError(
         "Favorite changes must be submitted separately from document field changes.",
@@ -518,6 +556,7 @@ export default defineAction({
 
     const db = getDb();
     const requestUserEmail = getRequestUserEmail();
+    const requestOrgId = getRequestOrgId() ?? "";
     const actor = requireDocumentRequestActor(ctx);
     if (args.isFavorite !== undefined && !requestUserEmail) {
       throw new Error("no authenticated user");
@@ -633,10 +672,19 @@ export default defineAction({
       args.baseRevision === undefined &&
       args.baseUpdatedAt !== undefined;
 
-    if (anyChange) {
+    const settlesPreviewDraft =
+      ctx?.caller === "frontend" &&
+      !!requestUserEmail &&
+      !!args.editorSessionId &&
+      args.editorEditGeneration !== undefined &&
+      (args.title !== undefined || args.content !== undefined);
+
+    if (anyChange || settlesPreviewDraft) {
       let contentCasConflict = false;
       let committedContentChanged = false;
       let committedContentBefore = existing.content;
+      let committedEditorSnapshot: { title: string; content: string } | null =
+        null;
       const mutate = async (tx: any) => {
         await tx
           .select({ id: schema.documents.id })
@@ -795,6 +843,7 @@ export default defineAction({
             .from(schema.documents)
             .where(eq(schema.documents.id, id))
             .limit(1);
+          committedEditorSnapshot = after;
           await recordDocumentHistoryTransition({
             db: tx as unknown as ReturnType<typeof getDb>,
             ownerEmail,
@@ -809,8 +858,39 @@ export default defineAction({
             now: updatedAt,
           });
         }
+        if (settlesPreviewDraft && committedEditorSnapshot === null) {
+          const [snapshot] = await tx
+            .select({
+              title: schema.documents.title,
+              content: schema.documents.content,
+            })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id))
+            .limit(1);
+          committedEditorSnapshot = snapshot ?? null;
+        }
+        if (
+          settlesPreviewDraft &&
+          args.editorSnapshotTitle !== undefined &&
+          args.editorSnapshotContent !== undefined &&
+          committedEditorSnapshot?.title === args.editorSnapshotTitle &&
+          committedEditorSnapshot.content === args.editorSnapshotContent
+        ) {
+          await settlePreviewDocumentDraft({
+            db: tx,
+            ownerEmail: requestUserEmail as string,
+            orgId: requestOrgId,
+            documentId: id,
+            editorSessionId: args.editorSessionId as string,
+            editGeneration: args.editorEditGeneration as number,
+            now: updatedAt,
+          });
+        }
       };
-      if (favoriteChanged || args.isFavorite === false) {
+      if (
+        (favoriteChanged || args.isFavorite === false) &&
+        !settlesPreviewDraft
+      ) {
         await setFavoriteAndOrder({
           db,
           userEmail: requestUserEmail as string,
