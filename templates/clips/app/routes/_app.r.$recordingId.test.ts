@@ -39,6 +39,14 @@ describe("direct recording route shell cue", () => {
     expect(shareRoute).toContain("currentMs={playbackMs}");
   });
 
+  it("keeps timestamped comments outside the clipped video frame", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      'className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"',
+    );
+  });
+
   it("surfaces recording cleanup before advanced workflow submenus", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     const menuStart = route.indexOf('t("recordingPage.askAboutClip")');

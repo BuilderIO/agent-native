@@ -2545,7 +2545,7 @@ export default function RecordingPage() {
                   {/* Let the viewer grow on wide displays without pushing the
                     discussion below the first scrollable viewport. The comments
                     list owns the desktop scroll so the player stays in context. */}
-                  <div className="relative aspect-video w-full overflow-hidden bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
+                  <div className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
                     <VideoPlayer
                       ref={playerRef}
                       onVideoElementChange={setTrackedVideoEl}
