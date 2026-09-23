@@ -671,6 +671,10 @@ export default function EditorSidebar({
   const t = useT();
   const [describeAnchorEl, setDescribeAnchorEl] =
     useState<HTMLButtonElement | null>(null);
+  const closeDescribePopover = useCallback(() => {
+    onCloseDescribe();
+    setDescribeAnchorEl(null);
+  }, [onCloseDescribe]);
   const [thumbnailListScrolled, setThumbnailListScrolled] = useState(false);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const focusAfterDeleteRef = useRef<string | null>(null);
@@ -1027,6 +1031,7 @@ export default function EditorSidebar({
               surface="add-slide"
               anchorRef={{ current: describeAnchorEl }}
               failed
+              onClose={closeDescribePopover}
             />
           }
         >
@@ -1035,16 +1040,14 @@ export default function EditorSidebar({
               <DeferredPopoverFallback
                 surface="add-slide"
                 anchorRef={{ current: describeAnchorEl }}
+                onClose={closeDescribePopover}
               />
             }
           >
             <DeferredAddSlidePopover
               open
               onOpenChange={(open) => {
-                if (!open) {
-                  onCloseDescribe();
-                  setDescribeAnchorEl(null);
-                }
+                if (!open) closeDescribePopover();
               }}
               anchorRef={{ current: describeAnchorEl }}
               placement="right"

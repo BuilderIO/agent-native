@@ -1,6 +1,6 @@
 import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import type { CSSProperties, RefObject } from "react";
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,6 +23,35 @@ export function DeferredPopoverFallback({
     left: "50%",
     transform: "translate(-50%, -50%)",
   });
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!onClose) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        !(target instanceof Node) ||
+        contentRef.current?.contains(target) ||
+        anchorRef?.current?.contains(target)
+      ) {
+        return;
+      }
+      onClose();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [anchorRef, onClose]);
 
   useLayoutEffect(() => {
     const anchor = anchorRef?.current;
@@ -67,11 +96,15 @@ export function DeferredPopoverFallback({
   return createPortal(
     <>
       {centered && prompt ? (
-        <div className="fixed inset-0 z-[199] bg-black/40" onClick={onClose} />
+        <div
+          // guard:allow-raw-color — modal scrim remains black in either theme.
+          className="fixed inset-0 z-[199] bg-black/40"
+        />
       ) : null}
       <div
+        ref={contentRef}
         role={failed ? "alert" : "dialog"}
-        aria-modal={prompt ? true : undefined}
+        aria-modal={prompt && centered ? true : undefined}
         aria-busy={failed ? undefined : true}
         className={
           prompt

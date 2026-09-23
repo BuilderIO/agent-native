@@ -517,18 +517,12 @@ export default function Index() {
   }, [createdByParam]);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
-  const onboardingPreview = searchParams.get("onboarding") === "preview";
-  const firstRunOnboardingEnabled =
-    onboardingPreview || isFirstRunOnboardingEnabled();
-  const openInitialPrompt = useCallback(() => {
-    if (!initialPrompt || initialPromptConsumedRef.current) return;
-    initialPromptConsumedRef.current = true;
-    preloadPromptPopover();
-    anchorElRef.current = null;
-    setNewDeckInitialPrompt({ text: initialPrompt, key: Date.now() });
-    setShowNewDeckPrompt(true);
+  const clearInitialPromptFromUrl = useCallback(() => {
     setSearchParams(
       (previous) => {
+        if (previous.get("initialPrompt")?.trim() !== initialPrompt) {
+          return previous;
+        }
         const next = new URLSearchParams(previous);
         next.delete("initialPrompt");
         return next;
@@ -536,6 +530,19 @@ export default function Index() {
       { replace: true },
     );
   }, [initialPrompt, setSearchParams]);
+  const onboardingPreview = searchParams.get("onboarding") === "preview";
+  const firstRunOnboardingEnabled =
+    onboardingPreview || isFirstRunOnboardingEnabled();
+  const openInitialPrompt = useCallback(() => {
+    if (!initialPrompt || initialPromptConsumedRef.current) return;
+    initialPromptConsumedRef.current = true;
+    anchorElRef.current = null;
+    setNewDeckInitialPrompt({ text: initialPrompt, key: Date.now() });
+    setShowNewDeckPrompt(true);
+    void loadPromptPopover()
+      .then(clearInitialPromptFromUrl)
+      .catch(() => {});
+  }, [clearInitialPromptFromUrl, initialPrompt]);
 
   useEffect(() => {
     if (!initialPrompt || initialPromptConsumedRef.current) return;
@@ -628,6 +635,11 @@ export default function Index() {
     },
     [],
   );
+
+  const closeNewDeckPromptFallback = useCallback(() => {
+    setNewDeckPromptOpen(false);
+    clearInitialPromptFromUrl();
+  }, [clearInitialPromptFromUrl, setNewDeckPromptOpen]);
 
   const preservePromptForSignIn = useCallback(
     (
@@ -2020,21 +2032,25 @@ export default function Index() {
       {(showNewDeckPrompt || hasOpenedNewDeckPrompt) && (
         <LazyChunkErrorBoundary
           fallback={
-            <DeferredPopoverFallback
-              surface="prompt"
-              anchorRef={anchorRef}
-              failed
-              onClose={() => setNewDeckPromptOpen(false)}
-            />
+            showNewDeckPrompt ? (
+              <DeferredPopoverFallback
+                surface="prompt"
+                anchorRef={anchorRef}
+                failed
+                onClose={closeNewDeckPromptFallback}
+              />
+            ) : null
           }
         >
           <Suspense
             fallback={
-              <DeferredPopoverFallback
-                surface="prompt"
-                anchorRef={anchorRef}
-                onClose={() => setNewDeckPromptOpen(false)}
-              />
+              showNewDeckPrompt ? (
+                <DeferredPopoverFallback
+                  surface="prompt"
+                  anchorRef={anchorRef}
+                  onClose={closeNewDeckPromptFallback}
+                />
+              ) : null
             }
           >
             <LazyPromptPopover

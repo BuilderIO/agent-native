@@ -33,6 +33,8 @@ describe("new deck generation flow", () => {
     );
     expect(source).toContain("onPointerEnter={preloadPromptPopover}");
     expect(source).toContain("onFocus={preloadPromptPopover}");
+    expect(source).toContain(".then(clearInitialPromptFromUrl)");
+    expect(source).toContain("onClose={closeNewDeckPromptFallback}");
     expect(source).toContain("<LazyChunkErrorBoundary");
   });
 
