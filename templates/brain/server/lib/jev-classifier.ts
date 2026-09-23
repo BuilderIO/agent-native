@@ -38,6 +38,20 @@ export type JevCategoryScores = Partial<
   Record<BrainSensitivityScoreKey, number>
 >;
 
+export type JevFailureReason =
+  | `jev-http-${number}`
+  | "jev-timeout"
+  | "jev-invalid-response"
+  | "jev-credential-unavailable"
+  | "jev-unavailable";
+
+class JevDiagnosticError extends Error {
+  constructor(readonly code: JevFailureReason) {
+    super(code);
+    this.name = "JevDiagnosticError";
+  }
+}
+
 export { WORKSPACE_RULE_QUESTION };
 
 export type JevClassifierPreference = "jev" | "model" | "deterministic";
@@ -59,8 +73,8 @@ export interface JevClassificationOutcome {
    */
   configured: boolean;
   decision?: BrainSensitivityDecision;
-  /** Set when Jev was attempted but could not produce a usable verdict. */
-  failureReason?: string;
+  /** Allow-listed diagnostic code when Jev could not produce a usable verdict. */
+  failureReason?: JevFailureReason;
   /** Which credential path answered, for settings and support surfaces. */
   authSource?: JevAuthSource;
 }
@@ -381,15 +395,31 @@ export async function requestJevSensitivityScores(
     signal: AbortSignal.timeout(JEV_TIMEOUT_MS),
   });
   if (!response.ok) {
-    throw new Error(`Jev returned HTTP ${response.status}.`);
+    const code: JevFailureReason =
+      Number.isInteger(response.status) &&
+      response.status >= 100 &&
+      response.status <= 999
+        ? `jev-http-${response.status}`
+        : "jev-unavailable";
+    throw new JevDiagnosticError(code);
   }
 
-  const payload = (await response.json()) as {
-    answers?: Record<string, { noul?: number } | undefined>;
-  };
-  const answers = payload.answers;
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new JevDiagnosticError("jev-invalid-response");
+  }
+  if (!payload || typeof payload !== "object") {
+    throw new JevDiagnosticError("jev-invalid-response");
+  }
+  const answers = (
+    payload as {
+      answers?: Record<string, { noul?: number } | undefined>;
+    }
+  ).answers;
   if (!answers || typeof answers !== "object") {
-    throw new Error("Jev returned no answers.");
+    throw new JevDiagnosticError("jev-invalid-response");
   }
 
   const scores: JevCategoryScores = {};
@@ -415,13 +445,13 @@ function readProbability(
   key: string,
 ): number {
   const probability = answers[key]?.noul;
-  if (typeof probability !== "number" || !Number.isFinite(probability)) {
-    throw new Error(`Jev omitted a probability for "${key}".`);
-  }
-  if (probability < 0 || probability > 1) {
-    throw new Error(
-      `Jev returned an out-of-range probability for "${key}": ${probability}.`,
-    );
+  if (
+    typeof probability !== "number" ||
+    !Number.isFinite(probability) ||
+    probability < 0 ||
+    probability > 1
+  ) {
+    throw new JevDiagnosticError("jev-invalid-response");
   }
   return Math.round(probability * 1000) / 1000;
 }
@@ -519,7 +549,10 @@ export async function runJevClassification(
   try {
     auth = await resolveJevAuth(input);
   } catch (error) {
-    return { configured: false, failureReason: jevFailureReason(error) };
+    return {
+      configured: false,
+      failureReason: jevFailureReason(error, "credential"),
+    };
   }
   if (!auth) return { configured: false };
 
@@ -555,7 +588,7 @@ export async function runJevClassification(
       return {
         configured: true,
         authSource: auth.source,
-        failureReason: jevFailureReason(error),
+        failureReason: jevFailureReason(error, "request"),
       };
     }
   }
@@ -571,7 +604,17 @@ export async function runJevClassification(
   };
 }
 
-function jevFailureReason(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return `jev-unavailable: ${message.slice(0, 200)}`;
+function jevFailureReason(
+  error: unknown,
+  context: "credential" | "request",
+): JevFailureReason {
+  if (context === "credential") return "jev-credential-unavailable";
+  if (error instanceof JevDiagnosticError) return error.code;
+  if (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  ) {
+    return "jev-timeout";
+  }
+  return "jev-unavailable";
 }

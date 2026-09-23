@@ -798,6 +798,7 @@ export async function createCapture(values: {
         safeContent: "",
         classifier: "deterministic",
       },
+      classifierFailureReason: sanitized.classifierFailureReason,
       retentionHours: settings.quarantineRetentionHours ?? 72,
     });
     throw new BrainCaptureBlockedError(receipt);
@@ -1248,6 +1249,7 @@ export async function recordBlockedCapture(input: {
   source: typeof schema.brainSources.$inferSelect;
   values: Parameters<typeof createCapture>[0];
   decision: BrainSensitivityDecision;
+  classifierFailureReason?: string;
   retentionHours: number;
 }): Promise<BrainSensitivityReceipt> {
   const db = getDb();
@@ -1310,6 +1312,7 @@ export async function recordBlockedCapture(input: {
       decisionScoresJson: input.decision.categoryScores
         ? stableJson(input.decision.categoryScores)
         : null,
+      classifierFailureReason: input.classifierFailureReason ?? null,
       confidenceBand: input.decision.confidenceBand,
       policyVersion: input.decision.policyVersion,
       upstreamProvider: input.source.provider,
@@ -1330,6 +1333,7 @@ export async function recordBlockedCapture(input: {
         decisionScoresJson: input.decision.categoryScores
           ? stableJson(input.decision.categoryScores)
           : null,
+        classifierFailureReason: input.classifierFailureReason ?? null,
         confidenceBand: input.decision.confidenceBand,
         quarantineBlobHandle,
         expiresAt,

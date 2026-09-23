@@ -87,6 +87,7 @@ export interface CaptureSanitizationResult {
   title: string;
   content: string;
   metadata: Record<string, unknown>;
+  classifierFailureReason?: string;
   decision?: BrainSensitivityDecision;
 }
 
@@ -651,6 +652,7 @@ export async function sanitizeCaptureForStorage(
         sanitizedAt: new Date().toISOString(),
       },
     },
+    classifierFailureReason: jev.failureReason,
     decision,
   };
 }

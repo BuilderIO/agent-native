@@ -233,6 +233,7 @@ export default defineAction({
             status: row.capture.status,
           },
           decision: sanitized.decision,
+          classifierFailureReason: sanitized.classifierFailureReason,
           retentionHours: settings.quarantineRetentionHours ?? 72,
         });
         results.push({

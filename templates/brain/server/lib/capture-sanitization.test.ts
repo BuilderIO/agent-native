@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_BRAIN_SETTINGS } from "../../shared/types.js";
 import {
@@ -12,6 +12,22 @@ import {
   screenSensitivityDeterministically,
 } from "./sensitivity-policy.js";
 
+const mocks = vi.hoisted(() => ({
+  classifyWithJev: vi.fn(),
+  resolveOwnerEngineApiKey: vi.fn(),
+  resolveEngine: vi.fn(),
+}));
+
+vi.mock("./jev-classifier.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./jev-classifier.js")>();
+  return { ...actual, classifyWithJev: mocks.classifyWithJev };
+});
+
+vi.mock("@agent-native/core/server", () => ({
+  resolveOwnerEngineApiKey: mocks.resolveOwnerEngineApiKey,
+  resolveEngine: mocks.resolveEngine,
+}));
+
 const baseInput = {
   kind: "transcript" as const,
   title: "Planning transcript",
@@ -24,6 +40,19 @@ const baseInput = {
   },
   settings: DEFAULT_BRAIN_SETTINGS,
 };
+
+beforeEach(() => {
+  mocks.classifyWithJev.mockReset().mockResolvedValue({ configured: false });
+  mocks.resolveOwnerEngineApiKey.mockReset().mockResolvedValue({
+    apiKey: "not-a-real-key",
+    apiKeyEnvVar: undefined,
+  });
+  mocks.resolveEngine.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("capture sanitization", () => {
   it("suppresses credentials rather than retaining a redacted secret-bearing line", async () => {
@@ -219,6 +248,57 @@ describe("capture sanitization", () => {
       (result.metadata.captureSanitization as Record<string, unknown>) ?? {},
     ).toMatchObject({
       fallbackReason: "classifier-not-approved-or-malformed",
+    });
+  });
+
+  it("preserves a Jev failure when the approved-model fallback succeeds", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "");
+    mocks.classifyWithJev.mockResolvedValueOnce({
+      configured: true,
+      authSource: "builder-gateway",
+      failureReason: "jev-http-503",
+    });
+    mocks.resolveEngine.mockResolvedValueOnce({
+      stream: vi.fn(async function* () {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                disposition: "allowed",
+                categories: [],
+                safeContent: "Decision: ship the search index next Tuesday.",
+                safeSegments: [],
+              }),
+            },
+          ],
+        };
+      }),
+    });
+
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      settings: {
+        ...DEFAULT_BRAIN_SETTINGS,
+        privacyClassifierModel: "classifier-model",
+        privacyClassifierEngine: "classifier-engine",
+      },
+      content: "Decision: ship the search index next Tuesday.",
+    });
+
+    expect(result.decision).toMatchObject({
+      classifier: "approved-model",
+      disposition: "allowed",
+    });
+    expect(result.classifierFailureReason).toBe("jev-http-503");
+    expect(
+      result.metadata.captureSanitization as Record<string, unknown>,
+    ).toMatchObject({
+      method: "approved-model",
+      jevAuthSource: "builder-gateway",
+      fallbackReason: "jev-http-503",
     });
   });
 
