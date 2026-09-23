@@ -58,6 +58,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var designCanvasContentOffsetY =
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
 
+  function clipboardScreenContext() {
+    return !designCanvasBoardSurface && designCanvasScreenId
+      ? { screenId: designCanvasScreenId }
+      : {};
+  }
+
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
   // re-injecting this script into a document where a previous instance's
   // listeners, overlays, and observers are still alive (e.g. a head-only
@@ -23561,7 +23567,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (content) {
         stopNativeInteraction(e);
         (window.parent as Window).postMessage(
-          { type: "figma-clipboard-paste", content: content },
+          {
+            type: "figma-clipboard-paste",
+            content: content,
+            ...clipboardScreenContext(),
+          },
           "*",
         );
         return;
@@ -23576,7 +23586,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (svgSource) {
         stopNativeInteraction(e);
         (window.parent as Window).postMessage(
-          { type: "figma-clipboard-paste", content: "", svg: svgSource },
+          {
+            type: "figma-clipboard-paste",
+            content: "",
+            svg: svgSource,
+            ...clipboardScreenContext(),
+          },
           "*",
         );
         return;
@@ -23634,7 +23649,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             });
             if (valid.length > 0) {
               (window.parent as Window).postMessage(
-                { type: "canvas-image-paste", files: valid },
+                {
+                  type: "canvas-image-paste",
+                  files: valid,
+                  ...clipboardScreenContext(),
+                },
                 "*",
               );
             }
@@ -23662,11 +23681,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                     type: "figma-clipboard-paste",
                     content: "",
                     svg: result.source,
+                    ...clipboardScreenContext(),
                   }
                 : {
                     type: "figma-clipboard-paste",
                     content: "",
                     svgFileError: result.error,
+                    ...clipboardScreenContext(),
                   },
               "*",
             );
@@ -23698,6 +23719,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             content: "",
             html: pastedHtml,
             text: pastedText,
+            ...clipboardScreenContext(),
           },
           "*",
         );

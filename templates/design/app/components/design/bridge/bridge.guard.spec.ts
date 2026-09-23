@@ -14629,8 +14629,12 @@ it(
       const paste = messages.find(
         (message) => message.type === "canvas-image-paste",
       ) as
-        | { files?: Array<{ type?: string; dataUrl?: string; name?: string }> }
+        | {
+            files?: Array<{ type?: string; dataUrl?: string; name?: string }>;
+            screenId?: string;
+          }
         | undefined;
+      expect(paste).not.toHaveProperty("screenId");
       expect(paste?.files).toEqual([
         expect.objectContaining({
           type: "video/mp4",
@@ -14690,9 +14694,10 @@ it(
 
       const paste = (await readBridgeMessages(page)).find(
         (message) => message.type === "figma-clipboard-paste",
-      ) as { content?: string; svg?: string } | undefined;
+      ) as { content?: string; screenId?: string; svg?: string } | undefined;
       expect(paste).toMatchObject({
         content: "",
+        screenId: "screen-target",
         svg: '<svg width="17" height="9"><path d="M0 0h17"/></svg>',
       });
     } finally {
@@ -14766,13 +14771,23 @@ it(
       expect(
         messages
           .filter((message) => message.type === "figma-clipboard-paste")
-          .map((message) => (message as { svg?: string }).svg),
+          .map((message) => {
+            const paste = message as { screenId?: string; svg?: string };
+            return { screenId: paste.screenId, svg: paste.svg };
+          }),
       ).toEqual([
-        '<svg><path d="M0 0h1"/></svg>',
-        '<svg><circle r="2"/></svg>',
+        {
+          screenId: "screen-target",
+          svg: '<svg><path d="M0 0h1"/></svg>',
+        },
+        {
+          screenId: "screen-target",
+          svg: '<svg><circle r="2"/></svg>',
+        },
       ]);
-      expect(messages.at(-1)).toMatchObject({
+      expect(messages[messages.length - 1]).toMatchObject({
         type: "canvas-image-paste",
+        screenId: "screen-target",
         files: [
           expect.objectContaining({ type: "image/png", name: "photo.png" }),
           expect.objectContaining({ type: "video/mp4", name: "clip.mp4" }),

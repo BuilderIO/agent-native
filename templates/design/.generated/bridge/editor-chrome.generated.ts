@@ -912,6 +912,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
     var designCanvasContentOffsetX = Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
     var designCanvasContentOffsetY = Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+    function clipboardScreenContext() {
+      return !designCanvasBoardSurface && designCanvasScreenId ? { screenId: designCanvasScreenId } : {};
+    }
     var previousEditorChromeBridge = window.__anEditorChromeBridge;
     var previousEditorChromeHost = window.__anEditorChromeBridgeHost || (previousEditorChromeBridge && typeof previousEditorChromeBridge === "object" ? previousEditorChromeBridge.host : null);
     var previousEditorChromeBridgeInstance = window.__anEditorChromeBridgeInstance;
@@ -16680,7 +16683,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (content) {
           stopNativeInteraction(e);
           window.parent.postMessage(
-            { type: "figma-clipboard-paste", content },
+            {
+              type: "figma-clipboard-paste",
+              content,
+              ...clipboardScreenContext()
+            },
             "*"
           );
           return;
@@ -16691,7 +16698,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (svgSource) {
           stopNativeInteraction(e);
           window.parent.postMessage(
-            { type: "figma-clipboard-paste", content: "", svg: svgSource },
+            {
+              type: "figma-clipboard-paste",
+              content: "",
+              svg: svgSource,
+              ...clipboardScreenContext()
+            },
             "*"
           );
           return;
@@ -16735,7 +16747,11 @@ export const editorChromeBridgeScript: string = `"use strict";
               });
               if (valid.length > 0) {
                 window.parent.postMessage(
-                  { type: "canvas-image-paste", files: valid },
+                  {
+                    type: "canvas-image-paste",
+                    files: valid,
+                    ...clipboardScreenContext()
+                  },
                   "*"
                 );
               }
@@ -16758,11 +16774,13 @@ export const editorChromeBridgeScript: string = `"use strict";
                 result.source ? {
                   type: "figma-clipboard-paste",
                   content: "",
-                  svg: result.source
+                  svg: result.source,
+                  ...clipboardScreenContext()
                 } : {
                   type: "figma-clipboard-paste",
                   content: "",
-                  svgFileError: result.error
+                  svgFileError: result.error,
+                  ...clipboardScreenContext()
                 },
                 "*"
               );
@@ -16779,7 +16797,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               type: "figma-clipboard-paste",
               content: "",
               html: pastedHtml,
-              text: pastedText
+              text: pastedText,
+              ...clipboardScreenContext()
             },
             "*"
           );
