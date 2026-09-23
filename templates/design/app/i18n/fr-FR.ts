@@ -569,11 +569,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message:
-        "Maintenez {{modifier}} enfoncé et cliquez pour sélectionner un calque interne.",
-      dismiss: "Fermer l’astuce de sélection des calques",
-    },
     autoLayoutSuggestion: {
       menuLabel: "Suggérer une mise en page auto…",
       title: "Suggérer une mise en page auto",

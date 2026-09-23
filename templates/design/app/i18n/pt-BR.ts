@@ -565,11 +565,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message:
-        "Segure {{modifier}} e clique para selecionar uma camada interna.",
-      dismiss: "Fechar dica de seleção de camadas",
-    },
     autoLayoutSuggestion: {
       menuLabel: "Sugerir layout automático…",
       title: "Sugerir layout automático",
